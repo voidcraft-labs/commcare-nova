@@ -39,6 +39,7 @@ import {
 	viewerTimeZone,
 } from "@/lib/preview/engine/caseDataBindingClient";
 import type { SubmissionResult } from "@/lib/preview/engine/caseDataBindingTypes";
+import type { InvalidFieldTarget } from "@/lib/preview/engine/formEngine";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import { useCaseDataReplacementRevision } from "@/lib/preview/hooks/caseDataInvalidation";
 import { useCaseData, useCases } from "@/lib/preview/hooks/useCaseDataBinding";
@@ -62,6 +63,7 @@ import {
 } from "../form/FormLayoutContext";
 import { FormRenderer } from "../form/FormRenderer";
 import {
+	AttachmentNotReadyError,
 	reconcileAttachmentRepeatCompaction,
 	retireAttachmentEntry,
 	runFormAttachmentBarrier,
@@ -580,34 +582,56 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		[navigate, onBack],
 	);
 
+	const revealAndFocusTarget = useCallback(
+		(
+			target: InvalidFieldTarget,
+			controlSelector: string,
+			requireInvalid: boolean,
+		): void => {
+			formLayoutRef.current?.expandContainers(target.ancestorUuids);
+			if (invalidFocusRafRef.current !== undefined) {
+				cancelAnimationFrame(invalidFocusRafRef.current);
+			}
+			// Expansion is a React state commit. Two frames let nested collapsed
+			// ancestors mount before resolving the concrete repeated question.
+			invalidFocusRafRef.current = requestAnimationFrame(() => {
+				invalidFocusRafRef.current = requestAnimationFrame(() => {
+					invalidFocusRafRef.current = undefined;
+					const body = formBodyElRef.current;
+					if (body === null) return;
+					const field = [
+						...body.querySelectorAll<HTMLElement>("[data-instance-path]"),
+					].find(
+						(element) =>
+							element.dataset.instancePath === target.instancePath &&
+							element.dataset.fieldUuid === target.fieldUuid &&
+							(!requireInvalid || element.dataset.invalid === "true"),
+					);
+					if (field === undefined) return;
+					const reducedMotion =
+						typeof window.matchMedia === "function" &&
+						window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+					field.scrollIntoView?.({
+						behavior: reducedMotion ? "auto" : "smooth",
+						block: "center",
+					});
+					const control = field.querySelector<HTMLElement>(controlSelector);
+					(control ?? field).focus();
+				});
+			});
+		},
+		[],
+	);
+
 	const revealAndFocusFirstInvalid = useCallback((): void => {
 		const target = controller.firstInvalidFieldTarget();
 		if (target === undefined) return;
-		formLayoutRef.current?.expandContainers(target.ancestorUuids);
-		if (invalidFocusRafRef.current !== undefined) {
-			cancelAnimationFrame(invalidFocusRafRef.current);
-		}
-		// Expansion is a React state commit. Two frames let nested collapsed
-		// ancestors mount before resolving the concrete repeated question.
-		invalidFocusRafRef.current = requestAnimationFrame(() => {
-			invalidFocusRafRef.current = requestAnimationFrame(() => {
-				invalidFocusRafRef.current = undefined;
-				const body = formBodyElRef.current;
-				if (body === null) return;
-				const invalid = [
-					...body.querySelectorAll<HTMLElement>('[data-invalid="true"]'),
-				].find(
-					(element) => element.dataset.instancePath === target.instancePath,
-				);
-				if (invalid === undefined) return;
-				invalid.scrollIntoView?.({ behavior: "smooth", block: "center" });
-				const control = invalid.querySelector<HTMLElement>(
-					'[aria-invalid="true"], input:not([type="hidden"]), select, textarea, button, [role="textbox"], [tabindex]:not([tabindex="-1"])',
-				);
-				(control ?? invalid).focus();
-			});
-		});
-	}, [controller]);
+		revealAndFocusTarget(
+			target,
+			'[aria-invalid="true"], input:not([type="hidden"]), select, textarea, button, [role="textbox"], [tabindex]:not([tabindex="-1"])',
+			true,
+		);
+	}, [controller, revealAndFocusTarget]);
 
 	const handleSubmit = async (): Promise<void> => {
 		if (clearInFlightRef.current) return;
@@ -751,9 +775,24 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				kind: "error",
 				message: describeSubmitError(result),
 			});
-		} catch {
+		} catch (error) {
 			if (!isCurrent()) {
 				settleAttempt({ kind: "idle" });
+				return;
+			}
+			if (error instanceof AttachmentNotReadyError) {
+				settleAttempt({ kind: "idle" });
+				setValidationAnnouncement({
+					attempt,
+					message: `Attachment needs attention. ${error.message}`,
+				});
+				const target = controller.fieldTarget(
+					error.instancePath,
+					error.fieldUuid,
+				);
+				if (target !== undefined) {
+					revealAndFocusTarget(target, "[data-attachment-recovery]", false);
+				}
 				return;
 			}
 			/* Wire-level failures (RSC serialization, transport rejects)

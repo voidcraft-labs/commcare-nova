@@ -20,6 +20,8 @@ import {
 	rememberOwnedStagedAttachment,
 	rememberSignatureDraft,
 	runAttachmentTask,
+	runFormAttachmentBarrier,
+	setAttachmentSlotIssue,
 } from "../attachmentClient";
 
 const {
@@ -126,6 +128,74 @@ describe("AttachmentField", () => {
 
 		expect(screen.getByLabelText(/Photo.*Attach file/i)).toBeDefined();
 		expect(screen.getByLabelText(/Signed consent.*Attach file/i)).toBeDefined();
+	});
+
+	it("names failed recovery actions by their question and keeps one signature removal action", async () => {
+		const entryKey = "entry-distinct-recovery-actions";
+		render(
+			<>
+				<AttachmentField
+					field={FIELD}
+					state={{ ...EMPTY_STATE, value: "photo-old.png" }}
+					path="/data/photo"
+					appId="app-1"
+					entryKey={entryKey}
+					onChange={vi.fn()}
+					onBlur={vi.fn()}
+				/>
+				<AttachmentField
+					field={SIGNATURE_FIELD}
+					state={{
+						...EMPTY_STATE,
+						path: "/data/consent",
+						value: "signature-old.png",
+					}}
+					path="/data/consent"
+					appId="app-1"
+					entryKey={entryKey}
+					onChange={vi.fn()}
+					onBlur={vi.fn()}
+				/>
+			</>,
+		);
+
+		act(() => {
+			setAttachmentSlotIssue({
+				appId: "app-1",
+				entryKey,
+				slotKey: "/data/photo",
+				issue: {
+					kind: "retarget",
+					message:
+						"This attachment could not move with its repeat entry. Retry now, attach a replacement, or remove it.",
+				},
+			});
+			setAttachmentSlotIssue({
+				appId: "app-1",
+				entryKey,
+				slotKey: "/data/consent",
+				issue: {
+					kind: "retarget",
+					message:
+						"This signature could not move with its repeat entry. Retry now, draw it again, or remove it.",
+				},
+			});
+		});
+
+		expect(
+			await screen.findByRole("button", { name: /Retry.*Photo/i }),
+		).toBeDefined();
+		expect(
+			screen.getByRole("button", { name: /Retry.*Signed consent/i }),
+		).toBeDefined();
+		expect(
+			screen.getByRole("button", { name: /Remove attachment.*Photo/i }),
+		).toBeDefined();
+		expect(
+			screen.getAllByRole("button", {
+				name: /(?:Remove|Clear) signature.*Signed consent/i,
+			}),
+		).toHaveLength(1);
 	});
 
 	it("carries required, invalid, section, help, and status semantics across capture kinds", () => {
@@ -281,6 +351,72 @@ describe("AttachmentField", () => {
 		expect(onChange).toHaveBeenCalledTimes(1);
 	});
 
+	it.each([
+		{
+			name: "file Remove",
+			field: FIELD,
+			path: "/data/photo",
+			value: "existing.png",
+			action: /Remove attachment for Photo/i,
+		},
+		{
+			name: "signature Clear",
+			field: SIGNATURE_FIELD,
+			path: "/data/consent",
+			value: "existing-signature.png",
+			action: /Clear signature.*Signed consent/i,
+		},
+	])(
+		"keeps an active $name ahead of Submit under its real slot target",
+		async ({ field, path, value, action }) => {
+			const entryKey = `entry-clear-submit-${field.kind}`;
+			const blockerStarted = deferred<void>();
+			const releaseBlocker = deferred<void>();
+			const order: string[] = [];
+			const blocker = runAttachmentTask({
+				entryKey,
+				instancePath: "/data/other",
+				task: async () => {
+					blockerStarted.resolve();
+					await releaseBlocker.promise;
+					order.push("blocker");
+				},
+			});
+			await blockerStarted.promise;
+			const onChange = vi.fn(() => order.push("answer-cleared"));
+			render(
+				<AttachmentField
+					field={field}
+					state={{ ...EMPTY_STATE, path, value }}
+					path={path}
+					appId="app-1"
+					entryKey={entryKey}
+					onChange={onChange}
+					onBlur={vi.fn()}
+				/>,
+			);
+
+			fireEvent.click(screen.getByRole("button", { name: action }));
+			const barrier = runFormAttachmentBarrier(
+				entryKey,
+				async () => {
+					order.push("submitted");
+				},
+				{
+					classifySlot: ({ instancePath }) =>
+						instancePath.startsWith("/data/") ? "active" : "removed",
+				},
+			);
+			await act(async () => {
+				releaseBlocker.resolve();
+				await Promise.all([blocker, barrier]);
+			});
+
+			expect(order).toEqual(["blocker", "answer-cleared", "submitted"]);
+			expect(onChange).toHaveBeenCalledWith("");
+		},
+	);
+
 	it("publishes queued upload intent before waiting behind another field", async () => {
 		const entryKey = "entry-queued-upload-intent";
 		const blockerStarted = deferred<void>();
@@ -331,6 +467,76 @@ describe("AttachmentField", () => {
 		});
 		await waitFor(() => expect(stageAttachmentMock).toHaveBeenCalledTimes(1));
 		await waitFor(() => expect(input.disabled).toBe(false));
+	});
+
+	it("cancels a replacement generation without losing the prior confirmed answer", async () => {
+		const entryKey = "entry-cancel-replacement";
+		const slotKey = "/data/photo";
+		rememberOwnedStagedAttachment({
+			appId: "app-1",
+			entryKey,
+			slotKey,
+			instancePath: "/data/photo",
+			attachment: {
+				attachmentId: "attachment-old",
+				attachmentName: "attachment-old.png",
+				originalFilename: "old.png",
+				sizeBytes: 3,
+			},
+		});
+		const replacement = deferred<{
+			attachmentId: string;
+			attachmentName: string;
+			originalFilename: string;
+			sizeBytes: number;
+		}>();
+		stageAttachmentMock.mockReturnValue(replacement.promise);
+		const onChange = vi.fn();
+		render(
+			<AttachmentField
+				field={FIELD}
+				state={{ ...EMPTY_STATE, value: "attachment-old.png" }}
+				path="/data/photo"
+				appId="app-1"
+				entryKey={entryKey}
+				onChange={onChange}
+				onBlur={vi.fn()}
+			/>,
+		);
+
+		fireEvent.change(screen.getByLabelText(/Photo.*Replace file/i), {
+			target: {
+				files: [new File(["new"], "new.png", { type: "image/png" })],
+			},
+		});
+		await waitFor(() => expect(stageAttachmentMock).toHaveBeenCalledTimes(1));
+		fireEvent.click(
+			screen.getByRole("button", { name: /Cancel attachment.*Photo/i }),
+		);
+
+		await act(async () => {
+			replacement.resolve({
+				attachmentId: "attachment-late",
+				attachmentName: "attachment-late.png",
+				originalFilename: "new.png",
+				sizeBytes: 3,
+			});
+			await replacement.promise;
+			await Promise.resolve();
+		});
+
+		expect(onChange).not.toHaveBeenCalled();
+		expect(
+			getOwnedStagedAttachment({ appId: "app-1", entryKey, slotKey }),
+		)?.toMatchObject({ attachmentId: "attachment-old" });
+		expect(scheduleAttachmentCleanupMock).toHaveBeenCalledWith({
+			appId: "app-1",
+			attachmentId: "attachment-late",
+		});
+		expect(screen.getByText("old.png")).toBeDefined();
+		expect(screen.getByRole("alert").textContent).toMatch(
+			/existing attachment is still attached/i,
+		);
 	});
 
 	it("keeps staged UI on the stable slot while its concrete path compacts", async () => {
@@ -831,7 +1037,9 @@ describe("AttachmentField", () => {
 		expect((await screen.findByRole("alert")).textContent).toContain(
 			"This attachment could not move with its repeat entry. Retry now, attach a replacement, or remove it.",
 		);
-		expect(screen.getByRole("button", { name: /^retry$/i })).toBeDefined();
+		expect(
+			screen.getByRole("button", { name: /retry attachment.*Photo/i }),
+		).toBeDefined();
 		expect(
 			screen.getByRole("button", { name: /remove attachment/i }),
 		).toBeDefined();
@@ -883,7 +1091,7 @@ describe("AttachmentField", () => {
 				sizeBytes: 3,
 			},
 		});
-		rememberSignatureDraft(entryKey, slotKey, [[{ x: 0.2, y: 0.3 }]]);
+		rememberSignatureDraft(entryKey, slotKey, [[{ x: 0.2, y: 0.3 }]], false);
 		const canvasContext = {
 			setTransform: vi.fn(),
 			clearRect: vi.fn(),
@@ -951,18 +1159,24 @@ describe("AttachmentField", () => {
 			/retry now, draw it again, or remove it/i,
 		);
 		expect(
-			screen.getByRole("button", { name: /remove signature/i }),
-		).toBeDefined();
-		expect(
 			(
 				screen.getByRole("button", {
-					name: /clear signature/i,
+					name: /clear signature.*Signed consent/i,
 				}) as HTMLButtonElement
 			).disabled,
 		).toBe(false);
+		expect(
+			screen.getAllByRole("button", {
+				name: /(?:remove|clear) signature.*Signed consent/i,
+			}),
+		).toHaveLength(1);
 
 		offline = false;
-		fireEvent.click(screen.getByRole("button", { name: /^retry$/i }));
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: /retry signature.*Signed consent/i,
+			}),
+		);
 		await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
 	});
 
@@ -1095,14 +1309,21 @@ describe("AttachmentField", () => {
 		);
 
 		view.unmount();
-		render(<AttachmentField {...props} />);
+		await act(async () => {
+			render(<AttachmentField {...props} />);
+			await vi.advanceTimersByTimeAsync(0);
+		});
 		expect(screen.getByRole("alert").textContent).toMatch(
 			/retry now or remove it/i,
 		);
 		expect(canvasContext.stroke).toHaveBeenCalled();
 
 		encodedBlob = new Blob(["ink"], { type: "image/png" });
-		fireEvent.click(screen.getByRole("button", { name: /^retry$/i }));
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: /retry signature.*Signed consent/i,
+			}),
+		);
 		await act(async () => {
 			await vi.advanceTimersByTimeAsync(0);
 			for (let index = 0; index < 5; index++) await Promise.resolve();

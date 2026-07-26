@@ -46,6 +46,7 @@ function waitForAbort(
 
 afterEach(async () => {
 	await __resetAttachmentCoordinatorForTests();
+	vi.useRealTimers();
 	vi.unstubAllGlobals();
 });
 
@@ -189,6 +190,38 @@ describe("form attachment coordinator", () => {
 		await expect(
 			runFormAttachmentBarrier("entry-dirty", async () => "submitted"),
 		).resolves.toBe("submitted");
+	});
+
+	it("identifies the exact active attachment recovery target that blocks Submit", async () => {
+		const entryKey = "entry-targeted-blocker";
+		const slotKey = "signature:stable-row";
+		registerAttachmentSlotPath({
+			appId: "app-1",
+			entryKey,
+			slotKey,
+			fieldUuid: "22222222-2222-4222-8222-222222222222",
+			instancePath: "/data/visits[1]/signature",
+			captureKind: "signature",
+		});
+		markAttachmentNotReady(
+			entryKey,
+			slotKey,
+			"The signature needs recovery before this form can be submitted.",
+		);
+
+		const error = await runFormAttachmentBarrier(
+			entryKey,
+			async () => "must not submit",
+		).catch((reason: unknown) => reason);
+
+		expect(error).toMatchObject({
+			name: "AttachmentNotReadyError",
+			slotKey,
+			fieldUuid: "22222222-2222-4222-8222-222222222222",
+			instancePath: "/data/visits[1]/signature",
+			message:
+				"The signature needs recovery before this form can be submitted.",
+		});
 	});
 
 	it("only lets effectively visible capture blockers gate submission", async () => {
@@ -904,6 +937,116 @@ describe("stageAttachment", () => {
 		expect(fetchMock).toHaveBeenLastCalledWith(
 			"/api/apps/app-1/attachments/attachment-compensate",
 			expect.objectContaining({ method: "DELETE" }),
+		);
+	});
+
+	it("times out a hung initiate request", async () => {
+		vi.useFakeTimers();
+		const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) =>
+			waitForAbort(init?.signal),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+
+		const stage = stageAttachment({
+			appId: "app-1",
+			entryKey: "11111111-1111-4111-8111-111111111111",
+			fieldUuid: "22222222-2222-4222-8222-222222222222",
+			instancePath: "/data/photo",
+			file: { name: "photo.png", size: 3 } as File,
+		});
+		const rejection = expect(stage).rejects.toThrow(/timed out/i);
+		await vi.advanceTimersByTimeAsync(30_000);
+
+		await rejection;
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+
+	it("times out a hung PUT and schedules cleanup for the minted attempt", async () => {
+		vi.useFakeTimers();
+		let call = 0;
+		const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+			call += 1;
+			if (call === 1) {
+				return Promise.resolve({
+					ok: true,
+					json: async () => ({
+						attachmentId: "attachment-put-timeout",
+						attachmentName: "attachment-put-timeout.png",
+						uploadUrl: "https://storage.test/upload",
+						uploadContentType: "image/png",
+						uploadHeaders: { "x-goog-if-generation-match": "0" },
+					}),
+				} as Response);
+			}
+			if (init?.method === "DELETE") {
+				return Promise.resolve({ ok: true, status: 200 } as Response);
+			}
+			return waitForAbort(init?.signal);
+		});
+		vi.stubGlobal("fetch", fetchMock);
+
+		const stage = stageAttachment({
+			appId: "app-1",
+			entryKey: "11111111-1111-4111-8111-111111111111",
+			fieldUuid: "22222222-2222-4222-8222-222222222222",
+			instancePath: "/data/photo",
+			file: { name: "photo.png", size: 3 } as File,
+		});
+		const rejection = expect(stage).rejects.toThrow(/timed out/i);
+		await Promise.resolve();
+		await vi.advanceTimersByTimeAsync(30_000);
+
+		await rejection;
+		await vi.waitFor(() =>
+			expect(fetchMock).toHaveBeenLastCalledWith(
+				"/api/apps/app-1/attachments/attachment-put-timeout",
+				expect.objectContaining({ method: "DELETE" }),
+			),
+		);
+	});
+
+	it("times out a hung confirm and schedules cleanup for the uploaded attempt", async () => {
+		vi.useFakeTimers();
+		let call = 0;
+		const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+			call += 1;
+			if (call === 1) {
+				return Promise.resolve({
+					ok: true,
+					json: async () => ({
+						attachmentId: "attachment-confirm-timeout",
+						attachmentName: "attachment-confirm-timeout.png",
+						uploadUrl: "https://storage.test/upload",
+						uploadContentType: "image/png",
+						uploadHeaders: { "x-goog-if-generation-match": "0" },
+					}),
+				} as Response);
+			}
+			if (call === 2 || init?.method === "DELETE") {
+				return Promise.resolve({ ok: true, status: 200 } as Response);
+			}
+			return waitForAbort(init?.signal);
+		});
+		vi.stubGlobal("fetch", fetchMock);
+
+		const stage = stageAttachment({
+			appId: "app-1",
+			entryKey: "11111111-1111-4111-8111-111111111111",
+			fieldUuid: "22222222-2222-4222-8222-222222222222",
+			instancePath: "/data/photo",
+			file: { name: "photo.png", size: 3 } as File,
+		});
+		const rejection = expect(stage).rejects.toThrow(/timed out/i);
+		await Promise.resolve();
+		await Promise.resolve();
+		await vi.advanceTimersByTimeAsync(30_000);
+
+		await rejection;
+		await vi.waitFor(() =>
+			expect(fetchMock).toHaveBeenLastCalledWith(
+				"/api/apps/app-1/attachments/attachment-confirm-timeout",
+				expect.objectContaining({ method: "DELETE" }),
+			),
 		);
 	});
 });

@@ -458,6 +458,112 @@ describe("SignaturePad", () => {
 		expect(onDrawn).toHaveBeenCalledTimes(1);
 	});
 
+	it("settles the latest ink after lost pointer capture before Submit", async () => {
+		const onDrawn = vi.fn();
+		render(
+			<SignaturePad
+				entryKey="entry-lost-capture"
+				instancePath="/data/signature"
+				uploading={false}
+				hasAnswer={false}
+				onDrawn={onDrawn}
+				onClear={vi.fn()}
+			/>,
+		);
+		const canvas = screen.getByLabelText(/Signature pad/) as HTMLCanvasElement;
+		Object.assign(canvas, {
+			setPointerCapture: vi.fn(),
+			releasePointerCapture: vi.fn(),
+		});
+		fireEvent.pointerDown(canvas, {
+			pointerId: 1,
+			clientX: 10,
+			clientY: 10,
+		});
+		fireEvent.pointerMove(canvas, {
+			pointerId: 1,
+			clientX: 20,
+			clientY: 20,
+		});
+		fireEvent(
+			canvas,
+			new Event("lostpointercapture", {
+				bubbles: true,
+			}),
+		);
+		expect(screen.getByRole("status").textContent).toMatch(
+			/waiting to save signature/i,
+		);
+
+		const submit = vi.fn();
+		const barrier = runFormAttachmentBarrier("entry-lost-capture", async () => {
+			submit();
+		});
+		await act(async () => {
+			await Promise.resolve();
+			vi.advanceTimersByTime(700);
+			await Promise.resolve();
+		});
+		expect(blobCallbacks).toHaveLength(1);
+		await act(async () => {
+			blobCallbacks[0]?.(new Blob(["ink"], { type: "image/png" }));
+			await barrier;
+		});
+
+		expect(onDrawn).toHaveBeenCalledTimes(1);
+		expect(submit).toHaveBeenCalledTimes(1);
+	});
+
+	it("restarts an interrupted dirty signature save after an ordinary remount", async () => {
+		const onDrawn = vi.fn();
+		const props = {
+			entryKey: "entry-dirty-remount",
+			instancePath: "/data/signature",
+			uploading: false,
+			hasAnswer: false,
+			onDrawn,
+			onClear: vi.fn(),
+		} as const;
+		const view = render(<SignaturePad {...props} />);
+		const canvas = screen.getByLabelText(/Signature pad/) as HTMLCanvasElement;
+		Object.assign(canvas, {
+			setPointerCapture: vi.fn(),
+			releasePointerCapture: vi.fn(),
+		});
+		fireEvent.pointerDown(canvas, {
+			pointerId: 1,
+			clientX: 10,
+			clientY: 10,
+		});
+		fireEvent.pointerMove(canvas, {
+			pointerId: 1,
+			clientX: 20,
+			clientY: 20,
+		});
+		view.unmount();
+
+		render(<SignaturePad {...props} />);
+		const submit = vi.fn();
+		const barrier = runFormAttachmentBarrier(
+			"entry-dirty-remount",
+			async () => {
+				submit();
+			},
+		);
+		await act(async () => {
+			vi.advanceTimersByTime(700);
+			await Promise.resolve();
+		});
+		expect(blobCallbacks).toHaveLength(1);
+		await act(async () => {
+			blobCallbacks[0]?.(new Blob(["recovered"], { type: "image/png" }));
+			await barrier;
+		});
+
+		expect(onDrawn).toHaveBeenCalledTimes(1);
+		expect(submit).toHaveBeenCalledTimes(1);
+	});
+
 	it("rescales retained ink when the pad narrows before another stroke", async () => {
 		let width = 200;
 		vi.spyOn(
@@ -587,6 +693,20 @@ describe("SignaturePad", () => {
 
 	it("re-encodes retained ink when only devicePixelRatio changes", async () => {
 		vi.stubGlobal("devicePixelRatio", 1);
+		const resolutionListeners: Array<() => void> = [];
+		const matchMedia = vi.fn((query: string) => ({
+			matches: true,
+			media: query,
+			onchange: null,
+			addEventListener: (_event: string, listener: () => void) => {
+				resolutionListeners.push(listener);
+			},
+			removeEventListener: vi.fn(),
+			addListener: vi.fn(),
+			removeListener: vi.fn(),
+			dispatchEvent: vi.fn(),
+		}));
+		vi.stubGlobal("matchMedia", matchMedia);
 		vi.spyOn(
 			HTMLCanvasElement.prototype,
 			"getBoundingClientRect",
@@ -621,11 +741,12 @@ describe("SignaturePad", () => {
 		expect(onDrawn).toHaveBeenCalledTimes(1);
 
 		vi.stubGlobal("devicePixelRatio", 2);
-		fireEvent(window, new Event("resize"));
 		await act(async () => {
+			resolutionListeners[0]?.();
 			await vi.advanceTimersByTimeAsync(0);
 		});
 		expect(blobCallbacks).toHaveLength(2);
+		expect(matchMedia).toHaveBeenCalledWith("(resolution: 2dppx)");
 
 		await act(async () => {
 			blobCallbacks[1]?.(new Blob(["two-x"], { type: "image/png" }));
@@ -721,6 +842,48 @@ describe("SignaturePad", () => {
 		expect(screen.getByRole("button", { name: "Undo" })).toBeDefined();
 	});
 
+	it("keeps Clear undoable across an ordinary unmount and remount", async () => {
+		const onDrawn = vi.fn();
+		const props = {
+			entryKey: "entry-remount-undo",
+			instancePath: "/data/signature",
+			uploading: false,
+			hasAnswer: true,
+			onDrawn,
+			onClear: vi.fn(),
+		} as const;
+		const view = render(<SignaturePad {...props} />);
+		const canvas = screen.getByLabelText(/Signature pad/) as HTMLCanvasElement;
+		Object.assign(canvas, {
+			setPointerCapture: vi.fn(),
+			releasePointerCapture: vi.fn(),
+		});
+		fireEvent.pointerDown(canvas, {
+			pointerId: 1,
+			clientX: 10,
+			clientY: 10,
+		});
+		fireEvent.pointerUp(canvas, {
+			pointerId: 1,
+			clientX: 10,
+			clientY: 10,
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Clear signature" }));
+		view.unmount();
+
+		render(<SignaturePad {...props} />);
+		fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(0);
+		});
+		expect(blobCallbacks).toHaveLength(1);
+		await act(async () => {
+			blobCallbacks[0]?.(new Blob(["restored"], { type: "image/png" }));
+			await Promise.resolve();
+		});
+		expect(onDrawn).toHaveBeenCalledTimes(1);
+	});
+
 	it("makes a disabled Undo visibly and pointer-semantically disabled", async () => {
 		const props = {
 			entryKey: "entry-disabled-undo",
@@ -755,6 +918,24 @@ describe("SignaturePad", () => {
 		expect(undo.disabled).toBe(true);
 		expect(undo.className).toContain("disabled:cursor-not-allowed");
 		expect(undo.className).toContain("disabled:opacity-40");
+	});
+
+	it("exposes a blocked drawing surface as read-only and disabled", () => {
+		render(
+			<SignaturePad
+				entryKey="entry-blocked-canvas"
+				instancePath="/data/signature"
+				uploading={false}
+				interactionBlocked
+				hasAnswer={true}
+				onDrawn={vi.fn()}
+				onClear={vi.fn()}
+			/>,
+		);
+
+		const canvas = screen.getByRole("textbox");
+		expect(canvas.getAttribute("aria-disabled")).toBe("true");
+		expect(canvas.getAttribute("aria-readonly")).toBe("true");
 	});
 
 	it("can clear a saved signature even when this entry has no local pixel draft", () => {

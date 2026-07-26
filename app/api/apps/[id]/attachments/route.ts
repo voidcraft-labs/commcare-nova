@@ -31,6 +31,7 @@ import { ApiError, handleApiError, readJsonBody } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
 import { resolveAuthorizedAppSnapshot } from "@/lib/db/appAccess";
 import {
+	compensatePendingFormAttachmentInitiation,
 	createPendingFormAttachment,
 	FormAttachmentWriteRejectedError,
 	purgeExpiredFormAttachments,
@@ -158,12 +159,53 @@ export async function POST(
 				sizeBytes,
 			});
 
-		const upload = await createSignedUploadUrl({
-			gcsObjectKey: objectKey,
-			contentType,
-			minBytes: sizeBytes,
-			maxBytes: sizeBytes,
-		});
+		let upload: Awaited<ReturnType<typeof createSignedUploadUrl>>;
+		try {
+			upload = await createSignedUploadUrl({
+				gcsObjectKey: objectKey,
+				contentType,
+				minBytes: sizeBytes,
+				maxBytes: sizeBytes,
+			});
+		} catch (signingError) {
+			try {
+				const compensated = await compensatePendingFormAttachmentInitiation({
+					attachmentId,
+					attachmentName,
+					appId,
+					projectId: snapshot.projectId,
+					createdBy: session.user.id,
+					entryKey,
+					fieldUuid,
+					instancePath,
+					objectKey,
+				});
+				if (!compensated) {
+					log.warn(
+						"[attachments] initiate compensation lost its pending-row CAS; expiry sweep remains the fallback",
+						{
+							attachmentId,
+							appId,
+							projectId: snapshot.projectId,
+						},
+					);
+				}
+			} catch (err) {
+				// Preserve the signing failure as the request result. The bounded
+				// compensation is hygiene; the row's expiry and scheduled sweep are
+				// the durable fallback if Postgres is unavailable or contended.
+				log.warn(
+					"[attachments] initiate compensation failed; expiry sweep remains the fallback",
+					{
+						err,
+						attachmentId,
+						appId,
+						projectId: snapshot.projectId,
+					},
+				);
+			}
+			throw signingError;
+		}
 
 		// Opportunistic row hygiene complements the scheduled worker. The BYTES
 		// also have an independent bucket lifecycle guarantee, so a skipped

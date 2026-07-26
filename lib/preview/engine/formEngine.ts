@@ -689,6 +689,59 @@ export class FormEngine {
 	}
 
 	/**
+	 * Resolve one concrete runtime question to the structural containers that
+	 * can hide it. Attachment recovery uses this after its queue reports the
+	 * exact stable slot/path that blocked Submit.
+	 */
+	fieldTarget(
+		targetPath: string,
+		fieldUuid?: string,
+	): InvalidFieldTarget | undefined {
+		const walk = (
+			nodes: ReadonlyArray<FieldTreeNode>,
+			prefix: string,
+			ancestorUuids: readonly Uuid[],
+		): InvalidFieldTarget | undefined => {
+			for (const node of nodes) {
+				const instancePath = `${prefix}/${node.field.id}`;
+				const structural =
+					node.field.kind === "group" || node.field.kind === "repeat";
+				if (
+					!structural &&
+					instancePath === targetPath &&
+					(fieldUuid === undefined || node.field.uuid === fieldUuid)
+				) {
+					return {
+						fieldUuid: node.field.uuid,
+						instancePath,
+						ancestorUuids,
+					};
+				}
+				if (node.field.kind === "repeat") {
+					const nextAncestors = [...ancestorUuids, node.field.uuid];
+					const count = this.instance.getRepeatCount(instancePath);
+					for (let index = 0; index < count; index++) {
+						const target = walk(
+							node.children ?? [],
+							`${instancePath}[${index}]`,
+							nextAncestors,
+						);
+						if (target !== undefined) return target;
+					}
+				} else if (node.children !== undefined) {
+					const target = walk(node.children, instancePath, [
+						...ancestorUuids,
+						node.field.uuid,
+					]);
+					if (target !== undefined) return target;
+				}
+			}
+			return undefined;
+		};
+		return walk(this.tree, "/data", []);
+	}
+
+	/**
 	 * Materialize effective relevance through the structural tree.
 	 *
 	 * A child's own `visible` flag is only its authored expression. The wire

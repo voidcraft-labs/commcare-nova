@@ -668,6 +668,14 @@ export class EngineController {
 		return this.engine?.firstInvalidFieldTarget();
 	}
 
+	/** Resolve a concrete question to the collapsed containers that hide it. */
+	fieldTarget(
+		instancePath: string,
+		fieldUuid?: string,
+	): InvalidFieldTarget | undefined {
+		return this.engine?.fieldTarget(instancePath, fieldUuid);
+	}
+
 	/** Submission-time disposition of one concrete capture path. */
 	attachmentPathDisposition(path: string): "active" | "dormant" | "removed" {
 		return this.engine?.attachmentPathDisposition(path) ?? "removed";

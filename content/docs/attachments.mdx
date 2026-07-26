@@ -52,7 +52,8 @@ Clearing a signature offers an **Undo** next to the pad, and the offer
 stands until the worker signs again rather than disappearing on a timer.
 That is there because a signature is the one attachment with no copy
 anywhere else: a photo they clear is still on their phone, but a
-signature they clear is gone. Undo puts it back.
+signature they clear is gone. Undo puts it back. Collapsing or temporarily
+hiding the question does not take that Undo away.
 
 The signature also follows the available width. Rotating a phone or
 narrowing the browser redraws the same complete signature to fit and saves
@@ -62,11 +63,14 @@ does not change, and returning to a still-open form at a different width
 re-encodes the retained ink automatically. Adding another stroke afterward
 does not crop away ink that was drawn on the wider pad.
 
-If saving fails, the ink stays on the pad and Nova shows **Retry** and
-**Remove signature**. The message and ink survive a temporary hide, collapse,
-or Preview/Edit switch. Retry saves the retained drawing; Remove clears it.
-Pressing **Clear signature** while an earlier save is still running cancels
-that older save and clears the answer once — old ink cannot reappear later.
+If saving fails, the ink stays on the pad and Nova shows **Retry** beside the
+pad's one **Clear signature** action. The message and ink survive a temporary
+hide, collapse, or Preview/Edit switch. Retry saves the retained drawing; Clear
+removes it and remains undoable. Losing pointer capture or temporarily
+unmounting the pad does not strand the latest stroke: Nova settles it or resumes
+its save when the pad returns. Pressing **Clear signature** while an earlier
+save is still running cancels that older save and clears the answer once — old
+ink cannot reappear later.
 
 ## File attachments only work in the web app
 
@@ -103,6 +107,12 @@ Once a file is attached, the web app shows its filename and a **Clear**
 button. It does not show a thumbnail, and it does not play audio or video
 back. There is no way to open the file again from inside the form.
 
+While Nova is attaching a new file, a visible **Cancel** action stops that
+attempt. Replacing a file is confirm-before-swap, so canceling a replacement
+leaves the previous confirmed filename and answer in place. Initiate, upload,
+and confirmation requests each have a deadline; a stalled network request
+becomes a recoverable error instead of holding the whole form forever.
+
 That means a worker cannot check what they attached — only that they
 attached something. Where getting the right file matters, ask for it in
 a question of its own with a clear label, rather than as one of several
@@ -124,9 +134,10 @@ clearing the form ends that entry.
 If that repeat move cannot be saved — for example, while the browser is
 offline — Nova keeps the attachment and its answer in place and blocks Submit
 only while the question is active. The question shows **Retry**,
-**Attach a replacement** (or draw again for Signature), and **Remove**. The
-same message is still there after an ordinary remount. Retry moves the retained
-file; a confirmed replacement takes over cleanly; Remove clears the answer.
+**Attach a replacement**, and **Remove** for picked files. Signature keeps
+**Retry** beside its single **Clear signature** action. The same message is
+still there after an ordinary remount. Retry moves the retained file; a
+confirmed replacement takes over cleanly; Remove or Clear clears the answer.
 
 ## Clearing a required attachment
 
@@ -164,7 +175,7 @@ the submission with the rest of the form.
 When a worker presses Submit, Nova first waits for every attachment change
 still in progress — including the signature pad's short pause and PNG
 encoding after the latest stroke. If that encoding or upload fails, Nova keeps
-the ink and offers Retry or Remove instead of silently submitting an older
+the ink and offers Retry or Clear instead of silently submitting an older
 signature. A file or signature action that is waiting behind another
 attachment says so immediately and disables conflicting gestures. Before
 waiting, Submit cancels unfinished work for questions that are now hidden and
@@ -186,6 +197,11 @@ If Submit finds an unanswered required question inside a collapsed group or
 repeating section, Nova opens every ancestor, announces the problem, scrolls it
 into view, and focuses the real attachment control — the file picker or
 signature pad — so the worker can fix it immediately.
+
+The same recovery works when a failed attachment save or repeat move blocks
+Submit: Nova opens the exact question, announces its retained error, and focuses
+that question's **Retry** action. Scrolling is not animated when the worker has
+requested reduced motion.
 
 The preview shows you exactly what a worker sees, which means it shows
 you a filename and a **Remove** action and nothing else — no thumbnail, no

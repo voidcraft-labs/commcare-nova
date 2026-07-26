@@ -32,6 +32,21 @@ export interface AttachmentTaskContext {
 interface PathTask {
 	readonly controller: AbortController;
 	readonly generation: number;
+	/**
+	 * Submission-time identity is independent of the private queue key.
+	 *
+	 * Most work is keyed directly by the stable slot. Clear uses a unique
+	 * queue key so a later file pick cannot supersede its answer mutation,
+	 * but it must still be classified as the real question/path when Submit
+	 * reconciles active, dormant, and removed captures.
+	 */
+	readonly target: AttachmentTaskTarget;
+}
+
+export interface AttachmentTaskTarget {
+	readonly slotKey: string;
+	readonly instancePath: string;
+	readonly fieldUuid?: string;
 }
 
 interface EntryQueue {
@@ -47,6 +62,7 @@ const entryQueues = new Map<string, EntryQueue>();
 
 interface AttachmentSlot {
 	readonly appId: string;
+	readonly fieldUuid?: string;
 	/** Worker-visible capture family. Retarget recovery copy differs for the
 	 * one drawn kind because "attach a replacement" is not its gesture. */
 	readonly captureKind?: string;
@@ -98,12 +114,15 @@ export interface SignatureCanvasGeometry {
 interface SignatureDraftState {
 	strokes: SignaturePoint[][];
 	encodedGeometry?: SignatureCanvasGeometry;
+	undoStrokes?: SignaturePoint[][];
+	needsEncoding: boolean;
 }
 
 const signatureDrafts = new Map<string, Map<string, SignatureDraftState>>();
 const attachmentIssueListeners = new Map<string, Set<() => void>>();
 
 const ATTACHMENT_CLEANUP_TIMEOUT_MS = 10_000;
+const ATTACHMENT_REQUEST_TIMEOUT_MS = 30_000;
 const BARRIER_RECLASSIFY_MS = 25;
 
 interface DetachedAttachmentCleanup {
@@ -318,6 +337,11 @@ export function runAttachmentTask<T>(args: {
 	 * compatibility fallback for non-repeat callers. */
 	slotKey?: string;
 	instancePath?: string;
+	/**
+	 * The real capture target when the private queue key is intentionally
+	 * synthetic (currently destructive Clear). Omit for ordinary slot work.
+	 */
+	target?: AttachmentTaskTarget;
 	task: (context: AttachmentTaskContext) => Promise<T>;
 }): Promise<T> {
 	const queue = queueFor(args.entryKey);
@@ -331,9 +355,25 @@ export function runAttachmentTask<T>(args: {
 	queue.maintenance.delete(key);
 	const generation = (queue.generations.get(key) ?? 0) + 1;
 	queue.generations.set(key, generation);
+	const registeredSlot = attachmentSlots
+		.get(args.entryKey)
+		?.get(args.target?.slotKey ?? args.slotKey ?? key);
 	const current: PathTask = {
 		controller: new AbortController(),
 		generation,
+		target: {
+			slotKey: args.target?.slotKey ?? args.slotKey ?? key,
+			instancePath:
+				args.target?.instancePath ??
+				registeredSlot?.desiredInstancePath ??
+				args.instancePath ??
+				key,
+			...((args.target?.fieldUuid ?? registeredSlot?.fieldUuid)
+				? {
+						fieldUuid: args.target?.fieldUuid ?? registeredSlot?.fieldUuid,
+					}
+				: {}),
+		},
 	};
 	queue.paths.set(key, current);
 	const isCurrent = () =>
@@ -385,6 +425,15 @@ export function cancelAttachmentEntry(entryKey: string): void {
 /** A visible capture draft that cannot yet be represented by a staged row. */
 export class AttachmentNotReadyError extends Error {
 	readonly name = "AttachmentNotReadyError";
+
+	constructor(
+		message: string,
+		readonly slotKey: string,
+		readonly instancePath: string,
+		readonly fieldUuid?: string,
+	) {
+		super(message);
+	}
 }
 
 export function markAttachmentNotReady(
@@ -467,17 +516,45 @@ function reconcileBarrierDispositions(
 	options: FormAttachmentBarrierOptions | undefined,
 ): ReadonlyMap<string, AttachmentSlotDisposition> {
 	const slots = attachmentSlots.get(entryKey);
-	const keys = new Set([
-		...(slots?.keys() ?? []),
-		...queue.paths.keys(),
+	const targets = new Map<string, AttachmentTaskTarget>();
+	for (const [slotKey, slot] of slots ?? []) {
+		targets.set(slotKey, {
+			slotKey,
+			instancePath: slot.desiredInstancePath,
+			...(slot.fieldUuid === undefined ? {} : { fieldUuid: slot.fieldUuid }),
+		});
+	}
+	for (const task of queue.paths.values()) {
+		const registered = slots?.get(task.target.slotKey);
+		targets.set(task.target.slotKey, {
+			...task.target,
+			instancePath: registered?.desiredInstancePath ?? task.target.instancePath,
+			...(registered?.fieldUuid === undefined
+				? {}
+				: { fieldUuid: registered.fieldUuid }),
+		});
+	}
+	for (const slotKey of [
 		...queue.maintenance.keys(),
 		...queue.notReady.keys(),
-	]);
+	]) {
+		if (targets.has(slotKey)) continue;
+		const registered = slots?.get(slotKey);
+		targets.set(slotKey, {
+			slotKey,
+			instancePath: registered?.desiredInstancePath ?? slotKey,
+			...(registered?.fieldUuid === undefined
+				? {}
+				: { fieldUuid: registered.fieldUuid }),
+		});
+	}
 	const dispositions = new Map<string, AttachmentSlotDisposition>();
-	for (const slotKey of keys) {
-		const instancePath = slots?.get(slotKey)?.desiredInstancePath ?? slotKey;
+	for (const [slotKey, target] of targets) {
 		const disposition =
-			options?.classifySlot({ slotKey, instancePath }) ?? "active";
+			options?.classifySlot({
+				slotKey,
+				instancePath: target.instancePath,
+			}) ?? "active";
 		dispositions.set(slotKey, disposition);
 		if (disposition === "removed") {
 			retireAttachmentSlot(entryKey, slotKey);
@@ -486,6 +563,15 @@ function reconcileBarrierDispositions(
 			// signal-aware active work is cancelled so Submit cannot starve
 			// behind a question that no longer participates.
 			cancelAttachmentTask(entryKey, slotKey);
+		}
+	}
+	// Synthetic queue keys (for example a destructive Clear) are classified
+	// by their real target above. If that target became dormant/removed, abort
+	// the private task too; if it remains active, leave it ahead of Submit.
+	for (const [key, task] of [...queue.paths]) {
+		const disposition = dispositions.get(task.target.slotKey) ?? "active";
+		if (disposition !== "active" && key !== task.target.slotKey) {
+			cancelAttachmentTask(entryKey, key);
 		}
 	}
 	return dispositions;
@@ -516,7 +602,13 @@ export function runFormAttachmentBarrier<T>(
 		const dispositions = reconcileBarrierDispositions(entryKey, queue, options);
 		for (const [slotKey, message] of queue.notReady) {
 			if ((dispositions.get(slotKey) ?? "active") === "active") {
-				throw new AttachmentNotReadyError(message);
+				const slot = attachmentSlots.get(entryKey)?.get(slotKey);
+				throw new AttachmentNotReadyError(
+					message,
+					slotKey,
+					slot?.desiredInstancePath ?? slotKey,
+					slot?.fieldUuid,
+				);
 			}
 		}
 		return task();
@@ -532,12 +624,17 @@ export function registerAttachmentSlotPath(args: {
 	entryKey: string;
 	slotKey: string;
 	instancePath: string;
+	fieldUuid?: string;
 	captureKind?: string;
 }): void {
 	const slots = slotsFor(args.entryKey);
 	const current = slots.get(args.slotKey);
 	slots.set(args.slotKey, {
 		appId: args.appId,
+		fieldUuid:
+			current?.appId === args.appId
+				? (args.fieldUuid ?? current.fieldUuid)
+				: args.fieldUuid,
 		captureKind:
 			current?.appId === args.appId
 				? (args.captureKind ?? current.captureKind)
@@ -578,6 +675,7 @@ export function rememberOwnedStagedAttachment(args: {
 	const current = slots.get(key);
 	slots.set(key, {
 		appId: args.appId,
+		fieldUuid: current?.appId === args.appId ? current.fieldUuid : undefined,
 		captureKind:
 			current?.appId === args.appId ? current.captureKind : undefined,
 		desiredInstancePath:
@@ -816,6 +914,7 @@ export function rememberSignatureDraft(
 	entryKey: string,
 	instancePath: string,
 	strokes: SignaturePoint[][],
+	needsEncoding = true,
 ): void {
 	let entry = signatureDrafts.get(entryKey);
 	if (entry === undefined) {
@@ -825,10 +924,75 @@ export function rememberSignatureDraft(
 	const current = entry.get(instancePath);
 	entry.set(instancePath, {
 		strokes: strokes.map((stroke) => stroke.map((point) => ({ ...point }))),
+		needsEncoding,
 		...(current?.encodedGeometry === undefined
 			? {}
 			: { encodedGeometry: { ...current.encodedGeometry } }),
+		...(current?.undoStrokes === undefined
+			? {}
+			: {
+					undoStrokes: current.undoStrokes.map((stroke) =>
+						stroke.map((point) => ({ ...point })),
+					),
+				}),
 	});
+}
+
+export function signatureDraftNeedsEncoding(
+	entryKey: string,
+	instancePath: string,
+): boolean {
+	return (
+		signatureDrafts.get(entryKey)?.get(instancePath)?.needsEncoding ?? false
+	);
+}
+
+export function getSignatureUndoDraft(
+	entryKey: string,
+	instancePath: string,
+): SignaturePoint[][] | undefined {
+	const strokes = signatureDrafts.get(entryKey)?.get(instancePath)?.undoStrokes;
+	return strokes?.map((stroke) => stroke.map((point) => ({ ...point })));
+}
+
+/**
+ * Clear active ink while retaining one stable inverse action. This survives
+ * ordinary relevance/group remounts; only entry retirement discards it.
+ */
+export function rememberClearedSignatureDraft(
+	entryKey: string,
+	instancePath: string,
+	strokes: SignaturePoint[][] | undefined,
+): void {
+	let entry = signatureDrafts.get(entryKey);
+	if (entry === undefined) {
+		entry = new Map();
+		signatureDrafts.set(entryKey, entry);
+	}
+	const current = entry.get(instancePath);
+	entry.set(instancePath, {
+		strokes: [],
+		needsEncoding: false,
+		...(current?.encodedGeometry === undefined
+			? {}
+			: { encodedGeometry: { ...current.encodedGeometry } }),
+		...(strokes === undefined
+			? {}
+			: {
+					undoStrokes: strokes.map((stroke) =>
+						stroke.map((point) => ({ ...point })),
+					),
+				}),
+	});
+}
+
+export function clearSignatureUndoDraft(
+	entryKey: string,
+	instancePath: string,
+): void {
+	const state = signatureDrafts.get(entryKey)?.get(instancePath);
+	if (state === undefined) return;
+	state.undoStrokes = undefined;
 }
 
 export function getSignatureEncodedGeometry(
@@ -857,6 +1021,14 @@ export function rememberSignatureEncodedGeometry(
 			current?.strokes.map((stroke) => stroke.map((point) => ({ ...point }))) ??
 			[],
 		encodedGeometry: { ...geometry },
+		needsEncoding: false,
+		...(current?.undoStrokes === undefined
+			? {}
+			: {
+					undoStrokes: current.undoStrokes.map((stroke) =>
+						stroke.map((point) => ({ ...point })),
+					),
+				}),
 	});
 }
 
@@ -950,17 +1122,80 @@ export function isAttachmentTaskAbort(error: unknown): boolean {
 		: (error as { name?: unknown } | null)?.name === "AbortError";
 }
 
+function abortReason(signal: AbortSignal): unknown {
+	return signal.reason ?? new DOMException("Aborted", "AbortError");
+}
+
+/**
+ * Every foreground request owns a deadline in addition to the slot's
+ * generation signal. The explicit race matters because a browser/fetch mock
+ * that fails to observe abort must not hold the entry-wide queue forever.
+ */
+async function fetchWithDeadline(
+	input: RequestInfo | URL,
+	init: RequestInit,
+	externalSignal?: AbortSignal,
+): Promise<Response> {
+	externalSignal?.throwIfAborted();
+	const controller = new AbortController();
+	const boundaryClosed = Symbol("attachment request boundary closed");
+	let closeBoundary!: () => void;
+	let rejectBoundary!: (reason: unknown) => void;
+	const boundary = new Promise<typeof boundaryClosed>((resolve, reject) => {
+		closeBoundary = () => resolve(boundaryClosed);
+		rejectBoundary = reject;
+	});
+	const onExternalAbort = () => {
+		const reason =
+			externalSignal === undefined
+				? new DOMException("Aborted", "AbortError")
+				: abortReason(externalSignal);
+		controller.abort(reason);
+		rejectBoundary(reason);
+	};
+	externalSignal?.addEventListener("abort", onExternalAbort, { once: true });
+	if (externalSignal?.aborted) onExternalAbort();
+	const timeoutId = setTimeout(() => {
+		const error = new AttachmentRejected(
+			"The attachment request timed out. Check your connection and try again.",
+		);
+		controller.abort(error);
+		rejectBoundary(error);
+	}, ATTACHMENT_REQUEST_TIMEOUT_MS);
+	try {
+		const result = await Promise.race([
+			fetch(input, { ...init, signal: controller.signal }),
+			boundary,
+		]);
+		if (result === boundaryClosed) {
+			throw new Error(
+				"Attachment request boundary closed before fetch settled.",
+			);
+		}
+		return result;
+	} finally {
+		// Settle the losing boundary after a successful/failed fetch so the
+		// coordinator does not retain a permanently pending Promise.
+		closeBoundary();
+		clearTimeout(timeoutId);
+		externalSignal?.removeEventListener("abort", onExternalAbort);
+	}
+}
+
 async function postJson<T>(
 	url: string,
 	body?: unknown,
 	signal?: AbortSignal,
 ): Promise<T> {
-	const res = await fetch(url, {
-		method: "POST",
-		headers: { "Content-Type": "application/json" },
-		...(body === undefined ? {} : { body: JSON.stringify(body) }),
+	const res = await fetchWithDeadline(
+		url,
+		{
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			...(body === undefined ? {} : { body: JSON.stringify(body) }),
+		},
 		signal,
-	});
+	);
 	if (!res.ok) {
 		// The routes speak person-to-person for the 4xx cases, so surface
 		// their message verbatim rather than inventing a generic one.
@@ -1014,15 +1249,18 @@ export async function stageAttachment(args: {
 	try {
 		signal?.throwIfAborted();
 
-		const put = await fetch(initiate.uploadUrl, {
-			method: "PUT",
-			headers: {
-				"Content-Type": initiate.uploadContentType,
-				...initiate.uploadHeaders,
+		const put = await fetchWithDeadline(
+			initiate.uploadUrl,
+			{
+				method: "PUT",
+				headers: {
+					"Content-Type": initiate.uploadContentType,
+					...initiate.uploadHeaders,
+				},
+				body: file,
 			},
-			body: file,
 			signal,
-		});
+		);
 		// A create-only retry can receive 412 after the first PUT actually landed
 		// but its response was lost. Confirm is the authority on that immutable
 		// generation, so let it distinguish success from a missing/mismatched body.

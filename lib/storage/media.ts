@@ -314,9 +314,11 @@ export async function copyAssetObject(
 /**
  * Copy one immutable source generation to a create-only destination.
  *
- * `exists` is success for an idempotent retry: attachment ids make the
- * destination unique, so a pre-existing object is the prior copy whose
- * metadata update may have failed.
+ * A verified existing destination is success for an idempotent retry:
+ * attachment ids make the destination unique, so a pre-existing object is
+ * the prior copy whose metadata update may have failed. That same independent
+ * verification also recovers after the staging lifecycle has reaped the named
+ * source generation. A missing or mismatched destination still fails closed.
  */
 export async function copyAssetObjectIfAbsent(args: {
 	sourceGcsObjectKey: string;
@@ -329,8 +331,13 @@ export async function copyAssetObjectIfAbsent(args: {
 	const destination = getBucket().file(args.destinationGcsObjectKey);
 	const verifyDestination = async (replay: boolean) => {
 		const [metadata] = await destination.getMetadata();
+		const generation =
+			metadata.generation === undefined || metadata.generation === null
+				? null
+				: String(metadata.generation);
 		if (
-			metadata.generation === undefined ||
+			generation === null ||
+			generation.length === 0 ||
 			Number(metadata.size) !== args.expectedSize ||
 			metadata.crc32c !== args.expectedChecksum ||
 			metadata.contentType !== args.expectedContentType
@@ -340,7 +347,7 @@ export async function copyAssetObjectIfAbsent(args: {
 			);
 		}
 		return {
-			destinationGeneration: String(metadata.generation),
+			destinationGeneration: generation,
 			replay,
 		};
 	};
@@ -352,7 +359,8 @@ export async function copyAssetObjectIfAbsent(args: {
 			});
 		return await verifyDestination(false);
 	} catch (err) {
-		if ((err as { code?: number } | null)?.code === 412) {
+		const code = (err as { code?: number | string } | null)?.code;
+		if (code === 412 || code === "412" || code === 404 || code === "404") {
 			return await verifyDestination(true);
 		}
 		throw err;

@@ -99,7 +99,10 @@ unreserved rows immediately; the scheduled row sweep and staging TTL remain the
 failure backstop. Every cleanup DELETE — teardown, replacement, remove, repeat
 deletion, or post-initiate PUT/confirm compensation — is bounded and detached
 from the entry queue. It can leave an expiring orphan but cannot delay an answer
-commit, confirmed replacement, or Submit. That absence of cross-entry resume is
+commit, confirmed replacement, or Submit. Initiate, signed PUT, and confirm each
+also own a foreground deadline. Cancel aborts the current slot generation
+without changing its prior confirmed owner; a late completion is fenced and
+cleaned up. That absence of cross-entry resume is
 also why nothing simulates
 the runtime's blank-pad-over-live-signature behavior: the state cannot arise
 here. A future resume story must carry the entry key forward with the answers,
@@ -123,9 +126,14 @@ slot. The control publishes queued intent before it waits behind another slot,
 so a second picker/clear/draw gesture cannot silently supersede the first;
 signature debounce and `toBlob` encoding enter that queue immediately,
 and a dirty/failed encoding keeps the barrier blocked rather than submitting
-an older answer. `pointercancel` settles the ink through the same path. A
+an older answer. `pointercancel` and `lostpointercapture` settle the ink through
+the same path; dirty stable draft state starts an immediate encode after an
+ordinary remount. A
 signature Clear during queued/active save is itself the newer explicit intent:
-it aborts that generation and queues exactly one answer-clear transition.
+it aborts that generation and queues exactly one answer-clear transition. Its
+private serialization key carries the real stable slot/path/field target, so
+Submit classifies and waits for that active clear rather than mistaking the
+synthetic key for a deleted engine path.
 Submit first classifies every registered, active, not-ready, and retargeting
 slot **before** it joins the tail; it continues classification while waiting.
 Dormant work is aborted without dropping its draft/issue, removed work is
@@ -149,8 +157,10 @@ retargets after any already-running upload/encoding and before Submit, and
 cancels/discards only slots belonging to the removed instance. A failed old
 retarget NEVER clears the answer or discards the retained row. It preserves the
 owned attachment, desired and server paths, filename/signature ink, and a
-generation-tagged `notReady` issue with Retry plus replace/draw/remove actions.
-The issue survives ordinary remounts. Retry CASes the retained row; a newer
+generation-tagged `notReady` issue. Picked files expose Retry plus
+replace/remove; Signature exposes Retry beside the pad's single Clear action.
+Recovery controls have question-qualified accessible names. The issue survives
+ordinary remounts. Retry CASes the retained row; a newer
 replacement generation supersedes it and clears only the older issue. A
 surviving pending signature keeps its draft and `notReady` blocker until its
 latest PNG confirms, then the newly owned row—not an older PNG—is retargeted.
@@ -163,7 +173,12 @@ different geometry redraw and re-encode the complete signature rather than
 clipping old absolute coordinates or submitting stale pixels. `toBlob`
 callbacks also carry a generation fence because the browser API cannot itself
 be aborted. Encode/upload failure retains the ink plus an actionable
-Retry/Remove slot issue across remounts; Retry re-encodes the retained strokes.
+Retry/Clear slot issue across remounts; Retry re-encodes the retained strokes.
+The DPR watcher is a self-rearming resolution media query, so a density-only
+change does not depend on a window resize event. Clear's inverse stroke buffer
+is stable-slot state, so Undo survives ordinary remounts until the worker draws
+again. A blocked canvas exposes its disabled/read-only state to assistive
+technology.
 
 `FormEngine.firstInvalidFieldTarget` returns the first effectively visible
 invalid concrete path plus every structural ancestor UUID. On invalid Submit,
@@ -172,6 +187,9 @@ the failure, then scrolls and focuses the real invalid control (`input`,
 signature canvas/custom textbox, button, or the focusable question wrapper
 fallback). Collapse toggles carry `aria-expanded` and `aria-controls`; selected
 capture questions use the same custom-control-aware focus selector.
+`AttachmentNotReadyError` carries stable slot, concrete path, and field UUID;
+the same reveal path opens a collapsed blocker and focuses its exact Retry
+action. Both paths use immediate scrolling when reduced motion is requested.
 
 ## Repeat instances are first-class
 

@@ -303,6 +303,66 @@ export async function createPendingFormAttachment(args: {
 	return { attachmentId, attachmentName, objectKey };
 }
 
+const INITIATION_COMPENSATION_LOCK_TIMEOUT = "1s";
+const INITIATION_COMPENSATION_STATEMENT_TIMEOUT = "2s";
+
+/**
+ * Best-effort compensation for a pending row whose signed URL was never issued.
+ *
+ * The server passes the complete just-created attempt identity rather than only
+ * its primary key. The single DELETE is the race fence: it may remove exactly
+ * that generation only while it is still `pending`; a concurrent transition
+ * that somehow won first makes the CAS a no-op instead of deleting staged or
+ * durable evidence. Short transaction-local timeouts keep a signing failure
+ * from turning into an unbounded request wait. A timeout/error is deliberately
+ * caller-swallowed because `expires_at` plus the scheduled sweep is the durable
+ * fallback.
+ */
+export async function compensatePendingFormAttachmentInitiation(args: {
+	attachmentId: string;
+	attachmentName: string;
+	appId: string;
+	projectId: string;
+	createdBy: string;
+	entryKey: string;
+	fieldUuid: string;
+	instancePath: string;
+	objectKey: string;
+}): Promise<boolean> {
+	return withAppTx(async (tx) => {
+		await sql`
+			SELECT
+				set_config(
+					'lock_timeout',
+					${INITIATION_COMPENSATION_LOCK_TIMEOUT},
+					true
+				),
+				set_config(
+					'statement_timeout',
+					${INITIATION_COMPENSATION_STATEMENT_TIMEOUT},
+					true
+				)
+		`.execute(tx);
+		const deleted = await tx
+			.deleteFrom("form_attachments")
+			.where("attachment_id", "=", args.attachmentId)
+			.where("attachment_name", "=", args.attachmentName)
+			.where("app_id", "=", args.appId)
+			.where("project_id", "=", args.projectId)
+			.where("created_by", "=", args.createdBy)
+			.where("entry_key", "=", args.entryKey)
+			.where("field_uuid", "=", args.fieldUuid)
+			.where("instance_path", "=", args.instancePath)
+			.where("gcs_object_key", "=", args.objectKey)
+			.where("status", "=", "pending")
+			.where("object_generation", "is", null)
+			.where("object_checksum", "is", null)
+			.returning("attachment_id")
+			.executeTakeFirst();
+		return deleted !== undefined;
+	});
+}
+
 /**
  * Read one attachment for an edit-authorized member of a known Project.
  *

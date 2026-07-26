@@ -8,6 +8,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+	compensatePendingFormAttachmentInitiation,
 	confirmFormAttachment,
 	deleteUnsubmittedFormAttachment,
 	loadFormAttachmentForEdit,
@@ -93,5 +94,109 @@ describe("form attachment URL-app authority", () => {
 			instance_path: "/data/photo",
 			status: "staged",
 		});
+	});
+});
+
+describe("form attachment initiation compensation", () => {
+	it("compensates only the exact still-pending initiation generation", async () => {
+		const appId = await h.seedApp({
+			id: "capture-compensation-app",
+			owner: ACTOR,
+			project_id: PROJECT,
+		});
+		const entryKey = crypto.randomUUID();
+		const attachmentId = crypto.randomUUID();
+		const objectKey = `captures-staged/${PROJECT}/${attachmentId}.png`;
+		const baseRow = {
+			attachment_id: attachmentId,
+			attachment_name: `${attachmentId}.png`,
+			app_id: appId,
+			project_id: PROJECT,
+			created_by: ACTOR,
+			entry_key: entryKey,
+			field_uuid: crypto.randomUUID(),
+			instance_path: "/data/photo",
+			original_filename: "photo.png",
+			extension: ".png",
+			content_type: "image/png",
+			size_bytes: 3,
+			gcs_object_key: objectKey,
+			object_generation: null,
+			object_checksum: null,
+			status: "pending",
+			last_promotion_error: null,
+			expires_at: new Date(Date.now() + 60_000),
+		} as const;
+		await h.db().insertInto("form_attachments").values(baseRow).execute();
+
+		const exactAttempt = {
+			attachmentId,
+			attachmentName: baseRow.attachment_name,
+			appId,
+			projectId: PROJECT,
+			createdBy: ACTOR,
+			entryKey,
+			fieldUuid: baseRow.field_uuid,
+			instancePath: baseRow.instance_path,
+			objectKey,
+		};
+		await expect(
+			compensatePendingFormAttachmentInitiation({
+				...exactAttempt,
+				objectKey: `${objectKey}.other`,
+			}),
+		).resolves.toBe(false);
+		await expect(
+			h
+				.db()
+				.selectFrom("form_attachments")
+				.select("status")
+				.where("attachment_id", "=", attachmentId)
+				.executeTakeFirst(),
+		).resolves.toEqual({ status: "pending" });
+
+		await expect(
+			compensatePendingFormAttachmentInitiation(exactAttempt),
+		).resolves.toBe(true);
+		await expect(
+			h
+				.db()
+				.selectFrom("form_attachments")
+				.select("attachment_id")
+				.where("attachment_id", "=", attachmentId)
+				.executeTakeFirst(),
+		).resolves.toBeUndefined();
+
+		const stagedAttachmentId = crypto.randomUUID();
+		const stagedObjectKey = `captures-staged/${PROJECT}/${stagedAttachmentId}.png`;
+		await h
+			.db()
+			.insertInto("form_attachments")
+			.values({
+				...baseRow,
+				attachment_id: stagedAttachmentId,
+				attachment_name: `${stagedAttachmentId}.png`,
+				gcs_object_key: stagedObjectKey,
+				object_generation: "17",
+				object_checksum: "checksum",
+				status: "staged",
+			})
+			.execute();
+		await expect(
+			compensatePendingFormAttachmentInitiation({
+				...exactAttempt,
+				attachmentId: stagedAttachmentId,
+				attachmentName: `${stagedAttachmentId}.png`,
+				objectKey: stagedObjectKey,
+			}),
+		).resolves.toBe(false);
+		await expect(
+			h
+				.db()
+				.selectFrom("form_attachments")
+				.select(["status", "object_generation"])
+				.where("attachment_id", "=", stagedAttachmentId)
+				.executeTakeFirst(),
+		).resolves.toEqual({ status: "staged", object_generation: "17" });
 	});
 });

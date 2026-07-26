@@ -160,6 +160,8 @@ function AttachmentControl({
 	const actionId = useId();
 	const statusId = useId();
 	const removeActionId = useId();
+	const retryActionId = useId();
+	const issueRemoveActionId = useId();
 	const errorId = useId();
 	const validationId = useId();
 	const helpId = useId();
@@ -239,9 +241,10 @@ function AttachmentControl({
 			entryKey,
 			slotKey,
 			instancePath: path,
+			fieldUuid: field.uuid,
 			captureKind: field.kind,
 		});
-	}, [appId, entryKey, field.kind, path, slotKey]);
+	}, [appId, entryKey, field.kind, field.uuid, path, slotKey]);
 
 	useEffect(() => {
 		if (!appId || !entryKey) {
@@ -439,6 +442,11 @@ function AttachmentControl({
 			void runAttachmentTask({
 				entryKey,
 				slotKey: clearTaskKey,
+				target: {
+					slotKey,
+					instancePath: currentPath() ?? path ?? slotKey,
+					fieldUuid: field.uuid,
+				},
 				task: async () => {
 					// Answer first, bytes second. The reverse order is the
 					// upstream defect this lane exists beside: on a device,
@@ -478,11 +486,32 @@ function AttachmentControl({
 		appId,
 		entryKey,
 		field.kind,
+		field.uuid,
+		path,
 		slotKey,
+		currentPath,
 		changeCurrent,
 		blurCurrent,
 		setIntent,
 	]);
+
+	const cancelUpload = useCallback(() => {
+		if (
+			intentRef.current !== "queued-upload" &&
+			intentRef.current !== "uploading"
+		) {
+			return;
+		}
+		if (entryKey) cancelAttachmentTask(entryKey, slotKey);
+		if (inputRef.current) inputRef.current.value = "";
+		setIntent("idle");
+		setError(
+			stagedRef.current !== undefined || state.value !== ""
+				? "Attachment canceled. The existing attachment is still attached."
+				: "Attachment canceled. No file was attached.",
+		);
+		blurCurrent();
+	}, [blurCurrent, entryKey, setIntent, slotKey, state.value]);
 
 	// Engine reset and repeat removal own the answer, so mirror an externally
 	// cleared value into local filename/busy state and cancel any late upload.
@@ -547,6 +576,7 @@ function AttachmentControl({
 
 	const hasAnswer = state.value !== "";
 	const busy = intent !== "idle";
+	const uploadActive = intent === "queued-upload" || intent === "uploading";
 	const showError = state.touched && !state.valid;
 	const labelledBy = questionLabelledBy ?? questionLabelId;
 	const describedBy = [
@@ -661,7 +691,18 @@ function AttachmentControl({
 										: "Attach file"}
 						</span>
 					</label>
-					{hasAnswer && !slotIssue ? (
+					{uploadActive ? (
+						<button
+							type="button"
+							onClick={cancelUpload}
+							aria-describedby={describedBy}
+							aria-label={`Cancel attachment for ${accessibleQuestionLabel}`}
+							className="inline-flex min-h-12 touch-manipulation items-center justify-center gap-1.5 rounded-md px-3 py-2 text-sm text-nova-text-muted transition-colors hover:bg-white/[0.06] hover:text-nova-text"
+						>
+							<Icon icon={tablerX} width="16" height="16" aria-hidden="true" />
+							Cancel
+						</button>
+					) : hasAnswer && !slotIssue ? (
 						<button
 							type="button"
 							onClick={clear}
@@ -728,18 +769,33 @@ function AttachmentControl({
 							type="button"
 							onClick={retryIssue}
 							disabled={busy}
+							data-attachment-recovery
+							aria-label={`Retry ${
+								field.kind === "signature" ? "signature" : "attachment"
+							} for ${accessibleQuestionLabel}`}
+							aria-labelledby={
+								labelledBy ? `${retryActionId} ${labelledBy}` : undefined
+							}
 							className="inline-flex min-h-11 touch-manipulation items-center rounded-md border border-current px-3 font-medium transition-colors not-disabled:hover:bg-nova-red/10 disabled:cursor-not-allowed disabled:opacity-40"
 						>
-							Retry
+							<span id={retryActionId}>Retry</span>
 						</button>
-						<button
-							type="button"
-							onClick={clear}
-							disabled={busy}
-							className="inline-flex min-h-11 touch-manipulation items-center rounded-md px-3 font-medium transition-colors not-disabled:hover:bg-nova-red/10 disabled:cursor-not-allowed disabled:opacity-40"
-						>
-							Remove {field.kind === "signature" ? "signature" : "attachment"}
-						</button>
+						{field.kind === "signature" ? null : (
+							<button
+								type="button"
+								onClick={clear}
+								disabled={busy}
+								aria-label={`Remove attachment for ${accessibleQuestionLabel}`}
+								aria-labelledby={
+									labelledBy
+										? `${issueRemoveActionId} ${labelledBy}`
+										: undefined
+								}
+								className="inline-flex min-h-11 touch-manipulation items-center rounded-md px-3 font-medium transition-colors not-disabled:hover:bg-nova-red/10 disabled:cursor-not-allowed disabled:opacity-40"
+							>
+								<span id={issueRemoveActionId}>Remove attachment</span>
+							</button>
+						)}
 					</div>
 				</div>
 			) : null}

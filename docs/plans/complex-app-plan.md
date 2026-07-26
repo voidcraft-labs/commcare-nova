@@ -764,7 +764,10 @@ row `promotion_pending`: the scheduled five-minute worker leases bounded
 batches with `FOR UPDATE SKIP LOCKED`, verifies any prior destination by
 size/CRC32C/type, and retries with backoff. An already accepted form is never
 reported failed or discarded because that external copy was transiently
-unavailable.
+unavailable. If the staging generation has already expired after a prior copy
+landed, promotion accepts the durable destination only after independently
+matching its exact size, CRC32C, content type, and concrete generation. A
+missing or mismatched destination remains retryable and fail-closed.
 
 There is deliberately no destructive hook on value change or repeat removal.
 Clear/replace may delete only `pending`/`staged` rows; anything reserved by a
@@ -775,6 +778,10 @@ source tenant.
 
 Initiate is also a lifecycle boundary: once POST has minted a pending row, a
 failed/aborted signed PUT or confirm schedules a bounded compensating DELETE.
+If signed-URL creation itself fails after the insert, the route runs a bounded
+pending-only compare-and-delete using the full server-created attempt identity;
+a row that advanced is preserved, and cleanup failure leaves the expiry sweep
+as the explicit backstop without masking the signing error.
 That cleanup, replacement cleanup, explicit removal, repeat deletion, and entry
 retirement are all detached from the entry's critical mutation queue. A slow or
 hung DELETE can therefore leave only an expiring orphan; it can never hold a
@@ -825,8 +832,8 @@ in the entry's stable-slot registry, so
 relevance, collapse, repeat compaction, and Preview/Edit remounts do not erase it;
 it still dies with the page/entry, the same lifetime `form_ui.js`'s in-memory
 `fileNameCache` gives it. Action rows wrap at compact widths, arbitrary filenames
-break rather than overflow, and every Submit/Clear/Retry/Remove action retains at
-least a 44 CSS-pixel target.
+break rather than overflow, and every Submit/Clear/Retry/Remove/Cancel action
+retains at least a 44 CSS-pixel target.
 
 **The preview does not resume a partially-filled form** — nothing persists
 runtime answers and `deactivate` wipes the store — so the entry key is minted
@@ -839,13 +846,21 @@ the queue, then keeps reclassifying while it waits: signal-aware work for a
 dormant question is cancelled without losing its draft/diagnostic, removed work
 is retired, and only effectively visible `notReady` state can block. This
 preflight includes queued retarget maintenance, so a hidden or removed question
-cannot starve Submit behind a never-settling upload or PATCH.
+cannot starve Submit behind a never-settling upload or PATCH. A destructive
+Clear has a private serialization key but carries its real stable slot,
+concrete path, and field UUID into that classification, so an active Clear
+stays ahead of Submit. Initiate, PUT, and confirm each have a 30-second
+foreground deadline. A visible Cancel aborts a file upload generation while
+preserving the previous confirmed owner and answer; a late completion is
+generation-fenced and cleaned up.
 
 Repeat instances keep stable render keys through index compaction. A failed
 retarget is recoverable, not destructive: the confirmed row, answer, filename,
 signature ink, desired path, and a generation-tagged blocker remain owned by the
 slot. The control keeps the exact actionable error across ordinary remounts and
-offers Retry plus the kind-appropriate replacement gesture or Remove. Retry
+offers Retry plus replace/remove for picked files; Signature keeps Retry beside
+its single Clear action. Every recovery action has a question-qualified
+accessible name. Retry
 compare-and-sets the retained row in place; a newer replacement/drawing
 generation wins and clears only the older diagnostic. No failed retarget deletes
 the only recoverable row or silently submits it under the wrong path.
@@ -855,11 +870,20 @@ ratio, and backing-store dimensions live together in stable draft state. A
 material change — including DPR-only change or a remount at a different width —
 generation-fences stale `toBlob` callbacks, redraws normalized ink, and re-encodes
 before Submit. A failed encode/upload retains both ink and an actionable
-Retry/Remove error across remounts. Clear is an explicit newer intent even during
+Retry/Clear error across remounts. Clear's inverse stroke buffer also lives in
+stable draft state, so Undo survives ordinary remounts until new ink supersedes
+it. `pointercancel` and `lostpointercapture` settle the dirty drawing, and a
+dirty draft interrupted by unmount starts encoding when the pad returns.
+DPR-only detection uses a self-rearming resolution media query rather than
+relying on a resize event; an interaction-blocked canvas exposes
+disabled/read-only semantics. Clear is an explicit newer intent even during
 an active upload: it cancels that generation and composes exactly one queued
 answer-clear transition. Invalid Submit expands every collapsed group/repeat
 ancestor, announces the validation failure, scrolls the first invalid question,
-and focuses its actual control (including the signature canvas).
+and focuses its actual control (including the signature canvas). An attachment
+blocker carries its stable slot, field UUID, and concrete path through the same
+reveal flow, which focuses that question's uniquely named Retry action. Both
+flows switch to non-animated scrolling when reduced motion is requested.
 
 Those rules also mean the runtime's blank-pad-over-live-signature behavior has
 no Nova counterpart to be faithful to; the comment on

@@ -80,6 +80,7 @@ const REPEAT_UUID = asUuid("00000000-0000-0000-0000-000000000c13");
 const GROUP_ONE_PHOTO_UUID = asUuid("00000000-0000-0000-0000-000000000c21");
 const GROUP_TWO_PHOTO_UUID = asUuid("00000000-0000-0000-0000-000000000c22");
 const REPEAT_PHOTO_UUID = asUuid("00000000-0000-0000-0000-000000000c23");
+const GROUP_TWO_SIGNATURE_UUID = asUuid("00000000-0000-0000-0000-000000000c24");
 const REQUIRED_PHOTO_UUID = asUuid("00000000-0000-0000-0000-000000000c31");
 const REQUIRED_SIGNATURE_UUID = asUuid("00000000-0000-0000-0000-000000000c32");
 const PERSONA_UUID = asUuid("00000000-0000-0000-0000-000000000d01");
@@ -195,6 +196,7 @@ import {
 	__resetAttachmentCoordinatorForTests,
 	rememberOwnedStagedAttachment,
 	runAttachmentTask,
+	setAttachmentSlotIssue,
 } from "../../form/fields/attachment/attachmentClient";
 import { FormScreen } from "../FormScreen";
 
@@ -384,6 +386,12 @@ function renderFormScreen(opts: {
 						kind: "image",
 						label: "Photo",
 					},
+					[GROUP_TWO_SIGNATURE_UUID]: {
+						uuid: GROUP_TWO_SIGNATURE_UUID,
+						id: "consent",
+						kind: "signature",
+						label: "Signed consent",
+					},
 					[REQUIRED_PHOTO_UUID]: {
 						uuid: REQUIRED_PHOTO_UUID,
 						id: "photo",
@@ -416,7 +424,7 @@ function renderFormScreen(opts: {
 				fieldOrder: {
 					[opts.formUuid]: activeFieldUuids,
 					[GROUP_ONE_UUID]: [GROUP_ONE_PHOTO_UUID],
-					[GROUP_TWO_UUID]: [GROUP_TWO_PHOTO_UUID],
+					[GROUP_TWO_UUID]: [GROUP_TWO_PHOTO_UUID, GROUP_TWO_SIGNATURE_UUID],
 					[REPEAT_UUID]: [REPEAT_PHOTO_UUID],
 				},
 			}}
@@ -1137,6 +1145,95 @@ describe("FormScreen — validate-fail short-circuit", () => {
 		).toBeDefined();
 		expect(vi.mocked(submitFormAction)).not.toHaveBeenCalled();
 	});
+
+	it("uses non-animated scrolling when reduced motion is requested", async () => {
+		const scrollIntoView = vi.fn();
+		vi.spyOn(HTMLElement.prototype, "scrollIntoView").mockImplementation(
+			scrollIntoView,
+		);
+		vi.stubGlobal(
+			"matchMedia",
+			vi.fn(() => ({
+				matches: true,
+				media: "(prefers-reduced-motion: reduce)",
+				onchange: null,
+				addEventListener: vi.fn(),
+				removeEventListener: vi.fn(),
+				addListener: vi.fn(),
+				removeListener: vi.fn(),
+				dispatchEvent: vi.fn(),
+			})),
+		);
+		renderFormScreen({ formUuid: REQUIRED_FORM_UUID });
+
+		fireEvent.click(await screen.findByRole("button", { name: /^submit$/i }));
+
+		await waitFor(() =>
+			expect(scrollIntoView).toHaveBeenCalledWith({
+				behavior: "auto",
+				block: "center",
+			}),
+		);
+	});
+
+	it.each([
+		{
+			kind: "file",
+			fieldUuid: GROUP_TWO_PHOTO_UUID,
+			controlName: /Section 2.*Visit.*Question 1.*Photo.*Attach file/i,
+			recoveryName: /Retry.*Photo/i,
+			message:
+				"This attachment could not move with its repeat entry. Retry now, attach a replacement, or remove it.",
+		},
+		{
+			kind: "signature",
+			fieldUuid: GROUP_TWO_SIGNATURE_UUID,
+			controlName:
+				/Section 2.*Visit.*Question 2.*Signed consent.*Signature pad/i,
+			recoveryName: /Retry.*Signed consent/i,
+			message:
+				"This signature could not move with its repeat entry. Retry now, draw it again, or remove it.",
+		},
+	])(
+		"expands a collapsed $kind recovery target, announces it, and focuses its action",
+		async ({ fieldUuid, controlName, recoveryName, message }) => {
+			renderFormScreen({ formUuid: STRUCTURE_FORM_UUID });
+			await screen.findByLabelText(controlName);
+			await waitFor(() => expect(capturedController?.entryKey).toBeDefined());
+			const entryKey = capturedController?.entryKey;
+			if (!entryKey) throw new Error("Expected an active form entry");
+			act(() => {
+				setAttachmentSlotIssue({
+					appId: APP_ID,
+					entryKey,
+					slotKey: `${fieldUuid}\u0000`,
+					issue: { kind: "retarget", message },
+				});
+			});
+			expect(
+				await screen.findByRole("button", { name: recoveryName }),
+			).toBeDefined();
+
+			const groupToggle = screen.getByRole("button", {
+				name: /Collapse.*Section 2.*Visit/i,
+			});
+			fireEvent.click(groupToggle);
+			expect(groupToggle.getAttribute("aria-expanded")).toBe("false");
+			expect(screen.queryByRole("button", { name: recoveryName })).toBeNull();
+
+			fireEvent.click(screen.getByRole("button", { name: /^submit$/i }));
+
+			await waitFor(() => {
+				expect(groupToggle.getAttribute("aria-expanded")).toBe("true");
+			});
+			const recovery = await screen.findByRole("button", {
+				name: recoveryName,
+			});
+			await waitFor(() => expect(document.activeElement).toBe(recovery));
+			expect(screen.getByText(message)).toBeDefined();
+			expect(vi.mocked(submitFormAction)).not.toHaveBeenCalled();
+		},
+	);
 });
 
 // ── !appId guard ───────────────────────────────────────────────

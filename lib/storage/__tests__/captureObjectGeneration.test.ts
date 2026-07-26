@@ -160,6 +160,72 @@ describe("capture object generation fencing", () => {
 		);
 	});
 
+	it("recovers a missing source when the durable destination independently matches", async () => {
+		copyMock.mockRejectedValue({ code: 404 });
+		const { copyAssetObjectIfAbsent } = await import("../media");
+
+		await expect(
+			copyAssetObjectIfAbsent({
+				sourceGcsObjectKey: "captures-staged/project/attachment.png",
+				sourceGeneration: "source-generation",
+				destinationGcsObjectKey: "projects/project/captures/attachment.png",
+				expectedSize: 17,
+				expectedChecksum: "checksum",
+				expectedContentType: "image/png",
+			}),
+		).resolves.toEqual({
+			destinationGeneration: "destination-generation",
+			replay: true,
+		});
+
+		expect(getMetadataMock).toHaveBeenCalledOnce();
+	});
+
+	it("refuses a missing source when the durable destination does not match", async () => {
+		copyMock.mockRejectedValue({ code: 404 });
+		const { copyAssetObjectIfAbsent } = await import("../media");
+		const args = {
+			sourceGcsObjectKey: "captures-staged/project/attachment.png",
+			sourceGeneration: "source-generation",
+			destinationGcsObjectKey: "projects/project/captures/attachment.png",
+			expectedSize: 17,
+			expectedChecksum: "checksum",
+			expectedContentType: "image/png",
+		};
+		const mismatches = [
+			{
+				size: "18",
+				generation: "other-generation",
+				crc32c: "checksum",
+				contentType: "image/png",
+			},
+			{
+				size: "17",
+				generation: "other-generation",
+				crc32c: "other-checksum",
+				contentType: "image/png",
+			},
+			{
+				size: "17",
+				generation: "other-generation",
+				crc32c: "checksum",
+				contentType: "application/octet-stream",
+			},
+			{
+				size: "17",
+				generation: undefined,
+				crc32c: "checksum",
+				contentType: "image/png",
+			},
+		];
+		for (const metadata of mismatches) {
+			getMetadataMock.mockResolvedValueOnce([metadata]);
+			await expect(copyAssetObjectIfAbsent(args)).rejects.toThrow(
+				/does not match the staged source generation/,
+			);
+		}
+	});
+
 	it("deletes only the confirmed source generation", async () => {
 		const { deleteAssetGeneration } = await import("../media");
 		await deleteAssetGeneration(

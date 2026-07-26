@@ -7,16 +7,19 @@ import {
 	type AttachmentTaskContext,
 	cancelAttachmentTask,
 	clearAttachmentNotReady,
-	clearSignatureDraft,
+	clearSignatureUndoDraft,
 	getSignatureDraft,
 	getSignatureEncodedGeometry,
+	getSignatureUndoDraft,
 	isAttachmentTaskAbort,
 	markAttachmentNotReady,
+	rememberClearedSignatureDraft,
 	rememberSignatureDraft,
 	rememberSignatureEncodedGeometry,
 	runAttachmentTask,
 	type SignatureCanvasGeometry,
 	type SignaturePoint,
+	signatureDraftNeedsEncoding,
 } from "./attachmentClient";
 
 /**
@@ -220,11 +223,15 @@ export function SignaturePad({
 	 * timed window, which would punish anyone reading slowly or arriving by
 	 * keyboard.
 	 */
-	const clearedRef = useRef<Point[][] | undefined>(undefined);
-	const [cleared, setCleared] = useState(false);
+	const clearedRef = useRef<Point[][] | undefined>(
+		getSignatureUndoDraft(entryKey, coordinationKey),
+	);
+	const [cleared, setCleared] = useState(clearedRef.current !== undefined);
 	const [empty, setEmpty] = useState(strokesRef.current.length === 0);
-	const clearPendingRef = useRef(false);
-	const [clearPending, setClearPending] = useState(false);
+	const clearPendingRef = useRef(clearedRef.current !== undefined);
+	const [clearPending, setClearPending] = useState(
+		clearedRef.current !== undefined,
+	);
 	const [saveIntent, setSaveIntent] = useState<"idle" | "queued" | "saving">(
 		"idle",
 	);
@@ -278,12 +285,14 @@ export function SignaturePad({
 			const next = canvasSizeRef.current;
 			const encoded = getSignatureEncodedGeometry(entryKey, coordinationKey);
 			const previousEncodingGeometry = pendingGeometryRef.current ?? encoded;
+			const dirty = signatureDraftNeedsEncoding(entryKey, coordinationKey);
 			if (
 				next === undefined ||
-				previousEncodingGeometry === undefined ||
-				sameGeometry(previousEncodingGeometry, next) ||
 				strokesRef.current.length === 0 ||
-				drawingRef.current
+				drawingRef.current ||
+				(!dirty &&
+					(previousEncodingGeometry === undefined ||
+						sameGeometry(previousEncodingGeometry, next)))
 			) {
 				return;
 			}
@@ -310,9 +319,27 @@ export function SignaturePad({
 				: new ResizeObserver(redrawForResize);
 		if (canvasRef.current !== null) resizeObserver?.observe(canvasRef.current);
 		window.addEventListener("resize", onResize);
+		let resolutionQuery: MediaQueryList | undefined;
+		const onResolutionChange = () => {
+			redrawForResize();
+			armResolutionQuery();
+		};
+		const armResolutionQuery = () => {
+			resolutionQuery?.removeEventListener("change", onResolutionChange);
+			if (typeof window.matchMedia !== "function") {
+				resolutionQuery = undefined;
+				return;
+			}
+			resolutionQuery = window.matchMedia(
+				`(resolution: ${window.devicePixelRatio || 1}dppx)`,
+			);
+			resolutionQuery.addEventListener("change", onResolutionChange);
+		};
+		armResolutionQuery();
 		return () => {
 			resizeObserver?.disconnect();
 			window.removeEventListener("resize", onResize);
+			resolutionQuery?.removeEventListener("change", onResolutionChange);
 		};
 	}, [coordinationKey, entryKey, redraw]);
 
@@ -334,10 +361,10 @@ export function SignaturePad({
 		pendingGeometryRef.current = undefined;
 		identityRef.current = { entryKey, slotKey: coordinationKey };
 		strokesRef.current = getSignatureDraft(entryKey, coordinationKey);
-		clearedRef.current = undefined;
-		setCleared(false);
-		clearPendingRef.current = false;
-		setClearPending(false);
+		clearedRef.current = getSignatureUndoDraft(entryKey, coordinationKey);
+		setCleared(clearedRef.current !== undefined);
+		clearPendingRef.current = clearedRef.current !== undefined;
+		setClearPending(clearedRef.current !== undefined);
 		setSaveIntent("idle");
 		setEmpty(strokesRef.current.length === 0);
 		retryRevisionRef.current = retryRevision;
@@ -447,6 +474,22 @@ export function SignaturePad({
 	scheduleEmitRef.current = scheduleEmit;
 
 	useEffect(() => {
+		const canvas = canvasRef.current;
+		if (canvas === null) return;
+		const settleLostCapture = () => {
+			if (!drawingRef.current) return;
+			drawingRef.current = false;
+			scheduleEmitRef.current();
+		};
+		// `lostpointercapture` is the browser's terminal signal when the
+		// element loses capture without delivering pointerup/cancel. Listen on
+		// the canvas itself so no React event-delegation edge can strand ink.
+		canvas.addEventListener("lostpointercapture", settleLostCapture);
+		return () =>
+			canvas.removeEventListener("lostpointercapture", settleLostCapture);
+	}, []);
+
+	useEffect(() => {
 		if (retryRevisionRef.current === retryRevision) return;
 		retryRevisionRef.current = retryRevision;
 		if (strokesRef.current.length === 0) {
@@ -485,7 +528,11 @@ export function SignaturePad({
 			strokesRef.current.length > 0 ? strokesRef.current : undefined;
 		setCleared(clearedRef.current !== undefined);
 		strokesRef.current = [];
-		clearSignatureDraft(entryKey, coordinationKey);
+		rememberClearedSignatureDraft(
+			entryKey,
+			coordinationKey,
+			clearedRef.current,
+		);
 		setEmpty(true);
 		redraw();
 		onClear();
@@ -503,6 +550,7 @@ export function SignaturePad({
 		const restored = clearedRef.current;
 		if (restored === undefined) return;
 		clearedRef.current = undefined;
+		clearSignatureUndoDraft(entryKey, coordinationKey);
 		setCleared(false);
 		clearPendingRef.current = false;
 		setClearPending(false);
@@ -557,6 +605,8 @@ export function SignaturePad({
 				aria-describedby={describedBy}
 				aria-required={required}
 				aria-invalid={invalid}
+				aria-disabled={interactionBlocked}
+				aria-readonly={interactionBlocked}
 				data-instance-path={instancePath}
 				className="h-40 w-full touch-none rounded-lg border border-pv-input-border bg-white"
 				onPointerDown={(e) => {
@@ -578,7 +628,10 @@ export function SignaturePad({
 					// said what they want by drawing it.
 					if (clearedRef.current !== undefined) {
 						clearedRef.current = undefined;
+						clearSignatureUndoDraft(entryKey, coordinationKey);
 						setCleared(false);
+						clearPendingRef.current = false;
+						setClearPending(false);
 					}
 					e.currentTarget.setPointerCapture(e.pointerId);
 					drawingRef.current = true;
@@ -605,6 +658,11 @@ export function SignaturePad({
 					scheduleEmit();
 				}}
 				onPointerCancel={() => {
+					if (!drawingRef.current) return;
+					drawingRef.current = false;
+					scheduleEmit();
+				}}
+				onLostPointerCapture={() => {
 					if (!drawingRef.current) return;
 					drawingRef.current = false;
 					scheduleEmit();
@@ -646,6 +704,13 @@ export function SignaturePad({
 									? `${undoActionId} ${effectiveLabelledBy}`
 									: undefined
 							}
+							aria-label={
+								effectiveLabelledBy
+									? undefined
+									: questionLabel === undefined
+										? undefined
+										: `Undo clear signature for ${questionLabel}`
+							}
 							className="inline-flex min-h-12 touch-manipulation items-center gap-1.5 rounded-md px-2 text-xs font-medium text-nova-violet-bright transition-colors not-disabled:hover:text-nova-text disabled:cursor-not-allowed disabled:opacity-40"
 						>
 							<Icon
@@ -669,6 +734,13 @@ export function SignaturePad({
 						effectiveLabelledBy
 							? `${clearActionId} ${effectiveLabelledBy}`
 							: undefined
+					}
+					aria-label={
+						effectiveLabelledBy
+							? undefined
+							: questionLabel === undefined
+								? undefined
+								: `Clear signature for ${questionLabel}`
 					}
 					className="inline-flex min-h-12 touch-manipulation items-center gap-2 rounded-md border border-pv-input-border bg-pv-surface px-4 text-sm font-medium text-nova-text transition-colors not-disabled:hover:border-pv-input-focus disabled:cursor-not-allowed disabled:opacity-40"
 				>
