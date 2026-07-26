@@ -6,9 +6,9 @@ import {
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
 import type {
+	LookupDefinitionsSnapshot,
 	LookupRevision,
 	LookupTableManifestEntry,
-	LookupTableSnapshot,
 } from "@/lib/lookup/types";
 
 const tableA = lookupTableIdSchema.parse(
@@ -24,15 +24,15 @@ const revision = (value: string) => value as LookupRevision;
 
 function manifest(
 	id = tableA,
-	tableRevision = revision("8"),
+	definitionRevision = revision("8"),
 ): LookupTableManifestEntry {
 	return {
 		id,
 		name: "Facilities",
 		tag: "facilities",
-		definitionRevision: revision("8"),
+		definitionRevision,
 		rowsRevision: revision("7"),
-		tableRevision,
+		tableRevision: definitionRevision,
 		columnCount: 1,
 		rowCount: 2,
 		dataBytes: 42,
@@ -41,33 +41,28 @@ function manifest(
 
 function snapshot(
 	id = tableA,
-	tableRevision = revision("8"),
-): LookupTableSnapshot {
+	definitionRevision = revision("8"),
+	projectId = "project-a",
+): LookupDefinitionsSnapshot {
 	return {
-		projectId: "project-a",
+		projectId,
 		projectRevision: revision("9"),
-		id,
-		name: "Facilities",
-		tag: "facilities",
-		definitionRevision: revision("8"),
-		rowsRevision: revision("7"),
-		tableRevision,
-		columns: [
+		definitions: [
 			{
-				id: column,
-				wireName: "name",
-				label: "Name",
-				dataType: "text",
+				id,
+				name: "Facilities",
+				tag: "facilities",
+				definitionRevision,
+				columns: [
+					{
+						id: column,
+						wireName: "name",
+						label: "Name",
+						dataType: "text",
+					},
+				],
 			},
 		],
-		columnCount: 1,
-		rows: [],
-		rowCount: 0,
-		dataBytes: 0,
-		createdBy: "author",
-		updatedBy: "author",
-		createdAt: "2026-07-26T00:00:00.000Z",
-		updatedAt: "2026-07-26T00:00:00.000Z",
 	};
 }
 
@@ -75,6 +70,8 @@ describe("projectLookupDefinitionContext", () => {
 	it("carries the exact focused definition and its revisions", () => {
 		expect(
 			projectLookupDefinitionContext({
+				currentProjectId: "project-a",
+				manifestProjectId: "project-a",
 				focusedTableId: tableA,
 				manifestEntry: manifest(),
 				snapshot: snapshot(),
@@ -105,6 +102,8 @@ describe("projectLookupDefinitionContext", () => {
 	it("stays fail-closed when a kept-stale body belongs to another table", () => {
 		expect(
 			projectLookupDefinitionContext({
+				currentProjectId: "project-a",
+				manifestProjectId: "project-a",
 				focusedTableId: tableB,
 				manifestEntry: manifest(tableB),
 				snapshot: snapshot(tableA),
@@ -112,12 +111,38 @@ describe("projectLookupDefinitionContext", () => {
 		).toBe(LOOKUP_CONTEXT_UNAVAILABLE);
 	});
 
-	it("stays fail-closed until a stale table revision catches up", () => {
+	it("stays fail-closed until a stale definition revision catches up", () => {
 		expect(
 			projectLookupDefinitionContext({
+				currentProjectId: "project-a",
+				manifestProjectId: "project-a",
 				focusedTableId: tableA,
 				manifestEntry: manifest(tableA, revision("9")),
 				snapshot: snapshot(tableA, revision("8")),
+			}),
+		).toBe(LOOKUP_CONTEXT_UNAVAILABLE);
+	});
+
+	it("stays fail-closed when the rows-free snapshot belongs to another Project", () => {
+		expect(
+			projectLookupDefinitionContext({
+				currentProjectId: "project-a",
+				manifestProjectId: "project-a",
+				focusedTableId: tableA,
+				manifestEntry: manifest(),
+				snapshot: snapshot(tableA, revision("8"), "project-b"),
+			}),
+		).toBe(LOOKUP_CONTEXT_UNAVAILABLE);
+	});
+
+	it("stays fail-closed when the manifest is from the previous Project", () => {
+		expect(
+			projectLookupDefinitionContext({
+				currentProjectId: "project-a",
+				manifestProjectId: "project-b",
+				focusedTableId: tableA,
+				manifestEntry: manifest(),
+				snapshot: snapshot(),
 			}),
 		).toBe(LOOKUP_CONTEXT_UNAVAILABLE);
 	});

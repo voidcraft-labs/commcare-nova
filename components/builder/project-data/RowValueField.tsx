@@ -6,10 +6,10 @@
  * `TimeField`, both of which open floating surfaces, and neither survives a
  * dense scrolling cell with a 44px target. Here each one has room.
  *
- * An empty control means the cell is ABSENT, not empty text. `lib/lookup`
- * treats a missing UUID key as a missing cell, and the two are different
- * things at the boundary — an empty CSV cell omits the key, so the editor
- * matches that rather than writing "" and inventing a value.
+ * Text deliberately keeps `""` distinct from an absent UUID key. The server
+ * model supports both, and silently collapsing an authored empty string (or
+ * leading/trailing spaces) into absence would make the editor lossy. For the
+ * other types, clearing the control still means absence.
  */
 "use client";
 
@@ -19,27 +19,35 @@ import { Input } from "@/components/shadcn/input";
 import { Label } from "@/components/shadcn/label";
 import { TimeField } from "@/components/shadcn/time-field";
 import type { LookupColumn } from "@/lib/lookup/types";
-import { COLUMN_TYPE_LABELS } from "./projectDataModel";
+import { COLUMN_TYPE_LABELS, type RowDraftCell } from "./projectDataModel";
 
 export function RowValueField({
 	column,
 	value,
 	invalid,
+	disabled = false,
 	onChange,
 }: {
 	column: LookupColumn;
-	/** The cell as text, or `undefined` when the row has no value for it. */
-	value: string | undefined;
+	/** Raw author text plus any hidden temporal offset needed for storage. */
+	value: RowDraftCell | undefined;
 	/** A per-cell refusal from the last save attempt, in the author's words. */
 	invalid?: string;
-	onChange: (next: string | undefined) => void;
+	disabled?: boolean;
+	onChange: (next: RowDraftCell) => void;
 }) {
 	const fieldId = useId();
 	const errorId = useId();
-	const text = value ?? "";
-	/* One place decides "typing nothing means no cell", so every control agrees
-	 * and a cleared date behaves like a cleared number. */
-	const commit = (next: string) => onChange(next === "" ? undefined : next);
+	const text = value?.text ?? "";
+	const commit = (next: string) =>
+		onChange({
+			...value,
+			text: next === "" && column.dataType !== "text" ? undefined : next,
+			/* Once the visible clock changes, the original stored spelling no
+			 * longer describes it. Keep only the offset projection. */
+			originalStored: undefined,
+			originalText: undefined,
+		});
 
 	return (
 		<div className="min-w-0">
@@ -60,6 +68,7 @@ export function RowValueField({
 						id={fieldId}
 						value={text}
 						onValueChange={commit}
+						disabled={disabled}
 						aria-describedby={invalid ? errorId : undefined}
 					/>
 				) : column.dataType === "time" ? (
@@ -67,18 +76,23 @@ export function RowValueField({
 						id={fieldId}
 						value={text}
 						onValueChange={commit}
+						disabled={disabled}
+						aria-label={`${column.label} time`}
 						aria-describedby={invalid ? errorId : undefined}
 					/>
 				) : column.dataType === "datetime" ? (
 					<DateTimeField
 						fieldId={fieldId}
+						columnLabel={column.label}
 						value={text}
 						onChange={commit}
+						disabled={disabled}
 						describedBy={invalid ? errorId : undefined}
 					/>
 				) : (
 					<Input
 						id={fieldId}
+						disabled={disabled}
 						/* `inputMode` rather than `type="number"`: a number input
 						 * silently discards what it cannot parse while you type, so a
 						 * mid-edit value can vanish. The server is the authority on
@@ -119,13 +133,17 @@ export function RowValueField({
  */
 function DateTimeField({
 	fieldId,
+	columnLabel,
 	value,
 	onChange,
+	disabled,
 	describedBy,
 }: {
 	fieldId: string;
+	columnLabel: string;
 	value: string;
 	onChange: (next: string) => void;
+	disabled: boolean;
 	describedBy?: string;
 }) {
 	const timeId = useId();
@@ -149,13 +167,15 @@ function DateTimeField({
 				id={fieldId}
 				value={datePart}
 				onValueChange={(next) => emit(next, timePart)}
+				disabled={disabled}
 				aria-describedby={describedBy}
 			/>
 			<TimeField
 				id={timeId}
-				aria-label="Time"
+				aria-label={`${columnLabel} time`}
 				value={timePart}
 				onValueChange={(next) => emit(datePart, next)}
+				disabled={disabled}
 				aria-describedby={describedBy}
 			/>
 		</div>

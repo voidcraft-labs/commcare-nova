@@ -107,6 +107,9 @@ export function ProjectDataTableListScreen() {
 										{formatLookupCount(table.rowCount, "row")} ·{" "}
 										{formatLookupBytes(table.dataBytes)}
 									</span>
+									<span className="min-w-0 text-[12px] leading-snug text-nova-text-muted [overflow-wrap:anywhere]">
+										Export tag: <code className="font-mono">{table.tag}</code>
+									</span>
 								</span>
 								<Icon
 									icon={tablerChevronRight}

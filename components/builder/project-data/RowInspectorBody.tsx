@@ -23,10 +23,12 @@ import tablerTrash from "@iconify-icons/tabler/trash";
 import { useMemo, useRef, useState } from "react";
 import { Button } from "@/components/shadcn/button";
 import type { LookupColumnId } from "@/lib/domain/lookupIds";
-import type { LookupColumn, LookupRow } from "@/lib/lookup/types";
+import type { LookupRow, LookupTableSnapshot } from "@/lib/lookup/types";
 import { useInlineConfirmFocus } from "@/lib/ui/hooks/useInlineConfirmFocus";
 import type { ProjectDataWorkspace } from "./ProjectDataWorkspaceProvider";
 import {
+	captureRowEditBaseline,
+	cellText,
 	type RowDraft,
 	rowDraftToValues,
 	rowValuesToDraft,
@@ -35,15 +37,16 @@ import { RowValueField } from "./RowValueField";
 
 export function RowInspectorBody({
 	row,
-	columns,
+	table,
 	workspace,
 	canEdit,
 }: {
 	row: LookupRow;
-	columns: readonly LookupColumn[];
+	table: LookupTableSnapshot;
 	workspace: ProjectDataWorkspace;
 	canEdit: boolean;
 }) {
+	const columns = table.columns;
 	/* Keyed by the row's identity AND its stored content: a co-member's edit
 	 * to this row arriving through the realtime clock should reset an
 	 * untouched editor to the fresh values, while a dirty editor keeps the
@@ -52,34 +55,57 @@ export function RowInspectorBody({
 		() => rowValuesToDraft(row.values, columns),
 		[row.values, columns],
 	);
-	const [draft, setDraft] = useState<RowDraft>(stored);
-	const [dirty, setDirty] = useState(false);
+	const incomingBaseline = useMemo(
+		() => captureRowEditBaseline(table, row),
+		[table, row],
+	);
+	const [edit, setEdit] = useState<{
+		readonly draft: RowDraft;
+		readonly dirty: boolean;
+		readonly baseline: ReturnType<typeof captureRowEditBaseline>;
+	}>({
+		draft: stored,
+		dirty: false,
+		baseline: incomingBaseline,
+	});
 	const [errors, setErrors] = useState<ReadonlyMap<LookupColumnId, string>>(
 		new Map(),
 	);
 	const [status, setStatus] = useState<string | null>(null);
 	const [failure, setFailure] = useState<string | null>(null);
 	const [saving, setSaving] = useState(false);
+	const [deleting, setDeleting] = useState(false);
 	const [confirmingDelete, setConfirmingDelete] = useState(false);
 	const { triggerRef, panelRef } = useInlineConfirmFocus(confirmingDelete);
 
 	/* Adopt fresh stored values only while the author has nothing in flight.
 	 * Doing it during render (not in an effect) means the rail never paints one
 	 * frame of the old values after the new ones arrive. */
-	const lastStored = useRef(stored);
-	if (lastStored.current !== stored) {
-		lastStored.current = stored;
-		if (!dirty) setDraft(stored);
+	const lastIncomingRevision = useRef(incomingBaseline.tableRevision);
+	if (
+		lastIncomingRevision.current !== incomingBaseline.tableRevision &&
+		!edit.dirty
+	) {
+		lastIncomingRevision.current = incomingBaseline.tableRevision;
+		setEdit({
+			draft: stored,
+			dirty: false,
+			baseline: incomingBaseline,
+		});
 	}
 
-	const update = (columnId: LookupColumnId, next: string | undefined) => {
-		setDirty(true);
+	const update = (columnId: LookupColumnId, next: RowDraft[LookupColumnId]) => {
 		setStatus(null);
-		setDraft((current) => ({ ...current, [columnId]: next }));
+		setEdit((current) => ({
+			...current,
+			dirty: true,
+			draft: { ...current.draft, [columnId]: next },
+		}));
 	};
 
 	const save = async () => {
-		const parsed = rowDraftToValues(draft, columns);
+		if (!canEdit || saving || deleting) return;
+		const parsed = rowDraftToValues(edit.draft, edit.baseline.columns);
 		if (!parsed.ok) {
 			setErrors(parsed.errors);
 			setFailure(null);
@@ -89,21 +115,32 @@ export function RowInspectorBody({
 		setSaving(true);
 		setFailure(null);
 		setStatus(null);
-		const outcome = await workspace.saveRow(row.id, parsed.values);
-		setSaving(false);
-		if (outcome.kind === "saved") {
-			setDirty(false);
-			setStatus("Saved.");
-			return;
+		try {
+			const outcome = await workspace.saveRow(
+				row.id,
+				parsed.values,
+				edit.baseline,
+			);
+			if (outcome.kind === "saved") {
+				setEdit((current) => ({ ...current, dirty: false }));
+				setStatus("Saved.");
+				return;
+			}
+			if (outcome.kind === "failed") {
+				setFailure(outcome.failure.message);
+				return;
+			}
+			/* Handed to the controller, which renders it as its own body — this one
+			 * unmounts the moment the row leaves the table, which is exactly what a
+			 * co-member's delete does. */
+			workspace.setRowConflict(outcome.conflict);
+		} catch {
+			setFailure(
+				"Nova could not reach this data table. Check your connection and try again.",
+			);
+		} finally {
+			setSaving(false);
 		}
-		if (outcome.kind === "failed") {
-			setFailure(outcome.failure.message);
-			return;
-		}
-		/* Handed to the controller, which renders it as its own body — this one
-		 * unmounts the moment the row leaves the table, which is exactly what a
-		 * co-member's delete does. */
-		workspace.setRowConflict(outcome.conflict);
 	};
 
 	return (
@@ -113,17 +150,39 @@ export function RowInspectorBody({
 					You can read this row. Changing it needs edit access to this project.
 				</p>
 			)}
-			<div className="space-y-3">
-				{columns.map((column) => (
-					<RowValueField
-						key={column.id}
-						column={column}
-						value={draft[column.id]}
-						invalid={errors.get(column.id)}
-						onChange={(next) => update(column.id, next)}
-					/>
-				))}
-			</div>
+			{canEdit ? (
+				<div className="space-y-3">
+					{edit.baseline.columns.map((column) => (
+						<RowValueField
+							key={column.id}
+							column={column}
+							value={edit.draft[column.id]}
+							invalid={errors.get(column.id)}
+							onChange={(next) => update(column.id, next)}
+						/>
+					))}
+				</div>
+			) : (
+				<dl className="space-y-3">
+					{columns.map((column) => {
+						const value = cellText(row.values, column);
+						return (
+							<div key={column.id} className="min-w-0">
+								<dt className="text-[13px] font-medium text-nova-text [overflow-wrap:anywhere]">
+									{column.label}
+								</dt>
+								<dd className="mt-1 text-[13px] text-nova-text-secondary whitespace-pre-wrap [overflow-wrap:anywhere]">
+									{value === undefined
+										? "No value"
+										: value === ""
+											? "Empty text"
+											: value}
+								</dd>
+							</div>
+						);
+					})}
+				</dl>
+			)}
 
 			{failure !== null && (
 				<p role="alert" className="text-[13px] leading-relaxed text-nova-rose">
@@ -145,20 +204,23 @@ export function RowInspectorBody({
 						type="button"
 						variant="default"
 						className="min-h-11"
-						disabled={!dirty || saving}
+						disabled={!edit.dirty || saving || deleting || confirmingDelete}
 						onClick={() => void save()}
 					>
 						{saving ? "Saving…" : "Save row"}
 					</Button>
-					{dirty && (
+					{edit.dirty && (
 						<Button
 							type="button"
 							variant="ghost"
 							className="min-h-11"
-							disabled={saving}
+							disabled={saving || deleting || confirmingDelete}
 							onClick={() => {
-								setDraft(stored);
-								setDirty(false);
+								setEdit({
+									draft: stored,
+									dirty: false,
+									baseline: incomingBaseline,
+								});
 								setErrors(new Map());
 								setFailure(null);
 								setStatus(null);
@@ -189,6 +251,7 @@ export function RowInspectorBody({
 								type="button"
 								variant="ghost"
 								className="min-h-11"
+								disabled={deleting}
 								onClick={() => setConfirmingDelete(false)}
 							>
 								Cancel
@@ -197,17 +260,31 @@ export function RowInspectorBody({
 								type="button"
 								variant="destructive"
 								className="min-h-11"
+								disabled={deleting}
 								onClick={async () => {
+									if (deleting) return;
+									setDeleting(true);
 									setConfirmingDelete(false);
-									const outcome = await workspace.deleteRow(row.id);
-									if (outcome.kind === "failed") {
-										setFailure(outcome.failure.message);
-									} else if (outcome.kind === "conflict") {
-										workspace.setRowConflict(outcome.conflict);
+									try {
+										const outcome = await workspace.deleteRow(
+											row.id,
+											edit.baseline,
+										);
+										if (outcome.kind === "failed") {
+											setFailure(outcome.failure.message);
+										} else if (outcome.kind === "conflict") {
+											workspace.setRowConflict(outcome.conflict);
+										}
+									} catch {
+										setFailure(
+											"Nova could not reach this data table. Check your connection and try again.",
+										);
+									} finally {
+										setDeleting(false);
 									}
 								}}
 							>
-								Delete row
+								{deleting ? "Deleting…" : "Delete row"}
 							</Button>
 						</div>
 					</div>
@@ -217,6 +294,7 @@ export function RowInspectorBody({
 						type="button"
 						variant="ghost"
 						className="min-h-11 gap-2 text-nova-text-muted hover:text-nova-text"
+						disabled={saving || deleting}
 						onClick={() => setConfirmingDelete(true)}
 					>
 						<Icon
@@ -225,7 +303,7 @@ export function RowInspectorBody({
 							height="16"
 							aria-hidden="true"
 						/>
-						Delete row
+						{deleting ? "Deleting…" : "Delete row"}
 					</Button>
 				))}
 		</div>

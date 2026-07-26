@@ -20,11 +20,11 @@ import tablerAlertTriangle from "@iconify-icons/tabler/alert-triangle";
 import tablerArrowLeft from "@iconify-icons/tabler/arrow-left";
 import tablerChevronLeft from "@iconify-icons/tabler/chevron-left";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
-import { useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/shadcn/button";
 import { Input } from "@/components/shadcn/input";
 import { Label } from "@/components/shadcn/label";
-import type { LookupColumnId } from "@/lib/domain/lookupIds";
+import type { LookupColumnId, LookupRowId } from "@/lib/domain/lookupIds";
 import type { LookupRow, LookupTableSnapshot } from "@/lib/lookup/types";
 import { useNavigate } from "@/lib/routing/hooks";
 import { ProjectDataFailure, ProjectDataLoading } from "./ProjectDataReadState";
@@ -131,6 +131,10 @@ export function ProjectDataTableScreen() {
 				{formatLookupBytes(table.dataBytes)} of{" "}
 				{formatLookupBytes(capacity.byteLimit)}
 			</p>
+			<p className="mt-1 text-[12px] text-nova-text-muted">
+				Export tag:{" "}
+				<code className="font-mono text-nova-text-secondary">{table.tag}</code>
+			</p>
 
 			{workspace !== null && (
 				<TableActions table={table} workspace={workspace} />
@@ -139,6 +143,12 @@ export function ProjectDataTableScreen() {
 				table={table}
 				selectedRowId={
 					workspace?.selection?.kind === "row"
+						? workspace.selection.rowId
+						: undefined
+				}
+				revealRowId={
+					workspace?.selection?.kind === "row" &&
+					workspace.selection.reveal === true
 						? workspace.selection.rowId
 						: undefined
 				}
@@ -186,18 +196,36 @@ function rowLabel(table: LookupTableSnapshot, row: LookupRow): string {
 function TableGrid({
 	table,
 	selectedRowId,
+	revealRowId,
 	onSelectRow,
 	onSelectColumn,
 }: {
 	table: LookupTableSnapshot;
-	selectedRowId: string | undefined;
-	onSelectRow: (rowId: string) => void;
+	selectedRowId: LookupRowId | undefined;
+	revealRowId: LookupRowId | undefined;
+	onSelectRow: (rowId: LookupRowId) => void;
 	onSelectColumn: (columnId: LookupColumnId) => void;
 }) {
 	const searchId = useId();
 	const searchHintId = useId();
 	const [query, setQuery] = useState("");
 	const [page, setPage] = useState(0);
+	const lastRevealedRow = useRef<LookupRowId | undefined>(undefined);
+
+	/* A newly created row is appended and selected by the controller. Reveal
+	 * that exact receipt instead of merely saying it exists somewhere beyond
+	 * the current search/page. Existing selections are not repeatedly pulled
+	 * back into view on ordinary realtime refreshes. */
+	useEffect(() => {
+		if (revealRowId === undefined || lastRevealedRow.current === revealRowId) {
+			return;
+		}
+		const index = table.rows.findIndex((row) => row.id === revealRowId);
+		if (index < 0) return;
+		lastRevealedRow.current = revealRowId;
+		setQuery("");
+		setPage(Math.floor(index / ROWS_PER_PAGE));
+	}, [revealRowId, table.rows]);
 
 	const matches = useMemo(
 		() => filterRows(table.rows, table.columns, query),
@@ -217,199 +245,195 @@ function TableGrid({
 	 * the result to one page. */
 	const multiPage = table.rows.length > ROWS_PER_PAGE;
 
-	if (table.rows.length === 0) {
-		return (
-			<p className="mt-8 max-w-md text-sm leading-relaxed text-nova-text-secondary">
-				This table has its columns but no rows yet. Add rows one at a time, or
-				replace them all at once from a CSV.
-			</p>
-		);
-	}
-
 	return (
 		<div className="mt-6 min-w-0">
-			<div className="flex flex-wrap items-end justify-between gap-3">
-				<div className="min-w-0 grow basis-64">
-					<Label htmlFor={searchId} className="text-[12px]">
-						Find a row
-					</Label>
-					<Input
-						id={searchId}
-						type="search"
-						value={query}
-						placeholder="Search every column"
-						autoComplete="off"
-						data-1p-ignore
-						aria-describedby={multiPage ? searchHintId : undefined}
-						onChange={(event) => {
-							setQuery(event.target.value);
-							setPage(0);
-						}}
-						className="mt-1 h-11"
-					/>
-					{/* Said only once the table is actually long enough for it to
-					 *  matter. A table that fits on one page needs no advice about
-					 *  how to find a row in it. */}
-					{multiPage && (
-						<p
-							id={searchHintId}
-							className="mt-1.5 text-[12px] leading-snug text-nova-text-muted"
-						>
-							This table is longer than one page. Searching is faster than
-							paging through it.
-						</p>
-					)}
+			{table.rows.length > 0 && (
+				<div className="flex flex-wrap items-end justify-between gap-3">
+					<div className="min-w-0 grow basis-64">
+						<Label htmlFor={searchId} className="text-[12px]">
+							Find a row
+						</Label>
+						<Input
+							id={searchId}
+							type="search"
+							value={query}
+							placeholder="Search every column"
+							autoComplete="off"
+							data-1p-ignore
+							aria-describedby={multiPage ? searchHintId : undefined}
+							onChange={(event) => {
+								setQuery(event.target.value);
+								setPage(0);
+							}}
+							className="mt-1 h-11"
+						/>
+						{/* Said only once the table is actually long enough for it to
+						 *  matter. A table that fits on one page needs no advice about
+						 *  how to find a row in it. */}
+						{multiPage && (
+							<p
+								id={searchHintId}
+								className="mt-1.5 text-[12px] leading-snug text-nova-text-muted"
+							>
+								This table is longer than one page. Searching is faster than
+								paging through it.
+							</p>
+						)}
+					</div>
+					<p
+						role="status"
+						className="min-h-11 content-center text-[13px] text-nova-text-secondary"
+					>
+						{query.trim() === ""
+							? formatLookupCount(table.rows.length, "row")
+							: `${formatLookupCount(matches.length, "row")} matching`}
+					</p>
 				</div>
-				<p
-					role="status"
-					className="min-h-11 content-center text-[13px] text-nova-text-secondary"
-				>
-					{query.trim() === ""
-						? formatLookupCount(table.rows.length, "row")
-						: `${formatLookupCount(matches.length, "row")} matching`}
-				</p>
-			</div>
+			)}
 
-			{matches.length === 0 ? (
+			{table.rows.length === 0 ? (
+				<p className="mb-3 max-w-md text-sm leading-relaxed text-nova-text-secondary">
+					This table has its columns but no rows yet. Add rows one at a time, or
+					replace them all at once from a CSV. Column settings remain available
+					below.
+				</p>
+			) : matches.length === 0 ? (
 				<p className="mt-6 text-sm leading-relaxed text-nova-text-secondary">
 					No row in this table contains “{query.trim()}”.
 				</p>
-			) : (
-				<>
-					<div className="mt-3 overflow-x-auto rounded-xl border border-nova-border">
-						<table className="w-full min-w-max border-collapse text-left">
-							<caption className="sr-only">
-								{table.name}: {formatLookupCount(matches.length, "row")},
-								showing {start + 1} to {start + visible.length}
-							</caption>
-							<thead>
-								<tr className="border-b border-nova-border bg-nova-elevated">
-									{table.columns.map((column) => (
-										<th
-											key={column.id}
-											scope="col"
-											className="min-w-36 p-0 align-bottom font-medium"
-										>
-											{/* The header IS the way to a column's settings, so it is
-											 *  a real button rather than a header with a hidden gear:
-											 *  one obvious target, keyboard-reachable in the tab
-											 *  order the table already establishes. */}
-											<Button
-												type="button"
-												variant="ghost"
-												onClick={() => onSelectColumn(column.id)}
-												className="h-auto min-h-11 w-full flex-col items-start gap-0 rounded-none px-3 py-2.5 text-left hover:bg-white/[0.05]"
-											>
-												<span className="block min-w-0 text-[13px] text-nova-text [overflow-wrap:anywhere]">
-													{column.label}
-												</span>
-												<span className="block text-[12px] font-normal text-nova-text-muted">
-													{COLUMN_TYPE_LABELS[column.dataType]}
-												</span>
-											</Button>
-										</th>
-									))}
-									<th scope="col" className="w-px px-3 py-2.5">
-										<span className="sr-only">Open row</span>
-									</th>
-								</tr>
-							</thead>
-							<tbody>
-								{visible.map((row) => (
-									<tr
-										key={row.id}
-										aria-selected={row.id === selectedRowId}
-										className={`border-b border-nova-border last:border-b-0 ${
-											row.id === selectedRowId
-												? "bg-nova-violet/[0.10] shadow-[inset_2px_0_0_0_var(--nova-violet)]"
-												: ""
-										}`}
-									>
-										{table.columns.map((column) => {
-											const text = cellText(row.values, column);
-											return (
-												<td
-													key={column.id}
-													className="min-w-36 px-3 py-2.5 align-top text-[13px] text-nova-text [overflow-wrap:anywhere]"
-												>
-													{text === undefined ? (
-														/* A missing cell is not an empty one. The dash is
-														 * decoration, so the accessible name says which. */
-														<span className="text-nova-text-muted">
-															<span aria-hidden="true">—</span>
-															<span className="sr-only">No value</span>
-														</span>
-													) : (
-														text
-													)}
-												</td>
-											);
-										})}
-										<td className="w-px px-3 py-2.5 align-top">
-											{/* One control per row rather than a clickable row: a
-											 *  row of selectable text should stay selectable, and a
-											 *  whole-row button would swallow every drag. */}
-											<Button
-												type="button"
-												variant="ghost"
-												onClick={() => onSelectRow(row.id)}
-												className="min-h-11 whitespace-nowrap text-[13px] text-nova-violet-bright"
-											>
-												Open
-												<span className="sr-only">
-													{" "}
-													row {rowLabel(table, row)}
-												</span>
-											</Button>
-										</td>
-									</tr>
-								))}
-							</tbody>
-						</table>
-					</div>
+			) : null}
 
-					{pageCount > 1 && (
-						<nav
-							aria-label="Rows, by page"
-							className="mt-3 flex flex-wrap items-center justify-between gap-2"
-						>
-							<Button
-								type="button"
-								variant="outline"
-								className="min-h-11"
-								disabled={currentPage === 0}
-								onClick={() => setPage(currentPage - 1)}
+			<div className="mt-3 overflow-x-auto rounded-xl border border-nova-border">
+				<table className="w-full min-w-max border-collapse text-left">
+					<caption className="sr-only">
+						{table.name}: {formatLookupCount(matches.length, "row")}
+						{visible.length > 0
+							? `, showing ${start + 1} to ${start + visible.length}`
+							: ""}
+					</caption>
+					<thead>
+						<tr className="border-b border-nova-border bg-nova-elevated">
+							{table.columns.map((column) => (
+								<th
+									key={column.id}
+									scope="col"
+									className="min-w-36 p-0 align-bottom font-medium"
+								>
+									{/* The header IS the way to a column's settings, so it is
+									 *  a real button rather than a header with a hidden gear:
+									 *  one obvious target, keyboard-reachable in the tab
+									 *  order the table already establishes. */}
+									<Button
+										type="button"
+										variant="ghost"
+										onClick={() => onSelectColumn(column.id)}
+										className="h-auto min-h-11 w-full flex-col items-start gap-0 rounded-none px-3 py-2.5 text-left hover:bg-white/[0.05]"
+									>
+										<span className="block min-w-0 text-[13px] text-nova-text [overflow-wrap:anywhere]">
+											{column.label}
+										</span>
+										<span className="block text-[12px] font-normal text-nova-text-muted">
+											{COLUMN_TYPE_LABELS[column.dataType]}
+										</span>
+									</Button>
+								</th>
+							))}
+							<th scope="col" className="w-px px-3 py-2.5">
+								<span className="sr-only">Open row</span>
+							</th>
+						</tr>
+					</thead>
+					<tbody>
+						{visible.map((row) => (
+							<tr
+								key={row.id}
+								aria-selected={row.id === selectedRowId}
+								className={`border-b border-nova-border last:border-b-0 ${
+									row.id === selectedRowId
+										? "bg-nova-violet/[0.10] shadow-[inset_2px_0_0_0_var(--nova-violet)]"
+										: ""
+								}`}
 							>
-								<Icon
-									icon={tablerChevronLeft}
-									width="16"
-									height="16"
-									aria-hidden="true"
-								/>
-								Previous
-							</Button>
-							<p className="text-[13px] text-nova-text-secondary">
-								Rows {start + 1}–{start + visible.length} of{" "}
-								{matches.length.toLocaleString()}
-							</p>
-							<Button
-								type="button"
-								variant="outline"
-								className="min-h-11"
-								disabled={currentPage >= pageCount - 1}
-								onClick={() => setPage(currentPage + 1)}
-							>
-								Next
-								<Icon
-									icon={tablerChevronRight}
-									width="16"
-									height="16"
-									aria-hidden="true"
-								/>
-							</Button>
-						</nav>
-					)}
-				</>
+								{table.columns.map((column) => {
+									const text = cellText(row.values, column);
+									return (
+										<td
+											key={column.id}
+											className="min-w-36 px-3 py-2.5 align-top text-[13px] text-nova-text [overflow-wrap:anywhere]"
+										>
+											{text === undefined ? (
+												/* A missing cell is not an empty one. The dash is
+												 * decoration, so the accessible name says which. */
+												<span className="text-nova-text-muted">
+													<span aria-hidden="true">—</span>
+													<span className="sr-only">No value</span>
+												</span>
+											) : (
+												text
+											)}
+										</td>
+									);
+								})}
+								<td className="w-px px-3 py-2.5 align-top">
+									{/* One control per row rather than a clickable row: a
+									 *  row of selectable text should stay selectable, and a
+									 *  whole-row button would swallow every drag. */}
+									<Button
+										type="button"
+										variant="ghost"
+										onClick={() => onSelectRow(row.id)}
+										className="min-h-11 whitespace-nowrap text-[13px] text-nova-violet-bright"
+									>
+										Open
+										<span className="sr-only"> row {rowLabel(table, row)}</span>
+									</Button>
+								</td>
+							</tr>
+						))}
+					</tbody>
+				</table>
+			</div>
+
+			{pageCount > 1 && (
+				<nav
+					aria-label="Rows, by page"
+					className="mt-3 flex flex-wrap items-center justify-between gap-2"
+				>
+					<Button
+						type="button"
+						variant="outline"
+						className="min-h-11"
+						disabled={currentPage === 0}
+						onClick={() => setPage(currentPage - 1)}
+					>
+						<Icon
+							icon={tablerChevronLeft}
+							width="16"
+							height="16"
+							aria-hidden="true"
+						/>
+						Previous
+					</Button>
+					<p className="text-[13px] text-nova-text-secondary">
+						Rows {start + 1}–{start + visible.length} of{" "}
+						{matches.length.toLocaleString()}
+					</p>
+					<Button
+						type="button"
+						variant="outline"
+						className="min-h-11"
+						disabled={currentPage >= pageCount - 1}
+						onClick={() => setPage(currentPage + 1)}
+					>
+						Next
+						<Icon
+							icon={tablerChevronRight}
+							width="16"
+							height="16"
+							aria-hidden="true"
+						/>
+					</Button>
+				</nav>
 			)}
 		</div>
 	);

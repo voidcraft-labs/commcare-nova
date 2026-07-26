@@ -211,6 +211,15 @@ draft across a change of selection, so Save writes one row's values to another
 row's id. A refused write therefore never reloads before returning; the reload
 waits for the author's decision.
 
+Every row editor captures an immutable edit-session baseline: the row, ordered
+columns, and table revision as they stood when editing began. A realtime refresh
+reseeds only a pristine draft; a dirty save still compares against that
+baseline. Conflict-resolution buttons write against the exact fresh generation
+rendered beside them rather than re-entering the stale normal-save path. If the
+row is gone, Save as a new row retains the draft, appends it, selects the
+returned row id, and the grid clears any search and reveals its page. A failed
+resolution leaves the conflict and draft on screen.
+
 **The conflict policy lives in `projectDataModel.ts`, pure and unit-tested.** A
 table's optimistic token is `max(definitionRevision, rowsRevision)`, so ANY
 concurrent change invalidates it. `rowWriteConflictVerdict` retries only when a
@@ -221,6 +230,28 @@ is unconditionally "ask" and a test pins that it can never return `retry`: a CSV
 replacement discards every row by definition, so drift is exactly the case where
 resending destroys the change. **The draft is never discarded, in any branch.**
 
+One CSV choice is an atomic `LookupCsvSelection`: File, copied bytes, filename,
+row count, checked columns/fingerprint, Project/table id, definition revision,
+table revision, and the row count it will replace. A monotonic generation makes
+the last-started `arrayBuffer()` read win. Project, schema, or row-generation
+drift disables Replace until the same bytes are checked and explicitly reviewed
+against the latest table. No replacement conflict retries itself, and Dialog
+close, Cancel, and file selection are blocked while the upload is in flight.
+
+Row drafts store raw text without trimming. Empty text, whitespace text, and an
+absent UUID key stay distinct. Time and datetime controls hide storage's
+required RFC 3339 timezone suffix while retaining the original suffix and exact
+stored spelling for a no-op round trip; edited existing clocks keep their
+offset, and new temporal values use `Z` because Nova has no authored app
+timezone. Viewer rows/columns render as read-only text, never disabled form
+controls.
+
+Table name, table export-tag, column label, and column wire-name drafts use the
+revisioned-text model in `projectDataModel.ts`: pristine drafts reseed from
+realtime, dirty drift requires an explicit Use current / Keep my draft choice,
+and writes carry the captured revision. Export tags render on both table screens
+and only `delete`-capable authors receive the editor.
+
 Destructive changes (delete table, remove column, retype column) go through
 `DestructiveChangeDialog`, which NAMES the apps that would break — including one
 in the trash, said as such, because a blocker the author cannot find reads as a
@@ -230,16 +261,25 @@ real `alert-dialog` rather than the confirm-in-place pattern, so it needs no
 `useInlineConfirmFocus` — the dialog primitives own focus entry and return. The
 row-delete confirm inside the rail IS confirm-in-place and uses the hook.
 
+The advisory preflight is a three-state gate: loading, successful (possibly
+with named blockers), or failed with Try again. A failed query never becomes an
+empty blocker list and the governed action stays disabled until the scan
+succeeds. An optimistic refusal adopts the returned current revision, reloads
+the table, and reruns the preflight before another confirmation is enabled.
+
 The select's own editor entry (`editor/fields/OptionsSourceEditor.tsx`) binds a
 question to a table column. **Its two directions are asymmetric**: choosing a
 table sets `optionsSource` and leaves the inline options as the fallback, while
 choosing the inline options must CLEAR it, or the retained source keeps winning
 at every presence-based consumer. `lib/doc/lookupOptionsSourceMutations.ts`
-records why the clear is a `null`. The editor supplies the exact focused table
-generation — matching table id and manifest/table revision — to the optimistic
-client commit gate; unavailable, mismatched, and kept-stale context never
-authorizes a new reference, and the authoritative writer repeats the verdict
-against fresh Project state before persistence.
+records why the clear is a `null`. The editor fetches the focused table through
+the rows-free definition action, not the full row snapshot, and supplies its
+exact definition generation to the optimistic client commit gate. Current
+Project, manifest Project, definition Project, table id, and
+manifest/definition revision must all agree; unavailable, failed, mismatched,
+cross-Project, and kept-stale context never authorizes a new reference. Both
+list and definition failures have a visible retry, and the authoritative writer
+repeats the verdict against fresh Project state before persistence.
 
 ## Display conditions (`conditions/`)
 

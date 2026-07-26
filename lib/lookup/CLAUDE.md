@@ -103,7 +103,10 @@ remain allowed while referenced and do not rewrite edges.
   unknown column ids, NUL, and unpaired UTF-16 surrogates are invalid. Empty text
   is valid for typed writes; an empty CSV cell omits the key.
 - Integer is canonical signed int4, decimal is a finite JSON number, and temporal
-  values reuse Nova's strict date/time/date-time schemas.
+  values reuse Nova's strict date/time/date-time schemas. Stored time and
+  date-time values always carry an RFC 3339 timezone; Nova currently has no
+  authored app timezone, so a newly authored value defaults to UTC rather than
+  inventing a local zone.
 - Server-minted order keys use the shared base-62 fractional-order primitives and
   Postgres `C` collation. Reads always tie-break on stable UUID. Bulk replacement
   uses the balanced generator, never a 5,000-key sequential chain.
@@ -135,6 +138,9 @@ no `server-only` runtime marker: authoritative `apps.ts` writers are also in
 plain `tsx` inspector dependency graphs. `service.ts` re-exports the same
 function for lookup-package callers; the transaction type remains the server
 boundary.
+`getLookupDefinitionAction` is the authorized single-table browser projection
+for authoring pickers. Those pickers use it instead of `getLookupTable`, because
+selecting columns must never download the table's rows.
 
 `getLookupFixtureData(scope, tableIds)` is the one-generation
 definitions-plus-rows read: the same definitions projection plus every present

@@ -112,11 +112,36 @@ asking about every drift would put a dialog in front of edits that do not
 conflict. So a refused write re-reads the table and
 `projectDataModel.ts::rowWriteConflictVerdict` retries only when the fresh state
 proves the edit is still the same edit — byte-identical row AND unmoved column
-definitions, because a retype changes what a draft means even when its cells
-match. Otherwise both versions are shown and the author chooses. A row deleted
-underneath is its own verdict. `replacementConflictVerdict` is unconditionally
-"ask": a CSV replacement discards every row by definition, so drift is precisely
-the case where resending destroys the change. The draft survives every branch.
+definitions, compared with the immutable row/column/revision baseline captured
+when editing began rather than a realtime-refreshed snapshot. Otherwise both
+versions are shown and the author chooses against the exact fresh generation
+they reviewed. A row deleted underneath is its own verdict and offers the
+retained draft as a new row; the returned row id is selected and revealed on
+its page.
+
+CSV selection is one atomic value carrying the File, copied bytes, filename,
+row count, checked schema, Project/table identity, and optimistic revisions.
+Last-started file read wins. Any later definition or row-generation drift
+disables replacement until the same bytes are checked and explicitly confirmed
+against the current table. `replacementConflictVerdict` is unconditionally
+"ask": a replacement discards every row by definition, so it never retries
+against a moving target. The draft survives every branch.
+
+Text edits preserve empty strings, surrounding whitespace, and missing-cell
+identity. Temporal controls project strict timezone-bearing stored values into
+human clock/date controls while retaining the exact offset and stored spelling
+for an unchanged round trip; a new temporal value uses UTC because Nova has no
+authored app timezone. Table and column naming drafts capture their optimistic
+generation: pristine drafts follow realtime changes, while dirty drift requires
+an explicit use-current/keep-mine decision. Table export tags render on the list
+and detail screens and are admin-editable through the same policy as established
+wire names.
+
+The options-source picker reads a rows-free definition snapshot, never a full
+table body. Its optimistic context remains unavailable until the current
+Project, manifest Project, definition Project, table id, and definition revision
+all agree; read failures render with a retry rather than masquerading as an
+empty or deleted list.
 
 **A destructive change names the apps it would break, before it happens.**
 `lib/db/lookupReferenceEdges.ts::readLookupReferencingApps` joins the edge tables
@@ -128,6 +153,12 @@ resolves its own returned app-id set to the same named shape, so the warning and
 the refusal cannot disagree. Naming leaks nothing: every edge for a
 `(project_id, table_id)` belongs to an app in the Project the caller was already
 authorized against.
+
+The advisory preflight fails closed: loading, named success, and error-with-retry
+are distinct states. A failed reference query never becomes an empty blocker
+list and never enables the governed action. An optimistic refusal refreshes the
+table generation and reruns the advisory scan before the author can confirm
+again; the governed write never repeats against its stale captured revision.
 
 Cap refusals name the size that was actually measured — an oversized CSV reports
 its own size, one over the row cap reports its exact row count and how many rows

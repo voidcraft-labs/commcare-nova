@@ -33,6 +33,13 @@ export const CASE_WORKSPACE_SEED = {
 	lookupTableTag: "referral_destinations",
 	lookupValueColumnLabel: "Code",
 	lookupLabelColumnLabel: "Destination",
+	lookupTimeColumnLabel: "Opening time",
+	lookupDatetimeColumnLabel: "Last verified",
+	/** A deliberately empty table proves columns and their settings do not
+	 * disappear merely because there are no row cells to render. */
+	emptyLookupTableName: "Referral tiers",
+	emptyLookupTableTag: "referral_tiers",
+	emptyLookupColumnLabel: "Tier",
 	moduleName: "Patients",
 	moduleUuid: asUuid("7b4e2c91-5a68-4d3f-8c72-1e9a6b5d4f30"),
 	caseType: "patient",

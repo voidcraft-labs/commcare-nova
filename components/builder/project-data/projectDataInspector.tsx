@@ -56,8 +56,9 @@ export function useProjectDataInspector(): {
 						<RowConflictBody
 							key={`conflict:${conflict.rowId}`}
 							conflict={conflict}
-							columns={table.columns}
+							columns={conflict.displayColumns}
 							workspace={workspace}
+							canEdit={canEdit}
 						/>
 					),
 				},
@@ -84,7 +85,7 @@ export function useProjectDataInspector(): {
 						<RowInspectorBody
 							key={row.id}
 							row={row}
-							columns={table.columns}
+							table={table}
 							workspace={workspace}
 							canEdit={canEdit}
 						/>

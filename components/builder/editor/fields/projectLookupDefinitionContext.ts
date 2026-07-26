@@ -4,8 +4,8 @@ import {
 } from "@/lib/doc/lookupReferences";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
 import type {
+	LookupDefinitionsSnapshot,
 	LookupTableManifestEntry,
-	LookupTableSnapshot,
 } from "@/lib/lookup/types";
 
 /**
@@ -17,34 +17,42 @@ import type {
  * authoritative writer still repeats validation against fresh Project state.
  */
 export function projectLookupDefinitionContext(args: {
+	readonly currentProjectId: string | undefined;
+	readonly manifestProjectId: string | undefined;
 	readonly focusedTableId: LookupTableId | undefined;
 	readonly manifestEntry: LookupTableManifestEntry | undefined;
-	readonly snapshot: LookupTableSnapshot | undefined;
+	readonly snapshot: LookupDefinitionsSnapshot | undefined;
 }): LookupValidationContext {
-	const { focusedTableId, manifestEntry, snapshot } = args;
+	const {
+		currentProjectId,
+		manifestProjectId,
+		focusedTableId,
+		manifestEntry,
+		snapshot,
+	} = args;
+	const definition = snapshot?.definitions.find(
+		(candidate) => candidate.id === focusedTableId,
+	);
 	if (
+		currentProjectId === undefined ||
+		manifestProjectId === undefined ||
 		focusedTableId === undefined ||
 		manifestEntry === undefined ||
 		snapshot === undefined ||
+		definition === undefined ||
+		currentProjectId !== manifestProjectId ||
+		currentProjectId !== snapshot.projectId ||
 		manifestEntry.id !== focusedTableId ||
-		snapshot.id !== focusedTableId ||
-		manifestEntry.tableRevision !== snapshot.tableRevision
+		definition.id !== focusedTableId ||
+		manifestEntry.definitionRevision !== definition.definitionRevision
 	) {
 		return LOOKUP_CONTEXT_UNAVAILABLE;
 	}
 
 	return {
 		kind: "available",
-		projectId: snapshot.projectId,
+		projectId: currentProjectId,
 		projectRevision: snapshot.projectRevision,
-		definitions: [
-			{
-				id: snapshot.id,
-				name: snapshot.name,
-				tag: snapshot.tag,
-				definitionRevision: snapshot.definitionRevision,
-				columns: snapshot.columns,
-			},
-		],
+		definitions: [definition],
 	};
 }

@@ -25,6 +25,7 @@
 import { Icon } from "@iconify/react/offline";
 import tablerAlertTriangle from "@iconify-icons/tabler/alert-triangle";
 import tablerLoader2 from "@iconify-icons/tabler/loader-2";
+import tablerRefresh from "@iconify-icons/tabler/refresh";
 import { useEffect, useState } from "react";
 import {
 	AlertDialog,
@@ -36,6 +37,7 @@ import {
 	AlertDialogHeader,
 	AlertDialogTitle,
 } from "@/components/shadcn/alert-dialog";
+import { Button } from "@/components/shadcn/button";
 import type { LookupColumnId } from "@/lib/domain/lookupIds";
 import { getLookupReferencingAppsAction } from "@/lib/lookup/actions";
 import type {
@@ -72,10 +74,15 @@ export function DestructiveChangeDialog({
 	onConfirm: () => Promise<LookupGovernanceFailure | null>;
 }) {
 	const projectId = useProjectId();
-	const [blockers, setBlockers] = useState<
-		readonly LookupReferencingAppSummary[] | null
-	>(null);
-	const [checking, setChecking] = useState(true);
+	const [preflight, setPreflight] = useState<
+		| { readonly kind: "loading" }
+		| {
+				readonly kind: "ready";
+				readonly blockers: readonly LookupReferencingAppSummary[];
+		  }
+		| { readonly kind: "failed"; readonly message: string }
+	>({ kind: "loading" });
+	const [retryGeneration, setRetryGeneration] = useState(0);
 	const [working, setWorking] = useState(false);
 	const [refusal, setRefusal] = useState<string | null>(null);
 	const [refusedBy, setRefusedBy] = useState<
@@ -83,39 +90,71 @@ export function DestructiveChangeDialog({
 	>(null);
 
 	useEffect(() => {
+		void retryGeneration;
+		/* A governance conflict advances the captured table generation in the
+		 * parent. Re-run this advisory scan before enabling its second,
+		 * explicitly reviewed confirmation. */
+		void table.tableRevision;
 		if (!open) return;
+		setRefusal(null);
+		setRefusedBy(null);
 		if (projectId === undefined) {
-			/* No Project resolved means the scan cannot run at all. Leaving
-			 * `checking` true would spin forever behind a permanently disabled
-			 * action; settling to an empty, unverified list lets the author proceed
-			 * and lets the transactional check — the authority anyway — answer. */
-			setBlockers([]);
-			setChecking(false);
+			setPreflight({
+				kind: "failed",
+				message:
+					"Nova cannot verify which apps use this yet. Wait for the project to finish loading, then try again.",
+			});
 			return;
 		}
 		let live = true;
-		setChecking(true);
+		setPreflight({ kind: "loading" });
 		void getLookupReferencingAppsAction(projectId, {
 			tableId: table.id,
 			...(columnId === undefined ? {} : { columnId }),
-		}).then((result) => {
-			if (!live) return;
-			setBlockers(result.success ? result.value : []);
-			setChecking(false);
-		});
+		})
+			.then((result) => {
+				if (!live) return;
+				setPreflight(
+					result.success
+						? { kind: "ready", blockers: result.value }
+						: { kind: "failed", message: result.message },
+				);
+			})
+			.catch(() => {
+				if (!live) return;
+				setPreflight({
+					kind: "failed",
+					message:
+						"Nova could not check which apps use this. Check your connection and try again.",
+				});
+			});
 		return () => {
 			live = false;
 		};
-	}, [open, projectId, table.id, columnId]);
+	}, [
+		open,
+		projectId,
+		table.id,
+		table.tableRevision,
+		columnId,
+		retryGeneration,
+	]);
 
 	/* The commit's own blocking set wins over the pre-flight one: it is the
 	 * authoritative answer, and it may name an app that started referencing the
 	 * resource while this dialog was open. */
-	const named = refusedBy ?? blockers ?? [];
+	const named =
+		refusedBy ??
+		(preflight.kind === "ready" ? preflight.blockers : ([] as const));
 	const blocked = named.length > 0;
+	const checking = preflight.kind === "loading";
+	const preflightFailed = preflight.kind === "failed";
 
 	return (
-		<AlertDialog open={open} onOpenChange={(next) => !next && onCancel()}>
+		<AlertDialog
+			open={open}
+			onOpenChange={(next) => !next && !working && onCancel()}
+		>
 			<AlertDialogContent>
 				<AlertDialogHeader>
 					<AlertDialogTitle>{title}</AlertDialogTitle>
@@ -138,6 +177,25 @@ export function DestructiveChangeDialog({
 						/>
 						Checking which apps use this…
 					</p>
+				) : preflight.kind === "failed" ? (
+					<div
+						role="alert"
+						className="rounded-lg border border-nova-rose/30 bg-nova-rose/[0.06] p-3"
+					>
+						<p className="text-[13px] leading-relaxed text-nova-text-secondary">
+							{preflight.message} Nothing can be changed until this check
+							succeeds.
+						</p>
+						<Button
+							type="button"
+							variant="outline"
+							className="mt-2 min-h-11"
+							onClick={() => setRetryGeneration((current) => current + 1)}
+						>
+							<Icon icon={tablerRefresh} aria-hidden="true" />
+							Try again
+						</Button>
+					</div>
 				) : blocked ? (
 					<div
 						role={refusedBy === null ? undefined : "alert"}
@@ -192,10 +250,12 @@ export function DestructiveChangeDialog({
 				)}
 
 				<AlertDialogFooter>
-					<AlertDialogCancel onClick={onCancel}>Cancel</AlertDialogCancel>
+					<AlertDialogCancel disabled={working} onClick={onCancel}>
+						Cancel
+					</AlertDialogCancel>
 					<AlertDialogAction
 						variant="destructive"
-						disabled={checking || working || blocked}
+						disabled={checking || preflightFailed || working || blocked}
 						onClick={async (event) => {
 							/* The dialog stays open on a refusal so the reason lands beside
 							 * the action, rather than closing and toasting it somewhere the
@@ -203,13 +263,20 @@ export function DestructiveChangeDialog({
 							event.preventDefault();
 							setWorking(true);
 							setRefusal(null);
-							const failed = await onConfirm();
-							setWorking(false);
-							if (failed !== null) {
-								setRefusal(failed.message);
-								if (failed.blockingApps !== undefined) {
-									setRefusedBy(failed.blockingApps);
+							try {
+								const failed = await onConfirm();
+								if (failed !== null) {
+									setRefusal(failed.message);
+									if (failed.blockingApps !== undefined) {
+										setRefusedBy(failed.blockingApps);
+									}
 								}
+							} catch {
+								setRefusal(
+									"The change could not be made. Check your connection and try again.",
+								);
+							} finally {
+								setWorking(false);
 							}
 						}}
 					>

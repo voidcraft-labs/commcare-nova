@@ -27,7 +27,11 @@ import {
 	useRef,
 	useState,
 } from "react";
-import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
+import type {
+	LookupColumnId,
+	LookupRowId,
+	LookupTableId,
+} from "@/lib/domain/lookupIds";
 import {
 	createLookupRowAction,
 	deleteLookupRowAction,
@@ -44,13 +48,24 @@ import { useProjectId } from "@/lib/session/hooks";
 import {
 	type ConflictVerdict,
 	columnsEqual,
+	conflictDeleteInput,
+	conflictOverwriteInput,
+	conflictSaveAsNewInput,
+	type RowEditBaseline,
 	rowWriteConflictVerdict,
 } from "./projectDataModel";
 import { type ProjectDataRead, useProjectDataTable } from "./useProjectData";
 
 /** What the workspace has selected for inspection, if anything. */
 export type ProjectDataSelection =
-	| { readonly kind: "row"; readonly rowId: string }
+	| {
+			readonly kind: "row";
+			readonly rowId: LookupRowId;
+			/** The controller minted this row and the grid must clear any search
+			 * and reveal its appended page. Ordinary row selection is already
+			 * visible and must not disturb the author's query. */
+			readonly reveal?: boolean;
+	  }
 	| { readonly kind: "column"; readonly columnId: LookupColumnId }
 	| null;
 
@@ -71,7 +86,7 @@ export interface ProjectDataRowConflict {
 	 * of values the author never typed.
 	 */
 	readonly attempted: "save" | "delete";
-	readonly rowId: string;
+	readonly rowId: LookupRowId;
 	/** For a save, the values the author typed. For a delete, the row as they
 	 *  last saw it — what they were asking to remove. */
 	readonly draft: LookupRowValues;
@@ -82,10 +97,21 @@ export interface ProjectDataRowConflict {
 	/** The row as the server now holds it, for the side-by-side. Absent when
 	 *  the row is gone. */
 	readonly current: LookupRowValues | undefined;
+	/** Columns needed to show every draft/current value, including a column a
+	 * peer removed while this edit was open. */
+	readonly displayColumns: LookupTableSnapshot["columns"];
+	/** The exact fresh generation the resolution buttons describe. A later
+	 * peer write must conflict again rather than being silently folded into the
+	 * author's earlier decision. */
+	readonly resolution: {
+		readonly tableRevision: LookupTableSnapshot["tableRevision"];
+		readonly rowCount: number;
+		readonly columns: LookupTableSnapshot["columns"];
+	};
 }
 
 export type ProjectDataWriteOutcome =
-	| { readonly kind: "saved" }
+	| { readonly kind: "saved"; readonly rowId?: LookupRowId }
 	| { readonly kind: "conflict"; readonly conflict: ProjectDataRowConflict }
 	| { readonly kind: "failed"; readonly failure: LookupFailure };
 
@@ -109,18 +135,42 @@ export interface ProjectDataWorkspace {
 	readonly rowConflict: ProjectDataRowConflict | null;
 	readonly setRowConflict: (conflict: ProjectDataRowConflict | null) => void;
 	readonly saveRow: (
-		rowId: string,
+		rowId: LookupRowId,
 		values: LookupRowValues,
+		baseline: RowEditBaseline,
 	) => Promise<ProjectDataWriteOutcome>;
 	readonly addRow: (
 		values: LookupRowValues,
 	) => Promise<ProjectDataWriteOutcome>;
-	readonly deleteRow: (rowId: string) => Promise<ProjectDataWriteOutcome>;
+	readonly deleteRow: (
+		rowId: LookupRowId,
+		baseline: RowEditBaseline,
+	) => Promise<ProjectDataWriteOutcome>;
+	readonly overwriteConflictRow: (
+		conflict: ProjectDataRowConflict,
+	) => Promise<ProjectDataWriteOutcome>;
+	readonly saveConflictAsNewRow: (
+		conflict: ProjectDataRowConflict,
+	) => Promise<ProjectDataWriteOutcome>;
+	readonly deleteConflictRow: (
+		conflict: ProjectDataRowConflict,
+	) => Promise<ProjectDataWriteOutcome>;
 }
 
 const ProjectDataWorkspaceContext = createContext<ProjectDataWorkspace | null>(
 	null,
 );
+
+function unavailableOutcome(): ProjectDataWriteOutcome {
+	return {
+		kind: "failed",
+		failure: {
+			success: false,
+			code: "not_found",
+			message: "Lookup table not found.",
+		},
+	};
+}
 
 export function useProjectDataWorkspace(): ProjectDataWorkspace | null {
 	return useContext(ProjectDataWorkspaceContext);
@@ -162,6 +212,41 @@ function ActiveHost({
 
 	const snapshot = state.kind === "data" ? state.value : undefined;
 
+	const conflictFromSnapshot = useCallback(
+		(args: {
+			readonly attempted: "save" | "delete";
+			readonly rowId: LookupRowId;
+			readonly draft: LookupRowValues;
+			readonly verdict: ProjectDataRowConflict["verdict"];
+			readonly fresh: LookupTableSnapshot;
+			readonly draftColumns?: readonly LookupTableSnapshot["columns"][number][];
+		}): ProjectDataRowConflict => {
+			const current = args.fresh.rows.find((row) => row.id === args.rowId);
+			const displayColumns = (args.draftColumns ?? args.fresh.columns).map(
+				(column) => ({ ...column }),
+			);
+			for (const column of args.fresh.columns) {
+				if (!displayColumns.some((candidate) => candidate.id === column.id)) {
+					displayColumns.push({ ...column });
+				}
+			}
+			return {
+				attempted: args.attempted,
+				rowId: args.rowId,
+				draft: args.draft,
+				verdict: args.verdict,
+				current: current?.values,
+				displayColumns,
+				resolution: {
+					tableRevision: args.fresh.tableRevision,
+					rowCount: args.fresh.rowCount,
+					columns: args.fresh.columns.map((column) => ({ ...column })),
+				},
+			};
+		},
+		[],
+	);
+
 	/**
 	 * Re-read the table and decide what a refused write means.
 	 *
@@ -171,28 +256,20 @@ function ActiveHost({
 	 */
 	const resolveRowConflict = useCallback(
 		async (
-			rowId: string,
+			rowId: LookupRowId,
 			draft: LookupRowValues,
-			baseline: LookupRowValues,
-			baselineColumns: LookupTableSnapshot["columns"],
+			baseline: RowEditBaseline,
 		): Promise<ProjectDataWriteOutcome> => {
 			if (projectId === undefined || tableId === undefined) {
-				return {
-					kind: "failed",
-					failure: {
-						success: false,
-						code: "not_found",
-						message: "Lookup table not found.",
-					},
-				};
+				return unavailableOutcome();
 			}
 			const fresh = await getLookupTableAction(projectId, tableId);
 			if (!fresh.success) return { kind: "failed", failure: fresh };
 			const current = fresh.value.rows.find((row) => row.id === rowId);
 			const verdict = rowWriteConflictVerdict({
-				baseline,
+				baseline: baseline.row.values,
 				current,
-				columnsChanged: !columnsEqual(baselineColumns, fresh.value.columns),
+				columnsChanged: !columnsEqual(baseline.columns, fresh.value.columns),
 			});
 			if (verdict.kind === "retry") {
 				const retried = await updateLookupRowAction(projectId, {
@@ -203,7 +280,7 @@ function ActiveHost({
 				});
 				if (retried.success) {
 					await reload();
-					return { kind: "saved" };
+					return { kind: "saved", rowId };
 				}
 				/* Only a second REVISION drift is a conflict. A retry refused for any
 				 * other reason — a value the column will not take, a byte cap — carries
@@ -216,18 +293,21 @@ function ActiveHost({
 				 * concurrent editing, and silently looping would be indistinguishable
 				 * from a hang — the author gets the choice instead. */
 				const after = await getLookupTableAction(projectId, tableId);
-				const afterRow = after.success
-					? after.value.rows.find((row) => row.id === rowId)
-					: undefined;
+				if (!after.success) return { kind: "failed", failure: after };
+				const afterRow = after.value.rows.find((row) => row.id === rowId);
 				return {
 					kind: "conflict",
-					conflict: {
+					conflict: conflictFromSnapshot({
 						attempted: "save",
 						rowId,
 						draft,
-						verdict: { kind: "ask", reason: "row-changed" },
-						current: afterRow?.values,
-					},
+						verdict:
+							afterRow === undefined
+								? { kind: "gone" }
+								: { kind: "ask", reason: "row-changed" },
+						fresh: after.value,
+						draftColumns: baseline.columns,
+					}),
 				};
 			}
 			/* Deliberately NO reload before returning a conflict. Refreshing here
@@ -237,68 +317,50 @@ function ActiveHost({
 			 * happens once the author has decided. */
 			return {
 				kind: "conflict",
-				conflict: {
+				conflict: conflictFromSnapshot({
 					attempted: "save",
 					rowId,
 					draft,
 					verdict,
-					current: current?.values,
-				},
+					fresh: fresh.value,
+					draftColumns: baseline.columns,
+				}),
 			};
 		},
-		[projectId, tableId, reload],
+		[projectId, tableId, reload, conflictFromSnapshot],
 	);
 
 	const saveRow = useCallback(
 		async (
-			rowId: string,
+			rowId: LookupRowId,
 			values: LookupRowValues,
+			baseline: RowEditBaseline,
 		): Promise<ProjectDataWriteOutcome> => {
-			if (projectId === undefined || tableId === undefined || !snapshot) {
-				return {
-					kind: "failed",
-					failure: {
-						success: false,
-						code: "not_found",
-						message: "Lookup table not found.",
-					},
-				};
+			if (projectId === undefined || tableId === undefined) {
+				return unavailableOutcome();
 			}
-			const baselineRow = snapshot.rows.find((row) => row.id === rowId);
 			const result = await updateLookupRowAction(projectId, {
 				tableId,
-				expectedTableRevision: snapshot.tableRevision,
+				expectedTableRevision: baseline.tableRevision,
 				rowId,
 				values,
 			});
 			if (result.success) {
 				await reload();
-				return { kind: "saved" };
+				return { kind: "saved", rowId };
 			}
 			if (result.code !== "conflict") {
 				return { kind: "failed", failure: result };
 			}
-			return resolveRowConflict(
-				rowId,
-				values,
-				baselineRow?.values ?? ({} as LookupRowValues),
-				snapshot.columns,
-			);
+			return resolveRowConflict(rowId, values, baseline);
 		},
-		[projectId, tableId, snapshot, reload, resolveRowConflict],
+		[projectId, tableId, reload, resolveRowConflict],
 	);
 
 	const addRow = useCallback(
 		async (values: LookupRowValues): Promise<ProjectDataWriteOutcome> => {
 			if (projectId === undefined || tableId === undefined || !snapshot) {
-				return {
-					kind: "failed",
-					failure: {
-						success: false,
-						code: "not_found",
-						message: "Lookup table not found.",
-					},
-				};
+				return unavailableOutcome();
 			}
 			/* Appended, always. An insert at a computed index would have to mean
 			 * something after a concurrent change, and "add a row" never means
@@ -311,7 +373,12 @@ function ActiveHost({
 			});
 			if (result.success) {
 				await reload();
-				return { kind: "saved" };
+				setSelection({
+					kind: "row",
+					rowId: result.value.rowId,
+					reveal: true,
+				});
+				return { kind: "saved", rowId: result.value.rowId };
 			}
 			if (result.code !== "conflict") {
 				return { kind: "failed", failure: result };
@@ -326,36 +393,35 @@ function ActiveHost({
 				toIndex: fresh.value.rowCount,
 				values,
 			});
+			if (!retried.success) return { kind: "failed", failure: retried };
 			await reload();
-			return retried.success
-				? { kind: "saved" }
-				: { kind: "failed", failure: retried };
+			setSelection({
+				kind: "row",
+				rowId: retried.value.rowId,
+				reveal: true,
+			});
+			return { kind: "saved", rowId: retried.value.rowId };
 		},
 		[projectId, tableId, snapshot, reload],
 	);
 
 	const deleteRow = useCallback(
-		async (rowId: string): Promise<ProjectDataWriteOutcome> => {
-			if (projectId === undefined || tableId === undefined || !snapshot) {
-				return {
-					kind: "failed",
-					failure: {
-						success: false,
-						code: "not_found",
-						message: "Lookup table not found.",
-					},
-				};
+		async (
+			rowId: LookupRowId,
+			baseline: RowEditBaseline,
+		): Promise<ProjectDataWriteOutcome> => {
+			if (projectId === undefined || tableId === undefined) {
+				return unavailableOutcome();
 			}
-			const baselineRow = snapshot.rows.find((row) => row.id === rowId);
 			const result = await deleteLookupRowAction(projectId, {
 				tableId,
-				expectedTableRevision: snapshot.tableRevision,
+				expectedTableRevision: baseline.tableRevision,
 				rowId,
 			});
 			if (result.success) {
 				setSelection(null);
 				await reload();
-				return { kind: "saved" };
+				return { kind: "saved", rowId };
 			}
 			if (result.code !== "conflict") {
 				return { kind: "failed", failure: result };
@@ -367,16 +433,16 @@ function ActiveHost({
 			if (!fresh.success) return { kind: "failed", failure: fresh };
 			const current = fresh.value.rows.find((row) => row.id === rowId);
 			const verdict = rowWriteConflictVerdict({
-				baseline: baselineRow?.values ?? ({} as LookupRowValues),
+				baseline: baseline.row.values,
 				current,
-				columnsChanged: !columnsEqual(snapshot.columns, fresh.value.columns),
+				columnsChanged: !columnsEqual(baseline.columns, fresh.value.columns),
 			});
 			if (verdict.kind === "gone") {
 				/* Already deleted by someone else. The author's intent is satisfied,
 				 * so this is a success, not a conflict to resolve. */
 				setSelection(null);
 				await reload();
-				return { kind: "saved" };
+				return { kind: "saved", rowId };
 			}
 			if (verdict.kind === "retry") {
 				const retried = await deleteLookupRowAction(projectId, {
@@ -384,29 +450,193 @@ function ActiveHost({
 					expectedTableRevision: fresh.value.tableRevision,
 					rowId,
 				});
-				if (retried.success) setSelection(null);
-				await reload();
-				return retried.success
-					? { kind: "saved" }
-					: { kind: "failed", failure: retried };
+				if (retried.success) {
+					setSelection(null);
+					await reload();
+					return { kind: "saved", rowId };
+				}
+				if (retried.code !== "conflict") {
+					return { kind: "failed", failure: retried };
+				}
+				/* One retry only, as on Save. A second drift must become an
+				 * explicit decision rather than a moving retry target. */
+				const after = await getLookupTableAction(projectId, tableId);
+				if (!after.success) return { kind: "failed", failure: after };
+				const afterRow = after.value.rows.find((row) => row.id === rowId);
+				if (afterRow === undefined) {
+					setSelection(null);
+					await reload();
+					return { kind: "saved", rowId };
+				}
+				return {
+					kind: "conflict",
+					conflict: conflictFromSnapshot({
+						attempted: "delete",
+						rowId,
+						draft: baseline.row.values,
+						verdict: { kind: "ask", reason: "row-changed" },
+						fresh: after.value,
+						draftColumns: baseline.columns,
+					}),
+				};
 			}
-			await reload();
 			return {
 				kind: "conflict",
-				conflict: {
+				conflict: conflictFromSnapshot({
 					attempted: "delete",
 					rowId,
 					/* What the author asked to remove, as they last saw it — NOT any
 					 * unsaved edits they had typed. A delete conflict asks whether the
 					 * row should still go, and answering it with the author's draft
 					 * would present values nobody has saved as the thing at stake. */
-					draft: baselineRow?.values ?? ({} as LookupRowValues),
+					draft: baseline.row.values,
 					verdict,
-					current: current?.values,
-				},
+					fresh: fresh.value,
+					draftColumns: baseline.columns,
+				}),
 			};
 		},
-		[projectId, tableId, snapshot, reload],
+		[projectId, tableId, reload, conflictFromSnapshot],
+	);
+
+	/**
+	 * Apply the author's explicit conflict decision against exactly the fresh
+	 * generation they reviewed. These are intentionally separate from normal
+	 * Save/Delete: re-entering those paths would reuse the stale edit-session
+	 * baseline and loop back to the same conflict forever.
+	 */
+	const overwriteConflictRow = useCallback(
+		async (
+			conflict: ProjectDataRowConflict,
+		): Promise<ProjectDataWriteOutcome> => {
+			if (projectId === undefined || tableId === undefined) {
+				return unavailableOutcome();
+			}
+			const result = await updateLookupRowAction(
+				projectId,
+				conflictOverwriteInput({
+					tableId,
+					rowId: conflict.rowId,
+					draft: conflict.draft,
+					resolution: conflict.resolution,
+				}),
+			);
+			if (result.success) {
+				setRowConflict(null);
+				setSelection({ kind: "row", rowId: conflict.rowId });
+				await reload();
+				return { kind: "saved", rowId: conflict.rowId };
+			}
+			if (result.code !== "conflict") {
+				return { kind: "failed", failure: result };
+			}
+			const fresh = await getLookupTableAction(projectId, tableId);
+			if (!fresh.success) return { kind: "failed", failure: fresh };
+			const next = conflictFromSnapshot({
+				attempted: "save",
+				rowId: conflict.rowId,
+				draft: conflict.draft,
+				verdict: fresh.value.rows.some((row) => row.id === conflict.rowId)
+					? { kind: "ask", reason: "row-changed" }
+					: { kind: "gone" },
+				fresh: fresh.value,
+				draftColumns: conflict.displayColumns,
+			});
+			setRowConflict(next);
+			return { kind: "conflict", conflict: next };
+		},
+		[projectId, tableId, reload, conflictFromSnapshot],
+	);
+
+	const saveConflictAsNewRow = useCallback(
+		async (
+			conflict: ProjectDataRowConflict,
+		): Promise<ProjectDataWriteOutcome> => {
+			if (projectId === undefined || tableId === undefined) {
+				return unavailableOutcome();
+			}
+			const result = await createLookupRowAction(
+				projectId,
+				conflictSaveAsNewInput({
+					tableId,
+					draft: conflict.draft,
+					resolution: conflict.resolution,
+				}),
+			);
+			if (result.success) {
+				setRowConflict(null);
+				await reload();
+				setSelection({
+					kind: "row",
+					rowId: result.value.rowId,
+					reveal: true,
+				});
+				return { kind: "saved", rowId: result.value.rowId };
+			}
+			if (result.code !== "conflict") {
+				return { kind: "failed", failure: result };
+			}
+			const fresh = await getLookupTableAction(projectId, tableId);
+			if (!fresh.success) return { kind: "failed", failure: fresh };
+			const next = conflictFromSnapshot({
+				attempted: "save",
+				rowId: conflict.rowId,
+				draft: conflict.draft,
+				verdict: { kind: "gone" },
+				fresh: fresh.value,
+				draftColumns: conflict.displayColumns,
+			});
+			setRowConflict(next);
+			return { kind: "conflict", conflict: next };
+		},
+		[projectId, tableId, reload, conflictFromSnapshot],
+	);
+
+	const deleteConflictRow = useCallback(
+		async (
+			conflict: ProjectDataRowConflict,
+		): Promise<ProjectDataWriteOutcome> => {
+			if (projectId === undefined || tableId === undefined) {
+				return unavailableOutcome();
+			}
+			const result = await deleteLookupRowAction(
+				projectId,
+				conflictDeleteInput({
+					tableId,
+					rowId: conflict.rowId,
+					resolution: conflict.resolution,
+				}),
+			);
+			if (result.success || result.code === "not_found") {
+				setRowConflict(null);
+				setSelection(null);
+				await reload();
+				return { kind: "saved", rowId: conflict.rowId };
+			}
+			if (result.code !== "conflict") {
+				return { kind: "failed", failure: result };
+			}
+			const fresh = await getLookupTableAction(projectId, tableId);
+			if (!fresh.success) return { kind: "failed", failure: fresh };
+			const current = fresh.value.rows.find((row) => row.id === conflict.rowId);
+			if (current === undefined) {
+				setRowConflict(null);
+				setSelection(null);
+				await reload();
+				return { kind: "saved", rowId: conflict.rowId };
+			}
+			const next = conflictFromSnapshot({
+				attempted: "delete",
+				rowId: conflict.rowId,
+				draft: conflict.draft,
+				verdict: { kind: "ask", reason: "row-changed" },
+				fresh: fresh.value,
+				draftColumns: conflict.displayColumns,
+			});
+			setRowConflict(next);
+			return { kind: "conflict", conflict: next };
+		},
+		[projectId, tableId, reload, conflictFromSnapshot],
 	);
 
 	const value = useMemo<ProjectDataWorkspace>(
@@ -422,6 +652,9 @@ function ActiveHost({
 			saveRow,
 			addRow,
 			deleteRow,
+			overwriteConflictRow,
+			saveConflictAsNewRow,
+			deleteConflictRow,
 		}),
 		[
 			tableId,
@@ -432,6 +665,9 @@ function ActiveHost({
 			saveRow,
 			addRow,
 			deleteRow,
+			overwriteConflictRow,
+			saveConflictAsNewRow,
+			deleteConflictRow,
 		],
 	);
 

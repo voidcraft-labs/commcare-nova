@@ -410,6 +410,16 @@ async function main(): Promise<void> {
 				label: CASE_WORKSPACE_SEED.lookupLabelColumnLabel,
 				dataType: "text",
 			},
+			{
+				wireName: "opening_time",
+				label: CASE_WORKSPACE_SEED.lookupTimeColumnLabel,
+				dataType: "time",
+			},
+			{
+				wireName: "last_verified",
+				label: CASE_WORKSPACE_SEED.lookupDatetimeColumnLabel,
+				dataType: "datetime",
+			},
 		],
 	});
 	const referralColumns = referralTable.columns;
@@ -425,10 +435,26 @@ async function main(): Promise<void> {
 			values: {
 				[referralColumns[0].id]: code,
 				[referralColumns[1].id]: destination,
+				[referralColumns[2].id]: "09:30:00+05:30",
+				[referralColumns[3].id]: "2026-07-26T14:45:00-04:00",
 			},
 		});
 		referralRevision = receipt.tableRevision;
 	}
+	/* A second, intentionally row-less table guards the zero-row authoring
+	 * contract: its schema remains visible and selectable even before the
+	 * first row is added. */
+	await createLookupTable(lookupScope, {
+		name: CASE_WORKSPACE_SEED.emptyLookupTableName,
+		tag: CASE_WORKSPACE_SEED.emptyLookupTableTag,
+		columns: [
+			{
+				wireName: "tier",
+				label: CASE_WORKSPACE_SEED.emptyLookupColumnLabel,
+				dataType: "text",
+			},
+		],
+	});
 
 	const caseWorkspace = {
 		appId: caseWorkspaceAppId,

@@ -6,7 +6,11 @@
 // author sees (a size, a capacity phrase, a conflict verdict) lives here, and
 // the components only render it.
 
-import type { LookupColumnId } from "@/lib/domain/lookupIds";
+import type {
+	LookupColumnId,
+	LookupRowId,
+	LookupTableId,
+} from "@/lib/domain/lookupIds";
 import { coerceLookupCell } from "@/lib/lookup/coercion";
 import {
 	LOOKUP_MAX_ROWS,
@@ -14,11 +18,16 @@ import {
 } from "@/lib/lookup/constants";
 import { formatLookupBytes, formatLookupCount } from "@/lib/lookup/format";
 import type {
+	CreateLookupRowInput,
+	DeleteLookupRowInput,
 	LookupCellValue,
 	LookupColumn,
 	LookupDataType,
+	LookupRevision,
 	LookupRow,
 	LookupRowValues,
+	LookupTableSnapshot,
+	UpdateLookupRowInput,
 } from "@/lib/lookup/types";
 import { parseClockTime } from "@/lib/ui/clockTime";
 
@@ -166,15 +175,25 @@ export function filterRows<Row extends { readonly values: LookupRowValues }>(
 }
 
 /**
- * A row being edited: raw text per column, exactly as typed.
+ * One cell being edited: raw text plus the storage projection that cannot be
+ * shown in the human-facing control.
  *
- * Drafts hold TEXT, not stored values, because a person types "2:30 PM" and
- * "1,024" long before either is a legal cell. Parsing at every keystroke would
- * either discard characters mid-word or refuse a value the author has not
- * finished writing. `rowDraftToValues` is the one commit boundary where text
- * becomes stored values — or becomes per-cell refusals in the author's words.
+ * Time controls show a clock, not an RFC 3339 timezone suffix. Keeping that
+ * suffix beside the text lets an unchanged `14:30:00+05:30` round-trip byte for
+ * byte and lets an edited clock retain the same offset. A new temporal value
+ * gets `Z`, because Nova has no authored app timezone to invent.
  */
-export type RowDraft = Readonly<Record<LookupColumnId, string | undefined>>;
+export interface RowDraftCell {
+	/** `undefined` means the UUID key is absent. `""` is a present empty text
+	 * cell, which is legal and must not collapse onto absence. */
+	readonly text: string | undefined;
+	readonly timezone?: string;
+	/** Exact stored spelling for a lossless no-op round trip. */
+	readonly originalStored?: string;
+	readonly originalText?: string;
+}
+
+export type RowDraft = Readonly<Record<LookupColumnId, RowDraftCell>>;
 
 /** A draft turned into stored values, or the reasons it could not be. */
 export type RowDraftResult =
@@ -189,18 +208,33 @@ export function rowValuesToDraft(
 	values: LookupRowValues,
 	columns: readonly LookupColumn[],
 ): RowDraft {
-	const draft: Record<string, string | undefined> = {};
-	for (const column of columns) draft[column.id] = cellText(values, column);
-	return draft;
+	const draft: Record<string, RowDraftCell> = {};
+	for (const column of columns) {
+		const stored = cellText(values, column);
+		if (
+			stored === undefined ||
+			(column.dataType !== "time" && column.dataType !== "datetime")
+		) {
+			draft[column.id] = { text: stored };
+			continue;
+		}
+		const projected = temporalValueToDraft(stored, column.dataType);
+		draft[column.id] = {
+			text: projected.text,
+			timezone: projected.timezone,
+			originalStored: stored,
+			originalText: projected.text,
+		};
+	}
+	return draft as RowDraft;
 }
 
 /**
  * Parse a draft into stored values.
  *
- * An empty (or absent) cell stays ABSENT rather than becoming `""`. That is
- * the boundary's own rule — a missing UUID key means a missing cell, and an
- * empty CSV cell omits the key — so the editor and an import agree about what
- * "no value" is.
+ * An absent cell stays ABSENT. An authored empty text cell stays `""`, because
+ * text storage distinguishes those states; an empty control for every other
+ * type means absence, matching an empty CSV cell.
  *
  * A time is parsed through `parseClockTime` first, because the field's value
  * contract is the raw typed clock rather than a wire string; everything else
@@ -214,23 +248,33 @@ export function rowDraftToValues(
 	const values: Record<string, string | number> = {};
 	const errors = new Map<LookupColumnId, string>();
 	for (const column of columns) {
-		const raw = draft[column.id]?.trim() ?? "";
-		if (raw === "") continue;
+		const cell = draft[column.id];
+		if (cell === undefined || cell.text === undefined) continue;
+		const raw = cell.text;
+		/* An empty string is a real, valid text value. Every other empty
+		 * control means the UUID key is absent. RowValueField normally encodes
+		 * that distinction directly; this branch keeps programmatic drafts
+		 * honest too. */
+		if (raw === "" && column.dataType !== "text") continue;
 		if (column.dataType === "time" || column.dataType === "datetime") {
-			const parsed = parseTemporalText(raw, column.dataType);
+			const parsed = parseTemporalText(raw, column.dataType, cell);
 			if (parsed === null) {
 				errors.set(
 					column.id,
 					column.dataType === "time"
-						? "Enter a time like 2:30 PM."
-						: "Enter both a date and a time.",
+						? "Enter a time like 2:30 PM. Nova saves it with a timezone."
+						: "Enter both a date and a time. Nova saves it with a timezone.",
 				);
 				continue;
 			}
 			values[column.id] = parsed;
 			continue;
 		}
-		const coerced = coerceLookupCell(column.dataType, raw, "csv");
+		const coerced = coerceLookupCell(
+			column.dataType,
+			raw,
+			column.dataType === "text" ? "typed" : "csv",
+		);
 		if (!coerced.success) {
 			errors.set(column.id, coerced.message);
 			continue;
@@ -242,16 +286,212 @@ export function rowDraftToValues(
 		: { ok: true, values: values as LookupRowValues };
 }
 
-/** A typed clock, or a `date` + typed clock, in the wire's own spelling. */
+/** Split a stored temporal value into the clock a person edits and the exact
+ * timezone suffix storage requires. */
+function temporalValueToDraft(
+	stored: string,
+	dataType: "time" | "datetime",
+): { readonly text: string; readonly timezone: string } {
+	const match = /^(.*?)(z|[+-]\d{2}(?::?\d{2})?)$/i.exec(stored);
+	if (match === null) return { text: stored, timezone: "Z" };
+	const withoutZone = match[1];
+	const timezone = match[2];
+	if (dataType === "time") return { text: withoutZone, timezone };
+	const separator = /[t\s]/i.exec(withoutZone);
+	if (separator === null) return { text: withoutZone, timezone };
+	return {
+		text: `${withoutZone.slice(0, separator.index)}T${withoutZone.slice(
+			separator.index + 1,
+		)}`,
+		timezone,
+	};
+}
+
+/** A typed clock, or a `date` + typed clock, in RFC 3339 storage spelling. */
 function parseTemporalText(
 	raw: string,
 	dataType: "time" | "datetime",
+	cell: RowDraftCell,
 ): string | null {
-	if (dataType === "time") return parseClockTime(raw);
+	if (
+		cell.originalStored !== undefined &&
+		cell.originalText !== undefined &&
+		raw === cell.originalText
+	) {
+		/* The stored value already passed the strict lookup schema. Returning it
+		 * unchanged preserves offset spelling, fractional seconds, and `Z`. */
+		return cell.originalStored;
+	}
+	const timezone = cell.timezone ?? "Z";
+	if (dataType === "time") {
+		const time = parseClockTime(raw);
+		return time === null ? null : `${time}${timezone}`;
+	}
 	const [datePart, timePart] = raw.split("T");
 	if (datePart === undefined || timePart === undefined) return null;
 	const time = parseClockTime(timePart);
-	return time === null ? null : `${datePart}T${time}`;
+	if (time === null) return null;
+	const candidate = `${datePart}T${time}${timezone}`;
+	const checked = coerceLookupCell("datetime", candidate, "typed");
+	return checked.success ? candidate : null;
+}
+
+/**
+ * Immutable row edit-session baseline.
+ *
+ * A realtime refresh may replace the displayed table snapshot while a draft is
+ * open. Capturing the full row, columns, and optimistic revision here keeps the
+ * eventual Save comparing against what the author actually began from rather
+ * than silently adopting the peer's newer generation.
+ */
+export interface RowEditBaseline {
+	readonly tableRevision: LookupTableSnapshot["tableRevision"];
+	readonly row: LookupRow;
+	readonly columns: readonly LookupColumn[];
+}
+
+export function captureRowEditBaseline(
+	table: LookupTableSnapshot,
+	row: LookupRow,
+): RowEditBaseline {
+	return {
+		tableRevision: table.tableRevision,
+		row: { ...row, values: { ...row.values } as LookupRowValues },
+		columns: table.columns.map((column) => ({ ...column })),
+	};
+}
+
+/** The exact fresh generation rendered on a row-conflict decision surface. */
+export interface RowConflictResolutionTarget {
+	readonly tableRevision: LookupRevision;
+	readonly rowCount: number;
+}
+
+/** Build explicit conflict-resolution writes from the reviewed generation.
+ *
+ * Keeping these pure makes two guarantees independently testable: "Keep mine"
+ * never falls back to the stale edit-session revision, and "Save as a new row"
+ * appends against the row count the author actually reviewed. */
+export function conflictOverwriteInput(args: {
+	readonly tableId: LookupTableId;
+	readonly rowId: LookupRowId;
+	readonly draft: LookupRowValues;
+	readonly resolution: RowConflictResolutionTarget;
+}): UpdateLookupRowInput {
+	return {
+		tableId: args.tableId,
+		expectedTableRevision: args.resolution.tableRevision,
+		rowId: args.rowId,
+		values: args.draft,
+	};
+}
+
+export function conflictSaveAsNewInput(args: {
+	readonly tableId: LookupTableId;
+	readonly draft: LookupRowValues;
+	readonly resolution: RowConflictResolutionTarget;
+}): CreateLookupRowInput {
+	return {
+		tableId: args.tableId,
+		expectedTableRevision: args.resolution.tableRevision,
+		toIndex: args.resolution.rowCount,
+		values: args.draft,
+	};
+}
+
+export function conflictDeleteInput(args: {
+	readonly tableId: LookupTableId;
+	readonly rowId: LookupRowId;
+	readonly resolution: RowConflictResolutionTarget;
+}): DeleteLookupRowInput {
+	return {
+		tableId: args.tableId,
+		expectedTableRevision: args.resolution.tableRevision,
+		rowId: args.rowId,
+	};
+}
+
+/**
+ * A text setting edited against one optimistic table generation.
+ *
+ * `latest*` follows realtime truth while `baseRevision` stays the generation a
+ * Save is allowed to use. A dirty draft is never silently rebased: if a peer
+ * advances the table, the author must adopt the fresh text or explicitly keep
+ * theirs against the newly reviewed generation.
+ */
+export interface RevisionedTextDraft {
+	readonly text: string;
+	readonly baseText: string;
+	readonly baseRevision: LookupRevision;
+	readonly latestText: string;
+	readonly latestRevision: LookupRevision;
+	readonly dirty: boolean;
+	readonly conflicted: boolean;
+}
+
+export function createRevisionedTextDraft(
+	text: string,
+	revision: LookupRevision,
+): RevisionedTextDraft {
+	return {
+		text,
+		baseText: text,
+		baseRevision: revision,
+		latestText: text,
+		latestRevision: revision,
+		dirty: false,
+		conflicted: false,
+	};
+}
+
+export function editRevisionedTextDraft(
+	draft: RevisionedTextDraft,
+	text: string,
+): RevisionedTextDraft {
+	if (text === draft.latestText) {
+		return createRevisionedTextDraft(draft.latestText, draft.latestRevision);
+	}
+	return { ...draft, text, dirty: text !== draft.baseText };
+}
+
+export function reconcileRevisionedTextDraft(
+	draft: RevisionedTextDraft,
+	latestText: string,
+	latestRevision: LookupRevision,
+): RevisionedTextDraft {
+	if (
+		latestRevision === draft.latestRevision &&
+		latestText === draft.latestText
+	) {
+		return draft;
+	}
+	if (!draft.dirty || draft.text === latestText) {
+		return createRevisionedTextDraft(latestText, latestRevision);
+	}
+	return {
+		...draft,
+		latestText,
+		latestRevision,
+		conflicted: true,
+	};
+}
+
+export function keepRevisionedTextDraft(
+	draft: RevisionedTextDraft,
+): RevisionedTextDraft {
+	return {
+		...draft,
+		baseText: draft.latestText,
+		baseRevision: draft.latestRevision,
+		dirty: draft.text !== draft.latestText,
+		conflicted: false,
+	};
+}
+
+export function discardRevisionedTextDraft(
+	draft: RevisionedTextDraft,
+): RevisionedTextDraft {
+	return createRevisionedTextDraft(draft.latestText, draft.latestRevision);
 }
 
 /**

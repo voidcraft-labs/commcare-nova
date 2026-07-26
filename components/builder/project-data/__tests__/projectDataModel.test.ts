@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	lookupColumnIdSchema,
 	lookupRowIdSchema,
+	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
 import {
 	LOOKUP_MAX_ROWS,
@@ -9,15 +10,26 @@ import {
 } from "@/lib/lookup/constants";
 import type {
 	LookupColumn,
+	LookupRevision,
 	LookupRow,
 	LookupRowValues,
+	LookupTableSnapshot,
 } from "@/lib/lookup/types";
 import {
+	captureRowEditBaseline,
 	cellText,
 	columnsEqual,
+	conflictDeleteInput,
+	conflictOverwriteInput,
+	conflictSaveAsNewInput,
+	createRevisionedTextDraft,
+	discardRevisionedTextDraft,
+	editRevisionedTextDraft,
 	filterRows,
 	formatLookupBytes,
 	formatLookupCount,
+	keepRevisionedTextDraft,
+	reconcileRevisionedTextDraft,
 	replacementConflictVerdict,
 	rowAdditionRefusal,
 	rowDraftToValues,
@@ -35,6 +47,21 @@ const codeColumnId = lookupColumnIdSchema.parse(
 	"01912d68-783e-7000-8000-00000000c002",
 );
 const rowId = lookupRowIdSchema.parse("01912d68-783e-7000-8000-00000000d001");
+const tableId = lookupTableIdSchema.parse(
+	"01912d68-783e-7000-8000-00000000b001",
+);
+const decimalColumnId = lookupColumnIdSchema.parse(
+	"01912d68-783e-7000-8000-00000000c003",
+);
+const dateColumnId = lookupColumnIdSchema.parse(
+	"01912d68-783e-7000-8000-00000000c004",
+);
+const timeColumnId = lookupColumnIdSchema.parse(
+	"01912d68-783e-7000-8000-00000000c005",
+);
+const datetimeColumnId = lookupColumnIdSchema.parse(
+	"01912d68-783e-7000-8000-00000000c006",
+);
 
 const nameColumn: LookupColumn = {
 	id: nameColumnId,
@@ -58,6 +85,37 @@ function row(entries: Record<string, string | number>): LookupRow {
 		id: rowId,
 		values: values(entries),
 		valueBytes: 0,
+		createdBy: "u",
+		updatedBy: "u",
+		createdAt: "2026-01-01T00:00:00.000Z",
+		updatedAt: "2026-01-01T00:00:00.000Z",
+	};
+}
+
+const revision = (value: string) => value as LookupRevision;
+const draft = (entries: Record<string, string | undefined>) =>
+	Object.fromEntries(
+		Object.entries(entries).map(([key, text]) => [key, { text }]),
+	) as ReturnType<typeof rowValuesToDraft>;
+
+function tableSnapshot(
+	tableRevision: LookupRevision,
+	currentRow: LookupRow,
+): LookupTableSnapshot {
+	return {
+		projectId: "project-1",
+		projectRevision: tableRevision,
+		id: tableId,
+		name: "Facilities",
+		tag: "facilities",
+		columns: [nameColumn, codeColumn],
+		columnCount: 2,
+		rows: [currentRow],
+		rowCount: 1,
+		dataBytes: 0,
+		definitionRevision: tableRevision,
+		rowsRevision: tableRevision,
+		tableRevision,
 		createdBy: "u",
 		updatedBy: "u",
 		createdAt: "2026-01-01T00:00:00.000Z",
@@ -229,6 +287,70 @@ describe("rowWriteConflictVerdict", () => {
 	});
 });
 
+describe("captureRowEditBaseline", () => {
+	it("keeps the opened generation immutable across later snapshot changes", () => {
+		const openedRow = row({ [nameColumnId]: "Kitgum" });
+		const opened = tableSnapshot(revision("1"), openedRow);
+		const baseline = captureRowEditBaseline(opened, openedRow);
+
+		/* Simulate a realtime refresh replacing both row cells and definition.
+		 * Save must still compare with generation 1, not silently adopt this. */
+		opened.tableRevision = revision("2");
+		openedRow.values[nameColumnId] = "Kitgum Health Centre";
+		opened.columns[0] = { ...nameColumn, label: "Facility name" };
+
+		expect(baseline).toEqual({
+			tableRevision: revision("1"),
+			row: row({ [nameColumnId]: "Kitgum" }),
+			columns: [nameColumn, codeColumn],
+		});
+	});
+});
+
+describe("row conflict resolution inputs", () => {
+	const resolution = {
+		tableRevision: revision("9"),
+		rowCount: 4,
+	};
+	const mine = values({ [nameColumnId]: "My draft" });
+
+	it("writes Keep mine and Delete anyway against the reviewed generation", () => {
+		expect(
+			conflictOverwriteInput({
+				tableId,
+				rowId,
+				draft: mine,
+				resolution,
+			}),
+		).toEqual({
+			tableId,
+			expectedTableRevision: revision("9"),
+			rowId,
+			values: mine,
+		});
+		expect(conflictDeleteInput({ tableId, rowId, resolution })).toEqual({
+			tableId,
+			expectedTableRevision: revision("9"),
+			rowId,
+		});
+	});
+
+	it("appends a gone row draft at the exact reviewed row count", () => {
+		expect(
+			conflictSaveAsNewInput({
+				tableId,
+				draft: mine,
+				resolution,
+			}),
+		).toEqual({
+			tableId,
+			expectedTableRevision: revision("9"),
+			toIndex: 4,
+			values: mine,
+		});
+	});
+});
+
 describe("replacementConflictVerdict", () => {
 	it("never retries — a replacement over changed data is the destructive case", () => {
 		expect(replacementConflictVerdict()).toEqual({
@@ -264,17 +386,20 @@ describe("suggestWireName", () => {
 describe("rowDraftToValues", () => {
 	const columns = [nameColumn, codeColumn];
 
-	it("leaves an empty or whitespace cell ABSENT rather than storing an empty string", () => {
+	it("preserves empty and whitespace text while a missing numeric cell stays absent", () => {
 		const result = rowDraftToValues(
-			{ [nameColumnId]: "  ", [codeColumnId]: undefined },
+			draft({ [nameColumnId]: "  ", [codeColumnId]: undefined }),
 			columns,
 		);
-		expect(result).toEqual({ ok: true, values: {} });
+		expect(result).toEqual({
+			ok: true,
+			values: { [nameColumnId]: "  " },
+		});
 	});
 
 	it("parses through the same validation the server will run", () => {
 		const result = rowDraftToValues(
-			{ [nameColumnId]: "Kitgum", [codeColumnId]: "42" },
+			draft({ [nameColumnId]: "Kitgum", [codeColumnId]: "42" }),
 			columns,
 		);
 		expect(result).toEqual({
@@ -285,7 +410,10 @@ describe("rowDraftToValues", () => {
 
 	it("reports a per-cell reason rather than one failure for the row", () => {
 		const result = rowDraftToValues(
-			{ [nameColumnId]: "Kitgum", [codeColumnId]: "not a number" },
+			draft({
+				[nameColumnId]: "Kitgum",
+				[codeColumnId]: "not a number",
+			}),
 			columns,
 		);
 		expect(result.ok).toBe(false);
@@ -301,12 +429,12 @@ describe("rowDraftToValues", () => {
 			label: "Opens",
 			dataType: "time",
 		};
-		const result = rowDraftToValues({ [codeColumnId]: "2:30 PM" }, [
+		const result = rowDraftToValues(draft({ [codeColumnId]: "2:30 PM" }), [
 			timeColumn,
 		]);
 		expect(result).toEqual({
 			ok: true,
-			values: { [codeColumnId]: "14:30:00" },
+			values: { [codeColumnId]: "14:30:00Z" },
 		});
 	});
 
@@ -317,9 +445,17 @@ describe("rowDraftToValues", () => {
 			label: "Seen at",
 			dataType: "datetime",
 		};
-		const result = rowDraftToValues({ [codeColumnId]: "2026-01-01" }, [
+		const result = rowDraftToValues(draft({ [codeColumnId]: "2026-01-01" }), [
 			stampColumn,
 		]);
+		expect(result.ok).toBe(false);
+	});
+
+	it("does not trim numeric text into a different value", () => {
+		const result = rowDraftToValues(
+			draft({ [nameColumnId]: "Kitgum", [codeColumnId]: " 42 " }),
+			columns,
+		);
 		expect(result.ok).toBe(false);
 	});
 });
@@ -328,12 +464,116 @@ describe("rowValuesToDraft", () => {
 	it("round-trips through the draft without inventing values", () => {
 		const stored = values({ [nameColumnId]: "Kitgum" });
 		const draft = rowValuesToDraft(stored, [nameColumn, codeColumn]);
-		expect(draft[nameColumnId]).toBe("Kitgum");
-		expect(draft[codeColumnId]).toBe(undefined);
+		expect(draft[nameColumnId]).toEqual({ text: "Kitgum" });
+		expect(draft[codeColumnId]).toEqual({ text: undefined });
 		expect(rowDraftToValues(draft, [nameColumn, codeColumn])).toEqual({
 			ok: true,
 			values: stored,
 		});
+	});
+
+	it("round-trips every stored type, including exact temporal offsets", () => {
+		const allColumns: LookupColumn[] = [
+			nameColumn,
+			codeColumn,
+			{
+				id: decimalColumnId,
+				wireName: "amount",
+				label: "Amount",
+				dataType: "decimal",
+			},
+			{
+				id: dateColumnId,
+				wireName: "day",
+				label: "Day",
+				dataType: "date",
+			},
+			{
+				id: timeColumnId,
+				wireName: "opens",
+				label: "Opens",
+				dataType: "time",
+			},
+			{
+				id: datetimeColumnId,
+				wireName: "seen_at",
+				label: "Seen at",
+				dataType: "datetime",
+			},
+		];
+		const stored = values({
+			[nameColumnId]: "",
+			[codeColumnId]: 7,
+			[decimalColumnId]: 1.25,
+			[dateColumnId]: "2026-03-04",
+			[timeColumnId]: "14:30:00.125+05:30",
+			[datetimeColumnId]: "2026-03-04T08:10:11-0400",
+		});
+
+		expect(
+			rowDraftToValues(rowValuesToDraft(stored, allColumns), allColumns),
+		).toEqual({ ok: true, values: stored });
+	});
+
+	it("keeps a temporal cell's offset when its visible clock changes", () => {
+		const timeColumn: LookupColumn = {
+			id: codeColumnId,
+			wireName: "opens",
+			label: "Opens",
+			dataType: "time",
+		};
+		const original = rowValuesToDraft(
+			values({ [codeColumnId]: "14:30:00+05:30" }),
+			[timeColumn],
+		);
+		const edited = {
+			...original,
+			[codeColumnId]: {
+				...original[codeColumnId],
+				text: "3:45 PM",
+			},
+		};
+
+		expect(rowDraftToValues(edited, [timeColumn])).toEqual({
+			ok: true,
+			values: { [codeColumnId]: "15:45:00+05:30" },
+		});
+	});
+});
+
+describe("revisioned text drafts", () => {
+	it("reseeds a pristine draft from realtime state", () => {
+		const draft = createRevisionedTextDraft("Facilities", revision("1"));
+		expect(
+			reconcileRevisionedTextDraft(draft, "Clinics", revision("2")),
+		).toEqual(createRevisionedTextDraft("Clinics", revision("2")));
+	});
+
+	it("keeps a dirty draft and requires an explicit drift decision", () => {
+		const dirty = editRevisionedTextDraft(
+			createRevisionedTextDraft("Facilities", revision("1")),
+			"My facilities",
+		);
+		const conflicted = reconcileRevisionedTextDraft(
+			dirty,
+			"Clinics",
+			revision("2"),
+		);
+		expect(conflicted).toMatchObject({
+			text: "My facilities",
+			baseRevision: revision("1"),
+			latestText: "Clinics",
+			latestRevision: revision("2"),
+			conflicted: true,
+		});
+		expect(keepRevisionedTextDraft(conflicted)).toMatchObject({
+			text: "My facilities",
+			baseRevision: revision("2"),
+			conflicted: false,
+		});
+		expect(discardRevisionedTextDraft(conflicted)).toEqual(
+			createRevisionedTextDraft("Clinics", revision("2")),
+		);
 	});
 });
 

@@ -172,7 +172,30 @@ export function OptionsSourceEditor<F extends Field>({
 				</Select>
 			</div>
 
-			{considering !== null || tables.loadingList || tables.loadingFocused ? (
+			{tables.listFailure !== null || tables.focusedFailure !== null ? (
+				<div
+					role="alert"
+					className="rounded-lg border border-nova-rose/30 bg-nova-rose/[0.06] p-3"
+				>
+					<p className="text-[13px] leading-relaxed text-nova-text-secondary">
+						{tables.focusedFailure ?? tables.listFailure}
+					</p>
+					<Button
+						type="button"
+						variant="outline"
+						className="mt-2 min-h-11"
+						onClick={() =>
+							void (tables.focusedFailure !== null
+								? tables.retryFocused()
+								: tables.retryList())
+						}
+					>
+						Try again
+					</Button>
+				</div>
+			) : considering !== null ||
+				tables.loadingList ||
+				tables.loadingFocused ? (
 				<p
 					role="status"
 					className="text-[12px] leading-snug text-nova-text-muted"

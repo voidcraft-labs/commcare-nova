@@ -22,10 +22,12 @@ import { useEffect, useMemo, useState } from "react";
 import { useReconcilerContext } from "@/lib/collab/context";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
 import {
+	getLookupDefinitionAction,
 	getLookupManifestAction,
 	getLookupTableAction,
 } from "@/lib/lookup/actions";
 import type {
+	LookupDefinitionsSnapshot,
 	LookupFailure,
 	LookupManifest,
 	LookupTableManifestEntry,
@@ -139,7 +141,11 @@ export function useProjectDataManifest(): {
 		},
 		loading: { kind: "loading" },
 		toError: () => ({ kind: "failed", failure: transportFailure() }),
-		keepStale: (prev) => prev.kind === "data",
+		/* Stale-while-revalidate is legal only inside the same tenant. The
+		 * resource survives Project navigation, so `kind === data` alone would
+		 * paint the previous Project's manifest under the new Project name. */
+		keepStale: (prev) =>
+			prev.kind === "data" && prev.value.projectId === projectId,
 		reloadToken,
 	});
 
@@ -214,7 +220,91 @@ export function useProjectDataTable(tableId: LookupTableId | undefined): {
 		},
 		loading: { kind: "loading" },
 		toError: () => ({ kind: "failed", failure: transportFailure() }),
-		keepStale: (prev) => prev.kind === "data",
+		/* Both axes are identity fences. Keeping another table (or another
+		 * Project's table) for even one loading frame is a cross-context data
+		 * disclosure, not useful stale state. */
+		keepStale: (prev) =>
+			prev.kind === "data" &&
+			prev.value.projectId === projectId &&
+			prev.value.id === tableId,
+		reloadToken,
+	});
+
+	return { state, reload };
+}
+
+/**
+ * One table definition, explicitly without rows.
+ *
+ * Field option pickers need names and columns, not the table body. Keeping
+ * this projection separate prevents a field inspector from downloading a
+ * 5,000-row table merely to populate two column selects.
+ */
+export function useProjectDataDefinition(tableId: LookupTableId | undefined): {
+	readonly state: ProjectDataRead<LookupDefinitionsSnapshot>;
+	readonly reload: () => Promise<void>;
+} {
+	const projectId = useProjectId();
+	const accessPhase = useAccessPhase();
+	const scopeEpoch = useProjectScopeEpoch();
+	const runtimeScopeId = useRuntimeScopeId();
+	const pushed = usePushedManifest();
+	const pushedDefinitionRevision =
+		pushed !== null && pushed.projectId === projectId
+			? (pushed.tables.find((entry) => entry.id === tableId)
+					?.definitionRevision ?? "")
+			: "";
+
+	const reloadToken = useMemo(
+		() =>
+			[
+				runtimeScopeId,
+				String(scopeEpoch),
+				projectId ?? "",
+				accessPhase,
+				tableId ?? "",
+				pushedDefinitionRevision,
+			].join(" "),
+		[
+			runtimeScopeId,
+			scopeEpoch,
+			projectId,
+			accessPhase,
+			tableId,
+			pushedDefinitionRevision,
+		],
+	);
+
+	const { state, reload } = useReloadableResource<
+		ProjectDataRead<LookupDefinitionsSnapshot>
+	>({
+		prepare: () => {
+			if (
+				projectId === undefined ||
+				tableId === undefined ||
+				accessPhase !== "authorized"
+			) {
+				return { notReady: { kind: "idle" } };
+			}
+			const id = projectId;
+			const focusedId = tableId;
+			return {
+				fetch: async (): Promise<
+					ProjectDataRead<LookupDefinitionsSnapshot>
+				> => {
+					const result = await getLookupDefinitionAction(id, focusedId);
+					if (!result.success) return { kind: "failed", failure: result };
+					return { kind: "data", value: result.value };
+				},
+			};
+		},
+		loading: { kind: "loading" },
+		toError: () => ({ kind: "failed", failure: transportFailure() }),
+		keepStale: (prev) =>
+			prev.kind === "data" &&
+			prev.value.projectId === projectId &&
+			prev.value.definitions.length === 1 &&
+			prev.value.definitions[0]?.id === tableId,
 		reloadToken,
 	});
 

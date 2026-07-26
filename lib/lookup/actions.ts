@@ -41,6 +41,7 @@ import {
 	createLookupRow,
 	createLookupTable,
 	deleteLookupRow,
+	getLookupDefinitions,
 	getLookupManifest,
 	getLookupTable,
 	moveLookupColumn,
@@ -55,6 +56,7 @@ import type {
 	LookupActionErrorCode,
 	LookupCreatedColumnReceipt,
 	LookupCreatedRowReceipt,
+	LookupDefinitionsSnapshot,
 	LookupFailure,
 	LookupGovernanceFailure,
 	LookupManifest,
@@ -355,6 +357,21 @@ export async function getLookupTableAction(
 		lookupTableIdSchema,
 		"view",
 		(scope, id) => getLookupTable(scope, id),
+	);
+}
+
+/** Rows-free definition read for authoring pickers. Fetching columns must not
+ * drag up to 5,000 row payloads into a field inspector. */
+export async function getLookupDefinitionAction(
+	projectId: unknown,
+	tableId: unknown,
+): Promise<LookupResult<LookupDefinitionsSnapshot>> {
+	return runLookupAction(
+		projectId,
+		tableId,
+		lookupTableIdSchema,
+		"view",
+		(scope, id) => getLookupDefinitions(scope, [id]),
 	);
 }
 

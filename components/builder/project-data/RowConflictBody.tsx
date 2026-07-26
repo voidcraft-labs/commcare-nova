@@ -33,10 +33,12 @@ export function RowConflictBody({
 	conflict,
 	columns,
 	workspace,
+	canEdit,
 }: {
 	conflict: ProjectDataRowConflict;
 	columns: readonly LookupColumn[];
 	workspace: ProjectDataWorkspace;
+	canEdit: boolean;
 }) {
 	const [working, setWorking] = useState(false);
 	const [failure, setFailure] = useState<string | null>(null);
@@ -54,11 +56,25 @@ export function RowConflictBody({
 				? "Someone else changed this row while you were deleting it."
 				: "Someone else saved this row while you were editing it.";
 
-	const finish = async (run: () => Promise<unknown>) => {
+	const finish = async (
+		run: () => Promise<Awaited<ReturnType<ProjectDataWorkspace["saveRow"]>>>,
+	) => {
+		if (working) return;
 		setWorking(true);
 		setFailure(null);
-		await run();
-		setWorking(false);
+		try {
+			const outcome = await run();
+			if (outcome.kind === "failed") setFailure(outcome.failure.message);
+		} catch {
+			/* A rejected Server Action is transport failure, not permission to
+			 * clear the controller-owned conflict. The draft remains available
+			 * for the same explicit decision on the next attempt. */
+			setFailure(
+				"Nova could not reach this data table. Check your connection and try again.",
+			);
+		} finally {
+			setWorking(false);
+		}
 	};
 
 	return (
@@ -126,53 +142,51 @@ export function RowConflictBody({
 					{failure}
 				</p>
 			)}
+			{!canEdit && (
+				<p className="rounded-lg bg-nova-elevated px-3 py-2.5 text-[13px] leading-relaxed text-nova-text-secondary">
+					Your access changed while this decision was open. Your draft is still
+					shown here, but changing Project data now needs edit access.
+				</p>
+			)}
 
 			<div className="flex flex-wrap gap-2">
-				{deleting && !gone && (
+				{canEdit && deleting && !gone && (
 					<Button
 						type="button"
 						variant="destructive"
 						className="min-h-11"
 						disabled={working}
 						onClick={() =>
-							void finish(async () => {
-								/* Clearing FIRST means the retry's own refusal replaces this
-								 * conflict rather than being swallowed by the one on screen. */
-								workspace.setRowConflict(null);
-								const outcome = await workspace.deleteRow(conflict.rowId);
-								if (outcome.kind === "failed") {
-									setFailure(outcome.failure.message);
-								} else if (outcome.kind === "conflict") {
-									workspace.setRowConflict(outcome.conflict);
-								}
-							})
+							void finish(() => workspace.deleteConflictRow(conflict))
 						}
 					>
 						Delete it anyway
 					</Button>
 				)}
-				{!deleting && !gone && (
+				{canEdit && !deleting && !gone && (
 					<Button
 						type="button"
 						variant="default"
 						className="min-h-11"
 						disabled={working}
 						onClick={() =>
-							void finish(async () => {
-								workspace.setRowConflict(null);
-								const outcome = await workspace.saveRow(
-									conflict.rowId,
-									conflict.draft,
-								);
-								if (outcome.kind === "failed") {
-									setFailure(outcome.failure.message);
-								} else if (outcome.kind === "conflict") {
-									workspace.setRowConflict(outcome.conflict);
-								}
-							})
+							void finish(() => workspace.overwriteConflictRow(conflict))
 						}
 					>
 						Keep mine
+					</Button>
+				)}
+				{canEdit && !deleting && gone && (
+					<Button
+						type="button"
+						variant="default"
+						className="min-h-11"
+						disabled={working}
+						onClick={() =>
+							void finish(() => workspace.saveConflictAsNewRow(conflict))
+						}
+					>
+						Save as a new row
 					</Button>
 				)}
 				<Button
@@ -181,9 +195,12 @@ export function RowConflictBody({
 					className="min-h-11"
 					disabled={working}
 					onClick={() =>
-						void finish(async () => {
+						void (async () => {
+							setWorking(true);
+							setFailure(null);
 							workspace.setRowConflict(null);
 							await workspace.reload();
+							setWorking(false);
 						})
 					}
 				>

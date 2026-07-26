@@ -18,12 +18,13 @@
 
 import { useMemo } from "react";
 import {
+	useProjectDataDefinition,
 	useProjectDataManifest,
-	useProjectDataTable,
 } from "@/components/builder/project-data/useProjectData";
 import type { LookupValidationContext } from "@/lib/doc/lookupReferences";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
 import type { LookupColumn } from "@/lib/lookup/types";
+import { useProjectId } from "@/lib/session/hooks";
 import { projectLookupDefinitionContext } from "./projectLookupDefinitionContext";
 
 export interface LookupTableChoice {
@@ -47,6 +48,10 @@ export interface ProjectLookupDefinitions {
 	/** Exact focused definition snapshot for the optimistic client commit gate.
 	 * The server repeats the verdict against fresh Project state. */
 	readonly lookupContext: LookupValidationContext;
+	readonly listFailure: string | null;
+	readonly focusedFailure: string | null;
+	readonly retryList: () => Promise<void>;
+	readonly retryFocused: () => Promise<void>;
 }
 
 /**
@@ -58,7 +63,8 @@ export function useProjectLookupDefinitions(
 	focusedTableId?: LookupTableId,
 ): ProjectLookupDefinitions {
 	const manifest = useProjectDataManifest();
-	const focused = useProjectDataTable(focusedTableId);
+	const focused = useProjectDataDefinition(focusedTableId);
+	const currentProjectId = useProjectId();
 
 	return useMemo(() => {
 		const manifestEntry =
@@ -73,20 +79,30 @@ export function useProjectLookupDefinitions(
 		const loadedSnapshot =
 			focused.state.kind === "data" ? focused.state.value : undefined;
 		const lookupContext = projectLookupDefinitionContext({
+			currentProjectId,
+			manifestProjectId:
+				manifest.state.kind === "data"
+					? manifest.state.value.projectId
+					: undefined,
 			focusedTableId,
 			manifestEntry,
 			snapshot: loadedSnapshot,
 		});
-		const focusedSnapshot =
-			lookupContext.kind === "available" ? loadedSnapshot : undefined;
+		const focusedDefinition =
+			lookupContext.kind === "available"
+				? loadedSnapshot?.definitions.find(
+						(definition) => definition.id === focusedTableId,
+					)
+				: undefined;
 		const definitions: LookupTableChoice[] =
 			manifest.state.kind === "data"
 				? manifest.state.value.tables.map((entry) => ({
 						id: entry.id,
 						name: entry.name,
 						columns:
-							focusedSnapshot !== undefined && focusedSnapshot.id === entry.id
-								? focusedSnapshot.columns
+							focusedDefinition !== undefined &&
+							focusedDefinition.id === entry.id
+								? focusedDefinition.columns
 								: [],
 					}))
 				: [];
@@ -103,6 +119,21 @@ export function useProjectLookupDefinitions(
 			loadingList:
 				manifest.state.kind === "loading" || manifest.state.kind === "idle",
 			lookupContext,
+			listFailure:
+				manifest.state.kind === "failed"
+					? manifest.state.failure.message
+					: null,
+			focusedFailure:
+				focused.state.kind === "failed" ? focused.state.failure.message : null,
+			retryList: manifest.reload,
+			retryFocused: focused.reload,
 		};
-	}, [manifest.state, focused.state, focusedTableId]);
+	}, [
+		manifest.state,
+		manifest.reload,
+		focused.state,
+		focused.reload,
+		focusedTableId,
+		currentProjectId,
+	]);
 }

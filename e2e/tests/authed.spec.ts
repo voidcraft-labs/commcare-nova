@@ -1870,7 +1870,51 @@ test.describe("authenticated builder", () => {
 			page.getByText("shared with every app in this project", { exact: false }),
 		).toBeVisible();
 
-		// 2. Opening one shows its rows — the read path, columns and all.
+		// Export identity is visible before opening a table; authors do not need
+		// to enter an admin-only edit control merely to discover it.
+		await expect(
+			page.getByText(`Export tag: ${CASE_WORKSPACE_SEED.lookupTableTag}`, {
+				exact: true,
+			}),
+		).toBeVisible();
+
+		// 2. A table with no rows still exposes its schema and column settings.
+		await page
+			.getByRole("button", {
+				name: new RegExp(`^${CASE_WORKSPACE_SEED.emptyLookupTableName}`),
+			})
+			.click();
+		await expect(
+			page.getByRole("heading", {
+				name: CASE_WORKSPACE_SEED.emptyLookupTableName,
+				level: 1,
+			}),
+		).toBeVisible({ timeout: 20_000 });
+		await expect(
+			page.getByRole("columnheader", {
+				name: new RegExp(CASE_WORKSPACE_SEED.emptyLookupColumnLabel),
+			}),
+		).toBeVisible();
+		await expect(
+			page.getByText("This table has its columns but no rows yet.", {
+				exact: false,
+			}),
+		).toBeVisible();
+		await page
+			.getByRole("button", {
+				name: new RegExp(CASE_WORKSPACE_SEED.emptyLookupColumnLabel),
+			})
+			.click();
+		await expect(
+			page.getByRole("heading", {
+				name: CASE_WORKSPACE_SEED.emptyLookupColumnLabel,
+				level: 2,
+			}),
+		).toBeVisible();
+
+		// 3. Opening the populated table shows its rows — the read path,
+		// columns, tag and all.
+		await page.getByRole("button", { name: "All data tables" }).click();
 		await page
 			.getByRole("button", {
 				name: new RegExp(`^${CASE_WORKSPACE_SEED.lookupTableName}`),
@@ -1887,9 +1931,56 @@ test.describe("authenticated builder", () => {
 				name: new RegExp(CASE_WORKSPACE_SEED.lookupLabelColumnLabel),
 			}),
 		).toBeVisible();
+		await expect(
+			page.getByText(`Export tag: ${CASE_WORKSPACE_SEED.lookupTableTag}`, {
+				exact: true,
+			}),
+		).toBeVisible();
 		await expect(page.getByText("District hospital")).toBeVisible();
 
-		// 3. The gesture the unit is for: bind a question's choices to a column.
+		// Opening an already-visible search result keeps the author's search.
+		// Only a newly minted row needs the grid to clear filters and reveal it.
+		const findRow = page.getByRole("searchbox", { name: "Find a row" });
+		await findRow.fill("District hospital");
+		await page.getByRole("button", { name: /^Open row/ }).click();
+		await expect(findRow).toHaveValue("District hospital");
+		const destination = page.getByRole("textbox", {
+			name: new RegExp(`^${CASE_WORKSPACE_SEED.lookupLabelColumnLabel}`),
+		});
+		await expect(
+			page.getByRole("textbox", {
+				name: `${CASE_WORKSPACE_SEED.lookupTimeColumnLabel} time`,
+			}),
+		).toHaveValue("09:30:00");
+		await expect(
+			page.getByRole("textbox", {
+				name: `${CASE_WORKSPACE_SEED.lookupDatetimeColumnLabel} time`,
+			}),
+		).toHaveValue("14:45:00");
+		await destination.fill("  District hospital  ");
+		await page.getByRole("button", { name: "Save row" }).click();
+		await expect(
+			page.getByRole("status").filter({ hasText: "Saved." }),
+		).toBeVisible();
+		await expect(destination).toHaveValue("  District hospital  ");
+		await expect(page.getByText("09:30:00+05:30")).toBeVisible();
+		await expect(page.getByText("2026-07-26T14:45:00-04:00")).toBeVisible();
+		await findRow.fill("");
+
+		// A rapid repeated gesture creates exactly one row, and the returned row
+		// is selected/revealed immediately instead of being stranded off-page.
+		const rowsBefore = await page.getByRole("row").count();
+		const addRow = page.getByRole("button", { name: "Add row" });
+		await addRow.dblclick();
+		await expect(
+			page.getByRole("status").filter({
+				hasText: "Added and opened a new empty row.",
+			}),
+		).toBeVisible({ timeout: 20_000 });
+		await expect(page.getByRole("row")).toHaveCount(rowsBefore + 1);
+		await expect(page.getByRole("button", { name: "Save row" })).toBeVisible();
+
+		// 4. The gesture the unit is for: bind a question's choices to a column.
 		await page.goto(seed.caseWorkspace.routes.selectField);
 		const source = page.getByRole("combobox", {
 			name: "Where the choices come from",
@@ -1920,7 +2011,7 @@ test.describe("authenticated builder", () => {
 			page.getByRole("combobox", { name: "Value people see" }),
 		).toHaveText(CASE_WORKSPACE_SEED.lookupValueColumnLabel);
 
-		// 4. And back again — the typed-in options were kept, not replaced.
+		// 5. And back again — the typed-in options were kept, not replaced.
 		await source.click();
 		await page
 			.getByRole("option", { name: "The options typed in here" })

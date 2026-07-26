@@ -30,7 +30,8 @@ A table has columns and rows. Each column carries three things:
 - **A name used in exports.** It's also the heading Nova looks for in a CSV, so
   changing it means every CSV you import from then on has to carry the new
   heading. Changing it needs admin access, and the table itself has one of these
-  names too.
+  names too. The table's export tag appears on both the table list and the table
+  itself, so you can verify the contract before sharing a CSV or integration.
 - **A type of value**: Text, Whole number, Decimal number, Date, Time, or Date
   and time.
 
@@ -41,8 +42,13 @@ Searching is how you find a row; paging through until it turns up is not.
 
 Select a row and it opens in the properties panel on the right, where each value
 gets the control its column's type calls for — a date picker for a date, a clock
-field for a time. Leaving a value empty means the row has no value in that
-column, which is a different thing from a piece of text with nothing in it.
+field for a time. Nova preserves text exactly, including leading or trailing
+spaces and an intentionally empty piece of text. It also keeps that distinct
+from a value that was never present.
+
+Times and dates stay human-readable while you edit. Nova keeps the timezone
+required by storage behind the clock control, so opening and saving a row does
+not change the moment or its offset.
 
 ## How much a table can hold
 
@@ -60,11 +66,19 @@ and none extra.
 The import replaces every row in the table. It doesn't merge with what is
 already there, and it doesn't add to the end.
 
+If a teammate changes the table after Nova checks your file, Replace pauses.
+Review the same file against the latest columns and row count, then confirm
+again. Nova never retries a whole-table replacement on its own.
+
 ## When two people edit at once
 
 If a teammate saves the same row while you have it open, Nova doesn't overwrite
 either version. It shows you both and asks which one to keep. If their change
 was to a different row, your save goes through as usual.
+
+If they delete the row, your draft remains available. You can save it as a new
+row, and Nova opens that new row for you. A failed save leaves the draft and the
+decision on screen.
 
 ## Offer a table's values as answer choices
 
@@ -83,6 +97,12 @@ table or column. An app sitting in the trash counts.
 
 Before it makes the change, Nova names the apps that would break. Point those
 apps at something else first, then come back and make the change.
+
+If Nova cannot check those references, the change stays disabled and offers
+**Try again**. A failed check never claims that no apps use the table.
+
+If the table changes while that confirmation is open, Nova refreshes the table
+and checks its app references again before you can confirm the change.
 
 ## Who can do what
 
