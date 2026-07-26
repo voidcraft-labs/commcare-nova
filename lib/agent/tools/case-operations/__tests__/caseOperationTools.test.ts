@@ -530,7 +530,16 @@ describe("shared case-operation tools", () => {
 
 		for (const scenario of cases) {
 			const { doc, formUuid } = fixture();
-			doc.forms[formUuid].caseOperations = [scenario.operation];
+			const operation = { ...scenario.operation, order: "a" };
+			const safePeer: CaseOperation = {
+				uuid: asUuid("10000000-0000-4000-8000-000000000099"),
+				id: "safe_peer",
+				order: "c",
+				action: "update",
+				caseType: "patient",
+				target: { kind: "session" },
+			};
+			doc.forms[formUuid].caseOperations = [operation, safePeer];
 			const { ctx, recordMutations } = makeStubToolContext();
 			const read = await getCaseOperationsTool.execute(
 				{ moduleId: "patients", formId: "edit" },
@@ -540,12 +549,27 @@ describe("shared case-operation tools", () => {
 			expect(JSON.stringify(read.data), scenario.slot).not.toMatch(
 				/table-column|table-lookup/,
 			);
+			if ("error" in read.data) throw new Error(read.data.error);
+			expect(
+				read.data.operations.map((candidate) => candidate.id),
+				scenario.slot,
+			).toEqual([operation.id, "safe_peer"]);
+			expect(read.data.operations[0], scenario.slot).toEqual({
+				id: operation.id,
+				action: operation.action,
+				caseType: operation.caseType,
+				unavailable: {
+					kind: "lookup-table-logic",
+					reason:
+						"This case change uses lookup-table logic that Nova preserves but cannot safely edit from this surface.",
+				},
+			});
 
 			const result = await updateCaseOperationTool.execute(
 				{
 					moduleId: "patients",
 					formId: "edit",
-					operationId: scenario.operation.id,
+					operationId: operation.id,
 					operation: scenario.authorShape,
 				},
 				ctx,
@@ -564,8 +588,31 @@ describe("shared case-operation tools", () => {
 			expect(
 				result.newDoc.forms[formUuid].caseOperations?.[0],
 				scenario.slot,
-			).toEqual(scenario.operation);
+			).toEqual(operation);
 			expect(recordMutations, scenario.slot).not.toHaveBeenCalled();
+
+			const moved = await moveCaseOperationTool.execute(
+				{
+					moduleId: "patients",
+					formId: "edit",
+					operationId: operation.id,
+					index: 1,
+				},
+				ctx,
+				doc,
+			);
+			expect(moved.result, scenario.slot).toMatchObject({ index: 1 });
+			expect(recordMutations, scenario.slot).toHaveBeenCalledTimes(1);
+			const movedOperation = moved.newDoc.forms[formUuid].caseOperations?.find(
+				(candidate) => candidate.uuid === operation.uuid,
+			);
+			expect(movedOperation, scenario.slot).toEqual({
+				...operation,
+				order: movedOperation?.order,
+			});
+			expect(JSON.stringify(moved.mutations), scenario.slot).not.toMatch(
+				/table-column|table-lookup/,
+			);
 		}
 	});
 
@@ -614,7 +661,7 @@ describe("shared case-operation tools", () => {
 
 	it("reports the actual clamped move destination", async () => {
 		const { doc } = fixture();
-		const { ctx } = makeStubToolContext();
+		const { ctx, recordMutations } = makeStubToolContext();
 		const added = await addCaseOperationsTool.execute(
 			{
 				moduleId: "patients",
@@ -624,6 +671,7 @@ describe("shared case-operation tools", () => {
 			ctx,
 			doc,
 		);
+		recordMutations.mockClear();
 		const moved = await moveCaseOperationTool.execute(
 			{
 				moduleId: "patients",
@@ -638,6 +686,9 @@ describe("shared case-operation tools", () => {
 			index: 0,
 			message: 'Moved case operation "create_visit" to index 0.',
 		});
+		expect(moved.mutations).toEqual([]);
+		expect(moved.newDoc).toBe(added.newDoc);
+		expect(recordMutations).not.toHaveBeenCalled();
 	});
 
 	it("rejects an authoritative peer shift instead of reporting the stale requested rank", async () => {

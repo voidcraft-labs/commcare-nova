@@ -8,7 +8,9 @@ import {
 	within,
 } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { settleBaseUiTransitions } from "@/__tests__/helpers/baseUiInteractions";
 import { asUuid } from "@/lib/domain";
+import { concat, literal, term } from "@/lib/domain/predicate";
 import { CaseTargetPicker } from "../CaseTargetPicker";
 
 const context = {
@@ -124,5 +126,68 @@ describe("CaseTargetPicker", () => {
 			).disabled,
 		).toBe(true);
 		expect(choiceVerdict).not.toHaveBeenCalled();
+	});
+
+	it("keeps an active new target's identity key and dispatches nothing", async () => {
+		const idFrom = asUuid("00000000-0000-4000-8000-000000000002");
+		const value = { kind: "new" as const, idFrom };
+		const choiceVerdict = vi.fn(() => ({ ok: true as const }));
+		const onChange = vi.fn();
+		render(
+			<CaseTargetPicker
+				value={value}
+				context={{ ...context, newOnly: true, allowsNone: false }}
+				ariaLabel="Which case"
+				choiceVerdict={choiceVerdict}
+				onChange={onChange}
+			/>,
+		);
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "Which case: A new case" }),
+		);
+		await settleBaseUiTransitions();
+		const active = await screen.findByRole("menuitem", {
+			name: /A new case/,
+		});
+		fireEvent.click(active);
+		await settleBaseUiTransitions();
+
+		expect(choiceVerdict).toHaveBeenCalledWith(value);
+		expect(onChange).not.toHaveBeenCalled();
+	});
+
+	it("keeps an active expression's exact AST and dispatches nothing", async () => {
+		const expr = concat(
+			term(literal("case-")),
+			term(literal("existing-expression")),
+		);
+		const value = { kind: "expression" as const, expr };
+		const choiceVerdict = vi.fn(() => ({ ok: true as const }));
+		const onChange = vi.fn();
+		render(
+			<CaseTargetPicker
+				value={value}
+				context={{ ...context, allowsNone: false }}
+				ariaLabel="Which case"
+				choiceVerdict={choiceVerdict}
+				onChange={onChange}
+			/>,
+		);
+
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "Which case: A case found by a calculation",
+			}),
+		);
+		await settleBaseUiTransitions();
+		const active = await screen.findByRole("menuitem", {
+			name: /A case found by a calculation/,
+		});
+		fireEvent.click(active);
+		await settleBaseUiTransitions();
+
+		expect(choiceVerdict).toHaveBeenCalledWith(value);
+		expect(onChange).not.toHaveBeenCalled();
 	});
 });

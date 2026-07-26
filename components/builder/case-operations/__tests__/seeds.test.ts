@@ -14,7 +14,12 @@ import { addCaseOperationMutations } from "@/lib/doc/caseOperationMutations";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { asUuid } from "@/lib/doc/types";
-import type { BlueprintDoc, CaseOperation, Uuid } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	type CaseOperation,
+	isCaseOperationIdentifier,
+	type Uuid,
+} from "@/lib/domain";
 import {
 	actionChangeLosses,
 	type CaseOperationSeedKind,
@@ -133,6 +138,22 @@ describe("case-operation seeds", () => {
 		expect(nextOperationId("9lives", new Set())).toBe("lives");
 		expect(nextOperationId("!!!", new Set())).toBe("change");
 	});
+
+	it.each([
+		["create", "create_follow_up"],
+		["update-session", "update_follow_up"],
+		["close-session", "close_follow_up"],
+	] as const)(
+		"normalizes a legal hyphenated case type for every %s seed",
+		(kind, expected) => {
+			const seeded = seedCaseOperation(
+				{ kind, caseType: "follow-up" } as CaseOperationSeedKind,
+				new Set(),
+			);
+			expect(seeded.id).toBe(expected);
+			expect(isCaseOperationIdentifier(seeded.id)).toBe(true);
+		},
+	);
 
 	it("keeps link identifiers unique inside one change", () => {
 		expect(nextLinkIdentifier(new Set())).toBe("parent");

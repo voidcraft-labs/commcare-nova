@@ -154,7 +154,10 @@ export function CaseOperationInspectorBody({
 
 	if (operation === undefined) return null;
 
+	const authoringVerdict = view.authoringVerdict(operation.uuid);
+	const operationCanEdit = canEdit && authoringVerdict.ok;
 	const commit = (next: CaseOperation) => {
+		if (!operationCanEdit) return;
 		const outcome = view.update(next);
 		setRefusal(outcome.ok ? undefined : outcome.messages.join(" "));
 	};
@@ -249,7 +252,25 @@ export function CaseOperationInspectorBody({
 				</div>
 			)}
 
-			<fieldset disabled={!canEdit} className="contents">
+			{!authoringVerdict.ok && (
+				<div
+					role="note"
+					className="flex gap-2 rounded-xl border border-nova-amber/25 bg-nova-amber/[0.06] px-3 py-2.5 text-[13px] leading-relaxed text-nova-text-secondary"
+				>
+					<Icon
+						icon={tablerAlertCircle}
+						width="16"
+						height="16"
+						className="mt-0.5 shrink-0 text-nova-amber"
+					/>
+					<span>
+						{authoringVerdict.reason} You can still move it from the case
+						changes list.
+					</span>
+				</div>
+			)}
+
+			<fieldset disabled={!operationCanEdit} className="contents">
 				<Row
 					title="Name"
 					description="What this change is called here and in messages about it."
@@ -257,7 +278,7 @@ export function CaseOperationInspectorBody({
 					<OperationIdInput
 						operation={operation}
 						operations={operations}
-						canEdit={canEdit}
+						canEdit={operationCanEdit}
 						onCommit={(id) => commit({ ...operation, id })}
 					/>
 				</Row>
@@ -265,7 +286,7 @@ export function CaseOperationInspectorBody({
 				<Row title="What it does" description={ACTION_DETAIL[operation.action]}>
 					<ActionMenu
 						operation={operation}
-						canEdit={canEdit}
+						canEdit={operationCanEdit}
 						choices={actionChoices}
 						onChange={commit}
 					/>
@@ -277,7 +298,7 @@ export function CaseOperationInspectorBody({
 				>
 					<CaseTypePicker
 						value={operation.caseType}
-						disabled={!canEdit}
+						disabled={!operationCanEdit}
 						exclude={RESERVED_CASE_OPERATION_TYPES}
 						ariaLabel="Kind of case"
 						choiceVerdict={(caseType) =>
@@ -294,7 +315,7 @@ export function CaseOperationInspectorBody({
 					<CaseTargetPicker
 						value={operation.target}
 						ariaLabel="Which case"
-						disabled={!canEdit}
+						disabled={!operationCanEdit}
 						context={{
 							priorCreates,
 							sessionUnavailableReason,
@@ -329,7 +350,7 @@ export function CaseOperationInspectorBody({
 							<IdentityKeyMenu
 								value={operation.target.idFrom}
 								options={identityKeys}
-								canEdit={canEdit}
+								canEdit={operationCanEdit}
 								choiceVerdict={(idFrom) =>
 									view.editVerdict({
 										...operation,
@@ -360,7 +381,7 @@ export function CaseOperationInspectorBody({
 						<MultiplicityMenu
 							operation={operation}
 							repeats={repeats}
-							canEdit={canEdit}
+							canEdit={operationCanEdit}
 							choiceVerdict={(repeat) =>
 								view.editVerdict({
 									...operation,
@@ -387,7 +408,7 @@ export function CaseOperationInspectorBody({
 					>
 						<CaseTypePicker
 							value={operation.retype}
-							disabled={!canEdit}
+							disabled={!operationCanEdit}
 							exclude={RESERVED_CASE_OPERATION_TYPES}
 							placeholder="Leave the type alone"
 							ariaLabel="Change the case's type"
@@ -405,7 +426,7 @@ export function CaseOperationInspectorBody({
 					</Row>
 				)}
 
-				{canEdit && (
+				{operationCanEdit && (
 					<RemoveOperationRow
 						operation={operation}
 						view={view}

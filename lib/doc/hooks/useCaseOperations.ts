@@ -27,6 +27,7 @@ import {
 	addCaseOperationMutations,
 	type CaseOperationEditVerdict,
 	type CaseOperationMutationPlan,
+	caseOperationAuthoringVerdict,
 	caseOperationEditVerdict,
 	moveCaseOperationMutation,
 	planCaseOperationUpdate,
@@ -66,6 +67,9 @@ export interface CaseOperationsView {
 	readonly removalPlan: (uuid: Uuid) => CaseOperationMutationPlan;
 	/** Whether one complete edited shape can pass the shared commit gate. */
 	readonly editVerdict: (operation: CaseOperation) => CaseOperationEditVerdict;
+	/** Whether this operation's full author shape is available on all editors.
+	 * Moving is separate and remains available for a read-only carrier. */
+	readonly authoringVerdict: (uuid: Uuid) => CaseOperationEditVerdict;
 	readonly add: (operation: CaseOperation, index?: number) => CommitOutcome;
 	readonly update: (operation: CaseOperation) => CommitOutcome;
 	readonly remove: (uuid: Uuid) => CommitOutcome | undefined;
@@ -153,6 +157,18 @@ export function useCaseOperations(formUuid: Uuid): CaseOperationsView {
 			caseOperationEditVerdict(doc, formUuid, operation),
 		[doc, formUuid],
 	);
+	const authoringVerdict = useCallback(
+		(uuid: Uuid): CaseOperationEditVerdict => {
+			const operation = operations.find((candidate) => candidate.uuid === uuid);
+			return operation === undefined
+				? {
+						ok: false,
+						reason: "This case change is no longer part of the form.",
+					}
+				: caseOperationAuthoringVerdict(operation);
+		},
+		[operations],
+	);
 
 	/* Inline, not toasting: a refusal belongs beside the list it is about,
 	 * and these surfaces all have somewhere to put it. */
@@ -220,6 +236,21 @@ export function useCaseOperations(formUuid: Uuid): CaseOperationsView {
 				index,
 			);
 			if (!plan.ok) return undefined;
+			if (plan.mutations.length === 0) {
+				const ordered = orderedCaseOperations(
+					docApi.getState().forms[formUuid] ?? {},
+				);
+				const currentIndex = ordered.findIndex(
+					(operation) => operation.uuid === uuid,
+				);
+				return currentIndex < 0
+					? undefined
+					: {
+							ok: true as const,
+							index: currentIndex,
+							total: ordered.length,
+						};
+			}
 			const outcome = mutations.inline.commitMany([...plan.mutations]);
 			if (!outcome.ok) return outcome;
 			const committed = orderedCaseOperations(
@@ -247,6 +278,7 @@ export function useCaseOperations(formUuid: Uuid): CaseOperationsView {
 		moveVerdicts,
 		removalPlan,
 		editVerdict,
+		authoringVerdict,
 		add,
 		update,
 		remove,

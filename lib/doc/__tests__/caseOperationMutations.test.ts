@@ -404,6 +404,25 @@ describe("case-operation mutation planning", () => {
 		).toEqual([OTHER, CREATE, CONSUMER]);
 	});
 
+	it("does not rewrite a fractional key for an already-placed operation", () => {
+		const { doc, formUuid } = fixture();
+		const current = createOperation({ order: "a" });
+		(doc.forms[formUuid] as Form).caseOperations = [
+			current,
+			consumerOperation({ order: "c" }),
+		];
+
+		expect(moveCaseOperationMutation(doc, formUuid, current.uuid, 0)).toEqual({
+			ok: true,
+			mutations: [],
+		});
+		expect(
+			doc.forms[formUuid].caseOperations?.find(
+				(operation) => operation.uuid === current.uuid,
+			)?.order,
+		).toBe("a");
+	});
+
 	it("rejects a move across multiplicity scopes when the wire cannot preserve it", () => {
 		const { doc, formUuid } = fixture();
 		(doc.forms[formUuid] as Form).caseOperations = [

@@ -305,6 +305,21 @@ export type CaseOperationEditVerdict =
 export const CASE_OPERATION_DORMANT_LOOKUP_EDIT_REASON =
 	"This case change uses lookup-table logic that Nova preserves but cannot safely edit from this surface.";
 
+/** Whether a canonical operation can be authored by the currently shared
+ * builder/SA/MCP vocabulary. Moving is intentionally outside this verdict:
+ * an identity-keyed move never needs to project or replace the operation's
+ * hidden AST. */
+export function caseOperationAuthoringVerdict(
+	operation: CaseOperation,
+): CaseOperationEditVerdict {
+	return caseOperationContainsDormantLookupCarrier(operation)
+		? {
+				ok: false,
+				reason: CASE_OPERATION_DORMANT_LOOKUP_EDIT_REASON,
+			}
+		: { ok: true };
+}
+
 const CASE_OPERATION_STALE_EDIT_REASON =
 	"This case change changed while you were editing it. Review the latest version and try again.";
 
@@ -474,8 +489,8 @@ export function planCaseOperationUpdate(
 		return { ok: true, mutations: [] };
 	}
 	if (
-		caseOperationContainsDormantLookupCarrier(current) ||
-		caseOperationContainsDormantLookupCarrier(intentBase)
+		!caseOperationAuthoringVerdict(current).ok ||
+		!caseOperationAuthoringVerdict(intentBase).ok
 	) {
 		return {
 			ok: false,
@@ -647,9 +662,20 @@ export function moveCaseOperationMutation(
 		return { ok: false, reason: "operation-not-found", dependentUuids: [] };
 	}
 	const without = ordered.filter((candidate) => candidate.uuid !== uuid);
+	const targetIndex = Math.max(0, Math.min(index, without.length));
+	const currentIndex = ordered.findIndex(
+		(candidate) => candidate.uuid === uuid,
+	);
+	if (targetIndex === currentIndex) {
+		// An already-placed operation is a true no-op: do not mint a different
+		// fractional key for the same rank. Apart from pointless multiplayer
+		// traffic, that would create an undo entry for a gesture that changed
+		// nothing the author can observe.
+		return { ok: true, mutations: [] };
+	}
 	const order = plannedMoveSlotKey(
 		without.map((candidate) => candidate.order),
-		Math.max(0, Math.min(index, without.length)),
+		targetIndex,
 	);
 	const prospective: Form = {
 		...form,
@@ -690,14 +716,7 @@ export function moveCaseOperationMutation(
 	}
 	return {
 		ok: true,
-		mutations: [
-			moveOperationMutation(
-				formUuid,
-				uuid,
-				order,
-				Math.max(0, Math.min(index, without.length)),
-			),
-		],
+		mutations: [moveOperationMutation(formUuid, uuid, order, targetIndex)],
 	};
 }
 

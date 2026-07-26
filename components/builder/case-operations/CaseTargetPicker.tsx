@@ -141,7 +141,11 @@ export function CaseTargetPicker({
 	const noneReason = context.allowsNone
 		? rejectedReason(null, effectiveVerdict)
 		: undefined;
-	const newTarget = { kind: "new" } as const;
+	/* An active target is the exact authored value, not a seed for that
+	 * target kind. In particular, selecting an already-active new target must
+	 * retain its identity key, and selecting an already-active expression
+	 * must retain the whole AST. */
+	const newTarget = value?.kind === "new" ? value : ({ kind: "new" } as const);
 	const newReason = context.newOnly
 		? rejectedReason(newTarget, effectiveVerdict)
 		: undefined;
@@ -151,10 +155,13 @@ export function CaseTargetPicker({
 		: (selfReason(sessionTarget, context) ??
 			context.sessionUnavailableReason ??
 			rejectedReason(sessionTarget, effectiveVerdict));
-	const expressionTarget = {
-		kind: "expression",
-		expr: term(literal("")),
-	} as const;
+	const expressionTarget =
+		value?.kind === "expression"
+			? value
+			: ({
+					kind: "expression",
+					expr: term(literal("")),
+				} as const);
 	const expressionReason = context.newOnly
 		? undefined
 		: rejectedReason(expressionTarget, effectiveVerdict);
@@ -283,7 +290,12 @@ function Choice({
 	return (
 		<DropdownMenuItem
 			disabled={disabled === true && !active}
-			onClick={onClick}
+			onClick={() => {
+				// Choosing the current value is a true no-op. Apart from avoiding a
+				// needless commit, this prevents a kind seed from replacing richer
+				// active state such as `new.idFrom` or an expression AST.
+				if (!active) onClick();
+			}}
 			className={active ? "bg-nova-violet/10 text-nova-violet-bright" : ""}
 		>
 			<span className="min-w-0 flex-1 text-left">

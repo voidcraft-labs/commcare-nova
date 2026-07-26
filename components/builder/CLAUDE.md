@@ -238,6 +238,8 @@ operations**; that parity with the pointer's disabled drop zone is the point of
 the unit. Refusals go to `role="alert"` (the screen is otherwise unchanged, so
 the press would read as a no-op) while the polite region carries only outcomes
 that DID something, so an author hears one sentence rather than two.
+Moving to the current rank is a real no-op: no fractional-key churn, store
+dispatch, or undo entry.
 `dependent-reference` and `execution-order` stay distinct — the second is a
 property of the submitted form, never the author's mistake, and the copy never
 implies otherwise.
@@ -254,8 +256,12 @@ Every candidate in the action, case-type, target, identity-key, multiplicity,
 retype, and link-type menus asks `view.editVerdict`; a stranded downstream
 consumer therefore disables the exact choice with the planner's reason instead
 of allowing a commit-gate bounce. A saved lookup-carrier-bearing operation is
-read-only for all non-no-op edits with the shared carrier reason, but remains
-movable because the move envelope never serializes its hidden AST.
+persistently read-only in both the rail and canvas with the shared carrier
+reason; callbacks also fail closed before dispatch. It remains visible and
+movable because the move envelope never serializes its hidden AST. Selecting an
+already-active target dispatches nothing and uses the exact current value while
+computing its verdict, so a new target's `idFrom` and an expression target's AST
+cannot be replaced by the menu seed.
 
 `useCaseOperations` treats the render snapshot as intent, never as commit state.
 Every callback reads `docApi.getState()` at invocation. Full-shape edits rebase

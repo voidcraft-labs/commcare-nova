@@ -16,7 +16,14 @@ import {
 	type LookupTableId,
 	orderedCaseOperations,
 } from "@/lib/domain";
-import { eq, literal, tableColumn, term } from "@/lib/domain/predicate";
+import {
+	eq,
+	literal,
+	matchAll,
+	tableColumn,
+	tableLookup,
+	term,
+} from "@/lib/domain/predicate";
 
 const OPERATION = asUuid("10000000-0000-4000-8000-000000000001");
 const SECOND = asUuid("10000000-0000-4000-8000-000000000002");
@@ -24,6 +31,8 @@ const THIRD = asUuid("10000000-0000-4000-8000-000000000003");
 const PEER = asUuid("10000000-0000-4000-8000-000000000004");
 const TABLE = "018f3e8a-7b2c-7def-8abc-1234567890ab" as LookupTableId;
 const COLUMN = "018f3e8a-7b2c-7def-8abc-1234567890ad" as LookupColumnId;
+const lookupExpression = tableLookup(TABLE, COLUMN, matchAll());
+const lookupPredicate = eq(tableColumn(TABLE, COLUMN), literal("enabled"));
 
 function operation(
 	uuid: ReturnType<typeof asUuid>,
@@ -39,6 +48,87 @@ function operation(
 		target: { kind: "session" },
 		writes: [{ property: "nickname", value: term(literal(id)) }],
 	};
+}
+
+function carrierOperations(): readonly {
+	readonly slot: string;
+	readonly operation: CaseOperation;
+}[] {
+	const base = (suffix: string, id: string): CaseOperation => ({
+		uuid: asUuid(`20000000-0000-4000-8000-${suffix.padStart(12, "0")}`),
+		id,
+		order: "a",
+		action: "update",
+		caseType: "patient",
+		target: { kind: "session" },
+	});
+	return [
+		{
+			slot: "condition",
+			operation: {
+				...base("1", "carrier_condition"),
+				condition: lookupPredicate,
+			},
+		},
+		{
+			slot: "name",
+			operation: {
+				...base("2", "carrier_name"),
+				action: "create",
+				target: { kind: "new" },
+				name: lookupExpression,
+			},
+		},
+		{
+			slot: "owner",
+			operation: { ...base("3", "carrier_owner"), owner: lookupExpression },
+		},
+		{
+			slot: "rename",
+			operation: { ...base("4", "carrier_rename"), rename: lookupExpression },
+		},
+		{
+			slot: "operation target",
+			operation: {
+				...base("5", "carrier_target"),
+				target: { kind: "expression", expr: lookupExpression },
+			},
+		},
+		{
+			slot: "write value",
+			operation: {
+				...base("6", "carrier_write_value"),
+				writes: [{ property: "nickname", value: lookupExpression }],
+			},
+		},
+		{
+			slot: "write condition",
+			operation: {
+				...base("7", "carrier_write_condition"),
+				writes: [
+					{
+						property: "nickname",
+						value: term(literal("visible")),
+						condition: lookupPredicate,
+					},
+				],
+			},
+		},
+		{
+			slot: "link target",
+			operation: {
+				...base("8", "carrier_link"),
+				links: [
+					{
+						identifier: "parent",
+						targetType: "patient",
+						target: { kind: "expression", expr: lookupExpression },
+						relationship: "child",
+					},
+				],
+			},
+		},
+	];
 }
 
 function fixture(
@@ -86,6 +176,54 @@ function mount(doc: BlueprintDoc, formUuid: ReturnType<typeof asUuid>) {
 }
 
 describe("useCaseOperations invocation-time concurrency", () => {
+	it.each(carrierOperations())(
+		"keeps a $slot carrier visible and movable while refusing every full-shape edit",
+		({ operation: carrier }) => {
+			const { doc, formUuid } = fixture([
+				carrier,
+				operation(SECOND, "second", "c"),
+			]);
+			const { result } = mount(doc, formUuid);
+			const beforeEdit = result.current.api.getState();
+			const historyBefore =
+				result.current.api.temporal.getState().pastStates.length;
+
+			expect(result.current.view.operations[0]).toEqual(carrier);
+			expect(result.current.view.authoringVerdict(carrier.uuid)).toEqual({
+				ok: false,
+				reason:
+					"This case change uses lookup-table logic that Nova preserves but cannot safely edit from this surface.",
+			});
+
+			let editOutcome:
+				| ReturnType<typeof result.current.view.update>
+				| undefined;
+			act(() => {
+				editOutcome = result.current.view.update({
+					...carrier,
+					id: `${carrier.id}_edited`,
+				});
+			});
+			expect(editOutcome).toMatchObject({ ok: false });
+			expect(result.current.api.getState()).toBe(beforeEdit);
+			expect(result.current.api.temporal.getState().pastStates).toHaveLength(
+				historyBefore,
+			);
+
+			let moveOutcome: ReturnType<typeof result.current.view.move> | undefined;
+			act(() => {
+				moveOutcome = result.current.view.move(carrier.uuid, 1);
+			});
+			expect(moveOutcome).toEqual({ ok: true, index: 1, total: 2 });
+			const moved = result.current.api
+				.getState()
+				.forms[formUuid].caseOperations?.find(
+					(candidate) => candidate.uuid === carrier.uuid,
+				);
+			expect(moved).toEqual({ ...carrier, order: moved?.order });
+		},
+	);
+
 	it("refuses a carrier-bearing edit before the autosave diff can form a rolling-invalid PUT", () => {
 		const { doc, formUuid } = fixture();
 		const carrier = operation(OPERATION, "carrier", "a");
@@ -158,6 +296,28 @@ describe("useCaseOperations invocation-time concurrency", () => {
 		expect(
 			mutationSchema.array().safeParse(JSON.parse(serialized)).success,
 		).toBe(true);
+	});
+
+	it("does not create document or undo work for a same-rank move", () => {
+		const { doc, formUuid } = fixture([
+			operation(OPERATION, "first", "a"),
+			operation(SECOND, "second", "c"),
+		]);
+		const { result } = mount(doc, formUuid);
+		const before = result.current.api.getState();
+		const historyBefore =
+			result.current.api.temporal.getState().pastStates.length;
+
+		let outcome: ReturnType<typeof result.current.view.move> | undefined;
+		act(() => {
+			outcome = result.current.view.move(OPERATION, 0);
+		});
+
+		expect(outcome).toEqual({ ok: true, index: 0, total: 2 });
+		expect(result.current.api.getState()).toBe(before);
+		expect(result.current.api.temporal.getState().pastStates).toHaveLength(
+			historyBefore,
+		);
 	});
 
 	it("rejects stale deletes and same-key additions instead of reporting a no-op success", () => {

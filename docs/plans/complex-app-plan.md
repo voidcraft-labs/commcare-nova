@@ -245,8 +245,11 @@ document so a peer edit mid-gesture cannot slip one through. The move mutation
 carries both its fractional key and requested final rank; the authoritative
 commit rejects it if a peer insertion makes that key land elsewhere. Successful
 pointer, keyboard, SA, and MCP outcomes all report the rank in the committed
-document, never the stale requested rank. A refused keyboard move ANNOUNCES why
-and names the operations involved (`keyboardMove.ts`), which is the whole point:
+document, never the stale requested rank. Moving to the rank the operation
+already occupies is a true no-op: it reports that rank without rewriting the
+fractional key, persisting an event, or adding undo history. A refused keyboard
+move ANNOUNCES why and names the operations involved (`keyboardMove.ts`), which
+is the whole point:
 a pointer author reads a refusal off a drop zone that will not open, and a
 keyboard author would otherwise get a key that silently does nothing. Refusals
 go to `role="alert"` (the screen is otherwise unchanged, so the press would read
@@ -269,7 +272,9 @@ with the gate's exact reason, and omit the three platform-owned types
 everywhere. Removal asks `removalPlan` first and, when something depends on the
 operation, names each consumer and the exact slot holding the reference instead
 of offering a delete that would bounce. Viewer mode renders these controls as
-explicit disabled triggers.
+explicit disabled triggers. Choosing the already-active target is also a true
+no-op; a keyed new target retains `idFrom`, and an expression target retains its
+exact AST rather than being replaced by that choice's creation seed.
 
 Which form answers an operation may read is ONE rule with two callers:
 `lib/domain/caseOperationScope.ts` holds `operationCanReadFormField` and
@@ -309,15 +314,24 @@ digits, and underscores only; an operation id or link identifier starts with a
 letter or underscore, and a write property starts with a letter. Action-illegal
 facet combinations, platform-owned case types, and reserved write properties
 are unconstructible at the shared tool boundary, with the validator as the
-replay/import backstop.
+replay/import backstop. Case types separately admit hyphens, so chooser-created
+operation ids normalize each hyphen to an underscore for every create, update,
+and close seed before the first commit.
 
 Lookup-backed predicates and expressions already persisted on a case operation
 remain preserved. The builder keeps the operation visible and movable but
-refuses every other edit until lookup authoring owns those slots. The carrier
-inventory is the single exhaustive oracle. Builder edits refuse before changing
-local state, carrier-blind SA/MCP reads cannot clear a hidden slot through a
-full-shape update, and moves stay persistable because their deployed fallback
-carries only UUID plus order.
+renders both the rail and recursive canvas persistently read-only, with the
+reason, until lookup authoring owns those slots. The carrier inventory is the
+single exhaustive oracle. `getCaseOperations` and `getForm` preserve the full
+ordered operation sequence: each carrier-bearing operation keeps its author id,
+action, and case type plus
+`unavailable: { kind: "lookup-table-logic", reason }`, while every lookup AST
+detail is withheld. The id remains addressable by `moveCaseOperation`, so the
+operation can move without a partial read ever posing as an editable shape.
+Builder edits refuse before dispatching local state, full-shape SA/MCP updates
+refuse, and moves stay persistable because their deployed fallback carries only
+UUID plus order.
+
 `content/docs/case-changes.mdx` is the user-facing guide.
 
 ### Case identity storage

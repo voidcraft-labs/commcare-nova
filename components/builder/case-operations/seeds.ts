@@ -57,7 +57,8 @@ export function nextOperationId(
 ): string {
 	const slug = base
 		.toLocaleLowerCase()
-		.replace(/[^a-z0-9_-]+/g, "_")
+		// Case types may legally contain hyphens; operation ids may not.
+		.replace(/[^a-z0-9_]+/g, "_")
 		.replace(/^[^a-z_]+/, "")
 		.replace(/_+/g, "_")
 		.replace(/^_|_$/g, "");

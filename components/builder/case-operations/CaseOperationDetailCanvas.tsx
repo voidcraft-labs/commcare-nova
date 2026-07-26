@@ -145,7 +145,10 @@ export function CaseOperationDetailCanvas({
 	);
 	const sentence = operationSentence(operation, sentenceContext);
 
+	const authoringVerdict = view.authoringVerdict(operation.uuid);
+	const operationCanEdit = canEdit && authoringVerdict.ok;
 	const commit = (next: CaseOperation) => {
+		if (!operationCanEdit) return;
 		const outcome = view.update(next);
 		setRefusal(outcome.ok ? undefined : outcome.messages.join(" "));
 	};
@@ -246,7 +249,25 @@ export function CaseOperationDetailCanvas({
 				</div>
 			)}
 
-			<fieldset disabled={!canEdit} className="contents">
+			{!authoringVerdict.ok && (
+				<div
+					role="note"
+					className="mb-4 flex gap-2 rounded-xl border border-nova-amber/25 bg-nova-amber/[0.06] px-3 py-2.5 text-[13px] leading-relaxed text-nova-text-secondary"
+				>
+					<Icon
+						icon={tablerAlertCircle}
+						width="16"
+						height="16"
+						className="mt-0.5 shrink-0 text-nova-amber"
+					/>
+					<span>
+						{authoringVerdict.reason} You can still move it from the case
+						changes list.
+					</span>
+				</div>
+			)}
+
+			<fieldset disabled={!operationCanEdit} className="contents">
 				<Section
 					title="When this runs"
 					description={
@@ -255,7 +276,7 @@ export function CaseOperationDetailCanvas({
 							: "Only when this is true of the submitted answers."
 					}
 					action={
-						operation.condition !== undefined && canEdit ? (
+						operation.condition !== undefined && operationCanEdit ? (
 							<ClearConditionButton
 								label="Always run"
 								title="Always run this change?"
@@ -268,7 +289,7 @@ export function CaseOperationDetailCanvas({
 					{operation.condition === undefined ? (
 						<AddSlotButton
 							label="Add a condition"
-							disabled={!canEdit}
+							disabled={!operationCanEdit}
 							onClick={() =>
 								commit({
 									...operation,
@@ -337,7 +358,7 @@ export function CaseOperationDetailCanvas({
 						clearTitle="Leave the name alone?"
 						clearConsequence="This change will stop renaming the case."
 						value={operation.rename}
-						canEdit={canEdit}
+						canEdit={operationCanEdit}
 						seed={() => term(literal(""))}
 						onChange={(rename) => commit({ ...operation, rename })}
 						constraint={storageAssignmentConstraint(["text"])}
@@ -354,7 +375,7 @@ export function CaseOperationDetailCanvas({
 						clearTitle="Use the default owner?"
 						clearConsequence="The case will belong to whoever submits the form."
 						value={operation.owner}
-						canEdit={canEdit}
+						canEdit={operationCanEdit}
 						seed={() => actingUser()}
 						onChange={(owner) => commit({ ...operation, owner })}
 						constraint={storageAssignmentConstraint(["text"])}
@@ -375,7 +396,7 @@ export function CaseOperationDetailCanvas({
 							<WriteRow
 								key={write.property}
 								write={write}
-								canEdit={canEdit}
+								canEdit={operationCanEdit}
 								editorScope={editorScope}
 								destinationType={declaredPropertyType(
 									destinationType,
@@ -399,7 +420,7 @@ export function CaseOperationDetailCanvas({
 								}
 							/>
 						))}
-						{canEdit && (
+						{operationCanEdit && (
 							<WritePropertyPicker
 								caseTypeName={destination}
 								alreadyWritten={
@@ -429,7 +450,7 @@ export function CaseOperationDetailCanvas({
 					>
 						<CaseOperationLinks
 							operation={operation}
-							canEdit={canEdit}
+							canEdit={operationCanEdit}
 							defaultTargetType={
 								expressionCaseType.length > 0
 									? expressionCaseType

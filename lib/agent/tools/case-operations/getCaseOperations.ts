@@ -22,7 +22,7 @@ export type GetCaseOperationsResult =
 
 export const getCaseOperationsTool = {
 	description:
-		"List a form's case operations in execution order. References use operation ids and field paths; storage UUIDs are never returned.",
+		"List every case operation in execution order. References use operation ids and field paths; storage UUIDs are never returned. A lookup-bearing operation remains in place with explicit unavailable metadata and stays addressable by id.",
 	inputSchema: operationAddressSchema,
 	async execute(
 		input: GetCaseOperationsInput,

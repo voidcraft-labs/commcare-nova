@@ -7,7 +7,10 @@
  */
 
 import { z } from "zod";
-import { carrierBlindCaseOperationsProjection } from "@/lib/agent/dormantCarrierReadProjection";
+import {
+	carrierBlindCaseOperationsProjection,
+	isDormantCaseOperationUnavailableProjection,
+} from "@/lib/agent/dormantCarrierReadProjection";
 import { orderedFormUuids, orderedModuleUuids } from "@/lib/doc/fieldWalk";
 import {
 	caseOperationIdVerdict,
@@ -546,9 +549,17 @@ export function projectedCaseOperations(
 	const operations = carrierBlindCaseOperationsProjection(
 		orderedCaseOperations(doc.forms[formUuid] ?? {}),
 	);
-	return operations.map((operation) =>
-		projectCaseOperation(doc, formUuid, operation),
-	);
+	return operations.map((operation) => {
+		if (isDormantCaseOperationUnavailableProjection(operation)) {
+			return {
+				id: operation.id,
+				action: operation.action,
+				caseType: operation.caseType,
+				unavailable: operation.unavailable,
+			};
+		}
+		return projectCaseOperation(doc, formUuid, operation);
+	});
 }
 
 export function operationIdRejection(
