@@ -135,7 +135,9 @@ export function ColumnInspectorBody({
 					}}
 				>
 					<SelectTrigger id={typeId} className="mt-1 h-11 w-full">
-						<SelectValue />
+						<SelectValue>
+							{(selected) => COLUMN_TYPE_LABELS[selected as LookupDataType]}
+						</SelectValue>
 					</SelectTrigger>
 					<SelectContent>
 						{LOOKUP_DATA_TYPES.map((dataType) => (

@@ -1896,7 +1896,7 @@ test.describe("authenticated builder", () => {
 		});
 		await expect(source).toBeVisible({ timeout: 20_000 });
 		// It starts on the field's own typed-in options.
-		await expect(source).toHaveText(/typed in here/);
+		await expect(source).toHaveText("The options typed in here");
 
 		await source.click();
 		await page
@@ -1912,16 +1912,22 @@ test.describe("authenticated builder", () => {
 		await expect(
 			page.getByRole("combobox", { name: "Value people see" }),
 		).toBeVisible();
-		await expect(source).toHaveText(
-			new RegExp(CASE_WORKSPACE_SEED.lookupTableName),
-		);
+		await expect(source).toHaveText(CASE_WORKSPACE_SEED.lookupTableName);
+		await expect(
+			page.getByRole("combobox", { name: "Value that gets saved" }),
+		).toHaveText(CASE_WORKSPACE_SEED.lookupValueColumnLabel);
+		await expect(
+			page.getByRole("combobox", { name: "Value people see" }),
+		).toHaveText(CASE_WORKSPACE_SEED.lookupValueColumnLabel);
 
 		// 4. And back again — the typed-in options were kept, not replaced.
 		await source.click();
 		await page
 			.getByRole("option", { name: "The options typed in here" })
 			.click();
-		await expect(source).toHaveText(/typed in here/, { timeout: 20_000 });
+		await expect(source).toHaveText("The options typed in here", {
+			timeout: 20_000,
+		});
 		await expect(
 			page.getByRole("combobox", { name: "Value that gets saved" }),
 		).toBeHidden();

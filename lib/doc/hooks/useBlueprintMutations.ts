@@ -52,7 +52,10 @@ import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import type { FieldPath } from "@/lib/doc/fieldPath";
 import { findRenameSiblingConflict } from "@/lib/doc/identifierVerdicts";
 import { planKindConversion } from "@/lib/doc/kindConversionCascade";
-import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import {
+	LOOKUP_CONTEXT_UNAVAILABLE,
+	type LookupValidationContext,
+} from "@/lib/doc/lookupReferences";
 import { modulePatchMutations } from "@/lib/doc/modulePatchMutations";
 import { notifyRejectedCommit } from "@/lib/doc/mutations/notify";
 import {
@@ -566,7 +569,17 @@ function computePathForUuid(doc: BlueprintDoc, uuid: Uuid): string | undefined {
 	return undefined;
 }
 
-export function useBlueprintMutations(): GatedBlueprintMutations {
+/**
+ * Build the mutation surface against one external-resource snapshot.
+ *
+ * Most builder controls do not introduce lookup references and use the
+ * unavailable default. A control that does must pass the exact Project
+ * definition snapshot it loaded for that gesture; the authoritative writer
+ * repeats validation against a fresh transaction snapshot before persistence.
+ */
+export function useBlueprintMutations(
+	lookupContext: LookupValidationContext = LOOKUP_CONTEXT_UNAVAILABLE,
+): GatedBlueprintMutations {
 	const store = useContext(BlueprintDocContext);
 	if (!store) {
 		throw new Error(
@@ -626,11 +639,7 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 					if (announce) notifyRejectedCommit(lines);
 					return { ok: false, messages: lines };
 				}
-				const verdict = mutationCommitVerdict(
-					get(),
-					mutations,
-					LOOKUP_CONTEXT_UNAVAILABLE,
-				);
+				const verdict = mutationCommitVerdict(get(), mutations, lookupContext);
 				if (!verdict.ok) {
 					// Render to the concise BUILDER copy once — both the toast
 					// and the returned `CommitOutcome.messages` speak it. The
@@ -1404,5 +1413,5 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 		};
 
 		return { ...makeApi(true), inline: makeApi(false) };
-	}, [store, canEdit]);
+	}, [store, canEdit, lookupContext]);
 }

@@ -35,7 +35,8 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/shadcn/select";
-import type { Field } from "@/lib/domain";
+import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
+import type { Field, FieldPatchFor } from "@/lib/domain";
 import type { FieldEditorComponentProps } from "@/lib/domain/kinds";
 import type { LookupOptionsSource } from "@/lib/domain/lookupCarriers";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
@@ -54,7 +55,6 @@ const INLINE = "inline";
  */
 export function OptionsSourceEditor<F extends Field>({
 	field,
-	onChange,
 }: FieldEditorComponentProps<F, "optionsSource" & keyof F>) {
 	const modeId = useId();
 	const valueId = useId();
@@ -75,22 +75,30 @@ export function OptionsSourceEditor<F extends Field>({
 	 * picker a silent no-op — nothing was loaded, so nothing ever committed. */
 	const [considering, setConsidering] = useState<LookupTableId | null>(null);
 	const tables = useProjectLookupDefinitions(considering ?? source?.tableId);
+	const {
+		inline: { updateField },
+	} = useBlueprintMutations(tables.lookupContext);
+	const [commitFailure, setCommitFailure] = useState<readonly string[]>([]);
 	const table =
 		source === undefined ? undefined : tables.byId.get(source.tableId);
 
 	const commit = useCallback(
 		(next: LookupOptionsSource | undefined) => {
-			/* `onChange(undefined)` is the editor registry's own spelling for
-			 * "remove this slot". The doc-diff persistence path turns it into the
-			 * durable `null` — `lib/doc/lookupOptionsSourceMutations.ts` records why
-			 * that distinction is load-bearing rather than cosmetic.
+			/* `undefined` is the builder's in-memory spelling for "remove this
+			 * slot". The doc-diff persistence path turns it into the durable
+			 * `null` — `lib/doc/lookupOptionsSourceMutations.ts` records why that
+			 * distinction is load-bearing rather than cosmetic.
 			 *
-			 * The cast mirrors `OptionsEditor`'s: `onChange` is an indexed-access
-			 * write over the generic, and every kind that declares `optionsSource`
-			 * carries it as `LookupOptionsSource | undefined`. */
-			onChange(next as F["optionsSource" & keyof F]);
+			 * This editor dispatches directly because it owns the exact focused
+			 * lookup-definition snapshot the valid-by-construction gate needs.
+			 * The generic registry callback has no external-resource context. */
+			const outcome = updateField(field.uuid, field.kind, {
+				optionsSource: next,
+			} as unknown as FieldPatchFor<F["kind"]>);
+			setCommitFailure(outcome.ok ? [] : [...new Set(outcome.messages)]);
+			return outcome;
 		},
-		[onChange],
+		[updateField, field.uuid, field.kind],
 	);
 
 	const consideredColumns = considering
@@ -99,7 +107,7 @@ export function OptionsSourceEditor<F extends Field>({
 	const consideredName = considering
 		? tables.byId.get(considering)?.name
 		: undefined;
-	// biome-ignore lint/correctness/useExhaustiveDependencies: `commit` is stable per `onChange`; re-running on `tables` identity alone would re-commit.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the focused column identity and context-bound `commit` are the complete inputs; re-running on `tables` identity alone would re-commit.
 	useEffect(() => {
 		if (considering === null) return;
 		const first = consideredColumns[0];
@@ -133,16 +141,30 @@ export function OptionsSourceEditor<F extends Field>({
 							commit(undefined);
 							return;
 						}
+						setCommitFailure([]);
 						setConsidering(next as LookupTableId);
 					}}
 				>
-					<SelectTrigger id={modeId} className="mt-1 h-11 w-full">
-						<SelectValue />
+					<SelectTrigger id={modeId} wrapValue className="mt-1 min-h-11 w-full">
+						{/* Base UI cannot resolve a closed popup's dynamic item label on
+						 *  first paint. Format its controlled value explicitly so neither
+						 *  the inline sentinel nor a table UUID becomes visible. */}
+						<SelectValue>
+							{(selected) => {
+								if (selected === INLINE) return "The options typed in here";
+								const selectedTable = tables.byId.get(
+									selected as LookupTableId,
+								);
+								if (selectedTable !== undefined) return selectedTable.name;
+								if (tables.loadingList) return "Loading data table…";
+								return "A table that is no longer here";
+							}}
+						</SelectValue>
 					</SelectTrigger>
 					<SelectContent>
 						<SelectItem value={INLINE}>The options typed in here</SelectItem>
 						{tables.definitions.map((candidate) => (
-							<SelectItem key={candidate.id} value={candidate.id}>
+							<SelectItem key={candidate.id} value={candidate.id} wrap>
 								{candidate.name}
 							</SelectItem>
 						))}
@@ -187,12 +209,21 @@ export function OptionsSourceEditor<F extends Field>({
 								commit({ ...source, valueColumnId: next as LookupColumnId })
 							}
 						>
-							<SelectTrigger id={valueId} className="mt-1 h-11 w-full">
-								<SelectValue />
+							<SelectTrigger
+								id={valueId}
+								wrapValue
+								className="mt-1 min-h-11 w-full"
+							>
+								<SelectValue>
+									{(selected) =>
+										table.columns.find((column) => column.id === selected)
+											?.label ?? "A column that is no longer here"
+									}
+								</SelectValue>
 							</SelectTrigger>
 							<SelectContent>
 								{table.columns.map((column) => (
-									<SelectItem key={column.id} value={column.id}>
+									<SelectItem key={column.id} value={column.id} wrap>
 										{column.label}
 									</SelectItem>
 								))}
@@ -210,12 +241,21 @@ export function OptionsSourceEditor<F extends Field>({
 								commit({ ...source, labelColumnId: next as LookupColumnId })
 							}
 						>
-							<SelectTrigger id={labelColumnId} className="mt-1 h-11 w-full">
-								<SelectValue />
+							<SelectTrigger
+								id={labelColumnId}
+								wrapValue
+								className="mt-1 min-h-11 w-full"
+							>
+								<SelectValue>
+									{(selected) =>
+										table.columns.find((column) => column.id === selected)
+											?.label ?? "A column that is no longer here"
+									}
+								</SelectValue>
 							</SelectTrigger>
 							<SelectContent>
 								{table.columns.map((column) => (
-									<SelectItem key={column.id} value={column.id}>
+									<SelectItem key={column.id} value={column.id} wrap>
 										{column.label}
 									</SelectItem>
 								))}
@@ -265,6 +305,17 @@ export function OptionsSourceEditor<F extends Field>({
 						Open “{table.name}”
 					</Button>
 				</>
+			)}
+
+			{commitFailure.length > 0 && (
+				<div
+					role="alert"
+					className="space-y-1 text-[13px] leading-relaxed text-nova-rose"
+				>
+					{commitFailure.map((message) => (
+						<p key={message}>{message}</p>
+					))}
+				</div>
 			)}
 
 			{source !== undefined && (

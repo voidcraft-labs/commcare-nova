@@ -235,7 +235,11 @@ question to a table column. **Its two directions are asymmetric**: choosing a
 table sets `optionsSource` and leaves the inline options as the fallback, while
 choosing the inline options must CLEAR it, or the retained source keeps winning
 at every presence-based consumer. `lib/doc/lookupOptionsSourceMutations.ts`
-records why the clear is a `null`.
+records why the clear is a `null`. The editor supplies the exact focused table
+generation — matching table id and manifest/table revision — to the optimistic
+client commit gate; unavailable, mismatched, and kept-stale context never
+authorizes a new reference, and the authoritative writer repeats the verdict
+against fresh Project state before persistence.
 
 ## Display conditions (`conditions/`)
 

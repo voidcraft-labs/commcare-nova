@@ -72,5 +72,8 @@ done
 # Seed the local Postgres, then run Playwright (which builds + starts the
 # production server). Extra args pass straight through to Playwright via "$@".
 echo "[smoke] seeding local Postgres, running Playwright…"
-node_modules/.bin/tsx e2e/seed.ts
+# The seed drives real server writers. Honor the `react-server` conditional
+# export so their `server-only` marker resolves to the package's own no-op,
+# exactly as the repo's other server-side tsx entrypoint does.
+node_modules/.bin/tsx --conditions=react-server e2e/seed.ts
 node_modules/.bin/playwright test "$@"

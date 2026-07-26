@@ -21,8 +21,10 @@ import {
 	useProjectDataManifest,
 	useProjectDataTable,
 } from "@/components/builder/project-data/useProjectData";
+import type { LookupValidationContext } from "@/lib/doc/lookupReferences";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
 import type { LookupColumn } from "@/lib/lookup/types";
+import { projectLookupDefinitionContext } from "./projectLookupDefinitionContext";
 
 export interface LookupTableChoice {
 	readonly id: LookupTableId;
@@ -42,6 +44,9 @@ export interface ProjectLookupDefinitions {
 	 *  absent from an unloaded manifest reads as "deleted", which is a false
 	 *  alarm on every first paint. */
 	readonly loadingList: boolean;
+	/** Exact focused definition snapshot for the optimistic client commit gate.
+	 * The server repeats the verdict against fresh Project state. */
+	readonly lookupContext: LookupValidationContext;
 }
 
 /**
@@ -56,8 +61,24 @@ export function useProjectLookupDefinitions(
 	const focused = useProjectDataTable(focusedTableId);
 
 	return useMemo(() => {
-		const focusedSnapshot =
+		const manifestEntry =
+			manifest.state.kind === "data"
+				? manifest.state.value.tables.find(
+						(entry) => entry.id === focusedTableId,
+					)
+				: undefined;
+		/* `useReloadableResource` deliberately keeps stale data while a new table
+		 * loads. Never hand the prior table's definition to a gesture targeting
+		 * the next one. */
+		const loadedSnapshot =
 			focused.state.kind === "data" ? focused.state.value : undefined;
+		const lookupContext = projectLookupDefinitionContext({
+			focusedTableId,
+			manifestEntry,
+			snapshot: loadedSnapshot,
+		});
+		const focusedSnapshot =
+			lookupContext.kind === "available" ? loadedSnapshot : undefined;
 		const definitions: LookupTableChoice[] =
 			manifest.state.kind === "data"
 				? manifest.state.value.tables.map((entry) => ({
@@ -74,9 +95,14 @@ export function useProjectLookupDefinitions(
 			byId: new Map(definitions.map((entry) => [entry.id, entry])),
 			loadingFocused:
 				focusedTableId !== undefined &&
-				(focused.state.kind === "loading" || focused.state.kind === "idle"),
+				(focused.state.kind === "loading" ||
+					focused.state.kind === "idle" ||
+					(focused.state.kind === "data" &&
+						manifestEntry !== undefined &&
+						lookupContext.kind === "unavailable")),
 			loadingList:
 				manifest.state.kind === "loading" || manifest.state.kind === "idle",
+			lookupContext,
 		};
 	}, [manifest.state, focused.state, focusedTableId]);
 }

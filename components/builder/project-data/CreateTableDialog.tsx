@@ -226,7 +226,11 @@ export function CreateTableDialog({
 										aria-label={`Column ${index + 1} type`}
 										className="h-11 w-full"
 									>
-										<SelectValue />
+										<SelectValue>
+											{(selected) =>
+												COLUMN_TYPE_LABELS[selected as LookupDataType]
+											}
+										</SelectValue>
 									</SelectTrigger>
 									<SelectContent>
 										{LOOKUP_DATA_TYPES.map((candidate) => (
