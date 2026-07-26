@@ -39,17 +39,24 @@ describe("the case-changes smoke fixture", () => {
 	it("lists its changes in the order the journey reads them", () => {
 		expect(
 			orderedCaseOperations(doc.forms[formUuid] ?? {}).map((op) => op.id),
-		).toEqual([ids.create, ids.note, ids.file, ids.retype]);
+		).toEqual([ids.create, ids.retype, ids.note, ids.file]);
 	});
 
-	it("ends with the session case retyped for insertion coverage", () => {
+	it("projects both the unchanged session type and the earlier create's retype", () => {
 		expect(
 			caseOperationTargetTypeAfter(
 				orderedCaseOperations(doc.forms[formUuid] ?? {}),
 				{ kind: "session" },
 				CASE_CHANGES_SEED.caseType,
 			),
-		).toBe("visit");
+		).toBe("patient");
+		expect(
+			caseOperationTargetTypeAfter(
+				orderedCaseOperations(doc.forms[formUuid] ?? {}),
+				{ kind: "op", opUuid: operations.create },
+				CASE_CHANGES_SEED.caseType,
+			),
+		).toBe(CASE_CHANGES_SEED.archivedCaseType);
 	});
 
 	it("can install one valid dormant lookup carrier for the browser journey", () => {
@@ -84,7 +91,7 @@ describe("the case-changes smoke fixture", () => {
 			orderedCaseOperations(withLookup.forms[formUuid] ?? {}).map(
 				(operation) => operation.id,
 			),
-		).toEqual([ids.create, ids.note, ids.file, ids.dormant, ids.retype]);
+		).toEqual([ids.create, ids.retype, ids.note, ids.file, ids.dormant]);
 	});
 
 	it("refuses moving the consumer ahead of the create it consumes", () => {

@@ -349,6 +349,9 @@ async function evaluateBatch(
 				anchorAlias: "c",
 				...(session === undefined ? {} : { currentCaseType: session.caseType }),
 				caseTypeSchemas: program.caseTypeSchemas,
+				...(program.lookupTableSchemas === undefined
+					? {}
+					: { lookupTableSchemas: program.lookupTableSchemas }),
 				bindings: bindingsFor(request.instance),
 			};
 			if (request.predicate !== undefined) {

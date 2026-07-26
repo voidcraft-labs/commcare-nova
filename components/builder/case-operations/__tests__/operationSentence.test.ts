@@ -80,6 +80,25 @@ describe("operationSentence", () => {
 		).toBe("Update the referral case from “Create client”");
 	});
 
+	it("humanizes stored case-type identifiers in every author-facing clause", () => {
+		const sentence = operationSentence(
+			op({
+				action: "update",
+				caseType: "archived_referral",
+				target: { kind: "op", opUuid: CREATE },
+				name: undefined,
+				retype: "closed_referral",
+			}),
+			context,
+		);
+		expect(sentence.lead).toBe(
+			"Update the archived referral case from “Create client”",
+		);
+		expect(sentence.details).toContain("changes its type to closed referral");
+		expect(operationSentenceText(sentence)).not.toContain("archived_referral");
+		expect(operationSentenceText(sentence)).not.toContain("closed_referral");
+	});
+
 	it("says a calculation found the case for a runtime target", () => {
 		expect(
 			operationSentence(

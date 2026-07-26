@@ -32,6 +32,7 @@ import { ExpressionCardEditor } from "@/components/builder/shared/ExpressionCard
 import type { OperationValueScope } from "@/components/builder/shared/expressionEditorSchemas";
 import { PredicateWorkbench } from "@/components/builder/shared/PredicateWorkbench";
 import { Button } from "@/components/shadcn/button";
+import { caseOperationTargetTypeAfter } from "@/lib/doc/caseOperationIntents";
 import {
 	useModuleCaseType,
 	useModuleSelectsCaseFirst,
@@ -452,10 +453,17 @@ export function CaseOperationDetailCanvas({
 							operation={operation}
 							canEdit={operationCanEdit}
 							defaultTargetType={
-								expressionCaseType.length > 0
-									? expressionCaseType
-									: operation.caseType
+								(caseOperationTargetTypeAfter(
+									operations.slice(0, index),
+									{ kind: "session" },
+									expressionCaseType || undefined,
+								) ??
+									expressionCaseType) ||
+								operation.caseType
 							}
+							precedingOperations={operations.slice(0, index)}
+							initialSessionCaseType={expressionCaseType || undefined}
+							editorScope={editorScope}
 							targetContext={{
 								priorCreates: operationScope.creates,
 								sessionUnavailableReason,

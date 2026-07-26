@@ -36,7 +36,7 @@
  */
 
 "use client";
-import { memo } from "react";
+import { memo, useId } from "react";
 import { MediaDisplay } from "@/components/builder/media/MediaDisplay";
 import { type FieldPath, fpath } from "@/lib/doc/fieldPath";
 import { useField } from "@/lib/doc/hooks/useEntity";
@@ -148,6 +148,9 @@ const InteractiveField = memo(function InteractiveField({
 	const enginePath = field ? `${prefix}/${field.id}` : undefined;
 	const state = useEngineStateAt(uuid, enginePath);
 	const controller = useEngineController();
+	// Repeat instances reuse the authored field UUID, so the DOM label identity
+	// must be per mounted field instance rather than UUID-derived.
+	const fieldLabelId = useId();
 
 	// Visibility gating lives here so the subscription cost of reading
 	// the field + engine state is paid per-field. Siblings whose
@@ -206,6 +209,11 @@ const InteractiveField = memo(function InteractiveField({
 	}
 
 	const showInvalid = state.touched && !state.valid;
+	// Point interactive controls at the label workers already see. This keeps
+	// the accessible name on the same resolved/fallback path as LabelContent
+	// without maintaining a second copy. `useId` keeps repeated instances
+	// collision-free and hydration-stable. A blank authored label stays blank.
+	const labelId = field.label ? fieldLabelId : undefined;
 
 	// Discriminated union narrowing on `field.kind` so each branch sees
 	// the kind-specific entity shape. `label` is absent from the `hidden`
@@ -264,7 +272,7 @@ const InteractiveField = memo(function InteractiveField({
 							 *  this, every leaf field is 10px shorter in live
 							 *  mode than in edit mode — see the matching note
 							 *  in `GroupField`. */}
-							<div className="px-[5px] py-[5px]">
+							<div id={labelId} className="px-[5px] py-[5px]">
 								<LabelContent
 									label={field.label}
 									resolvedLabel={state.resolvedLabel}
@@ -305,6 +313,7 @@ const InteractiveField = memo(function InteractiveField({
 				<FieldRenderer
 					field={field}
 					state={state}
+					labelledBy={labelId}
 					onChange={(value) => controller.setValueAt(path, value)}
 					onBlur={() => controller.touchAt(path)}
 				/>

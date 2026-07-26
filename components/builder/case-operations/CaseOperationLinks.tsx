@@ -21,8 +21,9 @@ import { Icon } from "@iconify/react/offline";
 import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerTrash from "@iconify-icons/tabler/trash";
-import { useMemo, useRef, useState } from "react";
+import { type ComponentProps, useMemo, useRef, useState } from "react";
 import { CaseTypePicker } from "@/components/builder/shared/CaseTypePicker";
+import { ExpressionCardEditor } from "@/components/builder/shared/ExpressionCardEditor";
 import { BlurCommitTextInput } from "@/components/builder/shared/primitives/BlurCommitTextInput";
 import { Button } from "@/components/shadcn/button";
 import {
@@ -34,19 +35,24 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
 import { FieldError } from "@/components/shadcn/field";
+import { retargetCaseOperationLink } from "@/lib/doc/caseOperationIntents";
 import { caseOperationLinkIdentifierVerdict } from "@/lib/doc/identifierVerdicts";
 import {
 	type CaseOperation,
 	type CaseOperationLink,
 	RESERVED_CASE_OPERATION_TYPES,
 } from "@/lib/domain";
+import { storageAssignmentConstraint } from "@/lib/domain/predicate";
 import { CaseTargetPicker, type TargetChoiceContext } from "./CaseTargetPicker";
+import { nextLinkIdentifier, seedCaseOperationLink } from "./seeds";
 
 /** What a LINK's target picker needs: everything but the two axes the link
  *  itself fixes (never a new case, always able to unlink). */
 type LinkTargetContext = Omit<TargetChoiceContext, "newOnly" | "allowsNone">;
-
-import { nextLinkIdentifier, seedCaseOperationLink } from "./seeds";
+type LinkEditorScope = Pick<
+	ComponentProps<typeof ExpressionCardEditor>,
+	"caseTypes" | "currentCaseType" | "formFields" | "operationScope"
+>;
 
 const RELATIONSHIP_LABEL = {
 	child: "Belongs to that case",
@@ -63,16 +69,22 @@ export function CaseOperationLinks({
 	operation,
 	targetContext,
 	defaultTargetType,
+	precedingOperations,
+	initialSessionCaseType,
+	editorScope,
 	canEdit,
 	editVerdict,
 	onChange,
 }: {
 	readonly operation: CaseOperation;
 	readonly targetContext: LinkTargetContext;
-	/** The case type at the other end of a fresh connection — the module's,
-	 *  not this change's. Defaulting to the change's own type would make the
-	 *  next click a mismatch the author never asked for. */
+	/** The rolling session-case type at this operation's exact insertion point,
+	 *  not this change's destination type. Defaulting to the destination would
+	 *  make the next target click a mismatch the author never asked for. */
 	readonly defaultTargetType: string;
+	readonly precedingOperations: readonly CaseOperation[];
+	readonly initialSessionCaseType: string | undefined;
+	readonly editorScope: LinkEditorScope;
 	readonly canEdit: boolean;
 	readonly editVerdict: (
 		links: CaseOperationLink[] | undefined,
@@ -105,6 +117,9 @@ export function CaseOperationLinks({
 					link={link}
 					siblings={identifiers}
 					targetContext={targetContext}
+					precedingOperations={precedingOperations}
+					initialSessionCaseType={initialSessionCaseType}
+					editorScope={editorScope}
 					canEdit={canEdit}
 					targetTypeVerdict={(targetType) =>
 						editVerdict(
@@ -113,11 +128,9 @@ export function CaseOperationLinks({
 							),
 						)
 					}
-					targetVerdict={(target) =>
+					linkVerdict={(candidate) =>
 						editVerdict(
-							links.map((candidate, i) =>
-								i === index ? { ...candidate, target } : candidate,
-							),
+							links.map((existing, i) => (i === index ? candidate : existing)),
 						)
 					}
 					onChange={(next) => replace(index, next)}
@@ -156,21 +169,27 @@ function LinkRow({
 	link,
 	siblings,
 	targetContext,
+	precedingOperations,
+	initialSessionCaseType,
+	editorScope,
 	canEdit,
 	targetTypeVerdict,
-	targetVerdict,
+	linkVerdict,
 	onChange,
 	onRemove,
 }: {
 	readonly link: CaseOperationLink;
 	readonly siblings: ReadonlySet<string>;
 	readonly targetContext: LinkTargetContext;
+	readonly precedingOperations: readonly CaseOperation[];
+	readonly initialSessionCaseType: string | undefined;
+	readonly editorScope: LinkEditorScope;
 	readonly canEdit: boolean;
 	readonly targetTypeVerdict: (
 		targetType: string,
 	) => { readonly ok: true } | { readonly ok: false; readonly reason: string };
-	readonly targetVerdict: (
-		target: CaseOperationLink["target"],
+	readonly linkVerdict: (
+		candidate: CaseOperationLink,
 	) => { readonly ok: true } | { readonly ok: false; readonly reason: string };
 	readonly onChange: (next: CaseOperationLink) => void;
 	readonly onRemove: () => void;
@@ -181,6 +200,15 @@ function LinkRow({
 		others.delete(link.identifier);
 		return others;
 	}, [siblings, link.identifier]);
+	const retarget = (target: CaseOperationLink["target"]) =>
+		target?.kind === "new"
+			? link
+			: retargetCaseOperationLink(
+					link,
+					target,
+					precedingOperations,
+					initialSessionCaseType,
+				);
 
 	return (
 		<div className="space-y-3 rounded-xl border border-white/[0.07] bg-nova-deep/30 p-3 @sm:p-4">
@@ -235,9 +263,27 @@ function LinkRow({
 					ariaLabel="Connect to"
 					disabled={!canEdit}
 					context={{ ...targetContext, newOnly: false, allowsNone: true }}
-					choiceVerdict={targetVerdict}
-					onChange={(target) => onChange({ ...link, target })}
+					choiceVerdict={(target) => linkVerdict(retarget(target))}
+					onChange={(target) => onChange(retarget(target))}
 				/>
+				{link.target?.kind === "expression" && (
+					<div className="mt-3 rounded-lg border border-white/[0.06] bg-nova-deep/35 p-3">
+						<p className="mb-2 text-[13px] leading-relaxed text-nova-text-muted">
+							Work out the id of the case at the other end.
+						</p>
+						<ExpressionCardEditor
+							value={link.target.expr}
+							onChange={(expr) =>
+								onChange({
+									...link,
+									target: { kind: "expression", expr },
+								})
+							}
+							constraint={storageAssignmentConstraint(["text"])}
+							{...editorScope}
+						/>
+					</div>
+				)}
 				{link.target === null && (
 					<p className="text-[13px] leading-relaxed text-nova-text-muted">
 						Submitting this form breaks the “{link.identifier}” connection

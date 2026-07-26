@@ -260,7 +260,15 @@ of allowing a commit-gate bounce. Choosing a different known target is one
 by all earlier creates/retypes change in the same gated operation patch, while
 every other facet stays intact for the verdict to adjudicate. Update/close adds
 at the end use that same rolling session-type projection and `addVerdict`, never
-the module's stale original type. A saved lookup-carrier-bearing operation is
+the module's stale original type. A link target follows the parallel
+`retargetCaseOperationLink` intent: session/prior-create choices atomically
+carry their rolling type, an exact expression keeps its AST and asserted type,
+and `null` changes only the target (the required `target: null` unlink value is
+assigned rather than treated as an optional-slot clear by the granular
+reducer). Runtime-expression link targets immediately mount the same full
+text-scoped `ExpressionCardEditor` as the operation's own target; a blank or
+out-of-scope case id is a submission-time fact and the running form refuses the
+whole atomic submission inline. A saved lookup-carrier-bearing operation is
 persistently read-only in both the rail and canvas with the shared carrier
 reason; callbacks also fail closed before dispatch. It remains visible and
 movable because the move envelope never serializes its hidden AST. Selecting an

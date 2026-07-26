@@ -6,6 +6,7 @@ import {
 	addCaseOperationMutations,
 	caseOperationEditVerdict,
 	moveCaseOperationMutation,
+	planCaseOperationUpdate,
 	removeCaseOperationMutation,
 	updateCaseOperationMutations,
 } from "@/lib/doc/caseOperationMutations";
@@ -319,6 +320,80 @@ describe("case-operation mutation planning", () => {
 		expect(next.forms[formUuid].caseOperations?.[0].writes).toEqual([
 			{ property: "source_id", value: term(literal("source edit")) },
 			{ property: "note", value: term(literal("note edit")) },
+		]);
+	});
+
+	it("keeps a peer link-type edit when a stale author unlinks it", () => {
+		const { doc, formUuid } = fixture();
+		const original = consumerOperation({
+			links: [
+				{
+					identifier: "parent",
+					targetType: "patient",
+					target: {
+						kind: "expression",
+						expr: term(literal("case-id")),
+					},
+					relationship: "child",
+				},
+			],
+		});
+		(doc.forms[formUuid] as Form).caseOperations = [
+			createOperation(),
+			original,
+		];
+		const originalLink = original.links?.[0];
+		if (originalLink === undefined) throw new Error("link fixture missing");
+
+		const peerTypeEdit = updateCaseOperationMutations(doc, formUuid, {
+			...original,
+			links: [{ ...originalLink, targetType: "visit" }],
+		});
+		const staleUnlink = updateCaseOperationMutations(doc, formUuid, {
+			...original,
+			links: [{ ...originalLink, target: null }],
+		});
+
+		expect(staleUnlink).toContainEqual(
+			expect.objectContaining({
+				caseOperationPatch: {
+					operation: "update-link",
+					uuid: CONSUMER,
+					identifier: "parent",
+					patch: { target: null },
+				},
+			}),
+		);
+
+		const next = apply(apply(doc, peerTypeEdit), staleUnlink);
+		expect(next.forms[formUuid].caseOperations?.[1].links).toEqual([
+			{
+				...originalLink,
+				targetType: "visit",
+				target: null,
+			},
+		]);
+
+		const fresh = apply(doc, peerTypeEdit);
+		const plan = planCaseOperationUpdate(
+			fresh,
+			formUuid,
+			{
+				...original,
+				links: [{ ...originalLink, target: null }],
+			},
+			original,
+		);
+		expect(plan.ok).toBe(true);
+		if (!plan.ok) return;
+		expect(
+			apply(fresh, plan.mutations).forms[formUuid].caseOperations?.[1].links,
+		).toEqual([
+			{
+				...originalLink,
+				targetType: "visit",
+				target: null,
+			},
 		]);
 	});
 

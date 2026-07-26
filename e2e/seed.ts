@@ -477,20 +477,36 @@ async function main(): Promise<void> {
 	if (caseChangesLookupColumn === undefined) {
 		throw new Error("e2e/seed.ts: case-change lookup seeded no column");
 	}
+	const caseChangesDoc = toPersistableDoc(
+		buildCaseChangesBlueprint(caseChangesAppId, {
+			tableId: caseChangesLookup.id,
+			columnId: caseChangesLookupColumn.id,
+		}),
+	);
 	await appendSyntheticBatch({
 		appId: caseChangesAppId,
 		expectedBaseSeq: 0,
-		targetDoc: toPersistableDoc(
-			buildCaseChangesBlueprint(caseChangesAppId, {
-				tableId: caseChangesLookup.id,
-				columnId: caseChangesLookupColumn.id,
-			}),
-		),
+		targetDoc: caseChangesDoc,
 		authority: { kind: "user", actorUserId: SEED.userId },
+	});
+	await materializeCaseStoreSchemas({
+		appId: caseChangesAppId,
+		blueprint: caseChangesDoc,
+		syncedSeq: 1,
+	});
+	const caseChangesPatient = await caseStore.insert({
+		appId: caseChangesAppId,
+		row: {
+			case_type: CASE_CHANGES_SEED.caseType,
+			case_name: "Smoke patient",
+			status: "open",
+			properties: { last_note: "Before submission" },
+		},
 	});
 	const caseChanges = {
 		appId: caseChangesAppId,
 		route: caseChangesRoute(caseChangesAppId),
+		caseId: caseChangesPatient.caseId,
 		viewerStateFile: VIEWER_STATE_FILE,
 	};
 

@@ -1,9 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import {
 	caseOperationTargetTypeAfter,
 	retargetCaseOperation,
+	retargetCaseOperationLink,
 } from "@/lib/doc/caseOperationIntents";
-import { asUuid, type CaseOperation } from "@/lib/domain";
+import {
+	asUuid,
+	type CaseOperation,
+	type CaseOperationLink,
+} from "@/lib/domain";
 import { literal, matchAll, term } from "@/lib/domain/predicate";
 
 const CREATE = asUuid("10000000-0000-4000-8000-000000000001");
@@ -141,5 +146,71 @@ describe("case-operation rolling target intent", () => {
 		expect(
 			retargetCaseOperation(operation, target, [create], "patient"),
 		).toEqual({ ...operation, target });
+	});
+
+	describe("connection target intent", () => {
+		expectTypeOf<{ kind: "new" }>().not.toMatchTypeOf<
+			Parameters<typeof retargetCaseOperationLink>[1]
+		>();
+
+		const link: CaseOperationLink = {
+			identifier: "parent",
+			targetType: "patient",
+			target: { kind: "session" },
+			relationship: "child",
+		};
+
+		it("keeps every peer facet when unlinking", () => {
+			expect(
+				retargetCaseOperationLink(
+					link,
+					null,
+					[create, retypeCreate, retypeSession],
+					"patient",
+				),
+			).toEqual({ ...link, target: null });
+		});
+
+		it("adopts the rolling type with a session or prior-create target", () => {
+			expect(
+				retargetCaseOperationLink(
+					link,
+					{ kind: "session" },
+					[create, retypeCreate, retypeSession],
+					"patient",
+				),
+			).toEqual({ ...link, targetType: "household" });
+			expect(
+				retargetCaseOperationLink(
+					link,
+					{ kind: "op", opUuid: CREATE },
+					[create, retypeCreate, retypeSession],
+					"patient",
+				),
+			).toEqual({
+				...link,
+				targetType: "archived_referral",
+				target: { kind: "op", opUuid: CREATE },
+			});
+		});
+
+		it("retains the exact runtime expression AST and its asserted type", () => {
+			const target = {
+				kind: "expression" as const,
+				expr: term(literal("case-id-authored-by-the-user")),
+			};
+			expect(
+				retargetCaseOperationLink(
+					{ ...link, targetType: "referral" },
+					target,
+					[create],
+					"patient",
+				),
+			).toEqual({
+				...link,
+				targetType: "referral",
+				target,
+			});
+		});
 	});
 });

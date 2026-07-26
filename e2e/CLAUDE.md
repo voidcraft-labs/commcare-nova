@@ -11,10 +11,14 @@ chat DOCKS, which only happens once the new app has a module (`docHasData`).
 - **Hermetic, free, no real GCP.** The suite runs against a **local Postgres**
   (`scripts/smoke.sh`), not a real project — the same testcontainer-free local stack the
   integration tests use under `npm test`. No CI GCP project, no prod credentials, no LLM spend.
-- **Runs the production build, not `next dev`.** The managed server is `next build &&
-  next start` — the gate exercises the deployed artifact, and `next dev`'s server→browser
-  log forwarding can't trip the error guard. Costs ~2 min of build; don't "speed it up"
-  by reverting to dev.
+- **Runs the production build, not `next dev`.** The managed server runs `next build`,
+  then Nova's `scripts/start-standalone.mjs`: it validates the canonical generated
+  `server.js`, places public + static assets, overlays sharp's dlopen-only `@img`
+  runtime exactly like Docker, and launches that server with signal forwarding.
+  The gate therefore exercises the deployed artifact, and `next dev`'s
+  server→browser log forwarding can't trip the error guard. `next start` is not a
+  supported runner for `output: "standalone"`. Costs ~2 min of build; don't
+  "speed it up" by reverting to dev.
 - **Production Host hardening stays active in smoke.** The managed server receives
   `NOVA_ALLOW_LOCALHOST_HOSTS=1`; `proxy.ts` honors it only for loopback Host spellings,
   so the production artifact remains reachable at `localhost:3000` without making an

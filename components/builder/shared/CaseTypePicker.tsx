@@ -165,6 +165,17 @@ export function CaseTypePickerContent({
 	const showError =
 		draft.trim().length > 0 &&
 		(!verdict.ok || excludedCandidate || !candidateChoiceVerdict.ok);
+	const creationError = !showError
+		? null
+		: excludedCandidate
+			? !verdict.ok && verdict.code === "duplicate"
+				? `${humanizeId(candidate)} already exists and is managed by the platform. Choose a different name.`
+				: "That case type is managed by the platform and cannot be changed here. Choose a different name."
+			: !verdict.ok
+				? creationErrorMessage(verdict, candidate)
+				: !candidateChoiceVerdict.ok
+					? candidateChoiceVerdict.reason
+					: null;
 
 	const commitNew = () => {
 		if (!verdict.ok || excludedCandidate || !candidateChoiceVerdict.ok) return;
@@ -304,37 +315,15 @@ export function CaseTypePickerContent({
 						Create
 					</Button>
 				</div>
-				{showError && !verdict.ok && (
+				{creationError !== null && (
 					<p
 						id={errorId}
 						role="alert"
 						className="mt-1 px-0.5 text-xs text-nova-rose"
 					>
-						{creationErrorMessage(verdict, candidate)}
+						{creationError}
 					</p>
 				)}
-				{draft.trim().length > 0 && excludedCandidate && (
-					<p
-						id={errorId}
-						role="alert"
-						className="mt-1 px-0.5 text-xs text-nova-rose"
-					>
-						That case type is managed by the platform and cannot be changed
-						here.
-					</p>
-				)}
-				{draft.trim().length > 0 &&
-					verdict.ok &&
-					!excludedCandidate &&
-					!candidateChoiceVerdict.ok && (
-						<p
-							id={errorId}
-							role="alert"
-							className="mt-1 px-0.5 text-xs text-nova-rose"
-						>
-							{candidateChoiceVerdict.reason}
-						</p>
-					)}
 			</div>
 
 			{onClear && value && (

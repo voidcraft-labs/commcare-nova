@@ -123,6 +123,18 @@ Set the connection's target to **Remove this connection** to break an existing
 one instead of making it. That is what you reach for when a temporary grouping
 has done its job and the cases in it need to survive on their own.
 
+The other end can be the case the form opened, a case made by an earlier
+change, or a case id worked out by a calculation. Choosing the calculation
+opens its full editor directly under the target. Choosing a known case also
+brings that case's current type along in the same edit, including a type changed
+by an earlier operation, so the target and type cannot get temporarily out of
+sync.
+
+In Preview, a calculation that produces no case id or names a case that is no
+longer available is refused beside the running form. The whole submission is
+atomic: no case is created, changed, linked, or unlinked until every target can
+be resolved.
+
 ## Removing a change
 
 Removing is offered only when nothing depends on the change. When something
@@ -143,7 +155,9 @@ names use the same characters and start with a letter.
 If a saved change contains lookup-table logic these tools cannot author yet,
 the read result keeps that change in its exact list position and identifies it
 by name, but marks its settings as unavailable instead of returning a partial
-editable shape. You can still ask Nova or an MCP agent to move it by that name.
+editable shape. Nova and MCP refuse both updates and removal rather than
+discarding hidden behavior; you can still ask either one to move the intact
+change by that name.
 
 A request that adds several changes can connect them in one atomic call — for
 example, create a referral and then update that new referral. If any change is

@@ -275,6 +275,13 @@ of offering a delete that would bounce. Viewer mode renders these controls as
 explicit disabled triggers. Choosing the already-active target is also a true
 no-op; a keyed new target retains `idFrom`, and an expression target retains its
 exact AST rather than being replaced by that choice's creation seed.
+Link targets use the same atomic-intent rule: choosing the session case or a
+prior create carries the type established by all earlier retypes in the same
+edit, unlinking stores the required `target: null` without clearing or
+overwriting peer facets, and a runtime-expression target immediately mounts the
+full text-scoped expression editor beneath the picker. A blank or inaccessible
+runtime id stays repairable as authored expression state, but Preview/device
+submission refuses the complete transaction before any case effect executes.
 
 Which form answers an operation may read is ONE rule with two callers:
 `lib/domain/caseOperationScope.ts` holds `operationCanReadFormField` and
@@ -329,8 +336,8 @@ action, and case type plus
 detail is withheld. The id remains addressable by `moveCaseOperation`, so the
 operation can move without a partial read ever posing as an editable shape.
 Builder edits refuse before dispatching local state, full-shape SA/MCP updates
-refuse, and moves stay persistable because their deployed fallback carries only
-UUID plus order.
+and removals refuse, and moves stay persistable because their deployed fallback
+carries only UUID plus order.
 
 `content/docs/case-changes.mdx` is the user-facing guide.
 
@@ -403,7 +410,11 @@ make React encode multipart, which the edge WAF blocks.
 The membership gate precedes the program build, closing a one-bit cross-tenant
 survey oracle. An answers-absent document snapshot submits ordinary-only, because
 empty bindings would blank-write and a blank projects to key-absent — silent
-property deletion.
+property deletion. For a real program, that same authorized boundary projects
+canonical lookup-reference occurrences onto the committed form's operation UUIDs
+and threads one exact rows-free definition snapshot through the immutable
+envelope; carrier-free programs perform no lookup-definition read, while lookup
+rows remain current transactional inputs.
 
 Wire facts the envelope rests on:
 

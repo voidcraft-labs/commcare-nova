@@ -650,6 +650,30 @@ describe("shared case-operation tools", () => {
 			).toEqual(operation);
 			expect(recordMutations, scenario.slot).not.toHaveBeenCalled();
 
+			const removed = await removeCaseOperationTool.execute(
+				{
+					moduleId: "patients",
+					formId: "edit",
+					operationId: operation.id,
+				},
+				ctx,
+				doc,
+			);
+			expect(removed.result, scenario.slot).toEqual(
+				expect.objectContaining({
+					error: expect.stringContaining(
+						"uses lookup-table logic that Nova preserves but cannot safely edit from this surface",
+					),
+				}),
+			);
+			expect(removed.mutations, scenario.slot).toEqual([]);
+			expect(removed.newDoc, scenario.slot).toBe(doc);
+			expect(
+				removed.newDoc.forms[formUuid].caseOperations?.[0],
+				scenario.slot,
+			).toEqual(operation);
+			expect(recordMutations, scenario.slot).not.toHaveBeenCalled();
+
 			const moved = await moveCaseOperationTool.execute(
 				{
 					moduleId: "patients",

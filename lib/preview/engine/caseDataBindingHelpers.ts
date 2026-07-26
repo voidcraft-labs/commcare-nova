@@ -48,6 +48,11 @@ import {
 	caseOperationExpressionSnapshotTypes,
 	caseOperationMultiplicityScopes,
 } from "@/lib/doc/caseOperationOrder";
+import {
+	extractLookupReferenceOccurrences,
+	lookupReferenceTargetsFromOccurrences,
+	PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
+} from "@/lib/doc/lookupReferences";
 import { byListColumnOrder } from "@/lib/doc/order/compare";
 import {
 	type BlueprintDoc,
@@ -920,10 +925,17 @@ export interface BuiltSubmissionOperations {
  * the immutable expression snapshot types. Identity rides
  * server-resolved: `sessionUser`/`sessionContext` from the
  * authenticated preview identity, never the client.
+ *
+ * When that exact program carries lookup references, this I/O half also
+ * projects their table ids through the canonical production occurrence
+ * registry and attaches one Project-authorized, rows-free definitions map.
+ * A carrier-free program takes the loader's empty-id fast path and performs no
+ * lookup read.
  */
 export async function buildSubmissionOperationProgram(args: {
 	readonly appId: string;
 	readonly identity: ResolvedPreviewIdentity;
+	readonly lookupScope: LookupScope;
 	readonly mutation: SubmissionMutation;
 	readonly viewerTimeZone?: string;
 }): Promise<BuiltSubmissionOperations> {
@@ -931,7 +943,7 @@ export async function buildSubmissionOperationProgram(args: {
 
 	const app = await loadApp(args.appId);
 	if (!app?.blueprint) return {};
-	return buildCaseOperationProgramFromDoc({
+	const built = buildCaseOperationProgramFromDoc({
 		blueprint: app.blueprint,
 		mutation: args.mutation,
 		identity: args.identity,
@@ -939,6 +951,41 @@ export async function buildSubmissionOperationProgram(args: {
 			viewerTimeZone: args.viewerTimeZone,
 		}),
 	});
+	if (built.program === undefined) return built;
+
+	const lookupTableSchemas = await loadLookupTableSchemas(
+		args.lookupScope,
+		caseOperationProgramLookupTableIds(
+			asWalkableDoc(app.blueprint),
+			built.program.operations.map(({ operation }) => operation.uuid),
+		),
+	);
+	if (lookupTableSchemas === undefined) return built;
+	return {
+		...built,
+		program: { ...built.program, lookupTableSchemas },
+	};
+}
+
+/**
+ * Project the canonical production lookup-reference occurrence stream onto
+ * the operations in ONE built submission program. Write and link members have
+ * no UUID of their own, so the registry deliberately anchors them to their
+ * owning operation UUID; filtering carrier identities therefore covers every
+ * runtime expression slot without a second hand-maintained AST walker.
+ */
+export function caseOperationProgramLookupTableIds(
+	doc: BlueprintDoc,
+	operationUuids: readonly Uuid[],
+): readonly LookupTableId[] {
+	if (operationUuids.length === 0) return [];
+	const activeOperations = new Set<Uuid>(operationUuids);
+	return lookupReferenceTargetsFromOccurrences(
+		extractLookupReferenceOccurrences(
+			doc,
+			PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
+		).filter((occurrence) => activeOperations.has(occurrence.carrierUuid)),
+	).tableIds;
 }
 
 /**

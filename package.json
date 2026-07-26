@@ -32,7 +32,7 @@
 		"db:migrate": "tsx scripts/migrate.ts",
 		"db:dev:down": "docker compose down",
 		"build": "NEXT_TELEMETRY_DISABLED=1 next build && tsc --noEmit",
-		"start": "next start",
+		"start": "node scripts/start-standalone.mjs",
 		"lint": "biome check --error-on-warnings",
 		"format": "biome check --write",
 		"typecheck": "tsc --noEmit",

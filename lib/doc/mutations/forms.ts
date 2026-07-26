@@ -221,10 +221,17 @@ export function applyFormMutation(
 							(candidate) => candidate.identifier === semantic.identifier,
 						);
 						if (link === undefined) return;
-						applyPatch(
-							link as unknown as Record<string, unknown>,
-							semantic.patch as Record<string, unknown>,
-						);
+						/* Every link-patch slot is required, including `target`.
+						 * `target: null` is the authored unlink intent, not the
+						 * persistence representation of clearing an optional slot.
+						 * Assign these keys directly so a granular unlink remains a
+						 * complete CaseOperationLink and composes with concurrent edits
+						 * to its type or relationship. */
+						for (const [key, value] of Object.entries(semantic.patch)) {
+							if (value !== undefined) {
+								(link as unknown as Record<string, unknown>)[key] = value;
+							}
+						}
 						form.caseOperations = operations;
 						return;
 					}

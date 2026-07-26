@@ -7,23 +7,30 @@
  * building it through five clicks keeps the journey short enough to be
  * deterministic — the spec drives one keypress and reads one sentence.
  *
- * `file_referral` targets the case `create_referral` makes, so moving it
- * ahead of that create is refused by the move planner, and the refusal has
+ * `archive_referral` retypes the case `create_referral` makes and
+ * `file_referral` acts on that same identity afterward. Moving the file ahead
+ * of the create is therefore refused by the move planner, and the refusal has
  * a name to say. `note_visit` depends on nothing, so it proves the same
  * keyboard path still moves what it may.
  */
 
-import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import {
 	asUuid,
 	type BlueprintDoc,
 	type CaseOperation,
+	calculatedColumn,
 	type LookupColumnId,
 	type LookupTableId,
+	plainColumn,
 } from "@/lib/domain";
 import {
+	ancestorPath,
 	eq,
+	formField,
 	literal,
+	prop,
+	relationStep,
 	tableColumn,
 	tableLookup,
 	term,
@@ -37,7 +44,18 @@ export const CASE_CHANGES_SEED = {
 	moduleUuid: asUuid("0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"),
 	formUuid: asUuid("1b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e"),
 	fieldUuid: asUuid("2c3d4e5f-6a7b-4c8d-9e0f-1a2b3c4d5e6f"),
+	linkTargetFieldUuid: asUuid("3c4d5e6f-7a8b-4d9e-8f0a-1b2c3d4e5f6a"),
 	caseType: "patient",
+	archivedCaseType: "archived_referral",
+	archivedModuleName: "Archived referrals",
+	archivedModuleUuid: asUuid("8c9d0e1f-2a3b-424c-8e5f-6a7b8c9d0e1f"),
+	columns: {
+		patientName: asUuid("8d9e0f1a-2b3c-434d-8f6a-7b8c9d0e1f2a"),
+		patientNote: asUuid("9e0f1a2b-3c4d-445e-806b-8c9d0e1f2a3b"),
+		archivedName: asUuid("0f1a2b3c-4d5e-456f-817c-9d0e1f2a3b4c"),
+		archivedSource: asUuid("1a2b3c4d-5e6f-467a-828d-0e1f2a3b4c5d"),
+		archivedPatient: asUuid("2b3c4d5e-6f7a-478b-839e-1f2a3b4c5d6e"),
+	},
 	operations: {
 		create: asUuid("3d4e5f6a-7b8c-4d9e-8f0a-1b2c3d4e5f6a"),
 		note: asUuid("4e5f6a7b-8c9d-4e0f-9a1b-2c3d4e5f6a7b"),
@@ -50,7 +68,7 @@ export const CASE_CHANGES_SEED = {
 		note: "note_visit",
 		file: "file_referral",
 		dormant: "lookup_patient",
-		retype: "retype_patient",
+		retype: "archive_referral",
 	},
 } as const;
 
@@ -76,30 +94,15 @@ export function buildCaseChangesBlueprint(
 						label: "Last note",
 						data_type: "text",
 					},
-					{
-						name: "source_note",
-						label: "Source note",
-						data_type: "text",
-					},
-				],
-			},
-			{
-				name: "visit",
-				properties: [
-					{
-						name: "last_note",
-						label: "Last note",
-						data_type: "text",
-					},
-					{
-						name: "source_note",
-						label: "Source note",
-						data_type: "text",
-					},
 				],
 			},
 			{
 				name: "referral",
+				properties: [],
+			},
+			{
+				name: CASE_CHANGES_SEED.archivedCaseType,
+				parent_type: "patient",
 				properties: [
 					{
 						name: "source_note",
@@ -116,9 +119,21 @@ export function buildCaseChangesBlueprint(
 				caseType: CASE_CHANGES_SEED.caseType,
 				// A case-bearing module needs one visible Results field, or rows
 				// are indistinguishable and the app is invalid.
-				caseListConfig: caseListConfig([
-					{ field: "case_name", header: "Name" },
-				]),
+				caseListConfig: {
+					columns: [
+						plainColumn(
+							CASE_CHANGES_SEED.columns.patientName,
+							"case_name",
+							"Patient",
+						),
+						plainColumn(
+							CASE_CHANGES_SEED.columns.patientNote,
+							"last_note",
+							"Last note",
+						),
+					],
+					searchInputs: [],
+				},
 				forms: [
 					{
 						uuid: CASE_CHANGES_SEED.formUuid,
@@ -126,6 +141,7 @@ export function buildCaseChangesBlueprint(
 						// Case-loading, so the module selects a case before opening its
 						// forms and "the case this form opened" is a legal target.
 						type: "followup",
+						postSubmit: "app_home",
 						fields: [
 							f({
 								uuid: CASE_CHANGES_SEED.fieldUuid,
@@ -133,9 +149,48 @@ export function buildCaseChangesBlueprint(
 								id: "visit_note",
 								label: "Visit note",
 							}),
+							f({
+								uuid: CASE_CHANGES_SEED.linkTargetFieldUuid,
+								kind: "text",
+								id: "related_case_id",
+								label: "Related patient case id",
+							}),
 						],
 					},
 				],
+			},
+			{
+				uuid: CASE_CHANGES_SEED.archivedModuleUuid,
+				id: "archived_referrals",
+				name: CASE_CHANGES_SEED.archivedModuleName,
+				caseType: CASE_CHANGES_SEED.archivedCaseType,
+				caseListOnly: true,
+				caseListConfig: {
+					columns: [
+						plainColumn(
+							CASE_CHANGES_SEED.columns.archivedName,
+							"case_name",
+							"Referral",
+						),
+						plainColumn(
+							CASE_CHANGES_SEED.columns.archivedSource,
+							"source_note",
+							"Source note",
+						),
+						calculatedColumn(
+							CASE_CHANGES_SEED.columns.archivedPatient,
+							"Patient",
+							term(
+								prop(
+									CASE_CHANGES_SEED.archivedCaseType,
+									"case_name",
+									ancestorPath(relationStep("parent")),
+								),
+							),
+						),
+					],
+					searchInputs: [],
+				},
 			},
 		],
 	});
@@ -159,10 +214,10 @@ export function buildCaseChangesBlueprint(
 }
 
 /**
- * `file_referral` targets the case `create_referral` makes, so moving it
- * ahead of that create is refused — and the refusal has a name to say.
- * `note_visit` depends on nothing, so the same keyboard path still moves
- * what it may.
+ * `file_referral` targets the case `create_referral` makes after an earlier
+ * retype, so moving it ahead of that create is refused — and the refusal has a
+ * name to say. `note_visit` depends on nothing, so the same keyboard path
+ * still moves what it may.
  */
 function caseOperations(
 	lookupCarrier: CaseChangesLookupCarrier | undefined,
@@ -178,9 +233,18 @@ function caseOperations(
 			name: term(literal("Referral")),
 		},
 		{
+			uuid: CASE_CHANGES_SEED.operations.retype,
+			id: CASE_CHANGES_SEED.ids.retype,
+			order: "a1",
+			action: "update",
+			caseType: "referral",
+			target: { kind: "op", opUuid: CASE_CHANGES_SEED.operations.create },
+			retype: CASE_CHANGES_SEED.archivedCaseType,
+		},
+		{
 			uuid: CASE_CHANGES_SEED.operations.note,
 			id: CASE_CHANGES_SEED.ids.note,
-			order: "a1",
+			order: "a2",
 			action: "update",
 			caseType: "patient",
 			target: { kind: "session" },
@@ -189,11 +253,22 @@ function caseOperations(
 		{
 			uuid: CASE_CHANGES_SEED.operations.file,
 			id: CASE_CHANGES_SEED.ids.file,
-			order: "a2",
+			order: "a3",
 			action: "update",
-			caseType: "referral",
+			caseType: CASE_CHANGES_SEED.archivedCaseType,
 			target: { kind: "op", opUuid: CASE_CHANGES_SEED.operations.create },
 			writes: [{ property: "source_note", value: term(literal("Filed")) }],
+			links: [
+				{
+					identifier: "parent",
+					targetType: "patient",
+					target: {
+						kind: "expression",
+						expr: term(formField(CASE_CHANGES_SEED.linkTargetFieldUuid)),
+					},
+					relationship: "child",
+				},
+			],
 		},
 		...(lookupCarrier === undefined
 			? []
@@ -201,7 +276,7 @@ function caseOperations(
 					{
 						uuid: CASE_CHANGES_SEED.operations.dormant,
 						id: CASE_CHANGES_SEED.ids.dormant,
-						order: "a3",
+						order: "a4",
 						action: "update" as const,
 						caseType: "patient",
 						target: { kind: "session" as const },
@@ -218,15 +293,6 @@ function caseOperations(
 						),
 					},
 				]),
-		{
-			uuid: CASE_CHANGES_SEED.operations.retype,
-			id: CASE_CHANGES_SEED.ids.retype,
-			order: "a4",
-			action: "update",
-			caseType: "patient",
-			target: { kind: "session" },
-			retype: "visit",
-		},
 	];
 }
 

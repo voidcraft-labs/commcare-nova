@@ -7,11 +7,19 @@ interface TextFieldProps {
 	/** Plain text or secret field. The DOM input type differs by kind. */
 	field: TextFieldEntity | SecretField;
 	state: FieldState;
+	/** Visible question label rendered by InteractiveFormRenderer. */
+	labelledBy?: string;
 	onChange: (value: string) => void;
 	onBlur: () => void;
 }
 
-export function TextField({ field, state, onChange, onBlur }: TextFieldProps) {
+export function TextField({
+	field,
+	state,
+	labelledBy,
+	onChange,
+	onBlur,
+}: TextFieldProps) {
 	// `secret` kind renders a password-masked input; `text` is plain.
 	const inputType = field.kind === "secret" ? "password" : "text";
 	const showError = state.touched && !state.valid;
@@ -20,6 +28,7 @@ export function TextField({ field, state, onChange, onBlur }: TextFieldProps) {
 		<div>
 			<input
 				type={inputType}
+				aria-labelledby={labelledBy}
 				value={state.value}
 				onChange={(e) => onChange(e.target.value)}
 				onBlur={onBlur}

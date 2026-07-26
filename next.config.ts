@@ -1,13 +1,20 @@
+import { fileURLToPath } from "node:url";
 import { withSentryConfig } from "@sentry/nextjs";
 import { createMDX } from "fumadocs-mdx/next";
 import type { NextConfig } from "next";
 
 const withMDX = createMDX();
+/* Anchor tracing to THIS checkout, not a parent directory Next infers from
+ * another lockfile. In a local worktree this is that worktree's root; in the
+ * Docker builder it is `/app`. Keeping the root explicit also keeps the
+ * generated standalone entrypoint canonical at `.next/standalone/server.js`. */
+const buildRoot = fileURLToPath(new URL(".", import.meta.url));
 
 const nextConfig: NextConfig = {
 	/* Standalone output for containerized deployments (Cloud Run, Docker). */
 	/* Produces a self-contained build with only necessary node_modules. */
 	output: "standalone",
+	outputFileTracingRoot: buildRoot,
 
 	/* typescript@7 is the native compiler and ships no JS compiler API, which
 	 * is how `next build` drives its type-check step — pointing Next at the

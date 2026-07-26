@@ -15,6 +15,8 @@ interface FieldRendererProps {
 	/** Domain field entity — discriminated union narrowed by `kind` below. */
 	field: Field;
 	state: FieldState;
+	/** ID of the already-rendered visible question label, when present. */
+	labelledBy?: string;
 	onChange: (value: string) => void;
 	onBlur: () => void;
 }
@@ -34,6 +36,7 @@ interface FieldRendererProps {
 export function FieldRenderer({
 	field,
 	state,
+	labelledBy,
 	onChange,
 	onBlur,
 }: FieldRendererProps) {
@@ -44,6 +47,7 @@ export function FieldRenderer({
 				<TextField
 					field={field}
 					state={state}
+					labelledBy={labelledBy}
 					onChange={onChange}
 					onBlur={onBlur}
 				/>

@@ -18,7 +18,7 @@
 // universe. The list of these sentences IS that screen, so a row that
 // reads as an AST node name defeats the whole surface.
 
-import type { CaseOperation, Uuid } from "@/lib/domain";
+import { type CaseOperation, humanizeId, type Uuid } from "@/lib/domain";
 
 /** What the row needs from outside the operation to read naturally. */
 export interface OperationSentenceContext {
@@ -44,12 +44,24 @@ function quoted(name: string): string {
 	return `“${name}”`;
 }
 
+/** `humanizeId` returns a standalone label with an initial capital. Inside a
+ * sentence, case types are common-noun phrases, so lower only that initial
+ * letter while retaining the humanized separators. */
+function caseTypePhrase(name: string): string {
+	const label = humanizeId(name);
+	return `${label.charAt(0).toLowerCase()}${label.slice(1)}`;
+}
+
 /** The case this operation acts on, in the author's terms. */
 function targetPhrase(
 	operation: CaseOperation,
 	context: OperationSentenceContext,
 ): string {
-	const type = operation.caseType;
+	/* Case types are stored as identifiers, but this is an author-facing
+	 * sentence. The picker and the rest of the builder use the same projection,
+	 * so `archived_referral` reads as "archived referral" without weakening the
+	 * stable stored identity. */
+	const type = caseTypePhrase(operation.caseType);
 	switch (operation.target.kind) {
 		case "new": {
 			const keyField =
@@ -113,7 +125,7 @@ export function operationSentence(
 	// row top to bottom reads the same order the runtime will.
 	if (operation.rename !== undefined) details.push("gives it a new name");
 	if (operation.retype !== undefined) {
-		details.push(`changes its type to ${operation.retype}`);
+		details.push(`changes its type to ${caseTypePhrase(operation.retype)}`);
 	}
 	if (operation.owner !== undefined) details.push("sets who owns it");
 

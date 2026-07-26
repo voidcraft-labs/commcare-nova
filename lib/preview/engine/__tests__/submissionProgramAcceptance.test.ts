@@ -9,7 +9,7 @@
 
 import type { Kysely } from "kysely";
 import { beforeEach, describe, expect, it } from "vitest";
-import type { CaseStore } from "@/lib/case-store";
+import type { CaseStore, LookupTableSchemas } from "@/lib/case-store";
 import { buildCaseTypeMap } from "@/lib/case-store";
 import { SubmissionRejectedError } from "@/lib/case-store/errors";
 import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
@@ -17,9 +17,23 @@ import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
 import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 import type { Database } from "@/lib/case-store/sql/database";
-import type { BlueprintDoc, CaseOperation, Uuid } from "@/lib/domain";
+import type {
+	BlueprintDoc,
+	CaseOperation,
+	LookupColumnId,
+	LookupTableId,
+	Uuid,
+} from "@/lib/domain";
 import { asUuid } from "@/lib/domain";
-import { formField, matchNone, term } from "@/lib/domain/predicate";
+import {
+	eq,
+	formField,
+	literal,
+	matchNone,
+	tableColumn,
+	tableLookup,
+	term,
+} from "@/lib/domain/predicate";
 import { buildDoc, f } from "../../../__tests__/docHelpers";
 import {
 	buildCaseOperationProgramFromDoc,
@@ -62,6 +76,8 @@ function makeStore(): CaseStore {
 
 const OP_ROOT = asUuid("60000000-0000-7000-8000-00000000a001");
 const OP_REPEAT = asUuid("60000000-0000-7000-8000-00000000a002");
+const LOOKUP_TABLE = "70000000-0000-7000-8000-000000000001" as LookupTableId;
+const LOOKUP_COLUMN = "70000000-0000-7000-8000-000000000002" as LookupColumnId;
 
 /** One followup doc: a status writer (ordinary), a free root answer, and
  *  a repeat of visit notes — with `operations` built from the minted
@@ -181,7 +197,12 @@ async function seedSessionCase(store: CaseStore, doc: BlueprintDoc) {
 	});
 }
 
-async function submit(doc: BlueprintDoc, engine: FormEngine, store: CaseStore) {
+async function submit(
+	doc: BlueprintDoc,
+	engine: FormEngine,
+	store: CaseStore,
+	lookupTableSchemas?: LookupTableSchemas,
+) {
 	const mutation = engine.computeSubmissionMutation({
 		caseId: SESSION_CASE,
 		caseTypes: doc.caseTypes ?? [],
@@ -193,7 +214,16 @@ async function submit(doc: BlueprintDoc, engine: FormEngine, store: CaseStore) {
 	});
 	expect(built.program).toBeDefined();
 	expect(built.ordinaryCaseType).toBe("patient");
-	return store.applySubmission(submissionEnvelopeArgs(mutation, APP_ID, built));
+	const withLookupSchemas =
+		built.program === undefined || lookupTableSchemas === undefined
+			? built
+			: {
+					...built,
+					program: { ...built.program, lookupTableSchemas },
+				};
+	return store.applySubmission(
+		submissionEnvelopeArgs(mutation, APP_ID, withLookupSchemas),
+	);
 }
 
 async function loadCase(store: CaseStore, caseId: string) {
@@ -352,6 +382,47 @@ describe("engine → builder → executor acceptance", () => {
 		const result = await submit(doc, engine, store);
 		expect(result.operations[0]?.executed).toBe(false);
 		const row = await loadCase(store, SESSION_CASE);
+		expect("op_status" in (row?.properties ?? {})).toBe(false);
+	});
+
+	it("a lookup-backed false condition skips its operation while the ordinary effect commits", async () => {
+		const { doc, formUuid } = acceptanceDoc((ids) => [
+			{
+				uuid: OP_ROOT,
+				id: "op_lookup_gated",
+				action: "update",
+				caseType: "patient",
+				target: { kind: "session" },
+				condition: eq(
+					tableLookup(
+						LOOKUP_TABLE,
+						LOOKUP_COLUMN,
+						eq(tableColumn(LOOKUP_TABLE, LOOKUP_COLUMN), literal("enabled")),
+					),
+					literal("enabled"),
+				),
+				writes: [{ property: "op_status", value: term(formField(ids.note)) }],
+			} as CaseOperation,
+		]);
+		const store = makeStore();
+		await seedSessionCase(store, doc);
+
+		const engine = engineFor(doc, formUuid);
+		engine.setValue("/data/note", "never-lands");
+		engine.setValue("/data/status", "ordinary-landed");
+		const lookupTableSchemas: LookupTableSchemas = new Map([
+			[LOOKUP_TABLE, new Map([[LOOKUP_COLUMN, "text" as const]])],
+		]);
+
+		const result = await submit(doc, engine, store, lookupTableSchemas);
+		expect(result.operations).toEqual([
+			expect.objectContaining({
+				operationUuid: OP_ROOT,
+				executed: false,
+			}),
+		]);
+		const row = await loadCase(store, SESSION_CASE);
+		expect(row?.properties.status).toBe("ordinary-landed");
 		expect("op_status" in (row?.properties ?? {})).toBe(false);
 	});
 });

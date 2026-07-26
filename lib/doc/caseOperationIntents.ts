@@ -1,4 +1,8 @@
-import type { CaseOperation, CaseTarget } from "@/lib/domain";
+import type {
+	CaseOperation,
+	CaseOperationLink,
+	CaseTarget,
+} from "@/lib/domain";
 import { sameCaseOperationTargetIdentity } from "./caseOperationOrder";
 
 type ExistingCaseTarget = Exclude<CaseTarget, { kind: "new" }>;
@@ -71,5 +75,39 @@ export function retargetCaseOperation(
 		...operation,
 		target,
 		caseType: caseType ?? operation.caseType,
+	};
+}
+
+/**
+ * Apply one connection-target choice as a single complete link edit.
+ *
+ * Session and prior-create targets carry their rolling case type with them,
+ * just as the operation's own target does. A runtime expression retains the
+ * author's asserted type unless an exact earlier operation has already
+ * established a later type for that same expression. Unlinking changes only
+ * the target: the other-end type and relationship remain useful authored
+ * intent if the connection is restored later.
+ *
+ * A link can never point at a brand-new case, so that target arm is excluded
+ * from this helper's input even though the shared persisted target schema has
+ * to be broad enough for an operation's own target.
+ */
+export function retargetCaseOperationLink(
+	link: CaseOperationLink,
+	target: ExistingCaseTarget | null,
+	precedingOperations: readonly CaseOperation[],
+	initialSessionCaseType: string | undefined,
+): CaseOperationLink {
+	if (target === null) return { ...link, target };
+
+	const targetType = caseOperationTargetTypeAfter(
+		precedingOperations,
+		target,
+		initialSessionCaseType,
+	);
+	return {
+		...link,
+		target,
+		targetType: targetType ?? link.targetType,
 	};
 }

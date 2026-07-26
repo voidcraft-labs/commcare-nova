@@ -54,6 +54,7 @@ interface SeedManifest {
 	caseChanges: {
 		appId: string;
 		route: string;
+		caseId: string;
 		viewerStateFile: string;
 	};
 }
@@ -1515,14 +1516,14 @@ test.describe("authenticated builder", () => {
 		const rows = list.getByRole("listitem");
 		await expect(rows).toHaveCount(5);
 		await expect(rows.nth(0)).toContainText("Create a new referral case");
-		await expect(rows.nth(2)).toContainText(
-			`Update the referral case from \u201c${CASE_CHANGES_SEED.ids.create}\u201d`,
+		await expect(rows.nth(3)).toContainText(
+			`Update the archived referral case from \u201c${CASE_CHANGES_SEED.ids.create}\u201d`,
 		);
 
 		// The handle is the keyboard alternative to dragging, and its name
 		// states where in the sequence this change is.
 		const fileHandle = page.getByRole("button", {
-			name: new RegExp(`^Move ${CASE_CHANGES_SEED.ids.file}\\. Runs 3 of 5`),
+			name: new RegExp(`^Move ${CASE_CHANGES_SEED.ids.file}\\. Runs 4 of 5`),
 		});
 		await fileHandle.focus();
 
@@ -1544,19 +1545,19 @@ test.describe("authenticated builder", () => {
 		// Nothing moved: the refusal came BEFORE the gesture, not after a
 		// commit that had to be undone.
 		await expect(rows.nth(0)).toContainText("Create a new referral case");
-		await expect(rows.nth(2)).toContainText(
-			`Update the referral case from \u201c${CASE_CHANGES_SEED.ids.create}\u201d`,
+		await expect(rows.nth(3)).toContainText(
+			`Update the archived referral case from \u201c${CASE_CHANGES_SEED.ids.create}\u201d`,
 		);
 
 		// The same keyboard path still moves a change nothing depends on.
 		const noteHandle = page.getByRole("button", {
-			name: new RegExp(`^Move ${CASE_CHANGES_SEED.ids.note}\\. Runs 2 of 5`),
+			name: new RegExp(`^Move ${CASE_CHANGES_SEED.ids.note}\\. Runs 3 of 5`),
 		});
 		await noteHandle.focus();
 		await page.keyboard.press("ArrowUp");
 		await expect(
 			page.getByRole("button", {
-				name: new RegExp(`^Move ${CASE_CHANGES_SEED.ids.note}\\. Runs 1 of 5`),
+				name: new RegExp(`^Move ${CASE_CHANGES_SEED.ids.note}\\. Runs 2 of 5`),
 			}),
 		).toBeVisible();
 
@@ -1569,10 +1570,18 @@ test.describe("authenticated builder", () => {
 			await expect(
 				page.getByRole("heading", {
 					name: new RegExp(
-						`Update the referral case from .${CASE_CHANGES_SEED.ids.create}.`,
+						`Update the archived referral case from .${CASE_CHANGES_SEED.ids.create}.`,
 					),
 					level: 1,
 				}),
+			).toBeVisible();
+			await expect(
+				page.getByRole("button", {
+					name: "Connect to: A case found by a calculation",
+				}),
+			).toBeVisible();
+			await expect(
+				page.getByText("Work out the id of the case at the other end."),
 			).toBeVisible();
 
 			const target = page.getByRole("button", {
@@ -1606,7 +1615,9 @@ test.describe("authenticated builder", () => {
 				})
 				.click();
 			await expect(
-				page.getByRole("button", { name: "Kind of case: Referral" }),
+				page.getByRole("button", {
+					name: "Kind of case: Archived referral",
+				}),
 			).toBeVisible();
 		});
 
@@ -1634,13 +1645,13 @@ test.describe("authenticated builder", () => {
 			await expect(
 				page.getByRole("button", {
 					name: new RegExp(
-						`^Move ${CASE_CHANGES_SEED.ids.dormant}\\. Runs 4 of 5`,
+						`^Move ${CASE_CHANGES_SEED.ids.dormant}\\. Runs 5 of 5`,
 					),
 				}),
 			).toBeVisible();
 		});
 
-		await test.step("adding after a session retype uses the rolling case type", async () => {
+		await test.step("a fresh link after an earlier retype adopts a prior create's rolling type atomically", async () => {
 			await page.getByRole("button", { name: "Add a change" }).click();
 			await page
 				.getByRole("button", {
@@ -1655,22 +1666,145 @@ test.describe("authenticated builder", () => {
 				}),
 			).toBeVisible();
 			await expect(
-				page.getByRole("button", { name: "Kind of case: Visit" }),
+				page.getByRole("button", { name: "Kind of case: Patient" }),
 			).toBeVisible();
-			await page.getByRole("button", { name: "All case changes" }).click();
+			await page.locator("[data-case-operation-add-link]").click();
+			await expect(
+				page.getByRole("button", {
+					name: "Kind of case at the other end: Patient",
+				}),
+			).toBeVisible();
+
+			await page
+				.getByRole("button", {
+					name: "Connect to: Remove this connection",
+				})
+				.click();
+			await page
+				.getByRole("menuitem", {
+					name: new RegExp(`The case from .${CASE_CHANGES_SEED.ids.create}.`),
+				})
+				.click();
+			await expect(
+				page.getByRole("button", {
+					name: "Kind of case at the other end: Archived referral",
+				}),
+			).toBeVisible();
+			await expect(
+				page.getByRole("button", {
+					name: new RegExp(
+						`Connect to: The case from .${CASE_CHANGES_SEED.ids.create}.`,
+					),
+				}),
+			).toBeVisible();
+
+			// Keep a blank runtime target for the first Preview submit. It is
+			// editable immediately and the submission must refuse atomically.
+			await page
+				.getByRole("button", {
+					name: new RegExp(
+						`Connect to: The case from .${CASE_CHANGES_SEED.ids.create}.`,
+					),
+				})
+				.click();
+			await page
+				.getByRole("menuitem", {
+					name: /^A case found by a calculation/,
+				})
+				.click();
+			await expect(
+				page.getByText("Work out the id of the case at the other end."),
+			).toBeVisible();
 		});
 
-		// Preview from a configuration URL runs the form the changes belong
-		// to, and leaves the authoring URL alone so exiting returns here.
-		await page.getByRole("button", { name: "Preview", exact: true }).click();
-		await expect(
-			page.getByRole("heading", { name: "Case changes", level: 1 }),
-		).toBeHidden();
-		expect(new URL(page.url()).pathname).toBe(seed.caseChanges.route);
-		await page.getByRole("button", { name: "Back to edit" }).click();
-		await expect(
-			page.getByRole("heading", { name: "Case changes", level: 1 }),
-		).toBeVisible();
+		await test.step("running Preview refuses a blank link target with no partial case effects", async () => {
+			await page.getByRole("button", { name: "Preview", exact: true }).click();
+			await expect(
+				page.getByRole("button", { name: "Back to edit", exact: true }),
+			).toBeVisible();
+			const relatedPatientCaseId = page.getByRole("textbox", {
+				name: "Related patient case id",
+			});
+			await expect(relatedPatientCaseId).toBeVisible();
+			const submit = page
+				.locator("main")
+				.getByRole("button", { name: "Submit", exact: true });
+			await expect(submit).toBeEnabled();
+			await relatedPatientCaseId.fill(seed.caseChanges.caseId);
+			await expect(relatedPatientCaseId).toHaveValue(seed.caseChanges.caseId);
+			await submit.click();
+			await expect(
+				page.getByRole("alert").filter({ hasText: "Nothing was saved" }),
+			).toContainText(
+				"a case automation points at a case that no longer exists or moved out of reach",
+			);
+		});
+
+		await test.step("repairing the target submits real effects and the linked rows are visible", async () => {
+			await page.getByRole("button", { name: "Back to edit" }).click();
+			const removalSaved = page.waitForResponse(
+				(response) =>
+					response.request().method() === "PUT" &&
+					new URL(response.url()).pathname ===
+						`/api/apps/${seed.caseChanges.appId}`,
+			);
+			await page.getByRole("button", { name: "Remove", exact: true }).click();
+			expect((await removalSaved).ok()).toBe(true);
+
+			await page.getByRole("button", { name: "Preview", exact: true }).click();
+			const relatedPatientCaseId = page.getByRole("textbox", {
+				name: "Related patient case id",
+			});
+			await expect(relatedPatientCaseId).toBeVisible();
+			const submit = page
+				.locator("main")
+				.getByRole("button", { name: "Submit", exact: true });
+			await expect(submit).toBeEnabled();
+			await relatedPatientCaseId.fill(seed.caseChanges.caseId);
+			await expect(relatedPatientCaseId).toHaveValue(seed.caseChanges.caseId);
+			await submit.click();
+
+			const patientModule = page.locator("main").getByRole("button", {
+				name: new RegExp(`^${CASE_CHANGES_SEED.moduleName}\\b`),
+			});
+			await expect(patientModule).toBeVisible({ timeout: 20_000 });
+			await patientModule.click();
+			await expect(
+				page.getByRole("heading", {
+					name: CASE_CHANGES_SEED.moduleName,
+					level: 1,
+				}),
+			).toBeVisible();
+			const patientRows = page
+				.getByRole("list", { name: "Cases" })
+				.getByRole("listitem");
+			await expect(patientRows).toHaveCount(1);
+			await expect(patientRows.first()).toContainText("Smoke patient");
+			await expect(patientRows.first()).toContainText("Visited");
+
+			await page.goBack();
+			const archivedModule = page.locator("main").getByRole("button", {
+				name: new RegExp(`^${CASE_CHANGES_SEED.archivedModuleName}\\b`),
+			});
+			await expect(archivedModule).toBeVisible();
+			await archivedModule.click();
+			await expect(
+				page.getByRole("heading", {
+					name: CASE_CHANGES_SEED.archivedModuleName,
+					level: 1,
+				}),
+			).toBeVisible();
+			const archivedRows = page
+				.getByRole("list", { name: "Cases" })
+				.getByRole("listitem");
+			await expect(archivedRows).toHaveCount(1);
+			await expect(archivedRows.first()).toContainText("Referral");
+			await expect(archivedRows.first()).toContainText("Filed");
+			// The calculated Patient column traverses the persisted parent link.
+			await expect(archivedRows.first()).toContainText("Smoke patient");
+
+			await page.getByRole("button", { name: "Back to edit" }).click();
+		});
 
 		await test.step("a viewer can still open and inspect a case change", async () => {
 			const viewerContext = await browser.newContext({
@@ -1702,16 +1836,24 @@ test.describe("authenticated builder", () => {
 				await expect(
 					viewerPage.getByRole("heading", {
 						name: new RegExp(
-							`Update the referral case from .${CASE_CHANGES_SEED.ids.create}.`,
+							`Update the archived referral case from .${CASE_CHANGES_SEED.ids.create}.`,
 						),
 						level: 1,
 					}),
 				).toBeVisible();
 				await expect(
 					viewerPage.getByRole("button", {
-						name: "Kind of case: Referral",
+						name: "Kind of case: Archived referral",
 					}),
 				).toBeDisabled();
+				await expect(
+					viewerPage.getByRole("button", {
+						name: "Connect to: A case found by a calculation",
+					}),
+				).toBeDisabled();
+				await expect(
+					viewerPage.getByText("Work out the id of the case at the other end."),
+				).toBeVisible();
 				viewerGuard.assertNoErrors();
 			} finally {
 				await viewerContext.close();

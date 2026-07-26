@@ -1,5 +1,8 @@
 import { z } from "zod";
-import { removeCaseOperationMutation } from "@/lib/doc/caseOperationMutations";
+import {
+	caseOperationAuthoringVerdict,
+	removeCaseOperationMutation,
+} from "@/lib/doc/caseOperationMutations";
 import type { BlueprintDoc } from "@/lib/domain";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import {
@@ -29,7 +32,7 @@ export type RemoveCaseOperationResult =
 
 export const removeCaseOperationTool = {
 	description:
-		"Remove one case operation by id. Refuses removal while another operation still depends on it and names every dependent.",
+		"Remove one case operation by id. Refuses removal while another operation still depends on it or while the operation carries preserved logic this surface cannot safely author; dependency refusals name every dependent.",
 	inputSchema: removeCaseOperationInputSchema,
 	async execute(
 		input: RemoveCaseOperationInput,
@@ -54,6 +57,17 @@ export const removeCaseOperationTool = {
 					newDoc: doc,
 					result: {
 						error: `Case operation "${input.operationId}" not found in ${input.moduleId}/${input.formId}.`,
+					},
+				};
+			}
+			const authoringVerdict = caseOperationAuthoringVerdict(operation);
+			if (!authoringVerdict.ok) {
+				return {
+					kind: "mutate",
+					mutations: [],
+					newDoc: doc,
+					result: {
+						error: `Operation "${input.operationId}" was not removed: ${authoringVerdict.reason}`,
 					},
 				};
 			}

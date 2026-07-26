@@ -352,9 +352,10 @@ export async function loadCasesAction(args: {
 			page: args.page,
 		});
 	} catch (err) {
-		// A Project-membership denial (`gatedCaseStore` → `AppAccessError`)
-		// is expected, not a fault: collapse it to the IDOR-safe not-found
-		// `error` arm WITHOUT alerting (`reportUnexpectedActionError`).
+		// A Project-membership denial (`gatedCaseStoreWithScope` →
+		// `AppAccessError`) is expected, not a fault: collapse it to the
+		// IDOR-safe not-found `error` arm WITHOUT alerting
+		// (`reportUnexpectedActionError`).
 		if (err instanceof AppAccessError)
 			return { kind: "error", message: "App not found." };
 		// Editable date-range drafts are validated in the running form, but the
@@ -991,10 +992,15 @@ export async function submitFormAction(
 		 * distinguishable arms a non-member must never reach, or the
 		 * IDOR-safe not-found collapse leaks whether a foreign form
 		 * carries operations. */
-		const store = await gatedCaseStore(appId, identity, "edit");
+		const { store, scope } = await gatedCaseStoreWithScope(
+			appId,
+			identity,
+			"edit",
+		);
 		const built = await buildSubmissionOperationProgram({
 			appId,
 			identity,
+			lookupScope: scope,
 			mutation,
 			viewerTimeZone,
 		});
@@ -1024,9 +1030,10 @@ export async function submitFormAction(
 			childCaseIds: result.childCaseIds,
 		};
 	} catch (err) {
-		// A Project-membership denial (`gatedCaseStore` → `AppAccessError`)
-		// is expected, not a fault: collapse it to the IDOR-safe not-found
-		// `error` arm WITHOUT alerting (`reportUnexpectedActionError`).
+		// A Project-membership denial (`gatedCaseStoreWithScope` →
+		// `AppAccessError`) is expected, not a fault: collapse it to the
+		// IDOR-safe not-found `error` arm WITHOUT alerting
+		// (`reportUnexpectedActionError`).
 		if (err instanceof AppAccessError)
 			return { kind: "error", message: "App not found." };
 		// Form submit: `CasePropertiesValidationError` is ordinary
