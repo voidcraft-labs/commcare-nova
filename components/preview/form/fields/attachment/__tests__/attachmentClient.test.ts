@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	__resetAttachmentCoordinatorForTests,
+	type AttachmentEntryAuthoritySnapshot,
 	cancelAttachmentEntry,
 	clearAttachmentNotReady,
 	discardAttachment,
@@ -19,6 +20,7 @@ import {
 	retryAttachmentRetarget,
 	runAttachmentTask,
 	runFormAttachmentBarrier,
+	setAttachmentEntryAuthority,
 	stageAttachment,
 } from "../attachmentClient";
 
@@ -75,6 +77,73 @@ afterEach(async () => {
 });
 
 describe("form attachment coordinator", () => {
+	it("entry authority fences queued slotless work and preserves a clean restored submit", async () => {
+		const entryKey = "entry-authority-generation";
+		let current: AttachmentEntryAuthoritySnapshot = {
+			appId: "app-1",
+			scopeEpoch: 1,
+			accessPhase: "authorized",
+			canEdit: true,
+		};
+		const install = () =>
+			setAttachmentEntryAuthority({
+				entryKey,
+				snapshot: current,
+				readCurrent: () => current,
+			});
+		install();
+
+		const blockerRelease = deferred<void>();
+		const blockerStarted = deferred<void>();
+		const blocker = runAttachmentTask({
+			entryKey,
+			slotKey: "other-slot",
+			task: async () => {
+				blockerStarted.resolve();
+				await blockerRelease.promise;
+			},
+		});
+		await blockerStarted.promise;
+		const emitted = vi.fn();
+		const staleSignature = runAttachmentTask({
+			entryKey,
+			slotKey: "signature-slot",
+			task: async () => {
+				emitted();
+			},
+		});
+		const blockerRejected = expect(blocker).rejects.toMatchObject({
+			name: "AbortError",
+		});
+		const signatureRejected = expect(staleSignature).rejects.toMatchObject({
+			name: "AbortError",
+		});
+
+		current = {
+			appId: "app-1",
+			scopeEpoch: 2,
+			accessPhase: "refreshing",
+			canEdit: false,
+		};
+		install();
+		current = {
+			appId: "app-1",
+			scopeEpoch: 2,
+			accessPhase: "authorized",
+			canEdit: true,
+		};
+		install();
+		const submitted = vi.fn();
+		const submit = runFormAttachmentBarrier(entryKey, async () => {
+			submitted();
+		});
+
+		blockerRelease.resolve();
+		await Promise.all([blockerRejected, signatureRejected, submit]);
+		expect(emitted).not.toHaveBeenCalled();
+		expect(submitted).toHaveBeenCalledOnce();
+	});
+
 	it("serializes mutations across different paths in one entry", async () => {
 		const firstRelease = deferred<void>();
 		const order: string[] = [];
@@ -1008,6 +1077,108 @@ describe("form attachment coordinator", () => {
 		expect(
 			getOwnedStagedAttachment({ appId: "app-1", entryKey, slotKey }),
 		)?.toMatchObject({ attachmentId: "attachment-hidden" });
+	});
+
+	it("adopts the server path after a lost retarget response before moving again", async () => {
+		const entryKey = "entry-retarget-lost-response";
+		const slotKey = "photo:stable-row";
+		const fieldUuid = "22222222-2222-4222-8222-222222222222";
+		registerAttachmentSlotPath({
+			appId: "app-1",
+			entryKey,
+			slotKey,
+			fieldUuid,
+			instancePath: "/data/visits[1]/photo",
+			captureKind: "image",
+		});
+		rememberOwnedStagedAttachment({
+			appId: "app-1",
+			entryKey,
+			slotKey,
+			instancePath: "/data/visits[1]/photo",
+			attachment: {
+				attachmentId: "attachment-lost-response",
+				attachmentName: "attachment-lost-response.png",
+				originalFilename: "photo.png",
+				sizeBytes: 3,
+			},
+		});
+		const patchBodies: unknown[] = [];
+		let patch = 0;
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (_url, init?: RequestInit) => {
+				if (init?.method !== "PATCH") {
+					return { ok: true, status: 200 };
+				}
+				patchBodies.push(JSON.parse(String(init.body)));
+				patch += 1;
+				if (patch === 1) {
+					// The server committed A→B, but the response disappeared.
+					throw new TypeError("connection closed after commit");
+				}
+				const instancePath =
+					patch === 2 ? "/data/visits[0]/photo" : "/data/visits/photo";
+				return new Response(JSON.stringify({ ok: true, instancePath }), {
+					status: 200,
+					headers: { "Content-Type": "application/json" },
+				});
+			}),
+		);
+
+		await reconcileAttachmentRepeatCompaction({
+			appId: "app-1",
+			entryKey,
+			compaction: {
+				removedPrefix: "/data/visits[0]",
+				moves: [
+					{
+						fromPrefix: "/data/visits[1]",
+						toPrefix: "/data/visits[0]",
+					},
+				],
+			},
+		});
+		expect(
+			getAttachmentSlotIssue({ appId: "app-1", entryKey, slotKey }),
+		).toBeDefined();
+
+		await reconcileAttachmentAuthoredPathMigration({
+			appId: "app-1",
+			entryKey,
+			migration: {
+				moves: [
+					{
+						fieldUuid,
+						oldPathTemplate: "/data/visits[0]/photo",
+						newPathTemplate: "/data/visits/photo",
+						previousCaptureKind: "image",
+						captureKind: "image",
+					},
+				],
+			},
+		});
+
+		expect(patchBodies).toEqual([
+			{
+				expectedInstancePath: "/data/visits[1]/photo",
+				instancePath: "/data/visits[0]/photo",
+			},
+			{
+				expectedInstancePath: "/data/visits[1]/photo",
+				instancePath: "/data/visits/photo",
+			},
+			{
+				expectedInstancePath: "/data/visits[0]/photo",
+				instancePath: "/data/visits/photo",
+			},
+		]);
+		expect(
+			getAttachmentSlotIssue({ appId: "app-1", entryKey, slotKey }),
+		).toBeUndefined();
+		await expect(
+			runFormAttachmentBarrier(entryKey, async () => "submitted"),
+		).resolves.toBe("submitted");
 	});
 
 	it("cancels and discards a hidden capture whose repeat instance was removed", async () => {

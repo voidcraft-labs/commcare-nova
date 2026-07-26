@@ -12,6 +12,8 @@ TRIGGER_ID="8d269c82-7de7-4b9f-a435-30b173f597b2"
 INSTANCE="nova-cases"
 REPOSITORY="cloud-run-source-deploy"
 MEDIA_BUCKET="nova-multimedia-prod"
+MEDIA_POLICY_ROLE_ID="novaMediaBucketPolicy"
+CAPTURE_STORAGE_ROLE_ID="novaCaptureObjectMaintenance"
 
 BUILD_ACCOUNT="nova-build@${PROJECT}.iam.gserviceaccount.com"
 MIGRATION_ACCOUNT="nova-migrate@${PROJECT}.iam.gserviceaccount.com"
@@ -50,6 +52,46 @@ run() {
 	printf 'PLAN'
 	printf ' %q' "$@"
 	printf '\n'
+}
+
+ensure_custom_role() {
+	local role_id="$1"
+	local title="$2"
+	local description="$3"
+	local permissions="$4"
+	if gcloud iam roles describe "$role_id" \
+		--project="$PROJECT" >/dev/null 2>&1; then
+		run gcloud iam roles update "$role_id" \
+			--project="$PROJECT" \
+			--title="$title" \
+			--description="$description" \
+			--permissions="$permissions" \
+			--stage=GA \
+			--quiet
+		return
+	fi
+	run gcloud iam roles create "$role_id" \
+		--project="$PROJECT" \
+		--title="$title" \
+		--description="$description" \
+		--permissions="$permissions" \
+		--stage=GA \
+		--quiet
+}
+
+remove_bucket_role_if_present() {
+	local account="$1"
+	local role="$2"
+	if ! gcloud storage buckets get-iam-policy "gs://${MEDIA_BUCKET}" \
+		--flatten=bindings \
+		--filter="bindings.role=${role} AND bindings.members=serviceAccount:${account}" \
+		--format='value(bindings.role)' | grep -qx "$role"; then
+		return
+	fi
+	run gcloud storage buckets remove-iam-policy-binding "gs://${MEDIA_BUCKET}" \
+		--member="serviceAccount:${account}" \
+		--role="$role" \
+		--condition=None
 }
 
 ensure_service_account() {
@@ -147,14 +189,30 @@ bind_project_role "$MIGRATION_ACCOUNT" roles/cloudsql.client
 bind_project_role "$MIGRATION_ACCOUNT" roles/cloudsql.instanceUser
 bind_project_role "$CAPTURE_CLEANUP_ACCOUNT" roles/cloudsql.client
 bind_project_role "$CAPTURE_CLEANUP_ACCOUNT" roles/cloudsql.instanceUser
+ensure_custom_role \
+	"$MEDIA_POLICY_ROLE_ID" \
+	"Nova media bucket policy" \
+	"Exact bucket metadata authority for lifecycle and CORS convergence." \
+	"storage.buckets.get,storage.buckets.update"
+ensure_custom_role \
+	"$CAPTURE_STORAGE_ROLE_ID" \
+	"Nova capture object maintenance" \
+	"Exact capture object create, read, and delete authority." \
+	"storage.objects.get,storage.objects.create,storage.objects.delete"
 run gcloud storage buckets add-iam-policy-binding "gs://${MEDIA_BUCKET}" \
 	--member="serviceAccount:${MEDIA_POLICY_ACCOUNT}" \
-	--role=roles/storage.admin \
+	--role="projects/${PROJECT}/roles/${MEDIA_POLICY_ROLE_ID}" \
 	--condition=None
+capture_condition="$(node "$(dirname "$0")/capture-storage-policy.mjs" "$MEDIA_BUCKET")"
 run gcloud storage buckets add-iam-policy-binding "gs://${MEDIA_BUCKET}" \
 	--member="serviceAccount:${CAPTURE_CLEANUP_ACCOUNT}" \
-	--role=roles/storage.objectUser \
-	--condition=None
+	--role="projects/${PROJECT}/roles/${CAPTURE_STORAGE_ROLE_ID}" \
+	--condition="expression=${capture_condition},title=nova-capture-only-v1,description=Capture staging durable and health objects only"
+# Convergence removes the two historical broad grants after their exact
+# replacements are bound. Re-running updates custom roles to the exact
+# permission lists above, so neither a stale permission nor binding survives.
+remove_bucket_role_if_present "$MEDIA_POLICY_ACCOUNT" roles/storage.admin
+remove_bucket_role_if_present "$CAPTURE_CLEANUP_ACCOUNT" roles/storage.objectUser
 run gcloud iam service-accounts add-iam-policy-binding "$CAPTURE_SCHEDULER_ACCOUNT" \
 	--project="$PROJECT" \
 	--member="serviceAccount:${SCHEDULER_SERVICE_AGENT}" \
@@ -205,7 +263,6 @@ run gcloud sql users assign-roles "$CAPTURE_CLEANUP_DB_USER" \
 	--project="$PROJECT" \
 	--instance="$INSTANCE" \
 	--type=CLOUD_IAM_SERVICE_ACCOUNT \
-	--database-roles="$RUNTIME_DB_USER" \
 	--revoke-existing-roles \
 	--quiet
 
@@ -216,6 +273,6 @@ run gcloud beta builds triggers update developer-connect "$TRIGGER_ID" \
 
 printf '%s\n' \
 	"Database bootstrap remains intentionally separate:" \
-	"  ${RUNTIME_DB_USER} has no custom parent role; migration and capture cleanup inherit only ${RUNTIME_DB_USER}." \
+	"  ${RUNTIME_DB_USER} and ${CAPTURE_CLEANUP_DB_USER} have no custom parent role; only migration inherits ${RUNTIME_DB_USER}." \
 	"  The checked-in bootstrap must transfer and retire the legacy database role before the first split-identity migration." \
 	"  Verify that prerequisite with the checked-in S02c runbook before merging."

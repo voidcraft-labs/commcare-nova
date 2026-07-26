@@ -23,6 +23,7 @@ function capacityClient(options?: {
 	readonly maxConnections?: number;
 	readonly superuserReservedConnections?: number;
 	readonly reservedConnections?: number;
+	readonly pgauditPresent?: boolean;
 }): {
 	readonly client: DatabaseCapacitySqlClient;
 	readonly query: ReturnType<typeof vi.fn>;
@@ -34,6 +35,11 @@ function capacityClient(options?: {
 		cleanup: 3,
 	};
 	const query = vi.fn(async (text: string) => {
+		if (text.includes("FROM pg_catalog.pg_extension")) {
+			return {
+				rows: [{ pgaudit_present: options?.pgauditPresent ?? true }],
+			};
+		}
 		if (text.includes("current_setting('max_connections')")) {
 			return {
 				rows: [
@@ -108,6 +114,7 @@ describe("database capacity preflight", () => {
 			},
 			roleLimits: { runtime: 16, migration: 1, cleanup: 3 },
 			runtimeSessions: 16,
+			pgauditPresent: true,
 		});
 	});
 
@@ -143,6 +150,13 @@ describe("database capacity preflight", () => {
 		const { client } = capacityClient({ maxConnections: 24 });
 		await expect(runDatabaseCapacityPreflight(client, config)).rejects.toThrow(
 			"max_connections: expected 25, found 24",
+		);
+	});
+
+	it("fails before migration when the pgaudit extension is absent", async () => {
+		const { client } = capacityClient({ pgauditPresent: false });
+		await expect(runDatabaseCapacityPreflight(client, config)).rejects.toThrow(
+			"pgaudit extension is missing",
 		);
 	});
 

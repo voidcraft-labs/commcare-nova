@@ -6,6 +6,7 @@
 // a `pending` row's object may not exist yet and a submission that
 // promoted one would carry a name with nothing behind it.
 import { remapInstancePath } from "@/lib/preview/engine/instancePaths";
+import type { AccessPhase } from "@/lib/session/store";
 
 /** What a staged attachment gives the form: the answer, plus what to show. */
 export interface StagedAttachment {
@@ -27,6 +28,25 @@ export interface AttachmentTaskContext {
 	readonly signal: AbortSignal;
 	readonly isCurrent: () => boolean;
 	/** Monotonic intent generation for this entry-local stable slot. */
+	readonly generation: number;
+}
+
+export type AttachmentCommitResult = "committed" | "canceled" | "refused";
+
+export interface AttachmentEntryAuthoritySnapshot {
+	readonly appId: string | undefined;
+	readonly scopeEpoch: number;
+	readonly accessPhase: AccessPhase;
+	readonly canEdit: boolean;
+}
+
+interface AttachmentEntryAuthorityState {
+	generation: number;
+	snapshot: AttachmentEntryAuthoritySnapshot;
+	readCurrent: () => AttachmentEntryAuthoritySnapshot;
+}
+
+interface AttachmentEntryAuthorityToken {
 	readonly generation: number;
 }
 
@@ -60,6 +80,7 @@ interface EntryQueue {
 }
 
 const entryQueues = new Map<string, EntryQueue>();
+const entryAuthorities = new Map<string, AttachmentEntryAuthorityState>();
 
 interface AttachmentSlot {
 	readonly appId: string;
@@ -159,6 +180,8 @@ interface SignatureDraftState {
 	encodedGeometry?: SignatureCanvasGeometry;
 	undoStrokes?: SignaturePoint[][];
 	needsEncoding: boolean;
+	/** Authority generation under which the retained ink was last authored. */
+	authorityGeneration?: number;
 }
 
 const signatureDrafts = new Map<string, Map<string, SignatureDraftState>>();
@@ -200,6 +223,112 @@ function notifyAttachmentSlotState(entryKey: string): void {
 	for (const listener of attachmentSlotStateListeners.get(entryKey) ?? []) {
 		listener();
 	}
+}
+
+function sameAttachmentEntryAuthority(
+	left: AttachmentEntryAuthoritySnapshot,
+	right: AttachmentEntryAuthoritySnapshot,
+): boolean {
+	return (
+		left.appId === right.appId &&
+		left.scopeEpoch === right.scopeEpoch &&
+		left.accessPhase === right.accessPhase &&
+		left.canEdit === right.canEdit
+	);
+}
+
+function activeAttachmentEntryAuthority(
+	snapshot: AttachmentEntryAuthoritySnapshot,
+): boolean {
+	return (
+		snapshot.appId !== undefined &&
+		snapshot.accessPhase === "authorized" &&
+		snapshot.canEdit
+	);
+}
+
+function abortAttachmentEntryOperations(entryKey: string): void {
+	const queue = entryQueues.get(entryKey);
+	if (queue === undefined) return;
+	for (const current of queue.paths.values()) current.controller.abort();
+	for (const controllers of queue.maintenance.values()) {
+		for (const controller of controllers) controller.abort();
+	}
+	queue.paths.clear();
+	queue.maintenance.clear();
+	// Drafts, staged ownership, and not-ready blockers are deliberately
+	// retained. A transient access refresh must not erase the worker's work.
+	releaseQueueIfIdle(entryKey, queue);
+}
+
+/**
+ * Install the form owner's current write-capability tuple.
+ *
+ * This is called synchronously by `FormScreen`, above individual attachment
+ * controls, so a scope/access transition fences queued work even while every
+ * capture field is hidden or unmounted.
+ */
+export function setAttachmentEntryAuthority(args: {
+	readonly entryKey: string;
+	readonly snapshot: AttachmentEntryAuthoritySnapshot;
+	readonly readCurrent: () => AttachmentEntryAuthoritySnapshot;
+}): number {
+	const existing = entryAuthorities.get(args.entryKey);
+	if (
+		existing !== undefined &&
+		sameAttachmentEntryAuthority(existing.snapshot, args.snapshot)
+	) {
+		existing.readCurrent = args.readCurrent;
+		return existing.generation;
+	}
+	const generation = (existing?.generation ?? 0) + 1;
+	entryAuthorities.set(args.entryKey, {
+		generation,
+		snapshot: { ...args.snapshot },
+		readCurrent: args.readCurrent,
+	});
+	if (existing !== undefined) {
+		abortAttachmentEntryOperations(args.entryKey);
+	}
+	return generation;
+}
+
+function attachmentEntryAuthorityToken(
+	entryKey: string,
+): AttachmentEntryAuthorityToken | undefined {
+	const authority = entryAuthorities.get(entryKey);
+	if (authority === undefined) return undefined;
+	if (
+		!activeAttachmentEntryAuthority(authority.snapshot) ||
+		!sameAttachmentEntryAuthority(authority.snapshot, authority.readCurrent())
+	) {
+		return undefined;
+	}
+	return { generation: authority.generation };
+}
+
+function attachmentEntryAuthorityIsCurrent(
+	entryKey: string,
+	token: AttachmentEntryAuthorityToken | undefined,
+): boolean {
+	// Standalone field/coordinator tests have no form owner. Production form
+	// entries always register an authority tuple in `FormScreen`.
+	if (token === undefined) return !entryAuthorities.has(entryKey);
+	const authority = entryAuthorities.get(entryKey);
+	return (
+		authority !== undefined &&
+		authority.generation === token.generation &&
+		activeAttachmentEntryAuthority(authority.snapshot) &&
+		sameAttachmentEntryAuthority(authority.snapshot, authority.readCurrent())
+	);
+}
+
+function authorityAbort(): DOMException {
+	return new DOMException("Attachment write authority changed.", "AbortError");
+}
+
+export function hasAttachmentEntryWriteAuthority(entryKey: string): boolean {
+	return attachmentEntryAuthorityToken(entryKey) !== undefined;
 }
 
 function retargetIssueFor(slot: AttachmentSlot): AttachmentSlotIssue {
@@ -383,6 +512,10 @@ function enqueueSlotMaintenance<T>(
 	slotKey: string,
 	work: (signal: AbortSignal) => Promise<T>,
 ): Promise<T> {
+	const authorityToken = attachmentEntryAuthorityToken(entryKey);
+	if (authorityToken === undefined && entryAuthorities.has(entryKey)) {
+		return Promise.reject(authorityAbort());
+	}
 	const queue = queueFor(entryKey);
 	const controller = new AbortController();
 	let controllers = queue.maintenance.get(slotKey);
@@ -393,7 +526,14 @@ function enqueueSlotMaintenance<T>(
 	controllers.add(controller);
 	return enqueue(entryKey, async () => {
 		controller.signal.throwIfAborted();
-		return work(controller.signal);
+		if (!attachmentEntryAuthorityIsCurrent(entryKey, authorityToken)) {
+			throw authorityAbort();
+		}
+		const result = await work(controller.signal);
+		if (!attachmentEntryAuthorityIsCurrent(entryKey, authorityToken)) {
+			throw authorityAbort();
+		}
+		return result;
 	}).finally(() => {
 		controllers?.delete(controller);
 		if (controllers?.size === 0) queue.maintenance.delete(slotKey);
@@ -435,6 +575,10 @@ export function runAttachmentTask<T>(args: {
 	target?: AttachmentTaskTarget;
 	task: (context: AttachmentTaskContext) => Promise<T>;
 }): Promise<T> {
+	const authorityToken = attachmentEntryAuthorityToken(args.entryKey);
+	if (authorityToken === undefined && entryAuthorities.has(args.entryKey)) {
+		return Promise.reject(authorityAbort());
+	}
 	const queue = queueFor(args.entryKey);
 	const key = taskKey(args);
 	const previous = queue.paths.get(key);
@@ -470,14 +614,22 @@ export function runAttachmentTask<T>(args: {
 	const isCurrent = () =>
 		entryQueues.get(args.entryKey) === queue &&
 		queue.paths.get(key) === current &&
-		!current.controller.signal.aborted;
+		!current.controller.signal.aborted &&
+		attachmentEntryAuthorityIsCurrent(args.entryKey, authorityToken);
 	return enqueue(args.entryKey, async () => {
 		current.controller.signal.throwIfAborted();
-		return await args.task({
+		if (!attachmentEntryAuthorityIsCurrent(args.entryKey, authorityToken)) {
+			throw authorityAbort();
+		}
+		const result = await args.task({
 			signal: current.controller.signal,
 			isCurrent,
 			generation,
 		});
+		if (!attachmentEntryAuthorityIsCurrent(args.entryKey, authorityToken)) {
+			throw authorityAbort();
+		}
+		return result;
 	}).finally(() => {
 		if (queue.paths.get(key) === current) {
 			queue.paths.delete(key);
@@ -910,27 +1062,15 @@ function enqueueAttachmentSlotRetarget(args: {
 		if (live?.appId !== args.appId || live.owned === undefined) {
 			return undefined;
 		}
-		const target = live.desiredInstancePath;
-		const expected = live.owned.instancePath;
-		if (target === expected) return undefined;
 		const attachment = live.owned.attachment;
+		const target = live.desiredInstancePath;
 		try {
-			await retargetAttachment({
+			await convergeAttachmentRetarget({
 				appId: args.appId,
-				attachmentId: attachment.attachmentId,
-				expectedInstancePath: expected,
-				instancePath: target,
+				entryKey: args.entryKey,
+				slotKey: args.slotKey,
 				signal,
 			});
-			const latestSlot = attachmentSlots.get(args.entryKey)?.get(args.slotKey);
-			if (
-				latestSlot?.owned?.attachment.attachmentId === attachment.attachmentId
-			) {
-				latestSlot.owned.instancePath = target;
-				clearSlotIssue(args.entryKey, args.slotKey, latestSlot, {
-					kind: "retarget",
-				});
-			}
 			return undefined;
 		} catch (error) {
 			if (isAttachmentTaskAbort(error)) throw error;
@@ -952,6 +1092,80 @@ function enqueueAttachmentSlotRetarget(args: {
 		if (isAttachmentTaskAbort(error)) return undefined;
 		throw error;
 	});
+}
+
+const MAX_RETARGET_RECONCILIATION_ATTEMPTS = 4;
+
+/**
+ * Move one retained row to the slot's latest desired projection.
+ *
+ * A prior PATCH can commit while its response is lost. On the next move the
+ * server returns the locked row's actual path; adopting that coordinate and
+ * retrying turns the operation into A→B (unknown response), then B→C rather
+ * than leaving the client permanently stuck on expected=A.
+ */
+async function convergeAttachmentRetarget(args: {
+	appId: string;
+	entryKey: string;
+	slotKey: string;
+	signal: AbortSignal;
+	isCurrent?: () => boolean;
+	maximumIssueGeneration?: number;
+}): Promise<void> {
+	for (
+		let attempt = 0;
+		attempt < MAX_RETARGET_RECONCILIATION_ATTEMPTS;
+		attempt += 1
+	) {
+		args.signal.throwIfAborted();
+		if (args.isCurrent !== undefined && !args.isCurrent()) {
+			throw authorityAbort();
+		}
+		const slot = attachmentSlots.get(args.entryKey)?.get(args.slotKey);
+		if (slot?.appId !== args.appId || slot.owned === undefined) {
+			throw new AttachmentRejected(
+				"This attachment is no longer available. Attach a replacement or remove it.",
+			);
+		}
+		const attachmentId = slot.owned.attachment.attachmentId;
+		const expectedInstancePath = slot.owned.instancePath;
+		const instancePath = slot.desiredInstancePath;
+		if (expectedInstancePath === instancePath) {
+			clearSlotIssue(args.entryKey, args.slotKey, slot, {
+				kind: "retarget",
+				maximumGeneration: args.maximumIssueGeneration,
+			});
+			return;
+		}
+		const authoritativePath = await retargetAttachment({
+			appId: args.appId,
+			attachmentId,
+			expectedInstancePath,
+			instancePath,
+			signal: args.signal,
+		});
+		if (args.isCurrent !== undefined && !args.isCurrent()) {
+			throw authorityAbort();
+		}
+		const latest = attachmentSlots.get(args.entryKey)?.get(args.slotKey);
+		if (
+			latest?.appId !== args.appId ||
+			latest.owned?.attachment.attachmentId !== attachmentId
+		) {
+			throw authorityAbort();
+		}
+		latest.owned.instancePath = authoritativePath;
+		if (authoritativePath === latest.desiredInstancePath) {
+			clearSlotIssue(args.entryKey, args.slotKey, latest, {
+				kind: "retarget",
+				maximumGeneration: args.maximumIssueGeneration,
+			});
+			return;
+		}
+	}
+	throw new AttachmentRejected(
+		"This attachment kept moving while its repeat rows changed. Retry now.",
+	);
 }
 
 /**
@@ -1119,22 +1333,14 @@ export async function retryAttachmentRetarget(args: {
 				);
 			}
 			const attachmentId = slot.owned.attachment.attachmentId;
-			const expectedInstancePath = slot.owned.instancePath;
-			const instancePath = slot.desiredInstancePath;
-			if (expectedInstancePath === instancePath) {
-				clearSlotIssue(args.entryKey, args.slotKey, slot, {
-					kind: "retarget",
-					maximumGeneration: context.generation,
-				});
-				return;
-			}
 			try {
-				await retargetAttachment({
+				await convergeAttachmentRetarget({
 					appId: args.appId,
-					attachmentId,
-					expectedInstancePath,
-					instancePath,
+					entryKey: args.entryKey,
+					slotKey: args.slotKey,
 					signal: context.signal,
+					isCurrent: context.isCurrent,
+					maximumIssueGeneration: context.generation,
 				});
 			} catch (error) {
 				if (isAttachmentTaskAbort(error) || !context.isCurrent()) throw error;
@@ -1152,18 +1358,6 @@ export async function retryAttachmentRetarget(args: {
 					);
 				}
 				throw error;
-			}
-			if (!context.isCurrent()) return;
-			const latest = attachmentSlots.get(args.entryKey)?.get(args.slotKey);
-			if (
-				latest?.appId === args.appId &&
-				latest.owned?.attachment.attachmentId === attachmentId
-			) {
-				latest.owned.instancePath = instancePath;
-				clearSlotIssue(args.entryKey, args.slotKey, latest, {
-					kind: "retarget",
-					maximumGeneration: context.generation,
-				});
 			}
 		},
 	});
@@ -1196,6 +1390,7 @@ export function rememberSignatureDraft(
 	entry.set(instancePath, {
 		strokes: strokes.map((stroke) => stroke.map((point) => ({ ...point }))),
 		needsEncoding,
+		authorityGeneration: entryAuthorities.get(entryKey)?.generation,
 		...(current?.encodedGeometry === undefined
 			? {}
 			: { encodedGeometry: { ...current.encodedGeometry } }),
@@ -1244,6 +1439,7 @@ export function rememberClearedSignatureDraft(
 	entry.set(instancePath, {
 		strokes: [],
 		needsEncoding: false,
+		authorityGeneration: entryAuthorities.get(entryKey)?.generation,
 		...(current?.encodedGeometry === undefined
 			? {}
 			: { encodedGeometry: { ...current.encodedGeometry } }),
@@ -1293,6 +1489,7 @@ export function rememberSignatureEncodedGeometry(
 			[],
 		encodedGeometry: { ...geometry },
 		needsEncoding: false,
+		authorityGeneration: entryAuthorities.get(entryKey)?.generation,
 		...(current?.undoStrokes === undefined
 			? {}
 			: {
@@ -1301,6 +1498,36 @@ export function rememberSignatureEncodedGeometry(
 					),
 				}),
 	});
+}
+
+/**
+ * Adopt retained dirty ink into the current capability generation.
+ *
+ * Returns false while the entry is read-only/refreshing or when no dirty ink
+ * exists. The pad uses this on authority restoration before re-encoding.
+ */
+export function rearmSignatureDraftForCurrentAuthority(
+	entryKey: string,
+	instancePath: string,
+): boolean {
+	const authority = entryAuthorities.get(entryKey);
+	if (
+		authority === undefined ||
+		attachmentEntryAuthorityToken(entryKey) === undefined
+	) {
+		return false;
+	}
+	const state = signatureDrafts.get(entryKey)?.get(instancePath);
+	if (
+		state === undefined ||
+		state.strokes.length === 0 ||
+		!state.needsEncoding ||
+		state.authorityGeneration === authority.generation
+	) {
+		return false;
+	}
+	state.authorityGeneration = authority.generation;
+	return true;
 }
 
 export function clearSignatureDraft(
@@ -1321,6 +1548,7 @@ function detachAttachmentEntry(args: {
 	entryKey: string;
 }): string[] {
 	cancelAttachmentEntry(args.entryKey);
+	entryAuthorities.delete(args.entryKey);
 	signatureDrafts.delete(args.entryKey);
 	attachmentSlotStateListeners.delete(args.entryKey);
 	const entry = attachmentSlots.get(args.entryKey);
@@ -1382,6 +1610,7 @@ export async function __resetAttachmentCoordinatorForTests(): Promise<void> {
 	await Promise.all(detachedCleanups.map((cleanup) => cleanup.completion));
 	detachedAttachmentCleanups.clear();
 	entryQueues.clear();
+	entryAuthorities.clear();
 	attachmentSlots.clear();
 	signatureDrafts.clear();
 	attachmentSlotStateListeners.clear();
@@ -1626,24 +1855,55 @@ export async function retargetAttachment(args: {
 	expectedInstancePath: string;
 	instancePath: string;
 	signal?: AbortSignal;
-}): Promise<void> {
-	const response = await fetchWithDeadline(
-		`/api/apps/${encodeURIComponent(args.appId)}/attachments/${encodeURIComponent(
-			args.attachmentId,
-		)}`,
-		{
-			method: "PATCH",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				expectedInstancePath: args.expectedInstancePath,
-				instancePath: args.instancePath,
-			}),
-		},
-		args.signal,
-	);
-	if (!response.ok) {
-		throw new AttachmentRejected(
-			"This attachment couldn't follow its repeat row. Attach it again.",
+}): Promise<string> {
+	return withAttachmentRequestDeadline(async (requestSignal) => {
+		const response = await fetch(
+			`/api/apps/${encodeURIComponent(args.appId)}/attachments/${encodeURIComponent(
+				args.attachmentId,
+			)}`,
+			{
+				method: "PATCH",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					expectedInstancePath: args.expectedInstancePath,
+					instancePath: args.instancePath,
+				}),
+				signal: requestSignal,
+			},
 		);
-	}
+		if (!response.ok) {
+			const detail =
+				typeof response.json === "function"
+					? await response
+							.json()
+							.then((body: { error?: unknown }) =>
+								typeof body.error === "string" ? body.error : undefined,
+							)
+							.catch(() => undefined)
+					: undefined;
+			throw new AttachmentRejected(
+				detail ??
+					"This attachment couldn't follow its repeat row. Attach it again.",
+			);
+		}
+		if (typeof response.json === "function") {
+			const body = (await response.json()) as { instancePath?: unknown };
+			if (
+				typeof body.instancePath !== "string" ||
+				body.instancePath.length === 0
+			) {
+				throw new AttachmentRejected(
+					"The attachment move returned an invalid path. Retry now.",
+				);
+			}
+			return body.instancePath;
+		}
+		// Lightweight focused mocks predate the route's reconciliation payload.
+		// A real browser `Response` always has `json`; preserving this fallback
+		// keeps those transport/deadline tests scoped to their intended contract.
+		if (typeof response.arrayBuffer === "function") {
+			await response.arrayBuffer();
+		}
+		return args.instancePath;
+	}, args.signal);
 }

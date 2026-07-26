@@ -11,6 +11,12 @@ export const RUNTIME_DATABASE_ROLE = "commcare-nova@commcare-nova.iam";
 export const CAPTURE_CLEANUP_DATABASE_ROLE =
 	"nova-capture-cleanup@commcare-nova.iam";
 export const LEGACY_DATABASE_ROLE = "51003905459-compute@developer";
+export const REQUIRED_DATABASE_EXTENSIONS = Object.freeze([
+	"pg_trgm",
+	"fuzzystrmatch",
+	"postgis",
+	"pgaudit",
+] as const);
 
 export interface DatabaseOwnerBootstrapConfig {
 	readonly database: string;
@@ -21,6 +27,7 @@ export interface DatabaseOwnerBootstrapConfig {
 	readonly migrationConnectionLimit: number;
 	readonly runtimeConnectionLimit: number;
 	readonly cleanupConnectionLimit: number;
+	readonly requiredExtensions: readonly string[];
 }
 
 export const DATABASE_OWNER_BOOTSTRAP_CONFIG: DatabaseOwnerBootstrapConfig =
@@ -33,6 +40,7 @@ export const DATABASE_OWNER_BOOTSTRAP_CONFIG: DatabaseOwnerBootstrapConfig =
 		migrationConnectionLimit: MIGRATION_DB_ROLE_CONNECTION_LIMIT,
 		runtimeConnectionLimit: RUNTIME_DB_ROLE_CONNECTION_LIMIT,
 		cleanupConnectionLimit: CAPTURE_CLEANUP_DB_ROLE_CONNECTION_LIMIT,
+		requiredExtensions: REQUIRED_DATABASE_EXTENSIONS,
 	});
 
 export interface DatabaseBootstrapFacts {
@@ -98,6 +106,9 @@ export interface DatabaseBootstrapFacts {
 	readonly legacyOwnedRelationCount: number;
 	readonly legacyOwnedRoutineCount: number;
 	readonly legacyDefaultAclCount: number;
+	readonly requiredExtensionCount: number;
+	readonly requiredExtensionsOwnedByMigration: number;
+	readonly pgauditPresent: boolean;
 }
 
 interface DatabaseBootstrapFactRow extends QueryResultRow {
@@ -163,6 +174,9 @@ interface DatabaseBootstrapFactRow extends QueryResultRow {
 	readonly legacy_owned_relation_count: number;
 	readonly legacy_owned_routine_count: number;
 	readonly legacy_default_acl_count: number;
+	readonly required_extension_count: number;
+	readonly required_extensions_owned_by_migration: number;
+	readonly pgaudit_present: boolean;
 }
 
 export interface DatabaseBootstrapSqlClient {
@@ -197,6 +211,10 @@ export function databaseOwnerBootstrapStatements(
 	const cleanup = quoteIdentifier(config.cleanupRole);
 	const bootstrap = quoteIdentifier(facts.currentUser);
 	const statements = [
+		...config.requiredExtensions.map(
+			(extension) =>
+				`CREATE EXTENSION IF NOT EXISTS ${quoteIdentifier(extension)} WITH SCHEMA public`,
+		),
 		`ALTER ROLE ${runtime} CONNECTION LIMIT ${config.runtimeConnectionLimit}`,
 		`ALTER ROLE ${migration} CONNECTION LIMIT ${config.migrationConnectionLimit}`,
 		`ALTER ROLE ${cleanup} CONNECTION LIMIT ${config.cleanupConnectionLimit}`,
@@ -275,17 +293,12 @@ function assertApplicationLoginRoleShape(
 }
 
 function assertApplicationRoleMemberships(facts: DatabaseBootstrapFacts): void {
-	if (
-		!facts.migrationIsRuntimeMember ||
-		!facts.migrationCanSetRuntime ||
-		!facts.cleanupIsRuntimeMember ||
-		!facts.cleanupCanSetRuntime
-	) {
-		throw new Error(
-			"Migration and capture-cleanup must each have MEMBER and SET access to runtime.",
-		);
+	if (!facts.migrationIsRuntimeMember || !facts.migrationCanSetRuntime) {
+		throw new Error("Migration must have MEMBER and SET access to runtime.");
 	}
 	if (
+		facts.cleanupIsRuntimeMember ||
+		facts.cleanupCanSetRuntime ||
 		facts.migrationIsCleanupMember ||
 		facts.migrationCanSetCleanup ||
 		facts.migrationIsLegacyMember ||
@@ -302,7 +315,7 @@ function assertApplicationRoleMemberships(facts: DatabaseBootstrapFacts): void {
 		facts.runtimeCanSetLegacy
 	) {
 		throw new Error(
-			"Application database role membership is wider than the two one-way runtime grants.",
+			"Application database role membership is wider than the one-way migration-to-runtime grant.",
 		);
 	}
 }
@@ -381,6 +394,16 @@ export function assertDatabaseBootstrapResult(
 	config: DatabaseOwnerBootstrapConfig = DATABASE_OWNER_BOOTSTRAP_CONFIG,
 ): void {
 	assertApplicationLoginRoleShape(facts, config, true);
+	if (
+		facts.requiredExtensionCount !== config.requiredExtensions.length ||
+		facts.requiredExtensionsOwnedByMigration !==
+			config.requiredExtensions.length ||
+		(config.requiredExtensions.includes("pgaudit") && !facts.pgauditPresent)
+	) {
+		throw new Error(
+			`The required database extensions are incomplete or are not all owned by ${config.migrationRole}.`,
+		);
+	}
 	if (facts.databaseOwner !== config.migrationRole) {
 		throw new Error("Migration identity does not own the Nova database.");
 	}
@@ -736,11 +759,27 @@ export async function readDatabaseBootstrapFacts(
 				FROM pg_catalog.pg_proc AS owned_routine
 				WHERE owned_routine.proowner = role_oids.legacy_oid
 			) AS legacy_owned_routine_count,
-			(
-				SELECT count(*)::integer
-				FROM pg_catalog.pg_default_acl AS default_acl
-				WHERE default_acl.defaclrole = role_oids.legacy_oid
-			) AS legacy_default_acl_count
+				(
+					SELECT count(*)::integer
+					FROM pg_catalog.pg_default_acl AS default_acl
+					WHERE default_acl.defaclrole = role_oids.legacy_oid
+				) AS legacy_default_acl_count,
+				(
+					SELECT count(*)::integer
+					FROM pg_catalog.pg_extension AS extension
+					WHERE extension.extname = ANY($5::text[])
+				) AS required_extension_count,
+				(
+					SELECT count(*)::integer
+					FROM pg_catalog.pg_extension AS extension
+					WHERE extension.extname = ANY($5::text[])
+						AND extension.extowner = role_oids.migration_oid
+				) AS required_extensions_owned_by_migration,
+				EXISTS (
+					SELECT 1
+					FROM pg_catalog.pg_extension AS extension
+					WHERE extension.extname = 'pgaudit'
+				) AS pgaudit_present
 		FROM pg_catalog.pg_roles AS login_role
 		CROSS JOIN role_oids
 		CROSS JOIN database_row
@@ -758,6 +797,7 @@ export async function readDatabaseBootstrapFacts(
 			config.runtimeRole,
 			config.cleanupRole,
 			config.legacyRole,
+			config.requiredExtensions,
 		],
 	);
 	const row = result.rows[0];
@@ -827,6 +867,10 @@ export async function readDatabaseBootstrapFacts(
 		legacyOwnedRelationCount: row.legacy_owned_relation_count,
 		legacyOwnedRoutineCount: row.legacy_owned_routine_count,
 		legacyDefaultAclCount: row.legacy_default_acl_count,
+		requiredExtensionCount: row.required_extension_count,
+		requiredExtensionsOwnedByMigration:
+			row.required_extensions_owned_by_migration,
+		pgauditPresent: row.pgaudit_present,
 	};
 }
 

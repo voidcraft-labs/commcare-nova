@@ -13,6 +13,7 @@ import type { FieldState } from "@/lib/preview/engine/types";
 import { useCanEdit, useEditMode } from "@/lib/session/hooks";
 import { useOptionalBuilderSessionApi } from "@/lib/session/provider";
 import {
+	type AttachmentCommitResult,
 	AttachmentRejected,
 	type AttachmentSlotDraft,
 	type AttachmentSlotIssue,
@@ -375,19 +376,20 @@ function AttachmentControl({
 	}, [currentPath, onBlur, onBlurAt]);
 
 	const stageWithinTask = useCallback(
-		async (file: File, context: AttachmentTaskContext): Promise<void> => {
+		async (
+			file: File,
+			context: AttachmentTaskContext,
+		): Promise<AttachmentCommitResult> => {
 			const uploadPath = currentPath();
 			if (!hasWriteAuthority()) {
-				throw new AttachmentRejected(
-					"Project editors can attach files and signatures.",
-				);
+				return "canceled";
 			}
 			if (!appId || !entryKey || !uploadPath) {
 				const unavailable = new AttachmentRejected(
 					"This form isn't ready to attach files yet. Wait a moment and try again.",
 				);
 				setError(unavailable.message);
-				throw unavailable;
+				return "refused";
 			}
 			setError(undefined);
 			clearAttachmentSlotIssue({
@@ -421,7 +423,7 @@ function AttachmentControl({
 						appId,
 						attachmentId: next.attachmentId,
 					});
-					return;
+					return "canceled";
 				}
 				// Replace only after the new generation confirms. Ownership lives
 				// at entry/slot scope, above this component's render lifetime.
@@ -446,8 +448,11 @@ function AttachmentControl({
 						attachmentId: previous.attachmentId,
 					});
 				}
+				return "committed";
 			} catch (err) {
-				if (!context.isCurrent() || isAttachmentTaskAbort(err)) throw err;
+				if (!context.isCurrent() || isAttachmentTaskAbort(err)) {
+					return "canceled";
+				}
 				const message =
 					err instanceof AttachmentRejected
 						? err.message
@@ -474,7 +479,7 @@ function AttachmentControl({
 						generation: context.generation,
 					});
 				}
-				throw err;
+				return "refused";
 			} finally {
 				if (context.isCurrent()) {
 					setIntent("idle");
@@ -538,8 +543,8 @@ function AttachmentControl({
 		],
 	);
 
-	const clear = useCallback(() => {
-		if (!hasWriteAuthority()) return;
+	const clear = useCallback(async (): Promise<AttachmentCommitResult> => {
+		if (!hasWriteAuthority()) return "refused";
 		const activeIntent = intentRef.current;
 		if (
 			activeIntent !== "idle" &&
@@ -550,7 +555,7 @@ function AttachmentControl({
 					activeIntent === "queued-retarget")
 			)
 		) {
-			return;
+			return "refused";
 		}
 		// Signature Clear is an explicit replacement intent even while its old
 		// bitmap is uploading. Cancel that generation before composing the one
@@ -568,49 +573,52 @@ function AttachmentControl({
 			// for this answer-clear, not abort it and resurrect the old answer
 			// when the replacement later fails.
 			const clearTaskKey = `$nova-clear$${slotKey}:${++maintenanceTaskSequenceRef.current}`;
-			void runAttachmentTask({
-				entryKey,
-				slotKey: clearTaskKey,
-				target: {
-					slotKey,
-					instancePath: currentPath() ?? path ?? slotKey,
-					fieldUuid: field.uuid,
-				},
-				task: async () => {
-					// Authority can change while Clear waits behind another slot.
-					// Re-read it before mutating either the answer or ownership.
-					if (!hasWriteAuthority()) return;
-					const previous =
-						forgetOwnedStagedAttachment({
-							appId,
-							entryKey,
-							slotKey,
-						}) ?? stagedRef.current;
-					stagedRef.current = undefined;
-					setStaged(undefined);
-					// Answer first, bytes second. The reverse order is the
-					// upstream defect this lane exists beside: on a device,
-					// clearing a REQUIRED capture removes the file and leaves
-					// the question still naming it.
-					changeCurrent("");
-					if (previous !== undefined) {
-						scheduleAttachmentCleanup({
-							appId,
-							attachmentId: previous.attachmentId,
-						});
-					}
-					blurCurrent();
-				},
-			})
-				.catch((err: unknown) => {
-					if (!isAttachmentTaskAbort(err)) {
-						setError(
-							"That attachment couldn't be cleared. Check your connection and try again.",
-						);
-					}
-				})
-				.finally(() => setIntent("idle"));
-			return;
+			try {
+				const committed = await runAttachmentTask({
+					entryKey,
+					slotKey: clearTaskKey,
+					target: {
+						slotKey,
+						instancePath: currentPath() ?? path ?? slotKey,
+						fieldUuid: field.uuid,
+					},
+					task: async () => {
+						// Authority can change while Clear waits behind another slot.
+						// Re-read it before mutating either the answer or ownership.
+						if (!hasWriteAuthority()) return false;
+						const previous =
+							forgetOwnedStagedAttachment({
+								appId,
+								entryKey,
+								slotKey,
+							}) ?? stagedRef.current;
+						stagedRef.current = undefined;
+						setStaged(undefined);
+						// Answer first, bytes second. The reverse order is the
+						// upstream defect this lane exists beside: on a device,
+						// clearing a REQUIRED capture removes the file and leaves
+						// the question still naming it.
+						changeCurrent("");
+						if (previous !== undefined) {
+							scheduleAttachmentCleanup({
+								appId,
+								attachmentId: previous.attachmentId,
+							});
+						}
+						blurCurrent();
+						return true;
+					},
+				});
+				return committed ? "committed" : "canceled";
+			} catch (err) {
+				if (isAttachmentTaskAbort(err)) return "canceled";
+				setError(
+					"That attachment couldn't be cleared. Check your connection and try again.",
+				);
+				return "refused";
+			} finally {
+				setIntent("idle");
+			}
 		}
 
 		const previous = stagedRef.current;
@@ -625,6 +633,7 @@ function AttachmentControl({
 		}
 		blurCurrent();
 		setIntent("idle");
+		return "committed";
 	}, [
 		appId,
 		entryKey,
@@ -783,9 +792,10 @@ function AttachmentControl({
 					hasWriteAuthority={hasWriteAuthority}
 					hasAnswer={hasAnswer}
 					needsAttention={slotIssue !== undefined}
+					replacementRequired={slotIssue?.kind === "replace"}
 					retryRevision={signatureRetryRevision}
 					required={state.required}
-					invalid={showError}
+					invalid={showError || slotIssue !== undefined}
 					statusId={statusId}
 					describedBy={describedBy}
 					onDrawn={stageWithinTask}

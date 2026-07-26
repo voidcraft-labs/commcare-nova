@@ -13,6 +13,7 @@ import {
 const config: DatabasePrivilegeRoleConfig = {
 	migrationRole: "nova-migrate@commcare-nova.iam",
 	runtimeRole: "nova-runtime@commcare-nova.iam",
+	cleanupRole: "nova-capture-cleanup@commcare-nova.iam",
 };
 
 function role(name: string, patch: Partial<DatabaseRoleFact> = {}) {
@@ -32,10 +33,14 @@ const safeMembership = {
 	migrationIsRuntimeMember: true,
 	migrationCanSetRuntime: true,
 	runtimeCanUseMigration: false,
+	cleanupCanUseRuntime: false,
 	runtimeCanCreateDatabase: false,
 	runtimeCanCreatePublicSchema: false,
+	cleanupCanCreateDatabase: false,
+	cleanupCanCreatePublicSchema: false,
 	unexpectedMigrationParentRoles: [],
 	unexpectedRuntimeParentRoles: [],
+	unexpectedCleanupParentRoles: [],
 };
 
 describe("database privilege convergence contract", () => {
@@ -57,12 +62,14 @@ describe("database privilege convergence contract", () => {
 			readDatabasePrivilegeRoleConfig({
 				NOVA_MIGRATION_DB_USER: config.migrationRole,
 				NOVA_RUNTIME_DB_USER: config.runtimeRole,
+				NOVA_CAPTURE_CLEANUP_DB_USER: config.cleanupRole,
 			}),
 		).toEqual(config);
 		expect(() =>
 			readDatabasePrivilegeRoleConfig({
 				NOVA_MIGRATION_DB_USER: config.runtimeRole,
 				NOVA_RUNTIME_DB_USER: config.runtimeRole,
+				NOVA_CAPTURE_CLEANUP_DB_USER: config.cleanupRole,
 			}),
 		).toThrowError(expect.objectContaining({ code: "role_config_invalid" }));
 	});
@@ -156,7 +163,11 @@ describe("database privilege convergence contract", () => {
 	});
 
 	test("requires non-administrative roles with one-way migration membership", () => {
-		const roles = [role(config.migrationRole), role(config.runtimeRole)];
+		const roles = [
+			role(config.migrationRole),
+			role(config.runtimeRole),
+			role(config.cleanupRole),
+		];
 		assertDatabaseRolePolicy(config, roles, safeMembership);
 		expect(() =>
 			assertDatabaseRolePolicy(
@@ -173,6 +184,12 @@ describe("database privilege convergence contract", () => {
 			assertDatabaseRolePolicy(config, roles, {
 				...safeMembership,
 				runtimeCanUseMigration: true,
+			}),
+		).toThrowError(expect.objectContaining({ code: "role_policy_invalid" }));
+		expect(() =>
+			assertDatabaseRolePolicy(config, roles, {
+				...safeMembership,
+				cleanupCanUseRuntime: true,
 			}),
 		).toThrowError(expect.objectContaining({ code: "role_policy_invalid" }));
 		expect(() =>
@@ -209,6 +226,12 @@ describe("database privilege convergence contract", () => {
 			assertDatabaseRolePolicy(config, roles, {
 				...safeMembership,
 				unexpectedMigrationParentRoles: ["cluster-admin"],
+			}),
+		).toThrowError(expect.objectContaining({ code: "role_policy_invalid" }));
+		expect(() =>
+			assertDatabaseRolePolicy(config, roles, {
+				...safeMembership,
+				unexpectedCleanupParentRoles: ["runtime-owner"],
 			}),
 		).toThrowError(expect.objectContaining({ code: "role_policy_invalid" }));
 	});

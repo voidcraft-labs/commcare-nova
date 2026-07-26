@@ -68,6 +68,7 @@ describe("/api/apps/[id]/attachments/[attachmentId] URL-app binding", () => {
 		mocks.resolveAppScope.mockResolvedValue({ projectId: "project-1" });
 		mocks.retarget.mockResolvedValue({
 			attachmentId: "attachment-from-app-a",
+			instancePath: "/data/visits[0]/photo",
 		});
 		mocks.deleteAsset.mockResolvedValue(undefined);
 		mocks.deleteAssetGeneration.mockResolvedValue(undefined);
@@ -91,7 +92,9 @@ describe("/api/apps/[id]/attachments/[attachmentId] URL-app binding", () => {
 			expectedInstancePath: "/data/visits[1]/photo",
 			instancePath: "/data/visits[0]/photo",
 		});
-		await response.json();
+		await expect(response.json()).resolves.toMatchObject({
+			instancePath: "/data/visits[0]/photo",
+		});
 	});
 
 	it("rejects an over-posted path body before touching the row", async () => {

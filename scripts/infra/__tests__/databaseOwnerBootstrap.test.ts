@@ -43,8 +43,8 @@ const safeFacts: DatabaseBootstrapFacts = {
 	migrationCanSetCleanup: false,
 	migrationIsLegacyMember: false,
 	migrationCanSetLegacy: false,
-	cleanupIsRuntimeMember: true,
-	cleanupCanSetRuntime: true,
+	cleanupIsRuntimeMember: false,
+	cleanupCanSetRuntime: false,
 	cleanupIsMigrationMember: false,
 	cleanupCanSetMigration: false,
 	cleanupIsLegacyMember: false,
@@ -71,12 +71,19 @@ const safeFacts: DatabaseBootstrapFacts = {
 	legacyOwnedRelationCount: 0,
 	legacyOwnedRoutineCount: 0,
 	legacyDefaultAclCount: 0,
+	requiredExtensionCount: 4,
+	requiredExtensionsOwnedByMigration: 4,
+	pgauditPresent: true,
 };
 
 describe("deployment database owner bootstrap", () => {
 	test("quotes identifiers and emits the legacy ownership transfer without SQL membership changes", () => {
 		expect(quoteIdentifier('role"name')).toBe('"role""name"');
 		expect(databaseOwnerBootstrapStatements(safeFacts)).toEqual([
+			'CREATE EXTENSION IF NOT EXISTS "pg_trgm" WITH SCHEMA public',
+			'CREATE EXTENSION IF NOT EXISTS "fuzzystrmatch" WITH SCHEMA public',
+			'CREATE EXTENSION IF NOT EXISTS "postgis" WITH SCHEMA public',
+			'CREATE EXTENSION IF NOT EXISTS "pgaudit" WITH SCHEMA public',
 			'ALTER ROLE "commcare-nova@commcare-nova.iam" CONNECTION LIMIT 16',
 			'ALTER ROLE "nova-migrate@commcare-nova.iam" CONNECTION LIMIT 1',
 			'ALTER ROLE "nova-capture-cleanup@commcare-nova.iam" CONNECTION LIMIT 3',
@@ -92,6 +99,10 @@ describe("deployment database owner bootstrap", () => {
 				legacyRoleExists: false,
 			}),
 		).toEqual([
+			'CREATE EXTENSION IF NOT EXISTS "pg_trgm" WITH SCHEMA public',
+			'CREATE EXTENSION IF NOT EXISTS "fuzzystrmatch" WITH SCHEMA public',
+			'CREATE EXTENSION IF NOT EXISTS "postgis" WITH SCHEMA public',
+			'CREATE EXTENSION IF NOT EXISTS "pgaudit" WITH SCHEMA public',
 			'ALTER ROLE "commcare-nova@commcare-nova.iam" CONNECTION LIMIT 16',
 			'ALTER ROLE "nova-migrate@commcare-nova.iam" CONNECTION LIMIT 1',
 			'ALTER ROLE "nova-capture-cleanup@commcare-nova.iam" CONNECTION LIMIT 3',
@@ -132,7 +143,13 @@ describe("deployment database owner bootstrap", () => {
 				...safeFacts,
 				migrationCanSetRuntime: false,
 			}),
-		).toThrow("Migration and capture-cleanup must each have MEMBER and SET");
+		).toThrow("Migration must have MEMBER and SET");
+		expect(() =>
+			assertDatabaseBootstrapPreconditions({
+				...safeFacts,
+				cleanupIsRuntimeMember: true,
+			}),
+		).toThrow("wider than the one-way migration-to-runtime grant");
 		expect(() =>
 			assertDatabaseBootstrapPreconditions({
 				...safeFacts,
@@ -156,7 +173,7 @@ describe("deployment database owner bootstrap", () => {
 				...safeFacts,
 				cleanupIsMigrationMember: true,
 			}),
-		).toThrow("wider than the two one-way runtime grants");
+		).toThrow("wider than the one-way migration-to-runtime grant");
 		expect(() =>
 			assertDatabaseBootstrapPreconditions({
 				...safeFacts,
@@ -193,9 +210,21 @@ describe("deployment database owner bootstrap", () => {
 		expect(() =>
 			assertDatabaseBootstrapResult({
 				...safeFacts,
+				pgauditPresent: false,
+			}),
+		).toThrow("required database extensions");
+		expect(() =>
+			assertDatabaseBootstrapResult({
+				...safeFacts,
+				requiredExtensionsOwnedByMigration: 3,
+			}),
+		).toThrow("required database extensions");
+		expect(() =>
+			assertDatabaseBootstrapResult({
+				...safeFacts,
 				runtimeIsMigrationMember: true,
 			}),
-		).toThrow("wider than the two one-way runtime grants");
+		).toThrow("wider than the one-way migration-to-runtime grant");
 		expect(() =>
 			assertDatabaseBootstrapResult({
 				...safeFacts,

@@ -820,6 +820,19 @@ The scheduled bounded worker owns the cross-system `preparing`/`prepared`/
 `discarding` recovery and the row `expires_at` sweep, including exact
 destination verification after a crash before the row update. Accepted
 durability takes priority over staging cleanup.
+The Cloud Run Job persists in best-effort `scheduler` mode: a held advisory
+lease or pre-lock connection saturation skips that dispatch. Cloud Build
+overrides one blocking pre-traffic execution to `strict`; it waits through
+bounded capacity/lease contention, probes create/read/exact-generation-delete
+against an unguessable staged capture object, and rejects any maintenance
+summary with a row preparation/discard or exact object-deletion failure. Both
+paths audit the exact server/role capacity contract and require the production
+`pgaudit` extension before work. The cleanup database login
+inherits no application role and holds only public-schema `USAGE` plus
+`SELECT`/`UPDATE`/`DELETE` on `form_attachments`. Its custom storage role is
+only object get/create/delete, IAM-condition-limited to `captures-staged/` and
+`projects/<project>/captures/`; the media-policy identity separately holds only
+bucket metadata get/update.
 `applyMediaBucketLifecycle` applies the bucket's whole policy in one
 `{ append: false }` call, so every prefix needing a TTL lives there and
 `lib/storage/__tests__/mediaBucketLifecycle.test.ts` pins that both survive — a
@@ -855,15 +868,24 @@ retains at least a 44 CSS-pixel target.
 runtime answers and `deactivate` wipes the store — so the entry key is minted
 per `activateForm` and lives on the `EngineController`, not the engine. It
 survives cold identity/lookup/case-data rebuilds and rotates only for a genuine
-new activation or concrete worker. Capture mutations share one entry-wide
-serialized queue; same-slot replacement is latest-wins, but deletion is never
-queue-critical. Submit classifies every known/running capture **before** it joins
-the queue, then keeps reclassifying while it waits: ordinary signal-aware work
-for a dormant question is cancelled without losing its draft/diagnostic,
-removed work is retired, and only effectively visible `notReady` state can
-block. An explicit queued Clear remains owned and runs despite dormancy, ahead
-of Submit, so an older answer cannot revive later. This preflight
-includes queued retarget maintenance, so a hidden or removed question cannot
+new activation or concrete worker. `FormScreen` installs the exact
+`{ appId, scopeEpoch, accessPhase, canEdit }` write-authority tuple above every
+capture field, including when all of them are hidden or unmounted. Every queued
+capture/maintenance operation holds that authority generation and checks it
+both before and after its awaited work. A tuple change aborts the old network
+generation without erasing stable slots, drafts, diagnostics, or Submit
+blockers; retained dirty signature ink is adopted and encoded exactly once when
+the same entry becomes writable under the new generation.
+
+Capture mutations share one entry-wide serialized queue; same-slot replacement
+is latest-wins, but deletion is never queue-critical. Submit classifies every
+known/running capture **before** it joins the queue, then keeps reclassifying
+while it waits: ordinary signal-aware work for a dormant question is cancelled
+without losing its draft/diagnostic, removed work is retired, and only
+effectively visible `notReady` state can block. An explicit queued Clear remains
+owned and runs despite dormancy, ahead of Submit, so an older answer cannot
+revive later. This preflight includes queued retarget maintenance, so a hidden
+or removed question cannot
 starve Submit behind a never-settling upload or PATCH. A destructive Clear has
 a private serialization key but carries its real stable slot, concrete path,
 and field UUID into that classification, so an active Clear stays ahead of
@@ -884,7 +906,11 @@ replace/remove for picked files; Signature keeps Retry beside its single
 recovery action has a question-qualified accessible name. Retry
 compare-and-sets the retained row in place; a newer replacement/drawing
 generation wins and clears only the older diagnostic. No failed retarget deletes
-the only recoverable row or silently submits it under the wrong path.
+the only recoverable row or silently submits it under the wrong path. A CAS
+mismatch returns the locked server row's authoritative path. The client adopts
+that coordinate and converges toward the slot's newest desired path, so a
+successful A→B move whose response was lost can continue as B→C rather than
+remaining permanently stuck on expected A.
 
 Signature strokes and the last successfully encoded CSS dimensions, device pixel
 ratio, and backing-store dimensions live together in stable draft state. A
@@ -900,12 +926,18 @@ DPR-only detection uses a self-rearming resolution media query rather than
 relying on a resize event; an interaction-blocked canvas exposes
 disabled/read-only semantics. Clear is an explicit newer intent even during
 an active upload: it cancels that generation and composes exactly one queued
-answer-clear transition. Invalid Submit expands every collapsed group/repeat
-ancestor, announces the validation failure, scrolls the first invalid question,
-and focuses its actual control (including the signature canvas). An attachment
-blocker carries its stable slot, field UUID, and concrete path through the same
-reveal flow, which focuses that question's uniquely named Retry action. Both
-flows switch to non-animated scrolling when reduced motion is requested.
+answer-clear transition. The pad does not erase pixels or publish Undo until
+that transition explicitly reports `committed`; `canceled` or `refused`
+restores the action, retains the ink and blocker, and re-arms the current
+authority generation when it is writable. Invalid Submit expands every
+collapsed group/repeat ancestor, announces the validation failure, scrolls the
+first invalid question, and focuses its actual control (including the signature
+canvas). An attachment blocker carries its stable slot, field UUID, and concrete
+path through the same reveal flow, which focuses that question's uniquely named
+Retry action. Both flows switch to non-animated scrolling when reduced motion is
+requested. A kind-change replacement has no Retry action, so its recovery marker
+lives on
+the new control itself and Submit focuses the blank signature canvas.
 
 Those rules also mean the runtime's blank-pad-over-live-signature behavior has
 no Nova counterpart to be faithful to; the comment on

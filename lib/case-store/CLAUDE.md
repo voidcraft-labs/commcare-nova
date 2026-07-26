@@ -556,9 +556,11 @@ serving process also owns one dedicated LISTEN connection outside its
 pool. PostgreSQL's direct-login `CONNECTION LIMIT` is the hard,
 cluster-wide boundary: runtime = 16, migration = 1, and cleanup = 3.
 Role attributes are not inherited, so migration and cleanup sessions count
-against their own login roles even though both inherit runtime's table
-privileges. Those caps total 20 against `max_connections=25`; two more slots
-remain for ordinary/operator logins, while the final three are protected by
+against their own login roles. Migration inherits runtime's table privileges;
+cleanup has no application-role parent and receives only public-schema `USAGE`
+plus `SELECT`/`UPDATE`/`DELETE` on `form_attachments`. Those caps total 20
+against `max_connections=25`; two more slots remain for ordinary/operator
+logins, while the final three are protected by
 `superuser_reserved_connections=3` for true superusers
 (`reserved_connections=0`).
 
@@ -567,8 +569,9 @@ ordinary demand aligned at `4 * (pool 3 + listener 1) = 16`, but PostgreSQL
 admission is what prevents a transient platform overrun from consuming the
 maintenance/headroom allocations. Before every production migration and
 capture-cleanup execution, the entrypoint audits all three exact role limits
-and all three server settings. The deploy preflight additionally waits for
-runtime sessions opened before a lowered cap to drain to 16 before migration.
+and all three server settings and requires the `pgaudit` extension to be
+present. The deploy preflight additionally waits for runtime sessions opened
+before a lowered cap to drain to 16 before migration.
 Cloud SQL flag provisioning is also exact because its patch API replaces the
 whole set: `cloudsql.enable_pgaudit=on`, `cloudsql.iam_authentication=on`,
 `max_connections=25`, and `pgaudit.log=all`. Audit flags are part of the same
@@ -578,11 +581,13 @@ Unknown or absent production workloads fail before connecting.
 
 Data lives in the persistent `nova-cases-data` Docker volume
 (`npm run db:dev:down` stops the container; `docker compose down -v`
-wipes it). The
-three required extensions (`pg_trgm` / `fuzzystrmatch` / `postgis`)
-install once on first boot via `dev/init-extensions.sql`, mirroring
-the prod / harness superuser split (the migrate runner connects as a
-non-superuser and can't `CREATE EXTENSION`).
+wipes it). The three compiler extensions (`pg_trgm` / `fuzzystrmatch` /
+`postgis`) install once on first boot via `dev/init-extensions.sql`, mirroring
+the prod / harness privilege split (the migrate runner connects as a
+non-superuser and cannot `CREATE EXTENSION`). Production additionally requires
+the operational `pgaudit` extension. The pinned local/test image has no pgAudit
+package, so local configs deliberately omit that production-only extension
+while exercising the same compiler dependencies.
 
 ## Migrations
 
@@ -706,16 +711,21 @@ also pins both maxima. The Cloud Run controls are soft; PostgreSQL role limits
 remain the hard boundary while the old revision serves during migration.
 
 The one-time bootstrap happens outside Nova: create runtime, migration, and
-capture-cleanup as non-superuser direct LOGIN roles; make migration and cleanup
-members of runtime (never the reverse); apply their exact CONNECTION LIMIT
-16/1/3; and make migration the database owner before running this entrypoint.
+capture-cleanup as non-superuser direct LOGIN roles; make only migration a
+member of runtime (never the reverse); leave cleanup without an application
+parent; apply their exact CONNECTION LIMIT 16/1/3; install all required
+extensions; and make migration the database and extension owner before running
+this entrypoint.
 `public` remains owned by PostgreSQL's `pg_database_owner`, whose current
 member is the database owner, so migration is its effective owner without
 replacing that built-in role. Existing legacy objects must also be maintainable
 by migration; the one-way runtime membership covers runtime-owned tables.
-Convergence deliberately does not create roles, alter role limits, or transfer
-the database ownership it needs to authorize its own `REVOKE`, `GRANT`, and
-ownership changes.
+Convergence directly grants cleanup only public-schema `USAGE` plus
+`SELECT`/`UPDATE`/`DELETE` on `form_attachments`, and audits that it cannot
+insert/administer attachment rows or access other managed tables or the case
+schema. Convergence deliberately does not create roles, alter role limits, or
+transfer the database ownership it needs to authorize its own `REVOKE`,
+`GRANT`, and ownership changes.
 
 The first schema split is a maintenance cutover, not a rolling migration. The
 migration transaction moves `public.cases` before the new revision starts; an
@@ -764,18 +774,22 @@ The case-store's compiler stack depends on three extensions:
 - `postgis` — `match(mode: within-distance)` (`ST_GeogFromText`
   + `ST_DWithin`).
 
-All three are installed at provisioning time on the live Cloud
-SQL instance; the testcontainers harness installs the same set via
-its container's superuser before the migrations run. There is no
-runtime verification gate — missing extensions surface as `function
-does not exist` failures at the first compiler-emitted query against
-them.
+Production also requires `pgaudit`, because the Cloud SQL flags enable full
+audit logging only when the extension is installed in the database. The
+privileged owner bootstrap creates all four, transfers their ownership to
+migration, and audits the exact set. Every production capacity preflight
+rechecks `pgaudit` presence before a migration or cleanup Job can do work.
+
+The testcontainers harness installs the three compiler extensions via its
+container superuser before migrations run. Its pinned PostGIS image does not
+package pgAudit, so harness bootstrap configs intentionally omit that
+production operational extension.
 
 `CREATE EXTENSION` requires `cloudsqlsuperuser` on production, and the
-IAM-authenticated migration identity is intentionally non-administrative. So
-extensions install once at provisioning time under the `postgres` superuser,
-and schema migrations apply per deploy under the migration identity. The
-testcontainer harness mirrors the same split.
+IAM-authenticated migration identity is intentionally non-administrative. The
+temporary built-in bootstrap administrator therefore installs the extensions
+in the same transaction that transfers all of its owned objects to migration;
+schema migrations then apply per deploy under the migration identity.
 
 ## Testcontainers harness
 

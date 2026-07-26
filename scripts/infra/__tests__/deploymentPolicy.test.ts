@@ -266,7 +266,7 @@ describe("durable deployment policy", () => {
 			"gcloud run jobs execute commcare-nova-media-policy --region=us-central1 --wait",
 		);
 		expect(cloudBuild).toContain(
-			'gcloud run jobs execute "$${cleanup_job}" --region=us-central1 --wait',
+			"--update-env-vars=NOVA_CAPTURE_CLEANUP_MODE=strict",
 		);
 		expect(cloudBuild).toContain('--schedule="*/5 * * * *"');
 		expect(cloudBuild).toContain("NOVA_DB_WORKLOAD=capture-cleanup");
@@ -285,8 +285,24 @@ describe("durable deployment policy", () => {
 			"NOVA_UPLOAD_CORS_ORIGINS=https://commcare.app",
 		);
 		expect(provisioning).toContain("roles/cloudscheduler.admin");
-		expect(provisioning).toContain("roles/storage.admin");
-		expect(provisioning).toContain("roles/storage.objectUser");
+		expect(provisioning).toContain(
+			"storage.buckets.get,storage.buckets.update",
+		);
+		expect(provisioning).toContain(
+			"storage.objects.get,storage.objects.create,storage.objects.delete",
+		);
+		expect(provisioning).toContain("novaMediaBucketPolicy");
+		expect(provisioning).toContain("novaCaptureObjectMaintenance");
+		expect(provisioning).toContain(
+			'remove_bucket_role_if_present "$MEDIA_POLICY_ACCOUNT" roles/storage.admin',
+		);
+		expect(provisioning).toContain(
+			'remove_bucket_role_if_present "$CAPTURE_CLEANUP_ACCOUNT" roles/storage.objectUser',
+		);
+		expect(provisioning).toContain("capture-storage-policy.mjs");
+		expect(cloudBuild).toContain("NOVA_CAPTURE_CLEANUP_MODE=scheduler");
+		expect(cleanupEntrypoint).toContain("probeCaptureStorageAuthority");
+		expect(cleanupEntrypoint).toContain("assertStrictCaptureMaintenance");
 		const schedulerEnablement = provisioning.indexOf(
 			"gcloud services enable cloudscheduler.googleapis.com",
 		);

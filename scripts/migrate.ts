@@ -21,8 +21,9 @@
 // declares `NOVA_DB_WORKLOAD=migration` and its pool holds just ONE Cloud SQL
 // connection at a time. Before DDL, every production invocation audits
 // max_connections/reserved settings plus the hard direct-login limits
-// (runtime 16, migration 1, cleanup 3) and waits for old runtime sessions to
-// drain under 16. The migration role's own non-inherited limit is one.
+// (runtime 16, migration 1, cleanup 3), requires the pgaudit extension, and
+// waits for old runtime sessions to drain under 16. The migration role's own
+// non-inherited limit is one.
 
 import { getMigrations } from "better-auth/db/migration";
 import type { Kysely } from "kysely";

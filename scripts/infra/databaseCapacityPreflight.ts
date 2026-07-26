@@ -43,6 +43,10 @@ interface DatabaseSettingsRow extends QueryResultRow {
 	readonly reserved_connections: number;
 }
 
+interface AuditExtensionRow extends QueryResultRow {
+	readonly pgaudit_present: boolean;
+}
+
 export interface DatabaseCapacitySettings {
 	readonly maxConnections: number;
 	readonly superuserReservedConnections: number;
@@ -53,6 +57,7 @@ export interface DatabaseCapacityPreflightResult {
 	readonly settings: DatabaseCapacitySettings;
 	readonly roleLimits: Readonly<Record<string, number>>;
 	readonly runtimeSessions: number;
+	readonly pgauditPresent: true;
 }
 
 export interface DatabaseCapacityPreflightOptions {
@@ -202,6 +207,27 @@ async function readDatabaseCapacitySettings(
 	};
 }
 
+async function assertPgauditExtensionPresent(
+	client: DatabaseCapacitySqlClient,
+): Promise<void> {
+	const result = await client.query<AuditExtensionRow>(
+		`SELECT EXISTS (
+			SELECT 1
+			FROM pg_catalog.pg_extension
+			WHERE extname = 'pgaudit'
+		) AS pgaudit_present`,
+	);
+	if (result.rows[0]?.pgaudit_present !== true) {
+		throw new Error(
+			[
+				"The pgaudit extension is missing from the deployment database.",
+				"",
+				"Run the privileged database-owner bootstrap before retrying this deploy.",
+			].join("\n"),
+		);
+	}
+}
+
 async function readRoleConnectionLimits(
 	client: DatabaseCapacitySqlClient,
 	config: DatabaseCapacityRoleConfig,
@@ -260,6 +286,7 @@ export async function runDatabaseCapacityPreflight(
 	const now = options.now ?? Date.now;
 	const sleep = options.sleep ?? defaultSleep;
 	const deadline = now() + timeoutMs;
+	await assertPgauditExtensionPresent(client);
 
 	for (;;) {
 		const settings = await readDatabaseCapacitySettings(client);
@@ -271,7 +298,7 @@ export async function runDatabaseCapacityPreflight(
 			config.runtimeRole,
 		);
 		if (runtimeSessions <= RUNTIME_DB_ROLE_CONNECTION_LIMIT) {
-			return { settings, roleLimits, runtimeSessions };
+			return { settings, roleLimits, runtimeSessions, pgauditPresent: true };
 		}
 		if (now() >= deadline) {
 			throw new Error(

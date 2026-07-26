@@ -135,9 +135,9 @@ export const CAPTURE_CLEANUP_LOCK_CONTENDER_CONNECTIONS = 1;
 /**
  * Hard PostgreSQL per-login-role limits. Unlike Cloud Run's scaling maximum,
  * these are enforced at connection admission and apply cluster-wide. Role
- * attributes are not inherited: migration and cleanup may inherit runtime's
- * table privileges, but their sessions are counted against their own login
- * roles and limits.
+ * attributes are not inherited: migration's runtime membership does not change
+ * its cap, and the isolated cleanup login likewise counts against its own role
+ * and limit.
  */
 export const RUNTIME_DB_ROLE_CONNECTION_LIMIT = 16;
 export const MIGRATION_DB_ROLE_CONNECTION_LIMIT = 1;

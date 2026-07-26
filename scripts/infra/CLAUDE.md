@@ -16,11 +16,15 @@ the existing `commcare-nova` runtime identity:
   runtime-only OpenAI credential remains inaccessible to the build identity.
 - `nova-migrate` connects as the migration database owner and runs all three
   Kysely migration phases plus post-migration privilege convergence.
-- `nova-media-policy` applies the capture-bucket lifecycle and CORS contract;
-  it does not connect to Postgres.
-- `nova-capture-cleanup` connects as its own IAM database user, inherits only
-  the runtime database role, and can delete exact capture-object generations.
-  It owns the two-connection cleanup pool (lock session plus work).
+- `nova-media-policy` applies the capture-bucket lifecycle and CORS contract
+  through a custom role containing only bucket metadata get/update; it does
+  not connect to Postgres.
+- `nova-capture-cleanup` connects as an isolated IAM database user with direct
+  `SELECT`/`UPDATE`/`DELETE` on `public.form_attachments` and no runtime-role
+  membership. Its custom storage role contains only object get/create/delete,
+  conditionally restricted to staged captures and each Project's durable
+  capture prefix. It owns the two-connection cleanup pool (lock session plus
+  work).
 - `nova-capture-scheduler` signs the Cloud Scheduler OAuth invocation and has
   only the Cloud Run Job invoker path; it does not connect to Postgres or GCS.
 - `commcare-nova` remains the runtime identity. It serves the app and receives
@@ -37,29 +41,38 @@ cleanup without relying on app traffic. The bucket lifecycle remains the
 independent backstop for ordinary staging-prefix sources; it must never match
 the durable capture prefix accepted submissions use.
 
+The Job's stored mode is `scheduler`: ordinary five-minute dispatches are
+best-effort when connection capacity or the advisory lease is already occupied.
+Cloud Build overrides one execution to `strict` before traffic moves. That gate
+waits up to its bounded deadline for capacity and the lease, proves
+create/read/exact-generation-delete authority with an unguessable object under
+the staged lifecycle prefix, and fails if row preparation/discard or exact
+object deletion reports a failure.
+
 Cloud SQL capacity is one production contract across service and Jobs, not a
 service-only calculation. PostgreSQL direct-login limits are the hard,
 cluster-wide boundary: runtime = 16, migration = 1, and capture cleanup = 3.
 They total 20 against `max_connections=25`; two residual slots admit ordinary
 operator/IAM logins, and PostgreSQL's final three
 `superuser_reserved_connections` are true-superuser-only
-(`reserved_connections=0`). Role attributes are not inherited: migration and
-cleanup inherit runtime's table privileges but their sessions count against
-their own login caps. The active cleanup worker consumes two sessions (lock +
-work), up to two other dispatches may already have reused their audited probe
-sessions when the owner wins, and further contenders fail admission with
-SQLSTATE `53300` and exit without work. Losing probes destroy their sessions;
-the owner bounded-retries admission of its second session, returns it idle to
-the same pool for Kysely, and only then runs maintenance. Reservation timeout
-or any later `53300` is a hard worker failure.
+(`reserved_connections=0`). Role attributes are not inherited: migration
+inherits runtime's table privileges but its sessions count against its own
+login cap; cleanup inherits nothing and receives only its exact attachment-
+table grants. The active cleanup worker consumes two sessions (lock + work).
+Scheduler contenders probe once and treat SQLSTATE `53300` or an already-held
+lease as a best-effort no-op. Losing probes destroy their sessions; an owner
+bounded-retries admission of its second session, returns it idle to the same
+pool for Kysely, and only then runs maintenance. Reservation timeout or any
+later `53300` is a hard worker failure.
 
 Cloud Run's global and revision maxima of four are soft outer controls, not the
 hard safety boundary. Cloud Build updates and verifies both on the old service,
 then the bundled capacity preflight audits `max_connections=25`,
-`superuser_reserved_connections=3`, `reserved_connections=0`, and all three
-role limits and waits for old runtime sessions to drain to at most 16 before
-migration. Migration and capture-cleanup entrypoints repeat the settings/role
-audit at the start of every execution, so post-deploy drift fails closed.
+`superuser_reserved_connections=3`, `reserved_connections=0`, all three role
+limits, and the presence of the `pgaudit` extension, then waits for old runtime
+sessions to drain to at most 16 before migration. Migration and capture-cleanup
+entrypoints repeat that audit at the start of every execution, so post-deploy
+drift fails closed.
 `provision-cloud-sql.sh` converges the exact complete four-flag replacement set
 even on an existing instance:
 `cloudsql.enable_pgaudit=on`, `cloudsql.iam_authentication=on`,
@@ -78,11 +91,12 @@ The first database split/cap cutover has one mandatory order:
 3. After creation, assign runtime, migration, cleanup, and the retired role
    when present to that temporary user without `--revoke-existing-roles`, so
    its `cloudsqlsuperuser` membership is preserved. Independently converge
-   migration -> runtime and cleanup -> runtime as the only two application
-   memberships.
+   migration -> runtime as the only application membership; cleanup remains
+   isolated.
 4. Connect with the temporary password and run
    `bootstrap-database-owner.ts` dry-run, then `--apply`. Its one transaction
-   sets all three login-role caps, transfers ownership, and audits the result.
+   creates all four required extensions, sets all three login-role caps,
+   transfers ownership to migration, and audits the result.
 5. Delete the temporary user through the Cloud SQL API and verify it is absent.
 6. Set the Cloud Run global/revision maxima to four and wait until
    `pg_stat_activity` reports no more than 16 runtime sessions.
@@ -95,16 +109,17 @@ Admin API concern rather than SQL bootstrap statements.
 
 `bootstrap-database-owner.ts` is read-only unless passed `--apply`. In one
 transaction it locks for at most 30 seconds, applies runtime/migration/cleanup
-limits 16/1/3, changes the `nova_cases` owner, and uses `REASSIGN OWNED`
-followed by `DROP OWNED ... RESTRICT` for both the temporary administrator and,
-when present, the retired role. The temporary-administrator transfer is
-required on a fresh instance because it installs the extensions before
-bootstrap and therefore owns their catalog objects. The catalog audit rejects
-foreign/shared dependencies and proves both principals have no remaining
-ownership, ACL, or default-ACL dependency. Delete the retired database user and
-temporary administrator through Cloud SQL only after this audit succeeds. The
-migration then converges fixed-object ownership and moves runtime-owned `cases`
-to its isolated schema.
+limits 16/1/3, creates `pg_trgm`, `fuzzystrmatch`, `postgis`, and `pgaudit`,
+changes the `nova_cases` owner, and uses `REASSIGN OWNED` followed by
+`DROP OWNED ... RESTRICT` for both the temporary administrator and, when
+present, the retired role. The temporary-administrator transfer is required
+because that principal initially owns the extension catalog objects. The
+catalog audit rejects foreign/shared dependencies, proves every required
+extension is present and migration-owned, and proves both retired principals
+have no remaining ownership, ACL, or default-ACL dependency. Delete the retired
+database user and temporary administrator through Cloud SQL only after this
+audit succeeds. The migration then converges fixed-object ownership, exact
+cleanup grants, and moves runtime-owned `cases` to its isolated schema.
 
 The login limits persist independently of application images. Rolling back to
 the prior image therefore keeps the database protected, although an older

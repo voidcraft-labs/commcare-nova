@@ -155,7 +155,10 @@ export async function PATCH(
 			instancePath: parsed.data.instancePath,
 		});
 		if (moved === null) throw new ApiError("Attachment not found", 404);
-		return NextResponse.json({ ok: true });
+		return NextResponse.json({
+			ok: true,
+			instancePath: moved.instancePath,
+		});
 	} catch (err) {
 		if (err instanceof FormAttachmentWriteRejectedError) {
 			return handleApiError(new ApiError(err.message, 409));

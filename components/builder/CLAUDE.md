@@ -41,6 +41,15 @@ objects, with no source metadata or tool parts). An authoritative thread-read
 failure remains blocked behind a durable reload action rather than risking a
 stripped transcript write-back.
 
+The running form's attachment lane fences the same transition at the form
+owner, not per mounted field: `FormScreen` synchronously installs
+`{ appId, scopeEpoch, accessPhase, canEdit }` for the current entry, and every
+queued upload/retarget/clear checks that generation before and after awaited
+work. A changed tuple aborts its network continuations but keeps the entry's
+stable slot, draft, diagnostic, and Submit blocker. Dirty signature ink is
+generation-tagged and re-encodes exactly once if the same entry regains editor
+authority; it is never silently discarded during an access refresh.
+
 ## Edit vs preview mode
 
 Edit is a frozen, stateless view: inputs empty, validation suppressed, submit bar hidden, and ALL fields render regardless of relevant conditions (hidden ones as compact cards) so the full structure stays editable. Preview is a persistent sandbox: values survive round-trips through edit; validation resets on exit; blueprint mutations recreate the engine but restore only user-touched values, so edited defaults show immediately.

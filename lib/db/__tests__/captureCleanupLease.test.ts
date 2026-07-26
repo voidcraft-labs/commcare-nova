@@ -50,6 +50,58 @@ describe("withExclusiveCaptureCleanupWorker", () => {
 		expect(release).toHaveBeenCalledWith(true);
 	});
 
+	it("lets the strict deploy gate wait for an overlapping lease to drain", async () => {
+		const query = vi
+			.fn()
+			.mockResolvedValueOnce({ rows: [{ acquired: false }] })
+			.mockResolvedValueOnce({ rows: [{ acquired: false }] })
+			.mockResolvedValueOnce({ rows: [{ acquired: true }] })
+			.mockResolvedValueOnce({ rows: [{ unlocked: true }] });
+		const release = vi.fn();
+		getCaseStorePoolMock.mockResolvedValue({
+			connect: vi.fn().mockResolvedValue({ query, release }),
+		});
+		let clock = 0;
+
+		await expect(
+			withExclusiveCaptureCleanupWorker(async () => "complete", {
+				lockTimeoutMs: 2_000,
+				contentionRetryMs: 1_000,
+				now: () => clock,
+				sleep: async (milliseconds) => {
+					clock += milliseconds;
+				},
+			}),
+		).resolves.toEqual({ kind: "ran", value: "complete" });
+		expect(
+			query.mock.calls.filter(([text]) =>
+				String(text).includes("pg_try_advisory_lock"),
+			),
+		).toHaveLength(3);
+	});
+
+	it("returns an explicit losing result when the strict lease wait expires", async () => {
+		const query = vi.fn().mockResolvedValue({ rows: [{ acquired: false }] });
+		const release = vi.fn();
+		getCaseStorePoolMock.mockResolvedValue({
+			connect: vi.fn().mockResolvedValue({ query, release }),
+		});
+		let clock = 0;
+
+		await expect(
+			withExclusiveCaptureCleanupWorker(vi.fn(), {
+				lockTimeoutMs: 2_000,
+				contentionRetryMs: 1_000,
+				now: () => clock,
+				sleep: async (milliseconds) => {
+					clock += milliseconds;
+				},
+			}),
+		).resolves.toEqual({ kind: "already-running" });
+		expect(query).toHaveBeenCalledTimes(3);
+		expect(release).toHaveBeenCalledWith(true);
+	});
+
 	it("treats a role connection-limit rejection as a saturated losing dispatch", async () => {
 		const saturated = Object.assign(
 			new Error("too many connections for role"),
@@ -66,6 +118,36 @@ describe("withExclusiveCaptureCleanupWorker", () => {
 			withExclusiveCaptureCleanupWorker(maintenance),
 		).resolves.toEqual({ kind: "saturated" });
 		expect(maintenance).not.toHaveBeenCalled();
+	});
+
+	it("lets the strict deploy gate wait through bounded role saturation", async () => {
+		const saturated = Object.assign(new Error("role cap reached"), {
+			code: "53300",
+		});
+		const query = vi
+			.fn()
+			.mockResolvedValueOnce({ rows: [{ acquired: true }] })
+			.mockResolvedValueOnce({ rows: [{ unlocked: true }] });
+		const release = vi.fn();
+		const connect = vi
+			.fn()
+			.mockRejectedValueOnce(saturated)
+			.mockRejectedValueOnce(saturated)
+			.mockResolvedValue({ query, release });
+		getCaseStorePoolMock.mockResolvedValue({ connect });
+		let clock = 0;
+
+		await expect(
+			withExclusiveCaptureCleanupWorker(async () => "complete", {
+				admissionTimeoutMs: 2_000,
+				contentionRetryMs: 1_000,
+				now: () => clock,
+				sleep: async (milliseconds) => {
+					clock += milliseconds;
+				},
+			}),
+		).resolves.toEqual({ kind: "ran", value: "complete" });
+		expect(connect).toHaveBeenCalledTimes(4);
 	});
 
 	it("admits one graceful loser and fails further overlapping contenders closed", async () => {

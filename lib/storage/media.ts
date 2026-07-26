@@ -16,6 +16,7 @@
  * import this module without env vars present.
  */
 
+import { randomUUID } from "node:crypto";
 import type { Readable } from "node:stream";
 import { type Bucket, Storage } from "@google-cloud/storage";
 import { STAGED_CAPTURE_PREFIX } from "@/lib/domain/captureFormats";
@@ -94,6 +95,72 @@ const PENDING_OBJECT_TTL_DAYS = 1;
  * prepared generation, so this rule can never remove accepted evidence.
  */
 const STAGED_CAPTURE_TTL_DAYS = 7;
+
+/**
+ * Prove the capture-maintenance identity can perform its complete storage
+ * lifecycle without touching authoring media.
+ *
+ * The probe deliberately lives below the staged-capture prefix, so a process
+ * that dies after the create but before the exact-generation delete still
+ * leaves bytes covered by the seven-day lifecycle rule. No list permission is
+ * needed: the key is unguessable and every subsequent operation names it
+ * exactly.
+ */
+export async function probeCaptureStorageAuthority(): Promise<void> {
+	const objectKey = `${STAGED_CAPTURE_PREFIX}_health/${randomUUID()}.probe`;
+	const expected = Buffer.from("nova-capture-storage-authority-v1", "utf8");
+	const file = getBucket().file(objectKey);
+	let generation: string | undefined;
+	let operationError: unknown;
+	let deletionError: unknown;
+
+	try {
+		await file.save(expected, {
+			resumable: false,
+			contentType: "application/octet-stream",
+			preconditionOpts: { ifGenerationMatch: 0 },
+		});
+		const [metadata] = await file.getMetadata();
+		generation =
+			metadata.generation === undefined
+				? undefined
+				: String(metadata.generation);
+		if (!generation) {
+			throw new Error(
+				"The capture storage authority probe created an object without an immutable generation.",
+			);
+		}
+		const [actual] = await getBucket()
+			.file(objectKey, { generation })
+			.download();
+		if (!actual.equals(expected)) {
+			throw new Error(
+				"The capture storage authority probe did not read back the bytes it created.",
+			);
+		}
+	} catch (error) {
+		operationError = error;
+	} finally {
+		if (generation !== undefined) {
+			try {
+				await getBucket()
+					.file(objectKey, { generation })
+					.delete({ ignoreNotFound: false });
+			} catch (deleteError) {
+				deletionError = deleteError;
+			}
+		}
+	}
+
+	if (operationError !== undefined && deletionError !== undefined) {
+		throw new AggregateError(
+			[operationError, deletionError],
+			"The capture storage authority probe failed and could not delete its exact object generation.",
+		);
+	}
+	if (operationError !== undefined) throw operationError;
+	if (deletionError !== undefined) throw deletionError;
+}
 
 /**
  * Apply the media bucket's COMPLETE lifecycle policy — every rule it

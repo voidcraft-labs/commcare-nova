@@ -4,6 +4,7 @@ import tablerArrowBackUp from "@iconify-icons/tabler/arrow-back-up";
 import tablerX from "@iconify-icons/tabler/x";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import {
+	type AttachmentCommitResult,
 	type AttachmentTaskContext,
 	cancelAttachmentTask,
 	clearAttachmentNotReady,
@@ -13,6 +14,7 @@ import {
 	getSignatureUndoDraft,
 	isAttachmentTaskAbort,
 	markAttachmentNotReady,
+	rearmSignatureDraftForCurrentAuthority,
 	rememberClearedSignatureDraft,
 	rememberSignatureDraft,
 	rememberSignatureEncodedGeometry,
@@ -71,6 +73,8 @@ interface SignaturePadProps {
 	readonly hasWriteAuthority?: () => boolean;
 	readonly hasAnswer: boolean;
 	readonly needsAttention?: boolean;
+	/** A kind-change replacement has no Retry button; focus the pad itself. */
+	readonly replacementRequired?: boolean;
 	/** Parent-owned retry intent. Incrementing it re-encodes retained ink. */
 	readonly retryRevision?: number;
 	readonly required?: boolean;
@@ -82,8 +86,8 @@ interface SignaturePadProps {
 	readonly onDrawn: (
 		file: File,
 		context: AttachmentTaskContext,
-	) => Promise<void> | void;
-	readonly onClear: () => void;
+	) => Promise<AttachmentCommitResult>;
+	readonly onClear: () => Promise<AttachmentCommitResult>;
 	readonly onEncodingError?: (message: string) => void;
 }
 
@@ -182,6 +186,7 @@ export function SignaturePad({
 	hasWriteAuthority = ALLOW_SIGNATURE_WRITE,
 	hasAnswer,
 	needsAttention = false,
+	replacementRequired = false,
 	retryRevision = 0,
 	required = false,
 	invalid = false,
@@ -213,6 +218,9 @@ export function SignaturePad({
 	const scheduleEmitRef = useRef<(settleMs?: number) => void>(() => undefined);
 	const retryRevisionRef = useRef(retryRevision);
 	const identityRef = useRef({ entryKey, slotKey: coordinationKey });
+	const mountedRef = useRef(true);
+	const hasAnswerRef = useRef(hasAnswer);
+	hasAnswerRef.current = hasAnswer;
 	/**
 	 * The strokes the last Clear removed, kept so it can be undone.
 	 *
@@ -242,6 +250,13 @@ export function SignaturePad({
 	const [saveIntent, setSaveIntent] = useState<"idle" | "queued" | "saving">(
 		"idle",
 	);
+
+	useEffect(() => {
+		mountedRef.current = true;
+		return () => {
+			mountedRef.current = false;
+		};
+	}, []);
 
 	const redraw = useCallback(() => {
 		const canvas = canvasRef.current;
@@ -382,8 +397,18 @@ export function SignaturePad({
 		if (!hasAnswer) {
 			clearPendingRef.current = false;
 			setClearPending(false);
+			if (
+				!signatureDraftNeedsEncoding(entryKey, coordinationKey) &&
+				getSignatureDraft(entryKey, coordinationKey).length === 0
+			) {
+				strokesRef.current = [];
+				clearedRef.current = getSignatureUndoDraft(entryKey, coordinationKey);
+				setCleared(clearedRef.current !== undefined);
+				setEmpty(true);
+				redraw();
+			}
 		}
-	}, [hasAnswer]);
+	}, [coordinationKey, entryKey, hasAnswer, redraw]);
 
 	useEffect(() => {
 		if (!interactionBlocked) return;
@@ -450,10 +475,11 @@ export function SignaturePad({
 						// The name matters only as a transport label — the server
 						// mints the stored name — but it must carry `.png`, which is
 						// what the accepted-format check reads.
-						await onDrawn(
+						const outcome = await onDrawn(
 							new File([blob], "signature.png", { type: "image/png" }),
 							context,
 						);
+						if (outcome !== "committed") return;
 						if (
 							context.isCurrent() &&
 							generation === renderGenerationRef.current &&
@@ -489,6 +515,34 @@ export function SignaturePad({
 	);
 	scheduleEmitRef.current = scheduleEmit;
 
+	// A scope/access transition cancels the old generation but keeps its pixels
+	// and submit blocker. Once the exact entry tuple is writable again, adopt
+	// that retained ink into the new authority generation and encode it once.
+	useEffect(() => {
+		if (
+			interactionBlocked ||
+			readOnly ||
+			!hasWriteAuthority() ||
+			!rearmSignatureDraftForCurrentAuthority(entryKey, coordinationKey)
+		) {
+			return;
+		}
+		markAttachmentNotReady(
+			entryKey,
+			coordinationKey,
+			"The retained signature is still being saved.",
+		);
+		pendingGeometryRef.current = canvasSizeRef.current;
+		setSaveIntent("queued");
+		scheduleEmitRef.current(0);
+	}, [
+		coordinationKey,
+		entryKey,
+		hasWriteAuthority,
+		interactionBlocked,
+		readOnly,
+	]);
+
 	useEffect(() => {
 		const canvas = canvasRef.current;
 		if (canvas === null) return;
@@ -523,7 +577,7 @@ export function SignaturePad({
 		scheduleEmitRef.current(0);
 	}, [coordinationKey, entryKey, onEncodingError, retryRevision]);
 
-	const clear = useCallback(() => {
+	const clear = useCallback(async () => {
 		if (
 			!hasWriteAuthority() ||
 			interactionBlocked ||
@@ -538,22 +592,55 @@ export function SignaturePad({
 		// strokes the worker just cleared.
 		drawingRef.current = false;
 		cancelAttachmentTask(entryKey, coordinationKey);
-		clearAttachmentNotReady(entryKey, coordinationKey);
 		renderGenerationRef.current += 1;
 		pendingGeometryRef.current = undefined;
 		setSaveIntent("idle");
-		clearedRef.current =
+		const removedStrokes =
 			strokesRef.current.length > 0 ? strokesRef.current : undefined;
-		setCleared(clearedRef.current !== undefined);
+		const scheduledIdentity = { entryKey, slotKey: coordinationKey };
+		const outcome = await onClear();
+		if (
+			identityRef.current.entryKey !== scheduledIdentity.entryKey ||
+			identityRef.current.slotKey !== scheduledIdentity.slotKey
+		) {
+			return;
+		}
+		if (outcome !== "committed") {
+			clearPendingRef.current = false;
+			if (mountedRef.current) {
+				setClearPending(false);
+				setSaveIntent("idle");
+				redraw();
+			}
+			if (
+				removedStrokes !== undefined &&
+				signatureDraftNeedsEncoding(entryKey, coordinationKey) &&
+				hasWriteAuthority()
+			) {
+				markAttachmentNotReady(
+					entryKey,
+					coordinationKey,
+					"The retained signature is still being saved.",
+				);
+				scheduleEmitRef.current(0);
+			}
+			return;
+		}
+		clearPendingRef.current = hasAnswerRef.current;
+		clearedRef.current = removedStrokes;
 		strokesRef.current = [];
 		rememberClearedSignatureDraft(
 			entryKey,
 			coordinationKey,
 			clearedRef.current,
 		);
-		setEmpty(true);
-		redraw();
-		onClear();
+		clearAttachmentNotReady(entryKey, coordinationKey);
+		if (mountedRef.current) {
+			setCleared(clearedRef.current !== undefined);
+			setClearPending(hasAnswerRef.current);
+			setEmpty(true);
+			redraw();
+		}
 	}, [
 		interactionBlocked,
 		hasWriteAuthority,
@@ -602,7 +689,7 @@ export function SignaturePad({
 			? "Waiting to save signature…"
 			: uploading || saveIntent === "saving"
 				? "Saving signature…"
-				: interactionBlocked
+				: interactionBlocked || clearPending
 					? "Waiting to clear signature…"
 					: cleared
 						? "Signature cleared."
@@ -635,6 +722,7 @@ export function SignaturePad({
 				aria-disabled={interactionBlocked}
 				aria-readonly={readOnly || interactionBlocked}
 				data-instance-path={instancePath}
+				data-attachment-recovery={replacementRequired ? "" : undefined}
 				className="h-40 w-full touch-none rounded-lg border border-pv-input-border bg-white"
 				onPointerDown={(e) => {
 					if (

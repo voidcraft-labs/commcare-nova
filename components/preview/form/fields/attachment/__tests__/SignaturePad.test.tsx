@@ -4,8 +4,12 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	__resetAttachmentCoordinatorForTests,
+	type AttachmentEntryAuthoritySnapshot,
+	getSignatureDraft,
+	rememberSignatureDraft,
 	runAttachmentTask,
 	runFormAttachmentBarrier,
+	setAttachmentEntryAuthority,
 } from "../attachmentClient";
 import { SignaturePad } from "../SignaturePad";
 
@@ -67,9 +71,13 @@ async function drawOneStroke(
 	});
 }
 
+function committedCallback() {
+	return vi.fn().mockResolvedValue("committed" as const);
+}
+
 describe("SignaturePad", () => {
 	it("keeps the latest ink blocked and drawable when its stable repeat instance compacts", async () => {
-		const onDrawn = vi.fn();
+		const onDrawn = committedCallback();
 		const view = render(
 			<SignaturePad
 				entryKey="entry-repeat"
@@ -77,7 +85,7 @@ describe("SignaturePad", () => {
 				uploading={false}
 				hasAnswer={true}
 				onDrawn={onDrawn}
-				onClear={vi.fn()}
+				onClear={committedCallback()}
 			/>,
 		);
 		const canvas = screen.getByLabelText(/Signature pad/) as HTMLCanvasElement;
@@ -113,7 +121,7 @@ describe("SignaturePad", () => {
 				uploading={false}
 				hasAnswer={true}
 				onDrawn={onDrawn}
-				onClear={vi.fn()}
+				onClear={committedCallback()}
 			/>,
 		);
 
@@ -148,7 +156,7 @@ describe("SignaturePad", () => {
 	});
 
 	it("generation-fences an older toBlob callback after a newer stroke", async () => {
-		const onDrawn = vi.fn();
+		const onDrawn = committedCallback();
 		render(
 			<SignaturePad
 				entryKey="entry-a"
@@ -156,7 +164,7 @@ describe("SignaturePad", () => {
 				uploading={false}
 				hasAnswer={false}
 				onDrawn={onDrawn}
-				onClear={vi.fn()}
+				onClear={committedCallback()}
 			/>,
 		);
 		const canvas = screen.getByLabelText(/Signature pad/) as HTMLCanvasElement;
@@ -176,8 +184,8 @@ describe("SignaturePad", () => {
 	});
 
 	it("invalidates an in-flight canvas render when the signature is cleared", async () => {
-		const onDrawn = vi.fn();
-		const onClear = vi.fn();
+		const onDrawn = committedCallback();
+		const onClear = committedCallback();
 		render(
 			<SignaturePad
 				entryKey="entry-a"
@@ -191,7 +199,10 @@ describe("SignaturePad", () => {
 		const canvas = screen.getByLabelText(/Signature pad/) as HTMLCanvasElement;
 
 		await drawOneStroke(canvas, 1);
-		fireEvent.click(screen.getByRole("button", { name: "Clear signature" }));
+		await act(async () => {
+			fireEvent.click(screen.getByRole("button", { name: "Clear signature" }));
+			await Promise.resolve();
+		});
 		blobCallbacks[0]?.(new Blob(["stale"], { type: "image/png" }));
 
 		expect(onClear).toHaveBeenCalledTimes(1);
@@ -202,6 +213,7 @@ describe("SignaturePad", () => {
 		const saved = deferred<void>();
 		const onDrawn = vi.fn(async () => {
 			await saved.promise;
+			return "committed" as const;
 		});
 		render(
 			<SignaturePad
@@ -210,7 +222,7 @@ describe("SignaturePad", () => {
 				uploading={false}
 				hasAnswer={false}
 				onDrawn={onDrawn}
-				onClear={vi.fn()}
+				onClear={committedCallback()}
 			/>,
 		);
 		const canvas = screen.getByLabelText(/Signature pad/) as HTMLCanvasElement;
@@ -276,8 +288,8 @@ describe("SignaturePad", () => {
 				instancePath="/data/signature"
 				uploading={false}
 				hasAnswer={false}
-				onDrawn={vi.fn()}
-				onClear={vi.fn()}
+				onDrawn={committedCallback()}
+				onClear={committedCallback()}
 			/>,
 		);
 		const canvas = screen.getByLabelText(/Signature pad/) as HTMLCanvasElement;
@@ -312,8 +324,8 @@ describe("SignaturePad", () => {
 	});
 
 	it("guards clear and draw gestures while a destructive clear is queued", () => {
-		const onClear = vi.fn();
-		const onDrawn = vi.fn();
+		const onClear = committedCallback();
+		const onDrawn = committedCallback();
 		render(
 			<SignaturePad
 				entryKey="entry-queued-clear"
@@ -351,7 +363,7 @@ describe("SignaturePad", () => {
 	});
 
 	it("keeps signature pixels entry-local across a persona/entry switch", async () => {
-		const onDrawn = vi.fn();
+		const onDrawn = committedCallback();
 		const { rerender } = render(
 			<SignaturePad
 				entryKey="entry-persona-a"
@@ -359,7 +371,7 @@ describe("SignaturePad", () => {
 				uploading={false}
 				hasAnswer={false}
 				onDrawn={onDrawn}
-				onClear={vi.fn()}
+				onClear={committedCallback()}
 			/>,
 		);
 		const canvas = screen.getByLabelText(/Signature pad/) as HTMLCanvasElement;
@@ -379,7 +391,7 @@ describe("SignaturePad", () => {
 				uploading={false}
 				hasAnswer={false}
 				onDrawn={onDrawn}
-				onClear={vi.fn()}
+				onClear={committedCallback()}
 			/>,
 		);
 
@@ -402,8 +414,8 @@ describe("SignaturePad", () => {
 				instancePath="/data/signature"
 				uploading={false}
 				hasAnswer={false}
-				onDrawn={vi.fn()}
-				onClear={vi.fn()}
+				onDrawn={committedCallback()}
+				onClear={committedCallback()}
 				onEncodingError={onEncodingError}
 			/>,
 		);
@@ -423,7 +435,7 @@ describe("SignaturePad", () => {
 	});
 
 	it("settles the latest ink after pointer cancellation", async () => {
-		const onDrawn = vi.fn();
+		const onDrawn = committedCallback();
 		render(
 			<SignaturePad
 				entryKey="entry-cancel"
@@ -431,7 +443,7 @@ describe("SignaturePad", () => {
 				uploading={false}
 				hasAnswer={false}
 				onDrawn={onDrawn}
-				onClear={vi.fn()}
+				onClear={committedCallback()}
 			/>,
 		);
 		const canvas = screen.getByLabelText(/Signature pad/) as HTMLCanvasElement;
@@ -459,7 +471,7 @@ describe("SignaturePad", () => {
 	});
 
 	it("settles the latest ink after lost pointer capture before Submit", async () => {
-		const onDrawn = vi.fn();
+		const onDrawn = committedCallback();
 		render(
 			<SignaturePad
 				entryKey="entry-lost-capture"
@@ -467,7 +479,7 @@ describe("SignaturePad", () => {
 				uploading={false}
 				hasAnswer={false}
 				onDrawn={onDrawn}
-				onClear={vi.fn()}
+				onClear={committedCallback()}
 			/>,
 		);
 		const canvas = screen.getByLabelText(/Signature pad/) as HTMLCanvasElement;
@@ -515,14 +527,14 @@ describe("SignaturePad", () => {
 	});
 
 	it("restarts an interrupted dirty signature save after an ordinary remount", async () => {
-		const onDrawn = vi.fn();
+		const onDrawn = committedCallback();
 		const props = {
 			entryKey: "entry-dirty-remount",
 			instancePath: "/data/signature",
 			uploading: false,
 			hasAnswer: false,
 			onDrawn,
-			onClear: vi.fn(),
+			onClear: committedCallback(),
 		} as const;
 		const view = render(<SignaturePad {...props} />);
 		const canvas = screen.getByLabelText(/Signature pad/) as HTMLCanvasElement;
@@ -583,7 +595,7 @@ describe("SignaturePad", () => {
 					toJSON: () => ({}),
 				}) as DOMRect,
 		);
-		const onDrawn = vi.fn();
+		const onDrawn = committedCallback();
 		render(
 			<SignaturePad
 				entryKey="entry-responsive"
@@ -591,7 +603,7 @@ describe("SignaturePad", () => {
 				uploading={false}
 				hasAnswer={false}
 				onDrawn={onDrawn}
-				onClear={vi.fn()}
+				onClear={committedCallback()}
 			/>,
 		);
 		const canvas = screen.getByLabelText(/Signature pad/) as HTMLCanvasElement;
@@ -653,7 +665,7 @@ describe("SignaturePad", () => {
 					toJSON: () => ({}),
 				}) as DOMRect,
 		);
-		const onDrawn = vi.fn();
+		const onDrawn = committedCallback();
 		render(
 			<SignaturePad
 				entryKey="entry-resize-fence"
@@ -661,7 +673,7 @@ describe("SignaturePad", () => {
 				uploading={false}
 				hasAnswer={false}
 				onDrawn={onDrawn}
-				onClear={vi.fn()}
+				onClear={committedCallback()}
 			/>,
 		);
 		const canvas = screen.getByLabelText(/Signature pad/) as HTMLCanvasElement;
@@ -721,7 +733,7 @@ describe("SignaturePad", () => {
 			y: 0,
 			toJSON: () => ({}),
 		} as DOMRect);
-		const onDrawn = vi.fn();
+		const onDrawn = committedCallback();
 		render(
 			<SignaturePad
 				entryKey="entry-dpr"
@@ -729,7 +741,7 @@ describe("SignaturePad", () => {
 				uploading={false}
 				hasAnswer={false}
 				onDrawn={onDrawn}
-				onClear={vi.fn()}
+				onClear={committedCallback()}
 			/>,
 		);
 		const canvas = screen.getByLabelText(/Signature pad/) as HTMLCanvasElement;
@@ -774,14 +786,14 @@ describe("SignaturePad", () => {
 					toJSON: () => ({}),
 				}) as DOMRect,
 		);
-		const onDrawn = vi.fn();
+		const onDrawn = committedCallback();
 		const props = {
 			entryKey: "entry-remount-geometry",
 			instancePath: "/data/signature",
 			uploading: false,
 			hasAnswer: true,
 			onDrawn,
-			onClear: vi.fn(),
+			onClear: committedCallback(),
 		} as const;
 		const view = render(<SignaturePad {...props} />);
 		const canvas = screen.getByLabelText(/Signature pad/) as HTMLCanvasElement;
@@ -807,14 +819,14 @@ describe("SignaturePad", () => {
 	});
 
 	it("keeps the first clear undoable when Clear is tapped twice before its queued answer update", async () => {
-		const onClear = vi.fn();
+		const onClear = committedCallback();
 		render(
 			<SignaturePad
 				entryKey="entry-double-clear"
 				instancePath="/data/signature"
 				uploading={false}
 				hasAnswer={true}
-				onDrawn={vi.fn()}
+				onDrawn={committedCallback()}
 				onClear={onClear}
 			/>,
 		);
@@ -835,16 +847,189 @@ describe("SignaturePad", () => {
 		});
 
 		const clear = screen.getByRole("button", { name: "Clear signature" });
-		fireEvent.click(clear);
-		fireEvent.click(clear);
+		await act(async () => {
+			fireEvent.click(clear);
+			fireEvent.click(clear);
+			await Promise.resolve();
+		});
 
 		expect(onClear).toHaveBeenCalledTimes(1);
 		expect(screen.getByRole("button", { name: "Undo" })).toBeDefined();
 	});
 
+	it("keeps ink visible when Clear is canceled, then clears only after a committed answer mutation", async () => {
+		const entryKey = "entry-canceled-clear";
+		const instancePath = "/data/signature";
+		const strokes = [[{ x: 0.2, y: 0.3 }]];
+		rememberSignatureDraft(entryKey, instancePath, strokes, false);
+		const clearResult = deferred<"canceled">();
+		const onClear = vi
+			.fn()
+			.mockReturnValueOnce(clearResult.promise)
+			.mockResolvedValueOnce("committed" as const);
+		render(
+			<SignaturePad
+				entryKey={entryKey}
+				instancePath={instancePath}
+				uploading={false}
+				hasAnswer={true}
+				onDrawn={committedCallback()}
+				onClear={onClear}
+			/>,
+		);
+
+		const clear = screen.getByRole("button", { name: "Clear signature" });
+		fireEvent.click(clear);
+		expect(screen.getByRole("status").textContent).toMatch(
+			/waiting to clear signature/i,
+		);
+		expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+		expect(getSignatureDraft(entryKey, instancePath)).toEqual(strokes);
+
+		await act(async () => {
+			clearResult.resolve("canceled");
+			await clearResult.promise;
+		});
+		expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+		expect((clear as HTMLButtonElement).disabled).toBe(false);
+		expect(getSignatureDraft(entryKey, instancePath)).toEqual(strokes);
+
+		await act(async () => {
+			fireEvent.click(clear);
+			await Promise.resolve();
+		});
+		expect(onClear).toHaveBeenCalledTimes(2);
+		expect(screen.getByRole("button", { name: "Undo" })).toBeDefined();
+		expect(getSignatureDraft(entryKey, instancePath)).toEqual([]);
+	});
+
+	it("leaves committed Clear settled when the answer renders empty before its promise resolves", async () => {
+		const entryKey = "entry-clear-answer-first";
+		const instancePath = "/data/signature";
+		rememberSignatureDraft(
+			entryKey,
+			instancePath,
+			[[{ x: 0.2, y: 0.3 }]],
+			false,
+		);
+		const clearResult = deferred<"committed">();
+		const props = {
+			entryKey,
+			instancePath,
+			uploading: false,
+			onDrawn: committedCallback(),
+			onClear: vi.fn().mockReturnValue(clearResult.promise),
+		} as const;
+		const view = render(<SignaturePad {...props} hasAnswer />);
+
+		fireEvent.click(screen.getByRole("button", { name: "Clear signature" }));
+		view.rerender(<SignaturePad {...props} hasAnswer={false} />);
+		await act(async () => {
+			clearResult.resolve("committed");
+			await clearResult.promise;
+		});
+
+		expect(screen.getByRole("status").textContent).toMatch(
+			/signature cleared/i,
+		);
+		expect(screen.getByRole("button", { name: "Undo" })).toBeDefined();
+	});
+
+	it("rearms retained dirty ink in the restored entry authority generation", async () => {
+		const entryKey = "entry-signature-authority-restore";
+		let authority: AttachmentEntryAuthoritySnapshot = {
+			appId: "app-1",
+			scopeEpoch: 1,
+			accessPhase: "authorized",
+			canEdit: true,
+		};
+		const installAuthority = () =>
+			setAttachmentEntryAuthority({
+				entryKey,
+				snapshot: authority,
+				readCurrent: () => authority,
+			});
+		installAuthority();
+		const blockerStarted = deferred<void>();
+		const blockerRelease = deferred<void>();
+		const blocker = runAttachmentTask({
+			entryKey,
+			slotKey: "other-slot",
+			task: async () => {
+				blockerStarted.resolve();
+				await blockerRelease.promise;
+			},
+		});
+		const blockerCanceled = expect(blocker).rejects.toMatchObject({
+			name: "AbortError",
+		});
+		await blockerStarted.promise;
+		const onDrawn = committedCallback();
+		const props = {
+			entryKey,
+			instancePath: "/data/signature",
+			uploading: false,
+			hasAnswer: false,
+			onDrawn,
+			onClear: committedCallback(),
+			hasWriteAuthority: () =>
+				authority.accessPhase === "authorized" && authority.canEdit,
+		} as const;
+		const view = render(<SignaturePad {...props} />);
+		const canvas = screen.getByLabelText(/Signature pad/) as HTMLCanvasElement;
+		Object.assign(canvas, {
+			setPointerCapture: vi.fn(),
+			releasePointerCapture: vi.fn(),
+		});
+		fireEvent.pointerDown(canvas, {
+			pointerId: 1,
+			clientX: 10,
+			clientY: 10,
+		});
+		fireEvent.pointerUp(canvas, {
+			pointerId: 1,
+			clientX: 10,
+			clientY: 10,
+		});
+
+		authority = {
+			appId: "app-1",
+			scopeEpoch: 2,
+			accessPhase: "refreshing",
+			canEdit: false,
+		};
+		installAuthority();
+		view.rerender(<SignaturePad {...props} interactionBlocked readOnly />);
+		authority = {
+			appId: "app-1",
+			scopeEpoch: 2,
+			accessPhase: "authorized",
+			canEdit: true,
+		};
+		installAuthority();
+		view.rerender(<SignaturePad {...props} />);
+		const submitted = vi.fn();
+		const submit = runFormAttachmentBarrier(entryKey, async () => {
+			submitted();
+		});
+
+		await act(async () => {
+			blockerRelease.resolve();
+			await blockerCanceled;
+			for (let index = 0; index < 5; index++) await Promise.resolve();
+		});
+		expect(blobCallbacks).toHaveLength(1);
+		await act(async () => {
+			blobCallbacks[0]?.(new Blob(["restored"], { type: "image/png" }));
+			await submit;
+		});
+		expect(onDrawn).toHaveBeenCalledOnce();
+		expect(submitted).toHaveBeenCalledOnce();
+	});
+
 	it("does not encode blank ink when Clear interrupts an active pointer stroke", async () => {
-		const onDrawn = vi.fn();
-		const onClear = vi.fn();
+		const onDrawn = committedCallback();
+		const onClear = committedCallback();
 		render(
 			<SignaturePad
 				entryKey="entry-clear-mid-stroke"
@@ -885,14 +1070,14 @@ describe("SignaturePad", () => {
 	});
 
 	it("keeps Clear undoable across an ordinary unmount and remount", async () => {
-		const onDrawn = vi.fn();
+		const onDrawn = committedCallback();
 		const props = {
 			entryKey: "entry-remount-undo",
 			instancePath: "/data/signature",
 			uploading: false,
 			hasAnswer: true,
 			onDrawn,
-			onClear: vi.fn(),
+			onClear: committedCallback(),
 		} as const;
 		const view = render(<SignaturePad {...props} />);
 		const canvas = screen.getByLabelText(/Signature pad/) as HTMLCanvasElement;
@@ -910,7 +1095,10 @@ describe("SignaturePad", () => {
 			clientX: 10,
 			clientY: 10,
 		});
-		fireEvent.click(screen.getByRole("button", { name: "Clear signature" }));
+		await act(async () => {
+			fireEvent.click(screen.getByRole("button", { name: "Clear signature" }));
+			await Promise.resolve();
+		});
 		view.unmount();
 
 		render(<SignaturePad {...props} />);
@@ -932,8 +1120,8 @@ describe("SignaturePad", () => {
 			instancePath: "/data/signature",
 			uploading: false,
 			hasAnswer: true,
-			onDrawn: vi.fn(),
-			onClear: vi.fn(),
+			onDrawn: committedCallback(),
+			onClear: committedCallback(),
 		};
 		const view = render(<SignaturePad {...props} />);
 		const canvas = screen.getByLabelText(/Signature pad/) as HTMLCanvasElement;
@@ -951,7 +1139,10 @@ describe("SignaturePad", () => {
 			clientX: 10,
 			clientY: 10,
 		});
-		fireEvent.click(screen.getByRole("button", { name: "Clear signature" }));
+		await act(async () => {
+			fireEvent.click(screen.getByRole("button", { name: "Clear signature" }));
+			await Promise.resolve();
+		});
 
 		view.rerender(<SignaturePad {...props} interactionBlocked />);
 		const undo = screen.getByRole("button", {
@@ -970,8 +1161,8 @@ describe("SignaturePad", () => {
 				uploading={false}
 				interactionBlocked
 				hasAnswer={true}
-				onDrawn={vi.fn()}
-				onClear={vi.fn()}
+				onDrawn={committedCallback()}
+				onClear={committedCallback()}
 			/>,
 		);
 
@@ -980,15 +1171,15 @@ describe("SignaturePad", () => {
 		expect(canvas.getAttribute("aria-readonly")).toBe("true");
 	});
 
-	it("can clear a saved signature even when this entry has no local pixel draft", () => {
-		const onClear = vi.fn();
+	it("can clear a saved signature even when this entry has no local pixel draft", async () => {
+		const onClear = committedCallback();
 		render(
 			<SignaturePad
 				entryKey="entry-preloaded-answer"
 				instancePath="/data/signature"
 				uploading={false}
 				hasAnswer={true}
-				onDrawn={vi.fn()}
+				onDrawn={committedCallback()}
 				onClear={onClear}
 			/>,
 		);
@@ -997,8 +1188,11 @@ describe("SignaturePad", () => {
 			name: "Clear signature",
 		}) as HTMLButtonElement;
 		expect(clear.disabled).toBe(false);
-		fireEvent.click(clear);
-		fireEvent.click(clear);
+		await act(async () => {
+			fireEvent.click(clear);
+			fireEvent.click(clear);
+			await Promise.resolve();
+		});
 
 		expect(onClear).toHaveBeenCalledTimes(1);
 		expect(clear.disabled).toBe(true);

@@ -33,9 +33,7 @@ const h = setupPerTestDatabase({
 	databaseNamePrefix: "privilege_convergence_",
 });
 
-interface BootstrapTestRoleConfig extends DatabasePrivilegeRoleConfig {
-	readonly cleanupRole: string;
-}
+type BootstrapTestRoleConfig = DatabasePrivilegeRoleConfig;
 
 async function asRole<T>(
 	db: Kysely<unknown>,
@@ -69,7 +67,7 @@ async function createRoles(
 	}
 	await sql`
 		GRANT ${sql.id(config.runtimeRole)}
-		TO ${sql.id(config.migrationRole)}, ${sql.id(config.cleanupRole)}
+		TO ${sql.id(config.migrationRole)}
 	`.execute(db);
 	const identity = await sql<{ name: string }>`
 		SELECT current_user AS name
@@ -95,8 +93,9 @@ async function createLegacyBootstrapRoles(db: Kysely<unknown>): Promise<{
 	const convergence = {
 		migrationRole: `nova_migrate_legacy_${suffix}`,
 		runtimeRole: `nova_runtime_legacy_${suffix}`,
+		cleanupRole: `nova_cleanup_legacy_${suffix}`,
 	};
-	const cleanupRole = `nova_cleanup_legacy_${suffix}`;
+	const cleanupRole = convergence.cleanupRole;
 	const legacyRole = `nova_legacy_${suffix}`;
 	const bootstrapRole = `nova_bootstrap_${suffix}`;
 	for (const role of [
@@ -112,7 +111,7 @@ async function createLegacyBootstrapRoles(db: Kysely<unknown>): Promise<{
 	`.execute(db);
 	await sql`
 		GRANT ${sql.id(convergence.runtimeRole)}
-		TO ${sql.id(convergence.migrationRole)}, ${sql.id(cleanupRole)}
+		TO ${sql.id(convergence.migrationRole)}
 	`.execute(db);
 	await sql`
 		GRANT ${sql.id(convergence.runtimeRole)},
@@ -137,6 +136,11 @@ async function createLegacyBootstrapRoles(db: Kysely<unknown>): Promise<{
 			migrationConnectionLimit: MIGRATION_DB_ROLE_CONNECTION_LIMIT,
 			runtimeConnectionLimit: RUNTIME_DB_ROLE_CONNECTION_LIMIT,
 			cleanupConnectionLimit: CAPTURE_CLEANUP_DB_ROLE_CONNECTION_LIMIT,
+			// The pinned test image intentionally exercises the compiler's three
+			// data extensions but does not package Cloud SQL's pgAudit library.
+			// Production uses DATABASE_OWNER_BOOTSTRAP_CONFIG's four-extension
+			// contract, pinned by the bootstrap unit tests and deploy preflight.
+			requiredExtensions: [],
 		},
 		bootstrapRole,
 		cleanupRole,
@@ -419,6 +423,7 @@ describe("database privilege convergence", () => {
 					migrationConnectionLimit: MIGRATION_DB_ROLE_CONNECTION_LIMIT,
 					runtimeConnectionLimit: RUNTIME_DB_ROLE_CONNECTION_LIMIT,
 					cleanupConnectionLimit: CAPTURE_CLEANUP_DB_ROLE_CONNECTION_LIMIT,
+					requiredExtensions: [],
 				},
 			);
 			expect(freshBootstrap.before.legacyRoleExists).toBe(false);
@@ -457,7 +462,21 @@ describe("database privilege convergence", () => {
 
 			await convergeDatabasePrivileges(migration.db, config);
 			// Convergence is an every-deploy operation, including after `cases` has
-			// already moved and is runtime-owned.
+			// already moved and is runtime-owned. Seed historical direct cleanup
+			// grants to prove the second pass converges rather than merely audits
+			// its exact least-privilege boundary.
+			await sql`
+				GRANT SELECT ON TABLE public.apps TO ${sql.id(config.cleanupRole)}
+			`.execute(h.db);
+			await sql`
+				GRANT INSERT ON TABLE public.form_attachments
+				TO ${sql.id(config.cleanupRole)}
+			`.execute(h.db);
+			await sql`
+				GRANT SELECT ON TABLE
+					${sql.id(CASE_RUNTIME_SCHEMA)}.cases
+				TO ${sql.id(config.cleanupRole)}
+			`.execute(h.db);
 			await convergeDatabasePrivileges(migration.db, config);
 
 			const identity = await sql<{ current_user: string }>`
@@ -597,6 +616,75 @@ describe("database privilege convergence", () => {
 					FROM public.media_reference_index_state
 				`.execute(tx);
 			});
+
+			await asRole(h.db, config.cleanupRole, async (tx) => {
+				const grants = await sql<{
+					can_select: boolean;
+					can_update: boolean;
+					can_delete: boolean;
+					can_insert: boolean;
+					can_use_case_schema: boolean;
+					can_read_apps: boolean;
+					can_read_cases: boolean;
+				}>`
+						SELECT
+							pg_catalog.has_table_privilege(
+								current_user, 'public.form_attachments', 'SELECT'
+							) AS can_select,
+							pg_catalog.has_table_privilege(
+								current_user, 'public.form_attachments', 'UPDATE'
+							) AS can_update,
+							pg_catalog.has_table_privilege(
+								current_user, 'public.form_attachments', 'DELETE'
+							) AS can_delete,
+							pg_catalog.has_table_privilege(
+								current_user, 'public.form_attachments', 'INSERT'
+							) AS can_insert,
+							pg_catalog.has_schema_privilege(
+								current_user, ${CASE_RUNTIME_SCHEMA}, 'USAGE'
+							) AS can_use_case_schema,
+							pg_catalog.has_table_privilege(
+								current_user, 'public.apps', 'SELECT'
+							) AS can_read_apps,
+							pg_catalog.has_table_privilege(
+								current_user,
+								(
+									SELECT class.oid
+									FROM pg_catalog.pg_class AS class
+									JOIN pg_catalog.pg_namespace AS namespace
+										ON namespace.oid = class.relnamespace
+									WHERE namespace.nspname = ${CASE_RUNTIME_SCHEMA}
+										AND class.relname = 'cases'
+								),
+								'SELECT'
+							) AS can_read_cases
+					`.execute(tx);
+				expect(grants.rows[0]).toEqual({
+					can_select: true,
+					can_update: true,
+					can_delete: true,
+					can_insert: false,
+					can_use_case_schema: false,
+					can_read_apps: false,
+					can_read_cases: false,
+				});
+				await sql`SELECT count(*) FROM public.form_attachments`.execute(tx);
+				await sql`SELECT pg_catalog.current_setting('max_connections')`.execute(
+					tx,
+				);
+				await sql`
+						SELECT count(*) FROM pg_catalog.pg_stat_activity
+						WHERE backend_type = 'client backend'
+					`.execute(tx);
+				await sql`
+						SELECT pg_catalog.pg_try_advisory_xact_lock(42)
+					`.execute(tx);
+			});
+			await expect(
+				asRole(h.db, config.cleanupRole, async (tx) => {
+					await sql`SELECT count(*) FROM public.apps`.execute(tx);
+				}),
+			).rejects.toMatchObject({ code: "42501" });
 
 			await expect(
 				asRole(h.db, config.runtimeRole, async (tx) => {

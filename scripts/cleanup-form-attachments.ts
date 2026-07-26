@@ -16,12 +16,25 @@ import {
 	getCaseStorePool,
 } from "@/lib/case-store/postgres/connection";
 import {
-	isDatabaseConnectionSaturatedError,
+	assertStrictCaptureMaintenance,
+	type CaptureCleanupMode,
+	type CaptureMaintenanceSummary,
+	readCaptureCleanupMode,
+} from "@/lib/db/captureCleanupGate";
+import {
+	CAPTURE_CLEANUP_STRICT_ADMISSION_TIMEOUT_MS,
+	CAPTURE_CLEANUP_STRICT_LOCK_TIMEOUT_MS,
+	CAPTURE_CLEANUP_STRICT_RETRY_MS,
+	connectCaptureCleanupAuditSession,
 	withExclusiveCaptureCleanupWorker,
 } from "@/lib/db/captureCleanupLease";
 import { preparePendingFormAttachments } from "@/lib/db/formAttachmentPreparation";
 import { purgeExpiredFormAttachments } from "@/lib/db/formAttachments";
-import { deleteAsset, deleteAssetGeneration } from "@/lib/storage/media";
+import {
+	deleteAsset,
+	deleteAssetGeneration,
+	probeCaptureStorageAuthority,
+} from "@/lib/storage/media";
 import {
 	readDatabaseCapacityRoleConfig,
 	runDatabaseCapacityPreflight,
@@ -31,7 +44,7 @@ const BATCH_SIZE = 100;
 const MAX_BATCHES = 10;
 const TEARDOWN_TIMEOUT_MS = 10_000;
 
-async function runMaintenance(): Promise<void> {
+async function runMaintenance(mode: CaptureCleanupMode): Promise<void> {
 	let expiredRows = 0;
 	let transitionedExpiredRows = 0;
 	let objectDeleteFailures = 0;
@@ -69,6 +82,15 @@ async function runMaintenance(): Promise<void> {
 			break;
 	}
 
+	const summary: CaptureMaintenanceSummary = {
+		prepared,
+		discarded,
+		preparationFailures,
+		supersededPreparations,
+		expiredRows,
+		transitionedExpiredRows,
+		objectDeleteFailures,
+	};
 	console.log(
 		JSON.stringify({
 			severity:
@@ -76,34 +98,39 @@ async function runMaintenance(): Promise<void> {
 					? "WARNING"
 					: "INFO",
 			message: "[attachments] scheduled maintenance complete",
-			prepared,
-			discarded,
-			preparationFailures,
-			supersededPreparations,
-			expiredRows,
-			transitionedExpiredRows,
-			objectDeleteFailures,
+			...summary,
 		}),
 	);
+	if (mode === "strict") assertStrictCaptureMaintenance(summary);
 }
 
 async function main(): Promise<void> {
+	const mode = readCaptureCleanupMode();
+	const strictOptions =
+		mode === "strict"
+			? {
+					admissionTimeoutMs: CAPTURE_CLEANUP_STRICT_ADMISSION_TIMEOUT_MS,
+					lockTimeoutMs: CAPTURE_CLEANUP_STRICT_LOCK_TIMEOUT_MS,
+					contentionRetryMs: CAPTURE_CLEANUP_STRICT_RETRY_MS,
+				}
+			: {};
 	const pool = await getCaseStorePool();
-	let capacityClient: PoolClient;
-	try {
-		capacityClient = await pool.connect();
-	} catch (error) {
-		if (isDatabaseConnectionSaturatedError(error)) {
-			console.log(
-				JSON.stringify({
-					severity: "INFO",
-					message:
-						"[attachments] scheduled maintenance skipped; database connection capacity is saturated before capacity audit",
-				}),
+	const capacityClient: PoolClient | null =
+		await connectCaptureCleanupAuditSession(pool, strictOptions);
+	if (capacityClient === null) {
+		if (mode === "strict") {
+			throw new Error(
+				"Strict capture maintenance could not reserve a database capacity-audit session before its deadline.",
 			);
-			return;
 		}
-		throw error;
+		console.log(
+			JSON.stringify({
+				severity: "INFO",
+				message:
+					"[attachments] scheduled maintenance skipped; database connection capacity is saturated before capacity audit",
+			}),
+		);
+		return;
 	}
 	try {
 		await runDatabaseCapacityPreflight(
@@ -114,8 +141,25 @@ async function main(): Promise<void> {
 		capacityClient.release();
 	}
 
-	const result = await withExclusiveCaptureCleanupWorker(runMaintenance);
+	if (mode === "strict") {
+		// This create/read/exact-generation-delete probe uses a capture-only key
+		// beneath the staged lifecycle prefix. It proves the deploy identity's
+		// complete GCS authority before the release can move traffic.
+		await probeCaptureStorageAuthority();
+	}
+
+	const result = await withExclusiveCaptureCleanupWorker(
+		() => runMaintenance(mode),
+		strictOptions,
+	);
 	if (result.kind !== "ran") {
+		if (mode === "strict") {
+			throw new Error(
+				result.kind === "already-running"
+					? "Strict capture maintenance timed out waiting for an overlapping cleanup lease."
+					: "Strict capture maintenance timed out waiting for database connection capacity.",
+			);
+		}
 		console.log(
 			JSON.stringify({
 				severity: "INFO",

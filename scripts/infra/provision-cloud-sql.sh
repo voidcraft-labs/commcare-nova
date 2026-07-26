@@ -19,12 +19,12 @@
 # behind an existence check; existing resources are left in place rather than
 # re-created.
 #
-# Phase 5 (extension installs + grants) is intentionally NOT in this script.
-# `CREATE EXTENSION pg_trgm / fuzzystrmatch / postgis` requires the
-# `cloudsqlsuperuser` role; only Cloud SQL's built-in `postgres` account
-# carries that role at instance creation, and Nova's migration SA does not. The
-# Phase 5 stub at the bottom of this script points at the checked-in bounded
-# owner bootstrap after the extensions are installed.
+# Phase 5 (the privileged extension/ownership bootstrap) is intentionally NOT
+# in this script. Creating pg_trgm/fuzzystrmatch/postgis/pgaudit requires the
+# `cloudsqlsuperuser` role, which Nova's migration SA does not carry. The Phase
+# 5 stub at the bottom points at the checked-in bounded owner bootstrap run
+# through a temporary built-in administrator; that transaction creates the
+# extensions, transfers ownership, and proves the final role shape.
 #
 # Usage: ./scripts/infra/provision-cloud-sql.sh [--dry-run]
 
@@ -286,8 +286,9 @@ for role in roles/cloudsql.client roles/cloudsql.instanceUser; do
 done
 
 # Dedicated runtime, migration, and cleanup database users. Runtime is created
-# first because the other two users' sole custom database-role membership is
-# runtime.
+# first because migration's sole custom database-role membership is runtime.
+# Capture cleanup is intentionally isolated and receives only direct table
+# grants from the migration-time privilege convergence.
 for database_user in \
 	"$RUNTIME_SA_DBUSER" \
 	"$MIGRATION_SA_DBUSER" \
@@ -317,7 +318,6 @@ run gcloud sql users assign-roles "$MIGRATION_SA_DBUSER" \
 run gcloud sql users assign-roles "$CAPTURE_CLEANUP_SA_DBUSER" \
 	--instance="$INSTANCE_ID" \
 	--type=CLOUD_IAM_SERVICE_ACCOUNT \
-	--database-roles="$RUNTIME_SA_DBUSER" \
 	--revoke-existing-roles
 
 # Developer database user.
@@ -343,34 +343,31 @@ run gcloud sql users assign-roles "$DEVELOPER_USER" \
 # ---------------------------------------------------------------------------
 # Phase 5 — INTENTIONALLY NOT IN THIS SCRIPT.
 #
-# Extension installs (pg_trgm / fuzzystrmatch / postgis) require the
-# cloudsqlsuperuser role, which only a built-in administrator has. This work
-# runs through Cloud SQL Studio in the Google Cloud Console:
+# The extension/ownership bootstrap requires `cloudsqlsuperuser`, which only a
+# built-in administrator has. This work runs through Cloud SQL Studio in the
+# Google Cloud Console:
 #
 #   1. Create a strong-password temporary BUILT_IN administrator with NO inline
 #      `--database-roles`; assigning roles at creation suppresses its automatic
 #      cloudsqlsuperuser membership.
 #   2. After creation, assign runtime, migration, cleanup, and the retired role
 #      when present WITHOUT `--revoke-existing-roles`, preserving
-#      cloudsqlsuperuser. Migration and cleanup each keep runtime as their sole
-#      custom role; runtime keeps none.
-#   3. Sign into Studio as that temporary user; run against `nova_cases`:
-#
-#        CREATE EXTENSION IF NOT EXISTS pg_trgm;
-#        CREATE EXTENSION IF NOT EXISTS fuzzystrmatch;
-#        CREATE EXTENSION IF NOT EXISTS postgis;
-#
-#        GRANT USAGE ON SCHEMA public TO "bperry@dimagi.com";
-#
+#      cloudsqlsuperuser. Migration keeps runtime as its sole custom role;
+#      runtime and capture cleanup keep none.
+#   3. Sign into Studio as that temporary user against `nova_cases`.
 #   4. Run `bootstrap-database-owner.ts` without `--apply`, then with `--apply`.
-#      It transactionally sets runtime/migration/cleanup CONNECTION LIMIT
-#      16/1/3, makes `nova-migrate` the database owner, transfers temporary and
-#      legacy ownership, and audits every result.
-#   5. Delete the temporary built-in administrator through Cloud SQL and verify
+#      It transactionally creates pg_trgm/fuzzystrmatch/postgis/pgaudit, sets
+#      runtime/migration/cleanup CONNECTION LIMIT 16/1/3, makes `nova-migrate`
+#      the database and extension owner, transfers temporary and legacy
+#      ownership, and audits every result.
+#   5. Grant any separately authorized operator access only after bootstrap;
+#      bootstrap's `DROP OWNED` deliberately removes grants owned by the
+#      temporary administrator.
+#   6. Delete the temporary built-in administrator through Cloud SQL and verify
 #      it is absent.
-#   6. Verify each extension is reachable under IAM auth as the developer
+#   7. Verify each extension is reachable under IAM auth as the developer
 #      user (a smoke query against `pg_extension`).
-#   7. Converge Cloud Run global/revision maxima to four and run the capacity
+#   8. Converge Cloud Run global/revision maxima to four and run the capacity
 #      preflight; it must observe <=16 runtime sessions before database Jobs.
 #
 # The split exists because PostGIS specifically requires `cloudsqlsuperuser`

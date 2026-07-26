@@ -491,18 +491,27 @@ no recorded error and cannot be stolen, while unattended scheduler failures
 keep their backoff. Scheduler delivery and the deploy-time invocation may
 overlap, so `captureCleanupLease.ts` holds one session advisory lock for the
 whole maintenance run. The active worker's pool max is two (the lock session
-plus one work connection). The cleanup login role's hard connection limit is
-three: one losing execution can consume its lock-probe connection and exit
-without work, while any further pre-lock contender receives SQLSTATE `53300`
-and exits as a saturated no-op. A `53300` after this process owns the advisory
-lock is an active-worker failure, so it unlocks and fails the Job rather than
-masking skipped maintenance. Every scheduled/deploy execution audits the
-server settings and all three login-role limits before acquiring the lock.
-After winning, the owner prewarms its second connection with a bounded retry:
-two simultaneously admitted probes may briefly fill cleanup's three slots,
-then destroy their losing sessions; maintenance starts only once the owner's
-same pool holds the work session idle for Kysely to reuse. A stuck reservation
-times out and fails the Job.
+plus one work connection). Its isolated login role has no runtime membership
+and receives only public-schema `USAGE` plus `SELECT`/`UPDATE`/`DELETE` on
+`form_attachments`; migration-time convergence revokes access to every other
+managed table, the case schema, and attachment insertion/administration. The
+cleanup role's hard connection limit is three. A scheduler dispatch probes
+once and treats a held lease or pre-lock SQLSTATE `53300` as a saturated
+best-effort no-op. A `53300` after this process owns the advisory lock is an
+active-worker failure, so it unlocks and fails the Job rather than masking
+skipped maintenance. Every scheduled/deploy execution audits the server
+settings, all three login-role limits, and `pgaudit` extension presence before
+acquiring the lock. After winning, the owner prewarms its second connection
+with a bounded retry; maintenance starts only once the owner's same pool holds
+the work session idle for Kysely to reuse. A stuck reservation times out and
+fails the Job.
+
+The stored Cloud Run Job mode is `scheduler`. Cloud Build overrides one
+pre-traffic execution to `strict`: it waits through bounded capacity and lease
+contention, proves its capture-only GCS create/read/exact-generation-delete
+authority under the staged lifecycle prefix, and rejects any maintenance
+summary with a row preparation/discard or exact object-deletion failure.
+Scheduler delivery remains best-effort; the deploy gate does not.
 GCS lifecycle remains the traffic-independent
 backstop for ordinary staged/browser-abandoned source bytes, but cannot
 atomically distinguish DB acceptance; accepted durability therefore requires
@@ -511,7 +520,10 @@ worker and initiate-route sweep share `purgeExpiredFormAttachments`. Repeat
 compaction preserves attachment-id identity and CAS-moves only a `staged` row's
 concrete `instance_path` under the same entry advisory lock; pending uploads
 cancel, `preparing`/`prepared` rows are fenced from retarget, and `submitted`
-rows are immutable. Clear/expiry moves `preparing`/`prepared` through
+rows are immutable. A CAS mismatch returns the locked row's authoritative path
+instead of rejecting it, so a client that lost an earlier successful response
+can adopt that coordinate and continue toward the latest repeat position.
+Clear/expiry moves `preparing`/`prepared` through
 `discarding`, where exact source and destination generations are deleted before
 the metadata row.
 Every item-route helper also takes the URL's `expectedAppId` and includes it in

@@ -1032,6 +1032,9 @@ describe("FormScreen — pending UX", () => {
 				await release;
 			},
 		});
+		const uploadCanceled = expect(upload).rejects.toMatchObject({
+			name: "AbortError",
+		});
 		await started;
 
 		fireEvent.click(submit);
@@ -1048,7 +1051,7 @@ describe("FormScreen — pending UX", () => {
 		});
 
 		releaseUpload();
-		await upload;
+		await uploadCanceled;
 		await act(async () => {
 			await Promise.resolve();
 			await Promise.resolve();
@@ -1084,6 +1087,9 @@ describe("FormScreen — pending UX", () => {
 				await releaseBlocker.promise;
 			},
 		});
+		const blockerCanceled = expect(blocker).rejects.toMatchObject({
+			name: "AbortError",
+		});
 		await blockerStarted.promise;
 		fireEvent.click(screen.getByRole("button", { name: /^submit$/i }));
 		await screen.findByRole("button", { name: /submitting\.\.\./i });
@@ -1098,7 +1104,7 @@ describe("FormScreen — pending UX", () => {
 		});
 
 		releaseBlocker.resolve();
-		await blocker;
+		await blockerCanceled;
 		await act(async () => {
 			await Promise.resolve();
 			await Promise.resolve();
@@ -1222,6 +1228,47 @@ describe("FormScreen — validate-fail short-circuit", () => {
 				block: "center",
 			}),
 		);
+	});
+
+	it("expands and focuses the signature pad for a kind-change replacement blocker", async () => {
+		renderFormScreen({ formUuid: STRUCTURE_FORM_UUID });
+		const controlName =
+			/Section 2.*Visit.*Question 2.*Signed consent.*Signature pad/i;
+		await screen.findByLabelText(controlName);
+		await waitFor(() => expect(capturedController?.entryKey).toBeDefined());
+		const entryKey = capturedController?.entryKey;
+		if (!entryKey) throw new Error("Expected an active form entry");
+		act(() => {
+			setAttachmentSlotIssue({
+				appId: APP_ID,
+				entryKey,
+				slotKey: `${GROUP_TWO_SIGNATURE_UUID}\u0000`,
+				issue: {
+					kind: "replace",
+					message:
+						"This question is now a signature. Draw a new signature before submitting.",
+				},
+			});
+		});
+		const initialPad = await screen.findByLabelText(controlName);
+		expect(initialPad.getAttribute("aria-invalid")).toBe("true");
+		expect(initialPad.hasAttribute("data-attachment-recovery")).toBe(true);
+
+		const groupToggle = screen.getByRole("button", {
+			name: /Collapse.*Section 2.*Visit/i,
+		});
+		fireEvent.click(groupToggle);
+		expect(groupToggle.getAttribute("aria-expanded")).toBe("false");
+		expect(screen.queryByLabelText(controlName)).toBeNull();
+
+		fireEvent.click(screen.getByRole("button", { name: /^submit$/i }));
+		await waitFor(() => {
+			expect(groupToggle.getAttribute("aria-expanded")).toBe("true");
+		});
+		const restoredPad = await screen.findByLabelText(controlName);
+		await waitFor(() => expect(document.activeElement).toBe(restoredPad));
+		expect(restoredPad.getAttribute("aria-invalid")).toBe("true");
+		expect(vi.mocked(submitFormAction)).not.toHaveBeenCalled();
 	});
 
 	it.each([

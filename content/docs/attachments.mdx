@@ -48,10 +48,13 @@ pad they sign with a finger or a mouse, saved as an image. Use it for
 consent and sign-off; use Image when the worker needs to attach a picture
 of something.
 
-Clearing a signature offers an **Undo** next to the pad, and the offer
-stands until the worker signs again rather than disappearing on a timer.
-That is there because a signature is the one attachment with no copy
-anywhere else: a photo they clear is still on their phone, but a
+Clearing a signature waits until the form answer is actually cleared before the
+pad goes blank and offers **Undo**. If that action is canceled or the worker's
+edit access changes while it is waiting, the ink stays visible and Clear becomes
+available again — the pad never claims the signature is gone before the answer
+agrees. The Undo offer then stands until the worker signs again rather than
+disappearing on a timer. That is there because a signature is the one attachment
+with no copy anywhere else: a photo they clear is still on their phone, but a
 signature they clear is gone. Undo puts it back. Collapsing or temporarily
 hiding the question does not take that Undo away.
 
@@ -70,7 +73,9 @@ removes it and remains undoable. Losing pointer capture or temporarily
 unmounting the pad does not strand the latest stroke: Nova settles it or resumes
 its save when the pad returns. Pressing **Clear signature** while an earlier
 save is still running cancels that older save and clears the answer once — old
-ink cannot reappear later.
+ink cannot reappear later. A temporary access refresh also keeps the ink and its
+Submit blocker; if editor access returns for that same form, Nova resumes the
+retained save once under the new access state.
 
 ## File attachments only work in the web app
 
@@ -145,7 +150,10 @@ only while the question is active. The question shows **Retry**,
 **Retry** beside its single **Clear signature** action. The same message is
 still there after an ordinary remount. Retry moves the retained file; a
 confirmed replacement takes over cleanly; **Remove attachment** or **Clear
-signature** clears the answer.
+signature** clears the answer. If the server saved an earlier repeat move but
+its response was lost, Retry first adopts the row where the server actually
+stored it and then continues to the latest position; the worker does not have to
+attach the file or redraw the signature.
 
 ## Clearing a required attachment
 
@@ -209,7 +217,9 @@ with a submission.
 If Submit finds an unanswered required question inside a collapsed group or
 repeating section, Nova opens every ancestor, announces the problem, scrolls it
 into view, and focuses the real attachment control — the file picker or
-signature pad — so the worker can fix it immediately.
+signature pad — so the worker can fix it immediately. If an author changed an
+answered question into Signature and the old attachment must be replaced,
+Submit likewise focuses the blank signature pad itself.
 
 The same recovery works when a failed attachment save or repeat move blocks
 Submit: Nova opens the exact question, announces its retained error, and focuses

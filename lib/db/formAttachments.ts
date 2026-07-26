@@ -943,9 +943,10 @@ export async function retargetStagedFormAttachment(args: {
 		const current = recordFromRow(row);
 		if (current.instancePath === args.instancePath) return current;
 		if (current.instancePath !== args.expectedInstancePath) {
-			throw new FormAttachmentWriteRejectedError(
-				"The repeat row changed again while its attachment moved. Attach the file again.",
-			);
+			// The caller may have lost the response to an earlier successful
+			// move. Return the locked row's authoritative coordinate so it can
+			// advance its CAS and continue toward the newest desired path.
+			return current;
 		}
 		const committed = await loadAppInTransaction(tx, args.expectedAppId);
 		const field = committed?.blueprint.fields[current.fieldUuid];

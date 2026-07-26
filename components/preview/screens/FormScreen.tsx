@@ -47,6 +47,7 @@ import { useEngineEntry } from "@/lib/preview/hooks/useEngineEntry";
 import { useFormEngine } from "@/lib/preview/hooks/useFormEngine";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import {
+	useAccessPhase,
 	useAppId,
 	useBuilderIsReady,
 	useCanEdit,
@@ -68,6 +69,7 @@ import {
 	reconcileAttachmentRepeatCompaction,
 	retireAttachmentEntry,
 	runFormAttachmentBarrier,
+	setAttachmentEntryAuthority,
 } from "../form/fields/attachment/attachmentClient";
 
 /**
@@ -222,6 +224,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	const mode = useEditMode();
 	const appId = useAppId();
 	const scopeEpoch = useProjectScopeEpoch();
+	const accessPhase = useAccessPhase();
 	const personaUuid = usePreviewPersonaUuid();
 	const session = useBuilderSessionApi();
 	/* A viewer may preview the running app but not WRITE case data (submit a
@@ -365,6 +368,26 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	const engineEntry = useEngineEntry();
 	const entryKey =
 		engineEntry.formUuid === formUuid ? engineEntry.entryKey : undefined;
+	if (entryKey !== undefined) {
+		setAttachmentEntryAuthority({
+			entryKey,
+			snapshot: {
+				appId,
+				scopeEpoch,
+				accessPhase,
+				canEdit: mayWriteCaseData,
+			},
+			readCurrent: () => {
+				const current = session.getState();
+				return {
+					appId: current.appId,
+					scopeEpoch: current.scopeEpoch,
+					accessPhase: current.accessPhase,
+					canEdit: current.canEdit,
+				};
+			},
+		});
+	}
 	const postSubmitDestination =
 		form === undefined
 			? undefined
