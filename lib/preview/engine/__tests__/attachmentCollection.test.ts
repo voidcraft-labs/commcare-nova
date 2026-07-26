@@ -1,7 +1,7 @@
 /**
  * What a submission carries as its attachment set.
  *
- * `collectAttachmentNames` decides which staged attachments survive a
+ * `collectAttachmentReferences` decides which staged attachments survive a
  * submission. The server prepares that exact set; omitted staged rows remain
  * retryable/expirable rather than being destructively classified.
  *
@@ -17,6 +17,8 @@ import { describe, expect, it } from "vitest";
 import type { Field, Form, Uuid } from "@/lib/domain";
 import { asUuid } from "@/lib/domain";
 import { FormEngine, type FormEngineInput } from "../formEngine";
+
+const ENTRY_KEY = "11111111-1111-4111-8111-111111111111";
 
 type Spec = {
 	id: string;
@@ -57,12 +59,18 @@ function input(fields: Spec[]): FormEngineInput {
 	return { form, formUuid, fields: fieldMap, fieldOrder };
 }
 
-describe("collectAttachmentNames", () => {
+function referenceNames(engine: FormEngine): string[] {
+	return engine
+		.collectAttachmentReferences()
+		.map((reference) => reference.attachmentName);
+}
+
+describe("collectAttachmentReferences", () => {
 	it("returns nothing when no capture has an answer", () => {
 		const engine = new FormEngine(
 			input([{ id: "photo", kind: "image", label: "Photo" }]),
 		);
-		expect(engine.collectAttachmentNames()).toEqual([]);
+		expect(engine.collectAttachmentReferences()).toEqual([]);
 	});
 
 	it("collects an answered capture's name", () => {
@@ -70,7 +78,7 @@ describe("collectAttachmentNames", () => {
 			input([{ id: "photo", kind: "image", label: "Photo" }]),
 		);
 		engine.setValue("/data/photo", "att-1.jpg");
-		expect(engine.collectAttachmentNames()).toEqual(["att-1.jpg"]);
+		expect(referenceNames(engine)).toEqual(["att-1.jpg"]);
 	});
 
 	it("ignores non-capture answers", () => {
@@ -84,7 +92,7 @@ describe("collectAttachmentNames", () => {
 		);
 		engine.setValue("/data/note", "hello");
 		engine.setValue("/data/code", "12345");
-		expect(engine.collectAttachmentNames()).toEqual([]);
+		expect(engine.collectAttachmentReferences()).toEqual([]);
 	});
 
 	it("collects every capture kind", () => {
@@ -100,7 +108,7 @@ describe("collectAttachmentNames", () => {
 		for (const id of ["a", "b", "c", "d", "e"]) {
 			engine.setValue(`/data/${id}`, `${id}.bin`);
 		}
-		expect(engine.collectAttachmentNames().sort()).toEqual([
+		expect(referenceNames(engine).sort()).toEqual([
 			"a.bin",
 			"b.bin",
 			"c.bin",
@@ -121,7 +129,7 @@ describe("collectAttachmentNames", () => {
 			]),
 		);
 		engine.setValue("/data/section/photo", "att-1.jpg");
-		expect(engine.collectAttachmentNames()).toEqual(["att-1.jpg"]);
+		expect(referenceNames(engine)).toEqual(["att-1.jpg"]);
 	});
 
 	it("DROPS a capture whose question is no longer relevant", () => {
@@ -143,13 +151,13 @@ describe("collectAttachmentNames", () => {
 		);
 		engine.setValue("/data/gate", "yes");
 		engine.setValue("/data/photo", "att-1.jpg");
-		expect(engine.collectAttachmentNames()).toEqual(["att-1.jpg"]);
+		expect(referenceNames(engine)).toEqual(["att-1.jpg"]);
 
 		// Flip the condition: the value survives in the instance (matching the
 		// platform, whose session serialization ignores relevance) but the
 		// submission no longer names it.
 		engine.setValue("/data/gate", "no");
-		expect(engine.collectAttachmentNames()).toEqual([]);
+		expect(engine.collectAttachmentReferences()).toEqual([]);
 	});
 
 	it("DROPS an answered capture beneath an irrelevant group", () => {
@@ -167,7 +175,7 @@ describe("collectAttachmentNames", () => {
 		);
 		engine.setValue("/data/gate", "yes");
 		engine.setValue("/data/section/photo", "att-1.jpg");
-		expect(engine.collectAttachmentNames()).toEqual(["att-1.jpg"]);
+		expect(referenceNames(engine)).toEqual(["att-1.jpg"]);
 
 		engine.setValue("/data/gate", "no");
 
@@ -175,7 +183,7 @@ describe("collectAttachmentNames", () => {
 		// nevertheless inherit the hidden group, so its stale answer is absent
 		// from both the attachment reservation and the submitted instance.
 		expect(engine.getState("/data/section/photo").visible).toBe(true);
-		expect(engine.collectAttachmentNames()).toEqual([]);
+		expect(engine.collectAttachmentReferences()).toEqual([]);
 	});
 
 	it("DROPS an answered capture beneath an irrelevant repeat", () => {
@@ -196,7 +204,7 @@ describe("collectAttachmentNames", () => {
 		engine.setValue("/data/visits[0]/photo", "att-1.jpg");
 		engine.setValue("/data/gate", "no");
 
-		expect(engine.collectAttachmentNames()).toEqual([]);
+		expect(engine.collectAttachmentReferences()).toEqual([]);
 	});
 
 	it("collects one name per live repeat iteration", () => {
@@ -214,10 +222,7 @@ describe("collectAttachmentNames", () => {
 		engine.addRepeat("/data/visits");
 		engine.setValue("/data/visits[0]/photo", "first.jpg");
 		engine.setValue("/data/visits[1]/photo", "second.jpg");
-		expect(engine.collectAttachmentNames().sort()).toEqual([
-			"first.jpg",
-			"second.jpg",
-		]);
+		expect(referenceNames(engine).sort()).toEqual(["first.jpg", "second.jpg"]);
 	});
 
 	it("DROPS a deleted repeat instance's attachment", () => {
@@ -239,24 +244,22 @@ describe("collectAttachmentNames", () => {
 		engine.setValue("/data/visits[0]/photo", "first.jpg");
 		engine.setValue("/data/visits[1]/photo", "second.jpg");
 		engine.removeRepeat("/data/visits", 1);
-		expect(engine.collectAttachmentNames()).toEqual(["first.jpg"]);
+		expect(referenceNames(engine)).toEqual(["first.jpg"]);
 	});
 });
 
 describe("the mutation's attachment slots", () => {
 	it("carries an EMPTY list when nothing was attached, given an entry key", () => {
-		// Empty means "this submission named nothing" and therefore needs no
-		// durable capture intent. It must not be confused with absent, which
-		// means "a client that knows nothing about attachments".
+		// Empty is the explicit final-protocol projection: this submission
+		// retains no staged attachment for the entry.
 		const engine = new FormEngine(
 			input([{ id: "photo", kind: "image", label: "Photo" }]),
 		);
 		const mutation = engine.computeSubmissionMutation({
 			caseTypes: [],
-			entryKey: "entry-1",
+			entryKey: ENTRY_KEY,
 		});
-		expect(mutation.entryKey).toBe("entry-1");
-		expect(mutation.attachmentNames).toEqual([]);
+		expect(mutation.entryKey).toBe(ENTRY_KEY);
 		expect(mutation.attachmentRefs).toEqual([]);
 	});
 
@@ -267,7 +270,7 @@ describe("the mutation's attachment slots", () => {
 		engine.setValue("/data/photo", "att-1.jpg");
 		const mutation = engine.computeSubmissionMutation({
 			caseTypes: [],
-			entryKey: "entry-1",
+			entryKey: ENTRY_KEY,
 		});
 		expect(mutation.attachmentRefs).toEqual([
 			{
@@ -276,16 +279,5 @@ describe("the mutation's attachment slots", () => {
 				instancePath: "/data/photo",
 			},
 		]);
-	});
-
-	it("omits every attachment slot when no entry key is supplied", () => {
-		const engine = new FormEngine(
-			input([{ id: "photo", kind: "image", label: "Photo" }]),
-		);
-		engine.setValue("/data/photo", "att-1.jpg");
-		const mutation = engine.computeSubmissionMutation({ caseTypes: [] });
-		expect(mutation.entryKey).toBeUndefined();
-		expect(mutation.attachmentNames).toBeUndefined();
-		expect(mutation.attachmentRefs).toBeUndefined();
 	});
 });

@@ -13,6 +13,7 @@ vi.mock("@/lib/db/apps", () => ({
 	loadApp: loadAppMock,
 }));
 
+import { validateCaptureSubmissionProjection } from "../captureSubmissionValidation";
 import {
 	buildSubmissionOperationProgram,
 	buildSubmissionReceiptIdentity,
@@ -57,12 +58,11 @@ function surveyDoc(fieldKind: "image" | "text") {
 	});
 }
 
-function emptyCaptureProjection(): SubmissionMutation {
+function emptyCaptureMutation(): SubmissionMutation {
 	return {
 		kind: "survey",
 		formUuid: FORM_UUID,
 		entryKey: ENTRY_KEY,
-		attachmentNames: [],
 		attachmentRefs: [],
 	};
 }
@@ -78,10 +78,12 @@ describe("capture submission intent", () => {
 			mutation_seq: 17,
 		});
 
+		const mutation = emptyCaptureMutation();
 		const built = await buildSubmissionOperationProgram({
 			appId: APP_ID,
 			identity: IDENTITY,
-			mutation: emptyCaptureProjection(),
+			mutation,
+			projection: validateCaptureSubmissionProjection(mutation),
 			viewerTimeZone: "UTC",
 		});
 
@@ -106,46 +108,51 @@ describe("capture submission intent", () => {
 		});
 	});
 
-	it("keeps receipt identity after the current form becomes text-only", async () => {
+	it("does not create a new capture receipt after the current form becomes text-only", async () => {
 		loadAppMock.mockResolvedValue({
 			blueprint: surveyDoc("text"),
 			mutation_seq: 17,
 		});
 
+		const mutation = emptyCaptureMutation();
 		const built = await buildSubmissionOperationProgram({
 			appId: APP_ID,
 			identity: IDENTITY,
-			mutation: emptyCaptureProjection(),
+			mutation,
+			projection: validateCaptureSubmissionProjection(mutation),
 			viewerTimeZone: "UTC",
 		});
 
 		expect(built.captureIntent).toBeUndefined();
-		expect(built.submissionReceipt).toMatchObject({
-			entryKey: ENTRY_KEY,
-			formUuid: FORM_UUID,
-			requestDigest: expect.stringMatching(/^[0-9a-f]{64}$/),
-		});
+		expect(built.submissionReceipt).toBeUndefined();
 	});
 
 	it("purely replays an exact receipt and rejects a changed digest before structure", () => {
+		const exactMutation = emptyCaptureMutation();
 		const exact = buildSubmissionReceiptIdentity({
 			appId: APP_ID,
 			identity: IDENTITY,
-			mutation: emptyCaptureProjection(),
+			mutation: exactMutation,
+			projection: validateCaptureSubmissionProjection(exactMutation),
 			viewerTimeZone: "UTC",
 		});
+		const changedMutation: SubmissionMutation = {
+			...emptyCaptureMutation(),
+			attachmentRefs: [
+				{
+					attachmentName: "changed.png",
+					fieldUuid: FIELD_UUID,
+					instancePath: "/data/photo",
+				},
+			],
+		};
 		const changed = buildSubmissionReceiptIdentity({
 			appId: APP_ID,
 			identity: IDENTITY,
-			mutation: {
-				...emptyCaptureProjection(),
-				attachmentNames: ["changed.png"],
-			},
+			mutation: changedMutation,
+			projection: validateCaptureSubmissionProjection(changedMutation),
 			viewerTimeZone: "UTC",
 		});
-		if (exact === undefined || changed === undefined) {
-			throw new Error("Expected receipt identities.");
-		}
 		const prior = {
 			formUuid: exact.formUuid,
 			requestDigest: exact.requestDigest,

@@ -6,9 +6,6 @@ const captureSubmissionProjectionSchema = z
 	.object({
 		entryKey: z.string().uuid(),
 		formUuid: z.string().uuid(),
-		attachmentNames: z
-			.array(z.string().min(1).max(255))
-			.max(MAX_SUBMITTED_CAPTURE_COUNT),
 		attachmentRefs: z
 			.array(
 				z
@@ -21,7 +18,7 @@ const captureSubmissionProjectionSchema = z
 			)
 			.max(MAX_SUBMITTED_CAPTURE_COUNT),
 	})
-	.strict();
+	.strip();
 
 export type CaptureSubmissionProjection = z.infer<
 	typeof captureSubmissionProjectionSchema
@@ -31,22 +28,19 @@ export type CaptureSubmissionProjection = z.infer<
 export function validateCaptureSubmissionProjection(
 	input: unknown,
 ): CaptureSubmissionProjection {
+	if (
+		typeof input === "object" &&
+		input !== null &&
+		Object.hasOwn(input, "attachmentNames")
+	) {
+		throw new CaptureSubmissionRejectedError(
+			"The retired attachmentNames submission field is not accepted.",
+		);
+	}
 	const projection = captureSubmissionProjectionSchema.safeParse(input);
 	if (!projection.success) {
 		throw new CaptureSubmissionRejectedError(
-			`A form submission may carry at most ${MAX_SUBMITTED_CAPTURE_COUNT} valid attachment answers.`,
-		);
-	}
-	if (
-		projection.data.attachmentNames.length !==
-			projection.data.attachmentRefs.length ||
-		projection.data.attachmentNames.some(
-			(name, index) =>
-				name !== projection.data.attachmentRefs[index]?.attachmentName,
-		)
-	) {
-		throw new CaptureSubmissionRejectedError(
-			"The submitted attachment-name projection does not match its exact answer references.",
+			`A form submission requires a valid form identity and at most ${MAX_SUBMITTED_CAPTURE_COUNT} exact attachment answers.`,
 		);
 	}
 	return projection.data;

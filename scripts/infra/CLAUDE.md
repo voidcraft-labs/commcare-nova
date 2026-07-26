@@ -16,9 +16,11 @@ the existing `commcare-nova` runtime identity:
   runtime-only OpenAI credential remains inaccessible to the build identity.
 - `nova-migrate` connects as the migration database owner and runs all three
   Kysely migration phases plus post-migration privilege convergence.
-- `nova-media-policy` applies the capture-bucket lifecycle and CORS contract
-  through a custom role containing only bucket metadata get/update; it does
-  not connect to Postgres.
+- `nova-media-policy` applies the capture bucket's complete hard-retention and
+  CORS contract through a custom role containing only bucket metadata
+  get/update. Its metageneration-fenced patch installs the exact lifecycle,
+  disables soft delete, versioning, and default event holds, and fails if an
+  operator retention policy is present; it does not connect to Postgres.
 - `nova-capture-cleanup` connects as an isolated IAM database user with direct
   `SELECT`/`UPDATE`/`DELETE` on `public.form_attachments` and no runtime-role
   membership. Its custom storage role contains only object get/create/delete,
@@ -37,9 +39,10 @@ capture-maintenance job. The provisioning script does that enablement first;
 step. That five-minute Cloud Run Job is correctness infrastructure, not merely
 orphan hygiene: it resumes DB-first `preparing` rows, verifies deterministic
 durable destinations after request crashes, and completes exact `discarding`
-cleanup without relying on app traffic. The bucket lifecycle remains the
-independent backstop for ordinary staging-prefix sources; it must never match
-the durable capture prefix accepted submissions use.
+cleanup without relying on app traffic. The complete bucket storage policy
+remains the independent hard-retention backstop for ordinary staging-prefix
+sources; it must never match the durable capture prefix accepted submissions
+use.
 
 The Job's stored mode is `scheduler`: ordinary five-minute dispatches are
 best-effort when connection capacity or the advisory lease is already occupied.

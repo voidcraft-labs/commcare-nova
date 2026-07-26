@@ -43,6 +43,8 @@ import { useFormLayout } from "../FormLayoutContext";
 import { FIELD_STYLES } from "../fieldStyles";
 import { InteractiveFormRenderer } from "../InteractiveFormRenderer";
 import { depthPadding } from "../virtual/rowStyles";
+import { runWithAttachmentEntryWriteAuthority } from "./attachment/attachmentClient";
+import { useAttachmentEntryWriteAuthority } from "./attachment/useAttachmentEntryWriteAuthority";
 
 interface RepeatFieldProps {
 	/** The repeat field entity from the normalized doc. */
@@ -67,6 +69,7 @@ interface InstanceDividerProps {
 	idx: number;
 	depth: number;
 	onRemove?: () => void;
+	removeDisabled?: boolean;
 	instanceLabelId: string;
 	accessibleContext: string;
 	repeatHeaderId: string;
@@ -83,6 +86,7 @@ function InstanceDivider({
 	idx,
 	depth,
 	onRemove,
+	removeDisabled = false,
 	instanceLabelId,
 	accessibleContext,
 	repeatHeaderId,
@@ -106,7 +110,8 @@ function InstanceDivider({
 				<button
 					type="button"
 					onClick={onRemove}
-					className="inline-flex min-h-11 min-w-11 touch-manipulation items-center justify-center rounded text-nova-text-muted transition-colors hover:text-nova-rose"
+					disabled={removeDisabled}
+					className="inline-flex min-h-11 min-w-11 touch-manipulation items-center justify-center rounded text-nova-text-muted transition-colors not-disabled:hover:text-nova-rose disabled:cursor-not-allowed disabled:opacity-40"
 					aria-labelledby={[
 						removeActionId,
 						accessibleContext,
@@ -144,6 +149,8 @@ export function RepeatField({
 	// Path-keyed subscription so a repeat NESTED inside another repeat
 	// reads its own instance's cardinality, not the template's.
 	const state = useEngineStateAt(field.uuid, path);
+	const entryKey = controller.entryKey;
+	const writeAuthority = useAttachmentEntryWriteAuthority(entryKey);
 	const { toggleCollapse, isCollapsed } = useFormLayout();
 	const collapsed = isCollapsed(field.uuid);
 	const headerId = useId();
@@ -177,6 +184,32 @@ export function RepeatField({
 	// dividers themselves still render so the user can see each iteration's
 	// content.
 	const isUserControlled = field.repeat_mode === "user_controlled";
+
+	const removeInstance = useCallback(
+		(index: number, expectedInstanceKey: string) => {
+			if (entryKey === undefined) return;
+			runWithAttachmentEntryWriteAuthority({
+				entryKey,
+				token: writeAuthority,
+				action: () => {
+					// A handler can outlive both an access generation and the
+					// positional index it rendered. Require the same live entry
+					// and stable instance identity before compacting; otherwise a
+					// double/stale click could remove the successor now occupying
+					// this index.
+					if (
+						controller.entryKey !== entryKey ||
+						controller.getRepeatInstanceKey(field.uuid, index, path) !==
+							expectedInstanceKey
+					) {
+						return;
+					}
+					controller.removeRepeat(field.uuid, index, path);
+				},
+			});
+		},
+		[controller, entryKey, field.uuid, path, writeAuthority],
+	);
 
 	return (
 		<>
@@ -303,9 +336,10 @@ export function RepeatField({
 											depth={depth + 1}
 											onRemove={
 												isUserControlled && count > 1
-													? () => controller.removeRepeat(field.uuid, idx, path)
+													? () => removeInstance(idx, instanceKey)
 													: undefined
 											}
+											removeDisabled={writeAuthority === undefined}
 											instanceLabelId={`${instanceLabelBaseId}-${idx}`}
 											accessibleContext={accessibleContext}
 											repeatHeaderId={`${headerId} ${titleId}`}

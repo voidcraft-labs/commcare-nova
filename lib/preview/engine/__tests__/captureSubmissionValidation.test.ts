@@ -16,13 +16,12 @@ function projection(count: number) {
 	return {
 		entryKey: ENTRY_KEY,
 		formUuid: FORM_UUID,
-		attachmentNames: attachmentRefs.map((entry) => entry.attachmentName),
 		attachmentRefs,
 	};
 }
 
 describe("validateCaptureSubmissionProjection", () => {
-	it("accepts the exact bounded name/ref projection", () => {
+	it("accepts the exact bounded attachment-reference projection", () => {
 		expect(validateCaptureSubmissionProjection(projection(2))).toEqual(
 			projection(2),
 		);
@@ -52,12 +51,15 @@ describe("validateCaptureSubmissionProjection", () => {
 		).toThrow(CaptureSubmissionRejectedError);
 	});
 
-	it("rejects a name projection that differs from the structured refs", () => {
-		expect(() =>
-			validateCaptureSubmissionProjection({
-				...projection(1),
-				attachmentNames: ["different.png"],
-			}),
-		).toThrow(/does not match/);
+	it("rejects a projection missing any required protocol field", () => {
+		const valid = projection(1);
+		for (const field of ["entryKey", "formUuid", "attachmentRefs"] as const) {
+			expect(() =>
+				validateCaptureSubmissionProjection({
+					...valid,
+					[field]: undefined,
+				}),
+			).toThrow(CaptureSubmissionRejectedError);
+		}
 	});
 });

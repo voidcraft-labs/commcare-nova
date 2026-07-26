@@ -884,6 +884,17 @@ export class EngineController {
 				}),
 			);
 		}
+		if (this.currentEntryKey === undefined) {
+			throw new Error(
+				compilerBugMessage({
+					where: "preview.engineController.computeSubmissionMutation",
+					invariant:
+						"controller has an active engine without a current entry key",
+					detail:
+						"Every final submission carries the controller-owned entry identity and an explicit exact attachment projection.",
+				}),
+			);
+		}
 		return this.engine.computeSubmissionMutation({
 			...args,
 			entryKey: this.currentEntryKey,

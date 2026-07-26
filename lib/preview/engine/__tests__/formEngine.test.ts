@@ -22,6 +22,8 @@ import {
 } from "../formEngine";
 import { previewAsMe } from "../identity";
 
+const ENTRY_KEY = "11111111-1111-4111-8111-111111111111";
+
 /** Case data holding a single case type's property map — the common
  *  single-namespace shape of the engine's per-type case data. */
 function caseDataFor(
@@ -347,6 +349,7 @@ describe("FormEngine", () => {
 			const mutation = engine.computeSubmissionMutation({
 				caseId: "case-1",
 				caseTypes: [],
+				entryKey: ENTRY_KEY,
 			});
 			expect(mutation).toMatchObject({
 				kind: "followup",
@@ -1323,10 +1326,15 @@ describe("FormEngine", () => {
 				engine.setValue("/data/case_name", "Alice");
 				engine.setValue("/data/age", "30");
 
-				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				const mutation = engine.computeSubmissionMutation({
+					caseTypes,
+					entryKey: ENTRY_KEY,
+				});
 				expect(mutation).toEqual({
 					kind: "registration",
 					formUuid: "test-form-uuid",
+					entryKey: ENTRY_KEY,
+					attachmentRefs: [],
 					primary: {
 						caseType: "patient",
 						caseName: "Alice",
@@ -1352,7 +1360,10 @@ describe("FormEngine", () => {
 				engine.setValue("/data/age", "30");
 				engine.setValue("/data/first_visit_date", "2026-05-01");
 
-				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				const mutation = engine.computeSubmissionMutation({
+					caseTypes,
+					entryKey: ENTRY_KEY,
+				});
 				expect(mutation.kind).toBe("registration");
 				if (mutation.kind !== "registration") return;
 				expect(mutation.primary).toEqual({
@@ -1393,7 +1404,10 @@ describe("FormEngine", () => {
 				engine.setValue("/data/first_visit_date", "2026-05-01");
 				engine.setValue("/data/dosage_mg", "200");
 
-				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				const mutation = engine.computeSubmissionMutation({
+					caseTypes,
+					entryKey: ENTRY_KEY,
+				});
 				expect(mutation.kind).toBe("registration");
 				if (mutation.kind !== "registration") return;
 				expect(mutation.children).toEqual([
@@ -1434,7 +1448,10 @@ describe("FormEngine", () => {
 				engine.setValue("/data/visits[2]/visit_date", "2026-05-03");
 				engine.setValue("/data/visits[2]/summary", "third");
 
-				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				const mutation = engine.computeSubmissionMutation({
+					caseTypes,
+					entryKey: ENTRY_KEY,
+				});
 				expect(mutation.kind).toBe("registration");
 				if (mutation.kind !== "registration") return;
 				expect(mutation.children).toHaveLength(3);
@@ -1481,7 +1498,10 @@ describe("FormEngine", () => {
 				engine.setValue("/data/visits[0]/case_name", "First visit");
 				engine.setValue("/data/visits[0]/visit_date", "2026-05-01");
 
-				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				const mutation = engine.computeSubmissionMutation({
+					caseTypes,
+					entryKey: ENTRY_KEY,
+				});
 				expect(mutation.kind).toBe("registration");
 				if (mutation.kind !== "registration") return;
 				expect(mutation.primary.caseName).toBe("Alice");
@@ -1518,7 +1538,10 @@ describe("FormEngine", () => {
 				engine.setValue("/data/case_name", "Alice");
 				engine.setValue("/data/visits[0]/case_name", "First visit");
 
-				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				const mutation = engine.computeSubmissionMutation({
+					caseTypes,
+					entryKey: ENTRY_KEY,
+				});
 				expect(mutation.kind).toBe("registration");
 				if (mutation.kind !== "registration") return;
 				expect(mutation.children).toEqual([
@@ -1538,7 +1561,10 @@ describe("FormEngine", () => {
 
 				engine.setValue("/data/age", "30");
 
-				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				const mutation = engine.computeSubmissionMutation({
+					caseTypes,
+					entryKey: ENTRY_KEY,
+				});
 				expect(mutation.kind).toBe("registration");
 				if (mutation.kind !== "registration") return;
 				expect("caseName" in mutation.primary).toBe(false);
@@ -1551,7 +1577,12 @@ describe("FormEngine", () => {
 				]);
 				const engine = new FormEngine(input);
 
-				expect(() => engine.computeSubmissionMutation({ caseTypes })).toThrow(
+				expect(() =>
+					engine.computeSubmissionMutation({
+						caseTypes,
+						entryKey: ENTRY_KEY,
+					}),
+				).toThrow(
 					/registration form reached the engine method without a `moduleCaseType`/,
 				);
 			});
@@ -1581,10 +1612,13 @@ describe("FormEngine", () => {
 				const mutation = engine.computeSubmissionMutation({
 					caseId: "case-id-123",
 					caseTypes,
+					entryKey: ENTRY_KEY,
 				});
 				expect(mutation).toEqual({
 					kind: "followup",
 					formUuid: "test-form-uuid",
+					entryKey: ENTRY_KEY,
+					attachmentRefs: [],
 					caseId: "case-id-123",
 					patch: {
 						caseName: "Alice",
@@ -1608,9 +1642,12 @@ describe("FormEngine", () => {
 				const engine = new FormEngine(input, "patient");
 
 				engine.setValue("/data/notes", "hello");
-				expect(() => engine.computeSubmissionMutation({ caseTypes })).toThrow(
-					/form type `followup` requires a bound `caseId`/,
-				);
+				expect(() =>
+					engine.computeSubmissionMutation({
+						caseTypes,
+						entryKey: ENTRY_KEY,
+					}),
+				).toThrow(/form type `followup` requires a bound `caseId`/);
 			});
 
 			it("emits an empty primary patch when no fields target the module's case type", () => {
@@ -1634,10 +1671,13 @@ describe("FormEngine", () => {
 				const mutation = engine.computeSubmissionMutation({
 					caseId: "case-id-1",
 					caseTypes,
+					entryKey: ENTRY_KEY,
 				});
 				expect(mutation).toEqual({
 					kind: "followup",
 					formUuid: "test-form-uuid",
+					entryKey: ENTRY_KEY,
+					attachmentRefs: [],
 					caseId: "case-id-1",
 					patch: { properties: {} },
 					children: [
@@ -1672,10 +1712,13 @@ describe("FormEngine", () => {
 				const mutation = engine.computeSubmissionMutation({
 					caseId: "case-id-456",
 					caseTypes,
+					entryKey: ENTRY_KEY,
 				});
 				expect(mutation).toEqual({
 					kind: "close",
 					formUuid: "test-form-uuid",
+					entryKey: ENTRY_KEY,
+					attachmentRefs: [],
 					caseId: "case-id-456",
 					patch: { properties: { notes: "discharged" } },
 					children: [
@@ -1696,9 +1739,12 @@ describe("FormEngine", () => {
 				const engine = new FormEngine(input, "patient");
 
 				engine.setValue("/data/notes", "hello");
-				expect(() => engine.computeSubmissionMutation({ caseTypes })).toThrow(
-					/form type `close` requires a bound `caseId`/,
-				);
+				expect(() =>
+					engine.computeSubmissionMutation({
+						caseTypes,
+						entryKey: ENTRY_KEY,
+					}),
+				).toThrow(/form type `close` requires a bound `caseId`/);
 			});
 
 			it("emits empty primary properties for close-only forms", () => {
@@ -1717,10 +1763,13 @@ describe("FormEngine", () => {
 				const mutation = engine.computeSubmissionMutation({
 					caseId: "case-id-1",
 					caseTypes,
+					entryKey: ENTRY_KEY,
 				});
 				expect(mutation).toEqual({
 					kind: "close",
 					formUuid: "test-form-uuid",
+					entryKey: ENTRY_KEY,
+					attachmentRefs: [],
 					caseId: "case-id-1",
 					patch: { properties: {} },
 					children: [],
@@ -1734,10 +1783,15 @@ describe("FormEngine", () => {
 				const engine = new FormEngine(input);
 
 				engine.setValue("/data/name", "Alice");
-				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				const mutation = engine.computeSubmissionMutation({
+					caseTypes,
+					entryKey: ENTRY_KEY,
+				});
 				expect(mutation).toEqual({
 					kind: "survey",
 					formUuid: "test-form-uuid",
+					entryKey: ENTRY_KEY,
+					attachmentRefs: [],
 				});
 			});
 
@@ -1748,10 +1802,13 @@ describe("FormEngine", () => {
 				const mutation = engine.computeSubmissionMutation({
 					caseId: "case-id-1",
 					caseTypes,
+					entryKey: ENTRY_KEY,
 				});
 				expect(mutation).toEqual({
 					kind: "survey",
 					formUuid: "test-form-uuid",
+					entryKey: ENTRY_KEY,
+					attachmentRefs: [],
 				});
 			});
 		});
@@ -1771,7 +1828,10 @@ describe("FormEngine", () => {
 				engine.setValue("/data/case_name", "Alice");
 				engine.setValue("/data/notes", "hello");
 
-				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				const mutation = engine.computeSubmissionMutation({
+					caseTypes,
+					entryKey: ENTRY_KEY,
+				});
 				expect(mutation.kind).toBe("registration");
 				if (mutation.kind !== "registration") return;
 				expect(mutation.primary.caseName).toBe("Alice");
@@ -1788,7 +1848,10 @@ describe("FormEngine", () => {
 				engine.setValue("/data/case_name", "Alice");
 				engine.setValue("/data/age", "42");
 
-				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				const mutation = engine.computeSubmissionMutation({
+					caseTypes,
+					entryKey: ENTRY_KEY,
+				});
 				expect(mutation.kind).toBe("registration");
 				if (mutation.kind !== "registration") return;
 				expect(mutation.primary.properties.age).toBe(42);
@@ -1804,7 +1867,10 @@ describe("FormEngine", () => {
 				engine.setValue("/data/case_name", "Alice");
 				engine.setValue("/data/weight", "72.5");
 
-				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				const mutation = engine.computeSubmissionMutation({
+					caseTypes,
+					entryKey: ENTRY_KEY,
+				});
 				expect(mutation.kind).toBe("registration");
 				if (mutation.kind !== "registration") return;
 				expect(mutation.primary.properties.weight).toBe(72.5);
@@ -1829,7 +1895,10 @@ describe("FormEngine", () => {
 				engine.setValue("/data/case_name", "Alice");
 				engine.setValue("/data/tags", "a b c");
 
-				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				const mutation = engine.computeSubmissionMutation({
+					caseTypes,
+					entryKey: ENTRY_KEY,
+				});
 				expect(mutation.kind).toBe("registration");
 				if (mutation.kind !== "registration") return;
 				expect(mutation.primary.properties.tags).toEqual(["a", "b", "c"]);
@@ -1845,7 +1914,10 @@ describe("FormEngine", () => {
 				engine.setValue("/data/case_name", "Alice");
 				engine.setValue("/data/age", "not-a-number");
 
-				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				const mutation = engine.computeSubmissionMutation({
+					caseTypes,
+					entryKey: ENTRY_KEY,
+				});
 				expect(mutation.kind).toBe("registration");
 				if (mutation.kind !== "registration") return;
 				expect(mutation.primary.properties.age).toBe("not-a-number");
@@ -1868,7 +1940,10 @@ describe("FormEngine", () => {
 				engine.setValue("/data/case_name", "Alice");
 				engine.setValue("/data/dob", "1995-03-12");
 
-				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				const mutation = engine.computeSubmissionMutation({
+					caseTypes,
+					entryKey: ENTRY_KEY,
+				});
 				expect(mutation.kind).toBe("registration");
 				if (mutation.kind !== "registration") return;
 				expect(mutation.primary.properties.dob).toBe("1995-03-12");
@@ -1888,7 +1963,10 @@ describe("FormEngine", () => {
 				engine.setValue("/data/case_name", "Alice");
 				engine.setValue("/data/last_seen", "2026-05-06T12:34:56Z");
 
-				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				const mutation = engine.computeSubmissionMutation({
+					caseTypes,
+					entryKey: ENTRY_KEY,
+				});
 				expect(mutation.kind).toBe("registration");
 				if (mutation.kind !== "registration") return;
 				expect(mutation.primary.properties.last_seen).toBe(
@@ -1910,7 +1988,10 @@ describe("FormEngine", () => {
 				engine.setValue("/data/case_name", "Alice");
 				engine.setValue("/data/wake_time", "07:30:00");
 
-				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				const mutation = engine.computeSubmissionMutation({
+					caseTypes,
+					entryKey: ENTRY_KEY,
+				});
 				expect(mutation.kind).toBe("registration");
 				if (mutation.kind !== "registration") return;
 				expect(mutation.primary.properties.wake_time).toBe("07:30:00");
@@ -1934,7 +2015,10 @@ describe("FormEngine", () => {
 				engine.setValue("/data/case_name", "Alice");
 				engine.setValue("/data/home_location", "37.7749 -122.4194 0 5");
 
-				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				const mutation = engine.computeSubmissionMutation({
+					caseTypes,
+					entryKey: ENTRY_KEY,
+				});
 				expect(mutation.kind).toBe("registration");
 				if (mutation.kind !== "registration") return;
 				expect(mutation.primary.properties.home_location).toBe(
@@ -1960,7 +2044,10 @@ describe("FormEngine", () => {
 				engine.setValue("/data/case_name", "Alice");
 				engine.setValue("/data/priority", "high");
 
-				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				const mutation = engine.computeSubmissionMutation({
+					caseTypes,
+					entryKey: ENTRY_KEY,
+				});
 				expect(mutation.kind).toBe("registration");
 				if (mutation.kind !== "registration") return;
 				expect(mutation.primary.properties.priority).toBe("high");
@@ -1986,7 +2073,10 @@ describe("FormEngine", () => {
 				// Empty caseTypes — `age` falls through as text. `case_name`
 				// is plucked into the column slot regardless of lookup state
 				// because the field-id discriminator runs first.
-				const mutation = engine.computeSubmissionMutation({ caseTypes: [] });
+				const mutation = engine.computeSubmissionMutation({
+					caseTypes: [],
+					entryKey: ENTRY_KEY,
+				});
 				expect(mutation.kind).toBe("registration");
 				if (mutation.kind !== "registration") return;
 				expect(mutation.primary.caseName).toBe("Alice");
@@ -2004,7 +2094,10 @@ describe("FormEngine", () => {
 				engine.setValue("/data/case_name", "Alice");
 				engine.setValue("/data/extra", "42");
 
-				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				const mutation = engine.computeSubmissionMutation({
+					caseTypes,
+					entryKey: ENTRY_KEY,
+				});
 				expect(mutation.kind).toBe("registration");
 				if (mutation.kind !== "registration") return;
 				expect(mutation.primary.properties.extra).toBe("42");
@@ -2026,7 +2119,10 @@ describe("FormEngine", () => {
 				engine.setValue("/data/case_name", "Alice");
 				// `notes` left empty.
 
-				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				const mutation = engine.computeSubmissionMutation({
+					caseTypes,
+					entryKey: ENTRY_KEY,
+				});
 				expect(mutation.kind).toBe("registration");
 				if (mutation.kind !== "registration") return;
 				expect(mutation.primary.caseName).toBe("Alice");
@@ -2061,7 +2157,10 @@ describe("FormEngine", () => {
 				engine.setValue("/data/show", "no");
 				expect(engine.getState("/data/notes").visible).toBe(false);
 
-				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				const mutation = engine.computeSubmissionMutation({
+					caseTypes,
+					entryKey: ENTRY_KEY,
+				});
 				expect(mutation.kind).toBe("registration");
 				if (mutation.kind !== "registration") return;
 				// `notes` is hidden but the value is non-empty — it lands.
@@ -2082,7 +2181,10 @@ describe("FormEngine", () => {
 				engine.setValue("/data/case_name", "Alice");
 				// `first_visit_date` left empty — no `visit` bucket should land.
 
-				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				const mutation = engine.computeSubmissionMutation({
+					caseTypes,
+					entryKey: ENTRY_KEY,
+				});
 				expect(mutation.kind).toBe("registration");
 				if (mutation.kind !== "registration") return;
 				expect(mutation.children).toEqual([]);
@@ -2230,7 +2332,10 @@ describe("FormEngine", () => {
 			const engine = new FormEngine(ordersFixture(), "patient");
 			engine.setValue("/data/orders[0]/medication_name", "Hydrangea");
 
-			const mutation = engine.computeSubmissionMutation({ caseTypes: [] });
+			const mutation = engine.computeSubmissionMutation({
+				caseTypes: [],
+				entryKey: ENTRY_KEY,
+			});
 			expect(mutation).toMatchObject({
 				kind: "registration",
 				children: [{ caseType: "medication_order", caseName: "Hydrangea" }],
@@ -2250,7 +2355,10 @@ describe("FormEngine", () => {
 				"Aspirin",
 			);
 
-			const mutation = engine.computeSubmissionMutation({ caseTypes: [] });
+			const mutation = engine.computeSubmissionMutation({
+				caseTypes: [],
+				entryKey: ENTRY_KEY,
+			});
 			expect(mutation).toMatchObject({
 				kind: "registration",
 				children: [
@@ -2538,7 +2646,10 @@ describe("FormEngine", () => {
 			engine.reevaluateDefault("/data/note", field);
 
 			expect(engine.getState("/data/note").value).toBe("Alice's note");
-			const mutation = engine.computeSubmissionMutation({ caseTypes: [] });
+			const mutation = engine.computeSubmissionMutation({
+				caseTypes: [],
+				entryKey: ENTRY_KEY,
+			});
 			expect(mutation).toMatchObject({
 				kind: "registration",
 				primary: { properties: { note: "Alice's note" } },

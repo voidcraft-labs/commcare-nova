@@ -18,7 +18,12 @@
 
 import { randomUUID } from "node:crypto";
 import type { Readable } from "node:stream";
-import { type Bucket, Storage } from "@google-cloud/storage";
+import {
+	type Bucket,
+	type BucketMetadata,
+	type LifecycleRule,
+	Storage,
+} from "@google-cloud/storage";
 import { STAGED_CAPTURE_PREFIX } from "@/lib/domain/captureFormats";
 import { PENDING_OBJECT_PREFIX } from "@/lib/domain/multimedia";
 
@@ -95,6 +100,23 @@ const PENDING_OBJECT_TTL_DAYS = 1;
  * prepared generation, so this rule can never remove accepted evidence.
  */
 const STAGED_CAPTURE_TTL_DAYS = 7;
+
+const MEDIA_BUCKET_LIFECYCLE_RULES: LifecycleRule[] = [
+	{
+		action: { type: "Delete" },
+		condition: {
+			age: PENDING_OBJECT_TTL_DAYS,
+			matchesPrefix: [PENDING_OBJECT_PREFIX],
+		},
+	},
+	{
+		action: { type: "Delete" },
+		condition: {
+			age: STAGED_CAPTURE_TTL_DAYS,
+			matchesPrefix: [STAGED_CAPTURE_PREFIX],
+		},
+	},
+];
 
 /**
  * Prove the capture-maintenance identity can perform its complete storage
@@ -280,18 +302,17 @@ export async function probeCaptureStorageAuthority(): Promise<void> {
 }
 
 /**
- * Apply the media bucket's COMPLETE lifecycle policy — every rule it
- * has, in one call.
+ * Apply the media bucket's COMPLETE temporary-object retention policy.
  *
  * ## Why this function owns all of them
  *
- * The call below passes `{ append: false }`, which REPLACES the bucket's
- * lifecycle rather than adding to it. A second function applying a second
- * rule would therefore silently delete the first one's, and nothing would
- * notice until objects quietly stopped being collected. So every prefix
- * that needs a TTL gets its rule here, and
- * `__tests__/mediaBucketLifecycle.test.ts` pins that all of them survive
- * a single application.
+ * Lifecycle Delete is not a hard byte-retention boundary by itself. Cloud
+ * Storage soft-deletes by default, versioning can turn deletion into a
+ * noncurrent generation, and bucket retention/default holds can defer it.
+ * One metageneration-fenced metadata PATCH therefore owns the complete
+ * contract: the exact lifecycle, soft delete disabled, versioning disabled,
+ * and no default event-based hold. A bucket retention policy is an operator
+ * protection, so its presence fails closed instead of silently removing it.
  *
  * Two prefixes need one:
  *
@@ -316,32 +337,97 @@ export async function probeCaptureStorageAuthority(): Promise<void> {
  * validated bytes OUT of `pending/` to the content-hash key before flipping
  * the row to ready.
  *
- * Idempotent: `append: false` replaces the bucket's lifecycle with
- * exactly these rules. The media bucket is dedicated, so it owns no
- * others to preserve, and re-running yields the same state. Operational,
- * not on the request path — run once per bucket (and after any prefix or
- * rule change) via `scripts/infra/apply-media-bucket-lifecycle.ts`.
+ * Idempotent: the PATCH sends the exact lifecycle and values every time, then
+ * a fresh GET verifies them. `ifMetagenerationMatch` makes a concurrent
+ * operator edit block the deploy rather than get overwritten. Operational,
+ * not on the request path — the blocking media-policy Job applies it before
+ * migrations or traffic movement.
  */
-export async function applyMediaBucketLifecycle(): Promise<void> {
-	await getBucket().addLifecycleRule(
-		[
-			{
-				action: { type: "Delete" },
-				condition: {
-					age: PENDING_OBJECT_TTL_DAYS,
-					matchesPrefix: [PENDING_OBJECT_PREFIX],
-				},
-			},
-			{
-				action: { type: "Delete" },
-				condition: {
-					age: STAGED_CAPTURE_TTL_DAYS,
-					matchesPrefix: [STAGED_CAPTURE_PREFIX],
-				},
-			},
-		],
-		{ append: false },
+export async function applyMediaBucketStoragePolicy(): Promise<void> {
+	const bucket = getBucket();
+	const [before] = await bucket.getMetadata();
+	if (before.retentionPolicy !== undefined && before.retentionPolicy !== null) {
+		throw new Error(
+			`The media bucket has a${before.retentionPolicy.isLocked ? " locked" : ""} retention policy. Nova will not remove an operator protection; remove it explicitly before applying Nova's hard temporary-object retention policy.`,
+		);
+	}
+	if (before.metageneration === undefined || before.metageneration === null) {
+		throw new Error(
+			"The media bucket metadata did not include a metageneration, so Nova cannot safely converge policy without overwriting a concurrent operator edit.",
+		);
+	}
+
+	await bucket.setMetadata(
+		{
+			lifecycle: { rule: MEDIA_BUCKET_LIFECYCLE_RULES },
+			softDeletePolicy: { retentionDurationSeconds: 0 },
+			versioning: { enabled: false },
+			defaultEventBasedHold: false,
+		},
+		{ ifMetagenerationMatch: before.metageneration },
 	);
+
+	const [after] = await bucket.getMetadata();
+	verifyMediaBucketStoragePolicy(after);
+}
+
+function canonicalJson(value: unknown): string {
+	const normalize = (current: unknown): unknown => {
+		if (Array.isArray(current)) {
+			return current.map(normalize);
+		}
+		if (current !== null && typeof current === "object") {
+			return Object.fromEntries(
+				Object.entries(current)
+					.filter(([, child]) => child !== undefined)
+					.sort(([left], [right]) => left.localeCompare(right))
+					.map(([key, child]) => [key, normalize(child)]),
+			);
+		}
+		return current;
+	};
+	return JSON.stringify(normalize(value));
+}
+
+function canonicalLifecycle(rules: readonly LifecycleRule[]): string[] {
+	return rules.map(canonicalJson).toSorted();
+}
+
+function verifyMediaBucketStoragePolicy(metadata: BucketMetadata): void {
+	const findings: string[] = [];
+	if (
+		canonicalJson(canonicalLifecycle(metadata.lifecycle?.rule ?? [])) !==
+		canonicalJson(canonicalLifecycle(MEDIA_BUCKET_LIFECYCLE_RULES))
+	) {
+		findings.push("the lifecycle rule set is not exact");
+	}
+	const softDeleteSeconds = metadata.softDeletePolicy?.retentionDurationSeconds;
+	if (
+		metadata.softDeletePolicy !== undefined &&
+		metadata.softDeletePolicy !== null &&
+		(softDeleteSeconds === undefined ||
+			!Number.isFinite(Number(softDeleteSeconds)) ||
+			Number(softDeleteSeconds) !== 0)
+	) {
+		findings.push("soft delete is not disabled");
+	}
+	if (metadata.versioning?.enabled === true) {
+		findings.push("object versioning is enabled");
+	}
+	if (metadata.defaultEventBasedHold === true) {
+		findings.push("the default event-based hold is enabled");
+	}
+	if (
+		metadata.retentionPolicy !== undefined &&
+		metadata.retentionPolicy !== null
+	) {
+		findings.push("a bucket retention policy is present");
+	}
+	if (findings.length > 0) {
+		throw new Error(
+			`Media bucket policy verification failed: ${findings.join("; ")}.`,
+		);
+	}
 }
 
 /**

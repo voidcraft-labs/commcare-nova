@@ -51,13 +51,19 @@ onto `CaseStore.applySubmission` (`submissionEnvelopeArgs` in the
 binding helpers), which applies the primary write, every child insert,
 and close's lifecycle transition in ONE Postgres transaction — partial
 success is unobservable, and the running-app view re-queries one
-settled state on resolve. Since S07b the mutation also carries the
-form's uuid plus plain-JSON per-scope operation answer bindings
+settled state on resolve. Every mutation arm carries the form UUID,
+controller-owned entry UUID, and exact attachment-reference projection
+(including an explicit empty list), plus plain-JSON per-scope operation
+answer bindings when the committed form has operations
 (`computeOperationAnswers` — complete per iteration, parent-major,
-multi-select as token arrays), and the SERVER builds the case-operation
-program from the COMMITTED doc (`buildSubmissionOperationProgram`:
-S04 analyses + `buildCaseTypeMap` + the identity's session values,
-`ordinary.caseType` populated for the rolling proof) — a survey with a
+multi-select as token arrays). The Server Action validates and normalizes
+that final protocol before receipt, program, capture-intent, or effect
+derivation; the retired name-only projection is rejected. The SERVER builds
+the case-operation program from the COMMITTED doc
+(`buildSubmissionOperationProgram`: S04 analyses + `buildCaseTypeMap` + the
+identity's session values, `ordinary.caseType` populated for the rolling
+proof). A committed operation-bearing form with missing answer bags rejects
+wholesale rather than silently applying ordinary-only effects. A survey with a
 program executes it, and the envelope's typed `SubmissionRejectedError` surfaces as the
 `submission-rejected` result arm with whole-rollback copy in
 `FormScreen`. The close transition itself stays the
@@ -172,7 +178,13 @@ barrier polling — the worker still chooses Retry, replacement, or removal.
 
 `EngineController.removeRepeat` is the ONE compaction owner. It emits the
 removed prefix plus every positional move; FormScreen binds that event to the
-entry coordinator even when the affected capture is irrelevant/unmounted. The
+entry coordinator even when the affected capture is irrelevant/unmounted.
+Remove remains visible but disabled without current write authority. Its
+imperative boundary requires the exact coordinator authority generation
+captured by the handler, then rechecks the controller entry key and target
+repeat instance's stable key immediately before compaction. A handler captured
+before refresh, viewer downgrade, or authority loss/restoration cannot retire a
+successor instance or its capture. The
 coordinator updates desired slot paths synchronously, queues server CAS
 retargets after any already-running upload/encoding and before Submit, and
 cancels/discards only slots belonging to the removed instance. A failed old
@@ -217,6 +229,10 @@ group↔repeat renderer-key change cannot create a second owner.
 Project viewers may inspect capture answers but must never mint or mutate
 capture data. Controls disable picker, drawing, clear/remove, and recovery
 actions; authority loss aborts and generation-fences work already in flight.
+Form-level invariant recovery uses the same exact coordinator authority token:
+its Remove/Clear control disables during refresh or viewer access, and
+imperative discard rejects a missing or stale generation before retiring the
+owner, retained File/signature ink, and Submit blocker.
 Every event handler re-reads the current session access tuple at its mutation
 boundary, just like Submit and Clear form. A transient refresh suspends old
 network generations but preserves the controller, entry key, answers, focus,

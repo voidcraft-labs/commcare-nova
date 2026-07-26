@@ -92,6 +92,7 @@ import {
 	whenInput,
 } from "@/lib/domain/predicate";
 import { buildDoc, f } from "../../../__tests__/docHelpers";
+import { validateCaptureSubmissionProjection } from "../captureSubmissionValidation";
 import {
 	caseRowDisplayValue,
 	caseRowsToFormPreloads,
@@ -217,6 +218,11 @@ beforeEach(async () => {
 		actorUserId: OWNER_A,
 	});
 	readCaptureSubmissionReceiptMock.mockResolvedValue(undefined);
+	loadAppMock.mockResolvedValue({
+		blueprint: finalSubmissionDoc(),
+		mutation_seq: 1,
+		project_id: PROJECT_A,
+	});
 	await runCaseStoreMigrations(dbHandle.db);
 });
 
@@ -228,6 +234,34 @@ const APP_ID = "app-binding";
 const OWNER_A = "owner-a";
 const OWNER_B = "owner-b";
 const PROJECT_A = "project-a";
+const FINAL_FORM_UUID = asUuid("10000000-0000-4000-8000-000000000001");
+const FINAL_ENTRY_KEY = "10000000-0000-4000-8000-000000000002";
+
+const FINAL_SUBMISSION_PROTOCOL = {
+	formUuid: FINAL_FORM_UUID,
+	entryKey: FINAL_ENTRY_KEY,
+	attachmentRefs: [],
+} as const;
+
+function finalSubmissionDoc() {
+	return buildDoc({
+		appName: "Final submission protocol",
+		modules: [
+			{
+				uuid: "10000000-0000-4000-8000-000000000003",
+				name: "Module",
+				forms: [
+					{
+						uuid: FINAL_FORM_UUID,
+						name: "Form",
+						type: "survey",
+						fields: [],
+					},
+				],
+			},
+		],
+	});
+}
 
 const ALICE_CASE_ID = "40000000-0000-0000-0000-000000000001";
 const BOB_CASE_ID = "40000000-0000-0000-0000-000000000002";
@@ -405,6 +439,7 @@ describe("a submission made while previewing as a persona", () => {
 			submissionEnvelopeArgs(
 				{
 					kind: "registration",
+					...FINAL_SUBMISSION_PROTOCOL,
 					primary: {
 						caseType: "patient",
 						caseName: "Alice",
@@ -451,6 +486,7 @@ describe("a submission made while previewing as a persona", () => {
 			submissionEnvelopeArgs(
 				{
 					kind: "registration",
+					...FINAL_SUBMISSION_PROTOCOL,
 					primary: {
 						caseType: "patient",
 						caseName: "Alice",
@@ -2593,6 +2629,7 @@ describe("applySubmission — registration", () => {
 
 		const mutation: Extract<SubmissionMutation, { kind: "registration" }> = {
 			kind: "registration",
+			...FINAL_SUBMISSION_PROTOCOL,
 			primary: {
 				caseType: "patient",
 				caseName: "Alice",
@@ -2653,6 +2690,7 @@ describe("applySubmission — registration", () => {
 
 		const mutation: Extract<SubmissionMutation, { kind: "registration" }> = {
 			kind: "registration",
+			...FINAL_SUBMISSION_PROTOCOL,
 			primary: {
 				caseType: "patient",
 				caseName: "Solo",
@@ -2694,6 +2732,7 @@ describe("applySubmission — registration", () => {
 
 		const mutation: Extract<SubmissionMutation, { kind: "registration" }> = {
 			kind: "registration",
+			...FINAL_SUBMISSION_PROTOCOL,
 			primary: {
 				caseType: "patient",
 				caseName: "Alice",
@@ -2734,6 +2773,7 @@ describe("applySubmission — registration", () => {
 		// `requireCaseName` raises it before the primary insert.
 		const mutation: Extract<SubmissionMutation, { kind: "registration" }> = {
 			kind: "registration",
+			...FINAL_SUBMISSION_PROTOCOL,
 			primary: {
 				caseType: "patient",
 				properties: { name: "Alice", age: 30 },
@@ -2761,6 +2801,7 @@ describe("applySubmission — registration", () => {
 
 		const mutation: Extract<SubmissionMutation, { kind: "registration" }> = {
 			kind: "registration",
+			...FINAL_SUBMISSION_PROTOCOL,
 			primary: {
 				caseType: "patient",
 				caseName: "Alice",
@@ -2819,6 +2860,7 @@ describe("applySubmission — followup", () => {
 
 		const mutation: Extract<SubmissionMutation, { kind: "followup" }> = {
 			kind: "followup",
+			...FINAL_SUBMISSION_PROTOCOL,
 			caseId: ALICE_CASE_ID,
 			patch: { caseName: "Alice R", properties: { age: 31 } },
 			children: [
@@ -2888,6 +2930,7 @@ describe("applySubmission — followup", () => {
 
 		const mutation: Extract<SubmissionMutation, { kind: "followup" }> = {
 			kind: "followup",
+			...FINAL_SUBMISSION_PROTOCOL,
 			caseId: ALICE_CASE_ID,
 			patch: { properties: {} },
 			children: [
@@ -2936,6 +2979,7 @@ describe("applySubmission — followup", () => {
 
 		const mutation: Extract<SubmissionMutation, { kind: "followup" }> = {
 			kind: "followup",
+			...FINAL_SUBMISSION_PROTOCOL,
 			caseId: ALICE_CASE_ID,
 			patch: { properties: { age: 31 } },
 			children: [
@@ -2995,6 +3039,7 @@ describe("applySubmission — close", () => {
 
 		const mutation: Extract<SubmissionMutation, { kind: "close" }> = {
 			kind: "close",
+			...FINAL_SUBMISSION_PROTOCOL,
 			caseId: ALICE_CASE_ID,
 			patch: { properties: { age: 32 } },
 			children: [
@@ -3054,6 +3099,7 @@ describe("applySubmission — close", () => {
 
 		const mutation: Extract<SubmissionMutation, { kind: "close" }> = {
 			kind: "close",
+			...FINAL_SUBMISSION_PROTOCOL,
 			caseId: ALICE_CASE_ID,
 			patch: { properties: {} },
 			children: [
@@ -3093,6 +3139,7 @@ describe("submissionEnvelopeArgs", () => {
 	it("maps a registration mutation onto the ordinary registration action", () => {
 		const mutation: Extract<SubmissionMutation, { kind: "registration" }> = {
 			kind: "registration",
+			...FINAL_SUBMISSION_PROTOCOL,
 			primary: {
 				caseType: "patient",
 				caseName: "Alice",
@@ -3119,6 +3166,7 @@ describe("submissionEnvelopeArgs", () => {
 	it("maps a followup mutation onto the ordinary followup action", () => {
 		const mutation: Extract<SubmissionMutation, { kind: "followup" }> = {
 			kind: "followup",
+			...FINAL_SUBMISSION_PROTOCOL,
 			caseId: ALICE_CASE_ID,
 			patch: { caseName: "Alice R", properties: { age: 31 } },
 			children: [
@@ -3144,6 +3192,7 @@ describe("submissionEnvelopeArgs", () => {
 	it("maps a close mutation onto the ordinary close action", () => {
 		const mutation: Extract<SubmissionMutation, { kind: "close" }> = {
 			kind: "close",
+			...FINAL_SUBMISSION_PROTOCOL,
 			caseId: ALICE_CASE_ID,
 			patch: { properties: { age: 32 } },
 			children: [
@@ -3167,7 +3216,12 @@ describe("submissionEnvelopeArgs", () => {
 	});
 
 	it("maps a survey mutation onto the ordinary none action (no case effect)", () => {
-		expect(submissionEnvelopeArgs({ kind: "survey" }, APP_ID)).toEqual({
+		expect(
+			submissionEnvelopeArgs(
+				{ kind: "survey", ...FINAL_SUBMISSION_PROTOCOL },
+				APP_ID,
+			),
+		).toEqual({
 			appId: APP_ID,
 			ordinary: { kind: "none" },
 		});
@@ -3261,6 +3315,7 @@ describe("mapSubmitFormError", () => {
 
 		const mutation: Extract<SubmissionMutation, { kind: "followup" }> = {
 			kind: "followup",
+			...FINAL_SUBMISSION_PROTOCOL,
 			caseId: ALICE_CASE_ID,
 			patch: { properties: { age: 31 } },
 			children: [],
@@ -3296,11 +3351,83 @@ describe("submitFormAction", () => {
 		vi.mocked(getSession).mockResolvedValueOnce(null);
 
 		const { submitFormAction } = await import("../caseDataBinding");
-		const result = await submitFormAction({ kind: "survey" }, "app-anything");
+		const result = await submitFormAction(
+			{ kind: "survey", ...FINAL_SUBMISSION_PROTOCOL },
+			"app-anything",
+		);
 		expect(result).toEqual({ kind: "unauthenticated" });
 	});
 
-	it("returns the survey arm without touching the store when the session resolves", async () => {
+	it.each([
+		[
+			"a case-bearing submission without an entry key",
+			{
+				kind: "registration",
+				formUuid: FINAL_FORM_UUID,
+				attachmentRefs: [],
+				primary: {
+					caseType: "patient",
+					caseName: "Must not land",
+					properties: {},
+				},
+				children: [],
+			},
+		],
+		[
+			"a survey without a form UUID",
+			{
+				kind: "survey",
+				entryKey: FINAL_ENTRY_KEY,
+				attachmentRefs: [],
+			},
+		],
+		[
+			"a capture-capable survey without its exact attachment projection",
+			{
+				kind: "survey",
+				formUuid: FINAL_FORM_UUID,
+				entryKey: FINAL_ENTRY_KEY,
+			},
+		],
+	])("rejects %s before authorization or effects", async (_label, payload) => {
+		const { getSession } = await import("@/lib/auth-utils");
+		const { withProjectContext } = await import("@/lib/case-store");
+		const { submitFormAction } = await import("../caseDataBinding");
+
+		await expect(
+			submitFormAction(payload as unknown as SubmissionMutation, APP_ID),
+		).resolves.toMatchObject({
+			kind: "error",
+			message: expect.stringContaining("requires a valid form identity"),
+		});
+		expect(getSession).not.toHaveBeenCalled();
+		expect(withProjectContext).not.toHaveBeenCalled();
+		expect(readCaptureSubmissionReceiptMock).not.toHaveBeenCalled();
+		expect(prepareCaptureSubmissionBytesMock).not.toHaveBeenCalled();
+		expect(loadAppMock).not.toHaveBeenCalled();
+	});
+
+	it("rejects the retired attachmentNames-only payload instead of digesting it as compatibility data", async () => {
+		const { getSession } = await import("@/lib/auth-utils");
+		const { submitFormAction } = await import("../caseDataBinding");
+		const oldPayload = {
+			kind: "survey",
+			formUuid: FINAL_FORM_UUID,
+			entryKey: FINAL_ENTRY_KEY,
+			attachmentNames: ["legacy.jpg"],
+		};
+
+		await expect(
+			submitFormAction(oldPayload as unknown as SubmissionMutation, APP_ID),
+		).resolves.toEqual({
+			kind: "error",
+			message: "The retired attachmentNames submission field is not accepted.",
+		});
+		expect(getSession).not.toHaveBeenCalled();
+		expect(readCaptureSubmissionReceiptMock).not.toHaveBeenCalled();
+	});
+
+	it("validates and authorizes an effect-free survey before returning without an envelope write", async () => {
 		const { getSession } = await import("@/lib/auth-utils");
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
@@ -3310,10 +3437,9 @@ describe("submitFormAction", () => {
 			// `unknown` because Better Auth's `Session` type carries
 			// many fields we don't synthesize.
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
-		// Survey short-circuits BEFORE the store is constructed, so
-		// `withProjectContext` is never called. The stub is queued so a
-		// regression to "survey routes through the store" surfaces loudly:
-		// it would resolve a real store and fire a method below.
+		// The final survey protocol crosses the membership and committed-doc
+		// gates. Once that form proves to have no operations or capture
+		// questions, it can still avoid a no-op envelope write.
 		const stubStore = {
 			query: vi.fn(),
 			count: vi.fn(),
@@ -3336,10 +3462,13 @@ describe("submitFormAction", () => {
 		vi.mocked(withProjectContext).mockResolvedValueOnce(stubStore);
 
 		const { submitFormAction } = await import("../caseDataBinding");
-		const result = await submitFormAction({ kind: "survey" }, APP_ID);
+		const result = await submitFormAction(
+			{ kind: "survey", ...FINAL_SUBMISSION_PROTOCOL },
+			APP_ID,
+		);
 		expect(result).toEqual({ kind: "survey" });
-		// The store was never even constructed, and none of its methods ran.
-		expect(vi.mocked(withProjectContext)).not.toHaveBeenCalled();
+		expect(vi.mocked(withProjectContext)).toHaveBeenCalledOnce();
+		expect(loadAppMock).toHaveBeenCalledOnce();
 		for (const method of Object.values(stubStore)) {
 			expect(method).not.toHaveBeenCalled();
 		}
@@ -3381,6 +3510,7 @@ describe("submitFormAction", () => {
 		const result = await submitFormAction(
 			{
 				kind: "followup",
+				...FINAL_SUBMISSION_PROTOCOL,
 				caseId: ALICE_CASE_ID,
 				patch: { properties: { age: 31 } },
 				children: [],
@@ -3430,6 +3560,7 @@ describe("submitFormAction", () => {
 
 		const mutation: SubmissionMutation = {
 			kind: "registration",
+			...FINAL_SUBMISSION_PROTOCOL,
 			primary: {
 				caseType: "patient",
 				caseName: "Alice",
@@ -3480,7 +3611,7 @@ describe("submitFormAction", () => {
 			user: { id: OWNER_A },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 
-		const doc = buildDoc({ appName: "Personas", modules: [] });
+		const doc = finalSubmissionDoc();
 		doc.personas = {
 			[PERSONA]: { uuid: PERSONA, name: "Asha" },
 		};
@@ -3513,6 +3644,7 @@ describe("submitFormAction", () => {
 
 		const mutation: SubmissionMutation = {
 			kind: "registration",
+			...FINAL_SUBMISSION_PROTOCOL,
 			primary: {
 				caseType: "patient",
 				caseName: "Alice",
@@ -3572,6 +3704,7 @@ describe("submitFormAction", () => {
 		await submitFormAction(
 			{
 				kind: "registration",
+				...FINAL_SUBMISSION_PROTOCOL,
 				primary: {
 					caseType: "patient",
 					caseName: "Alice",
@@ -3587,9 +3720,9 @@ describe("submitFormAction", () => {
 			OWNER_A,
 			OWNER_A,
 		);
-		// No persona selected means no blueprint read at all — ordinary
-		// "Preview as me" traffic pays nothing for the capability.
-		expect(loadAppMock).not.toHaveBeenCalled();
+		// The member path avoids persona-resolution reads, but the final
+		// submission protocol still inspects the committed form once.
+		expect(loadAppMock).toHaveBeenCalledOnce();
 	});
 
 	// ---------------------------------------------------------------
@@ -3612,13 +3745,22 @@ describe("submitFormAction", () => {
 			],
 			modules: [
 				{
+					uuid: "70000000-0000-4000-8000-00000000b010",
 					name: "Mod",
 					caseType: "patient",
 					forms: [
 						{
+							uuid: "70000000-0000-4000-8000-00000000b011",
 							name: "Survey",
 							type: "survey",
-							fields: [f({ kind: "text", id: "note", label: "Note" })],
+							fields: [
+								f({
+									uuid: "70000000-0000-4000-8000-00000000b012",
+									kind: "text",
+									id: "note",
+									label: "Note",
+								}),
+							],
 						},
 					],
 				},
@@ -3675,6 +3817,77 @@ describe("submitFormAction", () => {
 		} satisfies CaseStore;
 	}
 
+	it.each([
+		["a missing committed blueprint", undefined],
+		[
+			"a missing committed form",
+			{
+				blueprint: buildDoc({ appName: "Submitted form deleted" }),
+				mutation_seq: 2,
+			},
+		],
+	])("rejects %s after an exact replay miss", async (_label, app) => {
+		const { getSession } = await import("@/lib/auth-utils");
+		const { withProjectContext } = await import("@/lib/case-store");
+		vi.mocked(getSession).mockResolvedValueOnce({
+			user: { id: OWNER_A },
+		} as unknown as Awaited<ReturnType<typeof getSession>>);
+		const applySubmission = vi.fn();
+		vi.mocked(withProjectContext).mockResolvedValueOnce(
+			stubCaseStore(applySubmission),
+		);
+		loadAppMock.mockResolvedValueOnce(app);
+
+		const { submitFormAction } = await import("../caseDataBinding");
+		await expect(
+			submitFormAction(
+				{ kind: "survey", ...FINAL_SUBMISSION_PROTOCOL },
+				APP_ID,
+			),
+		).resolves.toMatchObject({
+			kind: "error",
+			message: expect.stringContaining(
+				app === undefined ? "committed blueprint" : "no longer exists",
+			),
+		});
+		expect(readCaptureSubmissionReceiptMock).toHaveBeenCalledTimes(2);
+		expect(applySubmission).not.toHaveBeenCalled();
+		expect(prepareCaptureSubmissionBytesMock).not.toHaveBeenCalled();
+	});
+
+	it("rejects operation-bearing skew without applying a survey envelope", async () => {
+		const { getSession } = await import("@/lib/auth-utils");
+		const { withProjectContext } = await import("@/lib/case-store");
+		vi.mocked(getSession).mockResolvedValueOnce({
+			user: { id: OWNER_A },
+		} as unknown as Awaited<ReturnType<typeof getSession>>);
+		const { doc, formUuid } = operationSurveyDoc();
+		loadAppMock.mockResolvedValueOnce({ blueprint: doc, mutation_seq: 2 });
+		const applySubmission = vi.fn();
+		vi.mocked(withProjectContext).mockResolvedValueOnce(
+			stubCaseStore(applySubmission),
+		);
+
+		const { submitFormAction } = await import("../caseDataBinding");
+		await expect(
+			submitFormAction(
+				{
+					kind: "survey",
+					formUuid,
+					entryKey: FINAL_ENTRY_KEY,
+					attachmentRefs: [],
+				},
+				APP_ID,
+			),
+		).resolves.toMatchObject({
+			kind: "error",
+			message: expect.stringContaining(
+				"missing answers required by its committed case operations",
+			),
+		});
+		expect(applySubmission).not.toHaveBeenCalled();
+	});
+
 	it("builds the program only after membership passes and returns the survey arm from an executed program", async () => {
 		const { getSession } = await import("@/lib/auth-utils");
 		const { withProjectContext } = await import("@/lib/case-store");
@@ -3696,6 +3909,8 @@ describe("submitFormAction", () => {
 			{
 				kind: "survey",
 				formUuid,
+				entryKey: FINAL_ENTRY_KEY,
+				attachmentRefs: [],
 				operationAnswers: {
 					root: [{ fieldUuid: noteUuid, value: "first" }],
 					repeats: [],
@@ -3772,7 +3987,6 @@ describe("submitFormAction", () => {
 			kind: "survey",
 			formUuid,
 			entryKey,
-			attachmentNames: ["photo.jpg"],
 			attachmentRefs: [
 				{
 					attachmentName: "photo.jpg",
@@ -3841,7 +4055,6 @@ describe("submitFormAction", () => {
 			kind: "registration",
 			formUuid,
 			entryKey: "11111111-1111-4111-8111-111111111111",
-			attachmentNames: ["accepted.png"],
 			attachmentRefs: [
 				{
 					attachmentName: "accepted.png",
@@ -3906,7 +4119,6 @@ describe("submitFormAction", () => {
 			kind: "registration",
 			formUuid,
 			entryKey: "11111111-1111-4111-8111-111111111111",
-			attachmentNames: ["accepted.png"],
 			attachmentRefs: [
 				{
 					attachmentName: "accepted.png",
@@ -3967,7 +4179,6 @@ describe("submitFormAction", () => {
 			kind: "survey",
 			formUuid,
 			entryKey: "21111111-1111-4111-8111-111111111111",
-			attachmentNames: ["photo.jpg"],
 			attachmentRefs: [
 				{
 					attachmentName: "photo.jpg",
@@ -3993,17 +4204,20 @@ describe("submitFormAction", () => {
 				mutation_seq: 18,
 				project_id: PROJECT_A,
 			});
+		const projection = validateCaptureSubmissionProjection(mutation);
 
 		const first = await buildSubmissionOperationProgram({
 			appId: APP_ID,
 			identity,
 			mutation,
+			projection,
 			viewerTimeZone: "UTC",
 		});
 		const retry = await buildSubmissionOperationProgram({
 			appId: APP_ID,
 			identity,
 			mutation,
+			projection,
 			viewerTimeZone: "UTC",
 		});
 

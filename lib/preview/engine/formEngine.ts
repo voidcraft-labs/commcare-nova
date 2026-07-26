@@ -1012,13 +1012,6 @@ export class FormEngine {
 			: "dormant";
 	}
 
-	/** Compatibility projection for code that only needs multipart names. */
-	collectAttachmentNames(): string[] {
-		return this.collectAttachmentReferences().map(
-			(reference) => reference.attachmentName,
-		);
-	}
-
 	computeSubmissionMutation(args: {
 		caseId?: string;
 		caseTypes: ReadonlyArray<CaseType>;
@@ -1033,7 +1026,7 @@ export class FormEngine {
 		 * controller's lifetime is the entry's lifetime, so the key lives
 		 * there.
 		 */
-		entryKey?: string;
+		entryKey: string;
 	}): SubmissionMutation {
 		/* The operation identity riding every arm: the submitting form's
 		 * uuid (the authored-key scope half and the server-side program
@@ -1042,22 +1035,14 @@ export class FormEngine {
 		 * NOT short-circuit — its program still executes. */
 		const operationAnswers = this.computeOperationAnswers();
 		const attachmentRefs = this.collectAttachmentReferences();
-		const attachmentNames = attachmentRefs.map(
-			(reference) => reference.attachmentName,
-		);
 		const operationIdentity = {
 			formUuid: this.activeFormUuid() as string,
+			entryKey: args.entryKey,
+			// Always present, even when empty: an empty list is the exact
+			// projection that retires every unreferenced staged attachment for
+			// this entry.
+			attachmentRefs,
 			...(operationAnswers !== undefined && { operationAnswers }),
-			// Always present, even when empty: an empty list means "this
-			// submission named nothing", which is exactly the instruction to
-			// discard every staged attachment for the entry. Omitting it would
-			// instead mean "an older client that knows nothing about
-			// attachments", which must leave them alone.
-			...(args.entryKey !== undefined && {
-				entryKey: args.entryKey,
-				attachmentNames,
-				attachmentRefs,
-			}),
 		};
 		if (this.formType === "survey") {
 			return { kind: "survey", ...operationIdentity };

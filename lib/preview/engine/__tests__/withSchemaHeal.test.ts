@@ -271,6 +271,9 @@ describe("schemaHealingCaseStore — the whole submission envelope is one healed
 
 		const mutation: SubmissionMutation = {
 			kind: "followup",
+			formUuid: "10000000-0000-4000-8000-000000000001",
+			entryKey: "10000000-0000-4000-8000-000000000002",
+			attachmentRefs: [],
 			caseId: "mother-1",
 			patch: { properties: { visited: "yes" } },
 			children: [

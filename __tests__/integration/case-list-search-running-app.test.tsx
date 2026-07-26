@@ -549,8 +549,9 @@ beforeEach(async () => {
 	);
 	vi.mocked(submitFormAction).mockImplementation(
 		async (mutation, appId): Promise<SubmissionResult> => {
-			// Survey carries no case effect — the real action short-circuits
-			// before constructing the store.
+			// This fixture's survey forms carry neither committed operations nor
+			// captures. The real action validates their final protocol and
+			// committed form before taking the same effect-free result.
 			if (mutation.kind === "survey") return { kind: "survey" };
 			// Every case-bearing submission lands through the atomic envelope
 			// (`applySubmission`), exactly as `submitFormAction` does in

@@ -93,7 +93,7 @@ import {
 	getLookupFixtureData,
 } from "@/lib/lookup/service";
 import type { LookupScope } from "@/lib/lookup/types";
-import { validateCaptureSubmissionProjection } from "./captureSubmissionValidation";
+import type { CaptureSubmissionProjection } from "./captureSubmissionValidation";
 import type {
 	CaseQueryConstraintSource,
 	LoadCaseDataResult,
@@ -967,15 +967,20 @@ export function buildSubmissionReceiptIdentity(args: {
 	readonly appId: string;
 	readonly identity: ResolvedPreviewIdentity;
 	readonly mutation: SubmissionMutation;
+	readonly projection: CaptureSubmissionProjection;
 	readonly viewerTimeZone?: string;
-}): NonNullable<ApplySubmissionArgs["submissionReceipt"]> | undefined {
-	const { entryKey, formUuid } = args.mutation;
-	if (entryKey === undefined || formUuid === undefined) return undefined;
+}): NonNullable<ApplySubmissionArgs["submissionReceipt"]> {
+	const { entryKey, formUuid } = args.projection;
 	const requestDigest = createHash("sha256")
 		.update(
 			canonicalJson({
 				appId: args.appId,
-				mutation: args.mutation,
+				mutation: {
+					...args.mutation,
+					entryKey,
+					formUuid,
+					attachmentRefs: args.projection.attachmentRefs,
+				},
 				viewerTimeZone: args.viewerTimeZone,
 				identity: {
 					actorUserId: args.identity.actorUserId,
@@ -991,11 +996,11 @@ export function buildSubmissionReceiptIdentity(args: {
 /**
  * Build the storage executor's `CaseOperationProgram` from the
  * COMMITTED doc — the server is the structural authority, consuming
- * only the client's answer values and iteration counts. Returns an
- * empty result (the `operations` arm stays absent) when the mutation
- * carries no form identity, the doc's form holds no operations, or the
- * client collected no answer bags for an operation-bearing form
- * (doc-snapshot skew — the pure half's guard).
+ * only the client's answer values and iteration counts. The `operations`
+ * arm stays absent only when the committed form holds no operations.
+ * Missing final-protocol identity, a missing committed form, or absent
+ * answer bags for an operation-bearing form rejects the whole submission;
+ * none can fall back to ordinary-only effects.
  *
  * Everything structural derives from the S04 analyses over the
  * committed doc: canonical `(order, uuid)` operation sequence,
@@ -1010,34 +1015,32 @@ export async function buildSubmissionOperationProgram(args: {
 	readonly appId: string;
 	readonly identity: ResolvedPreviewIdentity;
 	readonly mutation: SubmissionMutation;
+	readonly projection: CaptureSubmissionProjection;
 	readonly viewerTimeZone?: string;
 }): Promise<BuiltSubmissionOperations> {
-	if (args.mutation.formUuid === undefined) return {};
 	const submissionReceipt = buildSubmissionReceiptIdentity(args);
 
 	const app = await loadApp(args.appId);
-	if (!app?.blueprint) return {};
+	if (!app?.blueprint) {
+		throw new CaptureSubmissionRejectedError(
+			"The submitted app no longer has a committed blueprint.",
+		);
+	}
+	if (app.blueprint.forms[args.projection.formUuid as Uuid] === undefined) {
+		throw new CaptureSubmissionRejectedError(
+			"The submitted form no longer exists in the committed app.",
+		);
+	}
 	const built = buildCaseOperationProgramFromDoc({
 		blueprint: app.blueprint,
 		mutation: args.mutation,
+		projection: args.projection,
 		identity: args.identity,
 		...(args.viewerTimeZone !== undefined && {
 			viewerTimeZone: args.viewerTimeZone,
 		}),
 	});
-	const { entryKey, attachmentNames, attachmentRefs, formUuid } = args.mutation;
-	if (entryKey === undefined) return built;
-	const validated = validateCaptureSubmissionProjection({
-		entryKey,
-		formUuid,
-		attachmentNames,
-		attachmentRefs,
-	});
-	if (app.blueprint.forms[validated.formUuid as Uuid] === undefined) {
-		throw new CaptureSubmissionRejectedError(
-			"The submitted form no longer exists in the committed app.",
-		);
-	}
+	const validated = args.projection;
 	const allowedAttachments = Object.values(app.blueprint.fields).flatMap(
 		(field) => {
 			if (!isCaptureFieldKind(field.kind)) return [];
@@ -1065,15 +1068,7 @@ export async function buildSubmissionOperationProgram(args: {
 		validated.attachmentRefs.length === 0 &&
 		allowedAttachments.length === 0
 	) {
-		return {
-			...built,
-			...(submissionReceipt === undefined ? {} : { submissionReceipt }),
-		};
-	}
-	if (submissionReceipt === undefined) {
-		throw new Error(
-			"A capture-aware form submission did not produce a receipt identity.",
-		);
+		return built;
 	}
 	const captureIntentWithoutDigest = {
 		entryKey: validated.entryKey,
@@ -1100,26 +1095,32 @@ export async function buildSubmissionOperationProgram(args: {
 export function buildCaseOperationProgramFromDoc(args: {
 	readonly blueprint: PersistableDoc;
 	readonly mutation: SubmissionMutation;
+	readonly projection: CaptureSubmissionProjection;
 	readonly identity: ResolvedPreviewIdentity;
 	readonly viewerTimeZone?: string;
 }): BuiltSubmissionOperations {
 	const { mutation } = args;
-	const formUuid = mutation.formUuid as Uuid | undefined;
-	if (formUuid === undefined) return {};
+	const formUuid = args.projection.formUuid as Uuid;
 	const blueprint = args.blueprint;
 	const doc = asWalkableDoc(blueprint);
 	const form = doc.forms[formUuid];
-	if (form === undefined) return {};
+	if (form === undefined) {
+		throw new CaptureSubmissionRejectedError(
+			"The submitted form no longer exists in the committed app.",
+		);
+	}
 	const operations = orderedCaseOperations(form);
 	if (operations.length === 0) return {};
-	/* Operations present but NO collected answers: the client's doc
-	 * snapshot predates a co-editor's operation add (a synced client
-	 * whose form holds operations always sends the bags). Running the
-	 * program with empty bindings would blank-write every field term —
-	 * key-absent projection REMOVES stored properties on update — so
-	 * this skew submits ordinary-only, the same fallback the
-	 * identity-less arm takes. */
-	if (mutation.operationAnswers === undefined) return {};
+	/* Operations present but NO collected answers means the client's doc
+	 * snapshot predates a co-editor's operation add. Running with empty
+	 * bindings would blank-write fields, while silently submitting the
+	 * ordinary arm would skip committed behavior. Reject the whole
+	 * submission and let the refreshed client retry the final protocol. */
+	if (mutation.operationAnswers === undefined) {
+		throw new CaptureSubmissionRejectedError(
+			"The submitted form is missing answers required by its committed case operations.",
+		);
+	}
 
 	const guards = caseOperationConditionalGuardUuids(doc, formUuid, operations);
 	const snapshotTypes = caseOperationExpressionSnapshotTypes(

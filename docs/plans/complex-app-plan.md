@@ -287,15 +287,21 @@ export for a carrier-bearing document (`LOOKUP_CARRIER_EXPORT_NOT_ACTIVE`). Loca
 One submission is one transaction. The preview store exposes a single envelope
 carrying ordinary form behavior plus advanced operations; the server builds the
 `CaseOperationProgram` from the **committed** document, and identity resolves
-server-side at the action boundary rather than being folded into a client-supplied
-literal. `SubmissionMutation` carries the form UUID plus complete per-scope
-operation answer bags as plain JSON — a `Map`, `Set`, or `File` argument would
-make React encode multipart, which the edge WAF blocks.
+server-side at the action boundary rather than being folded into a
+client-supplied literal. Every `SubmissionMutation` arm carries the final
+plain-JSON protocol: form UUID, controller-owned UUID entry key, and exact
+structured attachment references (including explicit `[]`), plus complete
+per-scope operation answer bags when the committed form has operations. The
+Server Action imperatively validates and normalizes that required projection
+before receipt, program, or effect derivation; the retired name-only projection
+is rejected. A `Map`, `Set`, or `File` argument would make React encode
+multipart, which the edge WAF blocks.
 
 The membership gate precedes the program build, closing a one-bit cross-tenant
-survey oracle. An answers-absent document snapshot submits ordinary-only, because
-empty bindings would blank-write and a blank projects to key-absent — silent
-property deletion.
+survey oracle. If a freshly authorized committed form has operations but the
+submission lacks its answer bags, the entire request rejects as stale/skewed:
+empty bindings would blank-write and an ordinary-only fallback would silently
+skip committed semantics.
 
 Wire facts the envelope rests on:
 
@@ -847,13 +853,15 @@ inherits no application role and holds only public-schema `USAGE` plus
 only object get/create/delete, IAM-condition-limited to `captures-staged/` and
 `projects/<project>/captures/`; the media-policy identity separately holds only
 bucket metadata get/update.
-`applyMediaBucketLifecycle` applies the bucket's whole policy in one
-`{ append: false }` call, so every prefix needing a TTL lives there and
-`lib/storage/__tests__/mediaBucketLifecycle.test.ts` pins that both survive — a
-second call would silently delete the first with no symptom until objects
-stopped being collected. The seven-day staging TTL remains a hard backstop for
-source objects, while acceptance requires the exact verified copy outside that
-prefix before the submission transaction can commit.
+`applyMediaBucketStoragePolicy` converges the bucket's whole temporary-object
+retention policy in one metageneration-fenced patch: the exact prefix lifecycle,
+soft delete disabled, versioning disabled, and default event holds disabled. It
+refuses to remove any operator retention policy and verifies the fresh bucket
+metadata after the write. `lib/storage/__tests__/mediaBucketPolicy.test.ts`
+pins that complete contract and concurrent-edit fence. The seven-day staging
+TTL therefore remains a hard byte-retention backstop for source objects, while
+acceptance requires the exact verified copy outside that prefix before the
+submission transaction can commit.
 
 Clear and Replace carry no confirmation on the picked kinds, deliberately:
 the device does not confirm either, and nothing is actually lost — the file
@@ -926,6 +934,11 @@ signature ink, desired path, and a generation-tagged blocker remain owned by the
 slot. Picked-file save diagnostics live in that same stable slot rather than
 component-local state, so they survive ordinary remounts and still offer
 **Retry** of the exact retained `File`, plus choose-a-different-file/remove.
+The structural Remove control stays visible but disabled without current write
+authority. At its imperative boundary it requires the exact coordinator
+authority generation captured by the handler and rechecks both the controller
+entry key and target repeat instance's stable key before compaction; a stale
+handler cannot retire a successor or its capture after authority restoration.
 Retarget recovery offers Retry plus
 replace/remove for picked files; Signature keeps Retry beside its single
 **Clear signature** action, and every message names that exact action. Every
@@ -955,6 +968,11 @@ recovery surface; Submit focuses **Remove attachment** or **Clear signature**
 there without registering a guessed path. An explicit deleted-field event for
 the same stable UUID takes precedence over an unusable old-path projection and
 retires only that slot.
+Those form-level recovery controls are also destructive authority boundaries:
+they disable during access refresh or viewer mode and pass the exact current
+coordinator generation into discard. A missing or stale token fails closed
+before the owner, retained File/signature ink, or invariant blocker can be
+removed.
 
 Signature strokes and the last successfully encoded CSS dimensions, device pixel
 ratio, and backing-store dimensions live together in stable draft state. A

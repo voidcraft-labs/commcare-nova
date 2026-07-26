@@ -3,10 +3,13 @@ import {
 	__resetAttachmentCoordinatorForTests,
 	type AttachmentAuthoredPathMigration,
 	type AttachmentEntryAuthoritySnapshot,
+	type AttachmentEntryWriteAuthorityToken,
 	cancelAttachmentEntry,
+	captureAttachmentEntryWriteAuthority,
 	clearAttachmentNotReady,
 	discardAttachment,
 	discardAttachmentEntry,
+	discardAttachmentInvariantRecovery,
 	getAttachmentSlotDraft,
 	getAttachmentSlotIssue,
 	getAttachmentSlotPath,
@@ -26,6 +29,7 @@ import {
 	retryAttachmentRetarget,
 	runAttachmentTask,
 	runFormAttachmentBarrier,
+	runWithAttachmentEntryWriteAuthority,
 	setAttachmentEntryAuthority,
 	stageAttachment,
 } from "../attachmentClient";
@@ -147,6 +151,131 @@ afterEach(async () => {
 });
 
 describe("form attachment coordinator", () => {
+	it("rejects destructive callbacks captured before authority loss and restoration", async () => {
+		const entryKey = "entry-stale-destructive-authority";
+		const slotKey = "photo:stale-destructive-authority";
+		const fieldUuid = "22222222-2222-4222-8222-222222222222";
+		let current: AttachmentEntryAuthoritySnapshot = {
+			appId: "app-1",
+			scopeEpoch: 1,
+			accessPhase: "authorized",
+			canEdit: true,
+		};
+		const install = () =>
+			setAttachmentEntryAuthority({
+				entryKey,
+				snapshot: current,
+				readCurrent: () => current,
+			});
+		install();
+		registerAttachmentSlotPath({
+			appId: "app-1",
+			entryKey,
+			slotKey,
+			fieldUuid,
+			instancePath: "/data/legacy/photo",
+			captureKind: "image",
+		});
+		rememberOwnedStagedAttachment({
+			appId: "app-1",
+			entryKey,
+			slotKey,
+			instancePath: "/data/legacy/photo",
+			attachment: {
+				attachmentId: "attachment-stale-destructive-authority",
+				attachmentName: "attachment-stale-destructive-authority.png",
+				originalFilename: "photo.png",
+				sizeBytes: 3,
+			},
+		});
+		await reconcileAttachmentAuthoredPathMigration({
+			appId: "app-1",
+			entryKey,
+			migration: {
+				moves: [
+					retainedCaptureMove({
+						fieldUuid,
+						previousPath: "/data/legacy/photo",
+						currentPath: "/data/current/photo",
+						previousSegmentKeys: ["$data", "duplicate", "duplicate"],
+						currentSegmentKeys: ["$data", "duplicate", "duplicate"],
+					}),
+				],
+			},
+		});
+		expect(
+			listAttachmentInvariantRecoveries({ appId: "app-1", entryKey }),
+		).toHaveLength(1);
+		const staleAuthority = captureAttachmentEntryWriteAuthority(entryKey, 1);
+		expect(staleAuthority).toBeDefined();
+		const fabricatedAuthority = {} as AttachmentEntryWriteAuthorityToken;
+		const fabricatedRemoval = vi.fn();
+		expect(
+			runWithAttachmentEntryWriteAuthority({
+				entryKey,
+				token: fabricatedAuthority,
+				action: fabricatedRemoval,
+			}),
+		).toBe(false);
+		expect(fabricatedRemoval).not.toHaveBeenCalled();
+
+		current = {
+			appId: "app-1",
+			scopeEpoch: 2,
+			accessPhase: "refreshing",
+			canEdit: false,
+		};
+		install();
+		current = {
+			appId: "app-1",
+			scopeEpoch: 2,
+			accessPhase: "authorized",
+			canEdit: true,
+		};
+		install();
+
+		const staleRepeatRemoval = vi.fn();
+		expect(
+			runWithAttachmentEntryWriteAuthority({
+				entryKey,
+				token: staleAuthority,
+				action: staleRepeatRemoval,
+			}),
+		).toBe(false);
+		expect(staleRepeatRemoval).not.toHaveBeenCalled();
+		expect(
+			discardAttachmentInvariantRecovery({
+				appId: "app-1",
+				entryKey,
+				slotKey,
+				authority: staleAuthority,
+			}),
+		).toBe(false);
+		expect(
+			getOwnedStagedAttachment({ appId: "app-1", entryKey, slotKey }),
+		).toMatchObject({
+			attachmentId: "attachment-stale-destructive-authority",
+		});
+
+		const restoredAuthority = captureAttachmentEntryWriteAuthority(entryKey, 2);
+		expect(restoredAuthority).toBeDefined();
+		vi.stubGlobal(
+			"fetch",
+			vi.fn().mockResolvedValue({ ok: true, status: 200 }),
+		);
+		expect(
+			discardAttachmentInvariantRecovery({
+				appId: "app-1",
+				entryKey,
+				slotKey,
+				authority: restoredAuthority,
+			}),
+		).toBe(true);
+		expect(
+			getOwnedStagedAttachment({ appId: "app-1", entryKey, slotKey }),
+		).toBeUndefined();
+	});
+
 	it("entry authority fences queued slotless work and preserves a clean restored submit", async () => {
 		const entryKey = "entry-authority-generation";
 		let current: AttachmentEntryAuthoritySnapshot = {

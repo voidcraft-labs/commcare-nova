@@ -369,88 +369,73 @@ export interface SubmissionAttachmentReference {
 }
 
 /**
- * The two attachment slots every arm carries.
+ * The final submission protocol every arm carries.
  *
  * `entryKey` names this form entry's attachment scope
- * (`EngineController.entryKey`), while `attachmentNames` and
- * `attachmentRefs` carry the surviving RELEVANT answer names plus their exact
- * field/path provenance. Together they let the server atomically reserve only
- * the staged rows accepted by this submission.
+ * (`EngineController.entryKey`), while `attachmentRefs` is the exact surviving
+ * RELEVANT answer projection, including an explicit empty list. The server
+ * validates this identity/projection at the Server Action boundary before it
+ * derives a receipt, operation program, or capture intent.
  *
- * Both are optional so a client that predates them submits normally —
- * nothing is prepared, and the staged rows expire on their own. Neither is
- * authority: the server matches names against the acting member's own rows
- * in the app's Project, so a forged list can neither prepare nor preserve
- * another member's attachment.
+ * Neither value is authority: the server matches references against the
+ * acting member's own staged rows in the app's Project, so a forged projection
+ * can neither prepare nor preserve another member's attachment.
  *
  * The slots are plain JSON by necessity as well as by taste. A `File` or a
  * `Map` argument makes React encode the Server Action as
  * `multipart/form-data`, whose part headers the edge WAF reads as header
  * injection — which is also why the bytes never travel this way at all.
  */
-export type SubmissionMutation =
-	| {
-			kind: "registration";
-			formUuid?: string;
-			operationAnswers?: SubmissionOperationAnswers;
-			entryKey?: string;
-			attachmentNames?: ReadonlyArray<string>;
-			attachmentRefs?: ReadonlyArray<SubmissionAttachmentReference>;
-			primary: {
-				caseType: string;
-				caseName?: string;
-				properties: JsonObject;
-			};
-			children: ReadonlyArray<{
-				caseType: string;
-				caseName?: string;
-				properties: JsonObject;
-			}>;
-	  }
-	| {
-			kind: "followup";
-			formUuid?: string;
-			operationAnswers?: SubmissionOperationAnswers;
-			entryKey?: string;
-			attachmentNames?: ReadonlyArray<string>;
-			attachmentRefs?: ReadonlyArray<SubmissionAttachmentReference>;
-			caseId: string;
-			patch: { caseName?: string; properties: JsonObject };
-			children: ReadonlyArray<{
-				caseType: string;
-				caseName?: string;
-				properties: JsonObject;
-				parentCaseId: string;
-			}>;
-	  }
-	| {
-			kind: "close";
-			formUuid?: string;
-			operationAnswers?: SubmissionOperationAnswers;
-			entryKey?: string;
-			attachmentNames?: ReadonlyArray<string>;
-			attachmentRefs?: ReadonlyArray<SubmissionAttachmentReference>;
-			caseId: string;
-			patch: { caseName?: string; properties: JsonObject };
-			children: ReadonlyArray<{
-				caseType: string;
-				caseName?: string;
-				properties: JsonObject;
-				parentCaseId: string;
-			}>;
-	  }
-	| {
-			/** A survey touches no case ORDINARILY, but its case operations
-			 *  still execute — the identity slots let the server build the
-			 *  program; absent (older clients, operation-free forms) keeps
-			 *  the historical no-op short-circuit. */
-			kind: "survey";
-			formUuid?: string;
-			operationAnswers?: SubmissionOperationAnswers;
-			entryKey?: string;
-			attachmentNames?: ReadonlyArray<string>;
-			attachmentRefs?: ReadonlyArray<SubmissionAttachmentReference>;
-	  };
+interface SubmissionProtocol {
+	readonly formUuid: string;
+	readonly entryKey: string;
+	readonly attachmentRefs: ReadonlyArray<SubmissionAttachmentReference>;
+	readonly operationAnswers?: SubmissionOperationAnswers;
+}
+
+export type SubmissionMutation = SubmissionProtocol &
+	(
+		| {
+				kind: "registration";
+				primary: {
+					caseType: string;
+					caseName?: string;
+					properties: JsonObject;
+				};
+				children: ReadonlyArray<{
+					caseType: string;
+					caseName?: string;
+					properties: JsonObject;
+				}>;
+		  }
+		| {
+				kind: "followup";
+				caseId: string;
+				patch: { caseName?: string; properties: JsonObject };
+				children: ReadonlyArray<{
+					caseType: string;
+					caseName?: string;
+					properties: JsonObject;
+					parentCaseId: string;
+				}>;
+		  }
+		| {
+				kind: "close";
+				caseId: string;
+				patch: { caseName?: string; properties: JsonObject };
+				children: ReadonlyArray<{
+					caseType: string;
+					caseName?: string;
+					properties: JsonObject;
+					parentCaseId: string;
+				}>;
+		  }
+		| {
+				/** A survey touches no case ORDINARILY, but its case operations and
+				 * capture intent still execute through the same final protocol. */
+				kind: "survey";
+		  }
+	);
 
 /**
  * Result of submitting a `SubmissionMutation` through the

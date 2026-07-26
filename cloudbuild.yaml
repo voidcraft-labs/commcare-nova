@@ -93,10 +93,10 @@ steps:
       - push
       - "us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/commcare-nova/app:$BUILD_ID"
 
-  # Bucket lifecycle and signed-upload CORS are release prerequisites, not a
-  # manual runbook. This create-or-update Job runs the policy bundle from the
-  # exact image about to deploy; a failure stops the build before migrations
-  # or traffic movement.
+  # The complete media-bucket retention policy and signed-upload CORS are
+  # release prerequisites, not a manual runbook. This create-or-update Job
+  # runs the policy bundle from the exact image about to deploy; a failure
+  # stops the build before migrations or traffic movement.
   - id: media-policy
     name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
     entrypoint: bash

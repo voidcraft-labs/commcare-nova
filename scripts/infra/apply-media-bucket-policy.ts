@@ -8,7 +8,7 @@
 
 import {
 	applyMediaBucketCors,
-	applyMediaBucketLifecycle,
+	applyMediaBucketStoragePolicy,
 } from "@/lib/storage/media";
 
 async function main(): Promise<void> {
@@ -22,10 +22,10 @@ async function main(): Promise<void> {
 	if (origins.length === 0) {
 		throw new Error("NOVA_UPLOAD_CORS_ORIGINS is required.");
 	}
-	await applyMediaBucketLifecycle();
+	await applyMediaBucketStoragePolicy();
 	await applyMediaBucketCors(origins);
 	console.log(
-		`[media-policy] lifecycle and CORS applied for ${origins.join(", ")}`,
+		`[media-policy] hard temporary-object retention and CORS applied for ${origins.join(", ")}`,
 	);
 }
 

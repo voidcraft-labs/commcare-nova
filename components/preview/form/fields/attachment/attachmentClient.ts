@@ -51,7 +51,20 @@ interface AttachmentEntryAuthorityState {
 	readCurrent: () => AttachmentEntryAuthoritySnapshot;
 }
 
-interface AttachmentEntryAuthorityToken {
+declare const attachmentEntryWriteAuthorityTokenBrand: unique symbol;
+
+/** Opaque capability captured by one rendered destructive control.
+ *
+ * Callers may only obtain it while the coordinator's exact entry authority is
+ * active. Its generation becomes stale on every access/scope tuple change,
+ * including a loss followed by restoration before React commits a new
+ * handler. */
+export interface AttachmentEntryWriteAuthorityToken {
+	readonly [attachmentEntryWriteAuthorityTokenBrand]: true;
+}
+
+interface AttachmentEntryWriteAuthorityTokenState {
+	readonly entryKey: string;
 	readonly generation: number;
 }
 
@@ -86,6 +99,10 @@ interface EntryQueue {
 
 const entryQueues = new Map<string, EntryQueue>();
 const entryAuthorities = new Map<string, AttachmentEntryAuthorityState>();
+const entryWriteAuthorityTokens = new WeakMap<
+	AttachmentEntryWriteAuthorityToken,
+	AttachmentEntryWriteAuthorityTokenState
+>();
 
 interface AttachmentSlot {
 	readonly appId: string;
@@ -398,7 +415,7 @@ export function setAttachmentEntryAuthority(args: {
 
 function attachmentEntryAuthorityToken(
 	entryKey: string,
-): AttachmentEntryAuthorityToken | undefined {
+): AttachmentEntryWriteAuthorityToken | undefined {
 	const authority = entryAuthorities.get(entryKey);
 	if (authority === undefined) return undefined;
 	if (
@@ -407,20 +424,27 @@ function attachmentEntryAuthorityToken(
 	) {
 		return undefined;
 	}
-	return { generation: authority.generation };
+	const token = {} as AttachmentEntryWriteAuthorityToken;
+	entryWriteAuthorityTokens.set(token, {
+		entryKey,
+		generation: authority.generation,
+	});
+	return token;
 }
 
 function attachmentEntryAuthorityIsCurrent(
 	entryKey: string,
-	token: AttachmentEntryAuthorityToken | undefined,
+	token: AttachmentEntryWriteAuthorityToken | undefined,
 ): boolean {
 	// Standalone field/coordinator tests have no form owner. Production form
 	// entries always register an authority tuple in `FormScreen`.
 	if (token === undefined) return !entryAuthorities.has(entryKey);
 	const authority = entryAuthorities.get(entryKey);
+	const tokenState = entryWriteAuthorityTokens.get(token);
 	return (
 		authority !== undefined &&
-		authority.generation === token.generation &&
+		tokenState?.entryKey === entryKey &&
+		authority.generation === tokenState.generation &&
 		activeAttachmentEntryAuthority(authority.snapshot) &&
 		sameAttachmentEntryAuthority(authority.snapshot, authority.readCurrent())
 	);
@@ -432,6 +456,42 @@ function authorityAbort(): DOMException {
 
 export function hasAttachmentEntryWriteAuthority(entryKey: string): boolean {
 	return attachmentEntryAuthorityToken(entryKey) !== undefined;
+}
+
+/** Capture the exact active generation for a rendered destructive control.
+ * A missing token is read-only UI; callers must never manufacture one. */
+export function captureAttachmentEntryWriteAuthority(
+	entryKey: string,
+	expectedScopeEpoch: number,
+): AttachmentEntryWriteAuthorityToken | undefined {
+	if (
+		entryAuthorities.get(entryKey)?.snapshot.scopeEpoch !== expectedScopeEpoch
+	) {
+		return undefined;
+	}
+	return attachmentEntryAuthorityToken(entryKey);
+}
+
+/** Run one synchronous destructive action only while the captured authority
+ * generation is still exact-current.
+ *
+ * Unlike the legacy internal task guard, a missing token always fails closed.
+ * This is the imperative boundary for stale React handlers: access loss, a
+ * viewer downgrade, or loss + restoration rotates the coordinator generation
+ * before this callback can mutate the form entry. */
+export function runWithAttachmentEntryWriteAuthority(args: {
+	readonly entryKey: string;
+	readonly token: AttachmentEntryWriteAuthorityToken | undefined;
+	readonly action: () => void;
+}): boolean {
+	if (
+		args.token === undefined ||
+		!attachmentEntryAuthorityIsCurrent(args.entryKey, args.token)
+	) {
+		return false;
+	}
+	args.action();
+	return true;
 }
 
 function retargetIssueFor(slot: AttachmentSlot): AttachmentSlotIssue {
@@ -557,13 +617,29 @@ export function discardAttachmentInvariantRecovery(args: {
 	appId: string;
 	entryKey: string;
 	slotKey: string;
+	authority: AttachmentEntryWriteAuthorityToken | undefined;
 }): boolean {
 	const slot = attachmentSlots.get(args.entryKey)?.get(args.slotKey);
 	if (slot?.appId !== args.appId || slot.issue?.kind !== "invariant") {
 		return false;
 	}
-	retireAttachmentSlot(args.entryKey, args.slotKey);
-	return true;
+	return runWithAttachmentEntryWriteAuthority({
+		entryKey: args.entryKey,
+		token: args.authority,
+		action: () => {
+			// Recheck the exact recovery identity inside the authorized action.
+			// The action is synchronous, but keeping both predicates adjacent to
+			// retirement makes future refactors fail closed too.
+			const current = attachmentSlots.get(args.entryKey)?.get(args.slotKey);
+			if (
+				current?.appId !== args.appId ||
+				current.issue?.kind !== "invariant"
+			) {
+				return;
+			}
+			retireAttachmentSlot(args.entryKey, args.slotKey);
+		},
+	});
 }
 
 export function getAttachmentSlotDraft(args: {

@@ -463,6 +463,96 @@ function renderFormScreen(opts: {
 	);
 }
 
+async function seedMalformedAttachmentRecovery(args: {
+	readonly fieldUuid: Uuid;
+	readonly slotKey: string;
+	readonly oldPath: string;
+	readonly currentPath: string;
+	readonly captureKind: "image" | "signature";
+}): Promise<{
+	readonly entryKey: string;
+	readonly fileDraft: File | undefined;
+	readonly signatureInk: { x: number; y: number }[][] | undefined;
+}> {
+	await waitFor(() => expect(capturedController?.entryKey).toBeDefined());
+	const entryKey = capturedController?.entryKey;
+	if (entryKey === undefined) throw new Error("Expected an active form entry.");
+	const fileDraft =
+		args.captureKind === "image"
+			? new File(["retained"], "retained-photo.png", { type: "image/png" })
+			: undefined;
+	const signatureInk =
+		args.captureKind === "signature" ? [[{ x: 0.2, y: 0.4 }]] : undefined;
+	act(() => {
+		registerAttachmentSlotPath({
+			appId: APP_ID,
+			entryKey,
+			slotKey: args.slotKey,
+			fieldUuid: args.fieldUuid,
+			instancePath: args.oldPath,
+			captureKind: args.captureKind,
+		});
+		rememberOwnedStagedAttachment({
+			appId: APP_ID,
+			entryKey,
+			slotKey: args.slotKey,
+			instancePath: args.oldPath,
+			attachment: {
+				attachmentId: `attachment-${args.slotKey}`,
+				attachmentName: `${args.slotKey}.png`,
+				originalFilename: `${args.slotKey}.png`,
+				sizeBytes: 3,
+			},
+		});
+		if (fileDraft !== undefined) {
+			rememberAttachmentSlotDraft({
+				appId: APP_ID,
+				entryKey,
+				slotKey: args.slotKey,
+				file: fileDraft,
+				status: "needs-attention",
+				generation: 9,
+			});
+		}
+		if (signatureInk !== undefined) {
+			rememberSignatureDraft(entryKey, args.slotKey, signatureInk);
+		}
+	});
+	await act(async () => {
+		await reconcileAttachmentAuthoredPathMigration({
+			appId: APP_ID,
+			entryKey,
+			migration: {
+				moves: [
+					{
+						kind: "retained",
+						fieldUuid: args.fieldUuid,
+						previous: {
+							pathTemplate: args.oldPath.replace(/\[\d+\]/g, ""),
+							segmentKeys: [
+								"$data",
+								...args.oldPath
+									.split("/")
+									.filter(Boolean)
+									.slice(1)
+									.map((_, index) => `old-${index}`),
+								args.fieldUuid,
+							],
+							captureKind: args.captureKind,
+						},
+						current: {
+							pathTemplate: args.currentPath,
+							segmentKeys: ["$data", "duplicate", "duplicate"],
+							captureKind: args.captureKind,
+						},
+					},
+				],
+			},
+		});
+	});
+	return { entryKey, fileDraft, signatureInk };
+}
+
 beforeEach(async () => {
 	onBackMock.mockClear();
 	navigateMock.goHome.mockClear();
@@ -562,7 +652,12 @@ describe("FormScreen — registration submit", () => {
 			expect(vi.mocked(submitFormAction)).toHaveBeenCalledTimes(1);
 		});
 		const [mutation, appIdArg] = vi.mocked(submitFormAction).mock.calls[0];
-		expect(mutation.kind).toBe("registration");
+		expect(mutation).toMatchObject({
+			kind: "registration",
+			formUuid: REG_FORM_UUID,
+			entryKey: expect.any(String),
+			attachmentRefs: [],
+		});
 		expect(appIdArg).toBe(APP_ID);
 		/* Registration's default post-submit destination is `app_home`,
 		 *  resolved via `defaultPostSubmit("registration")`. The screen
@@ -690,15 +785,19 @@ describe("FormScreen — survey submit", () => {
 		const submit = await screen.findByRole("button", { name: /^submit$/i });
 		fireEvent.click(submit);
 
-		/* Survey owns no case rows — the action short-circuits before
-		 *  any store call — but the action is still invoked so the
-		 *  typed-result loop survives the call. The mutation's `kind`
-		 *  carries `"survey"`. */
+		/* Survey owns no ordinary case row, but the action still validates the
+		 * final protocol and inspects the authorized committed form before it
+		 * may classify the request as effect-free. */
 		await waitFor(() => {
 			expect(vi.mocked(submitFormAction)).toHaveBeenCalledTimes(1);
 		});
 		const [mutation] = vi.mocked(submitFormAction).mock.calls[0];
-		expect(mutation.kind).toBe("survey");
+		expect(mutation).toMatchObject({
+			kind: "survey",
+			formUuid: SURVEY_FORM_UUID,
+			entryKey: expect.any(String),
+			attachmentRefs: [],
+		});
 		/* Survey's default post-submit destination is `app_home`. */
 		await waitFor(() => {
 			expect(navigateMock.goHome).toHaveBeenCalledTimes(1);
@@ -1622,6 +1721,106 @@ describe("FormScreen — validate-fail short-circuit", () => {
 			);
 		},
 	);
+
+	it.each([
+		{
+			denial: "access refresh",
+			fieldUuid: GROUP_TWO_PHOTO_UUID,
+			slotKey: "refresh-denied-recovery-photo",
+			oldPath: "/data/legacy_visit/photo",
+			currentPath: "/data/visits[0]/photo",
+			captureKind: "image" as const,
+			actionName: /Remove attachment from Photo/i,
+		},
+		{
+			denial: "viewer downgrade",
+			fieldUuid: GROUP_TWO_SIGNATURE_UUID,
+			slotKey: "viewer-denied-recovery-signature",
+			oldPath: "/data/households[1]/visits[2]/consent",
+			currentPath: "/data/other_visits[0]/consent",
+			captureKind: "signature" as const,
+			actionName: /Clear signature for Signed consent/i,
+		},
+	])(
+		"keeps retained recovery state read-only through a $denial",
+		async ({
+			denial,
+			fieldUuid,
+			slotKey,
+			oldPath,
+			currentPath,
+			captureKind,
+			actionName,
+		}) => {
+			renderFormScreen({ formUuid: STRUCTURE_FORM_UUID });
+			const { entryKey, fileDraft, signatureInk } =
+				await seedMalformedAttachmentRecovery({
+					fieldUuid,
+					slotKey,
+					oldPath,
+					currentPath,
+					captureKind,
+				});
+			const recovery = await screen.findByRole("button", {
+				name: actionName,
+			});
+			expect((recovery as HTMLButtonElement).disabled).toBe(false);
+
+			act(() => {
+				if (denial === "access refresh") {
+					capturedSession?.getState().beginAccessRefresh();
+					return;
+				}
+				capturedSession?.setState({
+					canEdit: false,
+					role: "viewer",
+					accessPhase: "authorized",
+				});
+			});
+			await waitFor(() =>
+				expect((recovery as HTMLButtonElement).disabled).toBe(true),
+			);
+			fireEvent.click(recovery);
+
+			expect(
+				getOwnedStagedAttachment({
+					appId: APP_ID,
+					entryKey,
+					slotKey,
+				}),
+			).toMatchObject({ attachmentId: `attachment-${slotKey}` });
+			expect(
+				getAttachmentSlotIssue({
+					appId: APP_ID,
+					entryKey,
+					slotKey,
+				}),
+			).toMatchObject({ kind: "invariant" });
+			if (fileDraft !== undefined) {
+				expect(
+					getAttachmentSlotDraft({
+						appId: APP_ID,
+						entryKey,
+						slotKey,
+					})?.file,
+				).toBe(fileDraft);
+			}
+			if (signatureInk !== undefined) {
+				expect(getSignatureDraft(entryKey, slotKey)).toEqual(signatureInk);
+			}
+
+			act(() => {
+				capturedSession?.getState().applyAccessSnapshot({
+					projectId: "project-form-screen-test",
+					role: "editor",
+					canEdit: true,
+				});
+			});
+			await waitFor(() =>
+				expect((recovery as HTMLButtonElement).disabled).toBe(false),
+			);
+		},
+	);
 });
 
 // ── !appId guard ───────────────────────────────────────────────
@@ -2028,6 +2227,94 @@ describe("FormScreen — repeated structure accessibility", () => {
 		});
 		expect(removeSecond.className).toContain("min-h-11");
 		expect(removeSecond.className).toContain("min-w-11");
+	});
+
+	it("preserves a repeated capture when stale removal loses authority and permits a restored removal", async () => {
+		renderFormScreen({ formUuid: STRUCTURE_FORM_UUID });
+		const add = await screen.findByRole("button", {
+			name: /Add Visit.*Repeat 3.*Repeat.*Visit/i,
+		});
+		fireEvent.click(add);
+		const removeSecond = await screen.findByRole("button", {
+			name: /Remove.*Repeat 3.*Repeat.*Visit.*Instance 2/i,
+		});
+		const entryKey = capturedController?.entryKey;
+		if (entryKey === undefined || capturedSession === undefined) {
+			throw new Error("Expected mounted session and repeated form entry.");
+		}
+		const slotKey = "repeat-removal-authority-photo";
+		const fileDraft = new File(["repeat"], "repeat-photo.png", {
+			type: "image/png",
+		});
+		act(() => {
+			registerAttachmentSlotPath({
+				appId: APP_ID,
+				entryKey,
+				slotKey,
+				fieldUuid: REPEAT_PHOTO_UUID,
+				instancePath: "/data/visits[1]/photo",
+				captureKind: "image",
+			});
+			rememberOwnedStagedAttachment({
+				appId: APP_ID,
+				entryKey,
+				slotKey,
+				instancePath: "/data/visits[1]/photo",
+				attachment: {
+					attachmentId: "attachment-repeat-removal-authority",
+					attachmentName: "attachment-repeat-removal-authority.png",
+					originalFilename: "repeat-photo.png",
+					sizeBytes: 6,
+				},
+			});
+			rememberAttachmentSlotDraft({
+				appId: APP_ID,
+				entryKey,
+				slotKey,
+				file: fileDraft,
+				status: "needs-attention",
+				generation: 4,
+			});
+		});
+
+		act(() => capturedSession?.getState().beginAccessRefresh());
+		await waitFor(() =>
+			expect((removeSecond as HTMLButtonElement).disabled).toBe(true),
+		);
+		fireEvent.click(removeSecond);
+		expect(capturedController?.getRepeatCount(REPEAT_UUID)).toBe(2);
+		expect(
+			getOwnedStagedAttachment({ appId: APP_ID, entryKey, slotKey }),
+		).toMatchObject({ attachmentId: "attachment-repeat-removal-authority" });
+		expect(
+			getAttachmentSlotDraft({ appId: APP_ID, entryKey, slotKey })?.file,
+		).toBe(fileDraft);
+
+		act(() => {
+			capturedSession?.getState().applyAccessSnapshot({
+				projectId: "project-form-screen-test",
+				role: "editor",
+				canEdit: true,
+			});
+		});
+		await waitFor(() =>
+			expect((removeSecond as HTMLButtonElement).disabled).toBe(false),
+		);
+		const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+		vi.stubGlobal("fetch", fetchMock);
+		fireEvent.click(removeSecond);
+		await waitFor(() =>
+			expect(capturedController?.getRepeatCount(REPEAT_UUID)).toBe(1),
+		);
+		expect(
+			getOwnedStagedAttachment({ appId: APP_ID, entryKey, slotKey }),
+		).toBeUndefined();
+		await waitFor(() =>
+			expect(fetchMock).toHaveBeenCalledWith(
+				`/api/apps/${APP_ID}/attachments/attachment-repeat-removal-authority`,
+				expect.objectContaining({ method: "DELETE" }),
+			),
+		);
 	});
 
 	it("keeps footer actions touch-sized and wrapping at compact widths", async () => {

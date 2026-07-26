@@ -52,6 +52,7 @@ import {
 	type ValueExpression,
 } from "@/lib/domain/predicate";
 import { unhandledKindMessage } from "@/lib/domain/predicate/errors";
+import { validateCaptureSubmissionProjection } from "./captureSubmissionValidation";
 import {
 	mapFilterPreviewError,
 	mapPopulateSampleCasesError,
@@ -964,9 +965,11 @@ export async function loadFilterPreviewAction(args: {
  * primary write, every child insert, and close's lifecycle transition
  * — in ONE Postgres transaction; partial success is unobservable and
  * the running-app view re-queries one settled state on resolve.
- * A legacy operation-free survey carries no case effect and short-circuits.
- * An attachment-bearing survey still crosses the atomic envelope so its
- * durable capture intent commits with the submission receipt.
+ * An authorized, committed operation- and attachment-free survey carries no
+ * effect and short-circuits only after its final protocol has been validated
+ * and the committed form has been inspected. An attachment-bearing survey
+ * crosses the atomic envelope so its durable capture intent commits with the
+ * submission receipt.
  *
  * Caller-supplied `appId` is passed through verbatim, matching the
  * shape the other Server Actions in this file use. The bound
@@ -984,18 +987,13 @@ export async function submitFormAction(
 	personaUuid?: string,
 ): Promise<SubmissionResult> {
 	try {
+		/* This runtime boundary is mandatory even though the TypeScript surface
+		 * is required: Server Action payloads are untrusted JSON. Consume the
+		 * normalized projection below so missing/stale clients cannot bypass
+		 * receipt, capture-intent, or committed-operation derivation. */
+		const projection = validateCaptureSubmissionProjection(mutation);
 		const identity = await resolvePreviewIdentityForApp(appId, personaUuid);
 		if (!identity) return { kind: "unauthenticated" };
-		/* An old-client survey with neither operations nor an entry latch is
-		 * still the historical no-op. Attachment-aware surveys must reach the
-		 * atomic envelope even when they have no case operations. */
-		if (
-			mutation.kind === "survey" &&
-			mutation.operationAnswers === undefined &&
-			mutation.entryKey === undefined
-		) {
-			return { kind: "survey" };
-		}
 		/* Membership BEFORE the program build: the build loads the
 		 * committed doc (an unauthorized read on a foreign appId), and
 		 * the survey short-circuit below reflects that doc's contents —
@@ -1011,17 +1009,16 @@ export async function submitFormAction(
 			appId,
 			identity,
 			mutation,
+			projection,
 			viewerTimeZone,
 		});
 		const readSubmissionReplay = async () =>
-			submissionReceipt === undefined
-				? undefined
-				: await readCaptureSubmissionReceipt({
-						appId,
-						projectId: scope.projectId,
-						actorUserId: identity.actorUserId,
-						receipt: submissionReceipt,
-					});
+			await readCaptureSubmissionReceipt({
+				appId,
+				projectId: scope.projectId,
+				actorUserId: identity.actorUserId,
+				receipt: submissionReceipt,
+			});
 		const priorReplay = await readSubmissionReplay();
 		if (priorReplay !== undefined) {
 			return submissionResultFromEnvelope(mutation, priorReplay);
@@ -1032,6 +1029,7 @@ export async function submitFormAction(
 				appId,
 				identity,
 				mutation,
+				projection,
 				viewerTimeZone,
 			});
 		} catch (buildError) {
@@ -1050,7 +1048,6 @@ export async function submitFormAction(
 		if (
 			mutation.kind === "survey" &&
 			built.program === undefined &&
-			built.submissionReceipt === undefined &&
 			built.captureIntent === undefined
 		) {
 			return { kind: "survey" };

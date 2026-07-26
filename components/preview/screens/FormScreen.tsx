@@ -713,10 +713,12 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		if (
 			submitted.scopeEpoch !== start.scopeEpoch ||
 			submitted.formUuid === undefined ||
+			submitted.entryKey === undefined ||
 			submitted.destination === undefined
 		) {
 			return;
 		}
+		const submittedEntryKey = submitted.entryKey;
 		const attempt = ++submissionAttemptRef.current;
 		const attemptIsCurrent = () => submissionAttemptRef.current === attempt;
 		const settleAttempt = (status: SubmitStatus): void => {
@@ -806,14 +808,14 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 					submitted.personaUuid,
 				);
 			};
-			const entryKey = submitted.entryKey;
-			const result =
-				entryKey === undefined
-					? await submitStableAnswers()
-					: await runFormAttachmentBarrier(entryKey, submitStableAnswers, {
-							classifySlot: ({ instancePath }) =>
-								controller.attachmentPathDisposition(instancePath),
-						});
+			const result = await runFormAttachmentBarrier(
+				submittedEntryKey,
+				submitStableAnswers,
+				{
+					classifySlot: ({ instancePath }) =>
+						controller.attachmentPathDisposition(instancePath),
+				},
+			);
 			if (!isCurrent()) {
 				settleAttempt({ kind: "idle" });
 				return;

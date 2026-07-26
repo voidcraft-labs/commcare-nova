@@ -8,6 +8,7 @@ import {
 	listAttachmentInvariantRecoveries,
 	subscribeAttachmentSlotState,
 } from "./attachmentClient";
+import { useAttachmentEntryWriteAuthority } from "./useAttachmentEntryWriteAuthority";
 
 /**
  * Recovery-only surface for an attachment whose old concrete path cannot be
@@ -25,6 +26,7 @@ export function AttachmentInvariantRecoveryPanel({
 	readonly entryKey: string;
 }) {
 	const { fields } = useFieldsAndOrder();
+	const writeAuthority = useAttachmentEntryWriteAuthority(entryKey);
 	const [, setRevision] = useState(0);
 	useEffect(
 		() =>
@@ -78,14 +80,16 @@ export function AttachmentInvariantRecoveryPanel({
 								type="button"
 								data-attachment-recovery
 								data-attachment-recovery-field-uuid={recovery.fieldUuid}
+								disabled={writeAuthority === undefined}
 								onClick={() => {
 									discardAttachmentInvariantRecovery({
 										appId,
 										entryKey,
 										slotKey: recovery.slotKey,
+										authority: writeAuthority,
 									});
 								}}
-								className="inline-flex min-h-11 items-center rounded-lg border border-nova-amber/50 px-3 py-2 text-sm font-medium text-nova-text transition-colors hover:bg-nova-amber/15"
+								className="inline-flex min-h-11 items-center rounded-lg border border-nova-amber/50 px-3 py-2 text-sm font-medium text-nova-text transition-colors not-disabled:hover:bg-nova-amber/15 disabled:cursor-not-allowed disabled:opacity-40"
 							>
 								{action}
 							</button>
