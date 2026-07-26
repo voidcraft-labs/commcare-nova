@@ -16,6 +16,9 @@ import {
 	asUuid,
 	type BlueprintDoc,
 	type LookupOptionsSource,
+	personasOf,
+	userPropertiesOf,
+	userTypesOf,
 } from "@/lib/domain";
 import {
 	assembleBlueprint,
@@ -302,6 +305,15 @@ describe("the user collections", () => {
 		expect(Object.hasOwn(assembled, "userProperties")).toBe(false);
 		expect(Object.hasOwn(assembled, "userTypes")).toBe(false);
 		expect(Object.hasOwn(assembled, "personas")).toBe(false);
+		for (const record of [
+			userPropertiesOf(assembled),
+			userTypesOf(assembled),
+			personasOf(assembled),
+		]) {
+			expect(Object.getPrototypeOf(record)).toBeNull();
+			expect(Object.hasOwn(record, "constructor")).toBe(false);
+			expect(Object.hasOwn(record, "__proto__")).toBe(false);
+		}
 	});
 
 	it("gives the slot back when the last entry is removed", () => {

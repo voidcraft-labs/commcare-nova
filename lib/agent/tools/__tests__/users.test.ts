@@ -154,11 +154,19 @@ describe("user authoring tools", () => {
 
 		const read = await getUsersTool.execute({}, ctx, personaResult.newDoc);
 		expect(read.data.roles[0]?.values).toEqual([
-			{ userPropertyUuid: propertyUuid, slug: "region", value: "north" },
+			{ userPropertyUuid: propertyUuid, value: "north" },
 		]);
 		expect(read.data.personas[0]?.values).toEqual([
-			{ userPropertyUuid: propertyUuid, slug: "region", value: "south" },
+			{ userPropertyUuid: propertyUuid, value: "south" },
 		]);
+		expect(Object.keys(read.data.roles[0]?.values[0] ?? {}).sort()).toEqual([
+			"userPropertyUuid",
+			"value",
+		]);
+		expect(read.data.workerInformation[0]).toMatchObject({
+			uuid: propertyUuid,
+			slug: "region",
+		});
 	});
 
 	it("uses null only as an explicit clear and keeps omitted slots unchanged", async () => {

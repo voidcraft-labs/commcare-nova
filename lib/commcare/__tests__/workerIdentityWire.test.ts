@@ -117,6 +117,7 @@ describe("custom worker reference wire", () => {
 		).toBe(`${USERCASE}/district-code = 'n'`);
 
 		const zip = new AdmZip(compileCcz(hq, doc.appName, doc));
+		const localXform = zip.readAsText("modules-0/forms-0.xml");
 		expect(
 			attributeWhere(
 				zip.readAsText("suite.xml"),
@@ -125,6 +126,14 @@ describe("custom worker reference wire", () => {
 				(attributes) => attributes.id === "m0",
 			),
 		).toBe("instance('commcaresession')/session/user/data/district-code = 'n'");
+		expect(
+			attributeWhere(
+				localXform,
+				"bind",
+				"relevant",
+				(attributes) => attributes.nodeset === "/data/supervisor_note",
+			),
+		).toBe(`${USERCASE}/district-code = 'n'`);
 	});
 
 	it("emits the named CCHQ session and usercase XPath shapes through HQ JSON, suite.xml, and XForm", () => {
@@ -198,6 +207,26 @@ describe("custom worker reference wire", () => {
 		expect(
 			attributeWhere(
 				renamedXform,
+				"bind",
+				"relevant",
+				(attributes) => attributes.nodeset === "/data/supervisor_note",
+			),
+		).toBe(`${USERCASE}/supervision_status = 'n'`);
+
+		const renamedZip = new AdmZip(compileCcz(renamed, doc.appName, doc));
+		expect(
+			attributeWhere(
+				renamedZip.readAsText("suite.xml"),
+				"menu",
+				"relevant",
+				(attributes) => attributes.id === "m0",
+			),
+		).toBe(
+			"instance('commcaresession')/session/user/data/supervision_status = 'n'",
+		);
+		expect(
+			attributeWhere(
+				renamedZip.readAsText("modules-0/forms-0.xml"),
 				"bind",
 				"relevant",
 				(attributes) => attributes.nodeset === "/data/supervisor_note",

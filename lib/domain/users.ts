@@ -50,7 +50,12 @@
 // `BUILT_IN_USER_PROPERTIES` carries only what the session block injects.
 
 import { z } from "zod";
-import { mergeOwnRecords, ownRecordSchema, ownRecordValue } from "./records";
+import {
+	mergeOwnRecords,
+	ownRecordSchema,
+	ownRecordValue,
+	recordFromEntries,
+} from "./records";
 import { type Uuid, uuidSchema } from "./uuid";
 
 // ── Slug legality ────────────────────────────────────────────────────
@@ -413,22 +418,18 @@ export interface UserCollections {
 	readonly personas?: Record<string, Persona>;
 }
 
-const NO_PROPERTIES: Record<string, UserProperty> = {};
-const NO_TYPES: Record<string, UserType> = {};
-const NO_PERSONAS: Record<string, Persona> = {};
-
 export function userPropertiesOf(
 	doc: UserCollections,
 ): Record<string, UserProperty> {
-	return doc.userProperties ?? NO_PROPERTIES;
+	return doc.userProperties ?? recordFromEntries([]);
 }
 
 export function userTypesOf(doc: UserCollections): Record<string, UserType> {
-	return doc.userTypes ?? NO_TYPES;
+	return doc.userTypes ?? recordFromEntries([]);
 }
 
 export function personasOf(doc: UserCollections): Record<string, Persona> {
-	return doc.personas ?? NO_PERSONAS;
+	return doc.personas ?? recordFromEntries([]);
 }
 
 /** Stable custom worker-information identity → current emitted slug. */

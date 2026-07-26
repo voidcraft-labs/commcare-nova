@@ -412,12 +412,16 @@ verdict as construction. A built-in, reserved/invalid legacy custom,
 case-insensitive duplicate, case-only match, missing, or external spelling
 remains name-backed permanently; a later catalog rename cannot retarget that
 raw leaf. While an XPath editor is open, a clean draft adopts a peer's identity
-rename and a non-overlapping local addition rebases across it. When both edits
-replace the same text, CodeMirror preserves the local draft and refuses save
-until Escape reloads the shared projection instead of overwriting either edit.
-That conflict is sticky for the lifetime of the mounted draft: every later
-projection advances the shared base but neither clears the warning nor enables
-save.
+rename. A dirty draft rebases only when the peer projection changes exactly one
+complete `#user/<slug>` token and no other byte, the before/after catalogs prove
+that token is the same unique custom-property UUID, and the local draft retains
+the complete old token exactly once. Namespace matches, bare-slug guesses,
+token extensions, deletions, repetitions, and broader peer edits fail closed.
+When both edits replace the same text, CodeMirror preserves the local draft and
+refuses save until Escape reloads the shared projection instead of overwriting
+either edit. That conflict is sticky for the lifetime of the mounted draft:
+every later projection advances the shared base but neither clears the warning
+nor enables save.
 
 The reference index records both custom AST arms under one `p:<uuid>` target.
 Removing worker information therefore refuses while any condition,

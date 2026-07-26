@@ -15,7 +15,10 @@ import {
 	REJECTION_SURFACE_CLS,
 	RejectionBody,
 } from "@/components/builder/RejectionNotice";
-import { reconcileXPathDraft } from "@/components/builder/xpathDraftReconciliation";
+import {
+	reconcileXPathDraft,
+	type XPathUserPropertyProjection,
+} from "@/components/builder/xpathDraftReconciliation";
 import { xpathAutocomplete } from "@/lib/codemirror/xpath-autocomplete";
 import { xpathChips } from "@/lib/codemirror/xpath-chips";
 import { formatXPath, prettyPrintXPath } from "@/lib/codemirror/xpath-format";
@@ -285,6 +288,18 @@ interface InlineXPathEditorProps {
 	clickPosition: { x: number; y: number } | null;
 }
 
+function userPropertyProjection(
+	context: XPathLintContext | undefined,
+): XPathUserPropertyProjection[] {
+	return [...(context?.userProperties ?? [])]
+		.map(({ uuid, slug }) => ({ uuid, slug }))
+		.sort(
+			(left, right) =>
+				left.uuid.localeCompare(right.uuid) ||
+				left.slug.localeCompare(right.slug),
+		);
+}
+
 /**
  * Full CodeMirror editor rendered inline, replacing the static XPathField
  * display. Supports autocomplete, linting, reference chips, and bracket
@@ -317,6 +332,10 @@ function InlineXPathEditor({
 	const editorRef = useRef<ReactCodeMirrorRef>(null);
 	const wrapperRef = useRef<HTMLDivElement>(null);
 	const baseProjectionRef = useRef(projectedValue);
+	const [initialUserProperties] = useState(() =>
+		userPropertyProjection(getLintContext?.()),
+	);
+	const baseUserPropertiesRef = useRef(initialUserProperties);
 	const draftRef = useRef(projectedValue);
 	const projectionConflictRef = useRef(false);
 	const [draft, setDraft] = useState(projectedValue);
@@ -341,20 +360,24 @@ function InlineXPathEditor({
 	 */
 	useEffect(() => {
 		if (projectedValue === baseProjectionRef.current) return;
+		const incomingUserProperties = userPropertyProjection(getLintContext?.());
 		const reconciled = reconcileXPathDraft({
 			base: baseProjectionRef.current,
 			draft: draftRef.current,
 			incoming: projectedValue,
+			baseUserProperties: baseUserPropertiesRef.current,
+			incomingUserProperties,
 			conflict: projectionConflictRef.current,
 		});
 		baseProjectionRef.current = reconciled.base;
+		baseUserPropertiesRef.current = incomingUserProperties;
 		draftRef.current = reconciled.draft;
 		projectionConflictRef.current = reconciled.conflict;
 		setDraft(reconciled.draft);
 		if (reconciled.conflict) {
 			setTooltipMessage(XPATH_PROJECTION_CONFLICT_MESSAGE);
 		}
-	}, [projectedValue]);
+	}, [projectedValue, getLintContext]);
 
 	/* Auto-dismiss tooltip after 4 seconds. */
 	useEffect(() => {

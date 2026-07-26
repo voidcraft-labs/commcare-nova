@@ -14,12 +14,15 @@ import {
 	asUuid,
 	BUILT_IN_USER_PROPERTIES,
 	blueprintDocSchema,
+	personasOf,
 	personaUserData,
 	USER_DATA_SYSTEM_FIELDS,
 	USER_PROPERTY_SLUG_MAX_LENGTH,
 	type UserCollections,
 	userDataValuesSchema,
+	userPropertiesOf,
 	userPropertySchema,
+	userTypesOf,
 } from "@/lib/domain";
 
 const NONE: ReadonlySet<string> = new Set();
@@ -228,6 +231,18 @@ describe("user property accepted values", () => {
 });
 
 describe("prototype-safe user record parsing", () => {
+	it("returns fresh null-prototype fallbacks with no inherited identities", () => {
+		for (const read of [userPropertiesOf, userTypesOf, personasOf]) {
+			const first = read({});
+			const second = read({});
+			expect(first).not.toBe(second);
+			expect(Object.getPrototypeOf(first)).toBeNull();
+			expect(Object.hasOwn(first, "constructor")).toBe(false);
+			expect(Object.hasOwn(first, "__proto__")).toBe(false);
+			expect(first.constructor).toBeUndefined();
+		}
+	});
+
 	it("preserves every own hostile key in value bags", () => {
 		const values = Object.fromEntries([
 			["__proto__", "north"],

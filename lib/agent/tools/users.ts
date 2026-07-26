@@ -681,7 +681,6 @@ export const removePersonaTool = {
 
 function valuesOutput(
 	values: UserDataValues | undefined,
-	properties: Record<string, UserProperty>,
 	propertyOrder: ReadonlyMap<string, number>,
 ) {
 	return Object.entries(values ?? {})
@@ -693,7 +692,6 @@ function valuesOutput(
 		)
 		.map(([userPropertyUuid, value]) => ({
 			userPropertyUuid,
-			slug: ownRecordValue(properties, userPropertyUuid)?.slug,
 			value,
 		}));
 }
@@ -735,13 +733,13 @@ export const getUsersTool = {
 					.sort(byFlatEntitySortKey)
 					.map(({ values, ...role }) => ({
 						...role,
-						values: valuesOutput(values, properties, propertyOrder),
+						values: valuesOutput(values, propertyOrder),
 					})),
 				personas: Object.values(personasOf(doc))
 					.sort(byFlatEntitySortKey)
 					.map(({ values, ...persona }) => ({
 						...persona,
-						values: valuesOutput(values, properties, propertyOrder),
+						values: valuesOutput(values, propertyOrder),
 					})),
 			},
 		};
