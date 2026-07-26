@@ -128,9 +128,11 @@ import type { SearchInputValues } from "../runtimeBindings";
 vi.mock("@/lib/auth-utils", () => ({
 	getSession: vi.fn(),
 }));
-const { prepareCaptureSubmissionBytesMock } = vi.hoisted(() => ({
-	prepareCaptureSubmissionBytesMock: vi.fn(),
-}));
+const { prepareCaptureSubmissionBytesMock, readCaptureSubmissionReceiptMock } =
+	vi.hoisted(() => ({
+		prepareCaptureSubmissionBytesMock: vi.fn(),
+		readCaptureSubmissionReceiptMock: vi.fn(),
+	}));
 vi.mock("@/lib/case-store", async () => {
 	const actual =
 		await vi.importActual<typeof import("@/lib/case-store")>(
@@ -143,6 +145,7 @@ vi.mock("@/lib/case-store", async () => {
 });
 vi.mock("@/lib/case-store/postgres/submissionAttachments", () => ({
 	prepareCaptureSubmissionBytes: prepareCaptureSubmissionBytesMock,
+	readCaptureSubmissionReceipt: readCaptureSubmissionReceiptMock,
 }));
 // The schema heal's Postgres boundary, stubbed for the SAME reason the
 // auth boundary is: the actions wrap their store in
@@ -213,6 +216,7 @@ beforeEach(async () => {
 		role: "owner",
 		actorUserId: OWNER_A,
 	});
+	readCaptureSubmissionReceiptMock.mockResolvedValue(undefined);
 	await runCaseStoreMigrations(dbHandle.db);
 });
 
@@ -3814,6 +3818,120 @@ describe("submitFormAction", () => {
 		// applySubmission resolves, the action can return without awaiting any
 		// storage promise that could make an accepted form appear failed.
 		expect(prepareCaptureSubmissionBytesMock).toHaveBeenCalledTimes(1);
+	});
+
+	it("replays a nonempty accepted entry before loading a now-deleted form", async () => {
+		const { getSession } = await import("@/lib/auth-utils");
+		const { withProjectContext } = await import("@/lib/case-store");
+		vi.mocked(getSession).mockResolvedValueOnce({
+			user: { id: OWNER_A },
+		} as unknown as Awaited<ReturnType<typeof getSession>>);
+		const applySubmission = vi.fn();
+		vi.mocked(withProjectContext).mockResolvedValueOnce(
+			stubCaseStore(applySubmission),
+		);
+		readCaptureSubmissionReceiptMock.mockResolvedValueOnce({
+			primaryCaseId: ALICE_CASE_ID,
+			childCaseIds: [VISIT_CASE_ID],
+			operations: [],
+		});
+		const formUuid = asUuid("41111111-1111-4111-8111-111111111111");
+		const fieldUuid = asUuid("51111111-1111-4111-8111-111111111111");
+		const mutation: SubmissionMutation = {
+			kind: "registration",
+			formUuid,
+			entryKey: "11111111-1111-4111-8111-111111111111",
+			attachmentNames: ["accepted.png"],
+			attachmentRefs: [
+				{
+					attachmentName: "accepted.png",
+					fieldUuid,
+					instancePath: "/data/photo",
+				},
+			],
+			primary: {
+				caseType: "patient",
+				caseName: "Alice",
+				properties: { name: "must not repeat" },
+			},
+			children: [],
+		};
+
+		const { submitFormAction } = await import("../caseDataBinding");
+		await expect(submitFormAction(mutation, APP_ID)).resolves.toEqual({
+			kind: "registration",
+			caseId: ALICE_CASE_ID,
+			childCaseIds: [VISIT_CASE_ID],
+		});
+		expect(readCaptureSubmissionReceiptMock).toHaveBeenCalledWith({
+			appId: APP_ID,
+			projectId: PROJECT_A,
+			actorUserId: OWNER_A,
+			receipt: {
+				entryKey: mutation.entryKey,
+				formUuid,
+				requestDigest: expect.stringMatching(/^[0-9a-f]{64}$/),
+			},
+		});
+		expect(loadAppMock).not.toHaveBeenCalled();
+		expect(applySubmission).not.toHaveBeenCalled();
+		expect(prepareCaptureSubmissionBytesMock).not.toHaveBeenCalled();
+	});
+
+	it("rechecks a receipt committed while current-form validation is failing", async () => {
+		const { getSession } = await import("@/lib/auth-utils");
+		const { withProjectContext } = await import("@/lib/case-store");
+		vi.mocked(getSession).mockResolvedValueOnce({
+			user: { id: OWNER_A },
+		} as unknown as Awaited<ReturnType<typeof getSession>>);
+		const applySubmission = vi.fn();
+		vi.mocked(withProjectContext).mockResolvedValueOnce(
+			stubCaseStore(applySubmission),
+		);
+		const committed = {
+			primaryCaseId: ALICE_CASE_ID,
+			childCaseIds: [VISIT_CASE_ID],
+			operations: [],
+		};
+		readCaptureSubmissionReceiptMock
+			.mockResolvedValueOnce(undefined)
+			.mockResolvedValueOnce(committed);
+		loadAppMock.mockResolvedValueOnce({
+			blueprint: buildDoc({ appName: "Form deleted during retry" }),
+			mutation_seq: 18,
+			project_id: PROJECT_A,
+		});
+		const formUuid = asUuid("41111111-1111-4111-8111-111111111111");
+		const mutation: SubmissionMutation = {
+			kind: "registration",
+			formUuid,
+			entryKey: "11111111-1111-4111-8111-111111111111",
+			attachmentNames: ["accepted.png"],
+			attachmentRefs: [
+				{
+					attachmentName: "accepted.png",
+					fieldUuid: asUuid("51111111-1111-4111-8111-111111111111"),
+					instancePath: "/data/photo",
+				},
+			],
+			primary: {
+				caseType: "patient",
+				caseName: "Alice",
+				properties: { name: "must not repeat" },
+			},
+			children: [],
+		};
+
+		const { submitFormAction } = await import("../caseDataBinding");
+		await expect(submitFormAction(mutation, APP_ID)).resolves.toEqual({
+			kind: "registration",
+			caseId: ALICE_CASE_ID,
+			childCaseIds: [VISIT_CASE_ID],
+		});
+		expect(readCaptureSubmissionReceiptMock).toHaveBeenCalledTimes(2);
+		expect(loadAppMock).toHaveBeenCalledOnce();
+		expect(applySubmission).not.toHaveBeenCalled();
+		expect(prepareCaptureSubmissionBytesMock).not.toHaveBeenCalled();
 	});
 
 	it("keeps replay identity stable when an unrelated app edit advances mutation_seq", async () => {

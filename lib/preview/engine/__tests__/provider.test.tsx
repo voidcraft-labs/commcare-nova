@@ -13,18 +13,19 @@
  * `load()` takes a `PersistableDoc`.
  */
 
-import { act, render, renderHook } from "@testing-library/react";
+import { act, render, renderHook, waitFor } from "@testing-library/react";
 import { type ReactNode, useEffect } from "react";
 import { describe, expect, it, vi } from "vitest";
-import {
-	ReconcilerContext,
-	type ReconcilerContextValue,
-} from "@/lib/collab/context";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import { asUuid } from "@/lib/domain";
 import type { PersistableDoc } from "@/lib/domain/blueprint";
-import { BuilderSessionProvider } from "@/lib/session/provider";
+import { useFormEngine } from "@/lib/preview/hooks/useFormEngine";
+import {
+	BuilderSessionContext,
+	BuilderSessionProvider,
+} from "@/lib/session/provider";
+import { createBuilderSessionStore } from "@/lib/session/store";
 import { EngineController } from "../engineController";
 import { BuilderFormEngineProvider, useBuilderFormEngine } from "../provider";
 
@@ -189,41 +190,80 @@ describe("BuilderFormEngineProvider", () => {
 		expect(Object.keys(runtime).length).toBeGreaterThan(0);
 	});
 
-	it("drops runtime form and case values synchronously on a Project-scope reset", () => {
+	it("preserves one entry through a real same-Project refresh and rotates it only after confirmed boundaries", async () => {
 		const docStore = createBlueprintDocStore();
 		docStore.getState().load(DOC);
 		docStore.temporal.getState().resume();
-		let scopeReset: ((scopeEpoch: number) => void) | undefined;
-		const reconcilerContext = {
-			subscribeProjectScopeReset(callback: (scopeEpoch: number) => void) {
-				scopeReset = callback;
-				return () => {
-					scopeReset = undefined;
-				};
-			},
-		} as unknown as ReconcilerContextValue;
+		const sessionStore = createBuilderSessionStore({
+			appId: DOC.appId,
+			projectId: "project-source",
+			role: "editor",
+			canEdit: true,
+		});
 		const Wrapper = ({ children }: { children: ReactNode }) => (
-			<BuilderSessionProvider>
+			<BuilderSessionContext value={sessionStore}>
 				<BlueprintDocContext value={docStore}>
-					<ReconcilerContext value={reconcilerContext}>
-						<BuilderFormEngineProvider>{children}</BuilderFormEngineProvider>
-					</ReconcilerContext>
+					<BuilderFormEngineProvider>{children}</BuilderFormEngineProvider>
 				</BlueprintDocContext>
-			</BuilderSessionProvider>
+			</BuilderSessionContext>
 		);
-		const { result } = renderHook(() => useBuilderFormEngine(), {
+		const { result } = renderHook(() => useFormEngine(FORM_UUID), {
 			wrapper: Wrapper,
 		});
 		act(() => {
-			result.current.activateForm(FORM_UUID);
 			result.current.onValueChange(FIELD_UUID, "source value");
 		});
-		expect(Object.keys(result.current.store.getState()).length).toBeGreaterThan(
-			0,
+		const sourceEntryKey = result.current.entryKey;
+		expect(sourceEntryKey).toBeDefined();
+		expect(result.current.store.getState()[FIELD_UUID]?.value).toBe(
+			"source value",
 		);
 
-		act(() => scopeReset?.(1));
+		act(() => {
+			sessionStore.getState().beginAccessRefresh();
+			sessionStore.getState().resetProjectScope();
+		});
+		expect(result.current.entryKey).toBe(sourceEntryKey);
+		expect(result.current.store.getState()[FIELD_UUID]?.value).toBe(
+			"source value",
+		);
+		act(() => {
+			sessionStore.getState().applyAccessSnapshot({
+				projectId: "project-source",
+				role: "editor",
+				canEdit: true,
+			});
+		});
+		expect(result.current.entryKey).toBe(sourceEntryKey);
+		expect(result.current.store.getState()[FIELD_UUID]?.value).toBe(
+			"source value",
+		);
 
+		act(() => {
+			sessionStore.getState().beginAccessRefresh();
+			sessionStore.getState().resetProjectScope();
+			sessionStore.getState().applyAccessSnapshot({
+				projectId: "project-destination",
+				role: "editor",
+				canEdit: true,
+			});
+		});
+		await waitFor(() => {
+			expect(result.current.entryKey).toBeDefined();
+			expect(result.current.entryKey).not.toBe(sourceEntryKey);
+		});
+		expect(result.current.store.getState()[FIELD_UUID]?.value).toBe("");
+
+		const projectEntryKey = result.current.entryKey;
+		act(() => sessionStore.getState().setAppId("same-project-next-app"));
+		await waitFor(() => {
+			expect(result.current.entryKey).toBeDefined();
+			expect(result.current.entryKey).not.toBe(projectEntryKey);
+		});
+		expect(result.current.store.getState()[FIELD_UUID]?.value).toBe("");
+
+		act(() => sessionStore.getState().revokeAccess());
+		await waitFor(() => expect(result.current.entryKey).toBeUndefined());
 		expect(result.current.store.getState()).toEqual({});
 	});
 });

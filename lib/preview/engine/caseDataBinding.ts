@@ -22,11 +22,15 @@ import {
 	buildCaseTypeMap,
 	CaseNotFoundError,
 	CasePropertiesValidationError,
+	type CaseStore,
 	type JsonValue,
 	ParkedValueNotFoundError,
 	type TermBindings,
 } from "@/lib/case-store";
-import { prepareCaptureSubmissionBytes } from "@/lib/case-store/postgres/submissionAttachments";
+import {
+	prepareCaptureSubmissionBytes,
+	readCaptureSubmissionReceipt,
+} from "@/lib/case-store/postgres/submissionAttachments";
 import { AppAccessError } from "@/lib/db/appAccess";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type {
@@ -55,6 +59,7 @@ import {
 } from "./caseDataBindingClient";
 import {
 	buildSubmissionOperationProgram,
+	buildSubmissionReceiptIdentity,
 	collectConfigLookupTableIds,
 	gatedCaseStore,
 	gatedCaseStoreWithScope,
@@ -1002,15 +1007,50 @@ export async function submitFormAction(
 			identity,
 			"edit",
 		);
-		const built = await buildSubmissionOperationProgram({
+		const submissionReceipt = buildSubmissionReceiptIdentity({
 			appId,
 			identity,
 			mutation,
 			viewerTimeZone,
 		});
+		const readSubmissionReplay = async () =>
+			submissionReceipt === undefined
+				? undefined
+				: await readCaptureSubmissionReceipt({
+						appId,
+						projectId: scope.projectId,
+						actorUserId: identity.actorUserId,
+						receipt: submissionReceipt,
+					});
+		const priorReplay = await readSubmissionReplay();
+		if (priorReplay !== undefined) {
+			return submissionResultFromEnvelope(mutation, priorReplay);
+		}
+		let built: Awaited<ReturnType<typeof buildSubmissionOperationProgram>>;
+		try {
+			built = await buildSubmissionOperationProgram({
+				appId,
+				identity,
+				mutation,
+				viewerTimeZone,
+			});
+		} catch (buildError) {
+			/* A response-lost original may commit after the first receipt read
+			 * while a concurrent authoring change makes today's form fail
+			 * structural validation. Re-adjudicate at the error boundary: an
+			 * exact receipt committed during the build wins, while a changed
+			 * digest still rejects. Successful builds continue to the
+			 * entry-locked store recheck below. */
+			const concurrentReplay = await readSubmissionReplay();
+			if (concurrentReplay !== undefined) {
+				return submissionResultFromEnvelope(mutation, concurrentReplay);
+			}
+			throw buildError;
+		}
 		if (
 			mutation.kind === "survey" &&
 			built.program === undefined &&
+			built.submissionReceipt === undefined &&
 			built.captureIntent === undefined
 		) {
 			return { kind: "survey" };
@@ -1030,22 +1070,7 @@ export async function submitFormAction(
 			submissionEnvelopeArgs(mutation, appId, built),
 		);
 
-		if (mutation.kind === "survey") return { kind: "survey" };
-		if (result.primaryCaseId === undefined) {
-			throw new Error(
-				unhandledKindMessage({
-					where: "preview.caseDataBinding.submitFormAction",
-					family: "SubmissionEnvelopeResult",
-					received: "no primaryCaseId on a case-bearing submission",
-					knownKinds: ["registration", "followup", "close"],
-				}),
-			);
-		}
-		return {
-			kind: mutation.kind,
-			caseId: result.primaryCaseId,
-			childCaseIds: result.childCaseIds,
-		};
+		return submissionResultFromEnvelope(mutation, result);
 	} catch (err) {
 		// A Project-membership denial (`gatedCaseStore` → `AppAccessError`)
 		// is expected, not a fault: collapse it to the IDOR-safe not-found
@@ -1058,4 +1083,26 @@ export async function submitFormAction(
 		reportUnexpectedActionError("submitForm", err, { appId });
 		return mapSubmitFormError(err);
 	}
+}
+
+function submissionResultFromEnvelope(
+	mutation: SubmissionMutation,
+	result: Awaited<ReturnType<CaseStore["applySubmission"]>>,
+): SubmissionResult {
+	if (mutation.kind === "survey") return { kind: "survey" };
+	if (result.primaryCaseId === undefined) {
+		throw new Error(
+			unhandledKindMessage({
+				where: "preview.caseDataBinding.submitFormAction",
+				family: "SubmissionEnvelopeResult",
+				received: "no primaryCaseId on a case-bearing submission",
+				knownKinds: ["registration", "followup", "close"],
+			}),
+		);
+	}
+	return {
+		kind: mutation.kind,
+		caseId: result.primaryCaseId,
+		childCaseIds: result.childCaseIds,
+	};
 }

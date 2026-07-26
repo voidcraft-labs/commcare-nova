@@ -119,6 +119,7 @@ import type {
 import {
 	completeCaptureSubmission,
 	prepareCaptureSubmission,
+	replayCaptureSubmission,
 } from "./submissionAttachments";
 import {
 	executeSubmissionEnvelope,
@@ -799,6 +800,18 @@ export class PostgresCaseStore implements CaseStore {
 					projectId: this.requireProjectId(),
 					actorUserId: this.requireActorUserId(),
 					intent: args.captureIntent,
+				});
+				if (replay !== undefined) return replay;
+			} else if (args.submissionReceipt !== undefined) {
+				/* A capture can disappear from today's blueprint while an older
+				 * entry already has an accepted receipt. Recheck that durable
+				 * identity under the entry lock before any current case effect;
+				 * exact retries replay, changed payloads reject. */
+				const replay = await replayCaptureSubmission(trx, {
+					appId: args.appId,
+					projectId: this.requireProjectId(),
+					actorUserId: this.requireActorUserId(),
+					receipt: args.submissionReceipt,
 				});
 				if (replay !== undefined) return replay;
 			}

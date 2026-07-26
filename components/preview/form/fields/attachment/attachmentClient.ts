@@ -5,6 +5,8 @@
 // through Cloud Run. The answer is set only after confirm returns, because
 // a `pending` row's object may not exist yet and a submission that
 // promoted one would carry a name with nothing behind it.
+
+import { asUuid, type Uuid } from "@/lib/domain";
 import {
 	type InstancePathProjection,
 	projectInstancePath,
@@ -196,6 +198,24 @@ interface SignatureDraftState {
 const signatureDrafts = new Map<string, Map<string, SignatureDraftState>>();
 const attachmentSlotStateListeners = new Map<string, Set<() => void>>();
 
+/** Whether this slot owns worker-authored capture payload that must survive an
+ * ambiguous topology event. Browser geometry and Clear undo history are not
+ * current answers; only a confirmed row, a picked File, or actual signature
+ * points justify an invariant blocker. */
+function attachmentSlotHasRetainedPayload(
+	entryKey: string,
+	slotKey: string,
+	slot: AttachmentSlot,
+): boolean {
+	if (slot.owned !== undefined || slot.draft !== undefined) return true;
+	return (
+		signatureDrafts
+			.get(entryKey)
+			?.get(slotKey)
+			?.strokes.some((stroke) => stroke.length > 0) ?? false
+	);
+}
+
 const ATTACHMENT_CLEANUP_TIMEOUT_MS = 10_000;
 const ATTACHMENT_REQUEST_TIMEOUT_MS = 30_000;
 const BARRIER_RECLASSIFY_MS = 25;
@@ -256,6 +276,23 @@ function activeAttachmentEntryAuthority(
 	);
 }
 
+/** Preserve the intent to repair any owned row whose immutable server path no
+ * longer matches the stable slot's projection. An invariant finding and an
+ * explicit failed retry are worker-owned recovery states; every other
+ * mismatch is safe to suspend and automatically resume. */
+function suspendAttachmentRetargetMismatch(slot: AttachmentSlot): boolean {
+	if (
+		slot.owned === undefined ||
+		slot.owned.instancePath === slot.desiredInstancePath ||
+		slot.issue?.kind === "invariant" ||
+		slot.retargetState === "failed"
+	) {
+		return false;
+	}
+	slot.retargetState = "suspended";
+	return true;
+}
+
 function abortAttachmentEntryOperations(entryKey: string): void {
 	const queue = entryQueues.get(entryKey);
 	if (queue === undefined) return;
@@ -299,27 +336,21 @@ export function setAttachmentEntryAuthority(args: {
 	const slots = attachmentSlots.get(args.entryKey);
 	if (existing !== undefined) {
 		for (const slot of slots?.values() ?? []) {
-			if (
-				slot.owned !== undefined &&
-				slot.owned.instancePath !== slot.desiredInstancePath &&
-				slot.retargetState === "queued" &&
-				slot.issue?.kind !== "invariant"
-			) {
-				slot.retargetState = "suspended";
-			}
+			suspendAttachmentRetargetMismatch(slot);
 		}
 		abortAttachmentEntryOperations(args.entryKey);
 	}
-	if (!activeAttachmentEntryAuthority(args.snapshot)) {
+	// Every tuple change invalidates the operation generation, even when React
+	// batches refreshing away and the next committed render is already
+	// authorized. Any file task that was queued/running in the old generation
+	// must become an explicit retained draft instead of looking permanently
+	// busy after its request was aborted.
+	if (
+		existing !== undefined ||
+		!activeAttachmentEntryAuthority(args.snapshot)
+	) {
 		for (const [slotKey, slot] of slots ?? []) {
-			if (
-				slot.owned !== undefined &&
-				slot.owned.instancePath !== slot.desiredInstancePath &&
-				slot.retargetState === "queued" &&
-				slot.issue?.kind !== "invariant"
-			) {
-				slot.retargetState = "suspended";
-			}
+			suspendAttachmentRetargetMismatch(slot);
 			if (slot.draft === undefined || slot.draft.status === "needs-attention") {
 				continue;
 			}
@@ -327,15 +358,21 @@ export function setAttachmentEntryAuthority(args: {
 				...slot.draft,
 				status: "needs-attention",
 			};
-			slot.issue = {
-				kind: "save",
-				message:
-					"This attachment was paused while edit access refreshed. Retry now, choose a different file, or remove it.",
-			};
-			slot.issueGeneration = slot.draft.generation ?? generation;
+			if (slot.issue === undefined) {
+				slot.issue = {
+					kind: "save",
+					message:
+						"This attachment was paused while edit access refreshed. Retry now, choose a different file, or remove it.",
+				};
+				slot.issueGeneration = slot.draft.generation ?? generation;
+			}
 			markAttachmentNotReady(args.entryKey, slotKey, slot.issue.message);
 		}
-	} else if (sameAttachmentEntryAuthority(args.snapshot, args.readCurrent())) {
+	}
+	if (
+		activeAttachmentEntryAuthority(args.snapshot) &&
+		sameAttachmentEntryAuthority(args.snapshot, args.readCurrent())
+	) {
 		// A retarget's request generation was fenced by the access transition,
 		// but its stable owner and desired path deliberately survived. Restore
 		// every mismatch synchronously so Submit from the same render joins
@@ -411,12 +448,18 @@ function retargetIssueFor(slot: AttachmentSlot): AttachmentSlotIssue {
 			};
 }
 
-function migrationInvariantIssue(): AttachmentSlotIssue {
-	return {
-		kind: "invariant",
-		message:
-			"This attachment was preserved because the question's new location could not be verified. Reload this app before submitting, or remove the attachment.",
-	};
+function migrationInvariantIssue(slot: AttachmentSlot): AttachmentSlotIssue {
+	return slot.captureKind === "signature"
+		? {
+				kind: "invariant",
+				message:
+					"This signature was preserved because the question's new location could not be verified. Reload this app before submitting, or use Clear signature.",
+			}
+		: {
+				kind: "invariant",
+				message:
+					"This attachment was preserved because the question's new location could not be verified. Reload this app before submitting, or remove the attachment.",
+			};
 }
 
 function nextAttachmentSlotGeneration(
@@ -470,6 +513,57 @@ export function getAttachmentSlotIssue(args: {
 	const slot = attachmentSlots.get(args.entryKey)?.get(args.slotKey);
 	if (slot?.appId !== args.appId || slot.issue === undefined) return undefined;
 	return { ...slot.issue };
+}
+
+/** A path-unverified owner cannot safely attach itself to today's rendered
+ * tree. FormScreen exposes these as a separate recovery-only surface so the
+ * worker can remove the exact stable slot without blessing a guessed path. */
+export interface AttachmentInvariantRecovery {
+	readonly slotKey: string;
+	readonly fieldUuid: Uuid;
+	readonly captureKind?: string;
+	readonly message: string;
+}
+
+export function listAttachmentInvariantRecoveries(args: {
+	appId: string;
+	entryKey: string;
+}): readonly AttachmentInvariantRecovery[] {
+	const recoveries: AttachmentInvariantRecovery[] = [];
+	for (const [slotKey, slot] of attachmentSlots.get(args.entryKey) ?? []) {
+		if (
+			slot.appId !== args.appId ||
+			slot.fieldUuid === undefined ||
+			slot.issue?.kind !== "invariant"
+		) {
+			continue;
+		}
+		recoveries.push({
+			slotKey,
+			fieldUuid: asUuid(slot.fieldUuid),
+			...(slot.captureKind === undefined
+				? {}
+				: { captureKind: slot.captureKind }),
+			message: slot.issue.message,
+		});
+	}
+	return recoveries;
+}
+
+/** Destructive recovery for one explicitly selected invariant slot. Recheck
+ * app + issue identity at the click boundary so a stale panel can never
+ * remove a newer successfully-mapped owner. */
+export function discardAttachmentInvariantRecovery(args: {
+	appId: string;
+	entryKey: string;
+	slotKey: string;
+}): boolean {
+	const slot = attachmentSlots.get(args.entryKey)?.get(args.slotKey);
+	if (slot?.appId !== args.appId || slot.issue?.kind !== "invariant") {
+		return false;
+	}
+	retireAttachmentSlot(args.entryKey, args.slotKey);
+	return true;
 }
 
 export function getAttachmentSlotDraft(args: {
@@ -1135,19 +1229,30 @@ export function rememberOwnedStagedAttachment(args: {
 		(current.draft.generation ?? 0) > args.maximumDraftGeneration
 			? current.draft
 			: undefined;
+	const desiredInstancePath =
+		current?.appId === args.appId
+			? current.desiredInstancePath
+			: args.instancePath;
+	const ownerMatchesCurrent =
+		current?.appId === args.appId &&
+		current.owned?.attachment.attachmentId === args.attachment.attachmentId;
+	const retargetState =
+		args.instancePath === desiredInstancePath
+			? undefined
+			: ownerMatchesCurrent && current.retargetState !== undefined
+				? current.retargetState
+				: "queued";
 	slots.set(key, {
 		appId: args.appId,
 		fieldUuid: current?.appId === args.appId ? current.fieldUuid : undefined,
 		captureKind:
 			current?.appId === args.appId ? current.captureKind : undefined,
-		desiredInstancePath:
-			current?.appId === args.appId
-				? current.desiredInstancePath
-				: args.instancePath,
+		desiredInstancePath,
 		owned: {
 			attachment: args.attachment,
 			instancePath: args.instancePath,
 		},
+		...(retargetState === undefined ? {} : { retargetState }),
 		...(newerDraft === undefined ? {} : { draft: newerDraft }),
 		...(newerDraft !== undefined && current?.issue !== undefined
 			? {
@@ -1512,8 +1617,21 @@ export async function reconcileAttachmentAuthoredPathMigration(args: {
 	}
 
 	for (const { slotKey, slot, move, projection } of plans) {
+		/* Stable field UUID deletion is destructive authority in its own right.
+		 * It must retire a previously preserved invariant slot even when the
+		 * old path can no longer be projected into today's tree. Duplicate
+		 * deletion records are represented by `move === undefined` above and
+		 * remain non-destructive. */
+		if (move?.kind === "deleted") {
+			retireAttachmentSlot(args.entryKey, slotKey);
+			continue;
+		}
 		if (projection.kind === "invalid" || move === undefined) {
 			cancelAttachmentSlotWork(args.entryKey, slotKey);
+			if (!attachmentSlotHasRetainedPayload(args.entryKey, slotKey, slot)) {
+				retireAttachmentSlot(args.entryKey, slotKey);
+				continue;
+			}
 			if (slot.draft !== undefined && slot.draft.status !== "needs-attention") {
 				slot.draft = { ...slot.draft, status: "needs-attention" };
 			}
@@ -1522,7 +1640,7 @@ export async function reconcileAttachmentAuthoredPathMigration(args: {
 				args.entryKey,
 				slotKey,
 				slot,
-				migrationInvariantIssue(),
+				migrationInvariantIssue(slot),
 				generation,
 			);
 			continue;
@@ -1532,19 +1650,18 @@ export async function reconcileAttachmentAuthoredPathMigration(args: {
 			continue;
 		}
 
-		if (move.kind === "deleted") {
-			retireAttachmentSlot(args.entryKey, slotKey);
-			continue;
-		}
-
 		if (move.kind !== "retained" || move.current === undefined) {
 			cancelAttachmentSlotWork(args.entryKey, slotKey);
+			if (!attachmentSlotHasRetainedPayload(args.entryKey, slotKey, slot)) {
+				retireAttachmentSlot(args.entryKey, slotKey);
+				continue;
+			}
 			const generation = nextAttachmentSlotGeneration(args.entryKey, slotKey);
 			setSlotIssue(
 				args.entryKey,
 				slotKey,
 				slot,
-				migrationInvariantIssue(),
+				migrationInvariantIssue(slot),
 				generation,
 			);
 			continue;

@@ -77,6 +77,9 @@ interface SignaturePadProps {
 	readonly replacementRequired?: boolean;
 	/** Parent-owned retry intent. Incrementing it re-encodes retained ink. */
 	readonly retryRevision?: number;
+	/** Changes whenever the form's write-capability generation rotates, even
+	 * when React batches refreshing → authorized into one committed render. */
+	readonly authorityRevision?: number;
 	readonly required?: boolean;
 	readonly invalid?: boolean;
 	readonly statusId?: string;
@@ -188,6 +191,7 @@ export function SignaturePad({
 	needsAttention = false,
 	replacementRequired = false,
 	retryRevision = 0,
+	authorityRevision = 0,
 	required = false,
 	invalid = false,
 	statusId,
@@ -526,6 +530,9 @@ export function SignaturePad({
 	// and submit blocker. Once the exact entry tuple is writable again, adopt
 	// that retained ink into the new authority generation and encode it once.
 	useEffect(() => {
+		// This reactive read covers authorized→authorized tuple rotation when
+		// React batches the intermediate refreshing render away.
+		void authorityRevision;
 		if (
 			interactionBlocked ||
 			readOnly ||
@@ -548,6 +555,7 @@ export function SignaturePad({
 		hasWriteAuthority,
 		interactionBlocked,
 		readOnly,
+		authorityRevision,
 	]);
 
 	useEffect(() => {

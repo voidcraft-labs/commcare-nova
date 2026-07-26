@@ -276,14 +276,15 @@ steps:
           --uri="$${scheduler_uri}"
           --http-method=POST
           --message-body='{}'
-          --headers=Content-Type=application/json
           --oauth-service-account-email="$${scheduler_account}"
           --oauth-token-scope=https://www.googleapis.com/auth/cloud-platform
         )
         if gcloud scheduler jobs describe "$${cleanup_job}" --location=us-central1 >/dev/null 2>&1; then
-          gcloud scheduler jobs update http "$${cleanup_job}" "$${scheduler_args[@]}"
+          gcloud scheduler jobs update http "$${cleanup_job}" "$${scheduler_args[@]}" \
+            --update-headers=Content-Type=application/json
         else
-          gcloud scheduler jobs create http "$${cleanup_job}" "$${scheduler_args[@]}"
+          gcloud scheduler jobs create http "$${cleanup_job}" "$${scheduler_args[@]}" \
+            --headers=Content-Type=application/json
         fi
 
   # `--min-instances=1` is pinned here on purpose: a bare `gcloud run deploy`

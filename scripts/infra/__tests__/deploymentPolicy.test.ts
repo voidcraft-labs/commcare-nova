@@ -305,6 +305,16 @@ describe("durable deployment policy", () => {
 		expect(cloudBuild).toContain(
 			'--oauth-service-account-email="$${scheduler_account}"',
 		);
+		const schedulerUpdate = cloudBuild.match(
+			/gcloud scheduler jobs update http[\s\S]*?--update-headers=Content-Type=application\/json/,
+		);
+		const schedulerCreate = cloudBuild.match(
+			/gcloud scheduler jobs create http[\s\S]*?--headers=Content-Type=application\/json/,
+		);
+		expect(schedulerUpdate).not.toBeNull();
+		expect(schedulerCreate).not.toBeNull();
+		expect(schedulerUpdate?.[0]).not.toContain(" --headers=");
+		expect(schedulerCreate?.[0]).not.toContain("--update-headers=");
 		expect(cloudBuild).toContain("NOVA_MEDIA_BUCKET=nova-multimedia-prod");
 		expect(cloudBuild).toContain(
 			"NOVA_UPLOAD_CORS_ORIGINS=https://commcare.app",

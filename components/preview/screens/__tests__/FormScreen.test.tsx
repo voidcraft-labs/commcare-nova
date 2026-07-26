@@ -194,8 +194,17 @@ import { BuilderFormEngineProvider } from "@/lib/preview/engine/provider";
 import { invalidateCaseData } from "@/lib/preview/hooks/caseDataInvalidation";
 import {
 	__resetAttachmentCoordinatorForTests,
+	getAttachmentSlotDraft,
+	getAttachmentSlotIssue,
+	getOwnedStagedAttachment,
+	getSignatureDraft,
+	reconcileAttachmentAuthoredPathMigration,
+	registerAttachmentSlotPath,
+	rememberAttachmentSlotDraft,
 	rememberOwnedStagedAttachment,
+	rememberSignatureDraft,
 	runAttachmentTask,
+	runFormAttachmentBarrier,
 	setAttachmentSlotIssue,
 } from "../../form/fields/attachment/attachmentClient";
 import { FormScreen } from "../FormScreen";
@@ -855,6 +864,155 @@ describe("FormScreen — error arms render inline", () => {
 // ── Pending UX ──────────────────────────────────────────────────
 
 describe("FormScreen — pending UX", () => {
+	it("keeps the mounted control, answers, and entry key through a same-Project access refresh", async () => {
+		renderFormScreen({ formUuid: REG_FORM_UUID });
+		const runtimeInput = () =>
+			document.querySelector<HTMLInputElement>(
+				`[data-field-uuid="${FIELD_UUID}"] input`,
+			);
+		await waitFor(() => expect(runtimeInput()).not.toBeNull());
+		const input = runtimeInput();
+		if (input === null) throw new Error("Expected the runtime Name answer.");
+		fireEvent.change(input, { target: { value: "answer in progress" } });
+		act(() => input.focus());
+		await waitFor(() => expect(capturedController?.entryKey).toBeDefined());
+		const entryKey = capturedController?.entryKey;
+		if (capturedSession === undefined || entryKey === undefined) {
+			throw new Error("Expected mounted session and form entry handles.");
+		}
+		const fileSlotKey = "refresh-file-slot";
+		const signatureSlotKey = "refresh-signature-slot";
+		const fileDraft = new File(["draft"], "draft.png", {
+			type: "image/png",
+		});
+		const signatureInk = [[{ x: 0.2, y: 0.4 }]];
+		act(() => {
+			registerAttachmentSlotPath({
+				appId: APP_ID,
+				entryKey,
+				slotKey: fileSlotKey,
+				fieldUuid: GROUP_TWO_PHOTO_UUID,
+				instancePath: "/data/visit_two/photo",
+				captureKind: "image",
+			});
+			rememberOwnedStagedAttachment({
+				appId: APP_ID,
+				entryKey,
+				slotKey: fileSlotKey,
+				instancePath: "/data/visit_two/photo",
+				attachment: {
+					attachmentId: "attachment-refresh-file",
+					attachmentName: "attachment-refresh-file.png",
+					originalFilename: "draft.png",
+					sizeBytes: 5,
+				},
+			});
+			rememberAttachmentSlotDraft({
+				appId: APP_ID,
+				entryKey,
+				slotKey: fileSlotKey,
+				file: fileDraft,
+				status: "uploading",
+				generation: 7,
+			});
+			setAttachmentSlotIssue({
+				appId: APP_ID,
+				entryKey,
+				slotKey: fileSlotKey,
+				issue: {
+					kind: "invariant",
+					message: "The exact retained file still needs attention.",
+				},
+			});
+			registerAttachmentSlotPath({
+				appId: APP_ID,
+				entryKey,
+				slotKey: signatureSlotKey,
+				fieldUuid: GROUP_TWO_SIGNATURE_UUID,
+				instancePath: "/data/visit_two/consent",
+				captureKind: "signature",
+			});
+			rememberOwnedStagedAttachment({
+				appId: APP_ID,
+				entryKey,
+				slotKey: signatureSlotKey,
+				instancePath: "/data/visit_two/consent",
+				attachment: {
+					attachmentId: "attachment-refresh-signature",
+					attachmentName: "attachment-refresh-signature.png",
+					originalFilename: "signature.png",
+					sizeBytes: 5,
+				},
+			});
+			rememberSignatureDraft(entryKey, signatureSlotKey, signatureInk);
+		});
+		const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+		vi.stubGlobal("fetch", fetchMock);
+
+		act(() => {
+			capturedSession?.getState().beginAccessRefresh();
+			capturedSession?.getState().resetProjectScope();
+			capturedSession?.getState().applyAccessSnapshot({
+				projectId: "project-form-screen-test",
+				role: "editor",
+				canEdit: true,
+			});
+		});
+		expect(runtimeInput()).toBe(input);
+		expect((input as HTMLInputElement).value).toBe("answer in progress");
+		expect(document.activeElement).toBe(input);
+		expect(capturedController?.entryKey).toBe(entryKey);
+		expect(
+			getOwnedStagedAttachment({
+				appId: APP_ID,
+				entryKey,
+				slotKey: fileSlotKey,
+			}),
+		).toMatchObject({ attachmentId: "attachment-refresh-file" });
+		expect(
+			getAttachmentSlotDraft({
+				appId: APP_ID,
+				entryKey,
+				slotKey: fileSlotKey,
+			}),
+		).toMatchObject({
+			file: fileDraft,
+			status: "needs-attention",
+			generation: 7,
+		});
+		expect(
+			getAttachmentSlotIssue({
+				appId: APP_ID,
+				entryKey,
+				slotKey: fileSlotKey,
+			}),
+		).toEqual({
+			kind: "invariant",
+			message: "The exact retained file still needs attention.",
+		});
+		expect(getSignatureDraft(entryKey, signatureSlotKey)).toEqual(signatureInk);
+		await expect(
+			runFormAttachmentBarrier(entryKey, async () => "must not submit"),
+		).rejects.toThrow(/exact retained file/i);
+		expect(fetchMock).not.toHaveBeenCalled();
+
+		act(() => capturedSession?.getState().revokeAccess());
+		await waitFor(() => expect(capturedController?.entryKey).toBeUndefined());
+		await waitFor(() =>
+			expect(
+				fetchMock.mock.calls.filter(([, init]) => init?.method === "DELETE"),
+			).toHaveLength(2),
+		);
+		expect(
+			getOwnedStagedAttachment({
+				appId: APP_ID,
+				entryKey,
+				slotKey: fileSlotKey,
+			}),
+		).toBeUndefined();
+		expect(getSignatureDraft(entryKey, signatureSlotKey)).toEqual([]);
+	});
+
 	it("keeps Submit and Clear form read-only after viewer authority replaces the editor session", async () => {
 		renderFormScreen({ formUuid: REG_FORM_UUID });
 		await waitFor(() => expect(capturedController?.entryKey).toBeDefined());
@@ -879,7 +1037,7 @@ describe("FormScreen — pending UX", () => {
 		expect(capturedController?.entryKey).toBe(entryKey);
 	});
 
-	it("rejects stale Submit and Clear handlers after the current app changes", async () => {
+	it("retires the entry and rejects stale Submit and Clear handlers after the current app changes", async () => {
 		renderFormScreen({ formUuid: REG_FORM_UUID });
 		await waitFor(() => expect(capturedController?.entryKey).toBeDefined());
 		const entryKey = capturedController?.entryKey;
@@ -899,7 +1057,7 @@ describe("FormScreen — pending UX", () => {
 		fireEvent.click(screen.getByRole("button", { name: /clear form/i }));
 
 		expect(vi.mocked(submitFormAction)).not.toHaveBeenCalled();
-		expect(capturedController?.entryKey).toBe(entryKey);
+		expect(capturedController?.entryKey).toBeUndefined();
 	});
 
 	it("disables Submit + Clear and swaps the label to Submitting while the action is in flight", async () => {
@@ -1115,17 +1273,19 @@ describe("FormScreen — pending UX", () => {
 
 		const rotatedEntryKey = capturedController?.entryKey;
 		if (!rotatedEntryKey) throw new Error("Expected the rotated entry");
-		rememberOwnedStagedAttachment({
-			appId: APP_ID,
-			entryKey: rotatedEntryKey,
-			slotKey: "photo:rotated-entry",
-			instancePath: "/data/photo",
-			attachment: {
-				attachmentId: "attachment-rotated-entry",
-				attachmentName: "attachment-rotated-entry.png",
-				originalFilename: "photo.png",
-				sizeBytes: 3,
-			},
+		act(() => {
+			rememberOwnedStagedAttachment({
+				appId: APP_ID,
+				entryKey: rotatedEntryKey,
+				slotKey: "photo:rotated-entry",
+				instancePath: "/data/photo",
+				attachment: {
+					attachmentId: "attachment-rotated-entry",
+					attachmentName: "attachment-rotated-entry.png",
+					originalFilename: "photo.png",
+					sizeBytes: 3,
+				},
+			});
 		});
 		const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
 		vi.stubGlobal("fetch", fetchMock);
@@ -1327,6 +1487,139 @@ describe("FormScreen — validate-fail short-circuit", () => {
 			await waitFor(() => expect(document.activeElement).toBe(recovery));
 			expect(screen.getByText(message)).toBeDefined();
 			expect(vi.mocked(submitFormAction)).not.toHaveBeenCalled();
+		},
+	);
+
+	it.each([
+		{
+			name: "malformed group-to-repeat move",
+			fieldUuid: GROUP_TWO_PHOTO_UUID,
+			slotKey: "orphan-group-to-repeat-photo",
+			oldPath: "/data/legacy_visit/photo",
+			currentPath: "/data/visits[0]/photo",
+			captureKind: "image",
+			actionName: /Remove attachment from Photo/i,
+		},
+		{
+			name: "malformed cross-repeat move",
+			fieldUuid: GROUP_TWO_SIGNATURE_UUID,
+			slotKey: "orphan-cross-repeat-signature",
+			oldPath: "/data/households[1]/visits[2]/consent",
+			currentPath: "/data/other_visits[0]/consent",
+			captureKind: "signature",
+			actionName: /Clear signature for Signed consent/i,
+		},
+	])(
+		"renders a question-qualified form-level recovery for a $name",
+		async ({
+			fieldUuid,
+			slotKey,
+			oldPath,
+			currentPath,
+			captureKind,
+			actionName,
+		}) => {
+			renderFormScreen({ formUuid: STRUCTURE_FORM_UUID });
+			await waitFor(() => expect(capturedController?.entryKey).toBeDefined());
+			const entryKey = capturedController?.entryKey;
+			if (!entryKey) throw new Error("Expected an active form entry");
+			act(() => {
+				capturedController?.onValueChange(
+					GROUP_ONE_PHOTO_UUID,
+					"required-photo.png",
+				);
+			});
+			act(() => {
+				registerAttachmentSlotPath({
+					appId: APP_ID,
+					entryKey,
+					slotKey,
+					fieldUuid,
+					instancePath: oldPath,
+					captureKind,
+				});
+				rememberOwnedStagedAttachment({
+					appId: APP_ID,
+					entryKey,
+					slotKey,
+					instancePath: oldPath,
+					attachment: {
+						attachmentId: `attachment-${slotKey}`,
+						attachmentName: `${slotKey}.png`,
+						originalFilename: `${slotKey}.png`,
+						sizeBytes: 3,
+					},
+				});
+				if (captureKind === "signature") {
+					rememberSignatureDraft(entryKey, slotKey, [[{ x: 0.2, y: 0.4 }]]);
+				}
+			});
+			await act(async () => {
+				await reconcileAttachmentAuthoredPathMigration({
+					appId: APP_ID,
+					entryKey,
+					migration: {
+						moves: [
+							{
+								kind: "retained",
+								fieldUuid,
+								previous: {
+									pathTemplate: oldPath.replace(/\[\d+\]/g, ""),
+									segmentKeys: [
+										"$data",
+										...oldPath
+											.split("/")
+											.filter(Boolean)
+											.slice(1)
+											.map((_, index) => `old-${index}`),
+										fieldUuid,
+									],
+									captureKind,
+								},
+								current: {
+									pathTemplate: currentPath,
+									// Duplicate identities make this cross-container
+									// projection invalid without authorizing deletion.
+									segmentKeys: ["$data", "duplicate", "duplicate"],
+									captureKind,
+								},
+							},
+						],
+					},
+				});
+			});
+
+			const recoveries = await screen.findAllByRole("button", {
+				name: actionName,
+			});
+			expect(recoveries).toHaveLength(1);
+			const recovery = recoveries[0];
+			if (recovery === undefined) {
+				throw new Error("Expected one question-qualified recovery action.");
+			}
+			expect(recovery).toBeDefined();
+			expect(screen.getByText(/could not be verified/i)).toBeDefined();
+			fireEvent.click(screen.getByRole("button", { name: /^submit$/i }));
+			await waitFor(() => expect(document.activeElement).toBe(recovery));
+			expect(vi.mocked(submitFormAction)).not.toHaveBeenCalled();
+
+			const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+			vi.stubGlobal("fetch", fetchMock);
+			fireEvent.click(recovery);
+			await waitFor(() =>
+				expect(screen.queryByRole("button", { name: actionName })).toBeNull(),
+			);
+			vi.mocked(submitFormAction).mockResolvedValue({ kind: "survey" });
+			fireEvent.click(screen.getByRole("button", { name: /^submit$/i }));
+			await waitFor(() =>
+				expect(vi.mocked(submitFormAction)).toHaveBeenCalledTimes(1),
+			);
+			await waitFor(() =>
+				expect(fetchMock).toHaveBeenCalledWith(
+					`/api/apps/${APP_ID}/attachments/attachment-${slotKey}`,
+					expect.objectContaining({ method: "DELETE" }),
+				),
+			);
 		},
 	);
 });
@@ -1549,16 +1842,18 @@ describe("FormScreen — Clear form clears stale server error", () => {
 			"fetch",
 			vi.fn(() => cleanup.promise),
 		);
-		rememberOwnedStagedAttachment({
-			appId: APP_ID,
-			entryKey: previousEntryKey,
-			instancePath: "/data/photo",
-			attachment: {
-				attachmentId: "attachment-old-entry",
-				attachmentName: "attachment-old-entry.png",
-				originalFilename: "old.png",
-				sizeBytes: 3,
-			},
+		act(() => {
+			rememberOwnedStagedAttachment({
+				appId: APP_ID,
+				entryKey: previousEntryKey,
+				instancePath: "/data/photo",
+				attachment: {
+					attachmentId: "attachment-old-entry",
+					attachmentName: "attachment-old-entry.png",
+					originalFilename: "old.png",
+					sizeBytes: 3,
+				},
+			});
 		});
 		const oldInput = document.querySelector(
 			`[data-field-uuid="${FIELD_UUID}"] input`,

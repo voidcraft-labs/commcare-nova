@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { adjudicateSubmissionReceipt } from "@/lib/case-store";
 import { asUuid } from "@/lib/domain";
 import { buildDoc, f } from "../../../__tests__/docHelpers";
 import type { SubmissionMutation } from "../caseDataBindingTypes";
@@ -12,7 +13,10 @@ vi.mock("@/lib/db/apps", () => ({
 	loadApp: loadAppMock,
 }));
 
-import { buildSubmissionOperationProgram } from "../caseDataBindingHelpers";
+import {
+	buildSubmissionOperationProgram,
+	buildSubmissionReceiptIdentity,
+} from "../caseDataBindingHelpers";
 
 const APP_ID = "capture-intent-unit-app";
 const ACTOR_ID = "capture-intent-unit-actor";
@@ -95,9 +99,14 @@ describe("capture submission intent", () => {
 			],
 		});
 		expect(built.captureIntent?.requestDigest).toMatch(/^[0-9a-f]{64}$/);
+		expect(built.submissionReceipt).toEqual({
+			entryKey: ENTRY_KEY,
+			formUuid: FORM_UUID,
+			requestDigest: built.captureIntent?.requestDigest,
+		});
 	});
 
-	it("leaves an empty projection outside the capture protocol for a text-only form", async () => {
+	it("keeps receipt identity after the current form becomes text-only", async () => {
 		loadAppMock.mockResolvedValue({
 			blueprint: surveyDoc("text"),
 			mutation_seq: 17,
@@ -111,5 +120,43 @@ describe("capture submission intent", () => {
 		});
 
 		expect(built.captureIntent).toBeUndefined();
+		expect(built.submissionReceipt).toMatchObject({
+			entryKey: ENTRY_KEY,
+			formUuid: FORM_UUID,
+			requestDigest: expect.stringMatching(/^[0-9a-f]{64}$/),
+		});
+	});
+
+	it("purely replays an exact receipt and rejects a changed digest before structure", () => {
+		const exact = buildSubmissionReceiptIdentity({
+			appId: APP_ID,
+			identity: IDENTITY,
+			mutation: emptyCaptureProjection(),
+			viewerTimeZone: "UTC",
+		});
+		const changed = buildSubmissionReceiptIdentity({
+			appId: APP_ID,
+			identity: IDENTITY,
+			mutation: {
+				...emptyCaptureProjection(),
+				attachmentNames: ["changed.png"],
+			},
+			viewerTimeZone: "UTC",
+		});
+		if (exact === undefined || changed === undefined) {
+			throw new Error("Expected receipt identities.");
+		}
+		const prior = {
+			formUuid: exact.formUuid,
+			requestDigest: exact.requestDigest,
+			result: { childCaseIds: [], operations: [] },
+		};
+		expect(adjudicateSubmissionReceipt(exact, prior)).toEqual({
+			kind: "replay",
+			result: { childCaseIds: [], operations: [] },
+		});
+		expect(adjudicateSubmissionReceipt(changed, prior)).toEqual({
+			kind: "mismatch",
+		});
 	});
 });

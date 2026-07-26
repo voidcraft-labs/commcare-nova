@@ -76,9 +76,11 @@ multipart, which the edge WAF reads as header injection.
 
 `EngineController.entryKey` is the idempotency/reservation scope, minted per
 `activateForm`. It lives on the CONTROLLER, not the engine, and survives cold
-identity, lookup, and case-data rebuilds; a key minted by each rebuilt engine
-would rotate under already staged bytes. A genuinely new activation, concrete
-worker identity, or **Clear form** rotates it. Clear mounts the fresh answer
+identity, lookup, case-data rebuilds, and an access refresh confirmed for the
+same Project; a key minted by each rebuilt engine or scope epoch would rotate
+under already staged bytes. A confirmed app/form/Project change, materially
+different worker projection, terminal revoke/upgrade boundary, or **Clear
+form** retires the entry and rotates the key. Clear mounts the fresh answer
 world synchronously; deletion of the retired entry's staging rows is
 best-effort and never delays or later resets the new entry. **There is no form
 resume** — nothing persists
@@ -124,7 +126,12 @@ An empty attachment projection from a committed form that still contains a
 capture question nevertheless emits `captureIntent` with `attachments: []`.
 That keeps a retry under the same entry key inside the durable receipt/digest
 protocol after an earlier accepted request, instead of letting cleared, hidden,
-or removed answers bypass replay and repeat case effects.
+or removed answers bypass replay and repeat case effects. The submission
+envelope also carries that receipt identity independently of `captureIntent`.
+An action preflight and the entry-locked store both adjudicate an existing
+durable receipt before current blueprint/form/capture validation, so an exact
+retry after the form or capture question is deleted still replays and a changed
+digest rejects before effects.
 
 Every capture mutation for one entry goes through one form-wide queue. A newer
 operation aborts and generation-fences an older operation on the same stable
@@ -197,7 +204,11 @@ proven removed repeat instance or an explicit deleted-field variant may clean
 up, and malformed/missing identities preserve owner, picked file, signature
 ink, and an invariant Submit blocker. The stored old path is only the CAS
 coordinate—the destination alone must match the current committed capture
-template. A capture-kind change
+template. When malformed topology leaves no valid rendered path, the form owns
+a recovery-only, question-qualified action that can remove the file or clear
+the signature without claiming a new path; Submit focuses that action. A stable
+UUID's explicit deleted-field event takes precedence over an unusable old-path
+projection and retires exactly that slot. A capture-kind change
 is incompatible ownership: cancel/fence active work, clean the old row, and
 retain a targeted replacement blocker on the stable field UUID. React remounts
 recover the existing slot by `(field UUID, desired concrete path)` so a
@@ -207,7 +218,12 @@ Project viewers may inspect capture answers but must never mint or mutate
 capture data. Controls disable picker, drawing, clear/remove, and recovery
 actions; authority loss aborts and generation-fences work already in flight.
 Every event handler re-reads the current session access tuple at its mutation
-boundary, just like Submit and Clear form.
+boundary, just like Submit and Clear form. A transient refresh suspends old
+network generations but preserves the controller, entry key, answers, focus,
+browser-owned File controls, staged ownership, drafts, ink, diagnostics, and
+Submit blockers. If React batches the refresh and same-Project authorization
+into one committed render, the authority generation still pauses active file
+drafts and rearms dirty signature ink exactly once.
 
 Signature pixels are entry/stable-slot-local across ordinary remounts and reset
 on an entry/persona change. Points are normalized to the canvas bounds, so a

@@ -781,7 +781,13 @@ The client also emits this intent with `attachments: []` when the committed
 form is capture-capable but the current projection is empty. The prior receipt
 check therefore still runs before case effects after a worker clears an answer,
 a condition hides it, or a repeat removes it: an identical accepted request
-replays and a changed digest rejects instead of applying the form twice.
+replays and a changed digest rejects instead of applying the form twice. Every
+submission envelope also carries the actor/app/entry/form identity plus the
+canonical payload digest independently of current capture structure. Both the
+Server Action and entry-locked case-store transaction adjudicate any durable
+prior capture receipt before loading or trusting the current form/capture
+topology. Exact retries therefore replay after the form or its capture fields
+are deleted or converted; a changed digest rejects before any case effect.
 
 There is deliberately no destructive hook on value change or repeat removal.
 Clear/replace deletes `pending`/`staged` metadata directly, moves
@@ -875,15 +881,20 @@ retains at least a 44 CSS-pixel target.
 **The preview does not resume a partially-filled form** — nothing persists
 runtime answers and `deactivate` wipes the store — so the entry key is minted
 per `activateForm` and lives on the `EngineController`, not the engine. It
-survives cold identity/lookup/case-data rebuilds and rotates only for a genuine
-new activation or concrete worker. `FormScreen` installs the exact
+survives cold identity/lookup/case-data rebuilds and a same-Project access
+refresh. Confirmed app/form/Project changes, materially different workers,
+terminal revoke/upgrade states, and **Clear form** retire the old entry.
+`FormScreen` installs the exact
 `{ appId, scopeEpoch, accessPhase, canEdit }` write-authority tuple above every
 capture field, including when all of them are hidden or unmounted. Every queued
 capture/maintenance operation holds that authority generation and checks it
 both before and after its awaited work. A tuple change aborts the old network
 generation without erasing stable slots, drafts, diagnostics, or Submit
-blockers; retained dirty signature ink is adopted and encoded exactly once when
-the same entry becomes writable under the new generation.
+blockers. The mounted answer tree, focus, File controls, case/persona binding,
+and entry key also survive the uncertain refresh. Even if React coalesces
+refreshing and same-Project authorization into one render, active file drafts
+become retained recovery state and dirty signature ink is adopted and encoded
+exactly once under the new generation.
 
 Capture mutations share one entry-wide serialized queue; same-slot replacement
 is latest-wins, but deletion is never queue-critical. Submit classifies every
@@ -938,7 +949,12 @@ missing/duplicate identities, and mismatched events preserve the exact owner,
 picked `File`, signature ink, and an invariant Submit blocker. All mapped
 destinations install synchronously before any PATCH or DELETE, so simultaneous
 swaps never observe a half-migrated topology. Capture-kind changes remain
-incompatible and require a replacement at the mapped destination.
+incompatible and require a replacement at the mapped destination. A malformed
+slot with no valid rendered path appears in a form-level, question-qualified
+recovery surface; Submit focuses **Remove attachment** or **Clear signature**
+there without registering a guessed path. An explicit deleted-field event for
+the same stable UUID takes precedence over an unusable old-path projection and
+retires only that slot.
 
 Signature strokes and the last successfully encoded CSS dimensions, device pixel
 ratio, and backing-store dimensions live together in stable draft state. A

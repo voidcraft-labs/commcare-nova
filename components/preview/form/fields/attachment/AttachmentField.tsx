@@ -10,7 +10,12 @@ import {
 	MAX_CAPTURE_BYTES,
 } from "@/lib/domain/captureFormats";
 import type { FieldState } from "@/lib/preview/engine/types";
-import { useAccessPhase, useCanEdit, useEditMode } from "@/lib/session/hooks";
+import {
+	useAccessPhase,
+	useCanEdit,
+	useEditMode,
+	useProjectScopeEpoch,
+} from "@/lib/session/hooks";
 import { useOptionalBuilderSessionApi } from "@/lib/session/provider";
 import {
 	type AttachmentCommitResult,
@@ -182,6 +187,7 @@ function AttachmentControl({
 }: AttachmentFieldProps) {
 	const mayEdit = useCanEdit();
 	const accessPhase = useAccessPhase();
+	const scopeEpoch = useProjectScopeEpoch();
 	const mayWrite = mayEdit && accessPhase === "authorized";
 	const session = useOptionalBuilderSessionApi();
 	const inputId = useId();
@@ -315,16 +321,20 @@ function AttachmentControl({
 					status: "needs-attention",
 					generation: draft.generation,
 				});
-				setAttachmentSlotIssue({
-					appId,
-					entryKey,
-					slotKey,
-					issue: {
-						kind: "save",
-						message:
-							"This attachment was paused when edit access changed. Retry now, choose a different file, or remove it.",
-					},
-				});
+				if (
+					getAttachmentSlotIssue({ appId, entryKey, slotKey }) === undefined
+				) {
+					setAttachmentSlotIssue({
+						appId,
+						entryKey,
+						slotKey,
+						issue: {
+							kind: "save",
+							message:
+								"This attachment was paused when edit access changed. Retry now, choose a different file, or remove it.",
+						},
+					});
+				}
 			}
 			setSlotDraftState(getAttachmentSlotDraft({ appId, entryKey, slotKey }));
 			setSlotIssueState(getAttachmentSlotIssue({ appId, entryKey, slotKey }));
@@ -333,6 +343,7 @@ function AttachmentControl({
 		setIntent("idle");
 	}, [appId, entryKey, mayWrite, setIntent, slotKey]);
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: scopeEpoch synchronizes coordinator mutations performed by FormScreen before this render
 	useEffect(() => {
 		if (!appId || !entryKey) {
 			setSlotIssueState(undefined);
@@ -365,7 +376,7 @@ function AttachmentControl({
 		};
 		update();
 		return subscribeAttachmentSlotState(entryKey, update);
-	}, [appId, entryKey, slotKey, setIntent]);
+	}, [appId, entryKey, scopeEpoch, slotKey, setIntent]);
 
 	const currentPath = useCallback((): string | undefined => {
 		if (!appId || !entryKey) return path;
@@ -832,6 +843,7 @@ function AttachmentControl({
 						slotIssue?.kind === "replace" || slotIssue?.kind === "invariant"
 					}
 					retryRevision={signatureRetryRevision}
+					authorityRevision={scopeEpoch}
 					required={state.required}
 					invalid={showError || slotIssue !== undefined}
 					statusId={statusId}

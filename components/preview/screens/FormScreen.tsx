@@ -63,6 +63,7 @@ import {
 	FormLayoutProvider,
 } from "../form/FormLayoutContext";
 import { FormRenderer } from "../form/FormRenderer";
+import { AttachmentInvariantRecoveryPanel } from "../form/fields/attachment/AttachmentInvariantRecoveryPanel";
 import {
 	AttachmentNotReadyError,
 	reconcileAttachmentAuthoredPathMigration,
@@ -670,6 +671,33 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		);
 	}, [controller, revealAndFocusTarget]);
 
+	const focusAttachmentInvariantRecovery = useCallback(
+		(fieldUuid: string | undefined): void => {
+			if (invalidFocusRafRef.current !== undefined) {
+				cancelAnimationFrame(invalidFocusRafRef.current);
+			}
+			invalidFocusRafRef.current = requestAnimationFrame(() => {
+				invalidFocusRafRef.current = requestAnimationFrame(() => {
+					invalidFocusRafRef.current = undefined;
+					const candidates = [
+						...(formBodyElRef.current?.querySelectorAll<HTMLElement>(
+							"[data-attachment-recovery-field-uuid]",
+						) ?? []),
+					];
+					const recovery =
+						candidates.find(
+							(candidate) =>
+								fieldUuid === undefined ||
+								candidate.dataset.attachmentRecoveryFieldUuid === fieldUuid,
+						) ?? candidates[0];
+					recovery?.scrollIntoView?.({ block: "center" });
+					recovery?.focus();
+				});
+			});
+		},
+		[],
+	);
+
 	const handleSubmit = async (): Promise<void> => {
 		if (clearInFlightRef.current) return;
 		const start = session.getState();
@@ -828,12 +856,27 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 					attempt,
 					message: `Attachment needs attention. ${error.message}`,
 				});
+				const hasInvariantRecovery = [
+					...(formBodyElRef.current?.querySelectorAll<HTMLElement>(
+						"[data-attachment-recovery-field-uuid]",
+					) ?? []),
+				].some(
+					(candidate) =>
+						error.fieldUuid === undefined ||
+						candidate.dataset.attachmentRecoveryFieldUuid === error.fieldUuid,
+				);
+				if (hasInvariantRecovery) {
+					focusAttachmentInvariantRecovery(error.fieldUuid);
+					return;
+				}
 				const target = controller.fieldTarget(
 					error.instancePath,
 					error.fieldUuid,
 				);
 				if (target !== undefined) {
 					revealAndFocusTarget(target, "[data-attachment-recovery]", false);
+				} else {
+					focusAttachmentInvariantRecovery(error.fieldUuid);
 				}
 				return;
 			}
@@ -997,21 +1040,31 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				onPointerDownCapture={blockFrozenInteraction}
 			>
 				<fieldset
-					key={`${scopeEpoch}:${clearRevision}`}
+					key={`${entryKey ?? "inactive"}:${clearRevision}`}
 					disabled={formFrozen}
 					className="contents"
 				>
 					{hasFields ? (
-						/* Every interactive field owns browser continuations (camera,
-						 * geolocation, Places, focus). A Project generation is a hard
-						 * runtime boundary: remount the renderer so no local UI state can
-						 * be projected into the destination controller. */
+						/* Clear form intentionally remounts uncontrolled browser controls.
+						 * A transient access refresh only suspends authority: keeping this
+						 * fieldset mounted preserves focus, File inputs, signature ink,
+						 * and other browser-owned drafts for the same app/form/worker. A
+						 * confirmed app/form/Project/worker boundary rotates the entry
+						 * key and retires browser-local continuations with it. */
 						<FormRenderer parentEntityId={formUuid} />
 					) : (
 						<div className="text-center text-nova-text-muted py-8">
 							This form has no fields.
 						</div>
 					)}
+					{mode === "preview" &&
+					appId !== undefined &&
+					entryKey !== undefined ? (
+						<AttachmentInvariantRecoveryPanel
+							appId={appId}
+							entryKey={entryKey}
+						/>
+					) : null}
 				</fieldset>
 			</div>
 

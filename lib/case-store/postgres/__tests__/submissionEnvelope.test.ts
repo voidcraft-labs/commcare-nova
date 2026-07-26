@@ -2054,7 +2054,7 @@ async function seedPreparedCapture() {
 }
 
 describe("atomic form-capture intent", () => {
-	it("replays a nonempty accepted submission from an empty projection before case effects", async () => {
+	it("replays a nonempty accepted submission after current capture/form removal before case effects", async () => {
 		const store = makeStore();
 		const capture = await seedPreparedCapture();
 		await seedSchemas(store);
@@ -2062,17 +2062,21 @@ describe("atomic form-capture intent", () => {
 		const args = {
 			appId: APP_ID,
 			ordinary: followupOrdinary({ notes: "accepted" }),
+			submissionReceipt: {
+				entryKey: capture.intent.entryKey,
+				formUuid: capture.intent.formUuid,
+				requestDigest: capture.intent.requestDigest,
+			},
 			captureIntent: capture.intent,
 		};
 
 		const first = await store.applySubmission(args);
 		const replay = await store.applySubmission({
-			...args,
+			appId: APP_ID,
 			ordinary: followupOrdinary({ notes: "must not replay" }),
-			captureIntent: {
-				...capture.intent,
-				attachments: [],
-			},
+			// Simulates a retry after the form or its final capture question was
+			// deleted: no current capture intent survives, only durable identity.
+			submissionReceipt: args.submissionReceipt,
 		});
 		expect(replay).toEqual(first);
 		expect(
@@ -2106,12 +2110,11 @@ describe("atomic form-capture intent", () => {
 
 		await expect(
 			store.applySubmission({
-				...args,
+				appId: APP_ID,
 				ordinary: followupOrdinary({ notes: "must not replay" }),
-				captureIntent: {
-					...capture.intent,
+				submissionReceipt: {
+					...args.submissionReceipt,
 					requestDigest: "capture-request-b",
-					attachments: [],
 				},
 			}),
 		).rejects.toBeInstanceOf(CaptureSubmissionRejectedError);

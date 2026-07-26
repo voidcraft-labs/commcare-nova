@@ -39,6 +39,7 @@ const {
 	accessState: {
 		canEdit: true,
 		accessPhase: "authorized" as "authorized" | "refreshing",
+		scopeEpoch: 0,
 	},
 }));
 
@@ -46,6 +47,7 @@ vi.mock("@/lib/session/hooks", () => ({
 	useEditMode: () => "preview" as const,
 	useCanEdit: () => accessState.canEdit,
 	useAccessPhase: () => accessState.accessPhase,
+	useProjectScopeEpoch: () => accessState.scopeEpoch,
 }));
 
 vi.mock("../attachmentClient", async (importOriginal) => {
@@ -96,6 +98,7 @@ function deferred<T>() {
 beforeEach(() => {
 	accessState.canEdit = true;
 	accessState.accessPhase = "authorized";
+	accessState.scopeEpoch = 0;
 	stageAttachmentMock.mockReset();
 	discardAttachmentMock.mockReset();
 	retargetAttachmentMock.mockReset();

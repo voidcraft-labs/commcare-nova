@@ -5,6 +5,7 @@ import {
 	beginFormAttachmentPreparation,
 	FormAttachmentWriteRejectedError,
 	formAttachmentsArePrepared,
+	readFormSubmissionReceipt,
 } from "@/lib/db/formAttachments";
 import {
 	captureContentType,
@@ -20,29 +21,48 @@ import type {
 	ApplySubmissionArgs,
 	SubmissionEnvelopeResult,
 } from "../submission";
+import { adjudicateSubmissionReceipt } from "../submission";
 
 function reject(message: string): never {
 	throw new CaptureSubmissionRejectedError(message);
 }
 
-function storedResult(value: unknown): SubmissionEnvelopeResult {
-	const parsed =
-		typeof value === "string" ? (JSON.parse(value) as unknown) : value;
-	if (
-		typeof parsed !== "object" ||
-		parsed === null ||
-		!Array.isArray((parsed as { childCaseIds?: unknown }).childCaseIds) ||
-		!Array.isArray((parsed as { operations?: unknown }).operations)
-	) {
-		throw new Error(
-			"A committed form submission replay row contains an invalid result.",
+type CaptureIntent = NonNullable<ApplySubmissionArgs["captureIntent"]>;
+type SubmissionReceipt = NonNullable<ApplySubmissionArgs["submissionReceipt"]>;
+type CommittedCaptureDescriptor = CaptureIntent["allowedAttachments"][number];
+
+/** Resolve an accepted receipt before reading today's form/capture structure.
+ * Exact retries return the stored envelope; changed payloads reject under the
+ * same entry identity. */
+export async function readCaptureSubmissionReceipt(args: {
+	appId: string;
+	projectId: string;
+	actorUserId: string;
+	receipt: SubmissionReceipt;
+}): Promise<SubmissionEnvelopeResult | undefined> {
+	let prior: Awaited<ReturnType<typeof readFormSubmissionReceipt>>;
+	try {
+		prior = await readFormSubmissionReceipt({
+			appId: args.appId,
+			projectId: args.projectId,
+			actorUserId: args.actorUserId,
+			entryKey: args.receipt.entryKey,
+		});
+	} catch (error) {
+		if (error instanceof FormAttachmentWriteRejectedError) {
+			reject(error.message);
+		}
+		throw error;
+	}
+	const verdict = adjudicateSubmissionReceipt(args.receipt, prior);
+	if (verdict.kind === "new") return undefined;
+	if (verdict.kind === "mismatch") {
+		reject(
+			"This form entry was already submitted with different answers. Start a new form entry before submitting again.",
 		);
 	}
-	return parsed as SubmissionEnvelopeResult;
+	return verdict.result;
 }
-
-type CaptureIntent = NonNullable<ApplySubmissionArgs["captureIntent"]>;
-type CommittedCaptureDescriptor = CaptureIntent["allowedAttachments"][number];
 
 /**
  * Copy and verify every selected immutable generation before case acceptance.
@@ -146,37 +166,13 @@ export async function prepareCaptureSubmission(
 		intent: CaptureIntent;
 	},
 ): Promise<SubmissionEnvelopeResult | undefined> {
-	await lockFormAttachmentEntry(trx, {
+	const replay = await replayCaptureSubmission(trx, {
 		appId: args.appId,
+		projectId: args.projectId,
 		actorUserId: args.actorUserId,
-		entryKey: args.intent.entryKey,
+		receipt: args.intent,
 	});
-
-	const prior = await trx
-		.selectFrom("form_submission_intents")
-		.selectAll()
-		.where("app_id", "=", args.appId)
-		.where("project_id", "=", args.projectId)
-		.where("created_by", "=", args.actorUserId)
-		.where("entry_key", "=", args.intent.entryKey)
-		.forUpdate()
-		.executeTakeFirst();
-	if (prior !== undefined) {
-		if (
-			prior.request_digest !== args.intent.requestDigest ||
-			prior.form_uuid !== args.intent.formUuid
-		) {
-			reject(
-				"This form entry was already submitted with different answers. Start a new form entry before submitting again.",
-			);
-		}
-		if (prior.result === null) {
-			throw new Error(
-				"A committed form submission intent is missing its atomic result.",
-			);
-		}
-		return storedResult(prior.result);
-	}
+	if (replay !== undefined) return replay;
 
 	const app = await trx
 		.selectFrom("apps")
@@ -311,6 +307,57 @@ export async function prepareCaptureSubmission(
 		}
 	}
 	return undefined;
+}
+
+/** Entry-locked replay check shared by capture-bearing and capture-removed
+ * submissions. It must run before relationship/schema locks and every case
+ * effect. */
+export async function replayCaptureSubmission(
+	trx: Transaction<Database>,
+	args: {
+		appId: string;
+		projectId: string;
+		actorUserId: string;
+		receipt: SubmissionReceipt;
+	},
+): Promise<SubmissionEnvelopeResult | undefined> {
+	await lockFormAttachmentEntry(trx, {
+		appId: args.appId,
+		actorUserId: args.actorUserId,
+		entryKey: args.receipt.entryKey,
+	});
+
+	const prior = await trx
+		.selectFrom("form_submission_intents")
+		.selectAll()
+		.where("app_id", "=", args.appId)
+		.where("project_id", "=", args.projectId)
+		.where("created_by", "=", args.actorUserId)
+		.where("entry_key", "=", args.receipt.entryKey)
+		.forUpdate()
+		.executeTakeFirst();
+	if (prior?.result === null) {
+		throw new Error(
+			"A committed form submission intent is missing its atomic result.",
+		);
+	}
+	const verdict = adjudicateSubmissionReceipt(
+		args.receipt,
+		prior === undefined
+			? undefined
+			: {
+					formUuid: prior.form_uuid,
+					requestDigest: prior.request_digest,
+					result: prior.result,
+				},
+	);
+	if (verdict.kind === "new") return undefined;
+	if (verdict.kind === "mismatch") {
+		reject(
+			"This form entry was already submitted with different answers. Start a new form entry before submitting again.",
+		);
+	}
+	return verdict.result;
 }
 
 /** Store the exact envelope result before the transaction can commit. */

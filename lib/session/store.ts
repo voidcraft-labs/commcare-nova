@@ -781,13 +781,30 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					snapshot: BuilderAccessSnapshot,
 					options?: { hasWaitingChanges?: boolean },
 				) {
-					set({
-						projectId: snapshot.projectId,
-						role: snapshot.role,
-						canEdit: snapshot.canEdit,
-						accessPhase: "authorized",
-						hasWaitingAccessChanges:
-							!snapshot.canEdit && (options?.hasWaitingChanges ?? false),
+					set((state) => {
+						const confirmedProjectChanged =
+							state.projectId !== undefined &&
+							state.projectId !== snapshot.projectId;
+						return {
+							projectId: snapshot.projectId,
+							role: snapshot.role,
+							canEdit: snapshot.canEdit,
+							accessPhase: "authorized",
+							hasWaitingAccessChanges:
+								!snapshot.canEdit && (options?.hasWaitingChanges ?? false),
+							/* A refresh is only evidence that Project authority may have
+							 * changed. Preserve the active worker/case binding through an
+							 * ordinary same-Project round trip; clear it atomically only
+							 * after the authoritative snapshot confirms a different
+							 * tenant. */
+							...(confirmedProjectChanged
+								? {
+										previewCaseTarget: undefined,
+										previewSelectedCase: undefined,
+										previewPersonaUuid: undefined,
+									}
+								: {}),
+						};
 					});
 				},
 
@@ -1255,12 +1272,10 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						runCompletedAt: undefined,
 						stagedUploads: {},
 						assetMeta: {},
-						previewCaseTarget: undefined,
-						previewSelectedCase: undefined,
-						/* The persona is a blueprint identity; a Project scope
-						 * change means the document this session may read has
-						 * changed underneath it. */
-						previewPersonaUuid: undefined,
+						/* Case/persona identity is retained until
+						 * `applyAccessSnapshot` can distinguish an ordinary refresh from
+						 * a confirmed Project move. Clearing it here would rotate a
+						 * same-worker form entry before the GET returned. */
 					});
 					if (failures.length > 0) {
 						throw new AggregateError(

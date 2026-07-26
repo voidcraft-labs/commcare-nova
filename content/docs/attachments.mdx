@@ -139,6 +139,10 @@ the normal picker remains available to choose a different file. An attachment
 still in progress also restores its picked filename and **Cancel** action.
 If edit access briefly refreshes, Nova pauses the old request, retains the same
 file and a Submit blocker, and lets the worker retry it when access returns.
+The form stays the same live entry during a refresh confirmed for the same
+Project: typed answers, focus, file controls, signature ink, and the selected
+case or worker do not reset. A confirmed app, form, Project, or worker change,
+lost access, or **Clear form** ends that entry instead.
 If a condition hides the question and later shows it again, or an author flips
 to Edit and back while that same form entry remains open, Nova restores the
 confirmed filename and answer. The same is true when deleting an earlier
@@ -243,9 +247,12 @@ section between different parents keeps the indices of repeats that are
 actually the same authored sections; extra instances of a repeat that no longer
 exists are removed rather than being attached to an unrelated row. If Nova
 cannot verify that identity after a live authoring change, it preserves the
-file or signature and blocks Submit with a reload-or-remove message instead of
-guessing and deleting it. Changing the question to a different attachment type
-instead removes the incompatible staged file and asks for a new file or
+file or signature and blocks Submit instead of guessing and deleting it. The
+form shows a question-qualified **Remove attachment** or **Clear signature**
+action even when the changed question no longer has a valid rendered path, and
+Submit focuses that action. An explicit deletion of the same question removes
+only its retained attachment. Changing the question to a different attachment
+type instead removes the incompatible staged file and asks for a new file or
 signature.
 
 The preview shows you exactly what a worker sees, which means it shows
@@ -262,7 +269,11 @@ arrives attached to nothing. Nothing you need to do — it just means the
 count you see in the preview is the honest one.
 Even an attachment-free retry remains tied to that form entry's accepted
 submission: clearing or hiding the answer after a response is lost cannot make
-Nova apply the form's case changes twice.
+Nova apply the form's case changes twice. Nova checks a durable accepted
+receipt before relying on the form's current attachment structure, so the exact
+retry still replays if an author has since converted or deleted the attachment
+question—or deleted the form. A changed retry under that entry identity is
+rejected instead of applying case changes again.
 
 **Clear form** is different from removing one file. It immediately starts a
 new blank form entry with a new submission identity. Cleanup of files from the

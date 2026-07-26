@@ -104,6 +104,12 @@ export interface FormAttachmentRecord {
 	preparationAttempts: number;
 }
 
+export interface FormSubmissionReceiptRecord {
+	readonly formUuid: string;
+	readonly requestDigest: string;
+	readonly result: unknown;
+}
+
 function recordFromRow(
 	row: Selectable<FormAttachmentsTable>,
 ): FormAttachmentRecord {
@@ -129,6 +135,60 @@ function recordFromRow(
 		status: row.status as FormAttachmentStatus,
 		preparationAttempts: row.preparation_attempts,
 	};
+}
+
+/**
+ * Read an already-accepted entry receipt before consulting today's blueprint.
+ *
+ * The row is immutable after its accepting transaction commits. A plain
+ * authorized read is therefore sufficient for the action's fast replay path;
+ * `PostgresCaseStore.applySubmission` repeats the check under the entry lock
+ * before any effect to close the read/build/write race.
+ */
+export async function readFormSubmissionReceipt(args: {
+	appId: string;
+	projectId: string;
+	actorUserId: string;
+	entryKey: string;
+}): Promise<FormSubmissionReceiptRecord | undefined> {
+	return withAppTx(async (tx) => {
+		const app = await tx
+			.selectFrom("apps")
+			.select(["project_id", "deleted_at"])
+			.where("id", "=", args.appId)
+			.forShare()
+			.executeTakeFirst();
+		if (app?.project_id !== args.projectId || app.deleted_at !== null) {
+			throw new FormAttachmentWriteRejectedError("App not found.");
+		}
+		const role = await projectRoleForInTransaction(
+			tx,
+			args.actorUserId,
+			args.projectId,
+		);
+		if (role === null || !roleAllowsApp(role, "edit")) {
+			throw new FormAttachmentWriteRejectedError("App not found.");
+		}
+		const receipt = await tx
+			.selectFrom("form_submission_intents")
+			.select(["form_uuid", "request_digest", "result"])
+			.where("app_id", "=", args.appId)
+			.where("project_id", "=", args.projectId)
+			.where("created_by", "=", args.actorUserId)
+			.where("entry_key", "=", args.entryKey)
+			.executeTakeFirst();
+		if (receipt === undefined) return undefined;
+		if (receipt.result === null) {
+			throw new Error(
+				"A committed form submission intent is missing its atomic result.",
+			);
+		}
+		return {
+			formUuid: receipt.form_uuid,
+			requestDigest: receipt.request_digest,
+			result: receipt.result,
+		};
+	});
 }
 
 /**

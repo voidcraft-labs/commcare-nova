@@ -13,6 +13,7 @@ import {
 	getOwnedStagedAttachment,
 	getSignatureDraft,
 	isAttachmentTaskAbort,
+	listAttachmentInvariantRecoveries,
 	markAttachmentNotReady,
 	reconcileAttachmentAuthoredPathMigration,
 	reconcileAttachmentRepeatCompaction,
@@ -333,6 +334,116 @@ describe("form attachment coordinator", () => {
 				instancePath: "/data/archive",
 			},
 		]);
+	});
+
+	it("preserves upload retarget intent through a hung PATCH and access refresh", async () => {
+		const entryKey = "entry-upload-move-authority-restore";
+		const slotKey = "photo:upload-move";
+		const fieldUuid = "22222222-2222-4222-8222-222222222222";
+		let current: AttachmentEntryAuthoritySnapshot = {
+			appId: "app-1",
+			scopeEpoch: 1,
+			accessPhase: "authorized",
+			canEdit: true,
+		};
+		const install = () =>
+			setAttachmentEntryAuthority({
+				entryKey,
+				snapshot: current,
+				readCurrent: () => current,
+			});
+		install();
+		registerAttachmentSlotPath({
+			appId: "app-1",
+			entryKey,
+			slotKey,
+			fieldUuid,
+			instancePath: "/data/photo",
+			captureKind: "image",
+		});
+
+		const uploadRelease = deferred<void>();
+		const upload = runAttachmentTask({
+			entryKey,
+			slotKey,
+			task: async () => {
+				await uploadRelease.promise;
+				rememberOwnedStagedAttachment({
+					appId: "app-1",
+					entryKey,
+					slotKey,
+					// Upload started before the author moved the question.
+					instancePath: "/data/photo",
+					attachment: {
+						attachmentId: "attachment-upload-move",
+						attachmentName: "attachment-upload-move.png",
+						originalFilename: "photo.png",
+						sizeBytes: 3,
+					},
+				});
+			},
+		});
+		const firstPatchStarted = deferred<void>();
+		const order: string[] = [];
+		let patchCount = 0;
+		vi.stubGlobal(
+			"fetch",
+			vi.fn((_url: string, init?: RequestInit) => {
+				patchCount += 1;
+				if (patchCount === 1) {
+					firstPatchStarted.resolve();
+					return waitForAbort(init?.signal);
+				}
+				order.push("restored-retarget");
+				return Promise.resolve({ ok: true, status: 200 });
+			}),
+		);
+		const moved = reconcileAttachmentAuthoredPathMigration({
+			appId: "app-1",
+			entryKey,
+			migration: {
+				moves: [
+					retainedCaptureMove({
+						fieldUuid,
+						previousPath: "/data/photo",
+						currentPath: "/data/evidence",
+					}),
+				],
+			},
+		});
+		uploadRelease.resolve();
+		await upload;
+		await firstPatchStarted.promise;
+
+		current = {
+			appId: "app-1",
+			scopeEpoch: 2,
+			accessPhase: "refreshing",
+			canEdit: false,
+		};
+		install();
+		current = {
+			appId: "app-1",
+			scopeEpoch: 2,
+			accessPhase: "authorized",
+			canEdit: true,
+		};
+		install();
+		const submit = runFormAttachmentBarrier(entryKey, async () => {
+			order.push("submit");
+			return "submitted";
+		});
+		await expect(moved).resolves.toEqual([]);
+		await expect(submit).resolves.toBe("submitted");
+
+		expect(order).toEqual(["restored-retarget", "submit"]);
+		expect(patchCount).toBe(2);
+		expect(getAttachmentSlotPath({ appId: "app-1", entryKey, slotKey })).toBe(
+			"/data/evidence",
+		);
+		expect(
+			getOwnedStagedAttachment({ appId: "app-1", entryKey, slotKey }),
+		).toMatchObject({ attachmentId: "attachment-upload-move" });
 	});
 
 	it("serializes mutations across different paths in one entry", async () => {
@@ -1402,6 +1513,210 @@ describe("form attachment coordinator", () => {
 		).toMatchObject({ file, status: "needs-attention", generation: 7 });
 		expect(getSignatureDraft(entryKey, signatureSlotKey)).toEqual(strokes);
 		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it("retires empty invalid siblings while preserving owned, File-draft, and signature-ink payloads", async () => {
+		const entryKey = "entry-invalid-payload-classification";
+		const imageFieldUuid = "22222222-2222-4222-8222-222222222222";
+		const signatureFieldUuid = "33333333-3333-4333-8333-333333333333";
+		const emptySlotKey = "photo:empty-current-control";
+		const ownedSlotKey = "photo:owned-orphan";
+		const draftSlotKey = "photo:draft-only-orphan";
+		const inkSlotKey = "signature:ink-only-orphan";
+		for (const [slotKey, fieldUuid, instancePath, captureKind] of [
+			[emptySlotKey, imageFieldUuid, "/data/current/photo", "image"],
+			[ownedSlotKey, imageFieldUuid, "/data/legacy_owned/photo", "image"],
+			[draftSlotKey, imageFieldUuid, "/data/legacy_draft/photo", "image"],
+			[
+				inkSlotKey,
+				signatureFieldUuid,
+				"/data/legacy_signature/consent",
+				"signature",
+			],
+		] as const) {
+			registerAttachmentSlotPath({
+				appId: "app-1",
+				entryKey,
+				slotKey,
+				fieldUuid,
+				instancePath,
+				captureKind,
+			});
+		}
+		rememberOwnedStagedAttachment({
+			appId: "app-1",
+			entryKey,
+			slotKey: ownedSlotKey,
+			instancePath: "/data/legacy_owned/photo",
+			attachment: {
+				attachmentId: "attachment-owned-orphan",
+				attachmentName: "attachment-owned-orphan.png",
+				originalFilename: "owned.png",
+				sizeBytes: 3,
+			},
+		});
+		const draftFile = new File(["draft"], "draft.png", { type: "image/png" });
+		rememberAttachmentSlotDraft({
+			appId: "app-1",
+			entryKey,
+			slotKey: draftSlotKey,
+			file: draftFile,
+			status: "queued-upload",
+			generation: 4,
+		});
+		const ink = [[{ x: 0.2, y: 0.4 }]];
+		rememberSignatureDraft(entryKey, inkSlotKey, ink);
+
+		await reconcileAttachmentAuthoredPathMigration({
+			appId: "app-1",
+			entryKey,
+			migration: {
+				moves: [
+					{
+						kind: "retained",
+						fieldUuid: imageFieldUuid,
+						previous: {
+							pathTemplate: "/data/legacy/photo",
+							segmentKeys: ["$data", "duplicate", "duplicate"],
+							captureKind: "image",
+						},
+						current: {
+							pathTemplate: "/data/current/photo",
+							segmentKeys: ["$data", "duplicate", "duplicate"],
+							captureKind: "image",
+						},
+					},
+					{
+						kind: "retained",
+						fieldUuid: signatureFieldUuid,
+						previous: {
+							pathTemplate: "/data/legacy/consent",
+							segmentKeys: ["$data", "duplicate", "duplicate"],
+							captureKind: "signature",
+						},
+						current: {
+							pathTemplate: "/data/current/consent",
+							segmentKeys: ["$data", "duplicate", "duplicate"],
+							captureKind: "signature",
+						},
+					},
+				],
+			},
+		});
+
+		expect(
+			getAttachmentSlotPath({
+				appId: "app-1",
+				entryKey,
+				slotKey: emptySlotKey,
+			}),
+		).toBeUndefined();
+		expect(
+			getOwnedStagedAttachment({
+				appId: "app-1",
+				entryKey,
+				slotKey: ownedSlotKey,
+			}),
+		).toMatchObject({ attachmentId: "attachment-owned-orphan" });
+		expect(
+			getAttachmentSlotDraft({
+				appId: "app-1",
+				entryKey,
+				slotKey: draftSlotKey,
+			}),
+		).toMatchObject({
+			file: draftFile,
+			status: "needs-attention",
+			generation: 4,
+		});
+		expect(getSignatureDraft(entryKey, inkSlotKey)).toEqual(ink);
+		expect(
+			listAttachmentInvariantRecoveries({ appId: "app-1", entryKey }).map(
+				(recovery) => recovery.slotKey,
+			),
+		).toEqual([ownedSlotKey, draftSlotKey, inkSlotKey]);
+	});
+
+	it("lets an explicit stable-field deletion retire a previously invalid slot", async () => {
+		const entryKey = "entry-invalid-then-deleted";
+		const slotKey = "signature:invalid-then-deleted";
+		const fieldUuid = "22222222-2222-4222-8222-222222222222";
+		registerAttachmentSlotPath({
+			appId: "app-1",
+			entryKey,
+			slotKey,
+			fieldUuid,
+			instancePath: "/data/visits[1]/signature",
+			captureKind: "signature",
+		});
+		rememberOwnedStagedAttachment({
+			appId: "app-1",
+			entryKey,
+			slotKey,
+			instancePath: "/data/visits[1]/signature",
+			attachment: {
+				attachmentId: "attachment-invalid-then-deleted",
+				attachmentName: "attachment-invalid-then-deleted.png",
+				originalFilename: "signature.png",
+				sizeBytes: 3,
+			},
+		});
+		rememberSignatureDraft(entryKey, slotKey, [[{ x: 0.2, y: 0.4 }]]);
+		await reconcileAttachmentAuthoredPathMigration({
+			appId: "app-1",
+			entryKey,
+			migration: {
+				moves: [
+					{
+						kind: "retained",
+						fieldUuid,
+						previous: {
+							pathTemplate: "/data/visits/signature",
+							segmentKeys: ["$data", "duplicate", "duplicate"],
+							captureKind: "signature",
+						},
+					},
+				] as unknown as AttachmentAuthoredPathMigration["moves"],
+			},
+		});
+		expect(
+			listAttachmentInvariantRecoveries({ appId: "app-1", entryKey }),
+		).toHaveLength(1);
+
+		const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+		vi.stubGlobal("fetch", fetchMock);
+		await reconcileAttachmentAuthoredPathMigration({
+			appId: "app-1",
+			entryKey,
+			migration: {
+				moves: [
+					deletedCaptureMove({
+						fieldUuid,
+						// Deliberately no longer matches the retained slot. Stable
+						// UUID deletion must win before path projection.
+						previousPath: "/data/no_longer_here/signature",
+						captureKind: "signature",
+					}),
+				],
+			},
+		});
+
+		expect(
+			listAttachmentInvariantRecoveries({ appId: "app-1", entryKey }),
+		).toEqual([]);
+		expect(getSignatureDraft(entryKey, slotKey)).toEqual([]);
+		expect(
+			getAttachmentSlotPath({ appId: "app-1", entryKey, slotKey }),
+		).toBeUndefined();
+		await expect(
+			runFormAttachmentBarrier(entryKey, async () => "submitted"),
+		).resolves.toBe("submitted");
+		await vi.waitFor(() =>
+			expect(fetchMock).toHaveBeenCalledWith(
+				"/api/apps/app-1/attachments/attachment-invalid-then-deleted",
+				expect.objectContaining({ method: "DELETE" }),
+			),
+		);
 	});
 
 	it("retargets a hidden capture before the post-compaction submit barrier", async () => {

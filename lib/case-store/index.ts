@@ -90,4 +90,10 @@ export type {
 	OrdinarySubmissionAction,
 	SubmissionCaseSeed,
 	SubmissionEnvelopeResult,
+	SubmissionReceiptIdentity,
+	SubmissionReceiptVerdict,
+} from "./submission";
+export {
+	adjudicateSubmissionReceipt,
+	parseSubmissionEnvelopeResult,
 } from "./submission";

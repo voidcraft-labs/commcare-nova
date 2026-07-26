@@ -88,6 +88,12 @@ export type OrdinarySubmissionAction =
 	  }
 	| { readonly kind: "none" };
 
+export interface SubmissionReceiptIdentity {
+	readonly entryKey: string;
+	readonly formUuid: string;
+	readonly requestDigest: string;
+}
+
 /**
  * Per-iteration runtime bindings for one physical execution of a
  * multiplicity scope. `formFields` is COMPLETE for the iteration: it
@@ -174,6 +180,13 @@ export interface ApplySubmissionArgs {
 	readonly ordinary: OrdinarySubmissionAction;
 	readonly operations?: CaseOperationProgram;
 	/**
+	 * Stable entry identity checked against any durable accepted receipt before
+	 * an ordinary or advanced case effect runs. It remains present when the
+	 * current blueprint no longer has a capture question, allowing an exact
+	 * retry to replay instead of bypassing capture idempotency.
+	 */
+	readonly submissionReceipt?: SubmissionReceiptIdentity;
+	/**
 	 * Server-derived form-entry identity and capture authority. When present,
 	 * the case effects, exact staged-row reservation, and replay record commit
 	 * in the same transaction.
@@ -232,4 +245,58 @@ export interface SubmissionEnvelopeResult {
 	/** Ordinary children's generated ids in input order. */
 	readonly childCaseIds: ReadonlyArray<string>;
 	readonly operations: ReadonlyArray<OperationEffectRecord>;
+}
+
+/** Parse the JSONB representation stored on an accepted receipt. Keeping this
+ * at the submission-contract boundary makes the server preflight and the
+ * terminal Postgres transaction apply the same corruption check. */
+export function parseSubmissionEnvelopeResult(
+	value: unknown,
+): SubmissionEnvelopeResult {
+	const parsed =
+		typeof value === "string" ? (JSON.parse(value) as unknown) : value;
+	if (
+		typeof parsed !== "object" ||
+		parsed === null ||
+		!Array.isArray((parsed as { childCaseIds?: unknown }).childCaseIds) ||
+		!Array.isArray((parsed as { operations?: unknown }).operations) ||
+		("primaryCaseId" in parsed &&
+			(parsed as { primaryCaseId?: unknown }).primaryCaseId !== undefined &&
+			typeof (parsed as { primaryCaseId?: unknown }).primaryCaseId !== "string")
+	) {
+		throw new Error(
+			"A committed form submission replay row contains an invalid result.",
+		);
+	}
+	return parsed as SubmissionEnvelopeResult;
+}
+
+export type SubmissionReceiptVerdict =
+	| { readonly kind: "new" }
+	| { readonly kind: "mismatch" }
+	| { readonly kind: "replay"; readonly result: SubmissionEnvelopeResult };
+
+/** Pure receipt adjudication shared by the pre-blueprint action read and the
+ * entry-locked terminal transaction. */
+export function adjudicateSubmissionReceipt(
+	identity: SubmissionReceiptIdentity,
+	prior:
+		| {
+				readonly formUuid: string;
+				readonly requestDigest: string;
+				readonly result: unknown;
+		  }
+		| undefined,
+): SubmissionReceiptVerdict {
+	if (prior === undefined) return { kind: "new" };
+	if (
+		prior.formUuid !== identity.formUuid ||
+		prior.requestDigest !== identity.requestDigest
+	) {
+		return { kind: "mismatch" };
+	}
+	return {
+		kind: "replay",
+		result: parseSubmissionEnvelopeResult(prior.result),
+	};
 }

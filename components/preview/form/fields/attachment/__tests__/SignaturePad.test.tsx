@@ -935,7 +935,7 @@ describe("SignaturePad", () => {
 		expect(screen.getByRole("button", { name: "Undo" })).toBeDefined();
 	});
 
-	it("rearms retained dirty ink in the restored entry authority generation", async () => {
+	it("rearms retained dirty ink when refreshing is batched into the restored authority render", async () => {
 		const entryKey = "entry-signature-authority-restore";
 		let authority: AttachmentEntryAuthoritySnapshot = {
 			appId: "app-1",
@@ -968,6 +968,7 @@ describe("SignaturePad", () => {
 		const props = {
 			entryKey,
 			instancePath: "/data/signature",
+			authorityRevision: 1,
 			uploading: false,
 			hasAnswer: false,
 			onDrawn,
@@ -995,19 +996,11 @@ describe("SignaturePad", () => {
 		authority = {
 			appId: "app-1",
 			scopeEpoch: 2,
-			accessPhase: "refreshing",
-			canEdit: false,
-		};
-		installAuthority();
-		view.rerender(<SignaturePad {...props} interactionBlocked readOnly />);
-		authority = {
-			appId: "app-1",
-			scopeEpoch: 2,
 			accessPhase: "authorized",
 			canEdit: true,
 		};
 		installAuthority();
-		view.rerender(<SignaturePad {...props} />);
+		view.rerender(<SignaturePad {...props} authorityRevision={2} />);
 		const submitted = vi.fn();
 		const submit = runFormAttachmentBarrier(entryKey, async () => {
 			submitted();

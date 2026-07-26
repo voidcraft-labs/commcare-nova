@@ -910,6 +910,9 @@ export async function resetSampleCases(
 export interface BuiltSubmissionOperations {
 	readonly program?: CaseOperationProgram;
 	readonly ordinaryCaseType?: string;
+	readonly submissionReceipt?: NonNullable<
+		ApplySubmissionArgs["submissionReceipt"]
+	>;
 	readonly captureIntent?: NonNullable<ApplySubmissionArgs["captureIntent"]>;
 }
 
@@ -956,6 +959,35 @@ function canonicalJson(value: unknown): string {
 	return JSON.stringify(normalize(value));
 }
 
+/** Compute the durable entry identity without consulting the current
+ * blueprint. This is intentionally the first submission derivation: a receipt
+ * accepted under an older capture topology must be adjudicated before today's
+ * form/capture structure can reject or erase it. */
+export function buildSubmissionReceiptIdentity(args: {
+	readonly appId: string;
+	readonly identity: ResolvedPreviewIdentity;
+	readonly mutation: SubmissionMutation;
+	readonly viewerTimeZone?: string;
+}): NonNullable<ApplySubmissionArgs["submissionReceipt"]> | undefined {
+	const { entryKey, formUuid } = args.mutation;
+	if (entryKey === undefined || formUuid === undefined) return undefined;
+	const requestDigest = createHash("sha256")
+		.update(
+			canonicalJson({
+				appId: args.appId,
+				mutation: args.mutation,
+				viewerTimeZone: args.viewerTimeZone,
+				identity: {
+					actorUserId: args.identity.actorUserId,
+					ownerId: args.identity.ownerId,
+					personaUuid: args.identity.personaUuid,
+				},
+			}),
+		)
+		.digest("hex");
+	return { entryKey, formUuid, requestDigest };
+}
+
 /**
  * Build the storage executor's `CaseOperationProgram` from the
  * COMMITTED doc — the server is the structural authority, consuming
@@ -981,6 +1013,7 @@ export async function buildSubmissionOperationProgram(args: {
 	readonly viewerTimeZone?: string;
 }): Promise<BuiltSubmissionOperations> {
 	if (args.mutation.formUuid === undefined) return {};
+	const submissionReceipt = buildSubmissionReceiptIdentity(args);
 
 	const app = await loadApp(args.appId);
 	if (!app?.blueprint) return {};
@@ -1001,7 +1034,6 @@ export async function buildSubmissionOperationProgram(args: {
 		attachmentRefs,
 	});
 	if (app.blueprint.forms[validated.formUuid as Uuid] === undefined) {
-		if (validated.attachmentRefs.length === 0) return built;
 		throw new CaptureSubmissionRejectedError(
 			"The submitted form no longer exists in the committed app.",
 		);
@@ -1033,35 +1065,29 @@ export async function buildSubmissionOperationProgram(args: {
 		validated.attachmentRefs.length === 0 &&
 		allowedAttachments.length === 0
 	) {
-		return built;
+		return {
+			...built,
+			...(submissionReceipt === undefined ? {} : { submissionReceipt }),
+		};
+	}
+	if (submissionReceipt === undefined) {
+		throw new Error(
+			"A capture-aware form submission did not produce a receipt identity.",
+		);
 	}
 	const captureIntentWithoutDigest = {
 		entryKey: validated.entryKey,
 		formUuid: validated.formUuid,
 		expectedAppMutationSeq: app.mutation_seq,
-		requestDigest: "",
+		requestDigest: submissionReceipt.requestDigest,
 		attachments: validated.attachmentRefs,
 		allowedAttachments,
 	};
-	const requestDigest = createHash("sha256")
-		.update(
-			canonicalJson({
-				appId: args.appId,
-				mutation: args.mutation,
-				viewerTimeZone: args.viewerTimeZone,
-				identity: {
-					actorUserId: args.identity.actorUserId,
-					ownerId: args.identity.ownerId,
-					personaUuid: args.identity.personaUuid,
-				},
-			}),
-		)
-		.digest("hex");
 	return {
 		...built,
+		submissionReceipt,
 		captureIntent: {
 			...captureIntentWithoutDigest,
-			requestDigest,
 		},
 	};
 }
@@ -1189,6 +1215,10 @@ export function submissionEnvelopeArgs(
 		built?.captureIntent === undefined
 			? {}
 			: { captureIntent: built.captureIntent };
+	const submissionReceipt =
+		built?.submissionReceipt === undefined
+			? {}
+			: { submissionReceipt: built.submissionReceipt };
 	switch (mutation.kind) {
 		case "registration":
 			return {
@@ -1199,6 +1229,7 @@ export function submissionEnvelopeArgs(
 					children: mutation.children,
 				},
 				...operations,
+				...submissionReceipt,
 				...captureIntent,
 			};
 		case "followup":
@@ -1215,6 +1246,7 @@ export function submissionEnvelopeArgs(
 					children: mutation.children,
 				},
 				...operations,
+				...submissionReceipt,
 				...captureIntent,
 			};
 		case "survey":
@@ -1222,6 +1254,7 @@ export function submissionEnvelopeArgs(
 				appId,
 				ordinary: { kind: "none" },
 				...operations,
+				...submissionReceipt,
 				...captureIntent,
 			};
 		default: {
