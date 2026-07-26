@@ -768,16 +768,18 @@ gates the merge run one engine, and `scripts/ci/print-test-image.mjs --check`
 (the `quality` job) fails the build if the two drift — a half-finished bump is
 otherwise invisible until a version-dependent behavior differs.
 
-Thirteen CI jobs boot a container — four test shards, eight leak shards, and the
-auth session-cookie contract — each on its own runner, so each would pull from
-Docker Hub independently. Docker Hub answers some of those with a 500 or a
-timeout, which surfaces as a vitest unhandled error carrying no test output at
-all and reads like a broken build. So CI pre-pulls the image through
-`.github/actions/pull-test-image` (bounded retry with backoff, where a registry
-failure is a step failure that says so), and `startContainer` in `globalSetup.ts`
-keeps its own three-attempt retry for the paths that never run that action — a
-first local run, or a job added without it. Neither classifies the error by
-matching on its message; the last one is reported verbatim.
+Fourteen CI jobs boot the pinned image — four test shards, eight leak shards,
+the auth session-cookie contract, and the Compose-backed smoke suite — each on
+its own runner, so each would pull from Docker Hub independently. Docker Hub
+answers some of those with a 500 or a timeout, which surfaces as a vitest
+unhandled error carrying no test output at all (or as a failed Compose boot)
+and reads like a broken build. So CI pre-pulls the image through
+`.github/actions/pull-test-image` (temporary mirror plus bounded retry, followed
+by exact daemon-config restoration before later images can pull), and
+`startContainer` in `globalSetup.ts` keeps its own three-attempt retry for the
+paths that never run that action — a first local run, or a job added without
+it. Neither classifies the error by matching on its message; the last one is
+reported verbatim.
 
 ### `case_type_schemas` seeding lives at the per-test layer
 

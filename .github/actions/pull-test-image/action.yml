@@ -1,12 +1,14 @@
 name: Pull the Postgres test image
 description: >
-  Fetches the digest-pinned Postgres image the testcontainers harness boots,
-  through a registry mirror and past Docker Hub's sustained bad windows.
+  Fetches the digest-pinned Postgres image the testcontainers harness and
+  Compose smoke suite boot, through a temporary registry mirror and past
+  Docker Hub's sustained bad windows.
 
-# Thirteen jobs in this workflow boot a Postgres testcontainer — four test
-# shards, eight leak shards, and the auth session-cookie contract — and each
-# runs on its own fresh runner, so each pulls the image independently. Docker
-# Hub answers some of those with a 500 or lets the connection time out.
+# Fourteen jobs in this workflow boot the pinned Postgres image — four test
+# shards, eight leak shards, the auth session-cookie contract, and the Compose
+# smoke suite — and each runs on its own fresh runner, so each pulls the image
+# independently. Docker Hub answers some of those with a 500 or lets the
+# connection time out.
 #
 # Left inside the harness, that arrives as `(HTTP code 500) server error - Get
 # "https://registry-1.docker.io/v2/"` thrown out of `globalSetup`, which vitest
@@ -20,7 +22,7 @@ description: >
 # attempts already span ~90 seconds of wall clock — and observed outages
 # outlasted that, failing every attempt. The shape is a sustained window on one
 # network path, not a blip, so the lever is a SECOND PATH rather than more
-# attempts at the dead one. Piling on retries also multiplies badly: thirteen
+# attempts at the dead one. Piling on retries also multiplies badly: fourteen
 # jobs each burning minutes against an unreachable registry is its own cost.
 #
 # `mirror.gcr.io` is Google's pull-through cache for Docker Hub. Verified to
@@ -44,6 +46,11 @@ description: >
 # Configured on the daemon, the fetch goes through the mirror while the image
 # is still recorded under its Docker Hub reference.
 #
+# A daemon mirror applies to EVERY later Docker Hub pull, including
+# Testcontainers' tag-only Ryuk helper. The action therefore restores the exact
+# prior daemon file and restarts Docker before it returns; only this
+# digest-verified pull ever uses the added trust path.
+#
 # The harness keeps its own retry (`lib/case-store/sql/__tests__/globalSetup.ts`)
 # for the paths that never run this action — a developer's first local run, or
 # a job added without it.
@@ -51,33 +58,114 @@ description: >
 runs:
   using: composite
   steps:
-    - name: Route Docker Hub through a mirror
+    - name: Pull the pinned Postgres image through a temporary mirror
       shell: bash
       run: |
-        set -uo pipefail
-        # Put Google's cache first while retaining every existing mirror and
-        # daemon setting; Docker Hub remains the final fallback.
-        existing='{}'
-        [ -f /etc/docker/daemon.json ] && existing="$(cat /etc/docker/daemon.json)"
-        echo "$existing" \
-          | jq '.["registry-mirrors"] =
-              ["https://mirror.gcr.io"] +
-              [(.["registry-mirrors"] // [])[] |
-                select(. != "https://mirror.gcr.io")]' \
-          | sudo tee /etc/docker/daemon.json > /dev/null
-        sudo systemctl restart docker
-        # The daemon takes a moment to accept connections again; without this a
-        # fast-following pull races the restart and fails for the wrong reason.
-        for _ in $(seq 1 30); do
-          docker info > /dev/null 2>&1 && break
-          sleep 1
-        done
-        docker info --format 'Registry mirrors: {{.RegistryConfig.Mirrors}}'
+        set -euo pipefail
 
-    - name: Pull the pinned Postgres image
-      shell: bash
-      run: |
-        set -uo pipefail
+        daemon_config=/etc/docker/daemon.json
+        state_dir="$(mktemp -d "${RUNNER_TEMP}/pull-test-image.XXXXXX")"
+        original_config="${state_dir}/daemon.json.original"
+        mirrored_config="${state_dir}/daemon.json.mirrored"
+        had_original_config=false
+        restore_required=false
+
+        wait_for_docker() {
+          local phase="$1"
+          for attempt in $(seq 1 30); do
+            if docker info > /dev/null 2>&1; then
+              return 0
+            fi
+            if [ "$attempt" -lt 30 ]; then
+              sleep 1
+            fi
+          done
+          echo "::error::Docker did not become ready within 30 seconds after ${phase}."
+          return 1
+        }
+
+        restore_daemon_config() {
+          local action_status="$?"
+          local restore_status=0
+          trap - EXIT
+          set +e
+
+          if [ "$restore_required" = true ]; then
+            if [ "$had_original_config" = true ]; then
+              if ! sudo cp --preserve=all -- "$original_config" "$daemon_config"; then
+                echo "::error::Could not restore the original Docker daemon configuration."
+                restore_status=1
+              fi
+            elif ! sudo rm -f -- "$daemon_config"; then
+              echo "::error::Could not remove the Docker daemon configuration created by this action."
+              restore_status=1
+            fi
+
+            if [ "$restore_status" -eq 0 ]; then
+              if ! sudo systemctl restart docker; then
+                echo "::error::Could not restart Docker after restoring its daemon configuration."
+                restore_status=1
+              elif ! wait_for_docker "restoring its original daemon configuration"; then
+                restore_status=1
+              fi
+            fi
+          fi
+
+          sudo rm -f -- "$original_config" > /dev/null 2>&1
+          rm -f -- "$mirrored_config" > /dev/null 2>&1
+          rmdir "$state_dir" > /dev/null 2>&1
+
+          if [ "$restore_status" -ne 0 ]; then
+            # The pull may have succeeded, but later workflow steps must never
+            # inherit an unknown daemon configuration or readiness state.
+            exit 1
+          fi
+          exit "$action_status"
+        }
+
+        if sudo test -L "$daemon_config"; then
+          echo "::error::Refusing to replace symlinked Docker daemon configuration at $daemon_config."
+          exit 1
+        elif sudo test -e "$daemon_config"; then
+          if ! sudo test -f "$daemon_config"; then
+            echo "::error::Refusing to replace non-file Docker daemon configuration at $daemon_config."
+            exit 1
+          fi
+          sudo cp --preserve=all -- "$daemon_config" "$original_config"
+          had_original_config=true
+        fi
+        trap restore_daemon_config EXIT
+
+        # Put Google's cache first while retaining every unique existing mirror
+        # in its original order and preserving every other daemon setting.
+        if [ "$had_original_config" = true ]; then
+          sudo cat -- "$daemon_config"
+        else
+          printf '{}\n'
+        fi \
+          | jq -e '.["registry-mirrors"] =
+              reduce (
+                ["https://mirror.gcr.io"] +
+                (.["registry-mirrors"] // [])
+              )[] as $mirror (
+                [];
+                if index($mirror) == null
+                then . + [$mirror]
+                else .
+                end
+              )' \
+          > "$mirrored_config"
+
+        # From this point onward the EXIT trap must restore the prior file (or
+        # remove ours) after success, a handled pull failure, or any unexpected
+        # failure. GitHub will not start a later workflow step unless that
+        # restoration also succeeds.
+        restore_required=true
+        sudo install --owner=root --group=root --mode=0644 \
+          "$mirrored_config" "$daemon_config"
+        sudo systemctl restart docker
+        wait_for_docker "installing the temporary mirror configuration"
+        docker info --format 'Temporary registry mirrors: {{.RegistryConfig.Mirrors}}'
 
         # One source of truth for the reference, shared with compose.yaml and
         # verified against it by the `quality` job.
@@ -87,13 +175,15 @@ runs:
         # Five attempts. Each blocks ~16s on its own connection timeout before
         # the backoff starts, so this already spans ~90s of wall clock —
         # deliberately not widened further, because the mirror above is what
-        # addresses a sustained outage, and thirteen jobs each retrying for
+        # addresses a sustained outage, and fourteen jobs each retrying for
         # minutes against a dead registry costs more than it saves.
         delay=1
+        pulled=false
         for attempt in 1 2 3 4 5; do
           if docker pull --quiet "$image"; then
             echo "Pulled on attempt $attempt."
-            exit 0
+            pulled=true
+            break
           fi
           if [ "$attempt" -lt 5 ]; then
             echo "::warning::Image pull failed (attempt $attempt/5). Retrying in ${delay}s."
@@ -102,5 +192,7 @@ runs:
           fi
         done
 
-        echo "::error::Could not pull $image after 5 attempts, via mirror.gcr.io and Docker Hub both. Both registry paths are unreachable or rejecting this runner, which is an infrastructure failure rather than a change in this PR. Check https://status.docker.com and re-run the job."
-        exit 1
+        if [ "$pulled" = false ]; then
+          echo "::error::Could not pull $image after 5 attempts, via mirror.gcr.io and Docker Hub both. Both registry paths are unreachable or rejecting this runner, which is an infrastructure failure rather than a change in this PR. Check https://status.docker.com and re-run the job."
+          exit 1
+        fi
