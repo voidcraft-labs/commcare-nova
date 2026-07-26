@@ -140,6 +140,12 @@ const USER_MESSAGE_BY_CODE: Partial<
 			? `Two pieces of worker information both save under ${q(slug)}. CommCare treats names as the same whatever their capitalization, so give one of them a different name.`
 			: "Two pieces of worker information save under the same name. Give one of them a different name.";
 	},
+	USER_PROPERTY_CHOICES_DUPLICATE: (e) => {
+		const slug = det(e, "slug", "");
+		return slug
+			? `Worker information saved as ${q(slug)} lists the same accepted option more than once. Remove the repeated option so every accepted value appears once.`
+			: "One piece of worker information lists the same accepted option more than once. Remove the repeated option so every accepted value appears once.";
+	},
 	USER_TYPE_NAME_DUPLICATE: (e) => {
 		const name = det(e, "name", "");
 		return name
