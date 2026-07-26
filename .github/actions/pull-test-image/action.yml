@@ -55,12 +55,15 @@ runs:
       shell: bash
       run: |
         set -uo pipefail
-        # Additive: `registry-mirrors` is consulted BEFORE Docker Hub and falls
-        # back to it, so this adds a path rather than replacing one.
+        # Put Google's cache first while retaining every existing mirror and
+        # daemon setting; Docker Hub remains the final fallback.
         existing='{}'
         [ -f /etc/docker/daemon.json ] && existing="$(cat /etc/docker/daemon.json)"
         echo "$existing" \
-          | jq '. + {"registry-mirrors": ["https://mirror.gcr.io"]}' \
+          | jq '.["registry-mirrors"] =
+              ["https://mirror.gcr.io"] +
+              [(.["registry-mirrors"] // [])[] |
+                select(. != "https://mirror.gcr.io")]' \
           | sudo tee /etc/docker/daemon.json > /dev/null
         sudo systemctl restart docker
         # The daemon takes a moment to accept connections again; without this a
