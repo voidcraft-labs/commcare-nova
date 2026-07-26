@@ -120,6 +120,11 @@ vi.mock("@/components/preview/PreviewShell", () => ({
 	PreviewShell: () => (
 		<main>
 			Canvas
+			<button
+				type="button"
+				aria-label="Project data fallback"
+				data-project-data-focus-fallback
+			/>
 			<button type="button" aria-label="Selected case field" />
 		</main>
 	),

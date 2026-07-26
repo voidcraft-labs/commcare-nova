@@ -44,7 +44,7 @@ export function RowConflictBody({
 	const resolutionColumns = conflict.resolution?.columns ?? [];
 
 	const reason = conflict.tableUnavailable
-		? `“${conflict.tableName}” is no longer available. Your row draft was recovered from the last version you could see.`
+		? `The original “${conflict.tableName}” table is no longer available. This local row copy cannot be saved back to it.`
 		: gone
 			? deleting
 				? "Someone else already deleted this row."
@@ -113,16 +113,22 @@ export function RowConflictBody({
 				<div className="min-w-0 space-y-1">
 					<p className="text-[13px] font-medium text-nova-text">
 						{conflict.tableUnavailable
-							? "Your draft is safe"
+							? "Local row copy recovered"
 							: deleting
-								? "This row wasn’t deleted"
+								? gone
+									? "This row was already deleted"
+									: "This row wasn’t deleted"
 								: "This row wasn’t saved"}
 					</p>
 					<p className="text-[13px] leading-relaxed text-nova-text-secondary">
 						{reason}{" "}
-						{deleting
-							? "Nothing has been removed."
-							: "Nothing you typed has been lost."}
+						{conflict.tableUnavailable
+							? "Copy anything you need; only the discard action below removes this local copy."
+							: deleting
+								? gone
+									? "Nothing remains for you to delete."
+									: "Nothing has been removed."
+								: "Nothing you typed has been lost."}
 					</p>
 				</div>
 			</div>
@@ -138,6 +144,17 @@ export function RowConflictBody({
 					conflict={conflict}
 					columns={conflict.displayColumns}
 				/>
+			) : !canEdit ? (
+				<div className="space-y-4">
+					<p className="text-[13px] leading-relaxed text-nova-text-secondary">
+						Your local reconciliation is shown as read-only text because saving
+						Project data now needs edit access.
+					</p>
+					<ReadOnlySaveConflict
+						conflict={conflict}
+						columns={resolutionColumns}
+					/>
+				</div>
 			) : (
 				<div className="space-y-4">
 					<p className="text-[13px] leading-relaxed text-nova-text-secondary">
@@ -151,7 +168,7 @@ export function RowConflictBody({
 									column={column}
 									value={conflict.editableDraft[column.id]}
 									invalid={errors.get(column.id)}
-									disabled={!canEdit || working}
+									disabled={working}
 									onChange={(next) => {
 										setFailure(null);
 										workspace.updateRowConflictDraft(conflict, column.id, next);
@@ -195,18 +212,20 @@ export function RowConflictBody({
 							</div>
 						))}
 					</dl>
-					<label
-						htmlFor={acknowledgementId}
-						className="flex min-h-11 cursor-pointer items-center gap-2 text-[13px] text-nova-text"
-					>
-						<Checkbox
-							id={acknowledgementId}
-							checked={removedAcknowledged}
-							disabled={!canEdit || working}
-							onCheckedChange={setRemovedAcknowledged}
-						/>
-						I copied what I need; save without these removed columns
-					</label>
+					{canEdit && (
+						<label
+							htmlFor={acknowledgementId}
+							className="flex min-h-11 cursor-pointer items-center gap-2 text-[13px] text-nova-text"
+						>
+							<Checkbox
+								id={acknowledgementId}
+								checked={removedAcknowledged}
+								disabled={working}
+								onCheckedChange={setRemovedAcknowledged}
+							/>
+							I copied what I need; save without these removed columns
+						</label>
+					)}
 				</div>
 			)}
 
@@ -281,15 +300,49 @@ export function RowConflictBody({
 					}}
 				>
 					{conflict.tableUnavailable
-						? "Discard this draft"
-						: gone
-							? "Discard my draft"
-							: deleting
-								? "Keep the row"
+						? "Discard local copy"
+						: deleting
+							? gone
+								? "Dismiss this decision"
+								: "Keep the row"
+							: gone
+								? "Discard my draft"
 								: "Use the saved version"}
 				</Button>
 			</div>
 		</div>
+	);
+}
+
+function ReadOnlySaveConflict({
+	conflict,
+	columns,
+}: {
+	conflict: ProjectDataRowConflict;
+	columns: readonly LookupColumn[];
+}) {
+	return (
+		<dl className="space-y-3">
+			{columns.map((column) => (
+				<div key={column.id} className="min-w-0">
+					<dt className="text-[13px] font-medium text-nova-text [overflow-wrap:anywhere]">
+						{column.label}
+					</dt>
+					<dd className="mt-1 space-y-2 text-[13px] text-nova-text-secondary">
+						<p>
+							<span className="text-nova-text-muted">Your local draft: </span>
+							<VisibleValue text={conflict.editableDraft[column.id]?.text} />
+						</p>
+						{conflict.current !== undefined && (
+							<p>
+								<span className="text-nova-text-muted">Already saved: </span>
+								<VisibleValue text={cellText(conflict.current, column)} />
+							</p>
+						)}
+					</dd>
+				</div>
+			))}
+		</dl>
 	);
 }
 
@@ -372,7 +425,7 @@ function VisibleValue({
 	}
 	return (
 		<span
-			className={`whitespace-pre-wrap rounded bg-white/[0.05] [overflow-wrap:anywhere] ${
+			className={`select-text whitespace-pre-wrap rounded bg-white/[0.05] [overflow-wrap:anywhere] ${
 				compact ? "px-1" : "inline-block min-h-5 min-w-2 px-1.5 py-0.5"
 			}`}
 		>

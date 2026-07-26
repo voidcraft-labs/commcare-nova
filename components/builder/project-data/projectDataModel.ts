@@ -206,6 +206,37 @@ export function editRowDraftCellText(
 	};
 }
 
+/**
+ * Raw temporal text that a typed picker cannot display.
+ *
+ * Time is a text field and therefore always exposes its raw value. A date
+ * picker, however, renders an invalid retained value as an empty trigger; the
+ * date half of a date-time does the same, and a naive split can also hide text
+ * after a second `T`. Returning that text lets the row editor keep it visible
+ * and copyable until the author deliberately picks a replacement.
+ */
+export function temporalDraftTextHiddenByControl(
+	dataType: LookupDataType,
+	text: string | undefined,
+): string | undefined {
+	if (text === undefined || text === "") return undefined;
+	if (dataType === "date") {
+		return coerceLookupCell("date", text, "typed").success ? undefined : text;
+	}
+	if (dataType !== "datetime") return undefined;
+	const firstSeparator = text.indexOf("T");
+	if (
+		firstSeparator <= 0 ||
+		firstSeparator !== text.lastIndexOf("T") ||
+		!coerceLookupCell("date", text.slice(0, firstSeparator), "typed").success
+	) {
+		return text;
+	}
+	/* The clock half is a raw TimeField, so even an invalid clock remains
+	 * visible there and needs no duplicate disclosure. */
+	return undefined;
+}
+
 export type RowDraft = Readonly<Record<LookupColumnId, RowDraftCell>>;
 
 export interface RemovedConflictCell {
@@ -220,6 +251,159 @@ export interface ReconciledConflictDraft {
 	 * storage, so the conflict surface must show them and require an explicit
 	 * acknowledgement before saving the remaining values. */
 	readonly removed: readonly RemovedConflictCell[];
+}
+
+/**
+ * Merge every retained spelling of a row into the read-only snapshot shown
+ * after its table disappears.
+ *
+ * A row can have both an original edit session and a later conflict session.
+ * The conflict's reconciliation edits are newer and therefore win, while
+ * values split into `removed` during reconciliation are folded back in because
+ * there is no longer a writable schema to exclude them from. Column identity,
+ * not label or wire name, deduplicates the display.
+ */
+export function mergeUnavailableRowDraft(args: {
+	readonly edit?: {
+		readonly draft: RowDraft;
+		readonly columns: readonly LookupColumn[];
+	};
+	readonly conflict?: {
+		readonly draft: RowDraft;
+		readonly columns: readonly LookupColumn[];
+		readonly removed: readonly RemovedConflictCell[];
+	};
+}): {
+	readonly draft: RowDraft;
+	readonly columns: readonly LookupColumn[];
+} {
+	const draft: Record<string, RowDraftCell> = {
+		...args.edit?.draft,
+		...args.conflict?.draft,
+	};
+	for (const removed of args.conflict?.removed ?? []) {
+		draft[removed.column.id] = removed.value;
+	}
+
+	const columns: LookupColumn[] = [];
+	const seen = new Set<LookupColumnId>();
+	for (const column of [
+		...(args.conflict?.columns ?? []),
+		...(args.edit?.columns ?? []),
+		...(args.conflict?.removed.map((entry) => entry.column) ?? []),
+	]) {
+		if (seen.has(column.id)) continue;
+		seen.add(column.id);
+		columns.push({ ...column });
+	}
+	return { draft: draft as RowDraft, columns };
+}
+
+export interface RetainedRowEditPointer {
+	readonly projectId: string;
+	readonly tableId: LookupTableId;
+	readonly tableName: string;
+	readonly rowId: LookupRowId;
+}
+
+export interface RetainedRowConflictPointer extends RetainedRowEditPointer {
+	readonly attempted: "save" | "delete";
+	readonly tableUnavailable: boolean;
+}
+
+/** Whether retained row state belongs to the Project that is authorized now. */
+export function hasRetainedRowWorkForProject(args: {
+	readonly projectId: string | undefined;
+	readonly edits: Iterable<RetainedRowEditPointer>;
+	readonly conflicts: Iterable<RetainedRowConflictPointer>;
+}): boolean {
+	if (args.projectId === undefined) return false;
+	for (const edit of args.edits) {
+		if (edit.projectId === args.projectId) return true;
+	}
+	for (const conflict of args.conflicts) {
+		if (conflict.projectId === args.projectId) return true;
+	}
+	return false;
+}
+
+export interface RetainedRowRecovery {
+	readonly projectId: string;
+	readonly tableId: LookupTableId;
+	readonly tableName: string;
+	readonly rowId: LookupRowId;
+	readonly state:
+		| "draft"
+		| "save-conflict"
+		| "delete-conflict"
+		| "table-unavailable";
+}
+
+/**
+ * Every controller-owned row session, flattened for the table-list recovery
+ * surface. A conflict supersedes an edit with the same stable row identity,
+ * and table availability is decided by UUID — recreating a same-named table
+ * must never make an old draft look writable against the new resource.
+ */
+export function retainedRowRecoveries(args: {
+	readonly projectId: string | undefined;
+	readonly edits: Iterable<RetainedRowEditPointer>;
+	readonly conflicts: Iterable<RetainedRowConflictPointer>;
+	readonly unavailableTableIds?: ReadonlySet<LookupTableId>;
+}): readonly RetainedRowRecovery[] {
+	if (args.projectId === undefined) return [];
+	const byRow = new Map<string, RetainedRowRecovery>();
+	for (const edit of args.edits) {
+		if (edit.projectId !== args.projectId) continue;
+		byRow.set(`${edit.tableId}\u0000${edit.rowId}`, {
+			...edit,
+			state: args.unavailableTableIds?.has(edit.tableId)
+				? "table-unavailable"
+				: "draft",
+		});
+	}
+	for (const conflict of args.conflicts) {
+		if (conflict.projectId !== args.projectId) continue;
+		const unavailable =
+			conflict.tableUnavailable ||
+			args.unavailableTableIds?.has(conflict.tableId) === true;
+		byRow.set(`${conflict.tableId}\u0000${conflict.rowId}`, {
+			projectId: conflict.projectId,
+			tableId: conflict.tableId,
+			tableName: conflict.tableName,
+			rowId: conflict.rowId,
+			state: unavailable
+				? "table-unavailable"
+				: conflict.attempted === "delete"
+					? "delete-conflict"
+					: "save-conflict",
+		});
+	}
+	return [...byRow.values()].sort(
+		(left, right) =>
+			left.tableName.localeCompare(right.tableName, "en") ||
+			left.rowId.localeCompare(right.rowId, "en"),
+	);
+}
+
+/**
+ * Whether one manifest snapshot is new enough to prove a retained table is
+ * gone.
+ *
+ * During stale-while-revalidate, a manifest from before a newly created table
+ * can briefly omit a table whose direct read already succeeded. Revisions are
+ * Project-global and monotonic, so absence is authoritative only once the
+ * manifest has reached at least the table generation the retained session saw.
+ */
+export function manifestProvesTableUnavailable(args: {
+	readonly manifestRevision: LookupRevision;
+	readonly knownTableRevision: LookupRevision;
+	readonly manifestHasTable: boolean;
+}): boolean {
+	return (
+		!args.manifestHasTable &&
+		BigInt(args.manifestRevision) >= BigInt(args.knownTableRevision)
+	);
 }
 
 /** A draft turned into stored values, or the reasons it could not be. */

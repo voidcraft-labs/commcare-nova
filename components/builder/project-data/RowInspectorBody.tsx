@@ -123,7 +123,9 @@ export function RowInspectorBody({
 		<div className="space-y-4">
 			{!canEdit && (
 				<p className="rounded-lg bg-nova-elevated px-3 py-2.5 text-[13px] leading-relaxed text-nova-text-secondary">
-					You can read this row. Changing it needs edit access to this project.
+					{dirty
+						? "Your edit access changed, so this local row draft cannot be saved. Nova kept it here for you to copy or explicitly discard."
+						: "You can read this row. Changing it needs edit access to this project."}
 				</p>
 			)}
 			{canEdit ? (
@@ -140,14 +142,16 @@ export function RowInspectorBody({
 				</div>
 			) : (
 				<dl className="space-y-3">
-					{columns.map((column) => {
-						const value = cellText(row.values, column);
+					{(dirty ? edit.baseline.columns : columns).map((column) => {
+						const value = dirty
+							? edit.draft[column.id]?.text
+							: cellText(row.values, column);
 						return (
 							<div key={column.id} className="min-w-0">
 								<dt className="text-[13px] font-medium text-nova-text [overflow-wrap:anywhere]">
 									{column.label}
 								</dt>
-								<dd className="mt-1 text-[13px] text-nova-text-secondary whitespace-pre-wrap [overflow-wrap:anywhere]">
+								<dd className="mt-1 select-text text-[13px] text-nova-text-secondary whitespace-pre-wrap [overflow-wrap:anywhere]">
 									{value === undefined
 										? "No value"
 										: value === ""
@@ -158,6 +162,21 @@ export function RowInspectorBody({
 						);
 					})}
 				</dl>
+			)}
+			{!canEdit && dirty && (
+				<Button
+					type="button"
+					variant="ghost"
+					className="min-h-11"
+					onClick={() => {
+						workspace.discardRowEdit(row.id);
+						setErrors(new Map());
+						setFailure(null);
+						setStatus(null);
+					}}
+				>
+					Discard local draft
+				</Button>
 			)}
 
 			{failure !== null && (

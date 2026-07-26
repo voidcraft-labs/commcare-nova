@@ -23,6 +23,7 @@ import {
 	COLUMN_TYPE_LABELS,
 	editRowDraftCellText,
 	type RowDraftCell,
+	temporalDraftTextHiddenByControl,
 } from "./projectDataModel";
 
 export function RowValueField({
@@ -42,7 +43,19 @@ export function RowValueField({
 }) {
 	const fieldId = useId();
 	const errorId = useId();
+	const retainedRawId = useId();
 	const text = value?.text ?? "";
+	const retainedRaw = temporalDraftTextHiddenByControl(
+		column.dataType,
+		value?.text,
+	);
+	const describedBy =
+		[
+			invalid === undefined ? undefined : errorId,
+			retainedRaw === undefined ? undefined : retainedRawId,
+		]
+			.filter((id): id is string => id !== undefined)
+			.join(" ") || undefined;
 	/* Keep the immutable source spelling beside every intermediate edit.
 	 * `rowDraftToValues` uses it ONLY when the visible value is exactly back at
 	 * `originalText`. */
@@ -69,7 +82,8 @@ export function RowValueField({
 						value={text}
 						onValueChange={commit}
 						disabled={disabled}
-						aria-describedby={invalid ? errorId : undefined}
+						aria-invalid={invalid !== undefined}
+						aria-describedby={describedBy}
 					/>
 				) : column.dataType === "time" ? (
 					<TimeField
@@ -78,7 +92,8 @@ export function RowValueField({
 						onValueChange={commit}
 						disabled={disabled}
 						aria-label={`${column.label} time`}
-						aria-describedby={invalid ? errorId : undefined}
+						aria-invalid={invalid !== undefined}
+						aria-describedby={describedBy}
 					/>
 				) : column.dataType === "datetime" ? (
 					<DateTimeField
@@ -87,7 +102,8 @@ export function RowValueField({
 						value={text}
 						onChange={commit}
 						disabled={disabled}
-						describedBy={invalid ? errorId : undefined}
+						invalid={invalid !== undefined}
+						describedBy={describedBy}
 					/>
 				) : (
 					<Input
@@ -108,12 +124,27 @@ export function RowValueField({
 						autoComplete="off"
 						data-1p-ignore
 						aria-invalid={invalid !== undefined}
-						aria-describedby={invalid ? errorId : undefined}
+						aria-describedby={describedBy}
 						onChange={(event) => commit(event.target.value)}
 						className="h-11"
 					/>
 				)}
 			</div>
+			{retainedRaw !== undefined && (
+				<div
+					id={retainedRawId}
+					className="mt-2 rounded-lg border border-nova-amber/30 bg-nova-amber/[0.06] px-3 py-2 text-[12px] leading-relaxed text-nova-text-secondary"
+				>
+					<p>
+						This retained value does not fit the new{" "}
+						{COLUMN_TYPE_LABELS[column.dataType].toLocaleLowerCase()} control.
+						It remains copyable until you deliberately pick a replacement.
+					</p>
+					<code className="mt-1 block select-text whitespace-pre-wrap font-mono text-nova-text [overflow-wrap:anywhere]">
+						{retainedRaw}
+					</code>
+				</div>
+			)}
 			{invalid !== undefined && (
 				<p id={errorId} className="mt-1 text-[12px] text-nova-rose">
 					{invalid}
@@ -137,6 +168,7 @@ function DateTimeField({
 	value,
 	onChange,
 	disabled,
+	invalid,
 	describedBy,
 }: {
 	fieldId: string;
@@ -144,6 +176,7 @@ function DateTimeField({
 	value: string;
 	onChange: (next: string) => void;
 	disabled: boolean;
+	invalid: boolean;
 	describedBy?: string;
 }) {
 	const timeId = useId();
@@ -168,6 +201,7 @@ function DateTimeField({
 				value={datePart}
 				onValueChange={(next) => emit(next, timePart)}
 				disabled={disabled}
+				aria-invalid={invalid}
 				aria-describedby={describedBy}
 			/>
 			<TimeField
@@ -176,6 +210,7 @@ function DateTimeField({
 				value={timePart}
 				onValueChange={(next) => emit(datePart, next)}
 				disabled={disabled}
+				aria-invalid={invalid}
 				aria-describedby={describedBy}
 			/>
 		</div>

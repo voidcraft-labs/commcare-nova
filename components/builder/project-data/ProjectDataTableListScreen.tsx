@@ -19,11 +19,18 @@ import { useNavigate } from "@/lib/routing/hooks";
 import { useCanEdit } from "@/lib/session/hooks";
 import { CreateTableDialog } from "./CreateTableDialog";
 import { ProjectDataFailure, ProjectDataLoading } from "./ProjectDataReadState";
-import { formatLookupBytes, formatLookupCount } from "./projectDataModel";
-import { useProjectDataManifest } from "./useProjectData";
+import { useProjectDataWorkspace } from "./ProjectDataWorkspaceProvider";
+import {
+	formatLookupBytes,
+	formatLookupCount,
+	type RetainedRowRecovery,
+} from "./projectDataModel";
 
 export function ProjectDataTableListScreen() {
-	const { state, reload } = useProjectDataManifest();
+	const workspace = useProjectDataWorkspace();
+	const state = workspace?.manifest ?? { kind: "idle" as const };
+	const reload = workspace?.reloadManifest ?? (async () => {});
+	const retainedRows = workspace?.retainedRows ?? [];
 	const navigate = useNavigate();
 	const canEdit = useCanEdit();
 	const [creating, setCreating] = useState(false);
@@ -61,6 +68,58 @@ export function ProjectDataTableListScreen() {
 					onClose={() => setCreating(false)}
 					onCreated={reload}
 				/>
+			)}
+
+			{retainedRows.length > 0 && workspace !== null && (
+				<section
+					aria-labelledby="project-data-recovery-heading"
+					className="mt-6 rounded-xl border border-nova-amber/30 bg-nova-amber/[0.06] p-4"
+				>
+					<h2
+						id="project-data-recovery-heading"
+						className="text-sm font-semibold text-nova-text"
+					>
+						Row work to review
+					</h2>
+					<p className="mt-1 max-w-2xl text-[13px] leading-relaxed text-nova-text-secondary">
+						Nova kept this work when you closed Properties, changed tables, or
+						lost access to the original table. It stays in this builder tab
+						until you save it or explicitly discard its local copy.
+					</p>
+					<ul className="mt-3 space-y-2">
+						{retainedRows.map((retained, index) => {
+							const status = retainedRowStatus(retained);
+							return (
+								<li
+									key={`${retained.tableId}:${retained.rowId}`}
+									className="flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-lg border border-nova-border bg-nova-elevated px-3 py-2.5"
+								>
+									<span className="min-w-0">
+										<span className="block text-[13px] font-medium text-nova-text [overflow-wrap:anywhere]">
+											{retained.tableName}
+										</span>
+										<span className="mt-0.5 block text-[12px] leading-snug text-nova-text-secondary">
+											{status}
+										</span>
+									</span>
+									<Button
+										type="button"
+										variant="outline"
+										className="min-h-11 shrink-0"
+										onClick={() => workspace.openRetainedRow(retained)}
+									>
+										Review
+										<span className="sr-only">
+											{" "}
+											{status.toLocaleLowerCase()} in {retained.tableName}, item{" "}
+											{index + 1}
+										</span>
+									</Button>
+								</li>
+							);
+						})}
+					</ul>
+				</section>
 			)}
 
 			{state.kind === "loading" || state.kind === "idle" ? (
@@ -125,4 +184,17 @@ export function ProjectDataTableListScreen() {
 			)}
 		</section>
 	);
+}
+
+function retainedRowStatus(retained: RetainedRowRecovery): string {
+	switch (retained.state) {
+		case "draft":
+			return "Unsaved row changes";
+		case "save-conflict":
+			return "A save needs your decision";
+		case "delete-conflict":
+			return "A delete needs your decision";
+		case "table-unavailable":
+			return "Original table unavailable — copy or discard this local row";
+	}
 }

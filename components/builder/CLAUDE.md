@@ -207,11 +207,16 @@ virtualized ARIA grid would have to hand-roll.
 the row's body.** Close, Escape, another selection, route navigation, row
 deletion, and table deletion all unmount the body; none is consent to discard.
 The controller keys sessions by Project/table/row, the grid marks and reopens
-them, and a missing table renders the raw draft from its last authorized
-snapshot. Inspector Close only hides; Save and the explicitly labelled discard
-buttons clear. Origin controls carry `data-inspector-return-focus`; the table's
-back button is the missing-origin fallback for desktop and Base UI's narrow
-drawer final-focus callback.
+them, and the table list has one navigable **Row work to review** entry for every
+retained session — including conflicts with no dirty edit and tables deleted
+while another route was open. A missing table renders a read-only local row copy
+from its last authorized snapshot; recreating the same name under a new UUID
+does not revive it. Inspector Close only hides; Save and explicitly labelled
+discard buttons clear, even when edit access was revoked and the retained values
+must render as read-only text. Row/header controls carry their stable identity;
+Close/Escape resolves that exact control after selection clears and temporarily
+marks it for Base UI's narrow/handset drawer final-focus callback, with the
+table's back button as the missing-origin fallback.
 
 Every row editor captures an immutable edit-session baseline: the row, ordered
 columns, and table revision as they stood when editing began. A pristine editor
@@ -219,12 +224,13 @@ follows realtime; the first edit stores a controller session and every later
 save compares against its original baseline. Save-conflict drafts are
 reprojected onto the exact fresh columns: stable same-type temporal cells keep
 lossless metadata, retyped cells keep raw text but validate as the new type,
-new columns are editable, and removed authored values are separately retained
-behind a mandatory acknowledgement. Resolution buttons accept only parsed
-fresh-schema values and write against that displayed generation. If the row is
-gone, Save as a new row appends, selects the returned row id, and the grid clears
-any search and reveals its page. A failed resolution leaves the conflict and
-draft on screen.
+and an invalid date/date-time spelling stays visible and copyable beside a
+picker that cannot display it. New columns are editable, and removed authored
+values are separately retained behind a mandatory acknowledgement. Resolution
+buttons accept only parsed fresh-schema values and write against that displayed
+generation. If the row is gone, Save as a new row appends, selects the returned
+row id, and the grid clears any search and reveals its page. A failed resolution
+leaves the conflict and draft on screen.
 
 **The conflict policy lives in `projectDataModel.ts`, pure and unit-tested.** A
 table's optimistic token is `max(definitionRevision, rowsRevision)`, so ANY

@@ -29,11 +29,15 @@ import {
 	filterRows,
 	formatLookupBytes,
 	formatLookupCount,
+	hasRetainedRowWorkForProject,
 	keepRevisionedTextDraft,
+	manifestProvesTableUnavailable,
+	mergeUnavailableRowDraft,
 	reconcileConflictDraft,
 	reconcileRevisionedTextDraft,
 	reconcileRowDraft,
 	replacementConflictVerdict,
+	retainedRowRecoveries,
 	rowAdditionRefusal,
 	rowDraftToValues,
 	rowValuesEqual,
@@ -41,6 +45,7 @@ import {
 	rowWriteConflictVerdict,
 	suggestWireName,
 	tableCapacity,
+	temporalDraftTextHiddenByControl,
 } from "../projectDataModel";
 
 const nameColumnId = lookupColumnIdSchema.parse(
@@ -50,8 +55,14 @@ const codeColumnId = lookupColumnIdSchema.parse(
 	"01912d68-783e-7000-8000-00000000c002",
 );
 const rowId = lookupRowIdSchema.parse("01912d68-783e-7000-8000-00000000d001");
+const secondRowId = lookupRowIdSchema.parse(
+	"01912d68-783e-7000-8000-00000000d002",
+);
 const tableId = lookupTableIdSchema.parse(
 	"01912d68-783e-7000-8000-00000000b001",
+);
+const secondTableId = lookupTableIdSchema.parse(
+	"01912d68-783e-7000-8000-00000000b002",
 );
 const decimalColumnId = lookupColumnIdSchema.parse(
 	"01912d68-783e-7000-8000-00000000c003",
@@ -478,6 +489,38 @@ describe("rowDraftToValues", () => {
 	});
 });
 
+describe("temporalDraftTextHiddenByControl", () => {
+	it("keeps invalid retyped date text visible while a valid date needs no duplicate", () => {
+		expect(temporalDraftTextHiddenByControl("date", "not-a-date")).toBe(
+			"not-a-date",
+		);
+		expect(temporalDraftTextHiddenByControl("date", "2026-03-04")).toBe(
+			undefined,
+		);
+	});
+
+	it("discloses date-time text hidden by its date picker or split", () => {
+		expect(temporalDraftTextHiddenByControl("datetime", "old free text")).toBe(
+			"old free text",
+		);
+		expect(
+			temporalDraftTextHiddenByControl("datetime", "not-a-dateT14:30:00"),
+		).toBe("not-a-dateT14:30:00");
+		expect(
+			temporalDraftTextHiddenByControl("datetime", "2026-03-04T14:30:00Textra"),
+		).toBe("2026-03-04T14:30:00Textra");
+	});
+
+	it("does not duplicate text that remains visible in a time control", () => {
+		expect(temporalDraftTextHiddenByControl("time", "not a clock")).toBe(
+			undefined,
+		);
+		expect(
+			temporalDraftTextHiddenByControl("datetime", "2026-03-04Tnot a clock"),
+		).toBe(undefined);
+	});
+});
+
 describe("rowValuesToDraft", () => {
 	it("round-trips through the draft without inventing values", () => {
 		const stored = values({ [nameColumnId]: "Kitgum" });
@@ -649,6 +692,218 @@ describe("reconcileConflictDraft", () => {
 		expect(rowDraftToValues(result.draft, [nameColumn, codeColumn]).ok).toBe(
 			false,
 		);
+	});
+});
+
+describe("unavailable row recovery", () => {
+	it("does not activate Project B reads for retained Project A work", () => {
+		const projectAEdit = {
+			projectId: "project-a",
+			tableId,
+			tableName: "Facilities",
+			rowId,
+		};
+		const projectAConflict = {
+			...projectAEdit,
+			attempted: "delete" as const,
+			tableUnavailable: false,
+		};
+
+		expect(
+			hasRetainedRowWorkForProject({
+				projectId: "project-b",
+				edits: [projectAEdit],
+				conflicts: [projectAConflict],
+			}),
+		).toBe(false);
+		expect(
+			hasRetainedRowWorkForProject({
+				projectId: "project-a",
+				edits: [],
+				conflicts: [projectAConflict],
+			}),
+		).toBe(true);
+	});
+
+	it("waits for a manifest new enough to prove a retained table is gone", () => {
+		expect(
+			manifestProvesTableUnavailable({
+				manifestRevision: revision("8"),
+				knownTableRevision: revision("9"),
+				manifestHasTable: false,
+			}),
+		).toBe(false);
+		expect(
+			manifestProvesTableUnavailable({
+				manifestRevision: revision("9"),
+				knownTableRevision: revision("9"),
+				manifestHasTable: false,
+			}),
+		).toBe(true);
+		expect(
+			manifestProvesTableUnavailable({
+				manifestRevision: revision("10"),
+				knownTableRevision: revision("9"),
+				manifestHasTable: true,
+			}),
+		).toBe(false);
+	});
+
+	it("keeps reconciliation edits and removed-column values when the table disappears", () => {
+		const freshCode = {
+			...codeColumn,
+			label: "Visit date",
+			dataType: "date" as const,
+		};
+		const removedColumn: LookupColumn = {
+			id: timeColumnId,
+			wireName: "old_note",
+			label: "Old note",
+			dataType: "text",
+		};
+		const merged = mergeUnavailableRowDraft({
+			edit: {
+				columns: [nameColumn, codeColumn, removedColumn],
+				draft: draft({
+					[nameColumnId]: "original local name",
+					[codeColumnId]: "42",
+					[timeColumnId]: "copy this",
+				}),
+			},
+			conflict: {
+				columns: [nameColumn, freshCode],
+				draft: draft({
+					[nameColumnId]: "reconciled name",
+					[codeColumnId]: "still-not-a-date",
+				}),
+				removed: [
+					{
+						column: removedColumn,
+						value: { text: "reconciled removed value" },
+					},
+				],
+			},
+		});
+
+		expect(merged.draft).toMatchObject({
+			[nameColumnId]: { text: "reconciled name" },
+			[codeColumnId]: { text: "still-not-a-date" },
+			[timeColumnId]: { text: "reconciled removed value" },
+		});
+		expect(merged.columns).toEqual([nameColumn, freshCode, removedColumn]);
+	});
+
+	it("lists every retained row and lets a conflict supersede its earlier edit", () => {
+		const recoveries = retainedRowRecoveries({
+			projectId: "project-1",
+			edits: [
+				{
+					projectId: "project-1",
+					tableId,
+					tableName: "Facilities",
+					rowId,
+				},
+				{
+					projectId: "project-1",
+					tableId: secondTableId,
+					tableName: "Products",
+					rowId: secondRowId,
+				},
+			],
+			conflicts: [
+				{
+					projectId: "project-1",
+					tableId,
+					tableName: "Facilities",
+					rowId,
+					attempted: "delete",
+					tableUnavailable: false,
+				},
+			],
+		});
+
+		expect(recoveries).toEqual([
+			{
+				projectId: "project-1",
+				tableId,
+				tableName: "Facilities",
+				rowId,
+				state: "delete-conflict",
+			},
+			{
+				projectId: "project-1",
+				tableId: secondTableId,
+				tableName: "Products",
+				rowId: secondRowId,
+				state: "draft",
+			},
+		]);
+	});
+
+	it("uses stable table identity when a same-named table is recreated", () => {
+		const recoveries = retainedRowRecoveries({
+			projectId: "project-1",
+			edits: [
+				{
+					projectId: "project-1",
+					tableId,
+					tableName: "Facilities",
+					rowId,
+				},
+				{
+					projectId: "project-1",
+					tableId: secondTableId,
+					tableName: "Facilities",
+					rowId: secondRowId,
+				},
+			],
+			conflicts: [],
+			unavailableTableIds: new Set([tableId]),
+		});
+
+		expect(recoveries).toEqual([
+			expect.objectContaining({
+				tableId,
+				rowId,
+				state: "table-unavailable",
+			}),
+			expect.objectContaining({
+				tableId: secondTableId,
+				rowId: secondRowId,
+				state: "draft",
+			}),
+		]);
+	});
+
+	it("upgrades conflict-only save and delete decisions when their table vanishes", () => {
+		const recoveries = retainedRowRecoveries({
+			projectId: "project-1",
+			edits: [],
+			conflicts: [
+				{
+					projectId: "project-1",
+					tableId,
+					tableName: "Facilities",
+					rowId,
+					attempted: "save",
+					tableUnavailable: false,
+				},
+				{
+					projectId: "project-1",
+					tableId,
+					tableName: "Facilities",
+					rowId: secondRowId,
+					attempted: "delete",
+					tableUnavailable: false,
+				},
+			],
+			unavailableTableIds: new Set([tableId]),
+		});
+
+		expect(recoveries.map((recovery) => recovery.state)).toEqual([
+			"table-unavailable",
+			"table-unavailable",
+		]);
 	});
 });
 

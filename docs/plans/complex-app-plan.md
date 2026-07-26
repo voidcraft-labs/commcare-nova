@@ -92,19 +92,27 @@ The controller (`ProjectDataWorkspaceProvider`, mounted above the builder row)
 owns one read plus scope-keyed selections, dirty row drafts, and conflicts,
 shared by the centre canvas and the inspector rail. Closing Properties, Escape,
 selecting another row or column, and leaving the table only hide an edit; they
-never discard it. A retained draft is marked in the grid and recoverable from
-the table notice. If realtime removes its row, the recovery surface offers Save
-as new; if the whole table disappears, the last authorized table/column snapshot
-still renders the raw draft and the only destructive local choice says
-**Discard this draft**. Close and Escape return focus to the exact row/column
-control that opened Properties, with the table's back control as the stable
-fallback when a peer removed that origin.
+never discard it. A retained draft is marked in the grid, while the table list's
+**Row work to review** section links to every retained draft or conflict across
+the Project — including a pristine save/delete conflict and work whose table was
+deleted while another route was open. If realtime removes its row, the recovery
+surface offers Save as new; if the whole table disappears, the last authorized
+table/column snapshot becomes a read-only local row copy whose only destructive
+choice says **Discard local copy**. Same-named recreation does not rebind it:
+table UUID is identity. A user who loses edit access still sees copyable
+read-only retained values and can explicitly discard the local copy. Close and
+Escape return focus to the exact stable row/column control that opened
+Properties across desktop, narrow, and handset layouts, with the table's back
+control as the fallback when a peer removed that origin.
 
 Reads are generation-keyed on the reconciler runtime scope, the Project scope
 epoch, and the Project lookup clock, so a co-member's edit refetches exactly
 what it changed and a cross-Project move invalidates everything; the pushed
 manifest is the invalidation signal rather than the data, because a session
-with a dormant reconciler receives no frames and must still load.
+with a dormant reconciler receives no frames and must still load. The render
+path also fences the resource's Project/table owner synchronously, before the
+dependency effect, so direct navigation and browser history never paint the
+previous table's snapshot under the new URL.
 
 **Editing is row-shaped.** The grid is a real `<table>` in pages of 50 with a
 search box over the text it displays — paging keeps native row and column header

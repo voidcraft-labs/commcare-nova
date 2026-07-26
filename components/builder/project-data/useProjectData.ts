@@ -39,18 +39,14 @@ import {
 	useProjectId,
 	useProjectScopeEpoch,
 } from "@/lib/session/hooks";
+import type { ProjectDataRead } from "./projectDataReadIdentity";
+import {
+	projectDataReadForIdentity,
+	type ScopedProjectDataRead,
+	scopeProjectDataRead,
+} from "./projectDataReadIdentity";
 
-/**
- * A Project-scoped read's state. `idle` means there is nothing to read yet
- * (no Project resolved, or access is not authorized) — deliberately distinct
- * from `loading`, so a surface can tell "waiting for the session" from
- * "waiting for the server" and neither renders as an empty result.
- */
-export type ProjectDataRead<Value> =
-	| { kind: "idle" }
-	| { kind: "loading" }
-	| { kind: "data"; value: Value }
-	| { kind: "failed"; failure: LookupFailure };
+export type { ProjectDataRead } from "./projectDataReadIdentity";
 
 /** The wire failure a Server Action throw collapses to. A thrown boundary is
  *  an infrastructure fault, not one of the service's typed rejections, so it
@@ -95,7 +91,7 @@ export interface ProjectDataManifest {
  * Every lookup table in the app's Project, newest revision first known to
  * this session. Reloads whenever the Project clock advances.
  */
-export function useProjectDataManifest(): {
+export function useProjectDataManifest(enabled = true): {
 	readonly state: ProjectDataRead<ProjectDataManifest>;
 	readonly reload: () => Promise<void>;
 } {
@@ -111,50 +107,75 @@ export function useProjectDataManifest(): {
 		pushed !== null && pushed.projectId === projectId
 			? pushed.projectRevision
 			: "";
-
-	const reloadToken = useMemo(
+	const resourceIdentity = useMemo(
 		() =>
 			[
 				runtimeScopeId,
 				String(scopeEpoch),
 				projectId ?? "",
 				accessPhase,
-				pushedRevision,
+				enabled ? "enabled" : "disabled",
 			].join(" "),
-		[runtimeScopeId, scopeEpoch, projectId, accessPhase, pushedRevision],
+		[runtimeScopeId, scopeEpoch, projectId, accessPhase, enabled],
 	);
 
-	const { state, reload } = useReloadableResource<
-		ProjectDataRead<ProjectDataManifest>
+	const reloadToken = useMemo(
+		() => [resourceIdentity, pushedRevision].join(" "),
+		[resourceIdentity, pushedRevision],
+	);
+
+	const { state: scopedState, reload } = useReloadableResource<
+		ScopedProjectDataRead<ProjectDataManifest>
 	>({
 		prepare: () => {
-			if (projectId === undefined || accessPhase !== "authorized") {
-				return { notReady: { kind: "idle" } };
+			if (!enabled || projectId === undefined || accessPhase !== "authorized") {
+				return {
+					notReady: scopeProjectDataRead(resourceIdentity, { kind: "idle" }),
+				};
 			}
 			const id = projectId;
+			const owner = resourceIdentity;
 			return {
-				fetch: async (): Promise<ProjectDataRead<ProjectDataManifest>> => {
+				fetch: async (): Promise<
+					ScopedProjectDataRead<ProjectDataManifest>
+				> => {
 					const result = await getLookupManifestAction(id);
-					if (!result.success) return { kind: "failed", failure: result };
-					return {
+					if (!result.success) {
+						return scopeProjectDataRead(owner, {
+							kind: "failed",
+							failure: result,
+						});
+					}
+					return scopeProjectDataRead(owner, {
 						kind: "data",
 						value: {
 							projectId: id,
 							projectRevision: result.value.projectRevision,
 							tables: result.value.tables,
 						},
-					};
+					});
 				},
 			};
 		},
-		loading: { kind: "loading" },
-		toError: () => ({ kind: "failed", failure: transportFailure() }),
+		loading: scopeProjectDataRead(resourceIdentity, { kind: "loading" }),
+		toError: () =>
+			scopeProjectDataRead(resourceIdentity, {
+				kind: "failed",
+				failure: transportFailure(),
+			}),
 		/* Stale-while-revalidate is legal only inside the same tenant. The
 		 * resource survives Project navigation, so `kind === data` alone would
 		 * paint the previous Project's manifest under the new Project name. */
 		keepStale: (prev) =>
-			prev.kind === "data" && prev.value.projectId === projectId,
+			prev.resourceIdentity === resourceIdentity &&
+			prev.kind === "data" &&
+			prev.value.projectId === projectId,
 		reloadToken,
+	});
+	const state = projectDataReadForIdentity({
+		read: scopedState,
+		resourceIdentity,
+		ready: enabled && projectId !== undefined && accessPhase === "authorized",
 	});
 
 	return { state, reload };
@@ -184,8 +205,7 @@ export function useProjectDataTable(tableId: LookupTableId | undefined): {
 			? (pushed.tables.find((entry) => entry.id === tableId)?.tableRevision ??
 				"")
 			: "";
-
-	const reloadToken = useMemo(
+	const resourceIdentity = useMemo(
 		() =>
 			[
 				runtimeScopeId,
@@ -193,20 +213,17 @@ export function useProjectDataTable(tableId: LookupTableId | undefined): {
 				projectId ?? "",
 				accessPhase,
 				tableId ?? "",
-				pushedTableRevision,
 			].join(" "),
-		[
-			runtimeScopeId,
-			scopeEpoch,
-			projectId,
-			accessPhase,
-			tableId,
-			pushedTableRevision,
-		],
+		[runtimeScopeId, scopeEpoch, projectId, accessPhase, tableId],
 	);
 
-	const { state, reload } = useReloadableResource<
-		ProjectDataRead<LookupTableSnapshot>
+	const reloadToken = useMemo(
+		() => [resourceIdentity, pushedTableRevision].join(" "),
+		[resourceIdentity, pushedTableRevision],
+	);
+
+	const { state: scopedState, reload } = useReloadableResource<
+		ScopedProjectDataRead<LookupTableSnapshot>
 	>({
 		prepare: () => {
 			if (
@@ -214,28 +231,50 @@ export function useProjectDataTable(tableId: LookupTableId | undefined): {
 				tableId === undefined ||
 				accessPhase !== "authorized"
 			) {
-				return { notReady: { kind: "idle" } };
+				return {
+					notReady: scopeProjectDataRead(resourceIdentity, { kind: "idle" }),
+				};
 			}
 			const id = projectId;
 			const table = tableId;
+			const owner = resourceIdentity;
 			return {
-				fetch: async (): Promise<ProjectDataRead<LookupTableSnapshot>> => {
+				fetch: async (): Promise<
+					ScopedProjectDataRead<LookupTableSnapshot>
+				> => {
 					const result = await getLookupTableAction(id, table);
-					if (!result.success) return { kind: "failed", failure: result };
-					return { kind: "data", value: result.value };
+					return scopeProjectDataRead(
+						owner,
+						result.success
+							? { kind: "data", value: result.value }
+							: { kind: "failed", failure: result },
+					);
 				},
 			};
 		},
-		loading: { kind: "loading" },
-		toError: () => ({ kind: "failed", failure: transportFailure() }),
+		loading: scopeProjectDataRead(resourceIdentity, { kind: "loading" }),
+		toError: () =>
+			scopeProjectDataRead(resourceIdentity, {
+				kind: "failed",
+				failure: transportFailure(),
+			}),
 		/* Both axes are identity fences. Keeping another table (or another
 		 * Project's table) for even one loading frame is a cross-context data
 		 * disclosure, not useful stale state. */
 		keepStale: (prev) =>
+			prev.resourceIdentity === resourceIdentity &&
 			prev.kind === "data" &&
 			prev.value.projectId === projectId &&
 			prev.value.id === tableId,
 		reloadToken,
+	});
+	const state = projectDataReadForIdentity({
+		read: scopedState,
+		resourceIdentity,
+		ready:
+			projectId !== undefined &&
+			tableId !== undefined &&
+			accessPhase === "authorized",
 	});
 
 	return { state, reload };
@@ -266,8 +305,7 @@ export function useProjectDataDefinition(tableId: LookupTableId | undefined): {
 		pushed !== null && pushed.projectId === projectId
 			? pushed.projectRevision
 			: "";
-
-	const reloadToken = useMemo(
+	const resourceIdentity = useMemo(
 		() =>
 			[
 				runtimeScopeId,
@@ -275,22 +313,20 @@ export function useProjectDataDefinition(tableId: LookupTableId | undefined): {
 				projectId ?? "",
 				accessPhase,
 				tableId ?? "",
-				pushedProjectRevision,
-				pushedDefinitionRevision,
 			].join(" "),
-		[
-			runtimeScopeId,
-			scopeEpoch,
-			projectId,
-			accessPhase,
-			tableId,
-			pushedProjectRevision,
-			pushedDefinitionRevision,
-		],
+		[runtimeScopeId, scopeEpoch, projectId, accessPhase, tableId],
 	);
 
-	const { state, reload } = useReloadableResource<
-		ProjectDataRead<LookupDefinitionsSnapshot>
+	const reloadToken = useMemo(
+		() =>
+			[resourceIdentity, pushedProjectRevision, pushedDefinitionRevision].join(
+				" ",
+			),
+		[resourceIdentity, pushedProjectRevision, pushedDefinitionRevision],
+	);
+
+	const { state: scopedState, reload } = useReloadableResource<
+		ScopedProjectDataRead<LookupDefinitionsSnapshot>
 	>({
 		prepare: () => {
 			if (
@@ -298,28 +334,48 @@ export function useProjectDataDefinition(tableId: LookupTableId | undefined): {
 				tableId === undefined ||
 				accessPhase !== "authorized"
 			) {
-				return { notReady: { kind: "idle" } };
+				return {
+					notReady: scopeProjectDataRead(resourceIdentity, { kind: "idle" }),
+				};
 			}
 			const id = projectId;
 			const focusedId = tableId;
+			const owner = resourceIdentity;
 			return {
 				fetch: async (): Promise<
-					ProjectDataRead<LookupDefinitionsSnapshot>
+					ScopedProjectDataRead<LookupDefinitionsSnapshot>
 				> => {
 					const result = await getLookupDefinitionAction(id, focusedId);
-					if (!result.success) return { kind: "failed", failure: result };
-					return { kind: "data", value: result.value };
+					return scopeProjectDataRead(
+						owner,
+						result.success
+							? { kind: "data", value: result.value }
+							: { kind: "failed", failure: result },
+					);
 				},
 			};
 		},
-		loading: { kind: "loading" },
-		toError: () => ({ kind: "failed", failure: transportFailure() }),
+		loading: scopeProjectDataRead(resourceIdentity, { kind: "loading" }),
+		toError: () =>
+			scopeProjectDataRead(resourceIdentity, {
+				kind: "failed",
+				failure: transportFailure(),
+			}),
 		keepStale: (prev) =>
+			prev.resourceIdentity === resourceIdentity &&
 			prev.kind === "data" &&
 			prev.value.projectId === projectId &&
 			prev.value.definitions.length === 1 &&
 			prev.value.definitions[0]?.id === tableId,
 		reloadToken,
+	});
+	const state = projectDataReadForIdentity({
+		read: scopedState,
+		resourceIdentity,
+		ready:
+			projectId !== undefined &&
+			tableId !== undefined &&
+			accessPhase === "authorized",
 	});
 
 	return { state, reload };

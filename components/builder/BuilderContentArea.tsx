@@ -672,7 +672,7 @@ export function BuilderContentArea({
 							finalFocus={() => {
 								const inspectorOrigin =
 									rowRef.current?.querySelector<HTMLElement>(
-										"[data-inspector-return-focus], [data-project-data-focus-fallback]",
+										"[data-inspector-return-focus]",
 									);
 								if (inspectorOrigin !== null && inspectorOrigin !== undefined) {
 									inspectorOrigin.removeAttribute(

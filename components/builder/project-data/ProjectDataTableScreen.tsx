@@ -110,8 +110,8 @@ export function ProjectDataTableScreen() {
 							>
 								Review{" "}
 								{workspace.pendingDraftCount === 1
-									? "the recovered row draft"
-									: `${workspace.pendingDraftCount} recovered row drafts`}
+									? "the recovered row work"
+									: `${workspace.pendingDraftCount} recovered row items`}
 							</Button>
 						)}
 					</div>
@@ -161,8 +161,8 @@ export function ProjectDataTableScreen() {
 				<div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-nova-amber/25 bg-nova-amber/[0.06] px-3 py-2">
 					<p className="grow text-[12px] leading-snug text-nova-text-secondary">
 						{workspace.pendingDraftCount === 1
-							? "One unsaved row draft is kept in this table."
-							: `${workspace.pendingDraftCount} unsaved row drafts are kept in this table.`}
+							? "One retained row draft or decision is kept in this table."
+							: `${workspace.pendingDraftCount} retained row drafts or decisions are kept in this table.`}
 					</p>
 					<Button
 						type="button"
@@ -170,7 +170,7 @@ export function ProjectDataTableScreen() {
 						className="min-h-11"
 						onClick={workspace.openPendingDraft}
 					>
-						Review {workspace.pendingDraftCount === 1 ? "draft" : "drafts"}
+						Review row work
 					</Button>
 				</div>
 			)}
@@ -179,11 +179,6 @@ export function ProjectDataTableScreen() {
 				selectedRowId={
 					workspace?.selection?.kind === "row"
 						? workspace.selection.rowId
-						: undefined
-				}
-				selectedColumnId={
-					workspace?.selection?.kind === "column"
-						? workspace.selection.columnId
 						: undefined
 				}
 				draftRowIds={
@@ -243,7 +238,6 @@ function rowLabel(table: LookupTableSnapshot, row: LookupRow): string {
 function TableGrid({
 	table,
 	selectedRowId,
-	selectedColumnId,
 	draftRowIds,
 	revealRowId,
 	onSelectRow,
@@ -251,7 +245,6 @@ function TableGrid({
 }: {
 	table: LookupTableSnapshot;
 	selectedRowId: LookupRowId | undefined;
-	selectedColumnId: LookupColumnId | undefined;
 	draftRowIds: ReadonlySet<LookupRowId>;
 	revealRowId: LookupRowId | undefined;
 	onSelectRow: (rowId: LookupRowId) => void;
@@ -377,9 +370,7 @@ function TableGrid({
 									<Button
 										type="button"
 										variant="ghost"
-										data-inspector-return-focus={
-											selectedColumnId === column.id ? "" : undefined
-										}
+										data-project-data-column-open={column.id}
 										onClick={() => onSelectColumn(column.id)}
 										className="h-auto min-h-11 w-full flex-col items-start gap-0 rounded-none px-3 py-2.5 text-left hover:bg-white/[0.05]"
 									>
@@ -440,9 +431,7 @@ function TableGrid({
 									<Button
 										type="button"
 										variant="ghost"
-										data-inspector-return-focus={
-											selectedRowId === row.id ? "" : undefined
-										}
+										data-project-data-row-open={row.id}
 										onClick={() => onSelectRow(row.id)}
 										className="min-h-11 whitespace-nowrap text-[13px] text-nova-violet-bright"
 									>

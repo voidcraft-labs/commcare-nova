@@ -48,14 +48,24 @@ from a value that was never present.
 
 Times and dates stay human-readable while you edit. Nova keeps the timezone and
 fractional seconds required by storage behind the clock control, so opening and
-saving a row does not change the moment, its precision, or its offset.
+saving a row does not change the moment, its precision, or its offset. If a
+column changes type and a date picker cannot display the old text, Nova shows
+that retained text beside the picker so you can copy it until you deliberately
+choose a replacement.
 
 An unsaved row stays with the table if you close Properties, press Escape, open
-another row or column, or leave and come back. Nova marks retained drafts and
-offers **Review draft**; only **Discard changes** removes one. If a teammate
-removes the row first, the same draft can be saved as a new row. If they remove
-the whole table, Nova still shows the draft from the last version you could see
-so you can copy it before choosing **Discard this draft**.
+another row or column, or leave and come back. Nova marks retained drafts in the
+table and lists every draft or unresolved save/delete decision under **Row work
+to review** on the Data tables screen. The work stays in that builder tab until
+you save it or explicitly discard it.
+
+If a teammate removes the row first, the same draft can be saved as a new row.
+If anyone removes the whole table — even while you are looking at another one —
+Nova keeps a read-only local row copy from the last version you could see. You
+can copy it before choosing **Discard local copy**. Recreating a table with the
+same name does not attach that old work to the new table. If your edit access
+changes, the retained text remains readable and copyable, and the discard action
+still removes only your local copy.
 
 ## How much a table can hold
 

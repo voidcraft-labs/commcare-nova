@@ -454,7 +454,11 @@ export function TableActions({
 					open
 					table={table}
 					title={`Delete “${table.name}”?`}
-					consequence={`Its ${table.columns.length === 1 ? "column" : `${table.columns.length} columns`} and every one of its rows are deleted. This cannot be undone.`}
+					consequence={`Its ${table.columns.length === 1 ? "column" : `${table.columns.length} columns`} and every one of its rows are deleted. This cannot be undone.${
+						workspace.pendingDraftCount === 0
+							? ""
+							: ` Nova will keep ${workspace.pendingDraftCount === 1 ? "the one local row draft or decision" : `all ${workspace.pendingDraftCount} local row drafts and decisions`} on the Data tables list so you can copy or explicitly discard them.`
+					}`}
 					confirmLabel="Delete table"
 					onCancel={() => setDeleting(null)}
 					onConfirm={async (): Promise<LookupGovernanceFailure | null> => {
@@ -480,6 +484,8 @@ export function TableActions({
 							return result;
 						}
 						setDeleting(null);
+						workspace.noteTableUnavailable(table.id);
+						await workspace.reloadManifest();
 						navigate.openProjectData();
 						return null;
 					}}

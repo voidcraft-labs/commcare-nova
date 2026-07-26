@@ -17,7 +17,9 @@ import {
 	useCallback,
 	useContext,
 	useEffect,
+	useLayoutEffect,
 	useMemo,
+	useRef,
 	useState,
 } from "react";
 import type {
@@ -36,7 +38,7 @@ import type {
 	LookupRowValues,
 	LookupTableSnapshot,
 } from "@/lib/lookup/types";
-import { useLocation } from "@/lib/routing/hooks";
+import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import { usePreviewing, useProjectId } from "@/lib/session/hooks";
 import { useKeyboardShortcuts } from "@/lib/ui/hooks/useKeyboardShortcuts";
 import {
@@ -45,15 +47,25 @@ import {
 	conflictDeleteInput,
 	conflictOverwriteInput,
 	conflictSaveAsNewInput,
+	hasRetainedRowWorkForProject,
+	manifestProvesTableUnavailable,
+	mergeUnavailableRowDraft,
 	type RemovedConflictCell,
+	type RetainedRowRecovery,
 	type RowDraft,
 	type RowDraftCell,
 	type RowEditBaseline,
 	reconcileConflictDraft,
 	reconcileRowDraft,
+	retainedRowRecoveries,
 	rowWriteConflictVerdict,
 } from "./projectDataModel";
-import { type ProjectDataRead, useProjectDataTable } from "./useProjectData";
+import {
+	type ProjectDataManifest,
+	type ProjectDataRead,
+	useProjectDataManifest,
+	useProjectDataTable,
+} from "./useProjectData";
 
 export type ProjectDataSelection =
 	| {
@@ -113,6 +125,8 @@ export type ProjectDataWriteOutcome =
 export interface ProjectDataWorkspace {
 	readonly active: boolean;
 	readonly tableId: LookupTableId | undefined;
+	readonly manifest: ProjectDataRead<ProjectDataManifest>;
+	readonly reloadManifest: () => Promise<void>;
 	readonly table: ProjectDataRead<LookupTableSnapshot>;
 	readonly reload: () => Promise<void>;
 	readonly selection: ProjectDataSelection;
@@ -135,6 +149,10 @@ export interface ProjectDataWorkspace {
 	readonly discardRowConflict: (conflict: ProjectDataRowConflict) => void;
 	readonly pendingDraftCount: number;
 	readonly openPendingDraft: () => void;
+	readonly retainedRows: readonly RetainedRowRecovery[];
+	readonly openRetainedRow: (retained: RetainedRowRecovery) => void;
+	/** Record a successful local table deletion before realtime catches up. */
+	readonly noteTableUnavailable: (tableId: LookupTableId) => void;
 	readonly saveRow: (
 		rowId: LookupRowId,
 		values: LookupRowValues,
@@ -193,6 +211,84 @@ function withoutKey<Value>(
 	return next;
 }
 
+const INSPECTOR_RETURN_FOCUS_ATTRIBUTE = "data-inspector-return-focus";
+
+function clearInspectorReturnFocusMarkers(): void {
+	for (const previous of document.querySelectorAll<HTMLElement>(
+		`[${INSPECTOR_RETURN_FOCUS_ATTRIBUTE}]`,
+	)) {
+		previous.removeAttribute(INSPECTOR_RETURN_FOCUS_ATTRIBUTE);
+	}
+}
+
+function inspectorOriginForSelection(
+	selection: Exclude<ProjectDataSelection, null>,
+): HTMLElement | null {
+	const root = document.querySelector<HTMLElement>(
+		"[data-project-data-table-screen]",
+	);
+	if (root === null) return null;
+	const attribute =
+		selection.kind === "row"
+			? "data-project-data-row-open"
+			: "data-project-data-column-open";
+	const identity =
+		selection.kind === "row" ? selection.rowId : selection.columnId;
+	for (const candidate of root.querySelectorAll<HTMLElement>(
+		`[${attribute}]`,
+	)) {
+		if (candidate.getAttribute(attribute) === identity) return candidate;
+	}
+	return root.querySelector<HTMLElement>("[data-project-data-focus-fallback]");
+}
+
+function tableStateKey(projectId: string, tableId: LookupTableId): string {
+	return `${projectId}\u0000${tableId}`;
+}
+
+function unavailableConflictFor(
+	edit: ProjectDataRowEditSession | undefined,
+	existing: ProjectDataRowConflict | undefined,
+): ProjectDataRowConflict | undefined {
+	if (edit === undefined && existing === undefined) return undefined;
+	const merged = mergeUnavailableRowDraft({
+		...(edit === undefined
+			? {}
+			: {
+					edit: {
+						draft: edit.draft,
+						columns: edit.baseline.columns,
+					},
+				}),
+		...(existing === undefined
+			? {}
+			: {
+					conflict: {
+						draft: existing.editableDraft,
+						columns: existing.resolution?.columns ?? existing.displayColumns,
+						removed: existing.removed,
+					},
+				}),
+	});
+	const source = existing ?? edit;
+	if (source === undefined) return undefined;
+	return {
+		projectId: source.projectId,
+		tableId: source.tableId,
+		tableName: source.tableName,
+		attempted: existing?.attempted ?? "save",
+		rowId: source.rowId,
+		draft: existing?.draft ?? edit?.baseline.row.values ?? {},
+		editableDraft: merged.draft,
+		removed: [],
+		verdict: { kind: "gone" },
+		current: undefined,
+		displayColumns: merged.columns.map((column) => ({ ...column })),
+		tableUnavailable: true,
+		resolution: null,
+	};
+}
+
 export function useProjectDataWorkspace(): ProjectDataWorkspace | null {
 	return useContext(ProjectDataWorkspaceContext);
 }
@@ -204,18 +300,28 @@ export function ProjectDataWorkspaceProvider({
 }) {
 	const loc = useLocation();
 	const tableId = loc.kind === "project-data" ? loc.tableId : undefined;
-	return <ActiveHost tableId={tableId}>{children}</ActiveHost>;
+	return (
+		<ActiveHost
+			tableId={tableId}
+			projectDataRoute={loc.kind === "project-data"}
+		>
+			{children}
+		</ActiveHost>
+	);
 }
 
 function ActiveHost({
 	tableId,
+	projectDataRoute,
 	children,
 }: {
 	tableId: LookupTableId | undefined;
+	projectDataRoute: boolean;
 	children: ReactNode;
 }) {
 	const projectId = useProjectId();
 	const previewing = usePreviewing();
+	const navigate = useNavigate();
 	const { state, reload } = useProjectDataTable(tableId);
 	const [scopedSelection, setScopedSelection] = useState<{
 		readonly projectId: string;
@@ -228,6 +334,29 @@ function ActiveHost({
 	const [rowConflicts, setRowConflicts] = useState<
 		ReadonlyMap<string, ProjectDataRowConflict>
 	>(() => new Map());
+	const [locallyUnavailableTables, setLocallyUnavailableTables] = useState<
+		ReadonlySet<string>
+	>(() => new Set());
+	/* Most builder routes need no lookup manifest at all. Keep the Project-wide
+	 * read alive while its own workspace is visible or this tab carries row work
+	 * that must notice an off-route peer deletion; otherwise a fresh/dormant
+	 * builder should not launch an unrelated Server Action. */
+	const hasCurrentProjectRowWork = useMemo(
+		() =>
+			hasRetainedRowWorkForProject({
+				projectId,
+				edits: rowEdits.values(),
+				conflicts: rowConflicts.values(),
+			}),
+		[projectId, rowEdits, rowConflicts],
+	);
+	const manifestNeeded = projectDataRoute || hasCurrentProjectRowWork;
+	const { state: manifest, reload: reloadManifest } =
+		useProjectDataManifest(manifestNeeded);
+	const pendingInspectorFocusRef = useRef<Exclude<
+		ProjectDataSelection,
+		null
+	> | null>(null);
 
 	const selection =
 		scopedSelection !== null &&
@@ -250,30 +379,43 @@ function ActiveHost({
 	);
 
 	const closeInspector = useCallback(() => {
-		const root = document.querySelector<HTMLElement>(
-			"[data-project-data-table-screen]",
-		);
-		const origin =
-			root?.querySelector<HTMLElement>("[data-inspector-return-focus]") ??
-			root?.querySelector<HTMLElement>("[data-project-data-focus-fallback]") ??
-			null;
-		if (origin !== null) origin.setAttribute("data-inspector-return-focus", "");
+		if (selection === null) return;
+		/* Store identity, not a render-owned marker. Clearing selection removes the
+		 * selected row/header props in the same commit; the layout effect below
+		 * resolves the still-mounted stable control only after that commit. */
+		pendingInspectorFocusRef.current = selection;
 		setScopedSelection(null);
-		if (origin === null) return;
-		requestAnimationFrame(() => {
-			/* Base UI owns final focus while the narrow drawer is modal and the
-			 * canvas is inert. Its finalFocus callback consumes this marker. */
-			if (
-				origin.closest(
-					'[data-builder-layout="narrow"], [data-builder-layout="handset"]',
-				) !== null
-			) {
-				return;
-			}
-			origin.focus({ preventScroll: true });
-			origin.removeAttribute("data-inspector-return-focus");
-		});
-	}, []);
+	}, [selection]);
+
+	useLayoutEffect(() => {
+		const originSelection = pendingInspectorFocusRef.current;
+		if (originSelection === null || selection !== null) return;
+		pendingInspectorFocusRef.current = null;
+		const target = inspectorOriginForSelection(originSelection);
+		if (target === null) {
+			clearInspectorReturnFocusMarkers();
+			return;
+		}
+		clearInspectorReturnFocusMarkers();
+		target.setAttribute(INSPECTOR_RETURN_FOCUS_ATTRIBUTE, "");
+		target.focus({ preventScroll: true });
+		/* A modal narrow/handset drawer keeps the marker until Base UI requests
+		 * final focus after its close transition. Desktop has no inert canvas and
+		 * can retire it immediately after focusing. */
+		if (
+			target.closest(
+				'[data-builder-layout="narrow"], [data-builder-layout="handset"]',
+			) === null
+		) {
+			target.removeAttribute(INSPECTOR_RETURN_FOCUS_ATTRIBUTE);
+		}
+	}, [selection]);
+
+	useEffect(() => {
+		if (selection !== null && pendingInspectorFocusRef.current === null) {
+			clearInspectorReturnFocusMarkers();
+		}
+	}, [selection]);
 
 	useKeyboardShortcuts(
 		"project-data-workspace",
@@ -424,72 +566,142 @@ function ActiveHost({
 		}
 	}, []);
 
-	const rowConflict =
-		selection?.kind === "row" &&
-		projectId !== undefined &&
-		tableId !== undefined
-			? (rowConflicts.get(rowStateKey(projectId, tableId, selection.rowId)) ??
-				null)
-			: null;
+	const noteTableUnavailable = useCallback(
+		(unavailableTableId: LookupTableId) => {
+			if (projectId === undefined) return;
+			const key = tableStateKey(projectId, unavailableTableId);
+			setLocallyUnavailableTables((current) => {
+				if (current.has(key)) return current;
+				const next = new Set(current);
+				next.add(key);
+				return next;
+			});
+		},
+		[projectId],
+	);
 
-	/* Once the authoritative table read says not_found, turn every retained
-	 * draft for that table into a snapshot-backed recovery conflict. The raw
-	 * draft may not even parse yet, so it comes from the edit session rather
-	 * than being reconstructed from stored baseline values. */
-	useEffect(() => {
-		if (
-			projectId === undefined ||
-			tableId === undefined ||
-			state.kind !== "failed" ||
-			state.failure.code !== "not_found"
-		) {
-			return;
+	const unavailableTableIds = useMemo(() => {
+		const unavailable = new Set<LookupTableId>();
+		if (projectId === undefined) return unavailable;
+		for (const key of locallyUnavailableTables) {
+			const [scopeProjectId, scopedTableId] = key.split("\u0000");
+			if (scopeProjectId === projectId && scopedTableId !== undefined) {
+				unavailable.add(scopedTableId as LookupTableId);
+			}
 		}
-		const sessions = [...rowEdits.values()].filter(
-			(session) =>
-				session.projectId === projectId && session.tableId === tableId,
-		);
-		if (sessions.length === 0) return;
+		if (manifest.kind === "data" && manifest.value.projectId === projectId) {
+			const available = new Set(manifest.value.tables.map((entry) => entry.id));
+			for (const edit of rowEdits.values()) {
+				if (
+					edit.projectId === projectId &&
+					manifestProvesTableUnavailable({
+						manifestRevision: manifest.value.projectRevision,
+						knownTableRevision: edit.baseline.tableRevision,
+						manifestHasTable: available.has(edit.tableId),
+					})
+				) {
+					unavailable.add(edit.tableId);
+				}
+			}
+			for (const conflict of rowConflicts.values()) {
+				if (
+					conflict.projectId === projectId &&
+					(conflict.tableUnavailable ||
+						(conflict.resolution !== null &&
+							manifestProvesTableUnavailable({
+								manifestRevision: manifest.value.projectRevision,
+								knownTableRevision: conflict.resolution.tableRevision,
+								manifestHasTable: available.has(conflict.tableId),
+							})))
+				) {
+					unavailable.add(conflict.tableId);
+				}
+			}
+		}
+		if (
+			tableId !== undefined &&
+			state.kind === "failed" &&
+			state.failure.code === "not_found"
+		) {
+			unavailable.add(tableId);
+		}
+		return unavailable;
+	}, [
+		projectId,
+		locallyUnavailableTables,
+		manifest,
+		rowEdits,
+		rowConflicts,
+		tableId,
+		state,
+	]);
+
+	const rowConflict = useMemo(() => {
+		if (
+			selection?.kind !== "row" ||
+			projectId === undefined ||
+			tableId === undefined
+		) {
+			return null;
+		}
+		const key = rowStateKey(projectId, tableId, selection.rowId);
+		const existing = rowConflicts.get(key);
+		if (!unavailableTableIds.has(tableId)) return existing ?? null;
+		return unavailableConflictFor(rowEdits.get(key), existing) ?? null;
+	}, [
+		selection,
+		projectId,
+		tableId,
+		rowConflicts,
+		rowEdits,
+		unavailableTableIds,
+	]);
+
+	/* Once the manifest, a direct table read, or a successful local delete says
+	 * a table is unavailable, turn EVERY retained edit or conflict into one
+	 * snapshot-backed recovery. This union deliberately includes pristine
+	 * save/delete conflicts that never created a row-edit session. */
+	useEffect(() => {
+		if (projectId === undefined || unavailableTableIds.size === 0) return;
+		const editsByKey = new Map<string, ProjectDataRowEditSession>();
+		const keys = new Set<string>();
+		for (const edit of rowEdits.values()) {
+			if (
+				edit.projectId !== projectId ||
+				!unavailableTableIds.has(edit.tableId)
+			) {
+				continue;
+			}
+			const key = rowStateKey(projectId, edit.tableId, edit.rowId);
+			editsByKey.set(key, edit);
+			keys.add(key);
+		}
+		for (const conflict of rowConflicts.values()) {
+			if (
+				conflict.projectId === projectId &&
+				unavailableTableIds.has(conflict.tableId)
+			) {
+				keys.add(rowStateKey(projectId, conflict.tableId, conflict.rowId));
+			}
+		}
+		if (keys.size === 0) return;
 		setRowConflicts((current) => {
 			let changed = false;
 			const next = new Map(current);
-			for (const session of sessions) {
-				const key = rowStateKey(projectId, tableId, session.rowId);
+			for (const key of keys) {
 				const existing = next.get(key);
 				if (existing?.tableUnavailable === true) continue;
-				const displayColumns = session.baseline.columns.map((column) => ({
-					...column,
-				}));
-				for (const column of existing?.resolution?.columns ?? []) {
-					if (!displayColumns.some((candidate) => candidate.id === column.id)) {
-						displayColumns.push({ ...column });
-					}
-				}
-				next.set(key, {
-					projectId,
-					tableId,
-					tableName: session.tableName,
-					attempted: "save",
-					rowId: session.rowId,
-					draft: existing?.draft ?? session.baseline.row.values,
-					/* Preserve any reconciliation edits already made in a row-level
-					 * conflict before the table itself disappeared. */
-					editableDraft: {
-						...session.draft,
-						...existing?.editableDraft,
-					},
-					removed: [],
-					verdict: { kind: "gone" },
-					current: undefined,
-					displayColumns,
-					tableUnavailable: true,
-					resolution: null,
-				});
+				const unavailable = unavailableConflictFor(
+					editsByKey.get(key),
+					existing,
+				);
+				if (unavailable === undefined) continue;
+				next.set(key, unavailable);
 				changed = true;
 			}
 			return changed ? next : current;
 		});
-	}, [projectId, tableId, state, rowEdits]);
+	}, [projectId, unavailableTableIds, rowEdits, rowConflicts]);
 
 	/* A peer can remove only the row while the table remains. This is the same
 	 * recovery decision as Save-after-delete, except the raw draft may not parse
@@ -548,37 +760,49 @@ function ActiveHost({
 		});
 	}, [projectId, tableId, state, rowEdits]);
 
-	const pendingRowIds = useMemo(() => {
-		if (projectId === undefined || tableId === undefined) return [];
-		const ids = new Set<LookupRowId>();
-		for (const session of rowEdits.values()) {
-			if (session.projectId === projectId && session.tableId === tableId) {
-				ids.add(session.rowId);
+	const retainedRows = useMemo(() => {
+		const currentNames =
+			manifest.kind === "data"
+				? new Map(manifest.value.tables.map((entry) => [entry.id, entry.name]))
+				: new Map<LookupTableId, string>();
+		return retainedRowRecoveries({
+			projectId,
+			edits: rowEdits.values(),
+			conflicts: rowConflicts.values(),
+			unavailableTableIds,
+		}).map((retained) => ({
+			...retained,
+			tableName: currentNames.get(retained.tableId) ?? retained.tableName,
+		}));
+	}, [manifest, projectId, rowEdits, rowConflicts, unavailableTableIds]);
+
+	const currentRetainedRows = useMemo(
+		() =>
+			tableId === undefined
+				? []
+				: retainedRows.filter((retained) => retained.tableId === tableId),
+		[retainedRows, tableId],
+	);
+
+	const openRetainedRow = useCallback(
+		(retained: RetainedRowRecovery) => {
+			if (projectId === undefined || retained.projectId !== projectId) return;
+			setScopedSelection({
+				projectId,
+				tableId: retained.tableId,
+				value: { kind: "row", rowId: retained.rowId },
+			});
+			if (tableId !== retained.tableId) {
+				navigate.openProjectData(retained.tableId);
 			}
-		}
-		for (const conflict of rowConflicts.values()) {
-			if (conflict.projectId === projectId && conflict.tableId === tableId) {
-				ids.add(conflict.rowId);
-			}
-		}
-		return [...ids];
-	}, [projectId, tableId, rowEdits, rowConflicts]);
+		},
+		[projectId, tableId, navigate],
+	);
 
 	const openPendingDraft = useCallback(() => {
-		const rowId = pendingRowIds[0];
-		if (
-			rowId === undefined ||
-			projectId === undefined ||
-			tableId === undefined
-		) {
-			return;
-		}
-		setScopedSelection({
-			projectId,
-			tableId,
-			value: { kind: "row", rowId },
-		});
-	}, [pendingRowIds, projectId, tableId]);
+		const retained = currentRetainedRows[0];
+		if (retained !== undefined) openRetainedRow(retained);
+	}, [currentRetainedRows, openRetainedRow]);
 
 	const clearSavedRowState = useCallback(
 		(
@@ -987,6 +1211,8 @@ function ActiveHost({
 		() => ({
 			active: tableId !== undefined,
 			tableId,
+			manifest,
+			reloadManifest,
 			table: state,
 			reload,
 			selection,
@@ -999,8 +1225,11 @@ function ActiveHost({
 			setRowConflict,
 			updateRowConflictDraft,
 			discardRowConflict,
-			pendingDraftCount: pendingRowIds.length,
+			pendingDraftCount: currentRetainedRows.length,
 			openPendingDraft,
+			retainedRows,
+			openRetainedRow,
+			noteTableUnavailable,
 			saveRow,
 			addRow,
 			deleteRow,
@@ -1010,6 +1239,8 @@ function ActiveHost({
 		}),
 		[
 			tableId,
+			manifest,
+			reloadManifest,
 			state,
 			reload,
 			selection,
@@ -1022,8 +1253,11 @@ function ActiveHost({
 			setRowConflict,
 			updateRowConflictDraft,
 			discardRowConflict,
-			pendingRowIds.length,
+			currentRetainedRows.length,
 			openPendingDraft,
+			retainedRows,
+			openRetainedRow,
+			noteTableUnavailable,
 			saveRow,
 			addRow,
 			deleteRow,

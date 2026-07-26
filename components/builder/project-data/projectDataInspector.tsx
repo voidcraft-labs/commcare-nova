@@ -51,7 +51,9 @@ export function useProjectDataInspector(): {
 			return {
 				inspector: {
 					kicker: conflict.attempted === "delete" ? "Delete row" : "Row",
-					title: conflict.tableUnavailable ? "Draft recovered" : "Not saved",
+					title: conflict.tableUnavailable
+						? "Local row copy recovered"
+						: "Not saved",
 					body: (
 						<RowConflictBody
 							key={`conflict:${conflict.rowId}:${conflict.resolution?.tableRevision ?? "unavailable"}`}
