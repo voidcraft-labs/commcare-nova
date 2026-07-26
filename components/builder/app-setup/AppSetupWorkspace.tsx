@@ -60,7 +60,7 @@ export function AppSetupWorkspace({ section }: { section: AppSetupSection }) {
 	const navigate = useNavigate();
 
 	return (
-		<div className="flex h-full min-h-0 flex-col">
+		<div className="@container flex h-full min-h-0 flex-col">
 			<div className="relative z-raised shrink-0 border-b border-nova-border bg-pv-bg py-2.5">
 				<ContentFrame width="3xl" className="px-3 @sm:px-6">
 					<nav

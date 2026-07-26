@@ -12,8 +12,7 @@
  */
 "use client";
 
-import { useId, useState } from "react";
-import { Input } from "@/components/shadcn/input";
+import { type RefObject, useEffect, useId, useRef, useState } from "react";
 import {
 	Select,
 	SelectContent,
@@ -36,6 +35,7 @@ import type {
 } from "@/lib/domain";
 import { useCanEdit } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
+import { DraftCommitInput } from "./DraftCommitField";
 import { PersonaRemoveConfirm } from "./PersonaRemoveConfirm";
 import { EntryRow, Subsection, SubsectionEmpty } from "./subsection";
 import { ValueField } from "./ValueField";
@@ -51,6 +51,8 @@ export function PersonasSubsection() {
 	const sessionApi = useBuilderSessionApi();
 	const mutations = useBlueprintMutations();
 	const [openUuid, setOpenUuid] = useState<string | undefined>(undefined);
+	const [focusUuid, setFocusUuid] = useState<string | undefined>(undefined);
+	const addButtonRef = useRef<HTMLButtonElement>(null);
 
 	const add = () => {
 		if (!sessionApi.getState().canEdit) return;
@@ -58,7 +60,10 @@ export function PersonasSubsection() {
 			name: uniqueName(personas),
 			...(roles[0] !== undefined && { userTypeUuid: roles[0].uuid }),
 		});
-		if (result.ok) setOpenUuid(result.uuid);
+		if (result.ok) {
+			setOpenUuid(result.uuid);
+			setFocusUuid(result.uuid);
+		}
 	};
 
 	return (
@@ -69,6 +74,7 @@ export function PersonasSubsection() {
 			addLabel="Add persona"
 			onAdd={add}
 			canEdit={canEdit}
+			addButtonRef={addButtonRef}
 		>
 			{personas.length === 0 ? (
 				<SubsectionEmpty>
@@ -86,6 +92,9 @@ export function PersonasSubsection() {
 						onOpenChange={(next) =>
 							setOpenUuid(next ? persona.uuid : undefined)
 						}
+						focusOnMount={focusUuid === persona.uuid}
+						onFocused={() => setFocusUuid(undefined)}
+						returnFocusRef={addButtonRef}
 					/>
 				))
 			)}
@@ -108,17 +117,30 @@ function PersonaRow({
 	properties,
 	open,
 	onOpenChange,
+	focusOnMount,
+	onFocused,
+	returnFocusRef,
 }: {
 	persona: Persona;
 	roles: readonly UserType[];
 	properties: readonly UserProperty[];
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
+	focusOnMount: boolean;
+	onFocused: () => void;
+	returnFocusRef: RefObject<HTMLButtonElement | null>;
 }) {
 	const canEdit = useCanEdit();
 	const sessionApi = useBuilderSessionApi();
 	const mutations = useBlueprintMutations();
 	const nameId = useId();
+	const nameRef = useRef<HTMLInputElement>(null);
+
+	useEffect(() => {
+		if (!focusOnMount) return;
+		nameRef.current?.focus();
+		onFocused();
+	}, [focusOnMount, onFocused]);
 
 	const role =
 		persona.userTypeUuid === undefined
@@ -156,15 +178,25 @@ function PersonaRow({
 					>
 						Name
 					</label>
-					<Input
+					<DraftCommitInput
+						inputRef={nameRef}
 						id={nameId}
 						value={persona.name}
 						disabled={!canEdit}
-						autoComplete="off"
-						data-1p-ignore
-						onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-							write({ name: e.target.value })
+						validate={(value) =>
+							value === "" ? "Enter a name for this persona." : undefined
 						}
+						onCommit={(name) => {
+							if (!sessionApi.getState().canEdit) {
+								return {
+									ok: false,
+									messages: ["You no longer have edit access."],
+								};
+							}
+							return mutations.inline.updatePersona(persona.uuid as Uuid, {
+								name,
+							});
+						}}
 						className="min-h-11"
 					/>
 				</div>
@@ -223,7 +255,12 @@ function PersonaRow({
 					)}
 				</div>
 
-				{canEdit && <PersonaRemoveConfirm persona={persona} />}
+				{canEdit && (
+					<PersonaRemoveConfirm
+						persona={persona}
+						returnFocusRef={returnFocusRef}
+					/>
+				)}
 			</div>
 		</EntryRow>
 	);
@@ -256,13 +293,15 @@ function PersonaValueRow({
 	const noteId = `${persona.uuid}-${property.uuid}-note`;
 
 	const note =
-		own !== "" && inherited !== "" && own !== inherited
-			? `Set here. ${role?.name ?? "The role"} uses “${inherited}”.`
-			: own === "" && inherited !== ""
-				? `From ${role?.name ?? "the role"}.`
-				: property.required === true && effective === ""
-					? `Required. A worker created from ${persona.name} would need a ${property.label.toLowerCase()}.`
-					: undefined;
+		own !== "" && inherited !== "" && own === inherited
+			? `Set here. Matches ${role?.name ?? "the role"}.`
+			: own !== "" && inherited !== ""
+				? `Set here. ${role?.name ?? "The role"} uses “${inherited}”.`
+				: own === "" && inherited !== ""
+					? `From ${role?.name ?? "the role"}.`
+					: property.required === true && effective === ""
+						? `Required. A worker created from ${persona.name} would need a ${property.label.toLowerCase()}.`
+						: undefined;
 
 	return (
 		<div className="flex flex-col gap-1">

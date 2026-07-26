@@ -26,7 +26,13 @@ import type {
 	SearchInputDef,
 	Uuid,
 } from "@/lib/domain";
-import { isContainer, tileCellFor } from "@/lib/domain";
+import {
+	isContainer,
+	personasOf,
+	tileCellFor,
+	userPropertiesOf,
+	userTypesOf,
+} from "@/lib/domain";
 import { unwrittenPropertiesReminder } from "./systemReminder";
 import {
 	ADVANCED_SLOT_NAMES,
@@ -302,6 +308,65 @@ export function summarizeBlueprint(doc: BlueprintDoc): string {
 			const props = ct.properties.map((p) => p.name).join(", ");
 			const parentInfo = ct.parent_type ? ` (child of ${ct.parent_type})` : "";
 			lines.push(`- ${ct.name}${parentInfo}: ${props}`);
+		}
+	}
+
+	const userProperties = Object.values(userPropertiesOf(doc)).sort(bySortKey);
+	const userTypes = Object.values(userTypesOf(doc)).sort(bySortKey);
+	const personas = Object.values(personasOf(doc)).sort(bySortKey);
+	if (
+		userProperties.length > 0 ||
+		userTypes.length > 0 ||
+		personas.length > 0
+	) {
+		const propertyByUuid = userPropertiesOf(doc);
+		const propertyOrder = new Map<string, number>(
+			userProperties.map((property, index) => [property.uuid, index]),
+		);
+		const values = (bag: Record<string, string> | undefined) =>
+			Object.entries(bag ?? {})
+				.sort(
+					([left], [right]) =>
+						(propertyOrder.get(left) ?? Number.MAX_SAFE_INTEGER) -
+							(propertyOrder.get(right) ?? Number.MAX_SAFE_INTEGER) ||
+						left.localeCompare(right),
+				)
+				.map(
+					([uuid, value]) =>
+						`${propertyByUuid[uuid]?.slug ?? `<missing:${uuid}>`}=${JSON.stringify(value)} [property uuid ${uuid}]`,
+				)
+				.join(", ");
+		lines.push("");
+		lines.push("**Users & personas:**");
+		if (userProperties.length > 0) {
+			lines.push("  worker_information:");
+			for (const property of userProperties) {
+				lines.push(
+					`    - ${property.slug}: ${JSON.stringify(property.label)} [uuid ${property.uuid}]${property.required === true ? " required" : ""}${property.choices === undefined ? "" : ` choices=${JSON.stringify(property.choices)}`}`,
+				);
+			}
+		}
+		if (userTypes.length > 0) {
+			lines.push("  roles:");
+			for (const role of userTypes) {
+				const roleValues = values(role.values);
+				lines.push(
+					`    - "${role.name}" [uuid ${role.uuid}]${role.description === undefined ? "" : ` description=${JSON.stringify(role.description)}`}${roleValues === "" ? "" : ` values={${roleValues}}`}`,
+				);
+			}
+		}
+		if (personas.length > 0) {
+			lines.push("  personas:");
+			for (const persona of personas) {
+				const role =
+					persona.userTypeUuid === undefined
+						? undefined
+						: userTypesOf(doc)[persona.userTypeUuid];
+				const personaValues = values(persona.values);
+				lines.push(
+					`    - "${persona.name}" [uuid ${persona.uuid}]${persona.description === undefined ? "" : ` description=${JSON.stringify(persona.description)}`}${role === undefined ? "" : ` role="${role.name}" [uuid ${role.uuid}]`}${personaValues === "" ? "" : ` overrides={${personaValues}}`}`,
+				);
+			}
 		}
 	}
 

@@ -21,7 +21,9 @@ import {
 // string in three places, and all three run when a domain admin saves the
 // user-data schema — so a slug that fails any of them makes the eventual
 // push fail on identity grounds, long after the author wrote it. Nova
-// applies the identical rule at construction instead:
+// applies the same acceptability boundary at construction instead, with the
+// reserved-name checks deliberately lowercased (marginally stricter than HQ
+// for mixed-case spellings; stricter cannot cost a push):
 //
 //   - `custom_data_fields/edit_model.py::XmlSlugField` lists
 //     `validate_slug` (Django's `[-a-zA-Z0-9_]+` charset),
@@ -88,7 +90,8 @@ export function userPropertySlugVerdict(
 		return {
 			ok: false,
 			code: "all_digits",
-			userMessage: "Include at least one letter — digits alone won't work.",
+			userMessage:
+				"Include at least one non-digit character — digits alone won't work.",
 		};
 	}
 	if (trimmed.length > USER_PROPERTY_SLUG_MAX_LENGTH) {
@@ -100,7 +103,7 @@ export function userPropertySlugVerdict(
 	}
 	const lowered = trimmed.toLowerCase();
 	const reservedPrefix = USER_DATA_RESERVED_PREFIXES.find((prefix) =>
-		trimmed.startsWith(prefix),
+		lowered.startsWith(prefix),
 	);
 	if (reservedPrefix !== undefined) {
 		return {
@@ -110,7 +113,7 @@ export function userPropertySlugVerdict(
 		};
 	}
 	if (
-		USER_DATA_SYSTEM_FIELDS.includes(trimmed) ||
+		USER_DATA_SYSTEM_FIELDS.includes(lowered) ||
 		RESERVED_CASE_PROPERTIES.has(lowered)
 	) {
 		return {

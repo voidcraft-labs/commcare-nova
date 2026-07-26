@@ -334,6 +334,16 @@ A case list shows **only the columns you author** — Nova adds nothing implicit
 
 If a hidden field would just copy another name-shaped property into \`case_name\`, you have a duplicate — collapse it.
 
+### Users & personas
+
+Worker information, roles, and personas are three different things:
+
+- Worker information declares a named value every worker may carry. Create it with \`addUserProperties\`; its returned uuid is the stable handle roles and personas use even if its saved name changes.
+- A role is a reusable template of worker-information defaults, not a person. Create roles with \`addUserTypes\`.
+- A persona is a named Preview worker with a stable identity. It may hold one role and override some of that role's values. Create personas with \`addPersonas\`. A persona never authorizes access and is not a deployed CommCare account.
+
+Use \`getUsers\` (or the current app summary) to recover stable uuids before an edit. The singular update/remove tools target those uuids: \`updateUserProperty\` / \`removeUserProperty\`, \`updateUserType\` / \`removeUserType\`, and \`updatePersona\` / \`removePersona\`. Value entries name \`userPropertyUuid\`; never key them by a mutable saved name. On updates, omission keeps a slot and null clears it. Removing worker information clears its values everywhere atomically. Removing a role is refused while a persona still holds it. Removing a persona preserves the cases it already owns.
+
 ### Logical Grouping
 
 Groups are structural folders — they organize fields by purpose, not just visual section. The data tree under a group becomes a nested path in the XForm, so logical groups shape both UX (one header per coherent topic) AND data model (related fields nest at the same path).

@@ -15,7 +15,7 @@ These are the tools the Nova MCP server exposes. You don't call them directly â€
 |---|---|
 | `list_apps` | List your apps with optional status filter, sort, and pagination. |
 | `search_apps` | Fuzzy search by name. Case-insensitive, tolerates typos. |
-| `get_app` | Summarize one app: modules, forms, fields, case types. |
+| `get_app` | Summarize one app: modules, forms, fields, case types, worker information, roles, and personas. |
 
 ## Creating and deleting apps
 
@@ -32,6 +32,31 @@ A new app is designed first, then built module by module: `update_app` names it 
 |---|---|
 | `update_app` | Set the app's name and/or its CommCare Connect type. On a Connect build, set the type before creating modules. |
 | `generate_schema` | Record the data model on the app: every case type with its properties and parent links. A real write â€” `create_module` references the recorded types by name, and a form field that writes a recorded property inherits its label, options, and validation. Also how a new case type enters an existing app. |
+
+## Working with workers and personas
+
+Worker information defines the values a worker can carry. Roles provide reusable
+defaults for those values, and personas are named Preview workers that can
+inherit a role and override individual values. Read first to get stable UUIDs:
+role and persona values name a worker-information property by
+`userPropertyUuid`, so changing its saved name never retargets the value.
+
+On update tools, leaving a field out keeps it and passing `null` clears a
+clearable field. Every batch is checked as one change; if any entry would make
+the app invalid, none of it saves.
+
+| Tool | What it does |
+|---|---|
+| `get_users` | Read worker information, roles, and personas, including their stable UUIDs and UUID-linked values. |
+| `add_user_properties` | Add one or more worker-information properties. Returns their stable UUIDs. |
+| `update_user_property` | Change one property's label, saved name, required flag, or accepted values. |
+| `remove_user_property` | Remove one property and atomically clear its values from every role and persona. |
+| `add_user_types` | Add one or more reusable roles and their default worker-information values. |
+| `update_user_type` | Change one role's name, description, or complete set of default values. |
+| `remove_user_type` | Remove one role. Refuses while a persona still uses it. |
+| `add_personas` | Add one or more named Preview workers, optionally with a role and value overrides. |
+| `update_persona` | Change one persona's name, description, role, or complete set of overrides. |
+| `remove_persona` | Remove one persona while preserving the cases that persona already owns. |
 
 ## Working on modules
 

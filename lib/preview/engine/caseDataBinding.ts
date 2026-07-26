@@ -1,14 +1,16 @@
 // lib/preview/engine/caseDataBinding.ts
 //
 // Server Actions for the running-app view's case-data binding.
-// Each action resolves the acting `ResolvedPreviewIdentity` at its own
-// boundary (`resolvePreviewIdentity` — never accepted from the client),
-// then constructs a Project-scoped `CaseStore` via `gatedCaseStore` —
-// which verifies the identity's membership of the app's Project (the
-// IDOR gate over the client-supplied `appId`) and wraps a
-// `withProjectContext` store in `schemaHealingCaseStore` (every
-// individual store call self-heals a missing or stale schema row and
-// retries itself once) — and delegates to an I/O helper in
+// Each action derives the acting `ResolvedPreviewIdentity` at its own
+// boundary — never from a client-supplied identity. Persona-aware running
+// paths use `resolveAuthorizedPreviewContext`, which proves the signed-in
+// member's access before reading the committed blueprint, resolves a persona
+// selector from that one authorized snapshot, and binds actor + owner
+// explicitly. Member-only paths use `resolvePreviewIdentity` +
+// `gatedCaseStore`. Both construct a Project-scoped `withProjectContext`
+// store wrapped in `schemaHealingCaseStore` (every individual store call
+// self-heals a missing or stale schema row and retries itself once) and
+// delegate to an I/O helper in
 // `./caseDataBindingHelpers.ts` (server-only) or an error mapper in
 // `./caseDataBindingClient.ts` (client-bundle-safe). A membership
 // denial surfaces as the IDOR-safe not-found `error` arm. Tests bypass
@@ -53,7 +55,7 @@ import {
 	mapSubmitFormError,
 } from "./caseDataBindingClient";
 import {
-	buildSubmissionOperationProgram,
+	buildCaseOperationProgramFromDoc,
 	collectConfigLookupTableIds,
 	gatedCaseStore,
 	gatedCaseStoreWithScope,
@@ -63,8 +65,8 @@ import {
 	readCases,
 	readFilterPreview,
 	resetSampleCases,
+	resolveAuthorizedPreviewContext,
 	resolvePreviewIdentity,
-	resolvePreviewIdentityForApp,
 	seedSampleCases,
 	submissionEnvelopeArgs,
 } from "./caseDataBindingHelpers";
@@ -216,11 +218,13 @@ export async function loadCasesAction(args: {
 	personaUuid?: string;
 }): Promise<LoadCasesResult> {
 	try {
-		const identity = await resolvePreviewIdentityForApp(
-			args.appId,
-			args.personaUuid,
-		);
-		if (!identity) return { kind: "unauthenticated" };
+		const context = await resolveAuthorizedPreviewContext({
+			appId: args.appId,
+			personaUuid: args.personaUuid,
+			required: "view",
+		});
+		if (context.kind !== "ready") return context;
+		const { identity, store, scope } = context;
 		const caseTypeSchemas =
 			args.caseTypes && args.caseTypes.length > 0
 				? new Map(args.caseTypes.map((ct) => [ct.name, ct]))
@@ -289,11 +293,6 @@ export async function loadCasesAction(args: {
 			expressionInputValues,
 			args.viewerTimeZone,
 		);
-		const { store, scope } = await gatedCaseStoreWithScope(
-			args.appId,
-			identity,
-			"view",
-		);
 		/* Lookup carriers: the SQL-bound slots (filter / calc columns /
 		 * advanced predicates) compile natively against a rows-free
 		 * definitions snapshot; the excluded-owner expression evaluates
@@ -352,7 +351,7 @@ export async function loadCasesAction(args: {
 			page: args.page,
 		});
 	} catch (err) {
-		// A Project-membership denial (`gatedCaseStore` → `AppAccessError`)
+		// A Project-membership denial (`resolveAppScope` → `AppAccessError`)
 		// is expected, not a fault: collapse it to the IDOR-safe not-found
 		// `error` arm WITHOUT alerting (`reportUnexpectedActionError`).
 		if (err instanceof AppAccessError)
@@ -533,13 +532,13 @@ export async function loadCaseDataAction(
 	personaUuid?: string,
 ): Promise<LoadCaseDataResult> {
 	try {
-		const identity = await resolvePreviewIdentityForApp(appId, personaUuid);
-		if (!identity) return { kind: "unauthenticated" };
-		const { store, scope } = await gatedCaseStoreWithScope(
+		const context = await resolveAuthorizedPreviewContext({
 			appId,
-			identity,
-			"view",
-		);
+			personaUuid,
+			required: "view",
+		});
+		if (context.kind !== "ready") return context;
+		const { identity, store, scope } = context;
 		const lookupTableSchemas = await loadLookupTableSchemas(
 			scope,
 			collectConfigLookupTableIds(caseListConfig),
@@ -572,7 +571,7 @@ export async function loadCaseDataAction(
 					: undefined,
 		});
 	} catch (err) {
-		// A Project-membership denial (`gatedCaseStore` → `AppAccessError`)
+		// A Project-membership denial (`resolveAppScope` → `AppAccessError`)
 		// is expected, not a fault: collapse it to the IDOR-safe not-found
 		// `error` arm WITHOUT alerting (`reportUnexpectedActionError`).
 		if (err instanceof AppAccessError)
@@ -588,21 +587,25 @@ export async function loadCaseDataAction(
 export async function populateSampleCasesAction(
 	appId: string,
 	caseType: CaseType,
+	personaUuid?: string,
 ): Promise<PopulateSampleCasesResult> {
 	try {
-		const identity = await resolvePreviewIdentity();
-		if (!identity) return { kind: "unauthenticated" };
+		const context = await resolveAuthorizedPreviewContext({
+			appId,
+			personaUuid,
+			required: "edit",
+		});
+		if (context.kind !== "ready") return context;
 		// The LIVE `CaseType` definition comes straight from the client —
 		// the generator reads only its property declarations + `parent_type`,
 		// so the one catalog entry is all this needs (never the whole
-		// blueprint). `gatedCaseStore` verifies the actor holds `edit` on the
-		// app's Project before binding the store, so a crafted `appId` for
+		// blueprint). `resolveAuthorizedPreviewContext` verifies the actor holds
+		// `edit` on the app's Project before binding the store, so a crafted `appId` for
 		// another Project is rejected — the client-supplied id is otherwise
 		// unchecked — and generated rows land in that shared Project's store.
-		const store = await gatedCaseStore(appId, identity, "edit");
-		return await seedSampleCases(store, { appId, caseType });
+		return await seedSampleCases(context.store, { appId, caseType });
 	} catch (err) {
-		// A Project-membership denial (`gatedCaseStore` → `AppAccessError`)
+		// A Project-membership denial (`resolveAppScope` → `AppAccessError`)
 		// is expected, not a fault: collapse it to the IDOR-safe not-found
 		// `error` arm WITHOUT alerting (`reportUnexpectedActionError`).
 		if (err instanceof AppAccessError)
@@ -641,14 +644,18 @@ export async function populateSampleCasesAction(
 export async function resetSampleCasesAction(
 	appId: string,
 	caseType: CaseType,
+	personaUuid?: string,
 ): Promise<PopulateSampleCasesResult> {
 	try {
-		const identity = await resolvePreviewIdentity();
-		if (!identity) return { kind: "unauthenticated" };
-		const store = await gatedCaseStore(appId, identity, "edit");
-		return await resetSampleCases(store, { appId, caseType });
+		const context = await resolveAuthorizedPreviewContext({
+			appId,
+			personaUuid,
+			required: "edit",
+		});
+		if (context.kind !== "ready") return context;
+		return await resetSampleCases(context.store, { appId, caseType });
 	} catch (err) {
-		// A Project-membership denial (`gatedCaseStore` → `AppAccessError`)
+		// A Project-membership denial (`resolveAppScope` → `AppAccessError`)
 		// is expected, not a fault: collapse it to the IDOR-safe not-found
 		// `error` arm WITHOUT alerting (`reportUnexpectedActionError`).
 		if (err instanceof AppAccessError)
@@ -938,7 +945,7 @@ export async function loadFilterPreviewAction(args: {
 			caseTypeSchemas: buildCaseTypeMap(parsedBlueprint.data),
 		});
 	} catch (err) {
-		// A Project-membership denial (`gatedCaseStore` → `AppAccessError`)
+		// A Project-membership denial (`resolveAppScope` → `AppAccessError`)
 		// is expected, not a fault: collapse it to the IDOR-safe not-found
 		// `error` arm WITHOUT alerting (`reportUnexpectedActionError`).
 		if (err instanceof AppAccessError)
@@ -976,27 +983,28 @@ export async function submitFormAction(
 	personaUuid?: string,
 ): Promise<SubmissionResult> {
 	try {
-		const identity = await resolvePreviewIdentityForApp(appId, personaUuid);
-		if (!identity) return { kind: "unauthenticated" };
+		const context = await resolveAuthorizedPreviewContext({
+			appId,
+			personaUuid,
+			required: "edit",
+			loadBlueprint: true,
+		});
+		if (context.kind !== "ready") return context;
+		const { identity, store, blueprint } = context;
+		if (blueprint === undefined) {
+			throw new Error("The app changed while Preview was loading it.");
+		}
 		/* A survey with NO collected operation answers is the historical
-		 * no-op — nothing to write, no store bind. One WITH answers may
-		 * carry an executable program, decided below against the committed
-		 * doc and the activation flag. */
+		 * no-op. Authorization has already happened, so a foreign app cannot
+		 * use this arm as an existence oracle. */
 		if (mutation.kind === "survey" && mutation.operationAnswers === undefined) {
 			return { kind: "survey" };
 		}
-		/* Membership BEFORE the program build: the build loads the
-		 * committed doc (an unauthorized read on a foreign appId), and
-		 * the survey short-circuit below reflects that doc's contents —
-		 * distinguishable arms a non-member must never reach, or the
-		 * IDOR-safe not-found collapse leaks whether a foreign form
-		 * carries operations. */
-		const store = await gatedCaseStore(appId, identity, "edit");
-		const built = await buildSubmissionOperationProgram({
-			appId,
+		const built = buildCaseOperationProgramFromDoc({
+			blueprint,
 			identity,
 			mutation,
-			viewerTimeZone,
+			...(viewerTimeZone !== undefined && { viewerTimeZone }),
 		});
 		if (mutation.kind === "survey" && built.program === undefined) {
 			return { kind: "survey" };
@@ -1024,7 +1032,7 @@ export async function submitFormAction(
 			childCaseIds: result.childCaseIds,
 		};
 	} catch (err) {
-		// A Project-membership denial (`gatedCaseStore` → `AppAccessError`)
+		// A Project-membership denial (`resolveAppScope` → `AppAccessError`)
 		// is expected, not a fault: collapse it to the IDOR-safe not-found
 		// `error` arm WITHOUT alerting (`reportUnexpectedActionError`).
 		if (err instanceof AppAccessError)

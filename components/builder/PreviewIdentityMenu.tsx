@@ -57,7 +57,10 @@ function PreviewIdentityMenuBody() {
 		selected === undefined
 			? undefined
 			: personas.find((p) => p.uuid === selected);
-	const currentLabel = active?.name ?? AS_ME;
+	const currentLabel =
+		selected === undefined
+			? AS_ME
+			: (active?.name ?? "Selected persona unavailable");
 
 	return (
 		<DropdownMenu>

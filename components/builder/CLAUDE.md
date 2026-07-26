@@ -45,6 +45,22 @@ stripped transcript write-back.
 
 Edit is a frozen, stateless view: inputs empty, validation suppressed, submit bar hidden, and ALL fields render regardless of relevant conditions (hidden ones as compact cards) so the full structure stays editable. Preview is a persistent sandbox: values survive round-trips through edit; validation resets on exit; blueprint mutations recreate the engine but restore only user-touched values, so edited defaults show immediately.
 
+## App setup — Users & personas
+
+`app-setup/` edits the three flat user collections. Text whose intermediate
+state can be invalid — worker-information labels and saved keys, accepted-value
+lists, role names, and persona names — drafts locally through
+`DraftCommitField.tsx`. Names and keys commit on blur or Enter; newline lists
+commit on blur, Apply, or Command/Ctrl+Enter. Only a passing normalized value
+saves, and Escape restores the committed value. A refusal stays visible beside the
+draft, including when a multiplayer peer changed the same value while the local
+draft was open, so typing never loses characters or silently clobbers the peer.
+Selection controls remain immediate because every offered choice is valid by
+construction. Add focuses the new entity's name, successful removal returns
+focus to the section's Add action, and the required switch uses the full row as
+its label target. `AppSetupWorkspace` is an `@container`; keep subsection
+responsiveness scoped to the workspace rather than the viewport.
+
 ## Preview mode
 
 One global Preview toggle (centered in the BuilderHeader — directly above the canvas for reach; `P`, Escape exits) flips the whole canvas to the running app. Breadcrumbs live in the canvas column's own strip so a long trail can never collide with the centered toggle. **The mode flip is one layout commit choreographed by transforms** — centered (max-width) content can't track a sliding sidebar edge through layout (it stays pinned until the column narrows past the frame, then rushes), so the flip commits the final layout in a single render and everything that travels does so on the shared `SIDEBAR_TRANSITION`: **both flanks are the same shape — an in-flow SPACER that owns the layout width plus an absolute dock that slides via `x`**. Neither the app-tree panel nor the never-unmounted chat panel unmounts on a preview flip (unmounting the tree reset its scroll + expand + search; unmounting chat would sever the live run), so the preview flip is a transform + a spacer-width snap, never a remount. `AnimatePresence` still carries each flank's COARSE enter/exit slide (app open/close, the handset dock swap) — not the preview flip. The collapsed chat rail is a separate `AnimatePresence` element. Every centered surface is a `ContentFrame` gliding a delta computed from the column geometry (`ModeFlipGlideProvider`) — computed, not FLIP-measured, because Activity-swapped frames have no "before" box yet must stay edge-locked with the breadcrumbs. **New centered canvas surfaces must use ContentFrame** or they'll snap while everything else glides. Manual sidebar toggles keep the plain width tween. There is no per-surface preview affordance and no cursor-mode pill. Entering stashes open-state and closes both sidebars atomically (`setPreviewing`), so leaving restores the layout; keep the early return on no-op toggles — without it, entering preview twice overwrites the stash with `{ false, false }`. That close only selects the panel's CONTENT, it never unmounts it: the app-tree panel renders against the EFFECTIVE open-state (`structureStashed ?? structureOpen`), so an open tree stays the mounted `StructureSidebar` (scroll intact) as it slides off rather than swapping to the rail. The layout widths collapse off the `previewing` flag alone, so hiding the flanks never depends on that close.

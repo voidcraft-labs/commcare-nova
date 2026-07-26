@@ -678,6 +678,25 @@ describe("solutionsArchitect — no finishing tool", () => {
 		expect("updateApp" in buildSa.tools).toBe(true);
 		expect("updateApp" in editSa.tools).toBe(true);
 	});
+
+	it("exposes the complete camelCase users and personas authoring surface", () => {
+		const { ctx } = buildCtx();
+		const sa = makeSa(ctx, makeFixtureDoc(), true);
+		for (const name of [
+			"getUsers",
+			"addUserProperties",
+			"updateUserProperty",
+			"removeUserProperty",
+			"addUserTypes",
+			"updateUserType",
+			"removeUserType",
+			"addPersonas",
+			"updatePersona",
+			"removePersona",
+		]) {
+			expect(name in sa.tools, `${name} should be registered`).toBe(true);
+		}
+	});
 });
 
 // ── Chat-SA port: wrapMutating conflict-reload / terminal-reauth / no-reload ──

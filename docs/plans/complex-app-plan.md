@@ -336,6 +336,17 @@ A **deployed worker** — a real identity on a target HQ domain, with credential
 and its own lifecycle — is deliberately absent. It is owned by a deployment,
 created *from* a type or persona, and is not a blueprint identity.
 
+The builder, Solutions Architect, and MCP API author all three collections
+through the same granular mutations and commit gate. The builder's names and
+saved property keys draft locally and commit on blur or Enter; accepted-value
+lists commit on blur, Apply, or Command/Ctrl+Enter. Each passes its inline
+verdict first, so ordinary typing never saves an invalid intermediate or loses
+refused text. The shared agent tools expose
+`getUsers` plus add/update/remove operations for each collection (snake_case on
+MCP); values cross those JSON tool boundaries as
+`{ userPropertyUuid, value }[]` and bridge to the UUID-keyed document record at
+one boundary. Update omission keeps a slot and explicit `null` clears one.
+
 The wire facts the shape rests on:
 
 - HQ stores one `CustomDataFieldsDefinition` per `(domain, field_type)`
@@ -440,9 +451,13 @@ three, so the usercase always carries them. `commcare_profile` likewise appears
 on both.
 
 Preview values are otherwise honest. `commcare_project` is **absent** until a
-deployment target supplies a domain, and `commcare_phone_number` is absent
-because Nova has no HQ account to read it from. `commcare_user_type` is
-`'commcare'` (`users/models.py::COMMCARE_USER` — not the same-named
+deployment target supplies a domain. The session's
+`commcare_first_name`/`commcare_last_name`/`commcare_phone_number` keys and the
+usercase's `first_name`/`last_name`/`phone_number`/`email` keys are always
+present because HQ writes them unconditionally; Nova derives values it knows
+and preserves the rest as empty rather than changing the node shape.
+`commcare_user_type` is `'commcare'`
+(`users/models.py::COMMCARE_USER` — not the same-named
 `UserFieldsView.COMMCARE_USER`, which is `'commcare_user'`, nor
 `change_feed/topics.py::COMMCARE_USER`, which is `'commcare-user'`),
 `commcare_profile` is empty, and `user_type` is `"standard"`, because all three
@@ -450,6 +465,17 @@ are knowable rather than invented. A **declared** property with no value is
 present-and-empty, matching `users/user_data.py::UserData.to_dict`'s
 `{field: '' for field in self._schema_fields}` seed, while an undeclared key is
 genuinely absent — the split a `= ''` comparison depends on.
+
+Every persona-aware case-data action authorizes `actorUserId` against the app
+before it exposes the committed blueprint, resolves the selected persona once
+from the blueprint loaded under the same app-row and membership locks, and
+binds the resulting
+`(actorUserId, ownerId)` pair explicitly. A stale or missing persona returns a
+typed refusal; it never changes the write to the signed-in member. The selector
+rides Results/Details reads, sample populate/reset, and form submission, while
+Project lookup reads continue to authorize as the member. Thus sample rows and
+submitted cases are owned by the selected worker, but membership and lookup
+access can never be asserted by authored persona identity.
 
 Deleting a persona never deletes case data: rows it owns keep naming it, and the
 confirmation states how many rows that is rather than offering to reassign or

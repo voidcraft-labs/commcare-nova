@@ -74,7 +74,9 @@ export function ValueField({
 					</SelectTrigger>
 					<SelectContent>
 						<SelectItem value={NO_VALUE}>
-							{placeholder ?? "No value"}
+							{placeholder === undefined
+								? "No value"
+								: `Inherited: ${placeholder}`}
 						</SelectItem>
 						{property.choices.map((choice) => (
 							<SelectItem key={choice} value={choice}>

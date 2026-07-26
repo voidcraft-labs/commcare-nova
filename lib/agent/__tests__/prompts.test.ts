@@ -98,6 +98,16 @@ describe("buildSolutionsArchitectPrompt", () => {
 		expect(sp).not.toContain("Patients");
 	});
 
+	it("teaches the user-identity bridge and explicit-clear contract", () => {
+		const sp = buildSolutionsArchitectPrompt(
+			fixtureDoc("Vaccine Tracker", "Patients"),
+		);
+		expect(sp).toContain("addUserProperties");
+		expect(sp).toContain("userPropertyUuid");
+		expect(sp).toContain("omission keeps a slot and null clears it");
+		expect(sp).toContain("Removing a persona preserves");
+	});
+
 	it("edit prompt is byte-identical across different apps", () => {
 		const a = buildSolutionsArchitectPrompt(
 			fixtureDoc("Vaccine Tracker", "Patients"),

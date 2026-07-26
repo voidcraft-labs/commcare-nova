@@ -24,6 +24,7 @@ function store(projectId = PROJECT): PostgresCaseStore {
 	return new PostgresCaseStore({
 		projectId,
 		actorUserId: USER,
+		ownerId: USER,
 		db: caseDb(),
 		sampleGenerator: new HeuristicCaseGenerator(),
 		authorizeMutation: authorizeCaseMutationInTransaction,

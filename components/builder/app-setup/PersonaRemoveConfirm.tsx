@@ -33,7 +33,13 @@ type OwnedCount =
 	| { state: "known"; count: number }
 	| { state: "unknown" };
 
-export function PersonaRemoveConfirm({ persona }: { persona: Persona }) {
+export function PersonaRemoveConfirm({
+	persona,
+	returnFocusRef,
+}: {
+	persona: Persona;
+	returnFocusRef: RefObject<HTMLButtonElement | null>;
+}) {
 	const [confirming, setConfirming] = useState(false);
 	const { triggerRef, panelRef } = useInlineConfirmFocus(confirming);
 
@@ -56,6 +62,7 @@ export function PersonaRemoveConfirm({ persona }: { persona: Persona }) {
 		<ConfirmPanel
 			persona={persona}
 			panelRef={panelRef}
+			returnFocusRef={returnFocusRef}
 			onCancel={() => setConfirming(false)}
 		/>
 	);
@@ -64,10 +71,12 @@ export function PersonaRemoveConfirm({ persona }: { persona: Persona }) {
 function ConfirmPanel({
 	persona,
 	panelRef,
+	returnFocusRef,
 	onCancel,
 }: {
 	persona: Persona;
 	panelRef: RefObject<HTMLDivElement | null>;
+	returnFocusRef: RefObject<HTMLButtonElement | null>;
 	onCancel: () => void;
 }) {
 	const appId = useAppId();
@@ -133,6 +142,7 @@ function ConfirmPanel({
 					className="h-11"
 					onClick={() => {
 						if (!sessionApi.getState().canEdit) return;
+						returnFocusRef.current?.focus();
 						mutations.removePersona(persona.uuid as Uuid);
 					}}
 				>

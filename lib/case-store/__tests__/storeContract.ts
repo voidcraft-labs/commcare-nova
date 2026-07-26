@@ -3509,7 +3509,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 
 		it("insert lands in the bound Project — Project B cannot see Project A's freshly inserted row", async () => {
 			// `insert` stamps `project_id = bound Project` (tenant) and
-			// `owner_id = bound actor` (case-owner) at the write
+			// `owner_id = bound owner` (case-owner) at the write
 			// boundary (see `PostgresCaseStore.insert`'s row
 			// composition). Pin the contract: owner-A inserts, owner-B
 			// queries, the row is invisible. Implicit before; explicit
@@ -3698,7 +3698,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				caseType: "patient",
 			});
 			expect(rows).toHaveLength(5);
-			// Every row carries the bound actor (`owner_id`) + the requested
+			// Every row carries the bound owner (`owner_id`) + the requested
 			// case-type — pins that the generator's output flows
 			// through `insert`'s tenant-scoping path.
 			for (const row of rows) {

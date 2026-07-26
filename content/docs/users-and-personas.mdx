@@ -12,6 +12,11 @@ one of them instead of only as yourself.
 There are three things on that screen, and they answer three different
 questions.
 
+You can make the same changes by chatting with Nova's Solutions Architect. A
+connected MCP agent can also read and edit worker information, roles, and
+personas; all three paths use the same checks, so an invalid intermediate never
+saves.
+
 ## Worker information
 
 **Worker information** is the data every worker carries with them — their
@@ -22,19 +27,22 @@ they open.
 Give each one a name people will recognize and a short key the app uses to
 refer to it. The key has to be something CommCare will accept, so Nova checks it
 as you type: letters, numbers, underscores, and hyphens only, at least one
-letter, and not a name CommCare has already claimed. You will be told
+non-digit character, and not a name CommCare has already claimed. You will be told
 immediately if a key won't work, rather than finding out when you deploy.
 
 You can also give a piece of information a fixed list of accepted values. Once
-you do, every role and persona has to pick from that list.
+you do, any role or persona value you set has to come from that list.
 
 Nova also shows the information **CommCare provides on its own** — the project
 the worker signed into, their name, their locations. You cannot change these,
 but you can write conditions against them, and each one says plainly whether
 Nova can show you a real value while you are only previewing. A few cannot be
-known until your app has somewhere to deploy to, and Nova leaves them empty
-rather than inventing a value that would make a condition pass in preview and
-fail on a real device.
+known yet. Keys that CommCare always supplies — including first name, last name,
+phone number, and the user case's email — remain present with an empty value
+when Nova has no honest value for them. Target-dependent keys, such as the
+CommCare project space, remain absent until a deployment supplies one. Nova
+never invents a value that would make a condition pass in Preview and fail on a
+real device.
 
 Three of them actually change how CommCare behaves; the rest are simply
 carried along for your app to read. The screen says which is which.
@@ -76,9 +84,10 @@ together.
 
 Because a persona really owns the cases it creates, removing a persona leaves
 those cases where they are — owned by someone who no longer exists in your app.
-That is exactly what CommCare does when a worker leaves a project, so Nova does
-the same rather than quietly deleting or reassigning real data. The confirmation
-tells you how many cases are affected before you decide.
+This is Nova's policy for design and test actors, not a claim that every
+CommCare worker-removal path behaves the same way. It avoids quietly deleting
+or reassigning your real test data. The confirmation tells you how many cases
+are affected before you decide.
 
 ## What travels to CommCare
 

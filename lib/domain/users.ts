@@ -114,8 +114,8 @@ export const USER_DATA_RESERVED_PREFIXES: readonly string[] = [
  * - `needs-organization` — the value comes from the worker's location
  *   assignment. Absent while the app declares no organization structure,
  *   exactly as HQ omits the key for an unassigned worker.
- * - `not-authorable` — HQ writes it only in a situation Nova does not
- *   author, so it is always absent.
+ * - `not-authorable` — Nova cannot author the account-backed value. When HQ
+ *   guarantees the key, Preview preserves the slot as present and empty.
  */
 export const BUILT_IN_USER_PROPERTY_AVAILABILITIES = [
 	"derived",
@@ -204,7 +204,7 @@ export const BUILT_IN_USER_PROPERTIES: readonly BuiltInUserProperty[] = [
 		slug: "commcare_phone_number",
 		label: "Phone number",
 		description:
-			"The worker's phone number. It is set when their CommCare account is created, so Preview leaves it out.",
+			"The worker's phone number. It is set on their CommCare account; Preview carries the same key with an empty value.",
 		availability: "not-authorable",
 		readByRuntime: false,
 	},

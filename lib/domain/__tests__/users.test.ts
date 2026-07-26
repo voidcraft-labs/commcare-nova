@@ -78,7 +78,15 @@ describe("slug legality follows CommCare's rule clause by clause", () => {
 			ok: false,
 			code: "reserved",
 		});
+		expect(userPropertySlugVerdict("CommCare_region", NONE)).toMatchObject({
+			ok: false,
+			code: "reserved",
+		});
 		expect(userPropertySlugVerdict("xmlish", NONE)).toMatchObject({
+			ok: false,
+			code: "reserved",
+		});
+		expect(userPropertySlugVerdict("XMLish", NONE)).toMatchObject({
 			ok: false,
 			code: "reserved",
 		});
@@ -87,6 +95,10 @@ describe("slug legality follows CommCare's rule clause by clause", () => {
 	it("refuses every system field", () => {
 		for (const slug of USER_DATA_SYSTEM_FIELDS) {
 			expect(userPropertySlugVerdict(slug, NONE).ok, slug).toBe(false);
+			expect(
+				userPropertySlugVerdict(slug.toUpperCase(), NONE).ok,
+				slug.toUpperCase(),
+			).toBe(false);
 		}
 	});
 

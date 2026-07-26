@@ -98,13 +98,6 @@ function splitName(name: string): { first: string; last: string } {
 	return { first: parts[0] ?? "", last: parts.slice(1).join(" ") };
 }
 
-/** Drop empty values so an absent key stays absent rather than blank. */
-function nonEmpty(
-	entries: readonly (readonly [string, string])[],
-): Record<string, string> {
-	return Object.fromEntries(entries.filter(([, value]) => value !== ""));
-}
-
 /**
  * The framework keys CommCare injects into `session/user/data` AFTER the
  * authored data, so they win every collision
@@ -113,8 +106,9 @@ function nonEmpty(
  * Only the ones Nova can honestly know are emitted. `commcare_project` is
  * the HQ domain and stays ABSENT until a deployment target supplies one —
  * inventing a slug to make a condition pass is exactly the dishonesty the
- * preview contract forbids. `commcare_phone_number` comes from the HQ
- * account and is likewise absent. The location keys are absent while
+ * preview contract forbids. First name, last name, and phone number are
+ * different: HQ writes all three keys unconditionally, so Preview preserves
+ * their present-empty shape when Nova has no value. The location keys are absent while
  * nobody is assigned anywhere, which is what HQ does too:
  * `get_user_session_data` writes all three or none.
  *
@@ -135,10 +129,9 @@ function nonEmpty(
 function frameworkSessionKeys(displayName: string): Record<string, string> {
 	const { first, last } = splitName(displayName);
 	return {
-		...nonEmpty([
-			["commcare_first_name", first],
-			["commcare_last_name", last],
-		]),
+		commcare_first_name: first,
+		commcare_last_name: last,
+		commcare_phone_number: "",
 		commcare_user_type: COMMCARE_MOBILE_WORKER_USER_TYPE,
 		commcare_profile: "",
 		user_type: COMMCARE_STANDARD_USER_TYPE,
@@ -174,13 +167,11 @@ function usercaseBuiltIns(worker: {
 }): Record<string, string> {
 	const { first, last } = splitName(worker.personName);
 	return {
-		...nonEmpty([
-			["name", worker.personName],
-			["username", worker.username],
-			["email", worker.email],
-			["first_name", first],
-			["last_name", last],
-		]),
+		name: worker.personName,
+		username: worker.username,
+		email: worker.email,
+		first_name: first,
+		last_name: last,
 		hq_user_id: worker.id,
 		language: "",
 		phone_number: "",

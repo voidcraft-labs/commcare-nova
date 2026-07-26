@@ -9,10 +9,10 @@
 // `SchemaCaseStore` is the actor-free schema-change slice (app-scoped
 // `applySchemaChange` / `dropSchema`); `CaseStore extends
 // SchemaCaseStore` adds the tenant-bound read/write surface.
-// `withProjectContext(projectId, actorUserId)` binds the Project at
+// `withProjectContext(projectId, actorUserId, ownerId)` binds the Project at
 // construction so every read/write inherits the
 // `WHERE project_id = <bound>` filter automatically and every insert
-// stamps the new case's `owner_id = <actor>` (the CommCare case-owner —
+// stamps the new case's `owner_id = <owner>` (the CommCare case-owner —
 // the reserved axis future location-based access carves on, distinct
 // from the Project tenant filter); `withSchemaContext()` binds no Project at
 // construction, but every schema write dynamically fences the app's current
@@ -81,7 +81,7 @@ export type CaseRow = Omit<Selectable<CasesTable>, "project_id">;
  * it lets Postgres's `DEFAULT uuidv7()` fire). `app_id`, `project_id`,
  * and `owner_id` are omitted — `PostgresCaseStore` fills `app_id` from
  * the top-level argument, `project_id` from the bound Project, and
- * `owner_id` (the CommCare case-owner) from the bound actor; callers
+ * `owner_id` (the CommCare case-owner) from the bound owner; callers
  * cannot override the tenant key or the case-owner.
  *
  * `properties` widens to `JsonObject | string`. The implementation
@@ -642,9 +642,9 @@ export interface TransactionalSchemaCaseStore extends SchemaCaseStore {
  * The full storage contract every consumer of case DATA binds
  * against — the tenant-bound read/write surface plus the schema
  * operations it inherits from {@link SchemaCaseStore}. Construction
- * is via the `withProjectContext(projectId, actorUserId)` factory,
- * which binds the Project the reads/writes scope to and the actor
- * stamped as each new row's `owner_id`.
+ * is via the `withProjectContext(projectId, actorUserId, ownerId)` factory,
+ * which binds the Project the reads/writes scope to, the member who
+ * authorizes, and the worker stamped as each new row's `owner_id`.
  */
 export interface CaseStore extends SchemaCaseStore {
 	/**

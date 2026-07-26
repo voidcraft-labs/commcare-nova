@@ -46,7 +46,7 @@ function userPropertySlugs(doc: BlueprintDoc): ValidationError[] {
 				"app",
 				`"${property.label}" saves under the name "${property.slug}", which CommCare won't accept. ${verdict.userMessage}`,
 				{},
-				{ slug: property.slug },
+				{ userPropertyUuid: property.uuid, slug: property.slug },
 			),
 		);
 	}
@@ -65,7 +65,7 @@ function duplicateUserTypeNames(doc: BlueprintDoc): ValidationError[] {
 					"app",
 					`Two roles are both called "${type.name}". Give each role a name of its own — otherwise there's no way to tell them apart when assigning one to a persona.`,
 					{},
-					{ name: type.name },
+					{ userTypeUuid: type.uuid, name: type.name },
 				),
 			);
 		}
@@ -86,7 +86,7 @@ function duplicatePersonaNames(doc: BlueprintDoc): ValidationError[] {
 					"app",
 					`Two personas are both called "${persona.name}". Give each one a name of its own — otherwise there's no way to tell which you're previewing as.`,
 					{},
-					{ name: persona.name },
+					{ personaUuid: persona.uuid, name: persona.name },
 				),
 			);
 		}
@@ -126,6 +126,8 @@ function unknownUserDataProperties(doc: BlueprintDoc): ValidationError[] {
 	const errors: ValidationError[] = [];
 	const check = (
 		owner: string,
+		ownerKind: "userType" | "persona",
+		ownerUuid: string,
 		values: Record<string, string> | undefined,
 	): void => {
 		for (const propertyUuid of Object.keys(values ?? {})) {
@@ -136,16 +138,21 @@ function unknownUserDataProperties(doc: BlueprintDoc): ValidationError[] {
 					"app",
 					`${owner} carries a value for a piece of worker information that no longer exists. Remove the value, or add that information back to the list.`,
 					{},
-					{ propertyUuid },
+					{ ownerKind, ownerUuid, propertyUuid },
 				),
 			);
 		}
 	};
 	for (const type of Object.values(userTypesOf(doc))) {
-		check(`The role "${type.name}"`, type.values);
+		check(`The role "${type.name}"`, "userType", type.uuid, type.values);
 	}
 	for (const persona of Object.values(personasOf(doc))) {
-		check(`The persona "${persona.name}"`, persona.values);
+		check(
+			`The persona "${persona.name}"`,
+			"persona",
+			persona.uuid,
+			persona.values,
+		);
 	}
 	return errors;
 }
@@ -182,7 +189,11 @@ function personaUserDataValues(doc: BlueprintDoc): ValidationError[] {
 					"app",
 					`"${persona.name}" has ${property.label} set to "${value}", which isn't one of the accepted values (${property.choices.join(", ")}). CommCare checks this when the worker is created.`,
 					{},
-					{ personaUuid: persona.uuid, slug: property.slug },
+					{
+						personaUuid: persona.uuid,
+						userPropertyUuid: property.uuid,
+						slug: property.slug,
+					},
 				),
 			);
 		}
@@ -209,7 +220,11 @@ function userTypeUserDataValues(doc: BlueprintDoc): ValidationError[] {
 					"app",
 					`The role "${type.name}" sets ${property.label} to "${value}", which isn't one of the accepted values (${property.choices.join(", ")}). CommCare checks this when a worker is created.`,
 					{},
-					{ userTypeUuid: type.uuid, slug: property.slug },
+					{
+						userTypeUuid: type.uuid,
+						userPropertyUuid: property.uuid,
+						slug: property.slug,
+					},
 				),
 			);
 		}

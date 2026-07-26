@@ -515,6 +515,31 @@ export function errorIdentity(err: ValidationError): string {
 			// permissive, and rare enough that the rule itself reports a
 			// 2-cycle twice (once per entry point) already.
 			break;
+		case "USER_PROPERTY_SLUG_INVALID":
+		case "USER_PROPERTY_SLUG_DUPLICATE":
+			parts.push(part("userProperty", det?.userPropertyUuid));
+			break;
+		case "USER_TYPE_NAME_DUPLICATE":
+			parts.push(part("userType", det?.userTypeUuid));
+			break;
+		case "PERSONA_NAME_DUPLICATE":
+		case "PERSONA_USER_TYPE_UNKNOWN":
+			parts.push(part("persona", det?.personaUuid));
+			break;
+		case "USER_DATA_UNKNOWN_PROPERTY":
+			parts.push(
+				part("ownerKind", det?.ownerKind),
+				part("owner", det?.ownerUuid),
+				part("userProperty", det?.propertyUuid),
+			);
+			break;
+		case "USER_DATA_INVALID_CHOICE":
+			parts.push(
+				part("userType", det?.userTypeUuid),
+				part("persona", det?.personaUuid),
+				part("userProperty", det?.userPropertyUuid),
+			);
+			break;
 
 		// Module-scope: stable sub-entity uuid from details.
 		case "CASE_LIST_COLUMN_UNKNOWN_FIELD":

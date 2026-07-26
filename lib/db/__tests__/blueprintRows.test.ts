@@ -265,6 +265,7 @@ describe("the user collections", () => {
 		]);
 		const assembled = roundTrip(doc);
 		expect(Object.hasOwn(assembled, "userProperties")).toBe(false);
+		expect(Object.hasOwn(assembled, "userTypes")).toBe(false);
 		expect(Object.hasOwn(assembled, "personas")).toBe(false);
 	});
 });

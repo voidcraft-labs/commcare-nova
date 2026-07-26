@@ -9,7 +9,7 @@
 //
 //   - **Structural tenant scoping.** Every tenant-bound read/write
 //     adds `WHERE project_id = <bound>` to the underlying query and
-//     stamps `owner_id = <actor>` (the CommCare case-owner, a separate
+//     stamps `owner_id = <owner>` (the CommCare case-owner, a separate
 //     axis — not the tenant filter) on every insert; the JOIN-side
 //     `project_id` filter on every joined `cases` row inside relation
 //     walks lives at the compiler stack (`compileRelationPath`).
@@ -124,7 +124,7 @@ import { ajvErrorToCaseFailure } from "./validationFailure";
 
 /**
  * Construction arguments. Production callers go through
- * `withProjectContext(projectId, actorUserId)` (tenant-bound) or
+ * `withProjectContext(projectId, actorUserId, ownerId)` (tenant-bound) or
  * `withSchemaContext()` (schema-only); tests construct directly with a
  * per-test isolated Kysely instance and either the heuristic generator
  * or a stub.
@@ -146,9 +146,10 @@ export interface PostgresCaseStoreArgs {
 	 * `acting-user` resolves to. Distinct from `actorUserId`, which is the
 	 * Nova member and the ONLY thing that authorizes: previewing as a persona
 	 * runs as that persona while the signed-in member still authorizes.
-	 * Absent means the two are the same identity.
+	 * Explicit at every construction site so adding a second identity can
+	 * never silently inherit the authorizing member.
 	 */
-	ownerId?: string | null;
+	ownerId: string | null;
 	db: Kysely<Database>;
 	sampleGenerator: SampleCaseGenerator;
 	/**
@@ -240,7 +241,7 @@ export class PostgresCaseStore implements CaseStore {
 	constructor(args: PostgresCaseStoreArgs) {
 		this.projectId = args.projectId;
 		this.actorUserId = args.actorUserId;
-		this.ownerId = args.ownerId ?? args.actorUserId;
+		this.ownerId = args.ownerId;
 		this.db = args.db;
 		this.ajv = buildAjv();
 		this.validatorCache = new Map();
@@ -304,7 +305,7 @@ export class PostgresCaseStore implements CaseStore {
 					invariant:
 						"a tenant-scoped read/write ran on a schema-only store (no bound Project)",
 					detail:
-						"This store was built by `withSchemaContext()` for app-scoped schema operations and carries no Project. A tenant-bound method (query / count / insert / update / close / traverse / generate / reset) requires one. Hint: build the store with `withProjectContext(projectId, actorUserId)` for read/write work.",
+						"This store was built by `withSchemaContext()` for app-scoped schema operations and carries no Project. A tenant-bound method (query / count / insert / update / close / traverse / generate / reset) requires one. Hint: build the store with `withProjectContext(projectId, actorUserId, ownerId)` for read/write work.",
 				}),
 			);
 		}
@@ -324,7 +325,7 @@ export class PostgresCaseStore implements CaseStore {
 					invariant:
 						"a tenant-bound write ran on a schema-only store (no bound actor to authorize against)",
 					detail:
-						"This store was built by `withSchemaContext()` and carries no actor. Every case write authorizes against the acting Nova member. Hint: build the store with `withProjectContext(projectId, actorUserId)`.",
+						"This store was built by `withSchemaContext()` and carries no actor. Every case write authorizes against the acting Nova member. Hint: build the store with `withProjectContext(projectId, actorUserId, ownerId)`.",
 				}),
 			);
 		}
@@ -343,7 +344,7 @@ export class PostgresCaseStore implements CaseStore {
 					invariant:
 						"an insert ran on a schema-only store (no bound worker for `owner_id`)",
 					detail:
-						"This store was built by `withSchemaContext()` and carries no worker. An insert stamps `owner_id` (the CommCare case-owner) from the bound worker. Hint: build the store with `withProjectContext(projectId, actorUserId)`.",
+						"This store was built by `withSchemaContext()` and carries no worker. An insert stamps `owner_id` (the CommCare case-owner) from the bound worker. Hint: build the store with `withProjectContext(projectId, actorUserId, ownerId)`.",
 				}),
 			);
 		}
@@ -701,7 +702,7 @@ export class PostgresCaseStore implements CaseStore {
 	 *
 	 * `caseId` overrides the column default for callers whose identity
 	 * is minted/derived up front (the envelope's create allocations);
-	 * `ownerId` overrides the actor stamp for an operation's evaluated
+	 * `ownerId` overrides the bound owner for an operation's evaluated
 	 * owner expression. Ordinary callers omit both.
 	 */
 	private async insertRowInTransaction(
@@ -807,7 +808,7 @@ export class PostgresCaseStore implements CaseStore {
 			// The WORKER, not the member: a submission's `acting-user` and its
 			// create-time owner are what a device would record, and on a device
 			// that is whoever is logged in.
-			actorUserId: this.requireOwnerId(),
+			actingUserId: this.requireOwnerId(),
 			validateProperties: (trx, a) =>
 				this.validateProperties({
 					appId: a.appId,

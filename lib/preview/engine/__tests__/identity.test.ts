@@ -148,6 +148,25 @@ describe("session values are honest", () => {
 		expect(identity?.usercase).not.toHaveProperty("commcare_project");
 	});
 
+	it("keeps HQ's unconditional profile keys present even when their values are empty", () => {
+		const persona = {
+			uuid: asUuid("66666666-6666-4666-8666-666666666666"),
+			name: "Asha",
+		};
+		const identity = previewAsPersona(FULL_USER, persona, DOC);
+		expect(identity?.session.user.commcare_first_name).toBe("Asha");
+		expect(identity?.session.user.commcare_last_name).toBe("");
+		expect(identity?.session.user.commcare_phone_number).toBe("");
+		expect(identity?.usercase.first_name).toBe("Asha");
+		expect(identity?.usercase.last_name).toBe("");
+		expect(identity?.usercase.email).toBe("");
+		expect(identity?.usercase.phone_number).toBe("");
+		// Target-dependent values remain genuinely absent rather than being
+		// confused with HQ's always-written profile slots.
+		expect(identity?.session.user).not.toHaveProperty("commcare_project");
+		expect(identity?.usercase).not.toHaveProperty("commcare_project");
+	});
+
 	it("marks an ordinary worker standard, not demo — and never absent", () => {
 		// HQ sends `user_type` only for a practice user, but the CLIENT seeds
 		// it: every `User.java` constructor calls `setUserType(STANDARD)`, a
