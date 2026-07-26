@@ -1942,29 +1942,87 @@ test.describe("authenticated builder", () => {
 		// Only a newly minted row needs the grid to clear filters and reveal it.
 		const findRow = page.getByRole("searchbox", { name: "Find a row" });
 		await findRow.fill("District hospital");
-		await page.getByRole("button", { name: /^Open row/ }).click();
+		const districtRow = page.getByRole("row", {
+			name: /District hospital/,
+		});
+		const openedRow = districtRow.getByRole("button", {
+			name: /^Open row/,
+		});
+		await openedRow.click();
 		await expect(findRow).toHaveValue("District hospital");
 		const destination = page.getByRole("textbox", {
 			name: new RegExp(`^${CASE_WORKSPACE_SEED.lookupLabelColumnLabel}`),
 		});
-		await expect(
-			page.getByRole("textbox", {
-				name: `${CASE_WORKSPACE_SEED.lookupTimeColumnLabel} time`,
-			}),
-		).toHaveValue("09:30:00");
+		const openingTime = page.getByRole("textbox", {
+			name: `${CASE_WORKSPACE_SEED.lookupTimeColumnLabel} time`,
+		});
+		await expect(openingTime).toHaveValue("09:30:00.125");
 		await expect(
 			page.getByRole("textbox", {
 				name: `${CASE_WORKSPACE_SEED.lookupDatetimeColumnLabel} time`,
 			}),
 		).toHaveValue("14:45:00");
+		// Draft ownership is the controller's contract, not the rail body's.
+		// Close, another selection, a table route, and Escape all unmount the
+		// body; each must recover the exact typed value.
 		await destination.fill("  District hospital  ");
+		await openingTime.fill("10:00 AM");
+		await openingTime.fill("09:30:00.125");
+		await page
+			.getByRole("button", { name: "Close properties", exact: true })
+			.click();
+		await expect(
+			page.getByText("One unsaved row draft is kept in this table."),
+		).toBeVisible();
+		await page.getByRole("button", { name: "Review draft" }).click();
+		await expect(destination).toHaveValue("  District hospital  ");
+		await expect(openingTime).toHaveValue("09:30:00.125");
+
+		await page
+			.getByRole("button", {
+				name: new RegExp(CASE_WORKSPACE_SEED.lookupLabelColumnLabel),
+			})
+			.first()
+			.click();
+		await expect(
+			page.getByRole("heading", {
+				name: CASE_WORKSPACE_SEED.lookupLabelColumnLabel,
+				level: 2,
+			}),
+		).toBeVisible();
+		await page.getByRole("button", { name: "Review draft" }).click();
+		await expect(destination).toHaveValue("  District hospital  ");
+
+		await page.getByRole("button", { name: "All data tables" }).click();
+		await page
+			.getByRole("button", {
+				name: new RegExp(`^${CASE_WORKSPACE_SEED.lookupTableName}`),
+			})
+			.click();
+		await page.getByRole("button", { name: "Review draft" }).click();
+		await expect(destination).toHaveValue("  District hospital  ");
+
+		await page.getByRole("button", { name: "Add row" }).focus();
+		await page.keyboard.press("Escape");
+		await expect(
+			page.getByRole("button", { name: "Close properties", exact: true }),
+		).toBeHidden();
+		await expect(openedRow).toBeFocused();
+		await page.getByRole("button", { name: "Review draft" }).click();
+		await expect(destination).toHaveValue("  District hospital  ");
 		await page.getByRole("button", { name: "Save row" }).click();
 		await expect(
 			page.getByRole("status").filter({ hasText: "Saved." }),
 		).toBeVisible();
 		await expect(destination).toHaveValue("  District hospital  ");
-		await expect(page.getByText("09:30:00+05:30")).toBeVisible();
-		await expect(page.getByText("2026-07-26T14:45:00-04:00")).toBeVisible();
+		await expect(
+			districtRow.getByText("09:30:00.125+05:30", { exact: true }),
+		).toBeVisible();
+		await expect(
+			districtRow.getByText("2026-07-26T14:45:00-04:00", {
+				exact: true,
+			}),
+		).toBeVisible();
 		await findRow.fill("");
 
 		// A rapid repeated gesture creates exactly one row, and the returned row

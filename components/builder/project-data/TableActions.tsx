@@ -78,7 +78,11 @@ export function TableActions({
 	const [renaming, setRenaming] = useState(false);
 	const [editingTag, setEditingTag] = useState(false);
 	const [importing, setImporting] = useState(false);
-	const [addingColumn, setAddingColumn] = useState<LookupRevision | null>(null);
+	const [addingColumn, setAddingColumn] = useState<{
+		readonly projectId: string;
+		readonly tableId: LookupTableSnapshot["id"];
+		readonly revision: LookupRevision;
+	} | null>(null);
 	const [deleting, setDeleting] = useState<LookupRevision | null>(null);
 	const [addingRow, setAddingRow] = useState(false);
 	const [settingWrite, setSettingWrite] = useState<"name" | "tag" | null>(null);
@@ -144,8 +148,15 @@ export function TableActions({
 							type="button"
 							variant="outline"
 							className="min-h-11 gap-2"
-							disabled={tableBusy}
-							onClick={() => setAddingColumn(table.tableRevision)}
+							disabled={tableBusy || projectId === undefined}
+							onClick={() => {
+								if (projectId === undefined) return;
+								setAddingColumn({
+									projectId,
+									tableId: table.id,
+									revision: table.tableRevision,
+								});
+							}}
 						>
 							<Icon
 								icon={tablerPlus}
@@ -399,10 +410,15 @@ export function TableActions({
 					open
 					onClose={() => setAddingColumn(null)}
 					onCreate={async (draft) => {
-						if (projectId === undefined) return "Lookup table not found.";
-						const result = await addLookupColumnAction(projectId, {
-							tableId: table.id,
-							expectedTableRevision: addingColumn,
+						if (
+							projectId !== addingColumn.projectId ||
+							table.id !== addingColumn.tableId
+						) {
+							return "This project or table changed while the dialog was open. Close it and add the column from the table you are viewing.";
+						}
+						const result = await addLookupColumnAction(addingColumn.projectId, {
+							tableId: addingColumn.tableId,
+							expectedTableRevision: addingColumn.revision,
 							column: draft,
 						});
 						if (!result.success) {
@@ -410,7 +426,10 @@ export function TableActions({
 								result.code === "conflict" &&
 								result.currentRevisions !== undefined
 							) {
-								setAddingColumn(result.currentRevisions.tableRevision);
+								setAddingColumn({
+									...addingColumn,
+									revision: result.currentRevisions.tableRevision,
+								});
 								await workspace.reload();
 							}
 							return result.message;

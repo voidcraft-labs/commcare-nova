@@ -26,9 +26,9 @@ import { RowInspectorBody } from "./RowInspectorBody";
  * values to B's id, and a half-edited column name would rename the next column
  * you clicked.
  *
- * An unresolved conflict outranks the selection, and it is read from the
- * CONTROLLER rather than the body, so it still renders when the row it is about
- * has left the table — which is exactly what a co-member's delete does.
+ * An unresolved conflict outranks the selection and needs no live table body.
+ * That is what lets the last authorized snapshot render even when a co-member
+ * deleted the whole table.
  */
 export function useProjectDataInspector(): {
 	readonly inspector: ActiveInspectorDescriptor | null;
@@ -44,19 +44,18 @@ export function useProjectDataInspector(): {
 
 	return useMemo(() => {
 		if (workspace === null) return null;
-		const onClose = () => workspace.select(null);
-		/* An unresolved conflict outranks everything, INCLUDING the row having
-		 * left the table. It is the only surface holding the author's draft. */
-		if (conflict !== null && table !== undefined) {
+		const onClose = workspace.closeInspector;
+		/* Close only hides this surface; the controller retains the conflict.
+		 * Discarding is a separate, explicitly labelled choice in the body. */
+		if (conflict !== null) {
 			return {
 				inspector: {
 					kicker: conflict.attempted === "delete" ? "Delete row" : "Row",
-					title: "Not saved",
+					title: conflict.tableUnavailable ? "Draft recovered" : "Not saved",
 					body: (
 						<RowConflictBody
-							key={`conflict:${conflict.rowId}`}
+							key={`conflict:${conflict.rowId}:${conflict.resolution?.tableRevision ?? "unavailable"}`}
 							conflict={conflict}
-							columns={conflict.displayColumns}
 							workspace={workspace}
 							canEdit={canEdit}
 						/>

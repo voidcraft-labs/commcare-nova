@@ -84,6 +84,10 @@ function useRuntimeScopeId(): string {
 
 export interface ProjectDataManifest {
 	readonly projectId: string;
+	/** The Project generation that the table entries came from. Pairing this
+	 * with a rows-free definition read lets pickers distinguish a coherent
+	 * deletion from two independently settled, mismatched snapshots. */
+	readonly projectRevision: LookupManifest["projectRevision"];
 	readonly tables: readonly LookupTableManifestEntry[];
 }
 
@@ -134,7 +138,11 @@ export function useProjectDataManifest(): {
 					if (!result.success) return { kind: "failed", failure: result };
 					return {
 						kind: "data",
-						value: { projectId: id, tables: result.value.tables },
+						value: {
+							projectId: id,
+							projectRevision: result.value.projectRevision,
+							tables: result.value.tables,
+						},
 					};
 				},
 			};
@@ -254,6 +262,10 @@ export function useProjectDataDefinition(tableId: LookupTableId | undefined): {
 			? (pushed.tables.find((entry) => entry.id === tableId)
 					?.definitionRevision ?? "")
 			: "";
+	const pushedProjectRevision =
+		pushed !== null && pushed.projectId === projectId
+			? pushed.projectRevision
+			: "";
 
 	const reloadToken = useMemo(
 		() =>
@@ -263,6 +275,7 @@ export function useProjectDataDefinition(tableId: LookupTableId | undefined): {
 				projectId ?? "",
 				accessPhase,
 				tableId ?? "",
+				pushedProjectRevision,
 				pushedDefinitionRevision,
 			].join(" "),
 		[
@@ -271,6 +284,7 @@ export function useProjectDataDefinition(tableId: LookupTableId | undefined): {
 			projectId,
 			accessPhase,
 			tableId,
+			pushedProjectRevision,
 			pushedDefinitionRevision,
 		],
 	);

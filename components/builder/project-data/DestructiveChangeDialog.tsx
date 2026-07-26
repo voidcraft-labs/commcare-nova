@@ -88,6 +88,10 @@ export function DestructiveChangeDialog({
 	const [refusedBy, setRefusedBy] = useState<
 		readonly LookupReferencingAppSummary[] | null
 	>(null);
+	/* `true` means the transactional writer proved a reference exists but its
+	 * secondary naming query failed. It is still an authoritative block; an
+	 * empty advisory list must never turn that refusal into an enabled button. */
+	const [unnamedReferenceRefusal, setUnnamedReferenceRefusal] = useState(false);
 
 	useEffect(() => {
 		void retryGeneration;
@@ -98,6 +102,7 @@ export function DestructiveChangeDialog({
 		if (!open) return;
 		setRefusal(null);
 		setRefusedBy(null);
+		setUnnamedReferenceRefusal(false);
 		if (projectId === undefined) {
 			setPreflight({
 				kind: "failed",
@@ -146,7 +151,7 @@ export function DestructiveChangeDialog({
 	const named =
 		refusedBy ??
 		(preflight.kind === "ready" ? preflight.blockers : ([] as const));
-	const blocked = named.length > 0;
+	const blocked = named.length > 0 || unnamedReferenceRefusal;
 	const checking = preflight.kind === "loading";
 	const preflightFailed = preflight.kind === "failed";
 
@@ -209,27 +214,48 @@ export function DestructiveChangeDialog({
 								className="mt-0.5 shrink-0 text-nova-rose"
 								aria-hidden="true"
 							/>
-							{named.length === 1
-								? "One app still uses this, so it can’t be changed"
-								: `${named.length} apps still use this, so it can’t be changed`}
+							{unnamedReferenceRefusal
+								? "An app still uses this, so it can’t be changed"
+								: named.length === 1
+									? "One app still uses this, so it can’t be changed"
+									: `${named.length} apps still use this, so it can’t be changed`}
 						</p>
-						<ul className="space-y-1 text-[13px] text-nova-text-secondary">
-							{named.map((app) => (
-								<li key={app.appId} className="[overflow-wrap:anywhere]">
-									{app.appName}
-									{app.deleted && (
-										<span className="text-nova-text-muted">
-											{" "}
-											— in the trash, but it still counts
-										</span>
-									)}
-								</li>
-							))}
-						</ul>
+						{!unnamedReferenceRefusal && (
+							<ul className="space-y-1 text-[13px] text-nova-text-secondary">
+								{named.map((app) => (
+									<li key={app.appId} className="[overflow-wrap:anywhere]">
+										{app.appName}
+										{app.deleted && (
+											<span className="text-nova-text-muted">
+												{" "}
+												— in the trash, but it still counts
+											</span>
+										)}
+									</li>
+								))}
+							</ul>
+						)}
 						<p className="text-[13px] leading-relaxed text-nova-text-secondary">
-							Point {named.length === 1 ? "that app" : "those apps"} somewhere
-							else first, then come back.
+							{unnamedReferenceRefusal
+								? "Nova could not load the app’s name. Nothing changed. Check references again before trying this action."
+								: `Point ${named.length === 1 ? "that app" : "those apps"} somewhere else first, then come back.`}
 						</p>
+						{unnamedReferenceRefusal && (
+							<Button
+								type="button"
+								variant="outline"
+								className="min-h-11"
+								onClick={() => {
+									setPreflight({ kind: "loading" });
+									setUnnamedReferenceRefusal(false);
+									setRefusal(null);
+									setRetryGeneration((current) => current + 1);
+								}}
+							>
+								<Icon icon={tablerRefresh} aria-hidden="true" />
+								Check references again
+							</Button>
+						)}
 					</div>
 				) : (
 					<p
@@ -267,7 +293,14 @@ export function DestructiveChangeDialog({
 								const failed = await onConfirm();
 								if (failed !== null) {
 									setRefusal(failed.message);
-									if (failed.blockingApps !== undefined) {
+									if (
+										failed.code === "referenced" &&
+										(failed.blockingApps === undefined ||
+											failed.blockingApps.length === 0)
+									) {
+										setUnnamedReferenceRefusal(true);
+										setRefusedBy(null);
+									} else if (failed.blockingApps !== undefined) {
 										setRefusedBy(failed.blockingApps);
 									}
 								}

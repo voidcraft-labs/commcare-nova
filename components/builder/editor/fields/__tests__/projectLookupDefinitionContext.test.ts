@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { projectLookupDefinitionContext } from "@/components/builder/editor/fields/projectLookupDefinitionContext";
+import {
+	projectLookupDefinitionContext,
+	projectLookupDefinitionReadVerdict,
+} from "@/components/builder/editor/fields/projectLookupDefinitionContext";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
 	lookupColumnIdSchema,
@@ -72,6 +75,7 @@ describe("projectLookupDefinitionContext", () => {
 			projectLookupDefinitionContext({
 				currentProjectId: "project-a",
 				manifestProjectId: "project-a",
+				manifestProjectRevision: revision("9"),
 				focusedTableId: tableA,
 				manifestEntry: manifest(),
 				snapshot: snapshot(),
@@ -104,6 +108,7 @@ describe("projectLookupDefinitionContext", () => {
 			projectLookupDefinitionContext({
 				currentProjectId: "project-a",
 				manifestProjectId: "project-a",
+				manifestProjectRevision: revision("9"),
 				focusedTableId: tableB,
 				manifestEntry: manifest(tableB),
 				snapshot: snapshot(tableA),
@@ -116,6 +121,7 @@ describe("projectLookupDefinitionContext", () => {
 			projectLookupDefinitionContext({
 				currentProjectId: "project-a",
 				manifestProjectId: "project-a",
+				manifestProjectRevision: revision("9"),
 				focusedTableId: tableA,
 				manifestEntry: manifest(tableA, revision("9")),
 				snapshot: snapshot(tableA, revision("8")),
@@ -128,6 +134,7 @@ describe("projectLookupDefinitionContext", () => {
 			projectLookupDefinitionContext({
 				currentProjectId: "project-a",
 				manifestProjectId: "project-a",
+				manifestProjectRevision: revision("9"),
 				focusedTableId: tableA,
 				manifestEntry: manifest(),
 				snapshot: snapshot(tableA, revision("8"), "project-b"),
@@ -140,10 +147,73 @@ describe("projectLookupDefinitionContext", () => {
 			projectLookupDefinitionContext({
 				currentProjectId: "project-a",
 				manifestProjectId: "project-b",
+				manifestProjectRevision: revision("9"),
 				focusedTableId: tableA,
 				manifestEntry: manifest(),
 				snapshot: snapshot(),
 			}),
 		).toBe(LOOKUP_CONTEXT_UNAVAILABLE);
+	});
+
+	it("stays fail-closed when independently settled Project generations differ", () => {
+		expect(
+			projectLookupDefinitionContext({
+				currentProjectId: "project-a",
+				manifestProjectId: "project-a",
+				manifestProjectRevision: revision("10"),
+				focusedTableId: tableA,
+				manifestEntry: manifest(),
+				snapshot: snapshot(),
+			}),
+		).toBe(LOOKUP_CONTEXT_UNAVAILABLE);
+	});
+});
+
+describe("projectLookupDefinitionReadVerdict", () => {
+	it("turns settled generation drift into Retry instead of permanent Loading", () => {
+		expect(
+			projectLookupDefinitionReadVerdict({
+				currentProjectId: "project-a",
+				manifestProjectId: "project-a",
+				focusedTableId: tableA,
+				manifestProjectRevision: revision("10"),
+				manifestEntry: manifest(),
+				snapshot: snapshot(),
+			}),
+		).toEqual({ kind: "retry" });
+	});
+
+	it("calls an omission deleted only when both reads share one generation", () => {
+		expect(
+			projectLookupDefinitionReadVerdict({
+				currentProjectId: "project-a",
+				manifestProjectId: "project-a",
+				focusedTableId: tableA,
+				manifestProjectRevision: revision("9"),
+				manifestEntry: undefined,
+				snapshot: {
+					projectId: "project-a",
+					projectRevision: revision("9"),
+					definitions: [],
+				},
+			}),
+		).toEqual({ kind: "deleted" });
+	});
+
+	it("requires Retry when only one coherent read contains the table", () => {
+		expect(
+			projectLookupDefinitionReadVerdict({
+				currentProjectId: "project-a",
+				manifestProjectId: "project-a",
+				focusedTableId: tableA,
+				manifestProjectRevision: revision("9"),
+				manifestEntry: manifest(),
+				snapshot: {
+					projectId: "project-a",
+					projectRevision: revision("9"),
+					definitions: [],
+				},
+			}),
+		).toEqual({ kind: "retry" });
 	});
 });

@@ -193,7 +193,34 @@ export interface RowDraftCell {
 	readonly originalText?: string;
 }
 
+/** Apply visible editor text without throwing away the immutable projection
+ * needed to recognize an eventual exact no-op. */
+export function editRowDraftCellText(
+	cell: RowDraftCell | undefined,
+	dataType: LookupDataType,
+	text: string,
+): RowDraftCell {
+	return {
+		...cell,
+		text: text === "" && dataType !== "text" ? undefined : text,
+	};
+}
+
 export type RowDraft = Readonly<Record<LookupColumnId, RowDraftCell>>;
+
+export interface RemovedConflictCell {
+	readonly column: LookupColumn;
+	readonly value: RowDraftCell;
+}
+
+export interface ReconciledConflictDraft {
+	/** Values editable against the FRESH schema, never the stale one. */
+	readonly draft: RowDraft;
+	/** Authored values whose columns no longer exist. They cannot be sent to
+	 * storage, so the conflict surface must show them and require an explicit
+	 * acknowledgement before saving the remaining values. */
+	readonly removed: readonly RemovedConflictCell[];
+}
 
 /** A draft turned into stored values, or the reasons it could not be. */
 export type RowDraftResult =
@@ -227,6 +254,61 @@ export function rowValuesToDraft(
 		};
 	}
 	return draft as RowDraft;
+}
+
+/**
+ * Reproject a refused save onto the exact fresh schema it may be written to.
+ *
+ * Stable same-type columns retain the lossless temporal projection. Retyped
+ * columns retain their visible old text but deliberately drop old type
+ * metadata, so the fresh typed editor validates them as the new type. Removed
+ * values stay outside the write draft and remain visible for explicit review.
+ */
+export function reconcileConflictDraft(
+	values: LookupRowValues,
+	draftColumns: readonly LookupColumn[],
+	freshColumns: readonly LookupColumn[],
+): ReconciledConflictDraft {
+	return reconcileRowDraft(
+		rowValuesToDraft(values, draftColumns),
+		draftColumns,
+		freshColumns,
+	);
+}
+
+/** Reconcile a raw, possibly-invalid edit session when realtime removes its
+ * row before Save ever gets a chance to parse it. */
+export function reconcileRowDraft(
+	oldDraft: RowDraft,
+	draftColumns: readonly LookupColumn[],
+	freshColumns: readonly LookupColumn[],
+): ReconciledConflictDraft {
+	const oldById = new Map(draftColumns.map((column) => [column.id, column]));
+	const draft: Record<string, RowDraftCell> = {};
+	for (const fresh of freshColumns) {
+		const old = oldById.get(fresh.id);
+		if (old === undefined) {
+			draft[fresh.id] = { text: undefined };
+			continue;
+		}
+		const prior = oldDraft[old.id] ?? { text: undefined };
+		draft[fresh.id] =
+			old.dataType === fresh.dataType ? prior : { text: prior.text };
+	}
+	const freshIds = new Set(freshColumns.map((column) => column.id));
+	const removed = draftColumns
+		.filter(
+			(column) =>
+				!freshIds.has(column.id) && oldDraft[column.id]?.text !== undefined,
+		)
+		.map((column) => ({
+			column: { ...column },
+			value: oldDraft[column.id] ?? { text: undefined },
+		}));
+	return {
+		draft: draft as RowDraft,
+		removed,
+	};
 }
 
 /**

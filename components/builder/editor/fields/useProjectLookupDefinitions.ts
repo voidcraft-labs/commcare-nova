@@ -25,7 +25,10 @@ import type { LookupValidationContext } from "@/lib/doc/lookupReferences";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
 import type { LookupColumn } from "@/lib/lookup/types";
 import { useProjectId } from "@/lib/session/hooks";
-import { projectLookupDefinitionContext } from "./projectLookupDefinitionContext";
+import {
+	projectLookupDefinitionContext,
+	projectLookupDefinitionReadVerdict,
+} from "./projectLookupDefinitionContext";
 
 export interface LookupTableChoice {
 	readonly id: LookupTableId;
@@ -84,9 +87,27 @@ export function useProjectLookupDefinitions(
 				manifest.state.kind === "data"
 					? manifest.state.value.projectId
 					: undefined,
+			manifestProjectRevision:
+				manifest.state.kind === "data"
+					? manifest.state.value.projectRevision
+					: undefined,
 			focusedTableId,
 			manifestEntry,
 			snapshot: loadedSnapshot,
+		});
+		const readVerdict = projectLookupDefinitionReadVerdict({
+			currentProjectId,
+			manifestProjectId:
+				manifest.state.kind === "data"
+					? manifest.state.value.projectId
+					: undefined,
+			focusedTableId,
+			manifestProjectRevision:
+				manifest.state.kind === "data"
+					? manifest.state.value.projectRevision
+					: undefined,
+			snapshot: loadedSnapshot,
+			manifestEntry,
 		});
 		const focusedDefinition =
 			lookupContext.kind === "available"
@@ -113,9 +134,8 @@ export function useProjectLookupDefinitions(
 				focusedTableId !== undefined &&
 				(focused.state.kind === "loading" ||
 					focused.state.kind === "idle" ||
-					(focused.state.kind === "data" &&
-						manifestEntry !== undefined &&
-						lookupContext.kind === "unavailable")),
+					manifest.state.kind === "loading" ||
+					manifest.state.kind === "idle"),
 			loadingList:
 				manifest.state.kind === "loading" || manifest.state.kind === "idle",
 			lookupContext,
@@ -124,9 +144,15 @@ export function useProjectLookupDefinitions(
 					? manifest.state.failure.message
 					: null,
 			focusedFailure:
-				focused.state.kind === "failed" ? focused.state.failure.message : null,
+				focused.state.kind === "failed"
+					? focused.state.failure.message
+					: readVerdict.kind === "retry"
+						? "This data table changed while its columns were loading. Try again to load one matching snapshot."
+						: null,
 			retryList: manifest.reload,
-			retryFocused: focused.reload,
+			retryFocused: async () => {
+				await Promise.all([manifest.reload(), focused.reload()]);
+			},
 		};
 	}, [
 		manifest.state,

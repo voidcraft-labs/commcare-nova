@@ -1,60 +1,60 @@
 /**
- * What an author sees when a write could not be applied safely.
+ * The recovery surface for a refused row write.
  *
- * It lives on the CONTROLLER's conflict rather than inside the row's own
- * inspector, because the most important case — a co-member deleted the row you
- * were editing — is exactly the one that removes the row from the table and
- * would unmount a body keyed to it. This surface outlives that.
- *
- * It branches on what was attempted, and the branch is load-bearing:
- *
- *   - a refused SAVE asks which set of values wins, and shows both;
- *   - a refused DELETE asks whether the row should still go. Offering the save
- *     question's "keep mine" here would quietly re-save a row the author asked
- *     to remove, using values they never typed.
- *
- * Nothing is discarded by rendering this. Whichever action is taken, the author
- * chose it with both versions in front of them.
+ * A save conflict is an EDITOR over the fresh schema, not a read-only diff.
+ * Retyped values must pass their new controls, new columns are available, and
+ * removed-column values remain visible until the author acknowledges that
+ * storage has nowhere to put them. The controller owns this editable draft, so
+ * closing Properties or changing routes cannot erase the reconciliation work.
  */
 "use client";
 
 import { Icon } from "@iconify/react/offline";
 import tablerAlertTriangle from "@iconify-icons/tabler/alert-triangle";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Button } from "@/components/shadcn/button";
-import type { LookupColumn } from "@/lib/lookup/types";
+import { Checkbox } from "@/components/shadcn/checkbox";
+import type { LookupColumnId } from "@/lib/domain/lookupIds";
+import type { LookupColumn, LookupRowValues } from "@/lib/lookup/types";
 import type {
 	ProjectDataRowConflict,
 	ProjectDataWorkspace,
 } from "./ProjectDataWorkspaceProvider";
-import { cellText } from "./projectDataModel";
+import { cellText, type RowDraft, rowDraftToValues } from "./projectDataModel";
+import { RowValueField } from "./RowValueField";
 
 export function RowConflictBody({
 	conflict,
-	columns,
 	workspace,
 	canEdit,
 }: {
 	conflict: ProjectDataRowConflict;
-	columns: readonly LookupColumn[];
 	workspace: ProjectDataWorkspace;
 	canEdit: boolean;
 }) {
+	const acknowledgementId = useId();
+	const [removedAcknowledged, setRemovedAcknowledged] = useState(false);
+	const [errors, setErrors] = useState<ReadonlyMap<LookupColumnId, string>>(
+		new Map(),
+	);
 	const [working, setWorking] = useState(false);
 	const [failure, setFailure] = useState<string | null>(null);
 	const gone = conflict.verdict.kind === "gone";
 	const deleting = conflict.attempted === "delete";
+	const resolutionColumns = conflict.resolution?.columns ?? [];
 
-	const reason = gone
-		? deleting
-			? "Someone else already deleted this row."
-			: "Someone deleted this row while you were editing it."
-		: conflict.verdict.kind === "ask" &&
-				conflict.verdict.reason === "columns-changed"
-			? "Someone changed this table’s columns while you were working, so these values may not mean the same thing anymore."
-			: deleting
-				? "Someone else changed this row while you were deleting it."
-				: "Someone else saved this row while you were editing it.";
+	const reason = conflict.tableUnavailable
+		? `“${conflict.tableName}” is no longer available. Your row draft was recovered from the last version you could see.`
+		: gone
+			? deleting
+				? "Someone else already deleted this row."
+				: "Someone deleted this row while you were editing it."
+			: conflict.verdict.kind === "ask" &&
+					conflict.verdict.reason === "columns-changed"
+				? "Someone changed this table’s columns while you were working. Reconcile your values with the current columns before saving."
+				: deleting
+					? "Someone else changed this row while you were deleting it."
+					: "Someone else saved this row while you were editing it.";
 
 	const finish = async (
 		run: () => Promise<Awaited<ReturnType<ProjectDataWorkspace["saveRow"]>>>,
@@ -66,15 +66,35 @@ export function RowConflictBody({
 			const outcome = await run();
 			if (outcome.kind === "failed") setFailure(outcome.failure.message);
 		} catch {
-			/* A rejected Server Action is transport failure, not permission to
-			 * clear the controller-owned conflict. The draft remains available
-			 * for the same explicit decision on the next attempt. */
 			setFailure(
 				"Nova could not reach this data table. Check your connection and try again.",
 			);
 		} finally {
 			setWorking(false);
 		}
+	};
+
+	const saveReconciled = (
+		run: (
+			values: LookupRowValues,
+		) => Promise<Awaited<ReturnType<ProjectDataWorkspace["saveRow"]>>>,
+	) => {
+		const parsed = rowDraftToValues(conflict.editableDraft, resolutionColumns);
+		if (!parsed.ok) {
+			setErrors(parsed.errors);
+			setFailure(
+				"Review the highlighted values before choosing which version to save.",
+			);
+			return;
+		}
+		if (conflict.removed.length > 0 && !removedAcknowledged) {
+			setFailure(
+				"Acknowledge the removed column values before saving the remaining values.",
+			);
+			return;
+		}
+		setErrors(new Map());
+		void finish(() => run(parsed.values));
 	};
 
 	return (
@@ -92,7 +112,11 @@ export function RowConflictBody({
 				/>
 				<div className="min-w-0 space-y-1">
 					<p className="text-[13px] font-medium text-nova-text">
-						{deleting ? "This row wasn’t deleted" : "This row wasn’t saved"}
+						{conflict.tableUnavailable
+							? "Your draft is safe"
+							: deleting
+								? "This row wasn’t deleted"
+								: "This row wasn’t saved"}
 					</p>
 					<p className="text-[13px] leading-relaxed text-nova-text-secondary">
 						{reason}{" "}
@@ -103,38 +127,87 @@ export function RowConflictBody({
 				</div>
 			</div>
 
-			{!gone && (
-				<dl className="space-y-3">
-					{columns.map((column) => {
-						const mine = cellText(conflict.draft, column);
-						const theirs =
-							conflict.current === undefined
-								? undefined
-								: cellText(conflict.current, column);
-						if (mine === theirs) return null;
-						return (
-							<div key={column.id} className="min-w-0">
-								<dt className="text-[13px] font-medium text-nova-text [overflow-wrap:anywhere]">
+			{conflict.tableUnavailable ? (
+				<DraftValues
+					columns={conflict.displayColumns}
+					draft={conflict.editableDraft}
+					prefix="Your draft"
+				/>
+			) : deleting ? (
+				<StoredDifference
+					conflict={conflict}
+					columns={conflict.displayColumns}
+				/>
+			) : (
+				<div className="space-y-4">
+					<p className="text-[13px] leading-relaxed text-nova-text-secondary">
+						These fields match the table’s current columns. Review them, then
+						keep this row or save it as a new one.
+					</p>
+					<div className="space-y-3">
+						{resolutionColumns.map((column) => (
+							<div key={column.id} className="space-y-1">
+								<RowValueField
+									column={column}
+									value={conflict.editableDraft[column.id]}
+									invalid={errors.get(column.id)}
+									disabled={!canEdit || working}
+									onChange={(next) => {
+										setFailure(null);
+										workspace.updateRowConflictDraft(conflict, column.id, next);
+									}}
+								/>
+								{conflict.current !== undefined && (
+									<p className="text-[12px] text-nova-text-muted">
+										Already saved:{" "}
+										<VisibleValue
+											text={cellText(conflict.current, column)}
+											compact
+										/>
+									</p>
+								)}
+							</div>
+						))}
+					</div>
+				</div>
+			)}
+
+			{!deleting && conflict.removed.length > 0 && (
+				<div className="space-y-3 rounded-lg border border-nova-amber/30 bg-nova-amber/[0.06] p-3">
+					<div>
+						<p className="text-[13px] font-medium text-nova-text">
+							Values from removed columns
+						</p>
+						<p className="mt-1 text-[12px] leading-snug text-nova-text-secondary">
+							These columns no longer exist, so Nova cannot put their values
+							into this table. Copy anything you need before continuing.
+						</p>
+					</div>
+					<dl className="space-y-2">
+						{conflict.removed.map(({ column, value }) => (
+							<div key={column.id}>
+								<dt className="text-[12px] font-medium text-nova-text">
 									{column.label}
 								</dt>
-								<dd className="mt-1 space-y-1 text-[13px]">
-									<p className="text-nova-text-secondary [overflow-wrap:anywhere]">
-										<span className="text-nova-text-muted">
-											{deleting ? "What you saw: " : "Yours: "}
-										</span>
-										{mine ?? "No value"}
-									</p>
-									<p className="text-nova-text-secondary [overflow-wrap:anywhere]">
-										<span className="text-nova-text-muted">
-											{deleting ? "What it says now: " : "Already saved: "}
-										</span>
-										{theirs ?? "No value"}
-									</p>
+								<dd className="mt-1 text-[13px] text-nova-text-secondary">
+									<VisibleValue text={value.text} />
 								</dd>
 							</div>
-						);
-					})}
-				</dl>
+						))}
+					</dl>
+					<label
+						htmlFor={acknowledgementId}
+						className="flex min-h-11 cursor-pointer items-center gap-2 text-[13px] text-nova-text"
+					>
+						<Checkbox
+							id={acknowledgementId}
+							checked={removedAcknowledged}
+							disabled={!canEdit || working}
+							onCheckedChange={setRemovedAcknowledged}
+						/>
+						I copied what I need; save without these removed columns
+					</label>
+				</div>
 			)}
 
 			{failure !== null && (
@@ -142,10 +215,10 @@ export function RowConflictBody({
 					{failure}
 				</p>
 			)}
-			{!canEdit && (
+			{!canEdit && !conflict.tableUnavailable && (
 				<p className="rounded-lg bg-nova-elevated px-3 py-2.5 text-[13px] leading-relaxed text-nova-text-secondary">
-					Your access changed while this decision was open. Your draft is still
-					shown here, but changing Project data now needs edit access.
+					Your access changed while this decision was open. Your draft remains
+					here, but changing Project data now needs edit access.
 				</p>
 			)}
 
@@ -163,27 +236,35 @@ export function RowConflictBody({
 						Delete it anyway
 					</Button>
 				)}
-				{canEdit && !deleting && !gone && (
+				{canEdit && !deleting && !gone && !conflict.tableUnavailable && (
 					<Button
 						type="button"
 						variant="default"
 						className="min-h-11"
-						disabled={working}
+						disabled={
+							working || (conflict.removed.length > 0 && !removedAcknowledged)
+						}
 						onClick={() =>
-							void finish(() => workspace.overwriteConflictRow(conflict))
+							saveReconciled((values) =>
+								workspace.overwriteConflictRow(conflict, values),
+							)
 						}
 					>
-						Keep mine
+						Keep my reconciled row
 					</Button>
 				)}
-				{canEdit && !deleting && gone && (
+				{canEdit && !deleting && gone && !conflict.tableUnavailable && (
 					<Button
 						type="button"
 						variant="default"
 						className="min-h-11"
-						disabled={working}
+						disabled={
+							working || (conflict.removed.length > 0 && !removedAcknowledged)
+						}
 						onClick={() =>
-							void finish(() => workspace.saveConflictAsNewRow(conflict))
+							saveReconciled((values) =>
+								workspace.saveConflictAsNewRow(conflict, values),
+							)
 						}
 					>
 						Save as a new row
@@ -194,23 +275,108 @@ export function RowConflictBody({
 					variant="ghost"
 					className="min-h-11"
 					disabled={working}
-					onClick={() =>
-						void (async () => {
-							setWorking(true);
-							setFailure(null);
-							workspace.setRowConflict(null);
-							await workspace.reload();
-							setWorking(false);
-						})
-					}
+					onClick={() => {
+						workspace.discardRowConflict(conflict);
+						if (!conflict.tableUnavailable) void workspace.reload();
+					}}
 				>
-					{gone
-						? "Close"
-						: deleting
-							? "Keep the row"
-							: "Keep the saved version"}
+					{conflict.tableUnavailable
+						? "Discard this draft"
+						: gone
+							? "Discard my draft"
+							: deleting
+								? "Keep the row"
+								: "Use the saved version"}
 				</Button>
 			</div>
 		</div>
+	);
+}
+
+function StoredDifference({
+	conflict,
+	columns,
+}: {
+	conflict: ProjectDataRowConflict;
+	columns: readonly LookupColumn[];
+}) {
+	return (
+		<dl className="space-y-3">
+			{columns.map((column) => {
+				const mine = cellText(conflict.draft, column);
+				const theirs =
+					conflict.current === undefined
+						? undefined
+						: cellText(conflict.current, column);
+				if (mine === theirs) return null;
+				return (
+					<div key={column.id} className="min-w-0">
+						<dt className="text-[13px] font-medium text-nova-text [overflow-wrap:anywhere]">
+							{column.label}
+						</dt>
+						<dd className="mt-1 space-y-2 text-[13px]">
+							<p className="text-nova-text-secondary">
+								<span className="text-nova-text-muted">What you saw: </span>
+								<VisibleValue text={mine} />
+							</p>
+							<p className="text-nova-text-secondary">
+								<span className="text-nova-text-muted">What it says now: </span>
+								<VisibleValue text={theirs} />
+							</p>
+						</dd>
+					</div>
+				);
+			})}
+		</dl>
+	);
+}
+
+function DraftValues({
+	columns,
+	draft,
+	prefix,
+}: {
+	columns: readonly LookupColumn[];
+	draft: RowDraft;
+	prefix: string;
+}) {
+	return (
+		<dl className="space-y-3">
+			{columns.map((column) => (
+				<div key={column.id}>
+					<dt className="text-[13px] font-medium text-nova-text">
+						{column.label}
+					</dt>
+					<dd className="mt-1 text-[13px] text-nova-text-secondary">
+						<span className="sr-only">{prefix}: </span>
+						<VisibleValue text={draft[column.id]?.text} />
+					</dd>
+				</div>
+			))}
+		</dl>
+	);
+}
+
+function VisibleValue({
+	text,
+	compact = false,
+}: {
+	text: string | undefined;
+	compact?: boolean;
+}) {
+	if (text === undefined) {
+		return <span className="italic text-nova-text-muted">No value</span>;
+	}
+	if (text === "") {
+		return <span className="italic text-nova-text-muted">Empty text</span>;
+	}
+	return (
+		<span
+			className={`whitespace-pre-wrap rounded bg-white/[0.05] [overflow-wrap:anywhere] ${
+				compact ? "px-1" : "inline-block min-h-5 min-w-2 px-1.5 py-0.5"
+			}`}
+		>
+			{text}
+		</span>
 	);
 }

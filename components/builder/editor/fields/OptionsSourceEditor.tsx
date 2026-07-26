@@ -157,6 +157,9 @@ export function OptionsSourceEditor<F extends Field>({
 								);
 								if (selectedTable !== undefined) return selectedTable.name;
 								if (tables.loadingList) return "Loading data table…";
+								if (tables.listFailure !== null) {
+									return "Data tables didn’t load";
+								}
 								return "A table that is no longer here";
 							}}
 						</SelectValue>

@@ -25,11 +25,14 @@ import {
 	createRevisionedTextDraft,
 	discardRevisionedTextDraft,
 	editRevisionedTextDraft,
+	editRowDraftCellText,
 	filterRows,
 	formatLookupBytes,
 	formatLookupCount,
 	keepRevisionedTextDraft,
+	reconcileConflictDraft,
 	reconcileRevisionedTextDraft,
+	reconcileRowDraft,
 	replacementConflictVerdict,
 	rowAdditionRefusal,
 	rowDraftToValues,
@@ -438,6 +441,21 @@ describe("rowDraftToValues", () => {
 		});
 	});
 
+	it("accepts fractional seconds when a visible clock is edited", () => {
+		const timeColumn: LookupColumn = {
+			id: codeColumnId,
+			wireName: "opens",
+			label: "Opens",
+			dataType: "time",
+		};
+		expect(
+			rowDraftToValues(draft({ [codeColumnId]: "14:30:05.125" }), [timeColumn]),
+		).toEqual({
+			ok: true,
+			values: { [codeColumnId]: "14:30:05.125Z" },
+		});
+	});
+
 	it("refuses a half-typed date and time instead of storing one", () => {
 		const stampColumn: LookupColumn = {
 			id: codeColumnId,
@@ -538,6 +556,99 @@ describe("rowValuesToDraft", () => {
 			ok: true,
 			values: { [codeColumnId]: "15:45:00+05:30" },
 		});
+	});
+
+	it("retains exact temporal source bytes after type-away then type-back", () => {
+		const timeColumn: LookupColumn = {
+			id: codeColumnId,
+			wireName: "opens",
+			label: "Opens",
+			dataType: "time",
+		};
+		const original = rowValuesToDraft(
+			values({ [codeColumnId]: "14:30:00.125+0530" }),
+			[timeColumn],
+		);
+		const away = editRowDraftCellText(
+			original[codeColumnId],
+			"time",
+			"3:45 PM",
+		);
+		const back = editRowDraftCellText(away, "time", "14:30:00.125");
+
+		expect(rowDraftToValues({ [codeColumnId]: back }, [timeColumn])).toEqual({
+			ok: true,
+			values: { [codeColumnId]: "14:30:00.125+0530" },
+		});
+	});
+});
+
+describe("reconcileConflictDraft", () => {
+	it("projects onto fresh columns and preserves removed values for review", () => {
+		const renamedName = { ...nameColumn, label: "Facility" };
+		const retypedCode = { ...codeColumn, dataType: "date" as const };
+		const newColumn: LookupColumn = {
+			id: dateColumnId,
+			wireName: "district",
+			label: "District",
+			dataType: "text",
+		};
+		const reconciled = reconcileConflictDraft(
+			values({
+				[nameColumnId]: "  Kitgum\nHC  ",
+				[codeColumnId]: 42,
+				[timeColumnId]: "",
+			}),
+			[
+				nameColumn,
+				codeColumn,
+				{
+					id: timeColumnId,
+					wireName: "old_note",
+					label: "Old note",
+					dataType: "text",
+				},
+			],
+			[renamedName, retypedCode, newColumn],
+		);
+
+		expect(reconciled.draft[nameColumnId]).toEqual({
+			text: "  Kitgum\nHC  ",
+		});
+		expect(reconciled.draft[codeColumnId]).toEqual({ text: "42" });
+		expect(reconciled.draft[dateColumnId]).toEqual({ text: undefined });
+		expect(reconciled.removed).toEqual([
+			{
+				column: {
+					id: timeColumnId,
+					wireName: "old_note",
+					label: "Old note",
+					dataType: "text",
+				},
+				value: { text: "" },
+			},
+		]);
+		expect(
+			rowDraftToValues(reconciled.draft, [renamedName, retypedCode, newColumn])
+				.ok,
+		).toBe(false);
+	});
+
+	it("keeps an unparsed raw draft when realtime removes its row first", () => {
+		const result = reconcileRowDraft(
+			draft({ [nameColumnId]: "  draft\n", [codeColumnId]: "not-a-number" }),
+			[nameColumn, codeColumn],
+			[nameColumn, codeColumn],
+		);
+		expect(result.draft).toEqual(
+			draft({
+				[nameColumnId]: "  draft\n",
+				[codeColumnId]: "not-a-number",
+			}),
+		);
+		expect(rowDraftToValues(result.draft, [nameColumn, codeColumn]).ok).toBe(
+			false,
+		);
 	});
 });
 

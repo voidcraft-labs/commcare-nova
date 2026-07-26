@@ -19,7 +19,11 @@ import { Input } from "@/components/shadcn/input";
 import { Label } from "@/components/shadcn/label";
 import { TimeField } from "@/components/shadcn/time-field";
 import type { LookupColumn } from "@/lib/lookup/types";
-import { COLUMN_TYPE_LABELS, type RowDraftCell } from "./projectDataModel";
+import {
+	COLUMN_TYPE_LABELS,
+	editRowDraftCellText,
+	type RowDraftCell,
+} from "./projectDataModel";
 
 export function RowValueField({
 	column,
@@ -39,15 +43,11 @@ export function RowValueField({
 	const fieldId = useId();
 	const errorId = useId();
 	const text = value?.text ?? "";
+	/* Keep the immutable source spelling beside every intermediate edit.
+	 * `rowDraftToValues` uses it ONLY when the visible value is exactly back at
+	 * `originalText`. */
 	const commit = (next: string) =>
-		onChange({
-			...value,
-			text: next === "" && column.dataType !== "text" ? undefined : next,
-			/* Once the visible clock changes, the original stored spelling no
-			 * longer describes it. Keep only the offset projection. */
-			originalStored: undefined,
-			originalText: undefined,
-		});
+		onChange(editRowDraftCellText(value, column.dataType, next));
 
 	return (
 		<div className="min-w-0">

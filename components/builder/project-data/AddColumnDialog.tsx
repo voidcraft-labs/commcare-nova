@@ -9,7 +9,7 @@
  */
 "use client";
 
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/shadcn/button";
 import {
 	Dialog,
@@ -54,6 +54,15 @@ export function AddColumnDialog({
 	const [dataType, setDataType] = useState<LookupDataType>("text");
 	const [failure, setFailure] = useState<string | null>(null);
 	const [working, setWorking] = useState(false);
+	const operation = useRef(0);
+	const mounted = useRef(true);
+	useEffect(
+		() => () => {
+			mounted.current = false;
+			operation.current += 1;
+		},
+		[],
+	);
 
 	const effectiveWireName = wireNameTouched ? wireName : suggestWireName(label);
 
@@ -61,7 +70,7 @@ export function AddColumnDialog({
 		<Dialog
 			open={open}
 			onOpenChange={(next) => {
-				if (!next) onClose();
+				if (!next && !working) onClose();
 			}}
 		>
 			<DialogContent>
@@ -83,6 +92,7 @@ export function AddColumnDialog({
 							value={label}
 							autoComplete="off"
 							data-1p-ignore
+							disabled={working}
 							onChange={(event) => setLabel(event.target.value)}
 							className="mt-1 h-11"
 						/>
@@ -96,6 +106,7 @@ export function AddColumnDialog({
 							value={effectiveWireName}
 							autoComplete="off"
 							data-1p-ignore
+							disabled={working}
 							onChange={(event) => {
 								setWireNameTouched(true);
 								setWireName(event.target.value);
@@ -113,6 +124,7 @@ export function AddColumnDialog({
 						</Label>
 						<Select
 							value={dataType}
+							disabled={working}
 							onValueChange={(next) => setDataType(next as LookupDataType)}
 						>
 							<SelectTrigger id={typeId} className="mt-1 h-11 w-full">
@@ -144,6 +156,7 @@ export function AddColumnDialog({
 						type="button"
 						variant="outline"
 						className="min-h-11"
+						disabled={working}
 						onClick={onClose}
 					>
 						Cancel
@@ -156,13 +169,28 @@ export function AddColumnDialog({
 							working || label.trim() === "" || effectiveWireName.trim() === ""
 						}
 						onClick={async () => {
+							if (working) return;
+							const request = operation.current + 1;
+							operation.current = request;
 							setWorking(true);
 							setFailure(null);
-							const refusal = await onCreate({
-								label: label.trim(),
-								wireName: effectiveWireName.trim(),
-								dataType,
-							});
+							let refusal: string | null;
+							try {
+								refusal = await onCreate({
+									label: label.trim(),
+									wireName: effectiveWireName.trim(),
+									dataType,
+								});
+							} catch {
+								if (mounted.current && operation.current === request) {
+									setWorking(false);
+									setFailure(
+										"Nova could not add this column. Check your connection and try again.",
+									);
+								}
+								return;
+							}
+							if (!mounted.current || operation.current !== request) return;
 							setWorking(false);
 							if (refusal === null) onClose();
 							else setFailure(refusal);

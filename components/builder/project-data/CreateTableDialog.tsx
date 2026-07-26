@@ -16,7 +16,7 @@
 import { Icon } from "@iconify/react/offline";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerTrash from "@iconify-icons/tabler/trash";
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/shadcn/button";
 import {
 	Dialog,
@@ -74,6 +74,24 @@ export function CreateTableDialog({
 	const nameId = useId();
 	const tagId = useId();
 	const projectId = useProjectId();
+	const projectAtOpen = useRef(projectId);
+	const latestProject = useRef(projectId);
+	latestProject.current = projectId;
+	/* The list normally opens only after Project identity resolves. If the
+	 * first render catches the tiny undefined handoff, adopt that identity once;
+	 * after that this dialog is permanently scoped to the Project it opened in. */
+	if (projectAtOpen.current === undefined && projectId !== undefined) {
+		projectAtOpen.current = projectId;
+	}
+	const operation = useRef(0);
+	const mounted = useRef(true);
+	useEffect(
+		() => () => {
+			mounted.current = false;
+			operation.current += 1;
+		},
+		[],
+	);
 	const navigate = useNavigate();
 	const [name, setName] = useState("");
 	const [tag, setTag] = useState("");
@@ -108,7 +126,7 @@ export function CreateTableDialog({
 		<Dialog
 			open={open}
 			onOpenChange={(next) => {
-				if (!next) onClose();
+				if (!next && !working) onClose();
 			}}
 		>
 			<DialogContent className="max-h-[85vh] overflow-y-auto">
@@ -130,6 +148,7 @@ export function CreateTableDialog({
 							placeholder="Facilities"
 							autoComplete="off"
 							data-1p-ignore
+							disabled={working}
 							onChange={(event) => setName(event.target.value)}
 							className="mt-1 h-11"
 						/>
@@ -143,6 +162,7 @@ export function CreateTableDialog({
 							value={effectiveTag}
 							autoComplete="off"
 							data-1p-ignore
+							disabled={working}
 							onChange={(event) => {
 								setTagTouched(true);
 								setTag(event.target.value);
@@ -175,6 +195,7 @@ export function CreateTableDialog({
 											size="icon-lg"
 											aria-label={`Remove column ${index + 1}`}
 											className="size-11 text-nova-text-muted hover:text-nova-text"
+											disabled={working}
 											onClick={() =>
 												setColumns((current) =>
 													current.filter(
@@ -193,6 +214,7 @@ export function CreateTableDialog({
 									aria-label={`Column ${index + 1} name`}
 									autoComplete="off"
 									data-1p-ignore
+									disabled={working}
 									onChange={(event) =>
 										patch(column.key, { label: event.target.value })
 									}
@@ -208,6 +230,7 @@ export function CreateTableDialog({
 									aria-label={`Column ${index + 1} export name`}
 									autoComplete="off"
 									data-1p-ignore
+									disabled={working}
 									onChange={(event) =>
 										patch(column.key, {
 											wireNameTouched: true,
@@ -218,6 +241,7 @@ export function CreateTableDialog({
 								/>
 								<Select
 									value={column.dataType}
+									disabled={working}
 									onValueChange={(next) =>
 										patch(column.key, { dataType: next as LookupDataType })
 									}
@@ -246,6 +270,7 @@ export function CreateTableDialog({
 							type="button"
 							variant="outline"
 							className="min-h-11 gap-2"
+							disabled={working}
 							onClick={() =>
 								setColumns((current) => [...current, newColumnDraft()])
 							}
@@ -275,6 +300,7 @@ export function CreateTableDialog({
 						type="button"
 						variant="outline"
 						className="min-h-11"
+						disabled={working}
 						onClick={onClose}
 					>
 						Cancel
@@ -283,29 +309,86 @@ export function CreateTableDialog({
 						type="button"
 						variant="default"
 						className="min-h-11"
-						disabled={!ready || working || projectId === undefined}
+						disabled={
+							!ready ||
+							working ||
+							projectAtOpen.current === undefined ||
+							projectId !== projectAtOpen.current
+						}
 						onClick={async () => {
-							if (projectId === undefined) return;
+							const scopedProject = projectAtOpen.current;
+							if (
+								scopedProject === undefined ||
+								projectId !== scopedProject ||
+								working
+							) {
+								setFailure(
+									"This project changed while the dialog was open. Close it and create the table in the project you are viewing.",
+								);
+								return;
+							}
+							const request = operation.current + 1;
+							operation.current = request;
 							setWorking(true);
 							setFailure(null);
-							const result = await createLookupTableAction(projectId, {
-								name: name.trim(),
-								tag: effectiveTag.trim(),
-								columns: columns.map((column) => ({
-									label: column.label.trim(),
-									wireName: (column.wireNameTouched
-										? column.wireName
-										: suggestWireName(column.label)
-									).trim(),
-									dataType: column.dataType,
-								})),
-							});
-							setWorking(false);
+							let result: Awaited<ReturnType<typeof createLookupTableAction>>;
+							try {
+								result = await createLookupTableAction(scopedProject, {
+									name: name.trim(),
+									tag: effectiveTag.trim(),
+									columns: columns.map((column) => ({
+										label: column.label.trim(),
+										wireName: (column.wireNameTouched
+											? column.wireName
+											: suggestWireName(column.label)
+										).trim(),
+										dataType: column.dataType,
+									})),
+								});
+							} catch {
+								if (mounted.current && operation.current === request) {
+									setWorking(false);
+									setFailure(
+										"Nova could not create this table. Check your connection and try again.",
+									);
+								}
+								return;
+							}
+							if (!mounted.current || operation.current !== request) return;
 							if (!result.success) {
+								setWorking(false);
 								setFailure(result.message);
 								return;
 							}
-							await onCreated();
+							/* A Project switch or authority-driven unmount invalidates the
+							 * completion. The scoped server result remains truthful, but it
+							 * must not steer the new Project's builder to the old resource. */
+							if (latestProject.current !== scopedProject) {
+								setWorking(false);
+								setFailure(
+									"The table was created in the project where you opened this dialog. Close this dialog to continue in the project you are now viewing.",
+								);
+								return;
+							}
+							try {
+								await onCreated();
+							} catch {
+								if (mounted.current && operation.current === request) {
+									setWorking(false);
+									setFailure(
+										"The table was created, but this list could not refresh. Close the dialog and reload Project data.",
+									);
+								}
+								return;
+							}
+							if (!mounted.current || operation.current !== request) return;
+							if (latestProject.current !== scopedProject) {
+								setWorking(false);
+								setFailure(
+									"The table was created in the project where you opened this dialog. Close this dialog to continue in the project you are now viewing.",
+								);
+								return;
+							}
 							onClose();
 							/* Straight into the new table: creating one is always the first
 							 * half of filling it in. */

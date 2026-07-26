@@ -5,22 +5,16 @@
  * the conflict story tractable: a save carries the snapshot's revision, and a
  * refusal is resolved by `rowWriteConflictVerdict` against a fresh read.
  *
- * **The draft is never discarded** — but this component is not where that
- * promise is kept, and an earlier version of it claimed otherwise and was
- * wrong. A refused write is handed to the CONTROLLER, which renders
- * `RowConflictBody`; this body unmounts the moment its row leaves the table,
- * which is exactly what a co-member's delete does, so holding the conflict
- * here lost the draft in the one branch that mattered most.
- *
- * The component is keyed on the row's id by `projectDataInspector`. Without
- * that key React preserves this local draft across a change of selection, and
- * Save writes one row's values to another row's id.
+ * **The draft is never discarded.** This body is only a view over a
+ * controller-owned edit session. Closing Properties, pressing Escape,
+ * selecting another row, changing routes, and losing the table to a peer all
+ * unmount this component without touching the session.
  */
 "use client";
 
 import { Icon } from "@iconify/react/offline";
 import tablerTrash from "@iconify-icons/tabler/trash";
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { Button } from "@/components/shadcn/button";
 import type { LookupColumnId } from "@/lib/domain/lookupIds";
 import type { LookupRow, LookupTableSnapshot } from "@/lib/lookup/types";
@@ -47,10 +41,6 @@ export function RowInspectorBody({
 	canEdit: boolean;
 }) {
 	const columns = table.columns;
-	/* Keyed by the row's identity AND its stored content: a co-member's edit
-	 * to this row arriving through the realtime clock should reset an
-	 * untouched editor to the fresh values, while a dirty editor keeps the
-	 * draft (`dirty` gates the reseed below). */
 	const stored = useMemo(
 		() => rowValuesToDraft(row.values, columns),
 		[row.values, columns],
@@ -59,15 +49,19 @@ export function RowInspectorBody({
 		() => captureRowEditBaseline(table, row),
 		[table, row],
 	);
-	const [edit, setEdit] = useState<{
-		readonly draft: RowDraft;
-		readonly dirty: boolean;
-		readonly baseline: ReturnType<typeof captureRowEditBaseline>;
-	}>({
-		draft: stored,
-		dirty: false,
-		baseline: incomingBaseline,
-	});
+	const freshEdit = useMemo(
+		() => ({
+			projectId: table.projectId,
+			tableId: table.id,
+			tableName: table.name,
+			rowId: row.id,
+			draft: stored,
+			baseline: incomingBaseline,
+		}),
+		[table.projectId, table.id, table.name, row.id, stored, incomingBaseline],
+	);
+	const edit = workspace.rowEditFor(row.id) ?? freshEdit;
+	const dirty = workspace.rowEditFor(row.id) !== undefined;
 	const [errors, setErrors] = useState<ReadonlyMap<LookupColumnId, string>>(
 		new Map(),
 	);
@@ -78,29 +72,12 @@ export function RowInspectorBody({
 	const [confirmingDelete, setConfirmingDelete] = useState(false);
 	const { triggerRef, panelRef } = useInlineConfirmFocus(confirmingDelete);
 
-	/* Adopt fresh stored values only while the author has nothing in flight.
-	 * Doing it during render (not in an effect) means the rail never paints one
-	 * frame of the old values after the new ones arrive. */
-	const lastIncomingRevision = useRef(incomingBaseline.tableRevision);
-	if (
-		lastIncomingRevision.current !== incomingBaseline.tableRevision &&
-		!edit.dirty
-	) {
-		lastIncomingRevision.current = incomingBaseline.tableRevision;
-		setEdit({
-			draft: stored,
-			dirty: false,
-			baseline: incomingBaseline,
-		});
-	}
-
 	const update = (columnId: LookupColumnId, next: RowDraft[LookupColumnId]) => {
 		setStatus(null);
-		setEdit((current) => ({
-			...current,
-			dirty: true,
-			draft: { ...current.draft, [columnId]: next },
-		}));
+		workspace.retainRowEdit({
+			...edit,
+			draft: { ...edit.draft, [columnId]: next },
+		});
 	};
 
 	const save = async () => {
@@ -122,7 +99,6 @@ export function RowInspectorBody({
 				edit.baseline,
 			);
 			if (outcome.kind === "saved") {
-				setEdit((current) => ({ ...current, dirty: false }));
 				setStatus("Saved.");
 				return;
 			}
@@ -204,23 +180,19 @@ export function RowInspectorBody({
 						type="button"
 						variant="default"
 						className="min-h-11"
-						disabled={!edit.dirty || saving || deleting || confirmingDelete}
+						disabled={!dirty || saving || deleting || confirmingDelete}
 						onClick={() => void save()}
 					>
 						{saving ? "Saving…" : "Save row"}
 					</Button>
-					{edit.dirty && (
+					{dirty && (
 						<Button
 							type="button"
 							variant="ghost"
 							className="min-h-11"
 							disabled={saving || deleting || confirmingDelete}
 							onClick={() => {
-								setEdit({
-									draft: stored,
-									dirty: false,
-									baseline: incomingBaseline,
-								});
+								workspace.discardRowEdit(row.id);
 								setErrors(new Map());
 								setFailure(null);
 								setStatus(null);
@@ -289,22 +261,29 @@ export function RowInspectorBody({
 						</div>
 					</div>
 				) : (
-					<Button
-						ref={triggerRef}
-						type="button"
-						variant="ghost"
-						className="min-h-11 gap-2 text-nova-text-muted hover:text-nova-text"
-						disabled={saving || deleting}
-						onClick={() => setConfirmingDelete(true)}
-					>
-						<Icon
-							icon={tablerTrash}
-							width="16"
-							height="16"
-							aria-hidden="true"
-						/>
-						{deleting ? "Deleting…" : "Delete row"}
-					</Button>
+					<div className="space-y-1">
+						<Button
+							ref={triggerRef}
+							type="button"
+							variant="ghost"
+							className="min-h-11 gap-2 text-nova-text-muted hover:text-nova-text"
+							disabled={saving || deleting || dirty}
+							onClick={() => setConfirmingDelete(true)}
+						>
+							<Icon
+								icon={tablerTrash}
+								width="16"
+								height="16"
+								aria-hidden="true"
+							/>
+							{deleting ? "Deleting…" : "Delete row"}
+						</Button>
+						{dirty && (
+							<p className="text-[12px] leading-snug text-nova-text-muted">
+								Save or discard your row changes before deleting it.
+							</p>
+						)}
+					</div>
 				))}
 		</div>
 	);

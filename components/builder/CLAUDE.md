@@ -187,10 +187,11 @@ lookup table has no running counterpart.
 
 `ProjectDataWorkspaceProvider` is the single controller, mounted above the
 builder row in `BuilderProvider` beside `CaseListWorkspaceProvider` and for the
-same reasons — one fetch and one selection shared by the canvas and the rail,
-and a host element whose type never changes so the subtree cannot remount and
-sever chat's live run. `useProjectDataInspector` is the rail's third selection
-source; the three are mutually exclusive because the URL makes them so.
+same reasons — one fetch plus scope-keyed selection, row-draft, and conflict
+state shared by the canvas and rail, and a host element whose type never changes
+so the subtree cannot remount and sever chat's live run.
+`useProjectDataInspector` is the rail's third selection source; the three are
+mutually exclusive because the URL makes them so.
 
 **The grid scans; the rail edits.** Cells are typed, and a date column needs
 `DatePicker` while a time column needs `TimeField` — floating surfaces that
@@ -202,23 +203,28 @@ replacement. Paging rather than virtualizing is a semantics decision first: it
 keeps `<th>`/`<td>` header association and screen-reader table navigation that a
 virtualized ARIA grid would have to hand-roll.
 
-**An unresolved conflict lives on the CONTROLLER, not in the row's body**, and
-every inspector body is keyed on its selection's identity. Both are load-bearing
-rather than tidy: the body unmounts the moment its row leaves the table — which
-is precisely what a co-member's delete does — so a conflict held there could
-never render the case it exists for, and an unkeyed body preserves its local
-draft across a change of selection, so Save writes one row's values to another
-row's id. A refused write therefore never reloads before returning; the reload
-waits for the author's decision.
+**Every dirty row draft and unresolved conflict lives on the CONTROLLER, not in
+the row's body.** Close, Escape, another selection, route navigation, row
+deletion, and table deletion all unmount the body; none is consent to discard.
+The controller keys sessions by Project/table/row, the grid marks and reopens
+them, and a missing table renders the raw draft from its last authorized
+snapshot. Inspector Close only hides; Save and the explicitly labelled discard
+buttons clear. Origin controls carry `data-inspector-return-focus`; the table's
+back button is the missing-origin fallback for desktop and Base UI's narrow
+drawer final-focus callback.
 
 Every row editor captures an immutable edit-session baseline: the row, ordered
-columns, and table revision as they stood when editing began. A realtime refresh
-reseeds only a pristine draft; a dirty save still compares against that
-baseline. Conflict-resolution buttons write against the exact fresh generation
-rendered beside them rather than re-entering the stale normal-save path. If the
-row is gone, Save as a new row retains the draft, appends it, selects the
-returned row id, and the grid clears any search and reveals its page. A failed
-resolution leaves the conflict and draft on screen.
+columns, and table revision as they stood when editing began. A pristine editor
+follows realtime; the first edit stores a controller session and every later
+save compares against its original baseline. Save-conflict drafts are
+reprojected onto the exact fresh columns: stable same-type temporal cells keep
+lossless metadata, retyped cells keep raw text but validate as the new type,
+new columns are editable, and removed authored values are separately retained
+behind a mandatory acknowledgement. Resolution buttons accept only parsed
+fresh-schema values and write against that displayed generation. If the row is
+gone, Save as a new row appends, selects the returned row id, and the grid clears
+any search and reveals its page. A failed resolution leaves the conflict and
+draft on screen.
 
 **The conflict policy lives in `projectDataModel.ts`, pure and unit-tested.** A
 table's optimistic token is `max(definitionRevision, rowsRevision)`, so ANY
@@ -236,15 +242,19 @@ table revision, and the row count it will replace. A monotonic generation makes
 the last-started `arrayBuffer()` read win. Project, schema, or row-generation
 drift disables Replace until the same bytes are checked and explicitly reviewed
 against the latest table. No replacement conflict retries itself, and Dialog
-close, Cancel, and file selection are blocked while the upload is in flight.
+close, Cancel, and file selection are blocked while the upload is in flight. The
+native file input clears after capturing the `File`, so the same path can fire a
+new choice after a read failure; diagnostic overflow counts subtract the eight
+entries actually rendered.
 
 Row drafts store raw text without trimming. Empty text, whitespace text, and an
 absent UUID key stay distinct. Time and datetime controls hide storage's
 required RFC 3339 timezone suffix while retaining the original suffix and exact
-stored spelling for a no-op round trip; edited existing clocks keep their
-offset, and new temporal values use `Z` because Nova has no authored app
-timezone. Viewer rows/columns render as read-only text, never disabled form
-controls.
+stored spelling — including fractional seconds — for a no-op round trip.
+Type-away/type-back is still a no-op because immutable source metadata survives
+intermediate edits; edited existing clocks keep their offset, and new temporal
+values use `Z` because Nova has no authored app timezone. Viewer rows/columns
+render as read-only text, never disabled form controls.
 
 Table name, table export-tag, column label, and column wire-name drafts use the
 revisioned-text model in `projectDataModel.ts`: pristine drafts reseed from
@@ -264,8 +274,11 @@ row-delete confirm inside the rail IS confirm-in-place and uses the hook.
 The advisory preflight is a three-state gate: loading, successful (possibly
 with named blockers), or failed with Try again. A failed query never becomes an
 empty blocker list and the governed action stays disabled until the scan
-succeeds. An optimistic refusal adopts the returned current revision, reloads
-the table, and reruns the preflight before another confirmation is enabled.
+succeeds. A transactional `referenced` refusal without resolved app names is
+also an authoritative block; it renders **Check references again** and never the
+empty-success sentence. An optimistic refusal adopts the returned current
+revision, reloads the table, and reruns the preflight before another
+confirmation is enabled.
 
 The select's own editor entry (`editor/fields/OptionsSourceEditor.tsx`) binds a
 question to a table column. **Its two directions are asymmetric**: choosing a
@@ -275,11 +288,14 @@ at every presence-based consumer. `lib/doc/lookupOptionsSourceMutations.ts`
 records why the clear is a `null`. The editor fetches the focused table through
 the rows-free definition action, not the full row snapshot, and supplies its
 exact definition generation to the optimistic client commit gate. Current
-Project, manifest Project, definition Project, table id, and
+Project, manifest Project, definition Project, Project revision, table id, and
 manifest/definition revision must all agree; unavailable, failed, mismatched,
-cross-Project, and kept-stale context never authorizes a new reference. Both
-list and definition failures have a visible retry, and the authoritative writer
-repeats the verdict against fresh Project state before persistence.
+cross-Project, and kept-stale context never authorizes a new reference. Equal
+Project revisions make a double omission a deletion; any other settled mismatch
+is a visible Retry that reloads BOTH resources instead of permanent Loading.
+Both list and definition failures have a visible retry, a list failure never
+labels the saved selection deleted, and the authoritative writer repeats the
+verdict against fresh Project state before persistence.
 
 ## Display conditions (`conditions/`)
 

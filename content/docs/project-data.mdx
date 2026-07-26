@@ -46,9 +46,16 @@ field for a time. Nova preserves text exactly, including leading or trailing
 spaces and an intentionally empty piece of text. It also keeps that distinct
 from a value that was never present.
 
-Times and dates stay human-readable while you edit. Nova keeps the timezone
-required by storage behind the clock control, so opening and saving a row does
-not change the moment or its offset.
+Times and dates stay human-readable while you edit. Nova keeps the timezone and
+fractional seconds required by storage behind the clock control, so opening and
+saving a row does not change the moment, its precision, or its offset.
+
+An unsaved row stays with the table if you close Properties, press Escape, open
+another row or column, or leave and come back. Nova marks retained drafts and
+offers **Review draft**; only **Discard changes** removes one. If a teammate
+removes the row first, the same draft can be saved as a new row. If they remove
+the whole table, Nova still shows the draft from the last version you could see
+so you can copy it before choosing **Discard this draft**.
 
 ## How much a table can hold
 
@@ -73,7 +80,10 @@ again. Nova never retries a whole-table replacement on its own.
 ## When two people edit at once
 
 If a teammate saves the same row while you have it open, Nova doesn't overwrite
-either version. It shows you both and asks which one to keep. If their change
+either version. It shows what is already saved and lets you reconcile your row
+against the table's current columns. New columns appear, values must fit any new
+column types, and values from removed columns stay visible until you copy what
+you need and acknowledge that those columns no longer exist. If their change
 was to a different row, your save goes through as usual.
 
 If they delete the row, your draft remains available. You can save it as a new
@@ -100,6 +110,8 @@ apps at something else first, then come back and make the change.
 
 If Nova cannot check those references, the change stays disabled and offers
 **Try again**. A failed check never claims that no apps use the table.
+If Nova knows an app still uses the table but cannot load that app's name, the
+change stays blocked and offers **Check references again**.
 
 If the table changes while that confirmation is open, Nova refreshes the table
 and checks its app references again before you can confirm the change.

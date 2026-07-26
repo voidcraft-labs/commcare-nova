@@ -89,12 +89,22 @@ that a change affects every app in the Project, as a permanent subtitle rather
 than a dismissible notice, because a deep link never passes the door.
 
 The controller (`ProjectDataWorkspaceProvider`, mounted above the builder row)
-owns one read and one selection, shared by the centre canvas and the inspector
-rail. Reads are generation-keyed on the reconciler runtime scope, the Project
-scope epoch, and the Project lookup clock, so a co-member's edit refetches
-exactly what it changed and a cross-Project move invalidates everything; the
-pushed manifest is the invalidation signal rather than the data, because a
-session with a dormant reconciler receives no frames and must still load.
+owns one read plus scope-keyed selections, dirty row drafts, and conflicts,
+shared by the centre canvas and the inspector rail. Closing Properties, Escape,
+selecting another row or column, and leaving the table only hide an edit; they
+never discard it. A retained draft is marked in the grid and recoverable from
+the table notice. If realtime removes its row, the recovery surface offers Save
+as new; if the whole table disappears, the last authorized table/column snapshot
+still renders the raw draft and the only destructive local choice says
+**Discard this draft**. Close and Escape return focus to the exact row/column
+control that opened Properties, with the table's back control as the stable
+fallback when a peer removed that origin.
+
+Reads are generation-keyed on the reconciler runtime scope, the Project scope
+epoch, and the Project lookup clock, so a co-member's edit refetches exactly
+what it changed and a cross-Project move invalidates everything; the pushed
+manifest is the invalidation signal rather than the data, because a session
+with a dormant reconciler receives no frames and must still load.
 
 **Editing is row-shaped.** The grid is a real `<table>` in pages of 50 with a
 search box over the text it displays — paging keeps native row and column header
@@ -113,11 +123,15 @@ conflict. So a refused write re-reads the table and
 `projectDataModel.ts::rowWriteConflictVerdict` retries only when the fresh state
 proves the edit is still the same edit — byte-identical row AND unmoved column
 definitions, compared with the immutable row/column/revision baseline captured
-when editing began rather than a realtime-refreshed snapshot. Otherwise both
-versions are shown and the author chooses against the exact fresh generation
-they reviewed. A row deleted underneath is its own verdict and offers the
-retained draft as a new row; the returned row id is selected and revealed on
-its page.
+when editing began rather than a realtime-refreshed snapshot. Otherwise the
+resolution surface is rebuilt against the exact fresh generation the author
+reviews. Current columns are editable with their current types, new columns are
+present, and retyped values must pass the new control. Values from removed
+columns remain separately visible and cannot be silently submitted: the author
+copies what they need and explicitly acknowledges that those values have
+nowhere to be stored before Keep mine or Save as new enables. A row deleted
+underneath is its own verdict and offers the retained draft as a new row; the
+returned row id is selected and revealed on its page.
 
 CSV selection is one atomic value carrying the File, copied bytes, filename,
 row count, checked schema, Project/table identity, and optimistic revisions.
@@ -127,11 +141,13 @@ against the current table. `replacementConflictVerdict` is unconditionally
 "ask": a replacement discards every row by definition, so it never retries
 against a moving target. The draft survives every branch.
 
-Text edits preserve empty strings, surrounding whitespace, and missing-cell
-identity. Temporal controls project strict timezone-bearing stored values into
-human clock/date controls while retaining the exact offset and stored spelling
-for an unchanged round trip; a new temporal value uses UTC because Nova has no
-authored app timezone. Table and column naming drafts capture their optimistic
+Text edits preserve empty strings, surrounding whitespace, line breaks, and
+missing-cell identity, including in conflict comparisons. Temporal controls
+project strict timezone-bearing stored values — including fractional seconds —
+into human clock/date controls while retaining the exact offset and stored
+spelling for an unchanged round trip; typing away and back to the original clock
+is still an unchanged round trip. A new temporal value uses UTC because Nova has
+no authored app timezone. Table and column naming drafts capture their optimistic
 generation: pristine drafts follow realtime changes, while dirty drift requires
 an explicit use-current/keep-mine decision. Table export tags render on the list
 and detail screens and are admin-editable through the same policy as established
@@ -139,9 +155,12 @@ wire names.
 
 The options-source picker reads a rows-free definition snapshot, never a full
 table body. Its optimistic context remains unavailable until the current
-Project, manifest Project, definition Project, table id, and definition revision
-all agree; read failures render with a retry rather than masquerading as an
-empty or deleted list.
+Project, manifest Project, definition Project, Project revision, table id, and
+definition revision all agree. Equal Project revisions make a double omission a
+real deletion; independently settled mismatches fail with **Try again**, whose
+gesture reloads both resources, rather than staying on Loading forever or
+masquerading as an empty/deleted list. A failed table-list read also keeps the
+closed picker neutral instead of labelling the saved table deleted.
 
 **A destructive change names the apps it would break, before it happens.**
 `lib/db/lookupReferenceEdges.ts::readLookupReferencingApps` joins the edge tables
@@ -156,9 +175,22 @@ authorized against.
 
 The advisory preflight fails closed: loading, named success, and error-with-retry
 are distinct states. A failed reference query never becomes an empty blocker
-list and never enables the governed action. An optimistic refusal refreshes the
-table generation and reruns the advisory scan before the author can confirm
-again; the governed write never repeats against its stale captured revision.
+list and never enables the governed action. If the transactional writer proves
+a reference exists but the secondary app-name lookup fails, that unnamed
+reference remains an authoritative block and **Check references again** reruns
+the advisory scan; the UI never contradicts the refusal with “No app uses it.”
+An optimistic refusal refreshes the table generation and reruns the advisory
+scan before the author can confirm again; the governed write never repeats
+against its stale captured revision.
+
+Create-table and add-column dialogs own their in-flight gesture. Escape, outside
+press, and Cancel cannot dismiss while the write is pending; transport rejection
+renders in the dialog; and an authority-driven unmount or Project switch cannot
+later close, refresh, or navigate a different Project from a stale completion.
+Create-table freezes the Project identity it opened under. CSV file selection
+clears the native input after capturing the `File`, so the same path can be
+chosen again after a read failure, and capped diagnostic lists report the count
+hidden after the eight entries actually rendered.
 
 Cap refusals name the size that was actually measured — an oversized CSV reports
 its own size, one over the row cap reports its exact row count and how many rows

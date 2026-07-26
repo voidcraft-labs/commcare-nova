@@ -91,6 +91,10 @@ export function CsvImportDialog({
 
 	const choose = async (file: File | undefined) => {
 		if (file === undefined || busy) return;
+		/* The File object is the durable selection; the native input value is
+		 * only an event source. Clear it immediately so choosing the exact same
+		 * path after a read/parse failure fires `change` again in every browser. */
+		if (inputRef.current !== null) inputRef.current.value = "";
 		generation.current += 1;
 		const requestGeneration = generation.current;
 		const projectAtChoice = projectId;
@@ -424,6 +428,7 @@ export function CsvImportDialog({
 }
 
 function ProblemDetails({ problem }: { problem: LookupFailure<string> }) {
+	const shownDetailCount = Math.min(8, problem.details?.length ?? 0);
 	return (
 		<div
 			role="alert"
@@ -448,11 +453,11 @@ function ProblemDetails({ problem }: { problem: LookupFailure<string> }) {
 			)}
 			{problem.totalDetailCount !== undefined &&
 				problem.details !== undefined &&
-				problem.totalDetailCount > problem.details.length && (
+				problem.totalDetailCount > shownDetailCount && (
 					<p className="text-[13px] text-nova-text-muted">
 						…and{" "}
 						{formatLookupCount(
-							problem.totalDetailCount - problem.details.length,
+							problem.totalDetailCount - shownDetailCount,
 							"more problem",
 						)}
 						.

@@ -55,6 +55,7 @@ export function ProjectDataTableScreen() {
 			type="button"
 			variant="ghost"
 			onClick={() => navigate.openProjectData()}
+			data-project-data-focus-fallback
 			className="-ml-2 min-h-11 gap-2 text-[13px] text-nova-text-muted hover:text-nova-text"
 		>
 			<Icon icon={tablerArrowLeft} width="16" height="16" aria-hidden="true" />
@@ -64,7 +65,7 @@ export function ProjectDataTableScreen() {
 
 	if (state.kind === "loading" || state.kind === "idle") {
 		return (
-			<section className="min-w-0">
+			<section data-project-data-table-screen className="min-w-0">
 				{backToList}
 				<ProjectDataLoading label="Loading this table…" />
 			</section>
@@ -78,7 +79,7 @@ export function ProjectDataTableScreen() {
 		 * copy therefore describes the situation rather than guessing a cause. */
 		const missing = state.failure.code === "not_found";
 		return (
-			<section className="min-w-0">
+			<section data-project-data-table-screen className="min-w-0">
 				{backToList}
 				{missing ? (
 					<div
@@ -100,6 +101,19 @@ export function ProjectDataTableScreen() {
 							It may have been deleted, or it may belong to a different project.
 							Go back to see the tables this project has.
 						</p>
+						{workspace !== null && workspace.pendingDraftCount > 0 && (
+							<Button
+								type="button"
+								variant="outline"
+								className="min-h-11"
+								onClick={workspace.openPendingDraft}
+							>
+								Review{" "}
+								{workspace.pendingDraftCount === 1
+									? "the recovered row draft"
+									: `${workspace.pendingDraftCount} recovered row drafts`}
+							</Button>
+						)}
 					</div>
 				) : (
 					<ProjectDataFailure
@@ -116,7 +130,11 @@ export function ProjectDataTableScreen() {
 	const capacity = tableCapacity(table);
 
 	return (
-		<section aria-labelledby="project-data-table-heading" className="min-w-0">
+		<section
+			data-project-data-table-screen
+			aria-labelledby="project-data-table-heading"
+			className="min-w-0"
+		>
 			{backToList}
 			<h1
 				id="project-data-table-heading"
@@ -139,12 +157,41 @@ export function ProjectDataTableScreen() {
 			{workspace !== null && (
 				<TableActions table={table} workspace={workspace} />
 			)}
+			{workspace !== null && workspace.pendingDraftCount > 0 && (
+				<div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-nova-amber/25 bg-nova-amber/[0.06] px-3 py-2">
+					<p className="grow text-[12px] leading-snug text-nova-text-secondary">
+						{workspace.pendingDraftCount === 1
+							? "One unsaved row draft is kept in this table."
+							: `${workspace.pendingDraftCount} unsaved row drafts are kept in this table.`}
+					</p>
+					<Button
+						type="button"
+						variant="ghost"
+						className="min-h-11"
+						onClick={workspace.openPendingDraft}
+					>
+						Review {workspace.pendingDraftCount === 1 ? "draft" : "drafts"}
+					</Button>
+				</div>
+			)}
 			<TableGrid
 				table={table}
 				selectedRowId={
 					workspace?.selection?.kind === "row"
 						? workspace.selection.rowId
 						: undefined
+				}
+				selectedColumnId={
+					workspace?.selection?.kind === "column"
+						? workspace.selection.columnId
+						: undefined
+				}
+				draftRowIds={
+					new Set(
+						table.rows
+							.filter((row) => workspace?.rowEditFor(row.id) !== undefined)
+							.map((row) => row.id),
+					)
 				}
 				revealRowId={
 					workspace?.selection?.kind === "row" &&
@@ -196,12 +243,16 @@ function rowLabel(table: LookupTableSnapshot, row: LookupRow): string {
 function TableGrid({
 	table,
 	selectedRowId,
+	selectedColumnId,
+	draftRowIds,
 	revealRowId,
 	onSelectRow,
 	onSelectColumn,
 }: {
 	table: LookupTableSnapshot;
 	selectedRowId: LookupRowId | undefined;
+	selectedColumnId: LookupColumnId | undefined;
+	draftRowIds: ReadonlySet<LookupRowId>;
 	revealRowId: LookupRowId | undefined;
 	onSelectRow: (rowId: LookupRowId) => void;
 	onSelectColumn: (columnId: LookupColumnId) => void;
@@ -326,6 +377,9 @@ function TableGrid({
 									<Button
 										type="button"
 										variant="ghost"
+										data-inspector-return-focus={
+											selectedColumnId === column.id ? "" : undefined
+										}
 										onClick={() => onSelectColumn(column.id)}
 										className="h-auto min-h-11 w-full flex-col items-start gap-0 rounded-none px-3 py-2.5 text-left hover:bg-white/[0.05]"
 									>
@@ -375,12 +429,20 @@ function TableGrid({
 									);
 								})}
 								<td className="w-px px-3 py-2.5 align-top">
+									{draftRowIds.has(row.id) && (
+										<span className="mr-1 inline-flex rounded-full bg-nova-amber/[0.12] px-2 py-1 text-[11px] font-medium text-nova-amber">
+											Unsaved
+										</span>
+									)}
 									{/* One control per row rather than a clickable row: a
 									 *  row of selectable text should stay selectable, and a
 									 *  whole-row button would swallow every drag. */}
 									<Button
 										type="button"
 										variant="ghost"
+										data-inspector-return-focus={
+											selectedRowId === row.id ? "" : undefined
+										}
 										onClick={() => onSelectRow(row.id)}
 										className="min-h-11 whitespace-nowrap text-[13px] text-nova-violet-bright"
 									>

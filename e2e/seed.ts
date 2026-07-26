@@ -435,7 +435,7 @@ async function main(): Promise<void> {
 			values: {
 				[referralColumns[0].id]: code,
 				[referralColumns[1].id]: destination,
-				[referralColumns[2].id]: "09:30:00+05:30",
+				[referralColumns[2].id]: "09:30:00.125+05:30",
 				[referralColumns[3].id]: "2026-07-26T14:45:00-04:00",
 			},
 		});
