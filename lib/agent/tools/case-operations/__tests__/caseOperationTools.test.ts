@@ -363,6 +363,65 @@ describe("shared case-operation tools", () => {
 		).toBe(true);
 	});
 
+	it("retargets across case types atomically on the shared chat and MCP tool", async () => {
+		const { doc, formUuid } = fixture();
+		const { ctx, recordMutations } = makeStubToolContext();
+		const added = await addCaseOperationsTool.execute(
+			{
+				moduleId: "patients",
+				formId: "edit",
+				operations: [createVisit, updateVisit],
+			},
+			ctx,
+			doc,
+		);
+		recordMutations.mockClear();
+
+		const desired = {
+			...updateVisit,
+			caseType: "patient",
+			target: { kind: "session" as const },
+		};
+		const result = await updateCaseOperationTool.execute(
+			{
+				moduleId: "patients",
+				formId: "edit",
+				operationId: "tag_visit",
+				operation: desired,
+			},
+			ctx,
+			added.newDoc,
+		);
+
+		expect(recordMutations).toHaveBeenCalledTimes(1);
+		expect(
+			result.mutations.filter(
+				(mutation) =>
+					mutation.kind === "updateForm" &&
+					mutation.caseOperationPatch?.operation === "update",
+			),
+		).toEqual([
+			expect.objectContaining({
+				caseOperationPatch: {
+					operation: "update",
+					uuid: expect.any(String),
+					patch: {
+						caseType: "patient",
+						target: { kind: "session" },
+					},
+				},
+			}),
+		]);
+		expect(
+			result.newDoc.forms[formUuid].caseOperations?.find(
+				(operation) => operation.id === "tag_visit",
+			),
+		).toMatchObject({
+			caseType: "patient",
+			target: { kind: "session" },
+		});
+	});
+
 	it("refuses every carrier-blind read-to-update shape before hidden behavior can be cleared", async () => {
 		const cases: readonly {
 			readonly slot: string;

@@ -54,6 +54,7 @@ import {
 	PopoverContent,
 	PopoverTrigger,
 } from "@/components/shadcn/popover";
+import { caseOperationTargetTypeAfter } from "@/lib/doc/caseOperationIntents";
 import type { CaseOperationMoveVerdict } from "@/lib/doc/caseOperationReview";
 import {
 	useModuleCaseType,
@@ -70,11 +71,7 @@ import { useCanEdit } from "@/lib/session/hooks";
 import { CaseOperationRow } from "./CaseOperationRow";
 import { planKeyboardMove, type ReorderKey } from "./keyboardMove";
 import { moveRefusalReason } from "./refusalCopy";
-import {
-	type CaseOperationSeedKind,
-	seedCaseOperation,
-	takenOperationIds,
-} from "./seeds";
+import { seedCaseOperation, takenOperationIds } from "./seeds";
 import { useOperationSentenceContext } from "./useOperationSentenceContext";
 
 const CONTAINER_KIND = "case-operations";
@@ -210,8 +207,7 @@ export function CaseOperationsCanvas({
 		setRefusal(undefined);
 	};
 
-	const add = (seed: CaseOperationSeedKind) => {
-		const operation = seedCaseOperation(seed, takenOperationIds(operations));
+	const add = (operation: CaseOperation) => {
 		const outcome = view.add(operation);
 		setAddOpen(false);
 		if (!outcome.ok) {
@@ -363,6 +359,8 @@ export function CaseOperationsCanvas({
 			{canEdit && (
 				<AddChangeControl
 					moduleUuid={moduleUuid}
+					operations={operations}
+					addVerdict={view.addVerdict}
 					open={addOpen}
 					onOpenChange={setAddOpen}
 					onAdd={add}
@@ -407,6 +405,10 @@ function OperationDragPreview({ label }: { readonly label: string }) {
 	);
 }
 
+type SessionChangeChoice =
+	| { readonly available: true; readonly operation: CaseOperation }
+	| { readonly available: false; readonly reason: string };
+
 /**
  * Adding is chooser-first: the question is what the change DOES, because
  * that answer decides the action, the target, and which facets are legal.
@@ -414,24 +416,74 @@ function OperationDragPreview({ label }: { readonly label: string }) {
  */
 function AddChangeControl({
 	moduleUuid,
+	operations,
+	addVerdict,
 	open,
 	onOpenChange,
 	onAdd,
 }: {
 	readonly moduleUuid: Uuid;
+	readonly operations: readonly CaseOperation[];
+	readonly addVerdict: ReturnType<typeof useCaseOperations>["addVerdict"];
 	readonly open: boolean;
 	readonly onOpenChange: (open: boolean) => void;
-	readonly onAdd: (seed: CaseOperationSeedKind) => void;
+	readonly onAdd: (operation: CaseOperation) => void;
 }) {
 	const [mode, setMode] = useState<"intent" | "create-type">("intent");
 	const moduleCaseType = useModuleCaseType(moduleUuid);
 	const sessionAvailable = useModuleSelectsCaseFirst(moduleUuid);
-	const sessionReason = sessionAvailable
-		? moduleCaseType !== undefined &&
-			RESERVED_CASE_OPERATION_TYPES.has(moduleCaseType)
-			? "This case type is managed by the platform and cannot be changed here"
-			: undefined
-		: "This module does not choose a case before opening its forms, so there is no case in hand to change";
+	const sessionCaseType =
+		sessionAvailable && moduleCaseType !== undefined
+			? caseOperationTargetTypeAfter(
+					operations,
+					{ kind: "session" },
+					moduleCaseType,
+				)
+			: undefined;
+	const sessionReason = !sessionAvailable
+		? "This module does not choose a case before opening its forms, so there is no case in hand to change"
+		: sessionCaseType === undefined
+			? "Nova cannot determine which kind of case this form has in hand at this point"
+			: RESERVED_CASE_OPERATION_TYPES.has(sessionCaseType)
+				? "This case type is managed by the platform and cannot be changed here"
+				: undefined;
+	const sessionChoices = useMemo<{
+		readonly update: SessionChangeChoice;
+		readonly close: SessionChangeChoice;
+	}>(() => {
+		if (sessionReason !== undefined || sessionCaseType === undefined) {
+			const reason =
+				sessionReason ??
+				"Nova cannot determine which kind of case this form has in hand at this point";
+			return {
+				update: { available: false, reason },
+				close: { available: false, reason },
+			};
+		}
+		const takenIds = takenOperationIds(operations);
+		const choice = (
+			kind: "update-session" | "close-session",
+		): SessionChangeChoice => {
+			const operation = seedCaseOperation(
+				{ kind, caseType: sessionCaseType },
+				takenIds,
+			);
+			const verdict = addVerdict(operation);
+			return verdict.ok
+				? { available: true, operation }
+				: { available: false, reason: verdict.reason };
+		};
+		return {
+			update: choice("update-session"),
+			close: choice("close-session"),
+		};
+	}, [addVerdict, operations, sessionCaseType, sessionReason]);
+	const updateSessionReason = sessionChoices.update.available
+		? undefined
+		: sessionChoices.update.reason;
+	const closeSessionReason = sessionChoices.close.available
+		? undefined
+		: sessionChoices.close.reason;
 
 	return (
 		<Popover
@@ -463,7 +515,22 @@ function AddChangeControl({
 						</p>
 						<CaseTypePickerContent
 							exclude={RESERVED_CASE_OPERATION_TYPES}
-							onChange={(caseType) => onAdd({ kind: "create", caseType })}
+							choiceVerdict={(caseType) =>
+								addVerdict(
+									seedCaseOperation(
+										{ kind: "create", caseType },
+										takenOperationIds(operations),
+									),
+								)
+							}
+							onChange={(caseType) =>
+								onAdd(
+									seedCaseOperation(
+										{ kind: "create", caseType },
+										takenOperationIds(operations),
+									),
+								)
+							}
 						/>
 						<Button
 							type="button"
@@ -488,26 +555,29 @@ function AddChangeControl({
 							icon={tablerPencil}
 							title="Update the case this form opened"
 							detail={
-								sessionReason ?? "Save answers onto the case already in hand"
+								updateSessionReason ??
+								"Save answers onto the case already in hand"
 							}
-							disabledReason={sessionReason}
-							onClick={() =>
-								moduleCaseType !== undefined &&
-								onAdd({ kind: "update-session", caseType: moduleCaseType })
-							}
+							disabledReason={updateSessionReason}
+							onClick={() => {
+								if (sessionChoices.update.available) {
+									onAdd(sessionChoices.update.operation);
+								}
+							}}
 						/>
 						<IntentRow
 							icon={tablerCircleX}
 							title="Close the case this form opened"
 							detail={
-								sessionReason ??
+								closeSessionReason ??
 								"Finish the case in hand; it can still save final answers"
 							}
-							disabledReason={sessionReason}
-							onClick={() =>
-								moduleCaseType !== undefined &&
-								onAdd({ kind: "close-session", caseType: moduleCaseType })
-							}
+							disabledReason={closeSessionReason}
+							onClick={() => {
+								if (sessionChoices.close.available) {
+									onAdd(sessionChoices.close.operation);
+								}
+							}}
 						/>
 					</div>
 				)}

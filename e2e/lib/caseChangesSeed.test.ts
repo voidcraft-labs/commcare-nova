@@ -12,9 +12,15 @@
 
 import { describe, expect, it } from "vitest";
 import { runValidation } from "@/lib/commcare/validator/runner";
+import { caseOperationTargetTypeAfter } from "@/lib/doc/caseOperationIntents";
 import { caseOperationMoveVerdicts } from "@/lib/doc/caseOperationReview";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { orderedCaseOperations } from "@/lib/domain";
+import {
+	type LookupColumnId,
+	type LookupTableId,
+	orderedCaseOperations,
+} from "@/lib/domain";
+import { parseLookupRevision } from "@/lib/lookup/schema";
 import {
 	buildCaseChangesBlueprint,
 	CASE_CHANGES_SEED,
@@ -22,16 +28,63 @@ import {
 
 const doc = buildCaseChangesBlueprint();
 const { formUuid, operations, ids } = CASE_CHANGES_SEED;
+const TABLE = "018f3e8a-7b2c-7def-8abc-1234567890ab" as LookupTableId;
+const COLUMN = "018f3e8a-7b2c-7def-8abc-1234567890ad" as LookupColumnId;
 
 describe("the case-changes smoke fixture", () => {
 	it("installs a valid app", () => {
 		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 	});
 
-	it("lists its three changes in the order the journey reads them", () => {
+	it("lists its changes in the order the journey reads them", () => {
 		expect(
 			orderedCaseOperations(doc.forms[formUuid] ?? {}).map((op) => op.id),
-		).toEqual([ids.create, ids.note, ids.file]);
+		).toEqual([ids.create, ids.note, ids.file, ids.retype]);
+	});
+
+	it("ends with the session case retyped for insertion coverage", () => {
+		expect(
+			caseOperationTargetTypeAfter(
+				orderedCaseOperations(doc.forms[formUuid] ?? {}),
+				{ kind: "session" },
+				CASE_CHANGES_SEED.caseType,
+			),
+		).toBe("visit");
+	});
+
+	it("can install one valid dormant lookup carrier for the browser journey", () => {
+		const withLookup = buildCaseChangesBlueprint("test-app", {
+			tableId: TABLE,
+			columnId: COLUMN,
+		});
+		expect(
+			runValidation(withLookup, {
+				kind: "available",
+				projectId: "smoke-project",
+				projectRevision: parseLookupRevision("1"),
+				definitions: [
+					{
+						id: TABLE,
+						name: "Smoke flags",
+						tag: "smoke_flags",
+						definitionRevision: parseLookupRevision("1"),
+						columns: [
+							{
+								id: COLUMN,
+								wireName: "status",
+								label: "Status",
+								dataType: "text",
+							},
+						],
+					},
+				],
+			}),
+		).toEqual([]);
+		expect(
+			orderedCaseOperations(withLookup.forms[formUuid] ?? {}).map(
+				(operation) => operation.id,
+			),
+		).toEqual([ids.create, ids.note, ids.file, ids.dormant, ids.retype]);
 	});
 
 	it("refuses moving the consumer ahead of the create it consumes", () => {

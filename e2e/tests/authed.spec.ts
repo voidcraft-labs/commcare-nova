@@ -4,6 +4,7 @@ import type { Page } from "@playwright/test";
 import { CROSS_PROJECT_MOVE_DISCLOSURE } from "../../lib/projects/moveTargets";
 import { CASE_CHANGES_SEED } from "../lib/caseChangesSeed";
 import { CASE_WORKSPACE_SEED } from "../lib/caseWorkspaceSeed";
+import { attachErrorGuard } from "../lib/errorGuard";
 import { expect, test } from "../lib/fixtures";
 
 /**
@@ -53,6 +54,7 @@ interface SeedManifest {
 	caseChanges: {
 		appId: string;
 		route: string;
+		viewerStateFile: string;
 	};
 }
 
@@ -1494,8 +1496,10 @@ test.describe("authenticated builder", () => {
 		});
 	});
 
-	test("a refused keyboard reorder of a case change says why, and names it", async ({
+	test("case changes add, retarget, preserve dormant logic, and stay navigable to viewers", async ({
 		page,
+		browser,
+		baseURL,
 	}) => {
 		test.setTimeout(120_000);
 		await page.goto(seed.caseChanges.route);
@@ -1509,7 +1513,7 @@ test.describe("authenticated builder", () => {
 			name: "Case changes in the order they happen",
 		});
 		const rows = list.getByRole("listitem");
-		await expect(rows).toHaveCount(3);
+		await expect(rows).toHaveCount(5);
 		await expect(rows.nth(0)).toContainText("Create a new referral case");
 		await expect(rows.nth(2)).toContainText(
 			`Update the referral case from \u201c${CASE_CHANGES_SEED.ids.create}\u201d`,
@@ -1518,7 +1522,7 @@ test.describe("authenticated builder", () => {
 		// The handle is the keyboard alternative to dragging, and its name
 		// states where in the sequence this change is.
 		const fileHandle = page.getByRole("button", {
-			name: new RegExp(`^Move ${CASE_CHANGES_SEED.ids.file}\\. Runs 3 of 3`),
+			name: new RegExp(`^Move ${CASE_CHANGES_SEED.ids.file}\\. Runs 3 of 5`),
 		});
 		await fileHandle.focus();
 
@@ -1526,7 +1530,9 @@ test.describe("authenticated builder", () => {
 		// planner refuses, and the refusal NAMES the change it is about
 		// rather than the key silently doing nothing.
 		await page.keyboard.press("Home");
-		const refusal = page.getByRole("alert");
+		const refusal = page
+			.getByRole("alert")
+			.filter({ hasText: `${CASE_CHANGES_SEED.ids.file} did not move` });
 		await expect(refusal).toContainText(
 			`${CASE_CHANGES_SEED.ids.file} did not move`,
 		);
@@ -1544,15 +1550,115 @@ test.describe("authenticated builder", () => {
 
 		// The same keyboard path still moves a change nothing depends on.
 		const noteHandle = page.getByRole("button", {
-			name: new RegExp(`^Move ${CASE_CHANGES_SEED.ids.note}\\. Runs 2 of 3`),
+			name: new RegExp(`^Move ${CASE_CHANGES_SEED.ids.note}\\. Runs 2 of 5`),
 		});
 		await noteHandle.focus();
 		await page.keyboard.press("ArrowUp");
 		await expect(
 			page.getByRole("button", {
-				name: new RegExp(`^Move ${CASE_CHANGES_SEED.ids.note}\\. Runs 1 of 3`),
+				name: new RegExp(`^Move ${CASE_CHANGES_SEED.ids.note}\\. Runs 1 of 5`),
 			}),
 		).toBeVisible();
+
+		await test.step("retargeting across case types commits target and proven type together", async () => {
+			await page
+				.locator(
+					`[data-case-operation-select="${CASE_CHANGES_SEED.operations.file}"]`,
+				)
+				.click();
+			await expect(
+				page.getByRole("heading", {
+					name: new RegExp(
+						`Update the referral case from .${CASE_CHANGES_SEED.ids.create}.`,
+					),
+					level: 1,
+				}),
+			).toBeVisible();
+
+			const target = page.getByRole("button", {
+				name: new RegExp(
+					`^Which case: The case from .${CASE_CHANGES_SEED.ids.create}.`,
+				),
+			});
+			await target.click();
+			await page
+				.getByRole("menuitem", {
+					name: /The case this form opened/,
+				})
+				.click();
+			await expect(
+				page.getByRole("button", { name: "Kind of case: Patient" }),
+			).toBeVisible();
+			await expect(
+				page.getByRole("button", {
+					name: "Which case: The case this form opened",
+				}),
+			).toBeVisible();
+
+			await page
+				.getByRole("button", {
+					name: "Which case: The case this form opened",
+				})
+				.click();
+			await page
+				.getByRole("menuitem", {
+					name: new RegExp(`The case from .${CASE_CHANGES_SEED.ids.create}.`),
+				})
+				.click();
+			await expect(
+				page.getByRole("button", { name: "Kind of case: Referral" }),
+			).toBeVisible();
+		});
+
+		await test.step("a persisted lookup-bearing change opens but remains safely read-only", async () => {
+			await page.getByRole("button", { name: "All case changes" }).click();
+			await page
+				.locator(
+					`[data-case-operation-select="${CASE_CHANGES_SEED.operations.dormant}"]`,
+				)
+				.click();
+			const notes = page
+				.getByRole("note")
+				.filter({ hasText: "uses lookup-table logic" });
+			await expect(notes).toHaveCount(2);
+			await expect(
+				page.getByRole("button", { name: "Kind of case: Patient" }),
+			).toBeDisabled();
+			await expect(
+				page.getByRole("button", {
+					name: "Which case: The case this form opened",
+				}),
+			).toBeDisabled();
+
+			await page.getByRole("button", { name: "All case changes" }).click();
+			await expect(
+				page.getByRole("button", {
+					name: new RegExp(
+						`^Move ${CASE_CHANGES_SEED.ids.dormant}\\. Runs 4 of 5`,
+					),
+				}),
+			).toBeVisible();
+		});
+
+		await test.step("adding after a session retype uses the rolling case type", async () => {
+			await page.getByRole("button", { name: "Add a change" }).click();
+			await page
+				.getByRole("button", {
+					name: "Update the case this form opened Save answers onto the case already in hand",
+					exact: true,
+				})
+				.click();
+			await expect(
+				page.getByRole("heading", {
+					name: "Update the case this form opened",
+					level: 1,
+				}),
+			).toBeVisible();
+			await expect(
+				page.getByRole("button", { name: "Kind of case: Visit" }),
+			).toBeVisible();
+			await page.getByRole("button", { name: "All case changes" }).click();
+		});
 
 		// Preview from a configuration URL runs the form the changes belong
 		// to, and leaves the authoring URL alone so exiting returns here.
@@ -1565,6 +1671,52 @@ test.describe("authenticated builder", () => {
 		await expect(
 			page.getByRole("heading", { name: "Case changes", level: 1 }),
 		).toBeVisible();
+
+		await test.step("a viewer can still open and inspect a case change", async () => {
+			const viewerContext = await browser.newContext({
+				baseURL: baseURL ?? undefined,
+				storageState: seed.caseChanges.viewerStateFile,
+			});
+			const viewerPage = await viewerContext.newPage();
+			const viewerGuard = attachErrorGuard(viewerPage, baseURL);
+			try {
+				await viewerPage.goto(seed.caseChanges.route);
+				await expect(
+					viewerPage.getByRole("heading", {
+						name: "Case changes",
+						level: 1,
+					}),
+				).toBeVisible({ timeout: 20_000 });
+				await expect(
+					viewerPage.getByRole("button", { name: /^Move / }),
+				).toHaveCount(0);
+				await expect(
+					viewerPage.getByRole("button", { name: "Add a change" }),
+				).toHaveCount(0);
+
+				const openFile = viewerPage.locator(
+					`[data-case-operation-select="${CASE_CHANGES_SEED.operations.file}"]`,
+				);
+				await expect(openFile).toBeVisible();
+				await openFile.click();
+				await expect(
+					viewerPage.getByRole("heading", {
+						name: new RegExp(
+							`Update the referral case from .${CASE_CHANGES_SEED.ids.create}.`,
+						),
+						level: 1,
+					}),
+				).toBeVisible();
+				await expect(
+					viewerPage.getByRole("button", {
+						name: "Kind of case: Referral",
+					}),
+				).toBeDisabled();
+				viewerGuard.assertNoErrors();
+			} finally {
+				await viewerContext.close();
+			}
+		});
 	});
 
 	test("/build/new renders the new-app builder (no LLM)", async ({ page }) => {

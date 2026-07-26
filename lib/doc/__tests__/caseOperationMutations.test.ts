@@ -172,6 +172,43 @@ describe("case-operation mutation planning", () => {
 		);
 	});
 
+	it("applies a cross-type retarget as one scalar patch and one reducer state", () => {
+		const { doc, formUuid } = fixture();
+		const create = createOperation();
+		const consumer = consumerOperation();
+		(doc.forms[formUuid] as Form).caseOperations = [create, consumer];
+		const desired: CaseOperation = {
+			...consumer,
+			caseType: "patient",
+			target: { kind: "session" },
+		};
+
+		const mutations = updateCaseOperationMutations(doc, formUuid, desired);
+		const operationUpdates = mutations.filter(
+			(mutation) =>
+				mutation.kind === "updateForm" &&
+				mutation.caseOperationPatch?.operation === "update",
+		);
+		expect(operationUpdates).toHaveLength(1);
+		expect(operationUpdates[0]).toMatchObject({
+			caseOperationPatch: {
+				operation: "update",
+				uuid: CONSUMER,
+				patch: {
+					caseType: "patient",
+					target: { kind: "session" },
+				},
+			},
+		});
+
+		const committed = apply(doc, mutations);
+		expect(
+			committed.forms[formUuid].caseOperations?.find(
+				(operation) => operation.uuid === CONSUMER,
+			),
+		).toEqual(desired);
+	});
+
 	it("composes stale peer edits to different operation slots", () => {
 		const { doc, formUuid } = fixture();
 		(doc.forms[formUuid] as Form).caseOperations = [createOperation()];

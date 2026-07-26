@@ -46,6 +46,7 @@ import {
 import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
 import { appendThreadResponse, upsertThreadTurn } from "@/lib/db/threads";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { createLookupTable } from "@/lib/lookup/service";
 import {
 	buildCaseChangesBlueprint,
 	CASE_CHANGES_SEED,
@@ -66,6 +67,9 @@ export const SEED = {
 	userId: "smoke-user",
 	userEmail: "smoke@dimagi.com",
 	userName: "Smoke Test User",
+	viewerUserId: "smoke-viewer",
+	viewerUserEmail: "smoke-viewer@dimagi.com",
+	viewerUserName: "Smoke Test Viewer",
 	openAppName: "Smoke — Open Me",
 	deleteAppName: "Smoke — Delete Me",
 	/** Cross-Project move journey: one app plus a second Project the seeded user
@@ -99,6 +103,7 @@ const MOVE_DESTINATION_SLUG = `move-destination-${SEED.userId}`;
 
 const AUTH_DIR = path.join(process.cwd(), "e2e", ".auth");
 const STATE_FILE = path.join(AUTH_DIR, "state.json");
+const VIEWER_STATE_FILE = path.join(AUTH_DIR, "state-viewer.json");
 const SEED_FILE = path.join(AUTH_DIR, "seed.json");
 /** The two-user multiplayer fixture manifest (`multiplayer.spec.ts` reads it). */
 const MULTIPLAYER_FILE = path.join(AUTH_DIR, "multiplayer.json");
@@ -210,6 +215,7 @@ function requireEnv(name: string): string {
 async function clearSeedAuthRows(pool: Pool): Promise<void> {
 	const userIds = [
 		SEED.userId,
+		SEED.viewerUserId,
 		MP_SEED.userA.id,
 		MP_SEED.userB.id,
 		MP_SEED.userC.id,
@@ -293,6 +299,7 @@ async function main(): Promise<void> {
 	const now = new Date();
 	// Opaque secret shared between the session row and the cookie.
 	const token = randomBytes(32).toString("hex");
+	const viewerToken = randomBytes(32).toString("hex");
 	const expiresAt = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000);
 
 	// Auth state → Postgres, written through Better Auth's own adapter (same
@@ -339,11 +346,49 @@ async function main(): Promise<void> {
 			userAgent: "smoke-test",
 		},
 	});
+	await ctx.adapter.create({
+		model: "user",
+		forceAllowId: true,
+		data: {
+			id: SEED.viewerUserId,
+			name: SEED.viewerUserName,
+			email: SEED.viewerUserEmail,
+			emailVerified: true,
+			image: null,
+			role: "user",
+			banned: false,
+			createdAt: now,
+			updatedAt: now,
+			lastActiveAt: now,
+		},
+	});
+	await ctx.adapter.create({
+		model: "session",
+		data: {
+			token: viewerToken,
+			userId: SEED.viewerUserId,
+			expiresAt,
+			createdAt: now,
+			updatedAt: now,
+			ipAddress: "",
+			userAgent: "smoke-test-viewer",
+		},
+	});
 
 	// Personal Project for the seeded user — apps are tenant-scoped by it and the
 	// listing reads (P2) query by project_id, so the seeded apps must carry the
 	// same Project the user's session resolves to.
 	const seedProjectId = await ensurePersonalProject(SEED.userId);
+	await ensurePersonalProject(SEED.viewerUserId);
+	await ctx.adapter.create({
+		model: "member",
+		data: {
+			organizationId: seedProjectId,
+			userId: SEED.viewerUserId,
+			role: "viewer",
+			createdAt: now,
+		},
+	});
 
 	// App state → Postgres, via the real no-LLM create path (status
 	// `complete`), one throwaway "delete me" app per possible Playwright attempt.
@@ -410,15 +455,43 @@ async function main(): Promise<void> {
 		randomUUID(),
 		{ appName: CASE_CHANGES_SEED.appName, status: "complete" },
 	);
+	const caseChangesLookup = await createLookupTable(
+		{
+			projectId: seedProjectId,
+			actorId: SEED.userId,
+			role: "owner",
+		},
+		{
+			name: "Case change flags",
+			tag: "case_change_flags",
+			columns: [
+				{
+					wireName: "status",
+					label: "Status",
+					dataType: "text",
+				},
+			],
+		},
+	);
+	const caseChangesLookupColumn = caseChangesLookup.columns[0];
+	if (caseChangesLookupColumn === undefined) {
+		throw new Error("e2e/seed.ts: case-change lookup seeded no column");
+	}
 	await appendSyntheticBatch({
 		appId: caseChangesAppId,
 		expectedBaseSeq: 0,
-		targetDoc: toPersistableDoc(buildCaseChangesBlueprint()),
+		targetDoc: toPersistableDoc(
+			buildCaseChangesBlueprint(caseChangesAppId, {
+				tableId: caseChangesLookup.id,
+				columnId: caseChangesLookupColumn.id,
+			}),
+		),
 		authority: { kind: "user", actorUserId: SEED.userId },
 	});
 	const caseChanges = {
 		appId: caseChangesAppId,
 		route: caseChangesRoute(caseChangesAppId),
+		viewerStateFile: VIEWER_STATE_FILE,
 	};
 
 	/* The conversations fixture: a module-bearing app (docked chat) plus two
@@ -676,8 +749,17 @@ async function main(): Promise<void> {
 	// Emit storageState (consumed by the `authed` Playwright project) + a seed
 	// manifest the tests read for the concrete ids.
 	const storageState = buildSessionStorageState({ token, secret, baseUrl });
+	const viewerStorageState = buildSessionStorageState({
+		token: viewerToken,
+		secret,
+		baseUrl,
+	});
 	await mkdir(AUTH_DIR, { recursive: true });
 	await writeFile(STATE_FILE, JSON.stringify(storageState, null, 2));
+	await writeFile(
+		VIEWER_STATE_FILE,
+		JSON.stringify(viewerStorageState, null, 2),
+	);
 	await writeFile(
 		SEED_FILE,
 		JSON.stringify(
@@ -714,7 +796,7 @@ async function main(): Promise<void> {
 	await writeFile(MULTIPLAYER_FILE, JSON.stringify(multiplayer, null, 2));
 
 	console.log(
-		`[seed] user=${SEED.userId} openApp=${openAppId} deleteApps=${deleteAppIds.length}\n[seed] caseWorkspace app=${caseWorkspace.appId} cases=${caseWorkspace.caseCount} results=${caseWorkspace.routes.results}\n[seed] wrote ${path.relative(process.cwd(), STATE_FILE)} + ${path.relative(process.cwd(), SEED_FILE)}\n[seed] multiplayer app=${multiplayer.appId} project=shared users=${multiplayer.userA.id},${multiplayer.userB.id}`,
+		`[seed] user=${SEED.userId} viewer=${SEED.viewerUserId} openApp=${openAppId} deleteApps=${deleteAppIds.length}\n[seed] caseWorkspace app=${caseWorkspace.appId} cases=${caseWorkspace.caseCount} results=${caseWorkspace.routes.results}\n[seed] wrote ${path.relative(process.cwd(), STATE_FILE)} + ${path.relative(process.cwd(), VIEWER_STATE_FILE)} + ${path.relative(process.cwd(), SEED_FILE)}\n[seed] multiplayer app=${multiplayer.appId} project=shared users=${multiplayer.userA.id},${multiplayer.userB.id}`,
 	);
 
 	// Release the pg pool so the process exits promptly — an open pool would

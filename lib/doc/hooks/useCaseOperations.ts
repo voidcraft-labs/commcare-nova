@@ -27,6 +27,7 @@ import {
 	addCaseOperationMutations,
 	type CaseOperationEditVerdict,
 	type CaseOperationMutationPlan,
+	caseOperationAddVerdict,
 	caseOperationAuthoringVerdict,
 	caseOperationEditVerdict,
 	moveCaseOperationMutation,
@@ -67,6 +68,11 @@ export interface CaseOperationsView {
 	readonly removalPlan: (uuid: Uuid) => CaseOperationMutationPlan;
 	/** Whether one complete edited shape can pass the shared commit gate. */
 	readonly editVerdict: (operation: CaseOperation) => CaseOperationEditVerdict;
+	/** Whether one complete insertion can pass the shared commit gate. */
+	readonly addVerdict: (
+		operation: CaseOperation,
+		index?: number,
+	) => CaseOperationEditVerdict;
 	/** Whether this operation's full author shape is available on all editors.
 	 * Moving is separate and remains available for a read-only carrier. */
 	readonly authoringVerdict: (uuid: Uuid) => CaseOperationEditVerdict;
@@ -155,6 +161,11 @@ export function useCaseOperations(formUuid: Uuid): CaseOperationsView {
 	const editVerdict = useCallback(
 		(operation: CaseOperation) =>
 			caseOperationEditVerdict(doc, formUuid, operation),
+		[doc, formUuid],
+	);
+	const addVerdict = useCallback(
+		(operation: CaseOperation, index?: number) =>
+			caseOperationAddVerdict(doc, formUuid, operation, index),
 		[doc, formUuid],
 	);
 	const authoringVerdict = useCallback(
@@ -278,6 +289,7 @@ export function useCaseOperations(formUuid: Uuid): CaseOperationsView {
 		moveVerdicts,
 		removalPlan,
 		editVerdict,
+		addVerdict,
 		authoringVerdict,
 		add,
 		update,

@@ -255,13 +255,20 @@ delete that would bounce. Inline confirmations use `useInlineConfirmFocus`.
 Every candidate in the action, case-type, target, identity-key, multiplicity,
 retype, and link-type menus asks `view.editVerdict`; a stranded downstream
 consumer therefore disables the exact choice with the planner's reason instead
-of allowing a commit-gate bounce. A saved lookup-carrier-bearing operation is
+of allowing a commit-gate bounce. Choosing a different known target is one
+`retargetCaseOperation` transformation: target identity and the type established
+by all earlier creates/retypes change in the same gated operation patch, while
+every other facet stays intact for the verdict to adjudicate. Update/close adds
+at the end use that same rolling session-type projection and `addVerdict`, never
+the module's stale original type. A saved lookup-carrier-bearing operation is
 persistently read-only in both the rail and canvas with the shared carrier
 reason; callbacks also fail closed before dispatch. It remains visible and
 movable because the move envelope never serializes its hidden AST. Selecting an
 already-active target dispatches nothing and uses the exact current value while
 computing its verdict, so a new target's `idFrom` and an expression target's AST
-cannot be replaced by the menu seed.
+cannot be replaced by the menu seed. Viewer rows remain navigation buttons:
+details and previous/next traversal are view capability, while handles, add,
+remove, and every authored control remain edit capability.
 
 `useCaseOperations` treats the render snapshot as intent, never as commit state.
 Every callback reads `docApi.getState()` at invocation. Full-shape edits rebase

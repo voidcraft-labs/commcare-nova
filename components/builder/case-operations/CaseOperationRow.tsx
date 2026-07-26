@@ -119,11 +119,9 @@ export function CaseOperationRow({
 	return (
 		<div
 			data-case-operation-row={operation.uuid}
-			className={`group/operation flex min-h-16 items-stretch overflow-hidden rounded-xl border transition-colors ${
-				canEdit
-					? "border-white/[0.07] bg-nova-deep/35 hover:border-nova-border-bright hover:bg-white/[0.025]"
-					: "border-white/[0.07] bg-nova-deep/35"
-			} ${beingMoved ? "opacity-50" : ""}`}
+			className={`group/operation flex min-h-16 items-stretch overflow-hidden rounded-xl border border-white/[0.07] bg-nova-deep/35 transition-colors hover:border-nova-border-bright hover:bg-white/[0.025] ${
+				beingMoved ? "opacity-50" : ""
+			}`}
 		>
 			{canEdit && (
 				<SimpleTooltip content="Drag or use arrow keys" side="left">
@@ -153,22 +151,16 @@ export function CaseOperationRow({
 				</SimpleTooltip>
 			)}
 
-			{canEdit ? (
-				<Button
-					type="button"
-					variant="ghost"
-					onClick={onSelect}
-					aria-label={`${spoken}. Open this change.`}
-					data-case-operation-select={operation.uuid}
-					className="h-auto min-w-0 flex-1 justify-start rounded-none px-4 py-3 text-left whitespace-normal active:not-aria-[haspopup]:translate-y-0 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-nova-violet not-disabled:hover:bg-transparent dark:not-disabled:hover:bg-transparent"
-				>
-					{body}
-				</Button>
-			) : (
-				<div className="flex min-w-0 flex-1 items-center px-4 py-3 text-left">
-					{body}
-				</div>
-			)}
+			<Button
+				type="button"
+				variant="ghost"
+				onClick={onSelect}
+				aria-label={`${spoken}. Open this change.`}
+				data-case-operation-select={operation.uuid}
+				className="h-auto min-w-0 flex-1 justify-start rounded-none px-4 py-3 text-left whitespace-normal active:not-aria-[haspopup]:translate-y-0 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-nova-violet not-disabled:hover:bg-transparent dark:not-disabled:hover:bg-transparent"
+			>
+				{body}
+			</Button>
 		</div>
 	);
 }

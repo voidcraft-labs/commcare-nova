@@ -34,6 +34,10 @@ import {
 } from "@/components/shadcn/dropdown-menu";
 import { FieldError } from "@/components/shadcn/field";
 import {
+	caseOperationTargetTypeAfter,
+	retargetCaseOperation,
+} from "@/lib/doc/caseOperationIntents";
+import {
 	useModuleCaseType,
 	useModuleSelectsCaseFirst,
 } from "@/lib/doc/hooks/useCaseOperationFacts";
@@ -109,41 +113,35 @@ export function CaseOperationInspectorBody({
 	const sessionUnavailableReason = caseFirst
 		? undefined
 		: "This module does not choose a case before opening its forms, so there is no case in hand";
+	const initialSessionCaseType = caseFirst ? moduleCaseType : undefined;
 
+	const precedingOperations = useMemo(
+		() => operations.slice(0, index < 0 ? 0 : index),
+		[operations, index],
+	);
 	const priorCreates = useMemo(() => {
-		const ordered = operations.slice(0, index < 0 ? 0 : index);
-		const rollingTypes = new Map<Uuid, string>();
-		for (const candidate of ordered) {
-			if (candidate.action === "create") {
-				rollingTypes.set(candidate.uuid, candidate.caseType);
-				continue;
-			}
-			if (candidate.target.kind === "op" && candidate.retype !== undefined) {
-				rollingTypes.set(candidate.target.opUuid, candidate.retype);
-			}
-		}
-		return ordered
+		return precedingOperations
 			.filter((candidate) => candidate.action === "create")
 			.map((candidate) => ({
 				uuid: candidate.uuid,
 				label: candidate.id,
-				caseType: rollingTypes.get(candidate.uuid) ?? candidate.caseType,
+				caseType:
+					caseOperationTargetTypeAfter(
+						precedingOperations,
+						{ kind: "op", opUuid: candidate.uuid },
+						initialSessionCaseType,
+					) ?? candidate.caseType,
 			}));
-	}, [operations, index]);
+	}, [initialSessionCaseType, precedingOperations]);
 
 	const rollingSessionCaseType = useMemo(() => {
-		if (!caseFirst || moduleCaseType === undefined) return undefined;
-		let current = moduleCaseType;
-		for (const candidate of operations.slice(0, index < 0 ? 0 : index)) {
-			if (
-				candidate.target.kind === "session" &&
-				candidate.retype !== undefined
-			) {
-				current = candidate.retype;
-			}
-		}
-		return current;
-	}, [caseFirst, index, moduleCaseType, operations]);
+		if (initialSessionCaseType === undefined) return undefined;
+		return caseOperationTargetTypeAfter(
+			precedingOperations,
+			{ kind: "session" },
+			initialSessionCaseType,
+		);
+	}, [initialSessionCaseType, precedingOperations]);
 
 	const repeats = useMemo(() => repeatFieldDecls(fieldEntries), [fieldEntries]);
 
@@ -161,6 +159,13 @@ export function CaseOperationInspectorBody({
 		const outcome = view.update(next);
 		setRefusal(outcome.ok ? undefined : outcome.messages.join(" "));
 	};
+	const retarget = (target: CaseTarget): CaseOperation =>
+		retargetCaseOperation(
+			operation,
+			target,
+			precedingOperations,
+			initialSessionCaseType,
+		);
 
 	const existingTargetFallbacks: {
 		readonly target: CaseTarget;
@@ -331,11 +336,11 @@ export function CaseOperationInspectorBody({
 										ok: false,
 										reason: "A case change must act on a case.",
 									}
-								: view.editVerdict({ ...operation, target })
+								: view.editVerdict(retarget(target))
 						}
 						onChange={(target) => {
 							if (target === null) return;
-							commit({ ...operation, target });
+							commit(retarget(target));
 						}}
 					/>
 				</Row>

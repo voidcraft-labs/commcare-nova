@@ -550,6 +550,51 @@ export function caseOperationEditVerdict(
 			};
 }
 
+/**
+ * The shared builder-choice oracle for one complete operation insertion.
+ *
+ * Add controls use this before enabling an intent, then the actual dispatch
+ * repeats the full commit gate against the invocation-time document. That
+ * keeps a rolling session retype or another ordering constraint from turning
+ * an enabled add action into an avoidable rejected commit.
+ */
+export function caseOperationAddVerdict(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	operation: CaseOperation,
+	index?: number,
+): CaseOperationEditVerdict {
+	const form = doc.forms[formUuid];
+	if (form === undefined) {
+		return {
+			ok: false,
+			reason: "This form is no longer part of the app.",
+		};
+	}
+	if (
+		(form.caseOperations ?? []).some(
+			(candidate) => candidate.uuid === operation.uuid,
+		)
+	) {
+		return {
+			ok: false,
+			reason:
+				"This case change was added elsewhere first. Review the latest list and try again.",
+		};
+	}
+	const verdict = mutationCommitVerdict(
+		doc,
+		addCaseOperationMutations(doc, formUuid, operation, index),
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
+	return verdict.ok
+		? { ok: true }
+		: {
+				ok: false,
+				reason: describeIntroducedErrors(verdict.introduced),
+			};
+}
+
 export function addCaseOperationMutations(
 	doc: BlueprintDoc,
 	formUuid: Uuid,

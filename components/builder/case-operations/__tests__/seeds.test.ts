@@ -10,7 +10,11 @@
 
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { addCaseOperationMutations } from "@/lib/doc/caseOperationMutations";
+import { caseOperationTargetTypeAfter } from "@/lib/doc/caseOperationIntents";
+import {
+	addCaseOperationMutations,
+	caseOperationAddVerdict,
+} from "@/lib/doc/caseOperationMutations";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { asUuid } from "@/lib/doc/types";
@@ -152,6 +156,61 @@ describe("case-operation seeds", () => {
 			);
 			expect(seeded.id).toBe(expected);
 			expect(isCaseOperationIdentifier(seeded.id)).toBe(true);
+		},
+	);
+
+	it.each(["update-session", "close-session"] as const)(
+		"seeds %s with the session type established by earlier retypes",
+		(kind) => {
+			const doc = buildDoc({
+				caseTypes: [
+					{ name: "patient", properties: [] },
+					{ name: "visit", properties: [] },
+				],
+				modules: [
+					{
+						name: "Patients",
+						caseType: "patient",
+						forms: [{ name: "Edit", type: "followup" }],
+					},
+				],
+			});
+			const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
+			const retype: CaseOperation = {
+				uuid: asUuid("66666666-6666-4666-8666-666666666666"),
+				id: "retype_patient",
+				order: "a",
+				action: "update",
+				caseType: "patient",
+				target: { kind: "session" },
+				retype: "visit",
+			};
+			doc.forms[formUuid].caseOperations = [retype];
+			const rollingType = caseOperationTargetTypeAfter(
+				[retype],
+				{ kind: "session" },
+				"patient",
+			);
+			expect(rollingType).toBe("visit");
+			const operation = seedCaseOperation(
+				{ kind, caseType: rollingType ?? "patient" },
+				takenOperationIds([retype]),
+			);
+
+			expect(operation.caseType).toBe("visit");
+			expect(caseOperationAddVerdict(doc, formUuid, operation)).toEqual({
+				ok: true,
+			});
+			expect(
+				caseOperationAddVerdict(
+					doc,
+					formUuid,
+					seedCaseOperation(
+						{ kind, caseType: "patient" },
+						takenOperationIds([retype]),
+					),
+				),
+			).toMatchObject({ ok: false });
 		},
 	);
 
