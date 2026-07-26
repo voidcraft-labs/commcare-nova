@@ -50,11 +50,20 @@ interface SignaturePadProps {
 	 * does not change when a surviving repeat row compacts. */
 	readonly slotKey?: string;
 	readonly questionLabelId?: string;
+	readonly questionLabelledBy?: string;
 	readonly questionLabel?: string;
 	/** Whether an upload is in flight. Deliberately NOT used to disable the
 	 *  drawing surface — see `SIGNATURE_SETTLE_MS`. */
 	readonly uploading: boolean;
+	readonly queued?: boolean;
+	/** A queued destructive clear owns this slot until its answer mutation
+	 * commits; new ink must not race behind it. */
+	readonly interactionBlocked?: boolean;
 	readonly hasAnswer: boolean;
+	readonly required?: boolean;
+	readonly invalid?: boolean;
+	readonly statusId?: string;
+	readonly describedBy?: string;
 	/** Fired once the worker has stopped drawing, with the pad's whole
 	 *  content as a PNG. */
 	readonly onDrawn: (
@@ -135,15 +144,24 @@ export function SignaturePad({
 	instancePath,
 	slotKey,
 	questionLabelId,
+	questionLabelledBy,
 	questionLabel,
 	uploading,
+	queued = false,
+	interactionBlocked = false,
 	hasAnswer,
+	required = false,
+	invalid = false,
+	statusId,
+	describedBy,
 	onDrawn,
 	onClear,
 	onEncodingError,
 }: SignaturePadProps) {
 	const canvasRef = useRef<HTMLCanvasElement>(null);
 	const instructionId = useId();
+	const clearActionId = useId();
+	const undoActionId = useId();
 	const fallbackSlotKeyRef = useRef(slotKey ?? instancePath);
 	const coordinationKey = slotKey ?? fallbackSlotKeyRef.current;
 	/** Completed strokes plus the one in progress, normalized to the canvas
@@ -155,6 +173,10 @@ export function SignaturePad({
 	const drawingRef = useRef(false);
 	/** Fences `canvas.toBlob` callbacks, which cannot themselves be aborted. */
 	const renderGenerationRef = useRef(0);
+	const canvasSizeRef = useRef<{ width: number; height: number } | undefined>(
+		undefined,
+	);
+	const scheduleEmitRef = useRef<(settleMs?: number) => void>(() => undefined);
 	const identityRef = useRef({ entryKey, slotKey: coordinationKey });
 	/**
 	 * The strokes the last Clear removed, kept so it can be undone.
@@ -178,6 +200,9 @@ export function SignaturePad({
 	const [empty, setEmpty] = useState(strokesRef.current.length === 0);
 	const clearPendingRef = useRef(false);
 	const [clearPending, setClearPending] = useState(false);
+	const [saveIntent, setSaveIntent] = useState<"idle" | "queued" | "saving">(
+		"idle",
+	);
 
 	const redraw = useCallback(() => {
 		const canvas = canvasRef.current;
@@ -185,6 +210,7 @@ export function SignaturePad({
 		if (!canvas || !ctx) return;
 		const ratio = window.devicePixelRatio || 1;
 		const { width, height } = canvas.getBoundingClientRect();
+		canvasSizeRef.current = { width, height };
 		if (
 			canvas.width !== Math.round(width * ratio) ||
 			canvas.height !== Math.round(height * ratio)
@@ -217,19 +243,46 @@ export function SignaturePad({
 	}, []);
 
 	useEffect(() => {
-		redraw();
-		const onResize = () => redraw();
+		const redrawForResize = () => {
+			const previous = canvasSizeRef.current;
+			redraw();
+			const next = canvasSizeRef.current;
+			if (
+				previous === undefined ||
+				next === undefined ||
+				(previous.width === next.width && previous.height === next.height) ||
+				strokesRef.current.length === 0 ||
+				drawingRef.current
+			) {
+				return;
+			}
+			// A PNG callback captures the old backing-store dimensions. Fence it
+			// immediately and enqueue one replacement encoding for this material
+			// box change. The dimension comparison coalesces window +
+			// ResizeObserver notifications for the same resize.
+			cancelAttachmentTask(entryKey, coordinationKey);
+			renderGenerationRef.current += 1;
+			markAttachmentNotReady(
+				entryKey,
+				coordinationKey,
+				"The resized signature is still being saved.",
+			);
+			setSaveIntent("queued");
+			scheduleEmitRef.current(0);
+		};
+		redrawForResize();
+		const onResize = () => redrawForResize();
 		const resizeObserver =
 			typeof ResizeObserver === "undefined"
 				? undefined
-				: new ResizeObserver(redraw);
+				: new ResizeObserver(redrawForResize);
 		if (canvasRef.current !== null) resizeObserver?.observe(canvasRef.current);
 		window.addEventListener("resize", onResize);
 		return () => {
 			resizeObserver?.disconnect();
 			window.removeEventListener("resize", onResize);
 		};
-	}, [redraw]);
+	}, [coordinationKey, entryKey, redraw]);
 
 	// A material identity change is a different worker/form entry. Local
 	// pixels must never project across it, even when React preserves this
@@ -252,6 +305,7 @@ export function SignaturePad({
 		setCleared(false);
 		clearPendingRef.current = false;
 		setClearPending(false);
+		setSaveIntent("idle");
 		setEmpty(strokesRef.current.length === 0);
 		redraw();
 	}, [entryKey, coordinationKey, redraw]);
@@ -283,12 +337,18 @@ export function SignaturePad({
 			if (!canvas) return;
 			const generation = ++renderGenerationRef.current;
 			const scheduledIdentity = { entryKey, slotKey: coordinationKey };
+			setSaveIntent("queued");
 			void runAttachmentTask({
 				entryKey,
 				slotKey: coordinationKey,
 				task: async (context) => {
 					try {
-						await waitForSignatureSettle(settleMs, context.signal);
+						setSaveIntent("saving");
+						if (settleMs > 0) {
+							await waitForSignatureSettle(settleMs, context.signal);
+						} else {
+							context.signal.throwIfAborted();
+						}
 						const blob = await signatureBlob(canvas, context.signal);
 						if (
 							!context.isCurrent() ||
@@ -319,6 +379,8 @@ export function SignaturePad({
 						onEncodingError?.(
 							"The signature couldn't be saved. Clear it or draw it again before submitting.",
 						);
+					} finally {
+						if (context.isCurrent()) setSaveIntent("idle");
 					}
 				},
 			}).catch((error: unknown) => {
@@ -330,9 +392,11 @@ export function SignaturePad({
 		},
 		[entryKey, coordinationKey, onDrawn, onEncodingError],
 	);
+	scheduleEmitRef.current = scheduleEmit;
 
 	const clear = useCallback(() => {
 		if (
+			interactionBlocked ||
 			clearPendingRef.current ||
 			(strokesRef.current.length === 0 && !hasAnswer)
 		) {
@@ -345,6 +409,7 @@ export function SignaturePad({
 		cancelAttachmentTask(entryKey, coordinationKey);
 		clearAttachmentNotReady(entryKey, coordinationKey);
 		renderGenerationRef.current += 1;
+		setSaveIntent("idle");
 		clearedRef.current =
 			strokesRef.current.length > 0 ? strokesRef.current : undefined;
 		setCleared(clearedRef.current !== undefined);
@@ -353,9 +418,17 @@ export function SignaturePad({
 		setEmpty(true);
 		redraw();
 		onClear();
-	}, [hasAnswer, entryKey, coordinationKey, redraw, onClear]);
+	}, [
+		interactionBlocked,
+		hasAnswer,
+		entryKey,
+		coordinationKey,
+		redraw,
+		onClear,
+	]);
 
 	const undo = useCallback(() => {
+		if (interactionBlocked) return;
 		const restored = clearedRef.current;
 		if (restored === undefined) return;
 		clearedRef.current = undefined;
@@ -375,26 +448,50 @@ export function SignaturePad({
 			"The restored signature is still being saved.",
 		);
 		scheduleEmit(0);
-	}, [entryKey, coordinationKey, redraw, scheduleEmit]);
+	}, [entryKey, coordinationKey, interactionBlocked, redraw, scheduleEmit]);
+
+	const effectiveLabelledBy = questionLabelledBy ?? questionLabelId;
+	const statusText =
+		queued || saveIntent === "queued"
+			? "Waiting to save signature…"
+			: uploading || saveIntent === "saving"
+				? "Saving signature…"
+				: interactionBlocked
+					? "Waiting to clear signature…"
+					: cleared
+						? "Signature cleared."
+						: hasAnswer
+							? "Signature saved."
+							: "Sign above.";
 
 	return (
 		<div className="space-y-2">
+			{/* biome-ignore lint/a11y/useSemanticElements: a signature is a required/invalid custom input, but a native text control cannot perform its pointer drawing interaction */}
 			<canvas
 				ref={canvasRef}
+				role="textbox"
+				tabIndex={0}
 				aria-label={
-					questionLabelId
+					effectiveLabelledBy
 						? undefined
 						: `${questionLabel ?? "Signature"}. Signature pad. Sign with a finger, stylus, or mouse.`
 				}
 				aria-labelledby={
-					questionLabelId ? `${questionLabelId} ${instructionId}` : undefined
+					effectiveLabelledBy
+						? `${effectiveLabelledBy} ${instructionId}`
+						: undefined
 				}
+				aria-describedby={describedBy}
+				aria-required={required}
+				aria-invalid={invalid}
 				data-instance-path={instancePath}
 				className="h-40 w-full touch-none rounded-lg border border-pv-input-border bg-white"
 				onPointerDown={(e) => {
+					if (interactionBlocked) return;
 					// No disabled check: the surface stays live even while an
 					// upload is in flight, so a worker can keep signing.
 					cancelAttachmentTask(entryKey, coordinationKey);
+					setSaveIntent("idle");
 					markAttachmentNotReady(
 						entryKey,
 						coordinationKey,
@@ -444,46 +541,67 @@ export function SignaturePad({
 			</span>
 			{/* The pad stays drawable while this shows — it reports progress,
 			    it does not gate the surface. */}
-			<div className="flex flex-wrap items-center gap-2">
-				<p
-					role="status"
-					aria-label={`${questionLabel ?? "Signature"} signature status`}
-					aria-live="polite"
-					className="text-xs text-nova-text-muted"
-				>
-					{uploading
-						? "Saving signature…"
-						: cleared
-							? "Signature cleared."
-							: hasAnswer
-								? "Signature saved."
-								: "Sign above."}
-				</p>
-				{cleared ? (
-					<button
-						type="button"
-						onClick={undo}
-						className="inline-flex min-h-12 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-nova-violet-bright transition-colors hover:text-nova-text"
-					>
-						<Icon
-							icon={tablerArrowBackUp}
-							width="14"
-							height="14"
-							aria-hidden="true"
-						/>
-						Undo
-					</button>
-				) : null}
-			</div>
-			<button
-				type="button"
-				onClick={clear}
-				disabled={empty && (!hasAnswer || clearPending)}
-				className="inline-flex min-h-12 items-center gap-2 rounded-md border border-pv-input-border bg-pv-surface px-4 text-sm font-medium text-nova-text transition-colors hover:border-pv-input-focus disabled:opacity-40"
+			<fieldset
+				aria-labelledby={effectiveLabelledBy}
+				aria-describedby={describedBy}
+				className="min-w-0 space-y-2"
 			>
-				<Icon icon={tablerX} width="16" height="16" aria-hidden="true" />
-				Clear signature
-			</button>
+				<div className="flex flex-wrap items-center gap-2">
+					<p
+						id={statusId}
+						role="status"
+						aria-label={
+							effectiveLabelledBy
+								? undefined
+								: `${questionLabel ?? "Signature"} signature status`
+						}
+						aria-labelledby={effectiveLabelledBy}
+						aria-live="polite"
+						className="text-xs text-nova-text-muted"
+					>
+						{statusText}
+					</p>
+					{cleared ? (
+						<button
+							type="button"
+							onClick={undo}
+							disabled={interactionBlocked}
+							aria-describedby={describedBy}
+							aria-labelledby={
+								effectiveLabelledBy
+									? `${undoActionId} ${effectiveLabelledBy}`
+									: undefined
+							}
+							className="inline-flex min-h-12 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-nova-violet-bright transition-colors hover:text-nova-text"
+						>
+							<Icon
+								icon={tablerArrowBackUp}
+								width="14"
+								height="14"
+								aria-hidden="true"
+							/>
+							<span id={undoActionId}>Undo</span>
+						</button>
+					) : null}
+				</div>
+				<button
+					type="button"
+					onClick={clear}
+					disabled={
+						interactionBlocked || (empty && (!hasAnswer || clearPending))
+					}
+					aria-describedby={describedBy}
+					aria-labelledby={
+						effectiveLabelledBy
+							? `${clearActionId} ${effectiveLabelledBy}`
+							: undefined
+					}
+					className="inline-flex min-h-12 items-center gap-2 rounded-md border border-pv-input-border bg-pv-surface px-4 text-sm font-medium text-nova-text transition-colors not-disabled:hover:border-pv-input-focus disabled:opacity-40"
+				>
+					<Icon icon={tablerX} width="16" height="16" aria-hidden="true" />
+					<span id={clearActionId}>Clear signature</span>
+				</button>
+			</fieldset>
 		</div>
 	);
 }

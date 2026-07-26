@@ -68,8 +68,20 @@ const SURVEY_FORM_UUID = asUuid("00000000-0000-0000-0000-000000000b04");
  *  short-circuit branch of `handleSubmit` that scrolls to the
  *  first invalid field WITHOUT firing `submitFormAction`. */
 const REQUIRED_FORM_UUID = asUuid("00000000-0000-0000-0000-000000000b05");
+const STRUCTURE_FORM_UUID = asUuid("00000000-0000-0000-0000-000000000b06");
+const CAPTURE_REQUIRED_FORM_UUID = asUuid(
+	"00000000-0000-0000-0000-000000000b07",
+);
 const FIELD_UUID = asUuid("00000000-0000-0000-0000-000000000c01");
 const FIELD_REQUIRED_UUID = asUuid("00000000-0000-0000-0000-000000000c02");
+const GROUP_ONE_UUID = asUuid("00000000-0000-0000-0000-000000000c11");
+const GROUP_TWO_UUID = asUuid("00000000-0000-0000-0000-000000000c12");
+const REPEAT_UUID = asUuid("00000000-0000-0000-0000-000000000c13");
+const GROUP_ONE_PHOTO_UUID = asUuid("00000000-0000-0000-0000-000000000c21");
+const GROUP_TWO_PHOTO_UUID = asUuid("00000000-0000-0000-0000-000000000c22");
+const REPEAT_PHOTO_UUID = asUuid("00000000-0000-0000-0000-000000000c23");
+const REQUIRED_PHOTO_UUID = asUuid("00000000-0000-0000-0000-000000000c31");
+const REQUIRED_SIGNATURE_UUID = asUuid("00000000-0000-0000-0000-000000000c32");
 const PERSONA_UUID = asUuid("00000000-0000-0000-0000-000000000d01");
 
 /* The currentLocation is mutated per-test (one shared `Location`
@@ -231,7 +243,12 @@ function renderFormScreen(opts: {
 	 *  form's `fieldOrder` is the only entry the engine reads on
 	 *  activation, so only the active form's list needs the entry. */
 	const isRequiredForm = opts.formUuid === REQUIRED_FORM_UUID;
-	const activeFieldUuid = isRequiredForm ? FIELD_REQUIRED_UUID : FIELD_UUID;
+	const activeFieldUuids =
+		opts.formUuid === STRUCTURE_FORM_UUID
+			? [GROUP_ONE_UUID, GROUP_TWO_UUID, REPEAT_UUID]
+			: opts.formUuid === CAPTURE_REQUIRED_FORM_UUID
+				? [REQUIRED_PHOTO_UUID, REQUIRED_SIGNATURE_UUID]
+				: [isRequiredForm ? FIELD_REQUIRED_UUID : FIELD_UUID];
 	return render(
 		<BlueprintDocProvider
 			appId={APP_ID}
@@ -294,6 +311,18 @@ function renderFormScreen(opts: {
 						 *  assertion. */
 						type: "registration",
 					},
+					[STRUCTURE_FORM_UUID]: {
+						uuid: STRUCTURE_FORM_UUID,
+						id: "structure_form",
+						name: "Structure form",
+						type: "survey",
+					},
+					[CAPTURE_REQUIRED_FORM_UUID]: {
+						uuid: CAPTURE_REQUIRED_FORM_UUID,
+						id: "required_captures",
+						name: "Required captures",
+						type: "registration",
+					},
 				},
 				/* `FIELD_UUID` — non-required text bound to the case type's
 				 *  `name` property. `FIELD_REQUIRED_UUID` — same shape with
@@ -315,6 +344,59 @@ function renderFormScreen(opts: {
 						case_property_on: CASE_TYPE,
 						required: xp("true()"),
 					},
+					[GROUP_ONE_UUID]: {
+						uuid: GROUP_ONE_UUID,
+						id: "visit_one",
+						kind: "group",
+						label: "Visit",
+					},
+					[GROUP_TWO_UUID]: {
+						uuid: GROUP_TWO_UUID,
+						id: "visit_two",
+						kind: "group",
+						label: "Visit",
+					},
+					[REPEAT_UUID]: {
+						uuid: REPEAT_UUID,
+						id: "visits",
+						kind: "repeat",
+						label: "Visit",
+						repeat_mode: "user_controlled",
+					},
+					[GROUP_ONE_PHOTO_UUID]: {
+						uuid: GROUP_ONE_PHOTO_UUID,
+						id: "photo",
+						kind: "image",
+						label: "Photo",
+					},
+					[GROUP_TWO_PHOTO_UUID]: {
+						uuid: GROUP_TWO_PHOTO_UUID,
+						id: "photo",
+						kind: "image",
+						label: "Photo",
+					},
+					[REPEAT_PHOTO_UUID]: {
+						uuid: REPEAT_PHOTO_UUID,
+						id: "photo",
+						kind: "image",
+						label: "Photo",
+					},
+					[REQUIRED_PHOTO_UUID]: {
+						uuid: REQUIRED_PHOTO_UUID,
+						id: "photo",
+						kind: "image",
+						label: "Photo",
+						hint: "Attach a clear image.",
+						required: xp("true()"),
+					},
+					[REQUIRED_SIGNATURE_UUID]: {
+						uuid: REQUIRED_SIGNATURE_UUID,
+						id: "consent",
+						kind: "signature",
+						label: "Signed consent",
+						hint: "Ask the participant to sign.",
+						required: xp("true()"),
+					},
 				},
 				moduleOrder: [MODULE_UUID],
 				formOrder: {
@@ -324,9 +406,16 @@ function renderFormScreen(opts: {
 						CLOSE_FORM_UUID,
 						SURVEY_FORM_UUID,
 						REQUIRED_FORM_UUID,
+						STRUCTURE_FORM_UUID,
+						CAPTURE_REQUIRED_FORM_UUID,
 					],
 				},
-				fieldOrder: { [opts.formUuid]: [activeFieldUuid] },
+				fieldOrder: {
+					[opts.formUuid]: activeFieldUuids,
+					[GROUP_ONE_UUID]: [GROUP_ONE_PHOTO_UUID],
+					[GROUP_TWO_UUID]: [GROUP_TWO_PHOTO_UUID],
+					[REPEAT_UUID]: [REPEAT_PHOTO_UUID],
+				},
 			}}
 		>
 			<BuilderSessionProvider
@@ -1217,5 +1306,172 @@ describe("FormScreen — Clear form clears stale server error", () => {
 		await waitFor(() => {
 			expect(screen.queryByRole("alert")).toBeNull();
 		});
+	});
+
+	it("rotates to an editable fresh entry without waiting for old cleanup", async () => {
+		renderFormScreen({ formUuid: REG_FORM_UUID });
+		await waitFor(() => expect(capturedController?.entryKey).toBeDefined());
+		const previousEntryKey = capturedController?.entryKey;
+		if (!previousEntryKey) throw new Error("Expected an active form entry");
+		const cleanup = deferred<{ ok: boolean; status: number }>();
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(() => cleanup.promise),
+		);
+		rememberOwnedStagedAttachment({
+			appId: APP_ID,
+			entryKey: previousEntryKey,
+			instancePath: "/data/photo",
+			attachment: {
+				attachmentId: "attachment-old-entry",
+				attachmentName: "attachment-old-entry.png",
+				originalFilename: "old.png",
+				sizeBytes: 3,
+			},
+		});
+		const oldInput = document.querySelector(
+			`[data-field-uuid="${FIELD_UUID}"] input`,
+		) as HTMLInputElement;
+		expect(oldInput).not.toBeNull();
+		fireEvent.change(oldInput, { target: { value: "Old answer" } });
+
+		const clear = screen.getByRole("button", { name: /clear form/i });
+		fireEvent.click(clear);
+		const freshEntryKey = capturedController?.entryKey;
+		fireEvent.click(screen.getByRole("button", { name: /clear form/i }), {
+			detail: 2,
+		});
+
+		expect(freshEntryKey).toEqual(expect.any(String));
+		expect(freshEntryKey).not.toBe(previousEntryKey);
+		expect(capturedController?.entryKey).toBe(freshEntryKey);
+		fireEvent.change(oldInput, { target: { value: "Late old edit" } });
+		const freshInput = document.querySelector(
+			`[data-field-uuid="${FIELD_UUID}"] input`,
+		) as HTMLInputElement;
+		expect(freshInput).not.toBe(oldInput);
+		expect(freshInput.value).toBe("");
+		fireEvent.change(freshInput, { target: { value: "New answer" } });
+		expect(freshInput.value).toBe("New answer");
+		expect(capturedController?.entryKey).toBe(freshEntryKey);
+
+		cleanup.resolve({ ok: false, status: 500 });
+		await act(async () => {
+			await Promise.resolve();
+		});
+		expect(freshInput.value).toBe("New answer");
+		expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
+	});
+
+	it("uses a new idempotency key after a response-lost submit is cleared", async () => {
+		vi.mocked(submitFormAction)
+			.mockRejectedValueOnce(new Error("response lost after acceptance"))
+			.mockResolvedValueOnce({
+				kind: "registration",
+				caseId: "new-case-after-clear",
+				childCaseIds: [],
+			});
+		renderFormScreen({ formUuid: REG_FORM_UUID });
+		await screen.findByRole("button", { name: /^submit$/i });
+		const input = document.querySelector(
+			`[data-field-uuid="${FIELD_UUID}"] input`,
+		) as HTMLInputElement;
+		fireEvent.change(input, { target: { value: "First answer" } });
+		fireEvent.click(screen.getByRole("button", { name: /^submit$/i }));
+		await screen.findByRole("alert");
+		const firstMutation = vi.mocked(submitFormAction).mock.calls[0]?.[0];
+		expect(firstMutation?.entryKey).toEqual(expect.any(String));
+
+		fireEvent.click(screen.getByRole("button", { name: /clear form/i }));
+		const freshInput = document.querySelector(
+			`[data-field-uuid="${FIELD_UUID}"] input`,
+		) as HTMLInputElement;
+		fireEvent.change(freshInput, { target: { value: "Second answer" } });
+		fireEvent.click(screen.getByRole("button", { name: /^submit$/i }));
+		await waitFor(() =>
+			expect(vi.mocked(submitFormAction)).toHaveBeenCalledTimes(2),
+		);
+		const secondMutation = vi.mocked(submitFormAction).mock.calls[1]?.[0];
+		expect(secondMutation?.entryKey).toEqual(expect.any(String));
+		expect(secondMutation?.entryKey).not.toBe(firstMutation?.entryKey);
+	});
+});
+
+describe("FormScreen — repeated structure accessibility", () => {
+	it("associates both empty required capture errors after Submit", async () => {
+		renderFormScreen({ formUuid: CAPTURE_REQUIRED_FORM_UUID });
+		const submit = await screen.findByRole("button", { name: /^submit$/i });
+		fireEvent.click(submit);
+
+		const file = screen.getByLabelText(
+			/Question 1.*Photo.*Required.*Attach file/i,
+		) as HTMLInputElement;
+		const canvas = screen.getByLabelText(
+			/Question 2.*Signed consent.*Required.*Signature pad/i,
+		);
+		await waitFor(() => {
+			expect(file.getAttribute("aria-invalid")).toBe("true");
+			expect(canvas.getAttribute("aria-invalid")).toBe("true");
+		});
+		expect(file.required).toBe(true);
+		expect(canvas.getAttribute("aria-required")).toBe("true");
+		expect(file.getAttribute("aria-describedby")).toBeTruthy();
+		expect(canvas.getAttribute("aria-describedby")).toBeTruthy();
+		expect(screen.getAllByRole("alert")).toHaveLength(2);
+		expect(screen.getAllByRole("status")).toHaveLength(2);
+		expect(vi.mocked(submitFormAction)).not.toHaveBeenCalled();
+	});
+
+	it("disambiguates duplicate controls and keeps structural actions touch-sized", async () => {
+		renderFormScreen({ formUuid: STRUCTURE_FORM_UUID });
+
+		const firstGroupToggle = await screen.findByRole("button", {
+			name: /Collapse.*Section 1.*Visit/i,
+		});
+		const secondGroupToggle = screen.getByRole("button", {
+			name: /Collapse.*Section 2.*Visit/i,
+		});
+		const repeatToggle = screen.getByRole("button", {
+			name: /Collapse.*Repeat 3.*Repeat.*Visit/i,
+		});
+		for (const toggle of [firstGroupToggle, secondGroupToggle, repeatToggle]) {
+			expect(toggle.className).toContain("min-h-11");
+			expect(toggle.className).toContain("min-w-11");
+			expect(toggle.className).toContain("touch-manipulation");
+		}
+
+		expect(
+			screen.getByLabelText(
+				/Section 1.*Visit.*Question 1.*Photo.*Attach file/i,
+			),
+		).toBeDefined();
+		expect(
+			screen.getByLabelText(
+				/Section 2.*Visit.*Question 1.*Photo.*Attach file/i,
+			),
+		).toBeDefined();
+		expect(
+			screen.getByLabelText(
+				/Repeat 3.*Repeat.*Visit.*Instance 1.*Question 1.*Photo.*Attach file/i,
+			),
+		).toBeDefined();
+
+		const add = screen.getByRole("button", {
+			name: /Add Visit.*Repeat 3.*Repeat.*Visit/i,
+		});
+		expect(add.className).toContain("min-h-11");
+		expect(add.className).toContain("touch-manipulation");
+		fireEvent.click(add);
+
+		expect(
+			await screen.findByLabelText(
+				/Repeat 3.*Repeat.*Visit.*Instance 2.*Question 1.*Photo.*Attach file/i,
+			),
+		).toBeDefined();
+		const removeSecond = screen.getByRole("button", {
+			name: /Remove.*Repeat 3.*Repeat.*Visit.*Instance 2/i,
+		});
+		expect(removeSecond.className).toContain("min-h-11");
+		expect(removeSecond.className).toContain("min-w-11");
 	});
 });

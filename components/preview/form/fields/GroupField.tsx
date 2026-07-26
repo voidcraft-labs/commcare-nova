@@ -27,7 +27,7 @@
 import { Icon } from "@iconify/react/offline";
 import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
-import { useCallback } from "react";
+import { useCallback, useId } from "react";
 import { MediaDisplay } from "@/components/builder/media/MediaDisplay";
 import type { FieldPath } from "@/lib/doc/fieldPath";
 import { useHasFieldsInForm } from "@/lib/doc/hooks/useHasFieldsInForm";
@@ -55,6 +55,8 @@ interface GroupFieldProps {
 	depth: number;
 	/** Stable identities of every enclosing repeat instance. */
 	instanceScopeKey: string;
+	accessibleContext: string;
+	position: number;
 }
 
 /**
@@ -72,6 +74,8 @@ export function GroupField({
 	fieldPath,
 	depth,
 	instanceScopeKey,
+	accessibleContext,
+	position,
 }: GroupFieldProps) {
 	// Visibility is gated one level up by `InteractiveQuestion`, so we
 	// reach this component only when the group is visible. We still need
@@ -80,6 +84,9 @@ export function GroupField({
 	const state = useEngineStateAt(field.uuid, path);
 	const { toggleCollapse, isCollapsed } = useFormLayout();
 	const collapsed = isCollapsed(field.uuid);
+	const headerId = useId();
+	const toggleActionId = useId();
+	const childContext = [accessibleContext, headerId].filter(Boolean).join(" ");
 
 	// Subscribe to children presence — drives the empty-state placeholder
 	// block when the group has no template children yet.
@@ -109,16 +116,23 @@ export function GroupField({
 						<button
 							type="button"
 							onClick={onToggle}
-							className="text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer p-0.5 -m-0.5 rounded"
-							aria-label={collapsed ? "Expand group" : "Collapse group"}
+							className="inline-flex min-h-11 min-w-11 touch-manipulation items-center justify-center rounded text-nova-text-muted transition-colors hover:text-nova-text"
+							aria-labelledby={[toggleActionId, accessibleContext, headerId]
+								.filter(Boolean)
+								.join(" ")}
 						>
+							<span id={toggleActionId} className="sr-only">
+								{collapsed ? "Expand" : "Collapse"}
+							</span>
 							<Icon
 								icon={collapsed ? tablerChevronRight : tablerChevronDown}
 								width="14"
 								height="14"
+								aria-hidden="true"
 							/>
 						</button>
-						<div className="min-w-0 flex-1">
+						<div id={headerId} className="min-w-0 flex-1">
+							<span className="sr-only">Section {position}. </span>
 							{field.label ? (
 								/* `px-[5px] py-[5px]` matches TextEditable's
 								 *  idle/read-only wrapper in edit mode — without
@@ -168,6 +182,7 @@ export function GroupField({
 								parentPath={fieldPath}
 								depth={depth + 1}
 								instanceScopeKey={instanceScopeKey}
+								accessibleContext={childContext}
 							/>
 						) : (
 							<div className="h-[72px]" />

@@ -15,6 +15,7 @@ import {
 	AttachmentRejected,
 	type AttachmentTaskContext,
 	cancelAttachmentTask,
+	consumeCoordinatorAttachmentAnswerClear,
 	discardAttachment,
 	forgetOwnedStagedAttachment,
 	getAttachmentSlotPath,
@@ -69,6 +70,8 @@ interface AttachmentFieldProps {
 	readonly entryKey: string | undefined;
 	readonly attachmentSlotKey?: string | undefined;
 	readonly questionLabelId?: string | undefined;
+	readonly questionLabelledBy?: string | undefined;
+	readonly questionDescriptionIds?: string | undefined;
 	readonly questionLabel?: string | undefined;
 	readonly onChange: (value: string) => void;
 	readonly onBlur: () => void;
@@ -84,6 +87,8 @@ export function AttachmentField({
 	entryKey,
 	attachmentSlotKey,
 	questionLabelId,
+	questionLabelledBy,
+	questionDescriptionIds,
 	questionLabel,
 	onChange,
 	onBlur,
@@ -120,6 +125,8 @@ export function AttachmentField({
 			entryKey={entryKey}
 			attachmentSlotKey={attachmentSlotKey}
 			questionLabelId={questionLabelId}
+			questionLabelledBy={questionLabelledBy}
+			questionDescriptionIds={questionDescriptionIds}
 			questionLabel={questionLabel}
 			onChange={onChange}
 			onBlur={onBlur}
@@ -137,6 +144,8 @@ function AttachmentControl({
 	entryKey,
 	attachmentSlotKey,
 	questionLabelId,
+	questionLabelledBy,
+	questionDescriptionIds,
 	questionLabel,
 	onChange,
 	onBlur,
@@ -146,6 +155,7 @@ function AttachmentControl({
 	const inputId = useId();
 	const actionId = useId();
 	const statusId = useId();
+	const removeActionId = useId();
 	const errorId = useId();
 	const validationId = useId();
 	const helpId = useId();
@@ -167,7 +177,13 @@ function AttachmentControl({
 	const [staged, setStaged] = useState<StagedAttachment | undefined>(
 		initialOwned,
 	);
-	const [busy, setBusy] = useState(false);
+	type Intent = "idle" | "queued-upload" | "uploading" | "queued-clear";
+	const intentRef = useRef<Intent>("idle");
+	const [intent, setIntentState] = useState<Intent>("idle");
+	const setIntent = useCallback((next: Intent): void => {
+		intentRef.current = next;
+		setIntentState(next);
+	}, []);
 	const [error, setError] = useState<string | undefined>();
 	const ownershipScopeRef = useRef({ appId, entryKey, slotKey });
 
@@ -190,9 +206,9 @@ function AttachmentControl({
 				: undefined;
 		stagedRef.current = owned;
 		setStaged(owned);
-		setBusy(false);
+		setIntent("idle");
 		setError(undefined);
-	}, [appId, entryKey, slotKey]);
+	}, [appId, entryKey, slotKey, setIntent]);
 
 	useEffect(() => {
 		if (!appId || !entryKey || !path) return;
@@ -247,7 +263,7 @@ function AttachmentControl({
 				throw unavailable;
 			}
 			setError(undefined);
-			setBusy(true);
+			setIntent("uploading");
 			try {
 				const next = await stageAttachment({
 					appId,
@@ -297,7 +313,7 @@ function AttachmentControl({
 				throw err;
 			} finally {
 				if (context.isCurrent()) {
-					setBusy(false);
+					setIntent("idle");
 					blurCurrent();
 				}
 			}
@@ -310,32 +326,37 @@ function AttachmentControl({
 			currentPath,
 			changeCurrent,
 			blurCurrent,
+			setIntent,
 		],
 	);
 
 	const stage = useCallback(
 		async (file: File) => {
+			if (intentRef.current !== "idle") return;
 			if (!entryKey || currentPath() === undefined) {
 				setError(
 					"This form isn't ready to take attachments yet. Wait a moment and try again.",
 				);
 				return;
 			}
+			setIntent("queued-upload");
 			await runAttachmentTask({
 				entryKey,
 				slotKey,
 				task: (context) => stageWithinTask(file, context),
 			}).catch((err: unknown) => {
 				if (!isAttachmentTaskAbort(err)) {
-					setBusy(false);
+					setIntent("idle");
 					blurCurrent();
 				}
 			});
 		},
-		[entryKey, slotKey, currentPath, stageWithinTask, blurCurrent],
+		[entryKey, slotKey, currentPath, stageWithinTask, blurCurrent, setIntent],
 	);
 
 	const clear = useCallback(() => {
+		if (intentRef.current !== "idle") return;
+		setIntent("queued-clear");
 		const owned =
 			appId && entryKey
 				? forgetOwnedStagedAttachment({
@@ -347,7 +368,6 @@ function AttachmentControl({
 		const previous = owned ?? stagedRef.current;
 		stagedRef.current = undefined;
 		setStaged(undefined);
-		setBusy(false);
 		setError(undefined);
 		if (inputRef.current) inputRef.current.value = "";
 		if (entryKey) cancelAttachmentTask(entryKey, slotKey);
@@ -375,13 +395,15 @@ function AttachmentControl({
 					}
 					blurCurrent();
 				},
-			}).catch((err: unknown) => {
-				if (!isAttachmentTaskAbort(err)) {
-					setError(
-						"That attachment couldn't be cleared. Check your connection and try again.",
-					);
-				}
-			});
+			})
+				.catch((err: unknown) => {
+					if (!isAttachmentTaskAbort(err)) {
+						setError(
+							"That attachment couldn't be cleared. Check your connection and try again.",
+						);
+					}
+				})
+				.finally(() => setIntent("idle"));
 			return;
 		}
 
@@ -393,7 +415,8 @@ function AttachmentControl({
 			}).catch(() => undefined);
 		}
 		blurCurrent();
-	}, [appId, entryKey, slotKey, changeCurrent, blurCurrent]);
+		setIntent("idle");
+	}, [appId, entryKey, slotKey, changeCurrent, blurCurrent, setIntent]);
 
 	// Engine reset and repeat removal own the answer, so mirror an externally
 	// cleared value into local filename/busy state and cancel any late upload.
@@ -417,6 +440,14 @@ function AttachmentControl({
 		if (previousValue === "" || stagedRef.current === undefined) {
 			return;
 		}
+		const coordinatorClear =
+			appId !== undefined && entryKey !== undefined
+				? consumeCoordinatorAttachmentAnswerClear({
+						appId,
+						entryKey,
+						slotKey,
+					})
+				: undefined;
 		const previous =
 			appId && entryKey
 				? (forgetOwnedStagedAttachment({
@@ -427,21 +458,30 @@ function AttachmentControl({
 				: stagedRef.current;
 		stagedRef.current = undefined;
 		setStaged(undefined);
-		setBusy(false);
 		setError(undefined);
 		if (inputRef.current) inputRef.current.value = "";
-		if (entryKey) cancelAttachmentTask(entryKey, slotKey);
-		if (previous !== undefined && appId !== undefined) {
+		if (coordinatorClear?.preserveNewerTask !== true) {
+			setIntent("idle");
+			if (entryKey) cancelAttachmentTask(entryKey, slotKey);
+		}
+		if (
+			coordinatorClear === undefined &&
+			previous !== undefined &&
+			appId !== undefined
+		) {
 			void discardAttachment({
 				appId,
 				attachmentId: previous.attachmentId,
 			}).catch(() => undefined);
 		}
-	}, [appId, entryKey, slotKey, state.value]);
+	}, [appId, entryKey, slotKey, state.value, setIntent]);
 
 	const hasAnswer = state.value !== "";
+	const busy = intent !== "idle";
 	const showError = state.touched && !state.valid;
+	const labelledBy = questionLabelledBy ?? questionLabelId;
 	const describedBy = [
+		questionDescriptionIds,
 		statusId,
 		error ? errorId : undefined,
 		showError && !error ? validationId : undefined,
@@ -458,9 +498,16 @@ function AttachmentControl({
 					instancePath={path ?? ""}
 					slotKey={slotKey}
 					questionLabelId={questionLabelId}
+					questionLabelledBy={labelledBy}
 					questionLabel={accessibleQuestionLabel}
-					uploading={busy}
+					uploading={intent === "uploading"}
+					queued={intent === "queued-upload"}
+					interactionBlocked={intent === "queued-clear"}
 					hasAnswer={hasAnswer}
+					required={state.required}
+					invalid={showError}
+					statusId={statusId}
+					describedBy={describedBy}
 					onDrawn={stageWithinTask}
 					onClear={clear}
 					onEncodingError={(message) => setError(message)}
@@ -485,8 +532,10 @@ function AttachmentControl({
 							className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0 disabled:cursor-default"
 							accept={captureAcceptAttribute(field.kind)}
 							disabled={busy}
+							required={state.required}
+							aria-invalid={showError}
 							aria-label={
-								questionLabelId
+								labelledBy
 									? undefined
 									: `${accessibleQuestionLabel}. ${
 											busy
@@ -497,7 +546,7 @@ function AttachmentControl({
 										}`
 							}
 							aria-labelledby={
-								questionLabelId ? `${questionLabelId} ${actionId}` : undefined
+								labelledBy ? `${labelledBy} ${actionId}` : undefined
 							}
 							aria-describedby={describedBy}
 							autoComplete="off"
@@ -518,7 +567,13 @@ function AttachmentControl({
 							aria-hidden="true"
 						/>
 						<span id={actionId}>
-							{busy ? "Attaching…" : hasAnswer ? "Replace file" : "Attach file"}
+							{intent === "queued-upload"
+								? "Waiting to attach…"
+								: intent === "uploading"
+									? "Attaching…"
+									: hasAnswer
+										? "Replace file"
+										: "Attach file"}
 						</span>
 					</label>
 					{hasAnswer ? (
@@ -526,12 +581,20 @@ function AttachmentControl({
 							type="button"
 							onClick={clear}
 							disabled={busy}
-							className="inline-flex min-h-12 min-w-12 items-center justify-center rounded-md p-2 text-nova-text-muted transition-colors hover:bg-white/[0.06] hover:text-nova-text disabled:opacity-40"
+							aria-describedby={describedBy}
+							aria-labelledby={
+								labelledBy ? `${removeActionId} ${labelledBy}` : undefined
+							}
+							className="inline-flex min-h-12 items-center justify-center gap-1.5 rounded-md px-3 py-2 text-sm text-nova-text-muted transition-colors not-disabled:hover:bg-white/[0.06] not-disabled:hover:text-nova-text disabled:opacity-40"
 						>
 							<Icon icon={tablerX} width="16" height="16" aria-hidden="true" />
-							<span className="sr-only">
-								Remove attachment for {accessibleQuestionLabel}
-							</span>
+							<span id={removeActionId}>Remove</span>
+							{labelledBy ? null : (
+								<span className="sr-only">
+									{" "}
+									attachment for {accessibleQuestionLabel}
+								</span>
+							)}
 						</button>
 					) : null}
 				</div>
@@ -539,21 +602,25 @@ function AttachmentControl({
 
 			{/* The whole confirmation a worker gets: a name, or nothing. Matches
 			    `entry_file.html`'s `fileNameDisplay`. */}
-			<p
-				id={statusId}
-				role="status"
-				aria-label={`${accessibleQuestionLabel} attachment status`}
-				aria-live="polite"
-				className="text-xs text-nova-text-muted"
-			>
-				{busy
-					? field.kind === "signature"
-						? "Saving signature…"
-						: "Attaching file…"
-					: hasAnswer
-						? (staged?.originalFilename ?? "File attached")
-						: "No file attached."}
-			</p>
+			{field.kind !== "signature" ? (
+				<p
+					id={statusId}
+					role="status"
+					aria-label={`${accessibleQuestionLabel} attachment status`}
+					aria-live="polite"
+					className="text-xs text-nova-text-muted"
+				>
+					{intent === "queued-upload"
+						? "Waiting to attach file…"
+						: intent === "uploading"
+							? "Attaching file…"
+							: intent === "queued-clear"
+								? "Waiting to remove file…"
+								: hasAnswer
+									? (staged?.originalFilename ?? "File attached")
+									: "No file attached."}
+				</p>
+			) : null}
 
 			{error ? (
 				<p
@@ -578,7 +645,7 @@ function AttachmentControl({
 				</p>
 			) : null}
 
-			<p id={helpId} className="text-xs text-nova-text-muted/70">
+			<p id={helpId} className="text-xs text-nova-text-muted">
 				Up to {Math.floor(MAX_CAPTURE_BYTES / 1_000_000)} MB.
 			</p>
 		</div>

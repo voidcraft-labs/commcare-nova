@@ -77,8 +77,11 @@ multipart, which the edge WAF reads as header injection.
 `EngineController.entryKey` is the idempotency/reservation scope, minted per
 `activateForm`. It lives on the CONTROLLER, not the engine, and survives cold
 identity, lookup, and case-data rebuilds; a key minted by each rebuilt engine
-would rotate under already staged bytes. A genuinely new activation or concrete
-worker identity rotates it. **There is no form resume** — nothing persists
+would rotate under already staged bytes. A genuinely new activation, concrete
+worker identity, or **Clear form** rotates it. Clear mounts the fresh answer
+world synchronously; deletion of the retired entry's staging rows is
+best-effort and never delays or later resets the new entry. **There is no form
+resume** — nothing persists
 runtime answers and `deactivate` wipes the store — so leaving a form starts a
 new entry. The controller exposes that identity through `entryStore`; form
 lifecycle code must subscribe to it rather than sampling the imperative getter,
@@ -111,7 +114,9 @@ directory and uploads orphans anyway.
 
 Every capture mutation for one entry goes through one form-wide queue. A newer
 operation aborts and generation-fences an older operation on the same stable
-slot; signature debounce and `toBlob` encoding enter that queue immediately,
+slot. The control publishes queued intent before it waits behind another slot,
+so a second picker/clear/draw gesture cannot silently supersede the first;
+signature debounce and `toBlob` encoding enter that queue immediately,
 and a dirty/failed encoding keeps the barrier blocked rather than submitting
 an older answer. `pointercancel` settles the ink through the same path. Submit
 is a barrier behind prior work and ahead of later work, and rechecks the
@@ -120,14 +125,21 @@ destination before calling the action. Once Submit enters `running`, the
 entire answer surface is inert/disabled until the barrier and server action
 settle; a post-click text,
 picker, signature, repeat, replace, or remove gesture cannot join only one side
-of the submission snapshot. Clear cancels the entry before its reset barrier.
+of the submission snapshot. At the barrier, only effectively visible capture
+slots can block Submit: an irrelevant slot stays dormant (including its draft
+and diagnostic in case it reappears), while a deleted field or repeat instance
+is retired. Clear form does not use this barrier; it retires the old entry and
+synchronously mounts a new idempotency scope.
 
 `EngineController.removeRepeat` is the ONE compaction owner. It emits the
 removed prefix plus every positional move; FormScreen binds that event to the
 entry coordinator even when the affected capture is irrelevant/unmounted. The
 coordinator updates desired slot paths synchronously, queues server CAS
 retargets after any already-running upload/encoding and before Submit, and
-cancels/discards only slots belonging to the removed instance. A surviving
+cancels/discards only slots belonging to the removed instance. A failed old
+retarget may clear its old projected answer, but a coordinator-origin marker
+prevents that clear from aborting a newer queued replacement on the same slot.
+A surviving
 pending signature keeps its draft and `notReady` blocker until its latest PNG
 confirms, then the newly owned row—not an older PNG—is retargeted.
 

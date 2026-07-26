@@ -25,6 +25,8 @@ export class AttachmentRejected extends Error {
 export interface AttachmentTaskContext {
 	readonly signal: AbortSignal;
 	readonly isCurrent: () => boolean;
+	/** Monotonic intent generation for this entry-local stable slot. */
+	readonly generation: number;
 }
 
 interface PathTask {
@@ -36,6 +38,7 @@ interface EntryQueue {
 	tail: Promise<void>;
 	pending: number;
 	readonly paths: Map<string, PathTask>;
+	readonly generations: Map<string, number>;
 	readonly notReady: Map<string, string>;
 }
 
@@ -50,6 +53,12 @@ interface AttachmentSlot {
 		readonly attachment: StagedAttachment;
 		instancePath: string;
 	};
+	/**
+	 * A retarget failure asked the engine to clear this answer. Consuming the
+	 * marker lets the mounted control distinguish that coordinator clear from
+	 * a user/reset clear, so it does not abort a newer queued replacement.
+	 */
+	coordinatorAnswerClearGeneration?: number;
 }
 
 /**
@@ -99,6 +108,7 @@ function queueFor(entryKey: string): EntryQueue {
 			tail: Promise.resolve(),
 			pending: 0,
 			paths: new Map(),
+			generations: new Map(),
 			notReady: new Map(),
 		};
 		entryQueues.set(entryKey, queue);
@@ -149,9 +159,11 @@ export function runAttachmentTask<T>(args: {
 	const key = taskKey(args);
 	const previous = queue.paths.get(key);
 	previous?.controller.abort();
+	const generation = (queue.generations.get(key) ?? 0) + 1;
+	queue.generations.set(key, generation);
 	const current: PathTask = {
 		controller: new AbortController(),
-		generation: (previous?.generation ?? 0) + 1,
+		generation,
 	};
 	queue.paths.set(key, current);
 	const isCurrent = () =>
@@ -163,6 +175,7 @@ export function runAttachmentTask<T>(args: {
 		return await args.task({
 			signal: current.controller.signal,
 			isCurrent,
+			generation,
 		});
 	}).finally(() => {
 		if (queue.paths.get(key) === current) {
@@ -214,20 +227,59 @@ export function clearAttachmentNotReady(
 	releaseQueueIfIdle(entryKey, queue);
 }
 
+export type AttachmentSlotDisposition = "active" | "dormant" | "removed";
+
+export interface FormAttachmentBarrierOptions {
+	readonly classifySlot: (slot: {
+		readonly slotKey: string;
+		readonly instancePath: string;
+	}) => AttachmentSlotDisposition;
+}
+
+function retireAttachmentSlot(entryKey: string, slotKey: string): void {
+	const slots = attachmentSlots.get(entryKey);
+	const slot = slots?.get(slotKey);
+	slots?.delete(slotKey);
+	if (slots?.size === 0) attachmentSlots.delete(entryKey);
+	cancelAttachmentTask(entryKey, slotKey);
+	clearAttachmentNotReady(entryKey, slotKey);
+	clearSignatureDraft(entryKey, slotKey);
+	if (slot?.owned !== undefined) {
+		void discardAttachment({
+			appId: slot.appId,
+			attachmentId: slot.owned.attachment.attachmentId,
+		}).catch(() => undefined);
+	}
+}
+
 /**
- * Put submit/reset behind every capture mutation already queued for the form.
+ * Put Submit behind every capture mutation already queued for the form.
  * New capture tasks queue after the barrier, so the callback observes one
  * stable attachment answer set for its whole lifetime.
  */
 export function runFormAttachmentBarrier<T>(
 	entryKey: string,
 	task: () => Promise<T>,
+	options?: FormAttachmentBarrierOptions,
 ): Promise<T> {
 	const queue = queueFor(entryKey);
 	return enqueue(entryKey, async () => {
-		const blocked = queue.notReady.values().next().value;
-		if (typeof blocked === "string") {
-			throw new AttachmentNotReadyError(blocked);
+		const slots = attachmentSlots.get(entryKey);
+		const keys = new Set([...(slots?.keys() ?? []), ...queue.notReady.keys()]);
+		const dispositions = new Map<string, AttachmentSlotDisposition>();
+		for (const slotKey of keys) {
+			const instancePath = slots?.get(slotKey)?.desiredInstancePath ?? slotKey;
+			const disposition =
+				options?.classifySlot({ slotKey, instancePath }) ?? "active";
+			dispositions.set(slotKey, disposition);
+			if (disposition === "removed") {
+				retireAttachmentSlot(entryKey, slotKey);
+			}
+		}
+		for (const [slotKey, message] of queue.notReady) {
+			if ((dispositions.get(slotKey) ?? "active") === "active") {
+				throw new AttachmentNotReadyError(message);
+			}
 		}
 		return task();
 	});
@@ -248,6 +300,13 @@ export function registerAttachmentSlotPath(args: {
 		desiredInstancePath: args.instancePath,
 		...(current?.appId === args.appId && current.owned !== undefined
 			? { owned: current.owned }
+			: {}),
+		...(current?.appId === args.appId &&
+		current.coordinatorAnswerClearGeneration !== undefined
+			? {
+					coordinatorAnswerClearGeneration:
+						current.coordinatorAnswerClearGeneration,
+				}
 			: {}),
 	});
 }
@@ -284,6 +343,32 @@ export function rememberOwnedStagedAttachment(args: {
 			instancePath: args.instancePath,
 		},
 	});
+}
+
+/**
+ * Consume the one-shot marker paired with a retarget-failure answer clear.
+ * The marker never crosses entry/app scope and a confirmed replacement
+ * clears it before projecting its new answer.
+ */
+export function consumeCoordinatorAttachmentAnswerClear(args: {
+	appId: string;
+	entryKey: string;
+	slotKey: string;
+}): { readonly preserveNewerTask: boolean } | undefined {
+	const slot = attachmentSlots.get(args.entryKey)?.get(args.slotKey);
+	if (
+		slot?.appId !== args.appId ||
+		slot.coordinatorAnswerClearGeneration === undefined
+	) {
+		return undefined;
+	}
+	const failedGeneration = slot.coordinatorAnswerClearGeneration;
+	slot.coordinatorAnswerClearGeneration = undefined;
+	return {
+		preserveNewerTask:
+			(entryQueues.get(args.entryKey)?.generations.get(args.slotKey) ?? 0) >
+			failedGeneration,
+	};
 }
 
 export function getOwnedStagedAttachment(args: {
@@ -375,6 +460,8 @@ export async function reconcileAttachmentRepeatCompaction(args: {
 		slot.desiredInstancePath = `${move.toPrefix}${currentPath.slice(
 			move.fromPrefix.length,
 		)}`;
+		const scheduledGeneration =
+			queueFor(args.entryKey).generations.get(slotKey) ?? 0;
 		jobs.push(
 			enqueue(args.entryKey, async () => {
 				const live = attachmentSlots.get(args.entryKey)?.get(slotKey);
@@ -405,8 +492,9 @@ export async function reconcileAttachmentRepeatCompaction(args: {
 						latest?.owned?.attachment.attachmentId === attachment.attachmentId
 					) {
 						latest.owned = undefined;
+						latest.coordinatorAnswerClearGeneration = scheduledGeneration;
 					}
-					await discardAttachment({
+					void discardAttachment({
 						appId: args.appId,
 						attachmentId: attachment.attachmentId,
 					}).catch(() => undefined);
@@ -464,24 +552,50 @@ export function clearSignatureDraft(
  * End the real form-entry lifetime. Ordinary field unmounts must never call
  * this; navigation, persona rotation, and Clear form do.
  */
-export async function discardAttachmentEntry(args: {
+function detachAttachmentEntry(args: {
 	appId: string;
 	entryKey: string;
-}): Promise<void> {
+}): string[] {
 	cancelAttachmentEntry(args.entryKey);
 	signatureDrafts.delete(args.entryKey);
 	const entry = attachmentSlots.get(args.entryKey);
 	attachmentSlots.delete(args.entryKey);
-	if (entry === undefined) return;
-	const ids = new Set(
-		[...entry.values()]
-			.filter((slot) => slot.appId === args.appId)
-			.flatMap((slot) =>
-				slot.owned === undefined ? [] : [slot.owned.attachment.attachmentId],
-			),
-	);
+	if (entry === undefined) return [];
+	return [
+		...new Set(
+			[...entry.values()]
+				.filter((slot) => slot.appId === args.appId)
+				.flatMap((slot) =>
+					slot.owned === undefined ? [] : [slot.owned.attachment.attachmentId],
+				),
+		),
+	];
+}
+
+/**
+ * Retire an entry synchronously, then make deletion a cancellation-safe
+ * best-effort cleanup. The staged-row/object TTL remains the final backstop
+ * if the browser disappears or a DELETE response never arrives.
+ */
+export function retireAttachmentEntry(args: {
+	appId: string;
+	entryKey: string;
+}): void {
+	for (const attachmentId of detachAttachmentEntry(args)) {
+		void discardAttachment({ appId: args.appId, attachmentId }).catch(
+			() => undefined,
+		);
+	}
+}
+
+/** Awaitable variant retained for explicit cleanup and focused tests. */
+export async function discardAttachmentEntry(args: {
+	appId: string;
+	entryKey: string;
+}): Promise<void> {
+	const ids = detachAttachmentEntry(args);
 	await Promise.all(
-		[...ids].map((attachmentId) =>
+		ids.map((attachmentId) =>
 			discardAttachment({ appId: args.appId, attachmentId }).catch(
 				() => undefined,
 			),

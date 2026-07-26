@@ -55,9 +55,9 @@ anywhere else: a photo they clear is still on their phone, but a
 signature they clear is gone. Undo puts it back.
 
 The signature also follows the available width. Rotating a phone or
-narrowing the browser redraws the same complete signature to fit; adding
-another stroke afterward does not crop away ink that was drawn on the
-wider pad.
+narrowing the browser redraws the same complete signature to fit and saves
+that resized version before Submit can continue; adding another stroke
+afterward does not crop away ink that was drawn on the wider pad.
 
 ## File attachments only work in the web app
 
@@ -142,14 +142,18 @@ and stores the text it read.
 
 While you are arranging a form, an attachment question shows a card
 naming its type. Run the preview and it becomes a working control: attach
-a real file, replace it, or remove it, and it rides the submission with
-the rest of the form.
+a real file, replace it, or use the visible **Remove** action, and it rides
+the submission with the rest of the form.
 
 When a worker presses Submit, Nova first waits for every attachment change
 still in progress — including the signature pad's short pause and PNG
 encoding after the latest stroke. If that encoding fails, Nova asks the
 worker to clear or draw again instead of silently submitting an older
-signature. While that work and the submission finish, the form is visibly
+signature. A file or signature action that is waiting behind another
+attachment says so immediately and disables conflicting gestures. A hidden
+question's unfinished signature does not block the current submission; it
+becomes active again if the question reappears. While attachment work and the
+submission finish, the form is visibly
 locked: answers, file controls, pickers, and repeat rows cannot change
 underneath the request. The form answers and the exact set of attached files
 are then accepted together. If moving a file into long-term storage is temporarily
@@ -159,7 +163,7 @@ only the current unsubmitted attempt, never a file already accepted with a
 submission.
 
 The preview shows you exactly what a worker sees, which means it shows
-you a filename and a Clear button and nothing else — no thumbnail, no
+you a filename and a **Remove** action and nothing else — no thumbnail, no
 playback. That is deliberate. If the preview confirmed your attachments
 in ways the real app cannot, you would design forms around a
 confirmation your workers never get.
@@ -170,3 +174,8 @@ condition, Nova leaves that file out of the submission. CommCare itself
 sends it anyway, where it counts toward the 50-attachment limit and
 arrives attached to nothing. Nothing you need to do — it just means the
 count you see in the preview is the honest one.
+
+**Clear form** is different from removing one file. It immediately starts a
+new blank form entry with a new submission identity. Cleanup of files from the
+old entry continues separately, so a slow or failed cleanup cannot erase
+answers entered into the fresh form.

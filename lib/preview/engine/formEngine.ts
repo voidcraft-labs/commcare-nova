@@ -77,6 +77,8 @@ import {
 	lookupChoicesEqual,
 } from "./types";
 
+export type AttachmentPathDisposition = "active" | "dormant" | "removed";
+
 /** Stable fallback for paths that don't exist in the engine. Frozen so
  *  Zustand selectors always return the same reference — no spurious re-renders. */
 export const DEFAULT_ENGINE_STATE: FieldState = Object.freeze({
@@ -867,6 +869,30 @@ export class FormEngine {
 		};
 		walk(this.tree, "/data", true);
 		return references;
+	}
+
+	/**
+	 * Classify a capture slot at the instant Submit reaches its form-wide
+	 * attachment barrier.
+	 *
+	 * A relevance-hidden slot is dormant: its draft and any failed-encoding
+	 * diagnostic remain available if the question reappears, but neither is
+	 * part of this submission. A path absent from the current runtime tree
+	 * (field deletion or repeat-instance removal) is retired permanently.
+	 */
+	attachmentPathDisposition(path: string): AttachmentPathDisposition {
+		const node = this.findTreeNode(path);
+		if (node === undefined || !isCaptureFieldKind(node.field.kind)) {
+			return "removed";
+		}
+		const states = this.store.getState();
+		const state = states[path];
+		if (state === undefined || state === DEFAULT_ENGINE_STATE) {
+			return "removed";
+		}
+		return this.effectivelyVisiblePaths(states).has(path)
+			? "active"
+			: "dormant";
 	}
 
 	/** Compatibility projection for code that only needs multipart names. */

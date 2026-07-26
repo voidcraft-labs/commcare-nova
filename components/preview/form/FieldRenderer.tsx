@@ -35,6 +35,8 @@ interface FieldRendererProps {
 	attachmentSlotKey?: string | undefined;
 	/** Prompt association for capture accessibility. */
 	questionLabelId?: string | undefined;
+	questionLabelledBy?: string | undefined;
+	questionDescriptionIds?: string | undefined;
 	questionLabel?: string | undefined;
 	onChange: (value: string) => void;
 	onBlur: () => void;
@@ -62,6 +64,8 @@ export function FieldRenderer({
 	entryKey,
 	attachmentSlotKey,
 	questionLabelId,
+	questionLabelledBy,
+	questionDescriptionIds,
 	questionLabel,
 	onChange,
 	onBlur,
@@ -81,6 +85,8 @@ export function FieldRenderer({
 				entryKey={entryKey}
 				attachmentSlotKey={attachmentSlotKey}
 				questionLabelId={questionLabelId}
+				questionLabelledBy={questionLabelledBy}
+				questionDescriptionIds={questionDescriptionIds}
 				questionLabel={questionLabel}
 				onChange={onChange}
 				onBlur={onBlur}

@@ -31,7 +31,7 @@ import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerRepeat from "@iconify-icons/tabler/repeat";
 import tablerTrash from "@iconify-icons/tabler/trash";
-import { useCallback } from "react";
+import { useCallback, useId } from "react";
 import { MediaDisplay } from "@/components/builder/media/MediaDisplay";
 import type { FieldPath } from "@/lib/doc/fieldPath";
 import { useHasFieldsInForm } from "@/lib/doc/hooks/useHasFieldsInForm";
@@ -57,6 +57,8 @@ interface RepeatFieldProps {
 	/** Stable identities of enclosing repeats, before this repeat adds its
 	 * own instance identity. */
 	instanceScopeKey: string;
+	accessibleContext: string;
+	position: number;
 }
 
 // ── Instance divider ──────────────────────────────────────────────────
@@ -65,6 +67,9 @@ interface InstanceDividerProps {
 	idx: number;
 	depth: number;
 	onRemove?: () => void;
+	instanceLabelId: string;
+	accessibleContext: string;
+	repeatHeaderId: string;
 }
 
 /**
@@ -74,26 +79,47 @@ interface InstanceDividerProps {
  * caller passes `leadingGap={false}` to the instance's renderer to
  * prevent a double gap.
  */
-function InstanceDivider({ idx, depth, onRemove }: InstanceDividerProps) {
+function InstanceDivider({
+	idx,
+	depth,
+	onRemove,
+	instanceLabelId,
+	accessibleContext,
+	repeatHeaderId,
+}: InstanceDividerProps) {
+	const removeActionId = useId();
 	return (
 		<div
-			className="flex items-center justify-between mb-6"
+			className="mb-6 flex min-h-11 items-center justify-between"
 			style={{
 				paddingLeft: depthPadding(depth),
 				paddingRight: depthPadding(depth),
 			}}
 		>
-			<span className="text-[10px] font-semibold uppercase tracking-widest text-nova-text-muted">
+			<span
+				id={instanceLabelId}
+				className="text-[10px] font-semibold uppercase tracking-widest text-nova-text-muted"
+			>
 				Instance {idx + 1}
 			</span>
 			{onRemove && (
 				<button
 					type="button"
 					onClick={onRemove}
-					className="p-1 text-nova-text-muted hover:text-nova-rose transition-colors cursor-pointer"
-					aria-label={`Remove instance ${idx + 1}`}
+					className="inline-flex min-h-11 min-w-11 touch-manipulation items-center justify-center rounded text-nova-text-muted transition-colors hover:text-nova-rose"
+					aria-labelledby={[
+						removeActionId,
+						accessibleContext,
+						repeatHeaderId,
+						instanceLabelId,
+					]
+						.filter(Boolean)
+						.join(" ")}
 				>
-					<Icon icon={tablerTrash} width="14" height="14" />
+					<span id={removeActionId} className="sr-only">
+						Remove
+					</span>
+					<Icon icon={tablerTrash} width="14" height="14" aria-hidden="true" />
 				</button>
 			)}
 		</div>
@@ -108,6 +134,8 @@ export function RepeatField({
 	fieldPath,
 	depth,
 	instanceScopeKey,
+	accessibleContext,
+	position,
 }: RepeatFieldProps) {
 	// Visibility is gated one level up by `InteractiveQuestion`, so we
 	// only render when the repeat is visible. State is still needed for
@@ -118,6 +146,11 @@ export function RepeatField({
 	const state = useEngineStateAt(field.uuid, path);
 	const { toggleCollapse, isCollapsed } = useFormLayout();
 	const collapsed = isCollapsed(field.uuid);
+	const headerId = useId();
+	const titleId = useId();
+	const toggleActionId = useId();
+	const addActionId = useId();
+	const instanceLabelBaseId = useId();
 
 	const hasChildren = useHasFieldsInForm(field.uuid);
 
@@ -165,18 +198,38 @@ export function RepeatField({
 						<button
 							type="button"
 							onClick={onToggle}
-							className="text-nova-text-muted hover:text-nova-text transition-colors cursor-pointer p-0.5 -m-0.5 rounded"
-							aria-label={collapsed ? "Expand repeat" : "Collapse repeat"}
+							className="inline-flex min-h-11 min-w-11 touch-manipulation items-center justify-center rounded text-nova-text-muted transition-colors hover:text-nova-text"
+							aria-labelledby={[
+								toggleActionId,
+								accessibleContext,
+								headerId,
+								titleId,
+							]
+								.filter(Boolean)
+								.join(" ")}
 						>
+							<span id={toggleActionId} className="sr-only">
+								{collapsed ? "Expand" : "Collapse"}
+							</span>
 							<Icon
 								icon={collapsed ? tablerChevronRight : tablerChevronDown}
 								width="14"
 								height="14"
+								aria-hidden="true"
 							/>
 						</button>
 
-						<span className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-nova-text-muted shrink-0">
-							<Icon icon={tablerRepeat} width="11" height="11" />
+						<span
+							id={headerId}
+							className="flex shrink-0 items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-nova-text-muted"
+						>
+							<span className="sr-only">Repeat {position}. </span>
+							<Icon
+								icon={tablerRepeat}
+								width="11"
+								height="11"
+								aria-hidden="true"
+							/>
 							Repeat
 							{count > 1 && (
 								<span className="font-normal normal-case tracking-normal">
@@ -185,7 +238,7 @@ export function RepeatField({
 							)}
 						</span>
 
-						<div className="min-w-0 flex-1">
+						<div id={titleId} className="min-w-0 flex-1">
 							{/* Repeats extend `containerFieldBase` (label optional).
 							 *  When set, render the title; when empty/absent, render
 							 *  nothing in the title slot — the surrounding chrome
@@ -250,6 +303,9 @@ export function RepeatField({
 													? () => controller.removeRepeat(field.uuid, idx, path)
 													: undefined
 											}
+											instanceLabelId={`${instanceLabelBaseId}-${idx}`}
+											accessibleContext={accessibleContext}
+											repeatHeaderId={`${headerId} ${titleId}`}
 										/>
 										<InteractiveFormRenderer
 											parentEntityId={field.uuid}
@@ -258,6 +314,14 @@ export function RepeatField({
 											depth={depth + 1}
 											leadingGap={false}
 											instanceScopeKey={`${instanceScopeKey}\u0000${field.uuid}:${instanceKey}`}
+											accessibleContext={[
+												accessibleContext,
+												headerId,
+												titleId,
+												`${instanceLabelBaseId}-${idx}`,
+											]
+												.filter(Boolean)
+												.join(" ")}
 										/>
 									</div>
 								);
@@ -286,10 +350,23 @@ export function RepeatField({
 								<button
 									type="button"
 									onClick={() => controller.addRepeat(field.uuid, path)}
-									className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-pv-accent-bright hover:text-pv-accent-bright border border-pv-input-border hover:border-pv-input-focus rounded-lg transition-colors cursor-pointer"
+									aria-labelledby={[
+										addActionId,
+										accessibleContext,
+										headerId,
+										titleId,
+									]
+										.filter(Boolean)
+										.join(" ")}
+									className="inline-flex min-h-11 touch-manipulation items-center gap-1.5 rounded-lg border border-pv-input-border px-3 py-2 text-xs font-medium text-pv-accent-bright transition-colors hover:border-pv-input-focus hover:text-pv-accent-bright"
 								>
-									<Icon icon={tablerPlus} width="14" height="14" />
-									Add {addLabel}
+									<Icon
+										icon={tablerPlus}
+										width="14"
+										height="14"
+										aria-hidden="true"
+									/>
+									<span id={addActionId}>Add {addLabel}</span>
 								</button>
 							</div>
 						)}

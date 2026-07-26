@@ -604,6 +604,17 @@ export class EngineController {
 		return this.activeFormUuid;
 	}
 
+	/**
+	 * End the current answer world and synchronously mount a fresh entry for
+	 * the same form, case preload, lookup capture, and preview identity.
+	 */
+	restartActiveEntry(): string | undefined {
+		const formUuid = this.activeFormUuid;
+		if (formUuid === undefined) return undefined;
+		this.mountForm(formUuid, this.activeCaseData, crypto.randomUUID());
+		return this.currentEntryKey;
+	}
+
 	// ── Public actions (called by components) ────────────────────────
 
 	/** Set a test-mode value and cascade through the DAG. Resolves the
@@ -649,6 +660,11 @@ export class EngineController {
 		 * Sync all paths but only write those that actually changed. */
 		this.syncAllPathsSelectively();
 		return result;
+	}
+
+	/** Submission-time disposition of one concrete capture path. */
+	attachmentPathDisposition(path: string): "active" | "dormant" | "removed" {
+		return this.engine?.attachmentPathDisposition(path) ?? "removed";
 	}
 
 	/** Full reset — reinitialize all runtime state. */

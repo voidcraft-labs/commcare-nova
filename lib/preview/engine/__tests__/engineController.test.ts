@@ -7,7 +7,7 @@
  * The doc store's `load()` accepts this shape and rebuilds `fieldParent`
  * on load.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { xp } from "@/lib/__tests__/docHelpers";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { CaseType, Field, Uuid } from "@/lib/domain";
@@ -106,6 +106,109 @@ describe("EngineController", () => {
 			ctrl.activateForm(FORM_UUID);
 			expect(ctrl.entryKey).toEqual(expect.any(String));
 			expect(ctrl.entryKey).not.toBe(entryKey);
+		});
+
+		it("starts a fresh entry immediately without changing the active form", () => {
+			const store = createLoadedStore();
+			const ctrl = new EngineController();
+			ctrl.setDocStore(store);
+			ctrl.activateForm(FORM_UUID);
+			ctrl.setValueAt("/data/name", "Old answer");
+			const previousEntryKey = ctrl.entryKey;
+
+			const nextEntryKey = ctrl.restartActiveEntry();
+
+			expect(nextEntryKey).toEqual(expect.any(String));
+			expect(nextEntryKey).not.toBe(previousEntryKey);
+			expect(ctrl.entryKey).toBe(nextEntryKey);
+			expect(ctrl.formUuid).toBe(FORM_UUID);
+			expect(ctrl.store.getState()[Q1_UUID].value).toBe("");
+		});
+
+		it("classifies capture blockers through hide, re-show, and field deletion", async () => {
+			const captureUuid = asUuid("aaaaaaaa-0020-0020-0020-000000000020");
+			const store = createLoadedStore(
+				makeDoc(
+					{
+						[captureUuid]: {
+							uuid: captureUuid,
+							id: "signature",
+							kind: "signature",
+							label: "Signature",
+							relevant: xp("false()"),
+						},
+					},
+					{ [FORM_UUID]: [captureUuid] },
+				),
+			);
+			const ctrl = new EngineController();
+			ctrl.setDocStore(store);
+			ctrl.activateForm(FORM_UUID);
+
+			expect(ctrl.attachmentPathDisposition("/data/signature")).toBe("dormant");
+
+			store.getState().applyMany([
+				{
+					kind: "updateField",
+					uuid: captureUuid,
+					targetKind: "signature",
+					patch: { relevant: xp("true()") },
+				},
+			]);
+			await vi.waitFor(() =>
+				expect(ctrl.attachmentPathDisposition("/data/signature")).toBe(
+					"active",
+				),
+			);
+
+			store.getState().applyMany([{ kind: "removeField", uuid: captureUuid }]);
+			await vi.waitFor(() =>
+				expect(ctrl.attachmentPathDisposition("/data/signature")).toBe(
+					"removed",
+				),
+			);
+		});
+
+		it("retires a capture path when its repeat instance is removed", () => {
+			const repeatUuid = asUuid("aaaaaaaa-0030-0030-0030-000000000030");
+			const captureUuid = asUuid("aaaaaaaa-0031-0031-0031-000000000031");
+			const store = createLoadedStore(
+				makeDoc(
+					{
+						[repeatUuid]: {
+							uuid: repeatUuid,
+							id: "visits",
+							kind: "repeat",
+							label: "Visits",
+							repeat_mode: "user_controlled",
+						},
+						[captureUuid]: {
+							uuid: captureUuid,
+							id: "photo",
+							kind: "image",
+							label: "Photo",
+						},
+					},
+					{
+						[FORM_UUID]: [repeatUuid],
+						[repeatUuid]: [captureUuid],
+					},
+				),
+			);
+			const ctrl = new EngineController();
+			ctrl.setDocStore(store);
+			ctrl.activateForm(FORM_UUID);
+			ctrl.addRepeat(repeatUuid);
+
+			expect(ctrl.attachmentPathDisposition("/data/visits[1]/photo")).toBe(
+				"active",
+			);
+
+			ctrl.removeRepeat(repeatUuid, 1);
+
+			expect(ctrl.attachmentPathDisposition("/data/visits[1]/photo")).toBe(
+				"removed",
+			);
 		});
 
 		it("preserves repeat render identities across a same-entry rebuild", () => {

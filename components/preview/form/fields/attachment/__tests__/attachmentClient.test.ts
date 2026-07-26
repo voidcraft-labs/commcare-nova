@@ -171,6 +171,61 @@ describe("form attachment coordinator", () => {
 		).resolves.toBe("submitted");
 	});
 
+	it("only lets effectively visible capture blockers gate submission", async () => {
+		const entryKey = "entry-effective-visibility";
+		const slotKey = "signature:stable-instance";
+		registerAttachmentSlotPath({
+			appId: "app-1",
+			entryKey,
+			slotKey,
+			instancePath: "/data/visit/signature",
+		});
+		rememberOwnedStagedAttachment({
+			appId: "app-1",
+			entryKey,
+			slotKey,
+			instancePath: "/data/visit/signature",
+			attachment: {
+				attachmentId: "attachment-deleted-field",
+				attachmentName: "attachment-deleted-field.png",
+				originalFilename: "signature.png",
+				sizeBytes: 3,
+			},
+		});
+		const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+		vi.stubGlobal("fetch", fetchMock);
+		markAttachmentNotReady(
+			entryKey,
+			slotKey,
+			"The signature could not be encoded.",
+		);
+
+		await expect(
+			runFormAttachmentBarrier(entryKey, async () => "submitted while hidden", {
+				classifySlot: () => "dormant",
+			}),
+		).resolves.toBe("submitted while hidden");
+
+		await expect(
+			runFormAttachmentBarrier(entryKey, async () => "submitted", {
+				classifySlot: () => "active",
+			}),
+		).rejects.toThrow(/could not be encoded/i);
+
+		await expect(
+			runFormAttachmentBarrier(entryKey, async () => "submitted after delete", {
+				classifySlot: () => "removed",
+			}),
+		).resolves.toBe("submitted after delete");
+		expect(
+			getAttachmentSlotPath({ appId: "app-1", entryKey, slotKey }),
+		).toBeUndefined();
+		expect(fetchMock).toHaveBeenCalledWith(
+			"/api/apps/app-1/attachments/attachment-deleted-field",
+			expect.objectContaining({ method: "DELETE" }),
+		);
+	});
+
 	it("keeps a confirmed row owned by the entry across ordinary component unmounts", async () => {
 		const staged = {
 			attachmentId: "attachment-keep",

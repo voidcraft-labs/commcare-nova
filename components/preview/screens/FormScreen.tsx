@@ -3,6 +3,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import tablerRefresh from "@iconify-icons/tabler/refresh";
 import {
+	type MouseEvent as ReactMouseEvent,
 	type SyntheticEvent,
 	useCallback,
 	useEffect,
@@ -58,9 +59,8 @@ import { useBuilderSessionApi } from "@/lib/session/provider";
 import { FormLayoutProvider } from "../form/FormLayoutContext";
 import { FormRenderer } from "../form/FormRenderer";
 import {
-	cancelAttachmentEntry,
-	discardAttachmentEntry,
 	reconcileAttachmentRepeatCompaction,
+	retireAttachmentEntry,
 	runFormAttachmentBarrier,
 } from "../form/fields/attachment/attachmentClient";
 
@@ -388,7 +388,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	useEffect(() => {
 		if (appId === undefined || entryKey === undefined) return;
 		return () => {
-			void discardAttachmentEntry({
+			retireAttachmentEntry({
 				appId,
 				entryKey,
 			});
@@ -451,6 +451,11 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		kind: "idle",
 	});
 	const [clearRevision, setClearRevision] = useState(0);
+	const [clearTargetEntryKey, setClearTargetEntryKey] = useState<
+		string | undefined
+	>();
+	const clearInFlightRef = useRef(false);
+	const clearRunning = clearTargetEntryKey !== undefined;
 	const submissionAttemptRef = useRef(0);
 	const setPreviewCaseTarget = useSetPreviewCaseTarget();
 	const setPreviewSelectedCase = useSetPreviewSelectedCase();
@@ -474,6 +479,13 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		submissionAttemptRef.current += 1;
 		setSubmitStatus({ kind: "idle" });
 	}, [submissionIdentityKey]);
+	useEffect(() => {
+		if (clearTargetEntryKey === undefined || entryKey !== clearTargetEntryKey) {
+			return;
+		}
+		clearInFlightRef.current = false;
+		setClearTargetEntryKey(undefined);
+	}, [clearTargetEntryKey, entryKey]);
 
 	/* Replacing all rows destroys the identity this navigation frame carries.
 	 * Leave the stale form with `replace` (so browser Back cannot re-enter it),
@@ -555,6 +567,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	);
 
 	const handleSubmit = async (): Promise<void> => {
+		if (clearInFlightRef.current) return;
 		const start = session.getState();
 		/* Authority is read imperatively at the mutation boundary. A queued click
 		 * can run after the synchronous reset but before React commits fresh props. */
@@ -659,7 +672,10 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			const result =
 				entryKey === undefined
 					? await submitStableAnswers()
-					: await runFormAttachmentBarrier(entryKey, submitStableAnswers);
+					: await runFormAttachmentBarrier(entryKey, submitStableAnswers, {
+							classifySlot: ({ instancePath }) =>
+								controller.attachmentPathDisposition(instancePath),
+						});
 			if (!isCurrent()) {
 				settleAttempt({ kind: "idle" });
 				return;
@@ -709,29 +725,41 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		}
 	};
 
-	/* Clear-form button: reset both the engine's per-field state AND the
-	 * submit lifecycle. Leaving `submitStatus` carrying a stale error
-	 * after the user clicks Clear contradicts the "start fresh" mental
-	 * model — the form's reset must be visible across every surface. */
-	const handleClear = useCallback((): void => {
-		setSubmitStatus({ kind: "idle" });
-		if (entryKey === undefined) {
-			controller.reset();
-			setClearRevision((revision) => revision + 1);
-			return;
-		}
-		cancelAttachmentEntry(entryKey);
-		void runFormAttachmentBarrier(entryKey, async () => {
-			if (appId !== undefined) {
-				await discardAttachmentEntry({ appId, entryKey });
+	/* Clear-form button: retire the whole prior entry, synchronously mount a
+	 * fresh idempotency scope, and reset the submit lifecycle. Staged-row
+	 * cleanup is best effort and cannot later wipe answers entered here. */
+	const handleClear = useCallback(
+		(event: ReactMouseEvent<HTMLButtonElement>): void => {
+			if (
+				event.detail > 1 ||
+				clearInFlightRef.current ||
+				submitStatus.kind === "running"
+			) {
+				return;
 			}
-			if (controller.entryKey !== entryKey) return;
-			controller.reset();
+			clearInFlightRef.current = true;
+			setSubmitStatus({ kind: "idle" });
+			if (entryKey === undefined) {
+				controller.reset();
+				setClearRevision((revision) => revision + 1);
+				clearInFlightRef.current = false;
+				return;
+			}
+			if (appId !== undefined) {
+				retireAttachmentEntry({ appId, entryKey });
+			}
+			const nextEntryKey = controller.restartActiveEntry();
 			setClearRevision((revision) => revision + 1);
-		});
-	}, [appId, controller, entryKey]);
+			if (nextEntryKey === undefined) {
+				clearInFlightRef.current = false;
+				return;
+			}
+			setClearTargetEntryKey(nextEntryKey);
+		},
+		[appId, controller, entryKey, submitStatus.kind],
+	);
 
-	const formFrozen = submitStatus.kind === "running";
+	const formFrozen = submitStatus.kind === "running" || clearRunning;
 	const blockFrozenInteraction = useCallback(
 		(event: SyntheticEvent): void => {
 			if (!formFrozen) return;
@@ -837,16 +865,17 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				onKeyDownCapture={blockFrozenInteraction}
 				onPointerDownCapture={blockFrozenInteraction}
 			>
-				<fieldset disabled={formFrozen} className="contents">
+				<fieldset
+					key={`${scopeEpoch}:${clearRevision}`}
+					disabled={formFrozen}
+					className="contents"
+				>
 					{hasFields ? (
 						/* Every interactive field owns browser continuations (camera,
 						 * geolocation, Places, focus). A Project generation is a hard
 						 * runtime boundary: remount the renderer so no local UI state can
 						 * be projected into the destination controller. */
-						<FormRenderer
-							key={`${scopeEpoch}:${clearRevision}`}
-							parentEntityId={formUuid}
-						/>
+						<FormRenderer parentEntityId={formUuid} />
 					) : (
 						<div className="text-center text-nova-text-muted py-8">
 							This form has no fields.
@@ -871,6 +900,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 								onClick={handleSubmit}
 								disabled={
 									submitStatus.kind === "running" ||
+									clearRunning ||
 									!caseBindingReady ||
 									!mayWriteCaseData
 								}
@@ -889,17 +919,24 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 							<button
 								type="button"
 								onClick={handleClear}
-								disabled={submitStatus.kind === "running"}
+								disabled={submitStatus.kind === "running" || clearRunning}
 								className="inline-flex items-center gap-1.5 px-3 py-2 text-sm text-nova-text-muted not-disabled:hover:text-nova-text not-disabled:hover:bg-white/5 transition-colors cursor-pointer rounded-lg disabled:opacity-40 disabled:cursor-not-allowed disabled:not-disabled:hover:bg-transparent"
 							>
-								<Icon icon={tablerRefresh} width="14" height="14" />
-								Clear form
+								<Icon
+									icon={tablerRefresh}
+									width="14"
+									height="14"
+									className={clearRunning ? "animate-spin" : undefined}
+								/>
+								{clearRunning ? "Starting fresh…" : "Clear form"}
 							</button>
 						</div>
 					)}
 					{formFrozen ? (
 						<p role="status" className="px-6 pb-3 text-xs text-nova-text-muted">
-							Answers are locked while this submission finishes.
+							{clearRunning
+								? "A fresh form entry is ready."
+								: "Answers are locked while this submission finishes."}
 						</p>
 					) : null}
 					{/* Inline error sits BELOW the submit row so the user's

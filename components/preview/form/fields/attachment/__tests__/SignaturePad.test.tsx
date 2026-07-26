@@ -4,6 +4,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	__resetAttachmentCoordinatorForTests,
+	runAttachmentTask,
 	runFormAttachmentBarrier,
 } from "../attachmentClient";
 import { SignaturePad } from "../SignaturePad";
@@ -256,6 +257,98 @@ describe("SignaturePad", () => {
 		expect(submit).toHaveBeenCalledTimes(1);
 	});
 
+	it("announces queued ink before it can run behind another capture", async () => {
+		const blockerStarted = deferred<void>();
+		const blockerRelease = deferred<void>();
+		const blocker = runAttachmentTask({
+			entryKey: "entry-queued-signature",
+			instancePath: "/data/photo",
+			task: async () => {
+				blockerStarted.resolve();
+				await blockerRelease.promise;
+			},
+		});
+		await blockerStarted.promise;
+		render(
+			<SignaturePad
+				entryKey="entry-queued-signature"
+				instancePath="/data/signature"
+				uploading={false}
+				hasAnswer={false}
+				onDrawn={vi.fn()}
+				onClear={vi.fn()}
+			/>,
+		);
+		const canvas = screen.getByLabelText(/Signature pad/) as HTMLCanvasElement;
+		Object.assign(canvas, {
+			setPointerCapture: vi.fn(),
+			releasePointerCapture: vi.fn(),
+		});
+
+		fireEvent.pointerDown(canvas, {
+			pointerId: 1,
+			clientX: 10,
+			clientY: 10,
+		});
+		fireEvent.pointerUp(canvas, {
+			pointerId: 1,
+			clientX: 10,
+			clientY: 10,
+		});
+
+		expect(screen.getByRole("status").textContent).toMatch(
+			/waiting to save signature/i,
+		);
+		expect(screen.getAllByRole("status")).toHaveLength(1);
+
+		await act(async () => {
+			blockerRelease.resolve();
+			await blocker;
+			await Promise.resolve();
+			__resetAttachmentCoordinatorForTests();
+			await Promise.resolve();
+		});
+	});
+
+	it("guards clear and draw gestures while a destructive clear is queued", () => {
+		const onClear = vi.fn();
+		const onDrawn = vi.fn();
+		render(
+			<SignaturePad
+				entryKey="entry-queued-clear"
+				instancePath="/data/signature"
+				uploading={false}
+				interactionBlocked
+				hasAnswer={true}
+				onDrawn={onDrawn}
+				onClear={onClear}
+			/>,
+		);
+		const canvas = screen.getByLabelText(/Signature pad/) as HTMLCanvasElement;
+		fireEvent.pointerDown(canvas, {
+			pointerId: 1,
+			clientX: 10,
+			clientY: 10,
+		});
+		fireEvent.pointerUp(canvas, {
+			pointerId: 1,
+			clientX: 10,
+			clientY: 10,
+		});
+		const clear = screen.getByRole("button", {
+			name: "Clear signature",
+		}) as HTMLButtonElement;
+		fireEvent.click(clear);
+
+		expect(clear.disabled).toBe(true);
+		expect(onClear).not.toHaveBeenCalled();
+		expect(onDrawn).not.toHaveBeenCalled();
+		expect(blobCallbacks).toHaveLength(0);
+		expect(screen.getByRole("status").textContent).toMatch(
+			/waiting to clear signature/i,
+		);
+	});
+
 	it("keeps signature pixels entry-local across a persona/entry switch", async () => {
 		const onDrawn = vi.fn();
 		const { rerender } = render(
@@ -432,6 +525,63 @@ describe("SignaturePad", () => {
 		// Continuing the signature must retain the rescaled first stroke.
 		expect(context.moveTo).toHaveBeenCalledWith(90, 80);
 		expect(context.moveTo).toHaveBeenCalledWith(50, 100);
+	});
+
+	it("fences a pre-resize PNG and re-encodes the resized signature", async () => {
+		let width = 200;
+		vi.spyOn(
+			HTMLCanvasElement.prototype,
+			"getBoundingClientRect",
+		).mockImplementation(
+			() =>
+				({
+					width,
+					height: 160,
+					left: 0,
+					top: 0,
+					right: width,
+					bottom: 160,
+					x: 0,
+					y: 0,
+					toJSON: () => ({}),
+				}) as DOMRect,
+		);
+		const onDrawn = vi.fn();
+		render(
+			<SignaturePad
+				entryKey="entry-resize-fence"
+				instancePath="/data/signature"
+				uploading={false}
+				hasAnswer={false}
+				onDrawn={onDrawn}
+				onClear={vi.fn()}
+			/>,
+		);
+		const canvas = screen.getByLabelText(/Signature pad/) as HTMLCanvasElement;
+		await drawOneStroke(canvas, 1);
+		expect(blobCallbacks).toHaveLength(1);
+
+		width = 100;
+		fireEvent(window, new Event("resize"));
+		await act(async () => {
+			vi.advanceTimersByTime(0);
+			for (let index = 0; index < 5; index++) await Promise.resolve();
+		});
+		expect(blobCallbacks).toHaveLength(2);
+		const submit = vi.fn();
+		const barrier = runFormAttachmentBarrier("entry-resize-fence", async () => {
+			submit();
+		});
+
+		blobCallbacks[0]?.(new Blob(["stale-wide"], { type: "image/png" }));
+		expect(onDrawn).not.toHaveBeenCalled();
+		expect(submit).not.toHaveBeenCalled();
+		await act(async () => {
+			blobCallbacks[1]?.(new Blob(["fresh-narrow"], { type: "image/png" }));
+			await barrier;
+		});
+		expect(onDrawn).toHaveBeenCalledTimes(1);
+		expect(submit).toHaveBeenCalledTimes(1);
 	});
 
 	it("keeps the first clear undoable when Clear is tapped twice before its queued answer update", async () => {
