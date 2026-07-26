@@ -168,6 +168,32 @@ export interface ApplySubmissionArgs {
 	readonly appId: string;
 	readonly ordinary: OrdinarySubmissionAction;
 	readonly operations?: CaseOperationProgram;
+	/**
+	 * Server-derived form-entry identity and capture authority. When present,
+	 * the case effects, exact staged-row reservation, and replay record commit
+	 * in the same transaction.
+	 */
+	readonly captureIntent?: {
+		readonly entryKey: string;
+		readonly formUuid: string;
+		readonly expectedAppMutationSeq: number;
+		readonly requestDigest: string;
+		/**
+		 * Exact live answer slots serialized by the engine. Names alone are
+		 * insufficient authority: one entry can stage captures for several
+		 * questions and repeat instances.
+		 */
+		readonly attachments: ReadonlyArray<{
+			readonly attachmentName: string;
+			readonly fieldUuid: string;
+			readonly instancePath: string;
+		}>;
+		readonly allowedAttachments: ReadonlyArray<{
+			readonly fieldUuid: string;
+			/** Engine path with `[0]` at every authored repeat segment. */
+			readonly instancePathTemplate: string;
+		}>;
+	};
 }
 
 /** What one physical operation instance did — the executed plan in

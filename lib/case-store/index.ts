@@ -31,6 +31,7 @@ export {
 // Typed user-domain errors.
 export type { CasePropertyFailure, SubmissionRejection } from "./errors";
 export {
+	CaptureSubmissionRejectedError,
 	CaseNotFoundError,
 	CasePropertiesValidationError,
 	CaseTypeNotInBlueprintError,

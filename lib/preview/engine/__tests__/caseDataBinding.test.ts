@@ -31,6 +31,7 @@ import type { Kysely } from "kysely";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	buildCaseTypeMap,
+	CaptureSubmissionRejectedError,
 	CaseNotFoundError,
 	CasePropertiesValidationError,
 	type CasePropertyFailure,
@@ -144,14 +145,21 @@ vi.mock("@/lib/case-store", async () => {
 // leak no unit test may create. The heal-reaching action test scripts these per
 // call; every other test never enters the heal (only
 // `SchemaNotSyncedError` does), so the stubs stay invisible to them.
-const { loadAppMock, materializeMock, resolveAppScopeMock } = vi.hoisted(
-	() => ({
-		loadAppMock: vi.fn(),
-		materializeMock: vi.fn(),
-		resolveAppScopeMock: vi.fn(),
-	}),
-);
+const {
+	loadAppMock,
+	materializeMock,
+	promotePendingFormAttachmentsMock,
+	resolveAppScopeMock,
+} = vi.hoisted(() => ({
+	loadAppMock: vi.fn(),
+	materializeMock: vi.fn(),
+	promotePendingFormAttachmentsMock: vi.fn(),
+	resolveAppScopeMock: vi.fn(),
+}));
 vi.mock("@/lib/db/apps", () => ({ loadApp: loadAppMock }));
+vi.mock("@/lib/db/formAttachmentPromotion", () => ({
+	promotePendingFormAttachments: promotePendingFormAttachmentsMock,
+}));
 vi.mock("@/lib/db/materializeCaseStoreSchemas", () => ({
 	materializeCaseStoreSchemas: materializeMock,
 }));
@@ -3173,6 +3181,16 @@ describe("mapSubmitFormError", () => {
 	// typed-result-arm translation is testable without driving
 	// `getSession` / `withProjectContext`.
 
+	it("maps a capture admission rejection to its safe user-facing message", () => {
+		const err = new CaptureSubmissionRejectedError(
+			"This form entry was already submitted.",
+		);
+		expect(mapSubmitFormError(err)).toEqual({
+			kind: "error",
+			message: "This form entry was already submitted.",
+		});
+	});
+
 	it("maps CaseNotFoundError to the case-not-found arm carrying the case id", () => {
 		const err = new CaseNotFoundError(ALICE_CASE_ID);
 		expect(mapSubmitFormError(err)).toEqual({
@@ -3695,6 +3713,81 @@ describe("submitFormAction", () => {
 		const gateOrder = resolveAppScopeMock.mock.invocationCallOrder[0];
 		const docReadOrder = loadAppMock.mock.invocationCallOrder[0];
 		expect(gateOrder).toBeLessThan(docReadOrder);
+	});
+
+	it("commits and promotes an attachment-bearing survey instead of taking the legacy no-op guard", async () => {
+		const { getSession } = await import("@/lib/auth-utils");
+		const { withProjectContext } = await import("@/lib/case-store");
+		vi.mocked(getSession).mockResolvedValueOnce({
+			user: { id: OWNER_A },
+		} as unknown as Awaited<ReturnType<typeof getSession>>);
+
+		const doc = buildDoc({
+			appName: "Capture survey",
+			modules: [
+				{
+					name: "Mod",
+					forms: [
+						{
+							name: "Survey",
+							type: "survey",
+							fields: [f({ kind: "image", id: "photo", label: "Photo" })],
+						},
+					],
+				},
+			],
+		});
+		const formUuid = Object.keys(doc.forms)[0] as Uuid;
+		const photoUuid = Object.values(doc.fields).find(
+			(field) => field.id === "photo",
+		)?.uuid as Uuid;
+		loadAppMock.mockResolvedValue({
+			blueprint: doc,
+			mutation_seq: 17,
+			project_id: PROJECT_A,
+		});
+		const applySubmission = vi.fn().mockResolvedValueOnce({
+			childCaseIds: [],
+			operations: [],
+		});
+		vi.mocked(withProjectContext).mockResolvedValueOnce(
+			stubCaseStore(applySubmission),
+		);
+
+		const entryKey = "11111111-1111-4111-8111-111111111111";
+		const mutation: SubmissionMutation = {
+			kind: "survey",
+			formUuid,
+			entryKey,
+			attachmentNames: ["photo.jpg"],
+			attachmentRefs: [
+				{
+					attachmentName: "photo.jpg",
+					fieldUuid: photoUuid,
+					instancePath: "/data/photo",
+				},
+			],
+		};
+		const { submitFormAction } = await import("../caseDataBinding");
+		const result = await submitFormAction(mutation, APP_ID);
+
+		expect(result).toEqual({ kind: "survey" });
+		expect(applySubmission).toHaveBeenCalledOnce();
+		const envelope = applySubmission.mock.calls[0]?.[0];
+		expect(envelope.ordinary).toEqual({ kind: "none" });
+		expect(envelope.captureIntent).toMatchObject({
+			entryKey,
+			formUuid,
+			expectedAppMutationSeq: 17,
+			attachments: mutation.attachmentRefs,
+		});
+		expect(envelope.captureIntent.requestDigest).toMatch(/^[0-9a-f]{64}$/);
+		expect(promotePendingFormAttachmentsMock).toHaveBeenCalledWith({
+			appId: APP_ID,
+			entryKey,
+			actorUserId: OWNER_A,
+			projectId: PROJECT_A,
+		});
 	});
 });
 

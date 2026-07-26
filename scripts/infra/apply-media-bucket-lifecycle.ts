@@ -1,15 +1,14 @@
 /**
- * Apply the media bucket's pending-object lifecycle rule.
+ * Apply the media bucket's complete temporary-object lifecycle policy.
  *
  * Browser uploads PUT to `pending/<project>/...` via a V4 signed URL. That URL
- * now binds a maximum body length (the `x-goog-content-length-range` header —
- * see `createSignedUploadUrl`), so GCS rejects an OVERSIZED write at the
- * boundary; what still accumulates is a WITHIN-cap object whose client never
- * calls confirm (confirm promotes validated bytes out of `pending/`). This
- * idempotent operation installs the GCS lifecycle rule that reaps any
- * `pending/` object older than a day — the backstop for those abandoned
- * attempts. The rule itself lives in
- * `lib/storage/media.ts::applyPendingObjectLifecycle` so the prefix + TTL
+ * binds the allowed body length (exact for captures and capped for authoring
+ * media) plus a create-only precondition, so GCS rejects an invalid or reused
+ * attempt at the boundary. This idempotent operation installs both GCS
+ * lifecycle rules: abandoned media attempts under `pending/` after one day
+ * and staged captures after their seven-day promotion/retry window. The
+ * complete rule set lives in
+ * `lib/storage/media.ts::applyMediaBucketLifecycle` so the prefix + TTL
  * stay coupled to the upload code.
  *
  * Run against the real bucket, with ADC configured for an identity allowed
@@ -19,10 +18,11 @@
  *   GOOGLE_CLOUD_PROJECT=<project> \
  *   npx tsx scripts/infra/apply-media-bucket-lifecycle.ts
  *
- * Idempotent — re-running sets the same single rule.
+ * Idempotent — re-running replaces the bucket policy with the same complete
+ * rule set.
  */
 
-import { applyPendingObjectLifecycle } from "@/lib/storage/media";
+import { applyMediaBucketLifecycle } from "@/lib/storage/media";
 
 async function main(): Promise<void> {
 	const bucket = process.env.NOVA_MEDIA_BUCKET;
@@ -33,10 +33,10 @@ async function main(): Promise<void> {
 		process.exit(1);
 	}
 
-	console.log(`Applying pending-object lifecycle rule to gs://${bucket} …`);
-	await applyPendingObjectLifecycle();
+	console.log(`Applying temporary-object lifecycle policy to gs://${bucket} …`);
+	await applyMediaBucketLifecycle();
 	console.log(
-		"Done — GCS will now auto-delete objects under `pending/` older than 1 day.",
+		"Done — GCS will now reap abandoned media attempts and staged captures on their configured windows.",
 	);
 }
 

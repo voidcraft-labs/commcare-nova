@@ -232,8 +232,7 @@ export function RepeatField({
 						{hasChildren &&
 							Array.from({ length: count }, (_, idx) => (
 								<div
-									// biome-ignore lint/suspicious/noArrayIndexKey: repeat instances have no stable identity beyond position
-									key={idx}
+									key={controller.getRepeatInstanceKey(field.uuid, idx, path)}
 								>
 									<InstanceDivider
 										idx={idx}

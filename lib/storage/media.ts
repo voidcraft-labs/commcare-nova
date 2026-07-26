@@ -18,6 +18,7 @@
 
 import type { Readable } from "node:stream";
 import { type Bucket, Storage } from "@google-cloud/storage";
+import { STAGED_CAPTURE_PREFIX } from "@/lib/domain/captureFormats";
 import { PENDING_OBJECT_PREFIX } from "@/lib/domain/multimedia";
 
 let _storage: Storage | null = null;
@@ -67,11 +68,47 @@ function getBucket(): Bucket {
 const PENDING_OBJECT_TTL_DAYS = 1;
 
 /**
- * Apply the bucket lifecycle rule that auto-deletes abandoned upload
- * objects under the `pending/` prefix.
+ * Days a STAGED CAPTURE's bytes live before the bucket lifecycle rule
+ * reaps them.
  *
- * Browser uploads PUT to a per-attempt `pending/<project>/...` key via a V4
- * signed URL. The signed URL now binds a MAXIMUM body length (the
+ * A capture is staged while its form is being filled in, and Nova's
+ * preview does not resume a partially-filled form — navigating away
+ * discards the answers. Seven days leaves a retry window for a submitted
+ * row whose durable promotion is temporarily failing while still bounding
+ * abandoned worker data independently of request traffic.
+ *
+ * Submission promotes a kept capture OUT of the staging prefix
+ * (`captureObjectKeyFor`), so this rule can never reach one.
+ */
+const STAGED_CAPTURE_TTL_DAYS = 7;
+
+/**
+ * Apply the media bucket's COMPLETE lifecycle policy — every rule it
+ * has, in one call.
+ *
+ * ## Why this function owns all of them
+ *
+ * The call below passes `{ append: false }`, which REPLACES the bucket's
+ * lifecycle rather than adding to it. A second function applying a second
+ * rule would therefore silently delete the first one's, and nothing would
+ * notice until objects quietly stopped being collected. So every prefix
+ * that needs a TTL gets its rule here, and
+ * `__tests__/mediaBucketLifecycle.test.ts` pins that all of them survive
+ * a single application.
+ *
+ * Two prefixes need one:
+ *
+ *  - `pending/` — abandoned browser upload attempts, described below.
+ *  - `captures-staged/` — a worker's form attachment whose form was never
+ *    submitted. This is the retention backstop: rows carry an `expires_at`
+ *    swept by the scheduled worker and opportunistically on initiation, but
+ *    row hygiene is not a byte-retention guarantee. An idle Project must stop
+ *    holding photographs even if its database worker is unavailable, which
+ *    only a traffic-independent bucket rule delivers.
+ *
+ * Browser uploads PUT to a per-attempt key via a V4 signed URL. The signed
+ * URL binds a body-length range (exact for capture attempts, a maximum for
+ * authoring-media attempts) through the
  * `x-goog-content-length-range` extension header — see
  * `createSignedUploadUrl`), so GCS rejects an oversized write at the storage
  * boundary; what still accumulates is the WITHIN-cap object whose client
@@ -82,21 +119,30 @@ const PENDING_OBJECT_TTL_DAYS = 1;
  * validated bytes OUT of `pending/` to the content-hash key before flipping
  * the row to ready.
  *
- * Idempotent: `append: false` replaces the bucket's lifecycle with this
- * single rule. The media bucket is dedicated, so it owns no other rules to
- * preserve, and re-running yields the same state. Operational, not on the
- * request path — run once per bucket (and after any prefix change) via
- * `scripts/infra/apply-media-bucket-lifecycle.ts`.
+ * Idempotent: `append: false` replaces the bucket's lifecycle with
+ * exactly these rules. The media bucket is dedicated, so it owns no
+ * others to preserve, and re-running yields the same state. Operational,
+ * not on the request path — run once per bucket (and after any prefix or
+ * rule change) via `scripts/infra/apply-media-bucket-lifecycle.ts`.
  */
-export async function applyPendingObjectLifecycle(): Promise<void> {
+export async function applyMediaBucketLifecycle(): Promise<void> {
 	await getBucket().addLifecycleRule(
-		{
-			action: { type: "Delete" },
-			condition: {
-				age: PENDING_OBJECT_TTL_DAYS,
-				matchesPrefix: [PENDING_OBJECT_PREFIX],
+		[
+			{
+				action: { type: "Delete" },
+				condition: {
+					age: PENDING_OBJECT_TTL_DAYS,
+					matchesPrefix: [PENDING_OBJECT_PREFIX],
+				},
 			},
-		},
+			{
+				action: { type: "Delete" },
+				condition: {
+					age: STAGED_CAPTURE_TTL_DAYS,
+					matchesPrefix: [STAGED_CAPTURE_PREFIX],
+				},
+			},
+		],
 		{ append: false },
 	);
 }
@@ -110,15 +156,18 @@ export async function applyPendingObjectLifecycle(): Promise<void> {
  *    keeps a different tenant's namespace structurally unreachable),
  *  - the request `Content-Type` header (the upload must declare
  *    the same MIME the route's pre-screen accepted),
- *  - a MAXIMUM body length, via the signed `x-goog-content-length-range`
- *    extension header (`0,<maxBytes>`). Because the header is part of the V4
+ *  - a body-length range, via the signed `x-goog-content-length-range`
+ *    extension header (`<minBytes>,<maxBytes>`). Because the header is part of the V4
  *    signature, the client MUST send it verbatim (returned in
  *    `requiredHeaders`) and GCS REJECTS a body outside the range at the
- *    storage boundary — so a client can't push an over-cap object into
- *    `pending/` by lying about its size at initiate (CWE-770). The bucket
+ *    storage boundary. Capture initiation sets min=max to bind the exact
+ *    selected file; authoring media uses the kind cap as its maximum. The bucket
  *    CORS must allow this request header or the browser preflight strips it
  *    and the PUT 403s — see {@link applyMediaBucketCors} (a deploy
  *    prerequisite).
+ *  - creation generation zero, via signed
+ *    `x-goog-if-generation-match: 0`, so the URL cannot overwrite bytes
+ *    after confirm records their immutable generation.
  *
  * A 5-minute TTL keeps a leaked URL short-lived. Confirm-time validation
  * still re-downloads + re-hashes the bytes as the authoritative content
@@ -128,6 +177,7 @@ export async function applyPendingObjectLifecycle(): Promise<void> {
 export async function createSignedUploadUrl(args: {
 	gcsObjectKey: string;
 	contentType: string;
+	minBytes?: number;
 	maxBytes: number;
 }): Promise<{
 	url: string;
@@ -139,18 +189,18 @@ export async function createSignedUploadUrl(args: {
 
 	// The byte range the write must fall within — the GCS XML-API
 	// `x-goog-content-length-range: <min>,<max>` form.
-	const contentLengthRange = `0,${args.maxBytes}`;
+	const contentLengthRange = `${args.minBytes ?? 0},${args.maxBytes}`;
 
 	// Local dev: developer ADC is a user credential with no private key, so
 	// it cannot mint a V4 signature (prod's runtime service account signs
 	// via the IAM credentials API). The browser instead PUTs to a
 	// same-origin dev-only route that writes the bytes through this
 	// module's storage client. That proxy enforces the same cap server-side
-	// via the `max` query param (it writes the bytes itself, so there's no
-	// signed GCS write to bind the range onto). The rest of the upload flow
-	// (initiate → PUT → confirm → validate → promote) stays byte-identical
-	// to prod — only the signed-PUT hop is swapped. The route 404s outside
-	// development.
+	// via the `max` query param for authoring media and the exact pending-row
+	// metadata for captures (it writes the bytes itself, so there's no signed
+	// GCS write to bind the range onto). The rest of the upload flow stays
+	// byte-identical to prod — only the signed-PUT hop is swapped. The route
+	// 404s outside development.
 	if (process.env.NODE_ENV === "development") {
 		const url = `/api/media/upload/dev-put?key=${encodeURIComponent(
 			args.gcsObjectKey,
@@ -165,12 +215,21 @@ export async function createSignedUploadUrl(args: {
 			action: "write",
 			expires: expiresAtMs,
 			contentType: args.contentType,
-			extensionHeaders: { "x-goog-content-length-range": contentLengthRange },
+			// A signed attempt is create-only for its whole lifetime. Without
+			// this precondition the same URL could overwrite the generation
+			// confirm measured before settlement copied it.
+			extensionHeaders: {
+				"x-goog-content-length-range": contentLengthRange,
+				"x-goog-if-generation-match": "0",
+			},
 		});
 	return {
 		url,
 		expiresAtMs,
-		requiredHeaders: { "x-goog-content-length-range": contentLengthRange },
+		requiredHeaders: {
+			"x-goog-content-length-range": contentLengthRange,
+			"x-goog-if-generation-match": "0",
+		},
 	};
 }
 
@@ -179,13 +238,10 @@ export async function createSignedUploadUrl(args: {
  *
  * A browser upload is a cross-origin V4 signed PUT, so the bucket must allow
  * the PUT method and EVERY request header the upload sends: `Content-Type`
- * AND `x-goog-content-length-range` (the signed max-length binding from
- * {@link createSignedUploadUrl}). A PUT is never a CORS-"simple" request, so
- * the browser always preflights — and if `x-goog-content-length-range` isn't
- * in this allowlist the preflight drops it, the client can't send the signed
- * header, and the PUT 403s. This MUST be applied (with the size-bound upload's
- * header added to the pre-existing CORS) BEFORE that code ships, or uploads
- * break.
+ * `x-goog-content-length-range` and `x-goog-if-generation-match` (the signed
+ * range and create-only bindings from {@link createSignedUploadUrl}). A PUT
+ * is never a CORS-"simple" request, so the browser always preflights; omitting
+ * either header from this allowlist makes the signed PUT fail.
  *
  * `setCorsConfiguration` REPLACES the bucket's CORS, so `origins` must be the
  * COMPLETE set of app origins the browser uploads from. The media bucket is
@@ -197,7 +253,11 @@ export async function applyMediaBucketCors(origins: string[]): Promise<void> {
 		{
 			origin: origins,
 			method: ["PUT", "OPTIONS"],
-			responseHeader: ["Content-Type", "x-goog-content-length-range"],
+			responseHeader: [
+				"Content-Type",
+				"x-goog-content-length-range",
+				"x-goog-if-generation-match",
+			],
 			maxAgeSeconds: 3600,
 		},
 	]);
@@ -222,11 +282,16 @@ export async function uploadAssetBytes(args: {
 	gcsObjectKey: string;
 	bytes: Buffer;
 	contentType: string;
+	/** Create-only write, used by the dev signed-PUT surrogate. */
+	ifAbsent?: boolean;
 }): Promise<void> {
-	await getBucket().file(args.gcsObjectKey).save(args.bytes, {
-		resumable: false,
-		contentType: args.contentType,
-	});
+	await getBucket()
+		.file(args.gcsObjectKey)
+		.save(args.bytes, {
+			resumable: false,
+			contentType: args.contentType,
+			...(args.ifAbsent ? { preconditionOpts: { ifGenerationMatch: 0 } } : {}),
+		});
 }
 
 /**
@@ -244,6 +309,54 @@ export async function copyAssetObject(
 	await getBucket()
 		.file(sourceGcsObjectKey)
 		.copy(getBucket().file(destinationGcsObjectKey));
+}
+
+/**
+ * Copy one immutable source generation to a create-only destination.
+ *
+ * `exists` is success for an idempotent retry: attachment ids make the
+ * destination unique, so a pre-existing object is the prior copy whose
+ * metadata update may have failed.
+ */
+export async function copyAssetObjectIfAbsent(args: {
+	sourceGcsObjectKey: string;
+	sourceGeneration: string;
+	destinationGcsObjectKey: string;
+	expectedSize: number;
+	expectedChecksum: string;
+	expectedContentType: string;
+}): Promise<{ destinationGeneration: string; replay: boolean }> {
+	const destination = getBucket().file(args.destinationGcsObjectKey);
+	const verifyDestination = async (replay: boolean) => {
+		const [metadata] = await destination.getMetadata();
+		if (
+			metadata.generation === undefined ||
+			Number(metadata.size) !== args.expectedSize ||
+			metadata.crc32c !== args.expectedChecksum ||
+			metadata.contentType !== args.expectedContentType
+		) {
+			throw new Error(
+				"An existing capture destination does not match the staged source generation.",
+			);
+		}
+		return {
+			destinationGeneration: String(metadata.generation),
+			replay,
+		};
+	};
+	try {
+		await getBucket()
+			.file(args.sourceGcsObjectKey, { generation: args.sourceGeneration })
+			.copy(destination, {
+				preconditionOpts: { ifGenerationMatch: 0 },
+			});
+		return await verifyDestination(false);
+	} catch (err) {
+		if ((err as { code?: number } | null)?.code === 412) {
+			return await verifyDestination(true);
+		}
+		throw err;
+	}
 }
 
 /**
@@ -295,15 +408,43 @@ export async function getStoredObjectSize(
 	}
 }
 
+/** Immutable identity captured by attachment confirm. */
+export async function getStoredObjectMetadata(gcsObjectKey: string): Promise<{
+	size: number;
+	generation: string;
+	checksum: string;
+	contentType: string;
+} | null> {
+	const file = getBucket().file(gcsObjectKey);
+	try {
+		const [metadata] = await file.getMetadata();
+		if (
+			metadata.size === undefined ||
+			metadata.generation === undefined ||
+			metadata.crc32c === undefined ||
+			metadata.contentType === undefined
+		) {
+			return null;
+		}
+		return {
+			size: Number(metadata.size),
+			generation: String(metadata.generation),
+			checksum: metadata.crc32c,
+			contentType: metadata.contentType,
+		};
+	} catch (err) {
+		if ((err as { code?: number } | null)?.code === 404) return null;
+		throw err;
+	}
+}
+
 /**
  * Drain a GCS object into memory, enforcing a byte ceiling AS IT READS.
- * The cap lives in this streamed read (a running counter that destroys
- * the stream past `maxBytes`), NOT in a separate `getStoredObjectSize`
- * metadata check beforehand: a signed PUT URL is a reusable write
- * credential for its whole TTL, so a client can overwrite the pending
- * object with a huge body in the window between a metadata size-check and
- * the download. Capping the read itself closes that TOCTOU — at most
- * `maxBytes` ever resides in memory, whatever the object grew to.
+ * The cap lives in this streamed read (a running counter that destroys the
+ * stream past `maxBytes`), not only in separate metadata. Signed uploads are
+ * now create-only and range-bound, but this remains the authoritative
+ * fail-closed boundary for server-written and legacy objects: at most
+ * `maxBytes` ever resides in memory, whatever metadata claimed.
  *
  * Runs only at confirm time (one shot per upload) and the compile bundle,
  * never on the hot read path — that streams straight through via
@@ -337,6 +478,16 @@ export async function downloadAssetBytes(
  */
 export async function deleteAsset(gcsObjectKey: string): Promise<void> {
 	await getBucket().file(gcsObjectKey).delete({ ignoreNotFound: true });
+}
+
+/** Delete only the generation confirm measured; never a later replacement. */
+export async function deleteAssetGeneration(
+	gcsObjectKey: string,
+	generation: string,
+): Promise<void> {
+	await getBucket()
+		.file(gcsObjectKey, { generation })
+		.delete({ ignoreNotFound: true });
 }
 
 /**

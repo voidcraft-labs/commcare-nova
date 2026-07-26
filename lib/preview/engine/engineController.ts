@@ -286,6 +286,35 @@ export class EngineController {
 	private activeFormUuid: Uuid | undefined;
 	private activeCaseData: CaseDataByType | undefined;
 
+	/**
+	 * Identifies THIS form entry to the attachment lane.
+	 *
+	 * One activation is one entry, so the key is minted in `activateForm`
+	 * and dropped in `deactivate`. It is preserved across same-entry engine
+	 * rebuilds and is the exact idempotency/reservation scope the atomic
+	 * submission intent claims.
+	 *
+	 * The lifecycle below is load-bearing and worth being explicit about,
+	 * because a future change to it silently changes the attachment
+	 * contract. **This controller does not resume a form.** `activateForm`
+	 * begins by calling `deactivate`, which resets the whole runtime store,
+	 * and nothing persists answers to storage — so leaving a form and
+	 * returning starts a new entry with a new key, and the previous entry's
+	 * staged attachments become unreferenced. The scheduled row sweep and
+	 * staging TTL collect them.
+	 *
+	 * If preview ever gains resume, it must carry the entry key forward
+	 * with the answers or every resumed attachment is orphaned. Resume is
+	 * also the point at which a signature question first becomes able to
+	 * hold an answer it cannot draw: the real runtime shows a blank pad
+	 * over a live signature (`entries.js::SignatureEntry`'s `afterRender`
+	 * sets `signatureData = null` and reads nothing back), so the faithful
+	 * behavior then is to leave the pad blank — not to helpfully restore
+	 * it. Today no such state exists, which is why nothing here simulates
+	 * one.
+	 */
+	private currentEntryKey: string | undefined;
+
 	/** Field UUIDs with active per-field subscriptions. */
 	private trackedUuids = new Set<string>();
 
@@ -341,17 +370,17 @@ export class EngineController {
 			this.previewIdentity = identity;
 			return;
 		}
-		const restoreSnapshot =
-			this.previewIdentity === null && identity !== null
-				? this.engine?.getValueSnapshot()
-				: undefined;
+		const coldIdentityArrival =
+			this.previewIdentity === null && identity !== null;
 		this.previewIdentity = identity;
 		const formUuid = this.activeFormUuid;
 		if (formUuid !== undefined) {
-			this.activateForm(formUuid, this.activeCaseData);
-			if (restoreSnapshot !== undefined && this.engine !== undefined) {
-				this.engine.restoreValues(restoreSnapshot);
-				this.syncAllToStore();
+			if (coldIdentityArrival) {
+				this.rebuildActiveForm(formUuid, this.activeCaseData);
+			} else {
+				// A different concrete worker (or sign-out) is a new answer world,
+				// not a same-entry rebuild. Rotate the capture namespace with it.
+				this.activateForm(formUuid, this.activeCaseData);
 			}
 		}
 	}
@@ -374,12 +403,7 @@ export class EngineController {
 		 * stability); touched values restore through the shared snapshot
 		 * contract. */
 		if (this.engine.lookupDataCoversForm()) return;
-		const restoreSnapshot = this.engine.getValueSnapshot();
-		this.activateForm(formUuid, this.activeCaseData);
-		if (this.engine !== undefined) {
-			this.engine.restoreValues(restoreSnapshot);
-			this.syncAllToStore();
-		}
+		this.rebuildActiveForm(formUuid, this.activeCaseData);
 	}
 
 	// ── Lifecycle ────────────────────────────────────────────────────
@@ -393,6 +417,40 @@ export class EngineController {
 	 * thread positional indices through React state.
 	 */
 	activateForm(formUuid: Uuid, caseData?: CaseDataByType): void {
+		this.mountForm(formUuid, caseData, crypto.randomUUID());
+	}
+
+	/**
+	 * Rebuild the same live entry after cold identity/lookup/case context arrives.
+	 * The answer world may be reconstructed, but the upload namespace must not
+	 * rotate underneath already staged captures.
+	 */
+	rebuildActiveForm(formUuid: Uuid, caseData?: CaseDataByType): void {
+		const entryKey =
+			this.activeFormUuid === formUuid && this.currentEntryKey !== undefined
+				? this.currentEntryKey
+				: crypto.randomUUID();
+		const values = this.engine?.getValueSnapshot();
+		const repeatCounts = this.engine?.getRepeatCountSnapshot();
+		const repeatInstanceKeys = this.engine?.getRepeatInstanceKeySnapshot();
+		this.mountForm(formUuid, caseData, entryKey);
+		if (repeatCounts !== undefined) {
+			this.engine?.restoreRepeatCountSnapshot(repeatCounts);
+		}
+		if (repeatInstanceKeys !== undefined) {
+			this.engine?.restoreRepeatInstanceKeySnapshot(repeatInstanceKeys);
+		}
+		if (values !== undefined && this.engine !== undefined) {
+			this.engine.restoreValues(values);
+			this.syncAllToStore();
+		}
+	}
+
+	private mountForm(
+		formUuid: Uuid,
+		caseData: CaseDataByType | undefined,
+		entryKey: string,
+	): void {
 		this.deactivate();
 		if (!this.docStore) return;
 
@@ -407,6 +465,13 @@ export class EngineController {
 
 		this.activeFormUuid = formUuid;
 		this.activeCaseData = caseData;
+		// The Web Crypto GLOBAL, not `node:crypto`. This controller runs in
+		// the browser, where importing `node:crypto` resolves to a shim whose
+		// `randomUUID` is undefined — so the import form throws here at
+		// runtime while typechecking and every node/jsdom test passes, both
+		// of which have a real `crypto`. `lib/doc/scaffolds.ts` mints uuids
+		// the same way for the same reason.
+		this.currentEntryKey = entryKey;
 
 		/* Build the FormEngine input from the doc store */
 		const input = buildEngineInput(s, formUuid);
@@ -450,7 +515,14 @@ export class EngineController {
 		this.pathToUuid.clear();
 		this.activeFormUuid = undefined;
 		this.activeCaseData = undefined;
+		this.currentEntryKey = undefined;
 		this.store.setState({}, true);
+	}
+
+	/** This form entry's attachment scope, or `undefined` when no form is
+	 *  active. Capture widgets stage against it; submission reconciles it. */
+	get entryKey(): string | undefined {
+		return this.currentEntryKey;
 	}
 
 	// ── Public actions (called by components) ────────────────────────
@@ -520,6 +592,13 @@ export class EngineController {
 		const path = this.uuidToPath.get(uuid);
 		if (!path) return 1;
 		return this.engine.getRepeatCount(path);
+	}
+
+	/** Stable render identity for a repeat instance even when indices compact. */
+	getRepeatInstanceKey(uuid: string, index: number, atPath?: string): string {
+		const path = atPath ?? this.uuidToPath.get(uuid);
+		if (!this.engine || !path) return `${uuid}:${index}`;
+		return this.engine.getRepeatInstanceKey(path, index);
 	}
 
 	/**
@@ -601,7 +680,10 @@ export class EngineController {
 				}),
 			);
 		}
-		return this.engine.computeSubmissionMutation(args);
+		return this.engine.computeSubmissionMutation({
+			...args,
+			entryKey: this.currentEntryKey,
+		});
 	}
 
 	// ── Per-field subscriptions ──────────────────────────────────────

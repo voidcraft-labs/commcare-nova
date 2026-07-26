@@ -18,6 +18,7 @@
 // errors (which have dedicated result arms) out of the issue stream.
 
 import {
+	CaptureSubmissionRejectedError,
 	CaseNotFoundError,
 	CasePropertiesValidationError,
 	CaseTypeNotInBlueprintError,
@@ -42,6 +43,7 @@ import { log } from "@/lib/logger";
  * a swallowed bug) — but keep it in sync to avoid that noise.
  */
 export const TYPED_USER_DOMAIN_ERRORS = [
+	CaptureSubmissionRejectedError,
 	CaseNotFoundError,
 	CasePropertiesValidationError,
 	CaseTypeNotInBlueprintError,

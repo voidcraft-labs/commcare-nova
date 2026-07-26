@@ -361,11 +361,41 @@ export interface SubmissionOperationAnswers {
 	}>;
 }
 
+/** One concrete capture answer carried by the submitted form instance. */
+export interface SubmissionAttachmentReference {
+	readonly attachmentName: string;
+	readonly fieldUuid: string;
+	readonly instancePath: string;
+}
+
+/**
+ * The two attachment slots every arm carries.
+ *
+ * `entryKey` names this form entry's attachment scope
+ * (`EngineController.entryKey`), while `attachmentNames` and
+ * `attachmentRefs` carry the surviving RELEVANT answer names plus their exact
+ * field/path provenance. Together they let the server atomically reserve only
+ * the staged rows accepted by this submission.
+ *
+ * Both are optional so a client that predates them submits normally —
+ * nothing is promoted, and the staged rows expire on their own. Neither is
+ * authority: the server matches names against the acting member's own rows
+ * in the app's Project, so a forged list can neither promote nor preserve
+ * another member's attachment.
+ *
+ * The slots are plain JSON by necessity as well as by taste. A `File` or a
+ * `Map` argument makes React encode the Server Action as
+ * `multipart/form-data`, whose part headers the edge WAF reads as header
+ * injection — which is also why the bytes never travel this way at all.
+ */
 export type SubmissionMutation =
 	| {
 			kind: "registration";
 			formUuid?: string;
 			operationAnswers?: SubmissionOperationAnswers;
+			entryKey?: string;
+			attachmentNames?: ReadonlyArray<string>;
+			attachmentRefs?: ReadonlyArray<SubmissionAttachmentReference>;
 			primary: {
 				caseType: string;
 				caseName?: string;
@@ -381,6 +411,9 @@ export type SubmissionMutation =
 			kind: "followup";
 			formUuid?: string;
 			operationAnswers?: SubmissionOperationAnswers;
+			entryKey?: string;
+			attachmentNames?: ReadonlyArray<string>;
+			attachmentRefs?: ReadonlyArray<SubmissionAttachmentReference>;
 			caseId: string;
 			patch: { caseName?: string; properties: JsonObject };
 			children: ReadonlyArray<{
@@ -394,6 +427,9 @@ export type SubmissionMutation =
 			kind: "close";
 			formUuid?: string;
 			operationAnswers?: SubmissionOperationAnswers;
+			entryKey?: string;
+			attachmentNames?: ReadonlyArray<string>;
+			attachmentRefs?: ReadonlyArray<SubmissionAttachmentReference>;
 			caseId: string;
 			patch: { caseName?: string; properties: JsonObject };
 			children: ReadonlyArray<{
@@ -411,6 +447,9 @@ export type SubmissionMutation =
 			kind: "survey";
 			formUuid?: string;
 			operationAnswers?: SubmissionOperationAnswers;
+			entryKey?: string;
+			attachmentNames?: ReadonlyArray<string>;
+			attachmentRefs?: ReadonlyArray<SubmissionAttachmentReference>;
 	  };
 
 /**

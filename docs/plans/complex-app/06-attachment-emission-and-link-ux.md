@@ -36,6 +36,23 @@ when the deployment record shows the target domain carries HQ's
   plain/markdown column formats render the stored URL as a clickable link, which
   is the working link-first path. Do not default to a broken HTTPS picture column.
 - An empty `<attachment>` element removes a case attachment on both runtimes.
+- **Preview must not synthesize the URL at all — the whole column is absent
+  there, not merely origin-less.** The capture answer is identical in shape
+  wherever the form ran (a server-minted `<uuid>.<ext>`), but a PREVIEW
+  capture's bytes live in Nova's own submission-scoped lane
+  (`lib/db/formAttachments.ts`), not on HQ. There is no HQ instance, so
+  `/data/meta/instanceID` names nothing, and
+  `form_attachment/v1/<instance_id>/<attachment_id>` resolves to nothing no
+  matter what precedes it. **Supplying a placeholder origin in preview does not
+  make the link work; it makes a broken link look deliberate.** So the URL
+  *column* is the target-dependent thing, not just the origin inside it — read
+  the "no origin or domain to resolve" framing below as naming what a `.ccz`
+  export lacks, never as implying that an origin is all preview needs. This is
+  the honest-preview rule in
+  [the binding contracts](00-contracts.md#users-personas-and-workers) applied
+  one level up from the domain slug it already names. A submitted preview
+  attachment is real data with a real name; what it lacks is an HQ submission
+  to hang off.
 
 The emitted value is a calculate over the submission's own metadata —
 `concat('<origin>/a/<domain>/api/form_attachment/v1/', /data/meta/instanceID, '/',

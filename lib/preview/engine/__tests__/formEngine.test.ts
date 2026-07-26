@@ -754,6 +754,58 @@ describe("FormEngine", () => {
 			expect(engine.getState("/data/members[1]/name").value).toBe("");
 		});
 
+		it("keeps surviving repeat render identities when indices compact", () => {
+			const input = dTree([
+				{
+					id: "members",
+					kind: "repeat",
+					children: [{ id: "name", kind: "text" }],
+				},
+			]);
+			const engine = new FormEngine(input);
+			engine.addRepeat("/data/members");
+			engine.addRepeat("/data/members");
+			const first = engine.getRepeatInstanceKey("/data/members", 0);
+			const removed = engine.getRepeatInstanceKey("/data/members", 1);
+			const third = engine.getRepeatInstanceKey("/data/members", 2);
+
+			engine.removeRepeat("/data/members", 1);
+
+			expect(engine.getRepeatInstanceKey("/data/members", 0)).toBe(first);
+			expect(engine.getRepeatInstanceKey("/data/members", 1)).toBe(third);
+			expect(engine.getRepeatInstanceKey("/data/members", 1)).not.toBe(removed);
+		});
+
+		it("remaps nested repeat identities with their surviving parent instance", () => {
+			const input = dTree([
+				{
+					id: "households",
+					kind: "repeat",
+					children: [
+						{
+							id: "members",
+							kind: "repeat",
+							children: [{ id: "name", kind: "text" }],
+						},
+					],
+				},
+			]);
+			const engine = new FormEngine(input);
+			engine.addRepeat("/data/households");
+			engine.addRepeat("/data/households[1]/members");
+			const survivingNestedKeys = [
+				engine.getRepeatInstanceKey("/data/households[1]/members", 0),
+				engine.getRepeatInstanceKey("/data/households[1]/members", 1),
+			];
+
+			engine.removeRepeat("/data/households", 0);
+
+			expect([
+				engine.getRepeatInstanceKey("/data/households[0]/members", 0),
+				engine.getRepeatInstanceKey("/data/households[0]/members", 1),
+			]).toEqual(survivingNestedKeys);
+		});
+
 		// `repeatCount` rides on the same `FieldState` object that visibility
 		// and validation cascades rewrite — so any cascade that re-evaluates
 		// the repeat's own path (e.g. its parent's `relevant` toggling) must

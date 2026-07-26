@@ -117,6 +117,10 @@ import type {
 	SubmissionEnvelopeResult,
 } from "../submission";
 import {
+	completeCaptureSubmission,
+	prepareCaptureSubmission,
+} from "./submissionAttachments";
+import {
 	executeSubmissionEnvelope,
 	type SubmissionEnvelopeHost,
 } from "./submissionEnvelope";
@@ -789,13 +793,32 @@ export class PostgresCaseStore implements CaseStore {
 		// schema lock — the same pattern `update` uses).
 		return await this.db.transaction().execute(async (trx) => {
 			await this.authorizeMutation(trx, args.appId);
+			if (args.captureIntent !== undefined) {
+				const replay = await prepareCaptureSubmission(trx, {
+					appId: args.appId,
+					projectId: this.requireProjectId(),
+					actorUserId: this.requireActorUserId(),
+					intent: args.captureIntent,
+				});
+				if (replay !== undefined) return replay;
+			}
 			await this.lockRelationshipWrites(trx, args.appId);
 			await this.lockValidators(trx, args.appId, submissionCaseTypes(args));
-			return await executeSubmissionEnvelope(
+			const result = await executeSubmissionEnvelope(
 				trx,
 				this.submissionEnvelopeHost(),
 				args,
 			);
+			if (args.captureIntent !== undefined) {
+				await completeCaptureSubmission(trx, {
+					appId: args.appId,
+					projectId: this.requireProjectId(),
+					actorUserId: this.requireActorUserId(),
+					intent: args.captureIntent,
+					result,
+				});
+			}
+			return result;
 		});
 	}
 

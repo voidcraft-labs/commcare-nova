@@ -463,6 +463,35 @@ slot expectations, and inserts exact `media_asset_refs` edges in that SAME
 transaction. Atomic creation and `appendSyntheticBatch` apply the identical
 admission rule; post-commit `syncMediaReferences` is legacy/backfill help only.
 
+**Form attachments are a separate lane from `media_assets`, on purpose.**
+`formAttachments.ts` holds the files a worker attaches while filling in a form:
+`pending → staged → promotion_pending → submitted`, tenant-scoped
+`(app_id, project_id)` like case rows and additionally bound to `created_by`
+because the idempotency/reservation key is client-minted. The case-store
+transaction inserts `form_submission_intents`, reserves the exact staged
+`(attachment_name, field_uuid, instance_path)` rows, applies every case effect,
+and stores the replay result atomically. Promotion is the external retry-safe
+half: it copies the immutable confirmed GCS generation to a create-only durable
+key, verifies a pre-existing destination by size/CRC32C/type, and only then
+marks the row submitted. The request tries immediately; the five-minute Cloud
+Scheduler job leases bounded batches with `FOR UPDATE SKIP LOCKED` and retries
+with backoff. Transient failure never deletes a reserved row or reports the
+already-committed form as failed. The bucket's seven-day staging lifecycle is
+the traffic-independent byte backstop; the scheduled worker and initiate-route
+sweep share `purgeExpiredFormAttachments` for unreserved row hygiene. Repeat
+compaction preserves attachment-id identity and CAS-moves only a `staged` row's
+concrete `instance_path` under the same entry advisory lock; pending uploads
+cancel, while `promotion_pending` and `submitted` rows are immutable.
+Initiation is bounded independently by a fixed-minute Project/actor counter,
+per-entry attempt rows, and Project-wide row/byte quotas; the Project quota
+advisory lock makes each admission decision serial across apps.
+
+A captured photo is data, not an authoring asset; a library row would surface it
+in the media picker, count it against the export budget, and make it deletable
+through the library UI. Project moves currently block under the app lock if
+either capture rows or submission intents exist; there is no partial move that
+can strand capture evidence in the source tenant.
+
 **Media deletion is one authoritative transaction.**
 `mediaDeletion.ts` takes the shared membership gate, freshly proves Project
 `edit`, locks the asset `FOR UPDATE`, then re-walks every persisted carrier

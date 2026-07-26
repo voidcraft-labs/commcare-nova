@@ -29,6 +29,7 @@ export function useFormEngine(
 	const scopeEpoch = useProjectScopeEpoch();
 	const accessPhase = useAccessPhase();
 
+	// A form/scope transition is a genuinely new entry.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: scopeEpoch deliberately tears down and rebuilds per-Project engine subscriptions
 	useEffect(() => {
 		if (!formUuid || accessPhase !== "authorized") {
@@ -37,7 +38,16 @@ export function useFormEngine(
 		}
 		controller.activateForm(formUuid, caseData);
 		return () => controller.deactivate();
-	}, [controller, formUuid, caseData, scopeEpoch, accessPhase]);
+	}, [controller, formUuid, scopeEpoch, accessPhase]);
+
+	// Case data commonly resolves after the screen activates. Rebuild the same
+	// entry so its attachment key survives that cold arrival.
+	useEffect(() => {
+		if (!formUuid || accessPhase !== "authorized" || caseData === undefined) {
+			return;
+		}
+		controller.rebuildActiveForm(formUuid, caseData);
+	}, [controller, formUuid, caseData, accessPhase]);
 
 	return controller;
 }

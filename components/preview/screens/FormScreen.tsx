@@ -48,6 +48,10 @@ import {
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import { FormLayoutProvider } from "../form/FormLayoutContext";
 import { FormRenderer } from "../form/FormRenderer";
+import {
+	cancelAttachmentEntry,
+	runFormAttachmentBarrier,
+} from "../form/fields/attachment/attachmentClient";
 
 /**
  * Failure arms of `SubmissionResult` — the complement of the success
@@ -368,6 +372,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	const [submitStatus, setSubmitStatus] = useState<SubmitStatus>({
 		kind: "idle",
 	});
+	const [clearRevision, setClearRevision] = useState(0);
 	const submitScopeEpochRef = useRef(scopeEpoch);
 	const setPreviewCaseTarget = useSetPreviewCaseTarget();
 	const setPreviewSelectedCase = useSetPreviewSelectedCase();
@@ -491,15 +496,6 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			return;
 		}
 
-		const valid = controller.validateAll();
-		if (!valid) {
-			const errorEl = formBodyElRef.current?.querySelector(
-				'[data-invalid="true"]',
-			);
-			errorEl?.scrollIntoView({ behavior: "smooth", block: "center" });
-			return;
-		}
-
 		/* `appId` is provided by the builder route; the test-mode submit
 		 * button only mounts under a builder session, so a missing slot
 		 * is an upstream contract failure. Guard explicitly so a
@@ -516,21 +512,42 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 
 		setSubmitStatus({ kind: "running" });
 		try {
-			const mutation = controller.computeSubmissionMutation({
-				caseId: effectiveCaseId,
-				caseTypes,
-			});
-			/* The persona rides the WRITE, not just the reads. Its uuid is the
-			 * `owner_id` stamped on every case this submission creates, so
-			 * dropping it here would quietly give a persona's work to the
-			 * signed-in member while every read still looked persona-scoped. */
-			const result = await submitFormAction(
-				mutation,
-				appId,
-				viewerTimeZone(),
-				personaUuid,
-			);
+			const submitStableAnswers = async (): Promise<
+				SubmissionResult | "invalid" | "stale"
+			> => {
+				if (!isCurrent()) return "stale";
+				const valid = controller.validateAll();
+				if (!valid) return "invalid";
+				const mutation = controller.computeSubmissionMutation({
+					caseId: effectiveCaseId,
+					caseTypes,
+				});
+				/* The persona rides the WRITE, not just the reads. Its uuid is the
+				 * `owner_id` stamped on every case this submission creates, so
+				 * dropping it here would quietly give a persona's work to the
+				 * signed-in member while every read still looked persona-scoped. */
+				return await submitFormAction(
+					mutation,
+					appId,
+					viewerTimeZone(),
+					personaUuid,
+				);
+			};
+			const entryKey = controller.entryKey;
+			const result =
+				entryKey === undefined
+					? await submitStableAnswers()
+					: await runFormAttachmentBarrier(entryKey, submitStableAnswers);
 			if (!isCurrent()) return;
+			if (result === "stale") return;
+			if (result === "invalid") {
+				setSubmitStatus({ kind: "idle" });
+				const errorEl = formBodyElRef.current?.querySelector(
+					'[data-invalid="true"]',
+				);
+				errorEl?.scrollIntoView({ behavior: "smooth", block: "center" });
+				return;
+			}
 			if (
 				result.kind === "registration" ||
 				result.kind === "followup" ||
@@ -566,8 +583,18 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	 * after the user clicks Clear contradicts the "start fresh" mental
 	 * model — the form's reset must be visible across every surface. */
 	const handleClear = useCallback((): void => {
-		controller.reset();
 		setSubmitStatus({ kind: "idle" });
+		const entryKey = controller.entryKey;
+		if (entryKey === undefined) {
+			controller.reset();
+			setClearRevision((revision) => revision + 1);
+			return;
+		}
+		cancelAttachmentEntry(entryKey);
+		void runFormAttachmentBarrier(entryKey, async () => {
+			controller.reset();
+			setClearRevision((revision) => revision + 1);
+		});
 	}, [controller]);
 
 	if (!form || !formUuid) return null;
@@ -660,7 +687,10 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 					 * geolocation, Places, focus). A Project generation is a hard
 					 * runtime boundary: remount the renderer so no local UI state can
 					 * be projected into the destination controller. */
-					<FormRenderer key={scopeEpoch} parentEntityId={formUuid} />
+					<FormRenderer
+						key={`${scopeEpoch}:${clearRevision}`}
+						parentEntityId={formUuid}
+					/>
 				) : (
 					<div className="text-center text-nova-text-muted py-8">
 						This form has no fields.

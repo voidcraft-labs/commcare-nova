@@ -24,6 +24,7 @@
 
 import "server-only";
 
+import { createHash } from "node:crypto";
 import type { AppCapability } from "@/lib/auth/projectRoles";
 import { getSession } from "@/lib/auth-utils";
 import type {
@@ -37,11 +38,13 @@ import type {
 } from "@/lib/case-store";
 import { buildCaseTypeMap, withProjectContext } from "@/lib/case-store";
 import {
+	CaptureSubmissionRejectedError,
 	CasePropertiesValidationError,
 	SchemaNotSyncedError,
 } from "@/lib/case-store/errors";
 import { resolveAppScope } from "@/lib/db/appAccess";
 import { loadApp } from "@/lib/db/apps";
+import { promotePendingFormAttachments } from "@/lib/db/formAttachmentPromotion";
 import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
 import {
 	caseOperationConditionalGuardUuids,
@@ -55,12 +58,14 @@ import {
 	type CaseType,
 	type Column,
 	caseListColumnHasRuntimeRole,
+	isCaptureFieldKind,
 	orderedCaseOperations,
 	type PersistableDoc,
 	personasOf,
 	type UserCollections,
 	type Uuid,
 } from "@/lib/domain";
+import { committedCapturePath } from "@/lib/domain/captureFormats";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
 import { asWalkableDoc } from "@/lib/domain/mediaRefs";
 import type { Predicate, ValueExpression } from "@/lib/domain/predicate";
@@ -85,6 +90,7 @@ import {
 	getLookupFixtureData,
 } from "@/lib/lookup/service";
 import type { LookupScope } from "@/lib/lookup/types";
+import { validateCaptureSubmissionProjection } from "./captureSubmissionValidation";
 import type {
 	CaseQueryConstraintSource,
 	LoadCaseDataResult,
@@ -901,6 +907,50 @@ export async function resetSampleCases(
 export interface BuiltSubmissionOperations {
 	readonly program?: CaseOperationProgram;
 	readonly ordinaryCaseType?: string;
+	readonly captureIntent?: NonNullable<ApplySubmissionArgs["captureIntent"]>;
+}
+
+function canonicalJson(value: unknown): string {
+	const normalize = (input: unknown): unknown => {
+		if (
+			input === null ||
+			typeof input === "string" ||
+			typeof input === "number" ||
+			typeof input === "boolean"
+		) {
+			return input;
+		}
+		if (typeof input === "bigint") return { $bigint: input.toString() };
+		if (input instanceof Date) return { $date: input.toISOString() };
+		if (input instanceof Map) {
+			const entries = [...input.entries()].map(([key, entryValue]) => [
+				normalize(key),
+				normalize(entryValue),
+			]);
+			entries.sort((a, b) =>
+				JSON.stringify(a[0]).localeCompare(JSON.stringify(b[0])),
+			);
+			return { $map: entries };
+		}
+		if (input instanceof Set) {
+			const entries = [...input].map(normalize);
+			entries.sort((a, b) =>
+				JSON.stringify(a).localeCompare(JSON.stringify(b)),
+			);
+			return { $set: entries };
+		}
+		if (Array.isArray(input)) return input.map(normalize);
+		if (typeof input === "object") {
+			const normalized: Record<string, unknown> = {};
+			for (const key of Object.keys(input).sort()) {
+				const entry = (input as Record<string, unknown>)[key];
+				if (entry !== undefined) normalized[key] = normalize(entry);
+			}
+			return normalized;
+		}
+		return String(input);
+	};
+	return JSON.stringify(normalize(value));
 }
 
 /**
@@ -931,7 +981,7 @@ export async function buildSubmissionOperationProgram(args: {
 
 	const app = await loadApp(args.appId);
 	if (!app?.blueprint) return {};
-	return buildCaseOperationProgramFromDoc({
+	const built = buildCaseOperationProgramFromDoc({
 		blueprint: app.blueprint,
 		mutation: args.mutation,
 		identity: args.identity,
@@ -939,6 +989,70 @@ export async function buildSubmissionOperationProgram(args: {
 			viewerTimeZone: args.viewerTimeZone,
 		}),
 	});
+	const { entryKey, attachmentNames, attachmentRefs, formUuid } = args.mutation;
+	if (entryKey === undefined) return built;
+	const validated = validateCaptureSubmissionProjection({
+		entryKey,
+		formUuid,
+		attachmentNames,
+		attachmentRefs,
+	});
+	if (validated.attachmentRefs.length === 0) return built;
+	if (app.blueprint.forms[validated.formUuid as Uuid] === undefined) {
+		throw new CaptureSubmissionRejectedError(
+			"The submitted form no longer exists in the committed app.",
+		);
+	}
+	const allowedAttachments = Object.values(app.blueprint.fields)
+		.filter((field) => isCaptureFieldKind(field.kind))
+		.map((field) => ({
+			field,
+			path: committedCapturePath(app.blueprint, field.uuid),
+		}))
+		.filter(
+			(entry) =>
+				entry.path !== undefined && entry.path.formUuid === validated.formUuid,
+		)
+		.map((entry) => ({
+			fieldUuid: entry.field.uuid,
+			instancePathTemplate: entry.path?.instancePathTemplate ?? "",
+		}));
+	const captureIntentWithoutDigest = {
+		entryKey: validated.entryKey,
+		formUuid: validated.formUuid,
+		expectedAppMutationSeq: app.mutation_seq,
+		requestDigest: "",
+		attachments: validated.attachmentRefs,
+		allowedAttachments,
+	};
+	const withCapture: BuiltSubmissionOperations = {
+		...built,
+		captureIntent: captureIntentWithoutDigest,
+	};
+	const requestDigest = createHash("sha256")
+		.update(
+			canonicalJson({
+				envelope: submissionEnvelopeArgs(
+					args.mutation,
+					args.appId,
+					withCapture,
+				),
+				projectId: app.project_id,
+				identity: {
+					actorUserId: args.identity.actorUserId,
+					ownerId: args.identity.ownerId,
+					personaUuid: args.identity.personaUuid,
+				},
+			}),
+		)
+		.digest("hex");
+	return {
+		...built,
+		captureIntent: {
+			...captureIntentWithoutDigest,
+			requestDigest,
+		},
+	};
 }
 
 /**
@@ -1060,6 +1174,10 @@ export function submissionEnvelopeArgs(
 ): ApplySubmissionArgs {
 	const operations =
 		built?.program === undefined ? {} : { operations: built.program };
+	const captureIntent =
+		built?.captureIntent === undefined
+			? {}
+			: { captureIntent: built.captureIntent };
 	switch (mutation.kind) {
 		case "registration":
 			return {
@@ -1070,6 +1188,7 @@ export function submissionEnvelopeArgs(
 					children: mutation.children,
 				},
 				...operations,
+				...captureIntent,
 			};
 		case "followup":
 		case "close":
@@ -1085,9 +1204,15 @@ export function submissionEnvelopeArgs(
 					children: mutation.children,
 				},
 				...operations,
+				...captureIntent,
 			};
 		case "survey":
-			return { appId, ordinary: { kind: "none" }, ...operations };
+			return {
+				appId,
+				ordinary: { kind: "none" },
+				...operations,
+				...captureIntent,
+			};
 		default: {
 			const _exhaustive: never = mutation;
 			throw new Error(
@@ -1458,4 +1583,42 @@ export function schemaHealingCaseStore(
 		generateSampleData: (a) => heal(() => store.generateSampleData(a)),
 		resetSampleData: (a) => heal(() => store.resetSampleData(a)),
 	};
+}
+
+/**
+ * Attempt the retry-safe external half of a submission whose case effects and
+ * exact attachment intent already committed atomically.
+ *
+ * A failure never reclassifies or deletes a named attachment. Its row remains
+ * `promotion_pending`, records the failure, and the scheduled cleanup job
+ * retries it. Copy binds the immutable source generation and a create-only
+ * destination; a 412 is the successful replay of a copy whose metadata flip
+ * was interrupted.
+ */
+export async function settleSubmittedAttachments(args: {
+	appId: string;
+	mutation: SubmissionMutation;
+	/**
+	 * The signed-in member — `identity.actorUserId`, never `ownerId`.
+	 *
+	 * It both authorizes Project membership and scopes the reconcile to the
+	 * rows this member staged, and the attachment rows were created with
+	 * exactly this id. Passing the preview's `ownerId` would key an
+	 * authorization decision on authored blueprint content AND match zero
+	 * rows whenever a persona is selected, silently expiring every
+	 * attachment the worker just made. The two are identical when previewing
+	 * as yourself, which is why that mistake hides from every test that does
+	 * not use a persona.
+	 */
+	actorUserId: string;
+	projectId: string;
+}): Promise<void> {
+	const { entryKey } = args.mutation;
+	if (entryKey === undefined) return;
+	await promotePendingFormAttachments({
+		appId: args.appId,
+		entryKey,
+		actorUserId: args.actorUserId,
+		projectId: args.projectId,
+	});
 }

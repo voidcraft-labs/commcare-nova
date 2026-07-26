@@ -45,6 +45,7 @@ import { asUuid, type Uuid } from "@/lib/domain";
 import { useEngineController } from "@/lib/preview/hooks/useEngineController";
 import { useEngineStateAt } from "@/lib/preview/hooks/useEngineState";
 import { LabelContent } from "@/lib/references/LabelContent";
+import { useAppId } from "@/lib/session/hooks";
 import { FieldHelp } from "./FieldHelp";
 import { FieldRenderer } from "./FieldRenderer";
 import { FIELD_STYLES } from "./fieldStyles";
@@ -148,6 +149,9 @@ const InteractiveField = memo(function InteractiveField({
 	const enginePath = field ? `${prefix}/${field.id}` : undefined;
 	const state = useEngineStateAt(uuid, enginePath);
 	const controller = useEngineController();
+	// Capture questions stage bytes against the app; every other kind
+	// ignores it.
+	const appId = useAppId();
 
 	// Visibility gating lives here so the subscription cost of reading
 	// the field + engine state is paid per-field. Siblings whose
@@ -305,6 +309,9 @@ const InteractiveField = memo(function InteractiveField({
 				<FieldRenderer
 					field={field}
 					state={state}
+					path={path}
+					appId={appId}
+					entryKey={controller.entryKey}
 					onChange={(value) => controller.setValueAt(path, value)}
 					onBlur={() => controller.touchAt(path)}
 				/>

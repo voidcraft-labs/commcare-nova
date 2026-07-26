@@ -93,6 +93,28 @@ steps:
       - push
       - "us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/commcare-nova/app:$BUILD_ID"
 
+  # Bucket lifecycle and signed-upload CORS are release prerequisites, not a
+  # manual runbook. This create-or-update Job runs the policy bundle from the
+  # exact image about to deploy; a failure stops the build before migrations
+  # or traffic movement.
+  - id: media-policy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        gcloud run jobs deploy commcare-nova-media-policy \
+          --image=us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/commcare-nova/app:$BUILD_ID \
+          --region=us-central1 \
+          --service-account=nova-media-policy@commcare-nova.iam.gserviceaccount.com \
+          --set-env-vars=NOVA_MEDIA_BUCKET=nova-multimedia-prod,NOVA_UPLOAD_CORS_ORIGINS=https://commcare.app \
+          --command=node \
+          --args=media-bucket-policy.cjs \
+          --max-retries=1 \
+          --task-timeout=300
+        gcloud run jobs execute commcare-nova-media-policy --region=us-central1 --wait
+
   # Apply pending case-store migrations against live Cloud SQL, once. `jobs
   # deploy` is create-or-update (idempotent) so the Job's config lives here in
   # version control and stays pinned to the image being deployed. The Job runs
@@ -121,6 +143,54 @@ steps:
           --max-retries=1 \
           --task-timeout=600
         gcloud run jobs execute commcare-nova-migrate --region=us-central1 --wait
+
+  # Promotion is deliberately outside the submission transaction, but never
+  # best-effort: a leased Cloud Run Job retries immutable staged generations,
+  # and Cloud Scheduler invokes it every five minutes. Deploy and execute the
+  # worker once before traffic moves so an incompatible or unauthorized worker
+  # fails the release instead of silently accumulating capture debt.
+  - id: capture-cleanup
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        cleanup_job=commcare-nova-capture-cleanup
+        scheduler_account=nova-capture-scheduler@commcare-nova.iam.gserviceaccount.com
+        gcloud run jobs deploy "$${cleanup_job}" \
+          --image=us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/commcare-nova/app:$BUILD_ID \
+          --region=us-central1 \
+          --service-account=nova-capture-cleanup@commcare-nova.iam.gserviceaccount.com \
+          --network=default --subnet=default --vpc-egress=private-ranges-only \
+          --set-env-vars=NOVA_DB_USER=nova-capture-cleanup@commcare-nova.iam,NOVA_DB_INSTANCE_CONNECTION_NAME=commcare-nova:us-central1:nova-cases,NOVA_DB_NAME=nova_cases,NOVA_MEDIA_BUCKET=nova-multimedia-prod \
+          --command=node \
+          --args=capture-cleanup.cjs \
+          --max-retries=2 \
+          --task-timeout=900
+        gcloud run jobs add-iam-policy-binding "$${cleanup_job}" \
+          --region=us-central1 \
+          --member="serviceAccount:$${scheduler_account}" \
+          --role=roles/run.invoker
+        gcloud run jobs execute "$${cleanup_job}" --region=us-central1 --wait
+
+        scheduler_uri="https://run.googleapis.com/v2/projects/$PROJECT_ID/locations/us-central1/jobs/$${cleanup_job}:run"
+        scheduler_args=(
+          --location=us-central1
+          --schedule="*/5 * * * *"
+          --time-zone=Etc/UTC
+          --uri="$${scheduler_uri}"
+          --http-method=POST
+          --message-body='{}'
+          --headers=Content-Type=application/json
+          --oauth-service-account-email="$${scheduler_account}"
+          --oauth-token-scope=https://www.googleapis.com/auth/cloud-platform
+        )
+        if gcloud scheduler jobs describe "$${cleanup_job}" --location=us-central1 >/dev/null 2>&1; then
+          gcloud scheduler jobs update http "$${cleanup_job}" "$${scheduler_args[@]}"
+        else
+          gcloud scheduler jobs create http "$${cleanup_job}" "$${scheduler_args[@]}"
+        fi
 
   # `--min-instances=1` is pinned here on purpose: a bare `gcloud run deploy`
   # carries forward existing scaling, but pinning it means a fresh service or a
@@ -173,7 +243,7 @@ steps:
           --region=us-central1 \
           --service-account=commcare-nova@commcare-nova.iam.gserviceaccount.com \
           --network=default --subnet=default --vpc-egress=private-ranges-only \
-          --update-env-vars=NOVA_DB_USER=commcare-nova@commcare-nova.iam,NOVA_DB_INSTANCE_CONNECTION_NAME=commcare-nova:us-central1:nova-cases,NOVA_DB_NAME=nova_cases \
+          --update-env-vars=NOVA_DB_USER=commcare-nova@commcare-nova.iam,NOVA_DB_INSTANCE_CONNECTION_NAME=commcare-nova:us-central1:nova-cases,NOVA_DB_NAME=nova_cases,NOVA_MEDIA_BUCKET=nova-multimedia-prod \
           --no-default-url --ingress=internal-and-cloud-load-balancing \
           --min-instances=1 --max-instances=5 \
           --timeout="$${NOVA_CLOUD_RUN_REQUEST_SECONDS}s" \

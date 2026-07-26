@@ -719,6 +719,115 @@ capture kind carrying `case_property_on`, and `formActions.ts` skips capture
 kinds when building the case-update map. Writing a capture onto the case is
 inseparable from emitting its URL column, so the two ship together (unit 6).
 
+### Attachments a worker captures
+
+A worker attaches files in the running preview, and they ride the submission.
+The lane is `form_attachments` plus two GCS prefixes — **never `media_assets`**:
+a captured photo is data, not an authoring asset, and a row in the library would
+surface it in the media picker, count it against the export budget, and make it
+deletable through the library UI. CommCare's own model agrees, keeping staged
+capture bytes under the form session and disposable.
+
+Lifecycle is `pending → staged → promotion_pending → submitted`. A form answer
+may name an attachment only once it is `staged`, because a `pending` row's
+object may never have been PUT. Bytes take the media lane's initiate →
+signed-PUT → confirm shape so they never travel through Cloud Run, and the
+routes nest under `/api/apps/[id]/attachments`, which needs no
+`lib/hostnames.ts` entry because allowlist matching is segment-anchored. The
+signed PUT binds the exact declared byte length and creation generation zero;
+confirm records the immutable GCS generation, CRC32C, size, and content type.
+
+**Names are server-minted and derived from nothing about the question** — not
+the field id, not the node path, not the repeat index — because
+`MediaHandler.kt::saveFile` is not either, and a field-derived name would
+collide across repeat instances exactly where CommCare's does not. Nova cannot
+produce CommCare's trailing-dot edge (`<uuid>.` from a filename with no
+extension), since an unrecognized extension is rejected before an id is minted;
+a consumer must still not assume a capture answer splits on a dot, because a
+submission that went through Formplayer can carry it.
+
+Two tenancy axes. `project_id` is the tenant, matching case rows, so every
+member of an app's Project sees the same submissions. `created_by` is narrower
+and scopes the writes: reservation is keyed on a client-minted `entry_key`, so
+without it a co-member in a shared Project could reserve or delete another
+member's in-flight attachments by sending their key.
+
+**Acceptance is atomic; byte promotion is retry-safe.** The client submits
+exact `{ attachmentName, fieldUuid, instancePath }` references. The server
+re-derives the committed capture-path templates, then one case-store
+transaction inserts an idempotency intent, reserves exactly those staged rows,
+applies every case effect, and stores the replay result. A case failure rolls
+all four back; a matching retry returns the stored result; a different payload
+under the same entry key is rejected. The request then attempts immutable
+generation-pinned promotion to a create-only durable key. Failure leaves the
+row `promotion_pending`: the scheduled five-minute worker leases bounded
+batches with `FOR UPDATE SKIP LOCKED`, verifies any prior destination by
+size/CRC32C/type, and retries with backoff. An already accepted form is never
+reported failed or discarded because that external copy was transiently
+unavailable.
+
+There is deliberately no destructive hook on value change or repeat removal.
+Clear/replace may delete only `pending`/`staged` rows; anything reserved by a
+submission is durable state. Unselected staged attempts expire. The Project
+move protocol blocks under the app lock whenever capture rows or submission
+intents exist, because no partial move may strand their rows or bytes in the
+source tenant.
+
+Nova diverges from the platform in exactly two places, both toward correctness:
+
+- **Only named attachments ride the submission.** The real runtime enumerates
+  the session media DIRECTORY, not the answers
+  (`FormSubmissionHelper::getMultiPartFormBody`), so a deleted repeat
+  instance's file still uploads, still consumes one of the 50 slots, and lands
+  in HQ referenced by nothing.
+- **Clear and replace touch the answer first, bytes second.** The runtime does
+  the reverse and strands a required question naming a file it just deleted.
+
+Retention is two independent mechanisms, because the data decides it. These are
+worker photographs, so the BYTES get a hard, traffic-independent GCS lifecycle
+TTL on the staging prefix — an idle Project must stop holding them whether or
+not anyone writes again. The ROWS get `expires_at` plus a scheduled bounded
+sweep (also run opportunistically when a new attempt starts); row cleanup is
+hygiene only.
+`applyMediaBucketLifecycle` applies the bucket's whole policy in one
+`{ append: false }` call, so every prefix needing a TTL lives there and
+`lib/storage/__tests__/mediaBucketLifecycle.test.ts` pins that both survive — a
+second call would silently delete the first with no symptom until objects
+stopped being collected. An accepted submission atomically reserves the exact
+staged generation and checksum, then a retrying worker promotes it out of the
+TTL'd prefix. The seven-day staging TTL leaves that worker a bounded recovery
+window while still reaping abandoned form data without traffic.
+
+Clear and Replace carry no confirmation on the picked kinds, deliberately:
+the device does not confirm either, and nothing is actually lost — the file
+is still on the worker's disk, and replacing one means they already went
+through the picker and chose another. Signature is the carve-out, because
+it is drawn rather than picked and clearing destroys the only copy; it gets
+inverse-action undo (the retained stroke buffer, re-emitted through the
+ordinary upload path) rather than a confirm, per the contracts' preference
+for undo over confirm-then-destroy. The real protection on both is the
+ordering — answer first, bytes second — not a prompt.
+
+The preview control is device-faithful: a filename and a Clear button, no
+thumbnail, no playback, no way to reopen the file — what `entry_file.html`
+shows, and Formplayer declares no route serving a staged capture back. The
+preview could render a thumbnail, which is why it must not; an author laying out
+a form against a preview that confirms attachments would ship a form whose
+workers cannot. The filename lives in component state and dies with the page,
+the same lifetime `form_ui.js`'s in-memory `fileNameCache` gives it.
+
+**The preview does not resume a partially-filled form** — nothing persists
+runtime answers and `deactivate` wipes the store — so the entry key is minted
+per `activateForm` and lives on the `EngineController`, not the engine. It
+survives cold identity/lookup/case-data rebuilds and rotates only for a genuine
+new activation or concrete worker. Capture mutations share one entry-wide
+serialized queue; Submit and Clear are barriers, same-path replacement is
+latest-wins, repeat instances keep stable render keys through index compaction,
+and signature `toBlob` callbacks are generation-fenced. That also means the runtime's
+blank-pad-over-live-signature behavior has no Nova counterpart to be faithful
+to; the comment on `EngineController.currentEntryKey` is where a future resume
+story will need to carry the key forward and leave the pad blank.
+
 ### Export and HQ upload
 
 `lib/commcare` compiles a `BlueprintDoc` to the wire on three paths: a downloadable
@@ -770,7 +879,7 @@ Request and run timings are three independently authored fields in
 
 ## What remains
 
-Sixteen units, one file each. **Every entry below is a pointer, not a summary of
+Fifteen units, one file each. **Every entry below is a pointer, not a summary of
 record** — the contract, the binding CommCare facts, the wire shapes, and the
 observed outcome live only in the linked file, and each entry names what it is
 withholding so you can tell when you need it. Read that file, and
@@ -818,21 +927,10 @@ core fixture that misspells it, the companion entry datum, why grouping must
 happen at the data layer rather than after a page is fetched, and why the group
 key must be a real case index.
 
-### 5 — Capture, storage, and submission lifecycle
-
-[`complex-app/05-media-capture-in-forms.md`](complex-app/05-media-capture-in-forms.md)
-· depends on nothing · blocks unit 6
-
-Capture in the running preview: staged upload at pick time through the durable
-landing a submission gives it. **The file holds** the server-generated naming
-Nova must not reinvent, why "attachments on the form" is not "captures the worker
-kept", the two upstream Formplayer defects to design around, and what a worker
-can actually see after attaching.
-
 ### 6 — Attachment target-aware emission and link UX
 
 [`complex-app/06-attachment-emission-and-link-ux.md`](complex-app/06-attachment-emission-and-link-ux.md)
-· depends on units 5 and 11 · blocks nothing
+· depends on unit 11 · blocks nothing
 
 Save-to-case attachment shapes, target-aware URL-column emission, explicit link
 presentation, and the opt-in legacy attachment mode. **The file holds** the exact
@@ -959,8 +1057,7 @@ Each unit's prerequisites, matching the "Depends on" line in its file:
 | [2 Project data workspace](complex-app/02-project-data-workspace.md) | — |
 | [3 SA, MCP, docs](complex-app/03-sa-mcp-and-docs-for-conditions-operations-lookups.md) | 1, 2 |
 | [4 grouped case tiles](complex-app/04-case-tiles.md) | — |
-| [5 media capture in forms](complex-app/05-media-capture-in-forms.md) | — |
-| [6 save-to-case and attachment link UX](complex-app/06-attachment-emission-and-link-ux.md) | 5, 11 |
+| [6 save-to-case and attachment link UX](complex-app/06-attachment-emission-and-link-ux.md) | 11 |
 | [8 organization and locations store](complex-app/08-organization-model-and-locations-store.md) | — |
 | [9 usercase, owner sets, wire](complex-app/09-usercase-owner-sets-and-wire.md) | 8 |
 | [10 automations](complex-app/10-automations-and-setup-guidance.md) | 8 |
@@ -972,8 +1069,8 @@ Each unit's prerequisites, matching the "Depends on" line in its file:
 | [16 session endpoints and deep links](complex-app/16-session-endpoints-and-deep-links.md) | 12, 15 |
 | [17 multi-select, related cases, profile](complex-app/17-multi-select-related-cases-and-profile.md) | 12 |
 
-Six units have no outstanding prerequisites and can start in any order: 1, 2, 4,
-5, 8, and 14. They are the independent entry points — every other unit descends
+Five units have no outstanding prerequisites and can start in any order: 1, 2,
+4, 8, and 14. They are the independent entry points — every other unit descends
 from one of them.
 
 The deployment chain (8 → 10 → 11 → 12) is the critical path: it gates units 6,

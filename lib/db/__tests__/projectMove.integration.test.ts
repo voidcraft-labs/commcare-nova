@@ -750,6 +750,69 @@ describe("dormant atomic Project move", () => {
 		);
 	});
 
+	it("blocks a Project move while any capture row or durable submission intent belongs to the app", async () => {
+		const appId = await h.seedApp({
+			id: "app-capture-move-block",
+			owner: ACTOR,
+			project_id: SOURCE,
+		});
+		await h.seedProjectMember(ACTOR, DESTINATION, "owner");
+		const attachmentId = crypto.randomUUID();
+		await h
+			.db()
+			.insertInto("form_attachments")
+			.values({
+				attachment_id: attachmentId,
+				attachment_name: `${attachmentId}.png`,
+				app_id: appId,
+				project_id: SOURCE,
+				created_by: ACTOR,
+				entry_key: crypto.randomUUID(),
+				field_uuid: crypto.randomUUID(),
+				instance_path: "/data/photo",
+				original_filename: "photo.png",
+				extension: ".png",
+				content_type: "image/png",
+				size_bytes: 3,
+				gcs_object_key: `captures-staged/${SOURCE}/${attachmentId}.png`,
+				object_generation: null,
+				object_checksum: null,
+				status: "pending",
+				last_promotion_error: null,
+				expires_at: new Date(Date.now() + 60_000),
+			})
+			.execute();
+
+		await expect(prepareMove(appId)).rejects.toThrow(
+			/captured form submissions/,
+		);
+
+		await h
+			.db()
+			.deleteFrom("form_attachments")
+			.where("attachment_id", "=", attachmentId)
+			.execute();
+		await h
+			.db()
+			.insertInto("form_submission_intents")
+			.values({
+				app_id: appId,
+				project_id: SOURCE,
+				created_by: ACTOR,
+				entry_key: crypto.randomUUID(),
+				form_uuid: crypto.randomUUID(),
+				app_mutation_seq: 0,
+				request_digest: "request-digest",
+				result: null,
+			})
+			.execute();
+
+		await expect(commitMove(appId)).rejects.toThrow(
+			/captured form submissions/,
+		);
+		expect((await h.readAppRow(appId))?.project_id).toBe(SOURCE);
+	});
+
 	it("uses the shared production capability after the test explicitly enables moves", async () => {
 		const appId = await h.seedApp({
 			id: "app-production-dormant",

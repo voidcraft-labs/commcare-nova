@@ -16,7 +16,7 @@
 // relationships, and whole-envelope rollback across ordinary +
 // operation effects.
 
-import type { Kysely } from "kysely";
+import { type Kysely, sql } from "kysely";
 import { beforeEach, describe, expect, it } from "vitest";
 import { asUuid, type CaseOperation, type CaseType } from "@/lib/domain";
 import {
@@ -30,6 +30,7 @@ import {
 } from "@/lib/domain/predicate";
 import { buildSimpleBlueprint } from "../../__tests__/fixtures/simpleBlueprint";
 import {
+	CaptureSubmissionRejectedError,
 	CaseNotFoundError,
 	CasePropertiesValidationError,
 	SubmissionRejectedError,
@@ -1961,6 +1962,229 @@ describe("combined submission", () => {
 				]),
 			}),
 		).rejects.toThrow(CaseNotFoundError);
+	});
+});
+
+// ---------------------------------------------------------------
+// Atomic form-capture intent
+// ---------------------------------------------------------------
+
+async function seedStagedCapture() {
+	const attachmentId = "55555555-5555-4555-8555-555555555555";
+	const entryKey = "77777777-7777-4777-8777-777777777777";
+	const fieldUuid = "88888888-8888-4888-8888-888888888888";
+	await sql`
+		INSERT INTO apps (
+			id, owner, project_id, app_name, app_name_lower
+		) VALUES (
+			${APP_ID}, ${ACTOR}, ${PROJECT_A}, 'Capture app', 'capture app'
+		)
+	`.execute(dbHandle.db);
+	await sql`
+		INSERT INTO form_attachments (
+			attachment_id,
+			attachment_name,
+			app_id,
+			project_id,
+			created_by,
+			entry_key,
+			field_uuid,
+			instance_path,
+			original_filename,
+			extension,
+			content_type,
+			size_bytes,
+			gcs_object_key,
+			object_generation,
+			object_checksum,
+			status,
+			expires_at
+		) VALUES (
+			${attachmentId},
+			${`${attachmentId}.png`},
+			${APP_ID},
+			${PROJECT_A},
+			${ACTOR},
+			${entryKey},
+			${fieldUuid},
+			'/data/photo',
+			'photo.png',
+			'.png',
+			'image/png',
+			3,
+			${`captures-staged/${PROJECT_A}/${attachmentId}.png`},
+			'generation-1',
+			'checksum-1',
+			'staged',
+			now() + interval '1 day'
+		)
+	`.execute(dbHandle.db);
+	return {
+		entryKey,
+		attachmentId,
+		fieldUuid,
+		intent: {
+			entryKey,
+			formUuid: FORM_UUID,
+			expectedAppMutationSeq: 0,
+			requestDigest: "capture-request-a",
+			attachments: [
+				{
+					attachmentName: `${attachmentId}.png`,
+					fieldUuid,
+					instancePath: "/data/photo",
+				},
+			],
+			allowedAttachments: [{ fieldUuid, instancePathTemplate: "/data/photo" }],
+		},
+	};
+}
+
+describe("atomic form-capture intent", () => {
+	it("commits the receipt and exact staged-row reservation together and replays the result", async () => {
+		const store = makeStore();
+		const capture = await seedStagedCapture();
+		const args = {
+			appId: APP_ID,
+			ordinary: { kind: "none" as const },
+			captureIntent: capture.intent,
+		};
+
+		const first = await store.applySubmission(args);
+		const replay = await store.applySubmission(args);
+		expect(replay).toEqual(first);
+
+		const attachment = await sql<{
+			status: string;
+			next_promotion_at: Date | null;
+		}>`
+			SELECT status, next_promotion_at
+			FROM form_attachments
+			WHERE attachment_id = ${capture.attachmentId}
+		`.execute(dbHandle.db);
+		expect(attachment.rows[0]).toMatchObject({
+			status: "promotion_pending",
+			next_promotion_at: expect.any(Date),
+		});
+		const intents = await sql<{ count: string; result: unknown }>`
+			SELECT count(*) OVER ()::text AS count, result
+			FROM form_submission_intents
+			WHERE app_id = ${APP_ID} AND entry_key = ${capture.entryKey}
+		`.execute(dbHandle.db);
+		expect(intents.rows).toHaveLength(1);
+		expect(intents.rows[0]).toMatchObject({
+			count: "1",
+			result: first,
+		});
+
+		await expect(
+			store.applySubmission({
+				...args,
+				captureIntent: {
+					...capture.intent,
+					requestDigest: "capture-request-b",
+				},
+			}),
+		).rejects.toBeInstanceOf(CaptureSubmissionRejectedError);
+	});
+
+	it("rolls the capture reservation and receipt back when the case envelope fails", async () => {
+		const store = makeStore();
+		const capture = await seedStagedCapture();
+		await seedSchemas(store);
+
+		await expect(
+			store.applySubmission({
+				appId: APP_ID,
+				ordinary: followupOrdinary({ notes: "never lands" }),
+				captureIntent: capture.intent,
+			}),
+		).rejects.toBeInstanceOf(CaseNotFoundError);
+
+		const attachment = await sql<{ status: string }>`
+			SELECT status
+			FROM form_attachments
+			WHERE attachment_id = ${capture.attachmentId}
+		`.execute(dbHandle.db);
+		expect(attachment.rows[0]?.status).toBe("staged");
+		const intent = await sql<{ count: string }>`
+			SELECT count(*)::text AS count
+			FROM form_submission_intents
+			WHERE app_id = ${APP_ID} AND entry_key = ${capture.entryKey}
+		`.execute(dbHandle.db);
+		expect(intent.rows[0]?.count).toBe("0");
+	});
+
+	it("rejects two staged rows forged into one concrete answer slot", async () => {
+		const store = makeStore();
+		const capture = await seedStagedCapture();
+		const secondAttachmentId = "99999999-9999-4999-8999-999999999999";
+		await sql`
+			INSERT INTO form_attachments (
+				attachment_id,
+				attachment_name,
+				app_id,
+				project_id,
+				created_by,
+				entry_key,
+				field_uuid,
+				instance_path,
+				original_filename,
+				extension,
+				content_type,
+				size_bytes,
+				gcs_object_key,
+				object_generation,
+				object_checksum,
+				status,
+				expires_at
+			) VALUES (
+				${secondAttachmentId},
+				${`${secondAttachmentId}.png`},
+				${APP_ID},
+				${PROJECT_A},
+				${ACTOR},
+				${capture.entryKey},
+				${capture.fieldUuid},
+				'/data/photo',
+				'other.png',
+				'.png',
+				'image/png',
+				3,
+				${`captures-staged/${PROJECT_A}/${secondAttachmentId}.png`},
+				'generation-2',
+				'checksum-2',
+				'staged',
+				now() + interval '1 day'
+			)
+		`.execute(dbHandle.db);
+
+		await expect(
+			store.applySubmission({
+				appId: APP_ID,
+				ordinary: { kind: "none" },
+				captureIntent: {
+					...capture.intent,
+					requestDigest: "two-files-one-answer",
+					attachments: [
+						...capture.intent.attachments,
+						{
+							attachmentName: `${secondAttachmentId}.png`,
+							fieldUuid: capture.fieldUuid,
+							instancePath: "/data/photo",
+						},
+					],
+				},
+			}),
+		).rejects.toBeInstanceOf(CaptureSubmissionRejectedError);
+
+		const rows = await sql<{ status: string }>`
+			SELECT status
+			FROM form_attachments
+			WHERE entry_key = ${capture.entryKey}
+			ORDER BY attachment_id
+		`.execute(dbHandle.db);
+		expect(rows.rows.map((row) => row.status)).toEqual(["staged", "staged"]);
 	});
 });
 

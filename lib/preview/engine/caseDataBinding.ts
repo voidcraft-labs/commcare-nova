@@ -66,6 +66,7 @@ import {
 	resolvePreviewIdentity,
 	resolvePreviewIdentityForApp,
 	seedSampleCases,
+	settleSubmittedAttachments,
 	submissionEnvelopeArgs,
 } from "./caseDataBindingHelpers";
 import { reportUnexpectedActionError } from "./caseDataBindingTelemetry";
@@ -958,7 +959,9 @@ export async function loadFilterPreviewAction(args: {
  * primary write, every child insert, and close's lifecycle transition
  * — in ONE Postgres transaction; partial success is unobservable and
  * the running-app view re-queries one settled state on resolve.
- * Survey carries no case effect and short-circuits.
+ * A legacy operation-free survey carries no case effect and short-circuits.
+ * An attachment-bearing survey still crosses the atomic envelope so its
+ * durable capture intent commits with the submission receipt.
  *
  * Caller-supplied `appId` is passed through verbatim, matching the
  * shape the other Server Actions in this file use. The bound
@@ -978,11 +981,14 @@ export async function submitFormAction(
 	try {
 		const identity = await resolvePreviewIdentityForApp(appId, personaUuid);
 		if (!identity) return { kind: "unauthenticated" };
-		/* A survey with NO collected operation answers is the historical
-		 * no-op — nothing to write, no store bind. One WITH answers may
-		 * carry an executable program, decided below against the committed
-		 * doc and the activation flag. */
-		if (mutation.kind === "survey" && mutation.operationAnswers === undefined) {
+		/* An old-client survey with neither operations nor an entry latch is
+		 * still the historical no-op. Attachment-aware surveys must reach the
+		 * atomic envelope even when they have no case operations. */
+		if (
+			mutation.kind === "survey" &&
+			mutation.operationAnswers === undefined &&
+			mutation.entryKey === undefined
+		) {
 			return { kind: "survey" };
 		}
 		/* Membership BEFORE the program build: the build loads the
@@ -991,14 +997,22 @@ export async function submitFormAction(
 		 * distinguishable arms a non-member must never reach, or the
 		 * IDOR-safe not-found collapse leaks whether a foreign form
 		 * carries operations. */
-		const store = await gatedCaseStore(appId, identity, "edit");
+		const { store, scope } = await gatedCaseStoreWithScope(
+			appId,
+			identity,
+			"edit",
+		);
 		const built = await buildSubmissionOperationProgram({
 			appId,
 			identity,
 			mutation,
 			viewerTimeZone,
 		});
-		if (mutation.kind === "survey" && built.program === undefined) {
+		if (
+			mutation.kind === "survey" &&
+			built.program === undefined &&
+			built.captureIntent === undefined
+		) {
 			return { kind: "survey" };
 		}
 		// The schema heal wraps `applySubmission` at the envelope
@@ -1007,6 +1021,35 @@ export async function submitFormAction(
 		const result = await store.applySubmission(
 			submissionEnvelopeArgs(mutation, appId, built),
 		);
+
+		// The case effect, idempotent receipt, and exact attachment intent
+		// committed together above. Promotion is deliberately the external,
+		// retry-safe half: a request failure leaves the row `promotion_pending`
+		// for the scheduled worker and never loses the accepted submission.
+		// `actorUserId`, NOT `ownerId`. The attachment rows were created with
+		// the signed-in member's id, and that same value both authorizes the
+		// Project membership and scopes the retry claim — so passing the
+		// preview's `ownerId` would key an authorization decision on authored
+		// blueprint content AND match zero rows whenever a persona is
+		// selected, silently expiring every attachment the worker just made.
+		// The two ids are identical when previewing as yourself, which is
+		// precisely why that bug would hide.
+		try {
+			await settleSubmittedAttachments({
+				appId,
+				mutation,
+				actorUserId: identity.actorUserId,
+				projectId: scope.projectId,
+			});
+		} catch (err) {
+			// The durable intent and case effects are already committed together.
+			// A request-level retry or the scheduled worker will retry promotion;
+			// reporting the submission as failed would invite duplicate user work.
+			reportUnexpectedActionError("promoteSubmittedAttachments", err, {
+				appId,
+			});
+		}
+
 		if (mutation.kind === "survey") return { kind: "survey" };
 		if (result.primaryCaseId === undefined) {
 			throw new Error(

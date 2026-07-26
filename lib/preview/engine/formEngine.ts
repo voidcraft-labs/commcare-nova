@@ -37,6 +37,7 @@ import {
 	CASE_LOADING_FORM_TYPES,
 	casePropertyDataTypes,
 	expressionSource,
+	isCaptureFieldKind,
 	orderedCaseOperations,
 	type XPathPrintableDoc,
 } from "@/lib/domain";
@@ -49,6 +50,7 @@ import { evaluate } from "../xpath/evaluator";
 import type { EvalContext } from "../xpath/types";
 import type {
 	SubmissionAnswerEntry,
+	SubmissionAttachmentReference,
 	SubmissionMutation,
 	SubmissionOperationAnswers,
 } from "./caseDataBindingTypes";
@@ -192,6 +194,8 @@ export class FormEngine {
 	 *  materialization. Arrow property so it can pass as a bare callback. */
 	private repeatCounts = (repeatPath: string): number =>
 		this.instance.getRepeatCount(repeatPath);
+	/** Render-only identities that survive positional compaction. */
+	private repeatInstanceKeys = new Map<string, string[]>();
 
 	constructor(
 		input: FormEngineInput,
@@ -271,6 +275,7 @@ export class FormEngine {
 	/** Add a new repeat instance. Returns the new index. */
 	addRepeat(repeatPath: string): number {
 		const newIndex = this.instance.addRepeatInstance(repeatPath);
+		this.ensureRepeatInstanceKeys(repeatPath, newIndex + 1);
 		const instancePrefix = `${repeatPath}[${newIndex}]`;
 
 		const updates: EngineStoreState = {};
@@ -363,6 +368,36 @@ export class FormEngine {
 		}
 
 		this.instance.removeRepeatInstance(repeatPath, index);
+		const remappedRepeatKeys = new Map<string, string[]>();
+		for (const [path, keys] of this.repeatInstanceKeys) {
+			if (path === repeatPath) {
+				const remaining = [...keys];
+				remaining.splice(index, 1);
+				remappedRepeatKeys.set(path, remaining);
+				continue;
+			}
+			const instancePrefix = `${repeatPath}[`;
+			if (!path.startsWith(instancePrefix)) {
+				remappedRepeatKeys.set(path, keys);
+				continue;
+			}
+			const close = path.indexOf("]", instancePrefix.length);
+			const enclosingIndex = Number(path.slice(instancePrefix.length, close));
+			if (
+				close === -1 ||
+				!Number.isInteger(enclosingIndex) ||
+				enclosingIndex < index
+			) {
+				remappedRepeatKeys.set(path, keys);
+			} else if (enclosingIndex > index) {
+				remappedRepeatKeys.set(
+					`${repeatPath}[${enclosingIndex - 1}]${path.slice(close + 1)}`,
+					keys,
+				);
+			}
+			// Equal means the nested identity belonged to the removed instance.
+		}
+		this.repeatInstanceKeys = remappedRepeatKeys;
 		if (Object.keys(updates).length > 0) {
 			this.store.setState(updates);
 		}
@@ -480,6 +515,68 @@ export class FormEngine {
 	/** Get the repeat count for a repeat group path. */
 	getRepeatCount(repeatPath: string): number {
 		return this.instance.getRepeatCount(repeatPath);
+	}
+
+	getRepeatInstanceKey(repeatPath: string, index: number): string {
+		const keys = this.ensureRepeatInstanceKeys(
+			repeatPath,
+			this.instance.getRepeatCount(repeatPath),
+		);
+		return keys[index] ?? `${repeatPath}:${index}`;
+	}
+
+	getRepeatInstanceKeySnapshot(): ReadonlyMap<string, readonly string[]> {
+		return new Map(
+			[...this.repeatInstanceKeys].map(([path, keys]) => [path, [...keys]]),
+		);
+	}
+
+	getRepeatCountSnapshot(): ReadonlyMap<string, number> {
+		const counts = new Map<string, number>();
+		for (const [path, state] of Object.entries(this.store.getState())) {
+			if (state.repeatCount !== undefined) {
+				counts.set(path, state.repeatCount);
+			}
+		}
+		return counts;
+	}
+
+	restoreRepeatCountSnapshot(snapshot: ReadonlyMap<string, number>): void {
+		const paths = [...snapshot.keys()].sort((a, b) => {
+			const depth = (path: string) => path.split("/").length;
+			return depth(a) - depth(b) || a.localeCompare(b);
+		});
+		for (const path of paths) {
+			const target = snapshot.get(path) ?? 1;
+			let current = this.getRepeatCount(path);
+			while (current < target) {
+				this.addRepeat(path);
+				current++;
+			}
+			while (current > Math.max(target, 1)) {
+				this.removeRepeat(path, current - 1);
+				current--;
+			}
+		}
+	}
+
+	restoreRepeatInstanceKeySnapshot(
+		snapshot: ReadonlyMap<string, readonly string[]>,
+	): void {
+		this.repeatInstanceKeys = new Map(
+			[...snapshot].map(([path, keys]) => [path, [...keys]]),
+		);
+	}
+
+	private ensureRepeatInstanceKeys(
+		repeatPath: string,
+		count: number,
+	): string[] {
+		const keys = this.repeatInstanceKeys.get(repeatPath) ?? [];
+		while (keys.length < count) keys.push(crypto.randomUUID());
+		if (keys.length > count) keys.length = count;
+		this.repeatInstanceKeys.set(repeatPath, keys);
+		return keys;
 	}
 
 	/**
@@ -667,9 +764,91 @@ export class FormEngine {
 		};
 	}
 
+	/**
+	 * The attachment names this submission actually carries.
+	 *
+	 * Walks every capture question, including one instance per live repeat
+	 * iteration, and collects the non-empty answers of the questions that
+	 * are still RELEVANT. That set is what the server promotes; everything
+	 * else staged under this form entry is discarded.
+	 *
+	 * ## Why this consults visibility when the case-property collector does not
+	 *
+	 * The case-property walk deliberately ignores `state.visible`, for a
+	 * storage reason: an omitted key is the only JSONB shape that passes
+	 * AJV strict-mode validation, so a hidden field's value still lands.
+	 * That reason has nothing to say about attachments, and the wire
+	 * semantics here point the other way — an irrelevant question's node is
+	 * omitted from the submitted instance entirely
+	 * (`XFormSerializingVisitor::serializeNode` returns null for a
+	 * non-relevant node), so its attachment is genuinely not part of the
+	 * submission.
+	 *
+	 * Nova then diverges from the platform in one direction, on purpose.
+	 * The real runtime uploads the FILE anyway, because
+	 * `FormSubmissionHelper::getMultiPartFormBody` enumerates the session's
+	 * media directory rather than the answers — so an irrelevant question's
+	 * bytes, and a deleted repeat instance's, still ride the submission,
+	 * still consume one of the 50 attachment slots, and land in HQ
+	 * referenced by nothing. Replicating that would import a known defect
+	 * into a lane with no reason to inherit it.
+	 */
+	collectAttachmentReferences(): SubmissionAttachmentReference[] {
+		const references: SubmissionAttachmentReference[] = [];
+		const states = this.store.getState();
+		const walk = (nodes: FieldTreeNode[], prefix: string): void => {
+			for (const node of nodes) {
+				const f = node.field;
+				const fieldPath = `${prefix}/${f.id}`;
+				if (f.kind === "repeat") {
+					const count = this.instance.getRepeatCount(fieldPath);
+					for (let i = 0; i < count; i++) {
+						walk(node.children ?? [], `${fieldPath}[${i}]`);
+					}
+					continue;
+				}
+				if (node.children) {
+					walk(node.children, fieldPath);
+					continue;
+				}
+				if (!isCaptureFieldKind(f.kind)) continue;
+				if (states[fieldPath]?.visible === false) continue;
+				const raw = this.instance.get(fieldPath);
+				if (typeof raw === "string" && raw !== "") {
+					references.push({
+						attachmentName: raw,
+						fieldUuid: f.uuid,
+						instancePath: fieldPath,
+					});
+				}
+			}
+		};
+		walk(this.tree, "/data");
+		return references;
+	}
+
+	/** Compatibility projection for code that only needs multipart names. */
+	collectAttachmentNames(): string[] {
+		return this.collectAttachmentReferences().map(
+			(reference) => reference.attachmentName,
+		);
+	}
+
 	computeSubmissionMutation(args: {
 		caseId?: string;
 		caseTypes: ReadonlyArray<CaseType>;
+		/**
+		 * This form entry's attachment scope, supplied by the CONTROLLER
+		 * rather than owned here.
+		 *
+		 * The engine is recreated mid-entry whenever the blueprint changes
+		 * during live preview (that is what makes an edited `default_value`
+		 * visible immediately), so a key minted here would rotate under the
+		 * worker and orphan every attachment they had already staged. The
+		 * controller's lifetime is the entry's lifetime, so the key lives
+		 * there.
+		 */
+		entryKey?: string;
 	}): SubmissionMutation {
 		/* The operation identity riding every arm: the submitting form's
 		 * uuid (the authored-key scope half and the server-side program
@@ -677,9 +856,23 @@ export class FormEngine {
 		 * the form carries case operations. A survey with operations must
 		 * NOT short-circuit — its program still executes. */
 		const operationAnswers = this.computeOperationAnswers();
+		const attachmentRefs = this.collectAttachmentReferences();
+		const attachmentNames = attachmentRefs.map(
+			(reference) => reference.attachmentName,
+		);
 		const operationIdentity = {
 			formUuid: this.activeFormUuid() as string,
 			...(operationAnswers !== undefined && { operationAnswers }),
+			// Always present, even when empty: an empty list means "this
+			// submission named nothing", which is exactly the instruction to
+			// discard every staged attachment for the entry. Omitting it would
+			// instead mean "an older client that knows nothing about
+			// attachments", which must leave them alone.
+			...(args.entryKey !== undefined && {
+				entryKey: args.entryKey,
+				attachmentNames,
+				attachmentRefs,
+			}),
 		};
 		if (this.formType === "survey") {
 			return { kind: "survey", ...operationIdentity };
@@ -1322,6 +1515,7 @@ export class FormEngine {
 
 	/** Full reset — reinitialize all values, defaults, and expressions. */
 	reset(): void {
+		this.repeatInstanceKeys.clear();
 		this.instance = new DataInstance();
 		this.instance.initFromFields(this.tree);
 
@@ -1361,7 +1555,7 @@ export class FormEngine {
 		const touched = new Set<string>();
 		for (const [path, state] of Object.entries(this.store.getState())) {
 			if (state === DEFAULT_ENGINE_STATE) continue;
-			if (state.value) values.set(path, state.value);
+			if (state.value || state.touched) values.set(path, state.value);
 			if (state.touched) touched.add(path);
 		}
 		return { values, touched };

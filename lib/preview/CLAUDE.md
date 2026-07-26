@@ -67,6 +67,46 @@ its own status vocabulary. This keeps the live row aligned with
 CommCare's `@status` attribute and makes a close form with no property
 writes a complete lifecycle write by itself.
 
+## Attachments are staged per form entry, reserved atomically at submit
+
+A capture question's answer is a server-minted attachment name; the bytes go
+straight to GCS on a signed URL (`components/preview/form/fields/attachment`),
+never through a Server Action — a `File` argument would make React encode
+multipart, which the edge WAF reads as header injection.
+
+`EngineController.entryKey` is the idempotency/reservation scope, minted per
+`activateForm`. It lives on the CONTROLLER, not the engine, and survives cold
+identity, lookup, and case-data rebuilds; a key minted by each rebuilt engine
+would rotate under already staged bytes. A genuinely new activation or concrete
+worker identity rotates it. **There is no form resume** — nothing persists
+runtime answers and `deactivate` wipes the store — so leaving a form starts a
+new entry and the old one's unreserved attachments are collected by the
+scheduled row sweep and staging TTL. That absence is also why nothing simulates
+the runtime's blank-pad-over-live-signature behavior: the state cannot arise
+here. A future resume story must carry the entry key forward with the answers,
+and must leave the pad blank rather than helpfully restoring it.
+
+`FormEngine.collectAttachmentReferences` carries the exact server-minted name,
+field UUID, and concrete repeat-indexed path for every surviving answer, and it
+DOES consult `state.visible` — unlike the case-property collector, whose
+visibility-blindness is an AJV storage constraint with nothing to say about
+attachments. The server re-derives the committed field/path templates and
+rejects stale or mismatched provenance. An irrelevant question's node is
+omitted from the submitted instance on the wire, so its attachment is genuinely
+not part of the submission. Nova then diverges from the platform by not
+shipping it at all, where the real runtime enumerates the session media
+directory and uploads orphans anyway.
+
+Every capture mutation for one entry goes through one form-wide queue. A newer
+operation aborts and generation-fences an older operation on the same path;
+Submit is a barrier behind prior uploads and ahead of later ones; Clear cancels
+the entry before its reset barrier. Repeat instances use stable render keys so
+index compaction does not unmount a surviving capture control; the same queued
+operation CAS-moves its staged row from the old concrete path to the compacted
+one before submit. Pending uploads are cancelled rather than retargeted.
+Signature `toBlob` callbacks have their own generation fence because the
+browser API cannot be aborted.
+
 ## Repeat instances are first-class
 
 Repeat children live at CONCRETE indexed paths (`/data/orders[1]/name`), one FieldState per live instance, while everything AUTHORED about them is index-free — `printXPath` emits `#form/orders/name`, the dependency extractor emits `/data/orders/name`. Three mechanisms bridge the two shapes (`instancePaths.ts` holds the conversions):

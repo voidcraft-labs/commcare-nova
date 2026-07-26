@@ -88,6 +88,69 @@ describe("EngineController", () => {
 			expect(runtime[Q2_UUID].visible).toBe(true);
 		});
 
+		it("preserves one entry key across cold rebuilds and rotates it only for a new entry", () => {
+			const store = createLoadedStore();
+			const ctrl = new EngineController();
+			ctrl.setDocStore(store);
+			ctrl.activateForm(FORM_UUID);
+			const entryKey = ctrl.entryKey;
+
+			ctrl.rebuildActiveForm(FORM_UUID, new Map());
+			expect(ctrl.entryKey).toBe(entryKey);
+
+			ctrl.setPreviewIdentity(
+				previewAsMe({ id: "worker-1", email: "amina@example.org" }),
+			);
+			expect(ctrl.entryKey).toBe(entryKey);
+
+			ctrl.activateForm(FORM_UUID);
+			expect(ctrl.entryKey).toEqual(expect.any(String));
+			expect(ctrl.entryKey).not.toBe(entryKey);
+		});
+
+		it("preserves repeat render identities across a same-entry rebuild", () => {
+			const repeatUuid = asUuid("aaaaaaaa-0010-0010-0010-000000000010");
+			const childUuid = asUuid("aaaaaaaa-0011-0011-0011-000000000011");
+			const store = createLoadedStore(
+				makeDoc(
+					{
+						[repeatUuid]: {
+							uuid: repeatUuid,
+							id: "members",
+							kind: "repeat",
+							label: "Members",
+							repeat_mode: "user_controlled",
+						},
+						[childUuid]: {
+							uuid: childUuid,
+							id: "name",
+							kind: "text",
+							label: "Name",
+						},
+					},
+					{
+						[FORM_UUID]: [repeatUuid],
+						[repeatUuid]: [childUuid],
+					},
+				),
+			);
+			const ctrl = new EngineController();
+			ctrl.setDocStore(store);
+			ctrl.activateForm(FORM_UUID);
+			ctrl.addRepeat(repeatUuid);
+			const keys = [
+				ctrl.getRepeatInstanceKey(repeatUuid, 0),
+				ctrl.getRepeatInstanceKey(repeatUuid, 1),
+			];
+
+			ctrl.rebuildActiveForm(FORM_UUID, new Map());
+
+			expect([
+				ctrl.getRepeatInstanceKey(repeatUuid, 0),
+				ctrl.getRepeatInstanceKey(repeatUuid, 1),
+			]).toEqual(keys);
+		});
+
 		it("returns early for an unknown form uuid", () => {
 			const store = createLoadedStore();
 			const ctrl = new EngineController();
@@ -878,7 +941,10 @@ describe("EngineController", () => {
 			const mutation = ctrl.computeSubmissionMutation({
 				caseTypes: [patientCaseType],
 			});
-			expect(mutation).toEqual({
+			// The controller injects THIS entry's attachment scope, which is why
+			// the assertion is on the case-bearing slots plus an explicit check
+			// on the two attachment ones rather than a whole-object equality.
+			expect(mutation).toMatchObject({
 				kind: "registration",
 				formUuid: "form-2-uuid",
 				primary: {
@@ -888,6 +954,22 @@ describe("EngineController", () => {
 				},
 				children: [],
 			});
+			// Present because a form is active; empty because nothing was
+			// attached, which is the instruction to discard any staged
+			// attachment rather than "this client knows nothing about them".
+			expect(mutation.entryKey).toEqual(expect.any(String));
+			expect(mutation.attachmentNames).toEqual([]);
+
+			// One activation is one entry: a key that survived reactivation
+			// would let a new entry reconcile the previous one's attachments.
+			const firstEntry = ctrl.entryKey;
+			ctrl.activateForm(formUuid);
+			expect(ctrl.entryKey).toEqual(expect.any(String));
+			expect(ctrl.entryKey).not.toBe(firstEntry);
+
+			// And no active form means no scope to reconcile at all.
+			ctrl.deactivate();
+			expect(ctrl.entryKey).toBeUndefined();
 		});
 	});
 
