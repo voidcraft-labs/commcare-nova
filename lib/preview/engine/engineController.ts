@@ -69,6 +69,24 @@ export type RuntimeState = FieldState;
 /** The Zustand store shape — flat map of UUID → RuntimeState. */
 export type RuntimeStoreState = Record<string, RuntimeState>;
 
+/** Reactive form-entry identity. Unlike `entryKey`'s imperative getter, this
+ * store notifies FormScreen when a materially changed worker rotates the
+ * controller without first causing a parent React render. */
+export interface EngineEntryState {
+	readonly entryKey: string | undefined;
+	readonly formUuid: Uuid | undefined;
+	readonly revision: number;
+}
+
+export interface RepeatCompactionEvent {
+	readonly entryKey: string;
+	readonly removedPrefix: string;
+	readonly moves: ReadonlyArray<{
+		readonly fromPrefix: string;
+		readonly toPrefix: string;
+	}>;
+}
+
 /** Stable fallback for UUIDs that don't exist. Frozen so Zustand selectors
  *  always return the same reference — no spurious re-renders. */
 export const DEFAULT_RUNTIME_STATE: RuntimeState = Object.freeze({
@@ -271,6 +289,8 @@ export class EngineController {
 	/** UUID-keyed Zustand runtime store. Components subscribe via
 	 *  `useStore(controller.store, s => s[uuid])`. */
 	readonly store: StoreApi<RuntimeStoreState>;
+	/** Form-level lifecycle store; updated only when entry identity changes. */
+	readonly entryStore: StoreApi<EngineEntryState>;
 
 	/** The computation engine — DataInstance, TriggerDag, expression evaluation. */
 	private engine: FormEngine | undefined;
@@ -315,6 +335,9 @@ export class EngineController {
 	 * one.
 	 */
 	private currentEntryKey: string | undefined;
+	private repeatCompactionListeners = new Set<
+		(event: RepeatCompactionEvent) => void
+	>();
 
 	/** Field UUIDs with active per-field subscriptions. */
 	private trackedUuids = new Set<string>();
@@ -342,6 +365,38 @@ export class EngineController {
 
 	constructor() {
 		this.store = createStore<RuntimeStoreState>(() => ({}));
+		this.entryStore = createStore<EngineEntryState>(() => ({
+			entryKey: undefined,
+			formUuid: undefined,
+			revision: 0,
+		}));
+	}
+
+	private publishEntryState(): void {
+		const current = this.entryStore.getState();
+		if (
+			current.entryKey === this.currentEntryKey &&
+			current.formUuid === this.activeFormUuid
+		) {
+			return;
+		}
+		this.entryStore.setState(
+			{
+				entryKey: this.currentEntryKey,
+				formUuid: this.activeFormUuid,
+				revision: current.revision + 1,
+			},
+			true,
+		);
+	}
+
+	/** Form-level repeat ownership subscriber. The engine stays UI-agnostic;
+	 * FormScreen binds this event to the attachment coordinator. */
+	subscribeRepeatCompaction(
+		listener: (event: RepeatCompactionEvent) => void,
+	): () => void {
+		this.repeatCompactionListeners.add(listener);
+		return () => this.repeatCompactionListeners.delete(listener);
 	}
 
 	/** Connect to the doc store. Called by SyncBridge when the provider mounts. */
@@ -452,17 +507,33 @@ export class EngineController {
 		caseData: CaseDataByType | undefined,
 		entryKey: string,
 	): void {
-		this.deactivate();
-		if (!this.docStore) return;
+		this.clearActiveForm();
+		if (!this.docStore) {
+			this.publishEntryState();
+			return;
+		}
 
 		const s = this.docStore.getState();
 		// Bail out silently if the form no longer exists — the hook uses an
 		// effect-based lifecycle so a transient "form deleted during
 		// re-render" window is normal; the next effect tick reactivates
 		// against the new active form.
-		if (!s.forms[formUuid]) return;
+		if (!s.forms[formUuid]) {
+			this.publishEntryState();
+			return;
+		}
 		const moduleUuid = findModuleForForm(s, formUuid);
-		if (!moduleUuid) return;
+		if (!moduleUuid) {
+			this.publishEntryState();
+			return;
+		}
+
+		/* Build the FormEngine input from the doc store */
+		const input = buildEngineInput(s, formUuid);
+		if (!input) {
+			this.publishEntryState();
+			return;
+		}
 
 		this.activeFormUuid = formUuid;
 		this.activeCaseData = caseData;
@@ -473,10 +544,6 @@ export class EngineController {
 		// of which have a real `crypto`. `lib/doc/scaffolds.ts` mints uuids
 		// the same way for the same reason.
 		this.currentEntryKey = entryKey;
-
-		/* Build the FormEngine input from the doc store */
-		const input = buildEngineInput(s, formUuid);
-		if (!input) return;
 
 		const mod = s.modules[moduleUuid];
 		this.engine = new FormEngine(
@@ -504,10 +571,10 @@ export class EngineController {
 		this.setupPerFieldSubscriptions(uuids);
 		this.setupStructuralSubscription(formUuid);
 		this.setupMetadataSubscription();
+		this.publishEntryState();
 	}
 
-	/** Clean up all subscriptions and reset state. */
-	deactivate(): void {
+	private clearActiveForm(): void {
 		for (const unsub of this.unsubscribers) unsub();
 		this.unsubscribers = [];
 		this.trackedUuids.clear();
@@ -518,6 +585,12 @@ export class EngineController {
 		this.activeCaseData = undefined;
 		this.currentEntryKey = undefined;
 		this.store.setState({}, true);
+	}
+
+	/** Clean up all subscriptions and reset state. */
+	deactivate(): void {
+		this.clearActiveForm();
+		this.publishEntryState();
 	}
 
 	/** This form entry's attachment scope, or `undefined` when no form is
@@ -642,9 +715,28 @@ export class EngineController {
 		if (!this.isUserControlledRepeat(uuid)) return;
 		const path = atPath ?? this.uuidToPath.get(uuid);
 		if (!path) return;
+		const count = this.engine.getRepeatCount(path);
+		const entryKey = this.currentEntryKey;
 		this.engine.removeRepeat(path, index);
 		// Selective sweep — see `addRepeat`.
 		this.syncAllPathsSelectively();
+		if (entryKey !== undefined && count > 1 && index >= 0 && index < count) {
+			const event: RepeatCompactionEvent = {
+				entryKey,
+				removedPrefix: `${path}[${index}]`,
+				moves: Array.from(
+					{ length: Math.max(0, count - index - 1) },
+					(_, offset) => {
+						const fromIndex = index + offset + 1;
+						return {
+							fromPrefix: `${path}[${fromIndex}]`,
+							toPrefix: `${path}[${fromIndex - 1}]`,
+						};
+					},
+				),
+			};
+			for (const listener of this.repeatCompactionListeners) listener(event);
+		}
 	}
 
 	/** True iff `uuid` resolves to a repeat field whose `repeat_mode`

@@ -54,6 +54,9 @@ interface RepeatFieldProps {
 	/** Nesting depth of this repeat — instance content renders at
 	 *  `depth + 1` for flipbook parity with edit mode. */
 	depth: number;
+	/** Stable identities of enclosing repeats, before this repeat adds its
+	 * own instance identity. */
+	instanceScopeKey: string;
 }
 
 // ── Instance divider ──────────────────────────────────────────────────
@@ -104,6 +107,7 @@ export function RepeatField({
 	path,
 	fieldPath,
 	depth,
+	instanceScopeKey,
 }: RepeatFieldProps) {
 	// Visibility is gated one level up by `InteractiveQuestion`, so we
 	// only render when the repeat is visible. State is still needed for
@@ -230,28 +234,34 @@ export function RepeatField({
 						/>
 
 						{hasChildren &&
-							Array.from({ length: count }, (_, idx) => (
-								<div
-									key={controller.getRepeatInstanceKey(field.uuid, idx, path)}
-								>
-									<InstanceDivider
-										idx={idx}
-										depth={depth + 1}
-										onRemove={
-											isUserControlled && count > 1
-												? () => controller.removeRepeat(field.uuid, idx, path)
-												: undefined
-										}
-									/>
-									<InteractiveFormRenderer
-										parentEntityId={field.uuid}
-										prefix={`${path}[${idx}]`}
-										parentPath={fieldPath}
-										depth={depth + 1}
-										leadingGap={false}
-									/>
-								</div>
-							))}
+							Array.from({ length: count }, (_, idx) => {
+								const instanceKey = controller.getRepeatInstanceKey(
+									field.uuid,
+									idx,
+									path,
+								);
+								return (
+									<div key={instanceKey}>
+										<InstanceDivider
+											idx={idx}
+											depth={depth + 1}
+											onRemove={
+												isUserControlled && count > 1
+													? () => controller.removeRepeat(field.uuid, idx, path)
+													: undefined
+											}
+										/>
+										<InteractiveFormRenderer
+											parentEntityId={field.uuid}
+											prefix={`${path}[${idx}]`}
+											parentPath={fieldPath}
+											depth={depth + 1}
+											leadingGap={false}
+											instanceScopeKey={`${instanceScopeKey}\u0000${field.uuid}:${instanceKey}`}
+										/>
+									</div>
+								);
+							})}
 
 						{!hasChildren && <div className="h-[72px]" />}
 

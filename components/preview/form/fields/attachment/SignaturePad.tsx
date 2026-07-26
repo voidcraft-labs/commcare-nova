@@ -2,7 +2,7 @@
 import { Icon } from "@iconify/react/offline";
 import tablerArrowBackUp from "@iconify-icons/tabler/arrow-back-up";
 import tablerX from "@iconify-icons/tabler/x";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import {
 	type AttachmentTaskContext,
 	cancelAttachmentTask,
@@ -38,15 +38,19 @@ import {
  *
  * ## What happens on a resize
  *
- * The canvas backing store is sized once per mount from its rendered box
- * and the device pixel ratio. Resizing the window mid-signature would
- * otherwise clear the bitmap; the strokes are therefore replayed from a
- * retained point list, the same approach `SignatureEntry::resizeCanvas`
- * takes.
+ * The canvas backing store follows its rendered box and the device pixel
+ * ratio. Resizing mid-signature would otherwise clear the bitmap; normalized
+ * strokes are therefore replayed from a retained point list, the same
+ * approach `SignatureEntry::resizeCanvas` takes.
  */
 interface SignaturePadProps {
 	readonly entryKey: string;
 	readonly instancePath: string;
+	/** Stable field + repeat-instance identity. Unlike `instancePath`, this
+	 * does not change when a surviving repeat row compacts. */
+	readonly slotKey?: string;
+	readonly questionLabelId?: string;
+	readonly questionLabel?: string;
 	/** Whether an upload is in flight. Deliberately NOT used to disable the
 	 *  drawing surface — see `SIGNATURE_SETTLE_MS`. */
 	readonly uploading: boolean;
@@ -129,6 +133,9 @@ function signatureBlob(
 export function SignaturePad({
 	entryKey,
 	instancePath,
+	slotKey,
+	questionLabelId,
+	questionLabel,
 	uploading,
 	hasAnswer,
 	onDrawn,
@@ -136,15 +143,19 @@ export function SignaturePad({
 	onEncodingError,
 }: SignaturePadProps) {
 	const canvasRef = useRef<HTMLCanvasElement>(null);
-	/** Completed strokes plus the one in progress, in CSS pixels. Retained
-	 *  so a resize can replay rather than lose the signature. */
+	const instructionId = useId();
+	const fallbackSlotKeyRef = useRef(slotKey ?? instancePath);
+	const coordinationKey = slotKey ?? fallbackSlotKeyRef.current;
+	/** Completed strokes plus the one in progress, normalized to the canvas
+	 *  bounds. Retained so a resize can replay the whole signature without
+	 *  clipping coordinates captured at the previous width. */
 	const strokesRef = useRef<Point[][]>(
-		getSignatureDraft(entryKey, instancePath),
+		getSignatureDraft(entryKey, coordinationKey),
 	);
 	const drawingRef = useRef(false);
 	/** Fences `canvas.toBlob` callbacks, which cannot themselves be aborted. */
 	const renderGenerationRef = useRef(0);
-	const identityRef = useRef({ entryKey, instancePath });
+	const identityRef = useRef({ entryKey, slotKey: coordinationKey });
 	/**
 	 * The strokes the last Clear removed, kept so it can be undone.
 	 *
@@ -165,6 +176,8 @@ export function SignaturePad({
 	const clearedRef = useRef<Point[][] | undefined>(undefined);
 	const [cleared, setCleared] = useState(false);
 	const [empty, setEmpty] = useState(strokesRef.current.length === 0);
+	const clearPendingRef = useRef(false);
+	const [clearPending, setClearPending] = useState(false);
 
 	const redraw = useCallback(() => {
 		const canvas = canvasRef.current;
@@ -172,7 +185,10 @@ export function SignaturePad({
 		if (!canvas || !ctx) return;
 		const ratio = window.devicePixelRatio || 1;
 		const { width, height } = canvas.getBoundingClientRect();
-		if (canvas.width !== Math.round(width * ratio)) {
+		if (
+			canvas.width !== Math.round(width * ratio) ||
+			canvas.height !== Math.round(height * ratio)
+		) {
 			canvas.width = Math.round(width * ratio);
 			canvas.height = Math.round(height * ratio);
 		}
@@ -188,10 +204,14 @@ export function SignaturePad({
 		for (const stroke of strokesRef.current) {
 			if (stroke.length === 0) continue;
 			ctx.beginPath();
-			ctx.moveTo(stroke[0].x, stroke[0].y);
-			for (const point of stroke.slice(1)) ctx.lineTo(point.x, point.y);
+			ctx.moveTo(stroke[0].x * width, stroke[0].y * height);
+			for (const point of stroke.slice(1)) {
+				ctx.lineTo(point.x * width, point.y * height);
+			}
 			// A single tap is a dot, not a no-op.
-			if (stroke.length === 1) ctx.lineTo(stroke[0].x + 0.1, stroke[0].y);
+			if (stroke.length === 1) {
+				ctx.lineTo(stroke[0].x * width + 0.1, stroke[0].y * height);
+			}
 			ctx.stroke();
 		}
 	}, []);
@@ -199,8 +219,16 @@ export function SignaturePad({
 	useEffect(() => {
 		redraw();
 		const onResize = () => redraw();
+		const resizeObserver =
+			typeof ResizeObserver === "undefined"
+				? undefined
+				: new ResizeObserver(redraw);
+		if (canvasRef.current !== null) resizeObserver?.observe(canvasRef.current);
 		window.addEventListener("resize", onResize);
-		return () => window.removeEventListener("resize", onResize);
+		return () => {
+			resizeObserver?.disconnect();
+			window.removeEventListener("resize", onResize);
+		};
 	}, [redraw]);
 
 	// A material identity change is a different worker/form entry. Local
@@ -210,25 +238,43 @@ export function SignaturePad({
 		const previous = identityRef.current;
 		if (
 			previous.entryKey === entryKey &&
-			previous.instancePath === instancePath
+			previous.slotKey === coordinationKey
 		) {
 			return;
 		}
-		cancelAttachmentTask(previous.entryKey, previous.instancePath);
-		clearAttachmentNotReady(previous.entryKey, previous.instancePath);
+		cancelAttachmentTask(previous.entryKey, previous.slotKey);
+		clearAttachmentNotReady(previous.entryKey, previous.slotKey);
 		renderGenerationRef.current += 1;
 		drawingRef.current = false;
-		identityRef.current = { entryKey, instancePath };
-		strokesRef.current = getSignatureDraft(entryKey, instancePath);
+		identityRef.current = { entryKey, slotKey: coordinationKey };
+		strokesRef.current = getSignatureDraft(entryKey, coordinationKey);
 		clearedRef.current = undefined;
 		setCleared(false);
+		clearPendingRef.current = false;
+		setClearPending(false);
 		setEmpty(strokesRef.current.length === 0);
 		redraw();
-	}, [entryKey, instancePath, redraw]);
+	}, [entryKey, coordinationKey, redraw]);
+
+	useEffect(() => {
+		if (!hasAnswer) {
+			clearPendingRef.current = false;
+			setClearPending(false);
+		}
+	}, [hasAnswer]);
 
 	const pointFrom = (e: React.PointerEvent<HTMLCanvasElement>): Point => {
 		const rect = e.currentTarget.getBoundingClientRect();
-		return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+		return {
+			x: Math.min(
+				1,
+				Math.max(0, (e.clientX - rect.left) / Math.max(1, rect.width)),
+			),
+			y: Math.min(
+				1,
+				Math.max(0, (e.clientY - rect.top) / Math.max(1, rect.height)),
+			),
+		};
 	};
 
 	const scheduleEmit = useCallback(
@@ -236,10 +282,10 @@ export function SignaturePad({
 			const canvas = canvasRef.current;
 			if (!canvas) return;
 			const generation = ++renderGenerationRef.current;
-			const scheduledIdentity = { entryKey, instancePath };
+			const scheduledIdentity = { entryKey, slotKey: coordinationKey };
 			void runAttachmentTask({
 				entryKey,
-				instancePath,
+				slotKey: coordinationKey,
 				task: async (context) => {
 					try {
 						await waitForSignatureSettle(settleMs, context.signal);
@@ -248,8 +294,7 @@ export function SignaturePad({
 							!context.isCurrent() ||
 							generation !== renderGenerationRef.current ||
 							identityRef.current.entryKey !== scheduledIdentity.entryKey ||
-							identityRef.current.instancePath !==
-								scheduledIdentity.instancePath
+							identityRef.current.slotKey !== scheduledIdentity.slotKey
 						) {
 							return;
 						}
@@ -267,7 +312,7 @@ export function SignaturePad({
 							context,
 						);
 						if (context.isCurrent()) {
-							clearAttachmentNotReady(entryKey, instancePath);
+							clearAttachmentNotReady(entryKey, coordinationKey);
 						}
 					} catch (error) {
 						if (isAttachmentTaskAbort(error)) return;
@@ -283,32 +328,42 @@ export function SignaturePad({
 				);
 			});
 		},
-		[entryKey, instancePath, onDrawn, onEncodingError],
+		[entryKey, coordinationKey, onDrawn, onEncodingError],
 	);
 
 	const clear = useCallback(() => {
+		if (
+			clearPendingRef.current ||
+			(strokesRef.current.length === 0 && !hasAnswer)
+		) {
+			return;
+		}
+		clearPendingRef.current = true;
+		setClearPending(true);
 		// Cancel any settle/encoding in flight so it cannot re-upload the
 		// strokes the worker just cleared.
-		cancelAttachmentTask(entryKey, instancePath);
-		clearAttachmentNotReady(entryKey, instancePath);
+		cancelAttachmentTask(entryKey, coordinationKey);
+		clearAttachmentNotReady(entryKey, coordinationKey);
 		renderGenerationRef.current += 1;
 		clearedRef.current =
 			strokesRef.current.length > 0 ? strokesRef.current : undefined;
 		setCleared(clearedRef.current !== undefined);
 		strokesRef.current = [];
-		clearSignatureDraft(entryKey, instancePath);
+		clearSignatureDraft(entryKey, coordinationKey);
 		setEmpty(true);
 		redraw();
 		onClear();
-	}, [entryKey, instancePath, redraw, onClear]);
+	}, [hasAnswer, entryKey, coordinationKey, redraw, onClear]);
 
 	const undo = useCallback(() => {
 		const restored = clearedRef.current;
 		if (restored === undefined) return;
 		clearedRef.current = undefined;
 		setCleared(false);
+		clearPendingRef.current = false;
+		setClearPending(false);
 		strokesRef.current = restored;
-		rememberSignatureDraft(entryKey, instancePath, restored);
+		rememberSignatureDraft(entryKey, coordinationKey, restored);
 		setEmpty(false);
 		redraw();
 		// Restoring the pixels is not enough: `onClear` discarded the staged
@@ -316,25 +371,33 @@ export function SignaturePad({
 		// canvas. It joins the queue immediately just like an ordinary stroke.
 		markAttachmentNotReady(
 			entryKey,
-			instancePath,
+			coordinationKey,
 			"The restored signature is still being saved.",
 		);
 		scheduleEmit(0);
-	}, [entryKey, instancePath, redraw, scheduleEmit]);
+	}, [entryKey, coordinationKey, redraw, scheduleEmit]);
 
 	return (
 		<div className="space-y-2">
 			<canvas
 				ref={canvasRef}
-				aria-label="Signature pad. Sign with a finger, stylus, or mouse."
+				aria-label={
+					questionLabelId
+						? undefined
+						: `${questionLabel ?? "Signature"}. Signature pad. Sign with a finger, stylus, or mouse.`
+				}
+				aria-labelledby={
+					questionLabelId ? `${questionLabelId} ${instructionId}` : undefined
+				}
+				data-instance-path={instancePath}
 				className="h-40 w-full touch-none rounded-lg border border-pv-input-border bg-white"
 				onPointerDown={(e) => {
 					// No disabled check: the surface stays live even while an
 					// upload is in flight, so a worker can keep signing.
-					cancelAttachmentTask(entryKey, instancePath);
+					cancelAttachmentTask(entryKey, coordinationKey);
 					markAttachmentNotReady(
 						entryKey,
-						instancePath,
+						coordinationKey,
 						"The latest signature is still being saved.",
 					);
 					// Invalidate a `toBlob` from the prior stroke set. The next
@@ -349,7 +412,7 @@ export function SignaturePad({
 					e.currentTarget.setPointerCapture(e.pointerId);
 					drawingRef.current = true;
 					strokesRef.current = [...strokesRef.current, [pointFrom(e)]];
-					rememberSignatureDraft(entryKey, instancePath, strokesRef.current);
+					rememberSignatureDraft(entryKey, coordinationKey, strokesRef.current);
 					setEmpty(false);
 					redraw();
 				}}
@@ -359,7 +422,7 @@ export function SignaturePad({
 					const current = strokes[strokes.length - 1];
 					if (!current) return;
 					current.push(pointFrom(e));
-					rememberSignatureDraft(entryKey, instancePath, strokesRef.current);
+					rememberSignatureDraft(entryKey, coordinationKey, strokesRef.current);
 					redraw();
 				}}
 				onPointerUp={(e) => {
@@ -376,11 +439,15 @@ export function SignaturePad({
 					scheduleEmit();
 				}}
 			/>
+			<span id={instructionId} className="sr-only">
+				Signature pad. Sign with a finger, stylus, or mouse.
+			</span>
 			{/* The pad stays drawable while this shows — it reports progress,
 			    it does not gate the surface. */}
 			<div className="flex flex-wrap items-center gap-2">
 				<p
 					role="status"
+					aria-label={`${questionLabel ?? "Signature"} signature status`}
 					aria-live="polite"
 					className="text-xs text-nova-text-muted"
 				>
@@ -411,7 +478,7 @@ export function SignaturePad({
 			<button
 				type="button"
 				onClick={clear}
-				disabled={empty && !hasAnswer}
+				disabled={empty && (!hasAnswer || clearPending)}
 				className="inline-flex min-h-12 items-center gap-2 rounded-md border border-pv-input-border bg-pv-surface px-4 text-sm font-medium text-nova-text transition-colors hover:border-pv-input-focus disabled:opacity-40"
 			>
 				<Icon icon={tablerX} width="16" height="16" aria-hidden="true" />

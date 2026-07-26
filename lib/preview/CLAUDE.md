@@ -80,12 +80,19 @@ identity, lookup, and case-data rebuilds; a key minted by each rebuilt engine
 would rotate under already staged bytes. A genuinely new activation or concrete
 worker identity rotates it. **There is no form resume** — nothing persists
 runtime answers and `deactivate` wipes the store — so leaving a form starts a
-new entry. Confirmed row ownership lives at `(app, entryKey, instancePath)`
-above any one rendered field, so relevance, group/repeat remounts, and
-Preview/Edit flips cannot delete an answer whose entry is still live. A real
-entry teardown/reset best-effort deletes those unreserved rows immediately;
-the scheduled row sweep and staging TTL remain the failure backstop. That
-absence of cross-entry resume is also why nothing simulates
+new entry. The controller exposes that identity through `entryStore`; form
+lifecycle code must subscribe to it rather than sampling the imperative getter,
+because a materially changed worker projection can rotate the entry from a
+provider effect without changing the persona UUID or route.
+
+Confirmed row ownership lives at `(app, entryKey, stableSlotKey)` above any one
+rendered field. A stable slot is the field UUID plus every enclosing repeat's
+stable instance identity; its concrete indexed path is a mutable projection.
+Relevance, group/repeat remounts, Preview/Edit flips, and positional repeat
+compaction therefore cannot delete or misidentify an answer whose entry is
+still live. A real entry teardown/reset best-effort deletes those unreserved
+rows immediately; the scheduled row sweep and staging TTL remain the failure
+backstop. That absence of cross-entry resume is also why nothing simulates
 the runtime's blank-pad-over-live-signature behavior: the state cannot arise
 here. A future resume story must carry the entry key forward with the answers,
 and must leave the pad blank rather than helpfully restoring it.
@@ -103,20 +110,32 @@ shipping it at all, where the real runtime enumerates the session media
 directory and uploads orphans anyway.
 
 Every capture mutation for one entry goes through one form-wide queue. A newer
-operation aborts and generation-fences an older operation on the same path;
-signature debounce and `toBlob` encoding enter that queue immediately, and a
-dirty/failed encoding keeps the barrier blocked rather than submitting an
-older answer. `pointercancel` settles the ink through the same path. Submit is
-a barrier behind prior work and ahead of later work, and rechecks the initiating
-form, entry, persona, case, Project scope, and post-submit destination before
-calling the action; Clear cancels the entry before its reset barrier. Repeat
-instances use stable render keys so
-index compaction does not unmount a surviving capture control; the same queued
-operation CAS-moves its staged row from the old concrete path to the compacted
-one before submit. Pending uploads are cancelled rather than retargeted.
-Signature pixels are entry/path-local across ordinary remounts and reset on an
-entry/persona change; `toBlob` callbacks also carry a generation fence because
-the browser API cannot itself be aborted.
+operation aborts and generation-fences an older operation on the same stable
+slot; signature debounce and `toBlob` encoding enter that queue immediately,
+and a dirty/failed encoding keeps the barrier blocked rather than submitting
+an older answer. `pointercancel` settles the ink through the same path. Submit
+is a barrier behind prior work and ahead of later work, and rechecks the
+initiating form, entry, persona, case, Project scope, and post-submit
+destination before calling the action. Once Submit enters `running`, the
+entire answer surface is inert/disabled until the barrier and server action
+settle; a post-click text,
+picker, signature, repeat, replace, or remove gesture cannot join only one side
+of the submission snapshot. Clear cancels the entry before its reset barrier.
+
+`EngineController.removeRepeat` is the ONE compaction owner. It emits the
+removed prefix plus every positional move; FormScreen binds that event to the
+entry coordinator even when the affected capture is irrelevant/unmounted. The
+coordinator updates desired slot paths synchronously, queues server CAS
+retargets after any already-running upload/encoding and before Submit, and
+cancels/discards only slots belonging to the removed instance. A surviving
+pending signature keeps its draft and `notReady` blocker until its latest PNG
+confirms, then the newly owned row—not an older PNG—is retargeted.
+
+Signature pixels are entry/stable-slot-local across ordinary remounts and reset
+on an entry/persona change. Points are normalized to the canvas bounds, so a
+responsive resize redraws and re-encodes the complete signature rather than
+clipping old absolute coordinates. `toBlob` callbacks also carry a generation
+fence because the browser API cannot itself be aborted.
 
 ## Repeat instances are first-class
 

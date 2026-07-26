@@ -53,6 +53,8 @@ interface GroupFieldProps {
 	 *  they share the edit-mode `depthPadding` column exactly (flipbook
 	 *  parity). */
 	depth: number;
+	/** Stable identities of every enclosing repeat instance. */
+	instanceScopeKey: string;
 }
 
 /**
@@ -64,7 +66,13 @@ interface GroupFieldProps {
  * longer needs to participate in drag-and-drop, inline-text editing, or
  * any other edit-only affordances.
  */
-export function GroupField({ field, path, fieldPath, depth }: GroupFieldProps) {
+export function GroupField({
+	field,
+	path,
+	fieldPath,
+	depth,
+	instanceScopeKey,
+}: GroupFieldProps) {
 	// Visibility is gated one level up by `InteractiveQuestion`, so we
 	// reach this component only when the group is visible. We still need
 	// the engine state for resolved label/hint rendering — path-keyed so
@@ -159,6 +167,7 @@ export function GroupField({ field, path, fieldPath, depth }: GroupFieldProps) {
 								prefix={path}
 								parentPath={fieldPath}
 								depth={depth + 1}
+								instanceScopeKey={instanceScopeKey}
 							/>
 						) : (
 							<div className="h-[72px]" />

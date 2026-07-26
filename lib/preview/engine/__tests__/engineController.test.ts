@@ -681,6 +681,41 @@ describe("EngineController", () => {
 			expect(afterRemove["/data/orders[1]/name"].value).toBe("");
 		});
 
+		it("publishes positional repeat compaction from the controller owner", () => {
+			const store = createLoadedStore(repeatDoc());
+			const ctrl = new EngineController();
+			ctrl.setDocStore(store);
+			ctrl.activateForm(FORM_UUID);
+			ctrl.addRepeat(repeatUuid);
+			ctrl.addRepeat(repeatUuid);
+			const events: Parameters<
+				Parameters<typeof ctrl.subscribeRepeatCompaction>[0]
+			>[0][] = [];
+			const unsubscribe = ctrl.subscribeRepeatCompaction((event) => {
+				events.push(event);
+			});
+
+			ctrl.removeRepeat(repeatUuid, 0);
+			unsubscribe();
+
+			expect(events).toEqual([
+				{
+					entryKey: ctrl.entryKey,
+					removedPrefix: "/data/orders[0]",
+					moves: [
+						{
+							fromPrefix: "/data/orders[1]",
+							toPrefix: "/data/orders[0]",
+						},
+						{
+							fromPrefix: "/data/orders[2]",
+							toPrefix: "/data/orders[1]",
+						},
+					],
+				},
+			]);
+		});
+
 		it("a field added inside a repeat reaches every live instance", async () => {
 			const store = createLoadedStore(repeatDoc());
 			const ctrl = new EngineController();

@@ -36,7 +36,7 @@
  */
 
 "use client";
-import { memo } from "react";
+import { memo, useId } from "react";
 import { MediaDisplay } from "@/components/builder/media/MediaDisplay";
 import { type FieldPath, fpath } from "@/lib/doc/fieldPath";
 import { useField } from "@/lib/doc/hooks/useEntity";
@@ -74,6 +74,9 @@ interface InteractiveFormRendererProps {
 	 *  Default on; callers that own their own leading spacer (e.g. the
 	 *  repeat instance divider) pass `false`. */
 	readonly leadingGap?: boolean;
+	/** Stable identities of enclosing repeat instances. Concrete indices
+	 * compact; this key does not. */
+	readonly instanceScopeKey?: string;
 }
 
 // ── Component ─────────────────────────────────────────────────────────
@@ -89,6 +92,7 @@ export const InteractiveFormRenderer = memo(function InteractiveFormRenderer({
 	parentPath,
 	depth = 0,
 	leadingGap = true,
+	instanceScopeKey = "",
 }: InteractiveFormRendererProps) {
 	const fieldUuids = useOrderedFields(parentEntityId as Uuid);
 
@@ -108,6 +112,7 @@ export const InteractiveFormRenderer = memo(function InteractiveFormRenderer({
 						prefix={prefix}
 						parentPath={parentPath}
 						depth={depth}
+						instanceScopeKey={instanceScopeKey}
 					/>
 				);
 			})}
@@ -122,6 +127,7 @@ interface InteractiveFieldProps {
 	readonly prefix: string;
 	readonly parentPath?: FieldPath;
 	readonly depth: number;
+	readonly instanceScopeKey: string;
 }
 
 /**
@@ -141,6 +147,7 @@ const InteractiveField = memo(function InteractiveField({
 	prefix,
 	parentPath,
 	depth,
+	instanceScopeKey,
 }: InteractiveFieldProps) {
 	const field = useField(uuid);
 	// Engine state is keyed by the CONCRETE path so each repeat instance
@@ -152,6 +159,7 @@ const InteractiveField = memo(function InteractiveField({
 	// Capture questions stage bytes against the app; every other kind
 	// ignores it.
 	const appId = useAppId();
+	const questionLabelId = useId();
 
 	// Visibility gating lives here so the subscription cost of reading
 	// the field + engine state is paid per-field. Siblings whose
@@ -204,6 +212,7 @@ const InteractiveField = memo(function InteractiveField({
 					parentPath={fieldPath}
 					depth={depth}
 					leadingGap={false}
+					instanceScopeKey={instanceScopeKey}
 				/>
 			</>
 		);
@@ -222,6 +231,7 @@ const InteractiveField = memo(function InteractiveField({
 				path={path}
 				fieldPath={fieldPath}
 				depth={depth}
+				instanceScopeKey={instanceScopeKey}
 			/>
 		);
 	} else if (field.kind === "repeat") {
@@ -231,6 +241,7 @@ const InteractiveField = memo(function InteractiveField({
 				path={path}
 				fieldPath={fieldPath}
 				depth={depth}
+				instanceScopeKey={instanceScopeKey}
 			/>
 		);
 	} else if (field.kind === "label") {
@@ -268,7 +279,7 @@ const InteractiveField = memo(function InteractiveField({
 							 *  this, every leaf field is 10px shorter in live
 							 *  mode than in edit mode — see the matching note
 							 *  in `GroupField`. */}
-							<div className="px-[5px] py-[5px]">
+							<div id={questionLabelId} className="px-[5px] py-[5px]">
 								<LabelContent
 									label={field.label}
 									resolvedLabel={state.resolvedLabel}
@@ -312,8 +323,15 @@ const InteractiveField = memo(function InteractiveField({
 					path={path}
 					appId={appId}
 					entryKey={controller.entryKey}
+					attachmentSlotKey={`${field.uuid}\u0000${instanceScopeKey}`}
+					questionLabelId={field.label ? questionLabelId : undefined}
+					questionLabel={state.resolvedLabel ?? field.label ?? undefined}
 					onChange={(value) => controller.setValueAt(path, value)}
 					onBlur={() => controller.touchAt(path)}
+					onChangeAt={(targetPath, value) =>
+						controller.setValueAt(targetPath, value)
+					}
+					onBlurAt={(targetPath) => controller.touchAt(targetPath)}
 				/>
 			</div>
 		);

@@ -31,8 +31,15 @@ interface FieldRendererProps {
 	appId?: string | undefined;
 	/** This form entry's attachment scope (see `EngineController.entryKey`). */
 	entryKey?: string | undefined;
+	/** Stable capture identity, independent of positional repeat indices. */
+	attachmentSlotKey?: string | undefined;
+	/** Prompt association for capture accessibility. */
+	questionLabelId?: string | undefined;
+	questionLabel?: string | undefined;
 	onChange: (value: string) => void;
 	onBlur: () => void;
+	onChangeAt?: ((path: string, value: string) => void) | undefined;
+	onBlurAt?: ((path: string) => void) | undefined;
 }
 
 /**
@@ -53,8 +60,13 @@ export function FieldRenderer({
 	path,
 	appId,
 	entryKey,
+	attachmentSlotKey,
+	questionLabelId,
+	questionLabel,
 	onChange,
 	onBlur,
+	onChangeAt,
+	onBlurAt,
 }: FieldRendererProps) {
 	// Capture kinds route to the real attachment control. Narrowed through
 	// the domain predicate rather than a case list so the two cannot drift:
@@ -67,8 +79,13 @@ export function FieldRenderer({
 				path={path}
 				appId={appId}
 				entryKey={entryKey}
+				attachmentSlotKey={attachmentSlotKey}
+				questionLabelId={questionLabelId}
+				questionLabel={questionLabel}
 				onChange={onChange}
 				onBlur={onBlur}
+				onChangeAt={onChangeAt}
+				onBlurAt={onBlurAt}
 			/>
 		);
 	}

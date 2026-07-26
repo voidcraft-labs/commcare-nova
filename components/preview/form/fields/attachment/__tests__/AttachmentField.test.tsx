@@ -38,6 +38,12 @@ const FIELD = {
 	kind: "image",
 	label: "Photo",
 } as CaptureField;
+const SECOND_FIELD = {
+	...FIELD,
+	uuid: "33333333-3333-4333-8333-333333333333",
+	id: "consent",
+	label: "Signed consent",
+} as CaptureField;
 
 const EMPTY_STATE: FieldState = {
 	path: "/data/photo",
@@ -70,6 +76,34 @@ afterEach(() => {
 });
 
 describe("AttachmentField", () => {
+	it("gives two capture questions distinct accessible control names", () => {
+		render(
+			<>
+				<AttachmentField
+					field={FIELD}
+					state={EMPTY_STATE}
+					path="/data/photo"
+					appId="app-1"
+					entryKey="11111111-1111-4111-8111-111111111111"
+					onChange={vi.fn()}
+					onBlur={vi.fn()}
+				/>
+				<AttachmentField
+					field={SECOND_FIELD}
+					state={{ ...EMPTY_STATE, path: "/data/consent" }}
+					path="/data/consent"
+					appId="app-1"
+					entryKey="11111111-1111-4111-8111-111111111111"
+					onChange={vi.fn()}
+					onBlur={vi.fn()}
+				/>
+			</>,
+		);
+
+		expect(screen.getByLabelText(/Photo.*Attach file/i)).toBeDefined();
+		expect(screen.getByLabelText(/Signed consent.*Attach file/i)).toBeDefined();
+	});
+
 	it("resets the native input immediately so the same rejected file can retry", async () => {
 		render(
 			<AttachmentField
@@ -82,7 +116,9 @@ describe("AttachmentField", () => {
 				onBlur={vi.fn()}
 			/>,
 		);
-		const input = screen.getByLabelText("Attach file") as HTMLInputElement;
+		const input = screen.getByLabelText(
+			/Photo.*Attach file/i,
+		) as HTMLInputElement;
 		const file = new File(["png"], "photo.png", { type: "image/png" });
 
 		Object.defineProperty(input, "value", {
@@ -131,7 +167,9 @@ describe("AttachmentField", () => {
 			/>,
 		);
 
-		fireEvent.click(screen.getByRole("button", { name: "Remove attachment" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: /Remove attachment for Photo/i }),
+		);
 		expect(onChange).not.toHaveBeenCalled();
 
 		releaseBlocker.resolve();
@@ -139,7 +177,7 @@ describe("AttachmentField", () => {
 		await waitFor(() => expect(onChange).toHaveBeenCalledWith(""));
 	});
 
-	it("retargets a staged answer when its stable repeat instance compacts", async () => {
+	it("keeps staged UI on the stable slot while its concrete path compacts", async () => {
 		stageAttachmentMock.mockResolvedValue({
 			attachmentId: "44444444-4444-4444-8444-444444444444",
 			attachmentName: "44444444-4444-4444-8444-444444444444.png",
@@ -154,11 +192,14 @@ describe("AttachmentField", () => {
 				path="/data/visits[1]/photo"
 				appId="app-1"
 				entryKey="55555555-5555-4555-8555-555555555555"
+				attachmentSlotKey="photo:stable-row-2"
 				onChange={onChange}
 				onBlur={vi.fn()}
 			/>,
 		);
-		const input = screen.getByLabelText("Attach file") as HTMLInputElement;
+		const input = screen.getByLabelText(
+			/Photo.*Attach file/i,
+		) as HTMLInputElement;
 		fireEvent.change(input, {
 			target: {
 				files: [new File(["png"], "photo.png", { type: "image/png" })],
@@ -181,21 +222,14 @@ describe("AttachmentField", () => {
 				path="/data/visits[0]/photo"
 				appId="app-1"
 				entryKey="55555555-5555-4555-8555-555555555555"
+				attachmentSlotKey="photo:stable-row-2"
 				onChange={onChange}
 				onBlur={vi.fn()}
 			/>,
 		);
 
-		await waitFor(() =>
-			expect(retargetAttachmentMock).toHaveBeenCalledWith(
-				expect.objectContaining({
-					appId: "app-1",
-					attachmentId: "44444444-4444-4444-8444-444444444444",
-					expectedInstancePath: "/data/visits[1]/photo",
-					instancePath: "/data/visits[0]/photo",
-				}),
-			),
-		);
+		expect(await screen.findByText("photo.png")).toBeDefined();
+		expect(retargetAttachmentMock).not.toHaveBeenCalled();
 		expect(discardAttachmentMock).not.toHaveBeenCalled();
 	});
 
@@ -218,7 +252,7 @@ describe("AttachmentField", () => {
 				onBlur={vi.fn()}
 			/>,
 		);
-		fireEvent.change(screen.getByLabelText("Attach file"), {
+		fireEvent.change(screen.getByLabelText(/Photo.*Attach file/i), {
 			target: {
 				files: [new File(["png"], "photo.png", { type: "image/png" })],
 			},
@@ -286,7 +320,7 @@ describe("AttachmentField", () => {
 				onBlur={vi.fn()}
 			/>,
 		);
-		fireEvent.change(screen.getByLabelText("Attach file"), {
+		fireEvent.change(screen.getByLabelText(/Photo.*Attach file/i), {
 			target: {
 				files: [new File(["png"], "visit-photo.png", { type: "image/png" })],
 			},
@@ -351,7 +385,9 @@ describe("AttachmentField", () => {
 				onBlur={vi.fn()}
 			/>,
 		);
-		const input = screen.getByLabelText("Attach file") as HTMLInputElement;
+		const input = screen.getByLabelText(
+			/Photo.*Attach file/i,
+		) as HTMLInputElement;
 		const label = input.closest("label");
 		expect(label).not.toBeNull();
 		input.focus();
@@ -385,7 +421,9 @@ describe("AttachmentField", () => {
 				onBlur={vi.fn()}
 			/>,
 		);
-		const input = screen.getByLabelText("Attach file") as HTMLInputElement;
+		const input = screen.getByLabelText(
+			/Photo.*Attach file/i,
+		) as HTMLInputElement;
 		fireEvent.change(input, {
 			target: {
 				files: [new File(["png"], "photo.png", { type: "image/png" })],

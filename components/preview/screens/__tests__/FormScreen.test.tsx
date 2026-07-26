@@ -37,6 +37,7 @@ import {
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { xp } from "@/lib/__tests__/docHelpers";
+import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
 import { asUuid } from "@/lib/doc/types";
 import type { SubmissionResult } from "@/lib/preview/engine/caseDataBindingTypes";
@@ -105,6 +106,9 @@ let currentAppId: string | undefined = APP_ID;
 let currentAuthUser: { id: string; name: string; email: string } | null = null;
 let capturedSession: BuilderSessionStoreApi | undefined;
 let capturedController: EngineController | undefined;
+let updateCapturedPersona:
+	| ReturnType<typeof useBlueprintMutations>["inline"]["updatePersona"]
+	| undefined;
 
 /* The screen mounts BuilderFormEngineProvider, which resolves "Preview
  * as me" from `useAuth()`. Mock it so the suite doesn't subscribe Better
@@ -177,6 +181,7 @@ import { BuilderFormEngineProvider } from "@/lib/preview/engine/provider";
 import { invalidateCaseData } from "@/lib/preview/hooks/caseDataInvalidation";
 import {
 	__resetAttachmentCoordinatorForTests,
+	rememberOwnedStagedAttachment,
 	runAttachmentTask,
 } from "../../form/fields/attachment/attachmentClient";
 import { FormScreen } from "../FormScreen";
@@ -188,9 +193,18 @@ const FOLLOWUP_CASE_ID = "11111111-1111-1111-1111-111111111111";
 
 const onBackMock = vi.fn();
 
+function deferred<T>() {
+	let resolve!: (value: T) => void;
+	const promise = new Promise<T>((accept) => {
+		resolve = accept;
+	});
+	return { promise, resolve };
+}
+
 function CaptureRuntimeHandles() {
 	capturedSession = useBuilderSessionApi();
 	capturedController = useBuilderFormEngine();
+	updateCapturedPersona = useBlueprintMutations().inline.updatePersona;
 	return null;
 }
 
@@ -352,7 +366,9 @@ beforeEach(() => {
 	currentAuthUser = null;
 	capturedSession = undefined;
 	capturedController = undefined;
+	updateCapturedPersona = undefined;
 	__resetAttachmentCoordinatorForTests();
+	vi.unstubAllGlobals();
 	/* Default `loadCaseDataAction` to `missing` so followup screens
 	 *  in test mode either short-circuit on the no-case empty state
 	 *  (when no caseId is supplied) or proceed to render the form
@@ -782,6 +798,58 @@ describe("FormScreen — pending UX", () => {
 		});
 	});
 
+	it("freezes every answer while Submit waits behind earlier attachment work", async () => {
+		vi.mocked(submitFormAction).mockResolvedValue({
+			kind: "registration",
+			caseId: "new-case-id",
+			childCaseIds: [],
+		});
+		renderFormScreen({ formUuid: REG_FORM_UUID });
+		await waitFor(() => expect(capturedController?.entryKey).toBeDefined());
+		const entryKey = capturedController?.entryKey;
+		if (!entryKey) throw new Error("Expected an active form entry");
+
+		const allTextboxes = await screen.findAllByRole("textbox");
+		const input = allTextboxes.find(
+			(el) => !(el as HTMLInputElement).readOnly,
+		) as HTMLInputElement;
+		fireEvent.change(input, { target: { value: "before submit" } });
+
+		const blockerStarted = deferred<void>();
+		const releaseBlocker = deferred<void>();
+		const blocker = runAttachmentTask({
+			entryKey,
+			instancePath: "/data/slow-photo",
+			task: async () => {
+				blockerStarted.resolve();
+				await releaseBlocker.promise;
+			},
+		});
+		await blockerStarted.promise;
+
+		fireEvent.click(screen.getByRole("button", { name: /^submit$/i }));
+		await screen.findByRole("button", { name: /submitting\.\.\./i });
+
+		// A post-click gesture must not mutate the coherent answer set that
+		// will be read once the attachment barrier opens.
+		fireEvent.change(input, { target: { value: "after submit" } });
+
+		await act(async () => {
+			releaseBlocker.resolve();
+			await blocker;
+		});
+		await waitFor(() =>
+			expect(vi.mocked(submitFormAction)).toHaveBeenCalledTimes(1),
+		);
+		const [mutation] = vi.mocked(submitFormAction).mock.calls[0];
+		expect(mutation.kind).toBe("registration");
+		if (mutation.kind === "registration") {
+			expect(mutation.primary.properties).toMatchObject({
+				name: "before submit",
+			});
+		}
+	});
+
 	it("does not cross-submit queued answers after persona and form navigation rotate the entry", async () => {
 		currentAuthUser = {
 			id: "member-1",
@@ -836,6 +904,79 @@ describe("FormScreen — pending UX", () => {
 		expect(vi.mocked(submitFormAction)).not.toHaveBeenCalled();
 		expect(navigateMock.goHome).not.toHaveBeenCalled();
 		expect(onBackMock).not.toHaveBeenCalled();
+	});
+
+	it("settles a queued submit when same-persona data rotates the controller entry", async () => {
+		currentAuthUser = {
+			id: "member-1",
+			name: "Member One",
+			email: "member@example.com",
+		};
+		const view = renderFormScreen({ formUuid: REG_FORM_UUID });
+		await waitFor(() => expect(capturedController?.entryKey).toBeDefined());
+		act(() => {
+			capturedSession?.getState().setPreviewPersonaUuid(PERSONA_UUID);
+		});
+		await waitFor(() => expect(capturedController?.entryKey).toBeDefined());
+		const initiatingEntryKey = capturedController?.entryKey;
+		if (!initiatingEntryKey) throw new Error("Expected persona entry");
+
+		const blockerStarted = deferred<void>();
+		const releaseBlocker = deferred<void>();
+		const blocker = runAttachmentTask({
+			entryKey: initiatingEntryKey,
+			instancePath: "/data/photo",
+			task: async () => {
+				blockerStarted.resolve();
+				await releaseBlocker.promise;
+			},
+		});
+		await blockerStarted.promise;
+		fireEvent.click(screen.getByRole("button", { name: /^submit$/i }));
+		await screen.findByRole("button", { name: /submitting\.\.\./i });
+
+		act(() => {
+			updateCapturedPersona?.(PERSONA_UUID, {
+				name: "Persona B updated by a collaborator",
+			});
+		});
+		await waitFor(() => {
+			expect(capturedController?.entryKey).not.toBe(initiatingEntryKey);
+		});
+
+		releaseBlocker.resolve();
+		await blocker;
+		await act(async () => {
+			await Promise.resolve();
+			await Promise.resolve();
+		});
+
+		expect(screen.getByRole("button", { name: /^submit$/i })).toBeDefined();
+		expect(vi.mocked(submitFormAction)).not.toHaveBeenCalled();
+
+		const rotatedEntryKey = capturedController?.entryKey;
+		if (!rotatedEntryKey) throw new Error("Expected the rotated entry");
+		rememberOwnedStagedAttachment({
+			appId: APP_ID,
+			entryKey: rotatedEntryKey,
+			slotKey: "photo:rotated-entry",
+			instancePath: "/data/photo",
+			attachment: {
+				attachmentId: "attachment-rotated-entry",
+				attachmentName: "attachment-rotated-entry.png",
+				originalFilename: "photo.png",
+				sizeBytes: 3,
+			},
+		});
+		const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+		vi.stubGlobal("fetch", fetchMock);
+		view.unmount();
+		await waitFor(() =>
+			expect(fetchMock).toHaveBeenCalledWith(
+				`/api/apps/${APP_ID}/attachments/attachment-rotated-entry`,
+				expect.objectContaining({ method: "DELETE" }),
+			),
+		);
 	});
 });
 

@@ -40,17 +40,57 @@ interface EntryQueue {
 }
 
 const entryQueues = new Map<string, EntryQueue>();
-const ownedAttachments = new Map<
-	string,
-	Map<string, { appId: string; attachment: StagedAttachment }>
->();
+
+interface AttachmentSlot {
+	readonly appId: string;
+	/** Engine path the stable slot currently projects onto. */
+	desiredInstancePath: string;
+	/** Confirmed row plus the path its immutable server row currently holds. */
+	owned?: {
+		readonly attachment: StagedAttachment;
+		instancePath: string;
+	};
+}
+
+/**
+ * Entry-local capture identity is stable; concrete repeat indices are not.
+ *
+ * A slot key is the field UUID plus the stable render identities of every
+ * enclosing repeat instance. `desiredInstancePath` is only its current
+ * positional projection. Keeping the two separate lets a hidden control and
+ * an in-flight signature survive `[1] → [0]` compaction without pretending
+ * the server row already moved.
+ */
+const attachmentSlots = new Map<string, Map<string, AttachmentSlot>>();
 
 export interface SignaturePoint {
+	/** Fraction of the current canvas width, normally within `[0, 1]`. */
 	readonly x: number;
+	/** Fraction of the current canvas height, normally within `[0, 1]`. */
 	readonly y: number;
 }
 
 const signatureDrafts = new Map<string, Map<string, SignaturePoint[][]>>();
+
+function taskKey(args: {
+	readonly slotKey?: string;
+	readonly instancePath?: string;
+}): string {
+	const key = args.slotKey ?? args.instancePath;
+	if (key === undefined) {
+		throw new Error("An attachment task requires a stable slot key.");
+	}
+	return key;
+}
+
+function slotsFor(entryKey: string): Map<string, AttachmentSlot> {
+	let entry = attachmentSlots.get(entryKey);
+	if (entry === undefined) {
+		entry = new Map();
+		attachmentSlots.set(entryKey, entry);
+	}
+	return entry;
+}
 
 function queueFor(entryKey: string): EntryQueue {
 	let queue = entryQueues.get(entryKey);
@@ -93,26 +133,30 @@ function enqueue<T>(entryKey: string, work: () => Promise<T>): Promise<T> {
 /**
  * Serialize one capture mutation with every other capture path in the entry.
  *
- * Starting a newer task for the same concrete path aborts the older network
+ * Starting a newer task for the same stable slot aborts the older network
  * flow immediately; its generation predicate also fences callbacks that had
  * already escaped the abort boundary.
  */
 export function runAttachmentTask<T>(args: {
 	entryKey: string;
-	instancePath: string;
+	/** Stable client identity. Concrete paths are accepted only as a
+	 * compatibility fallback for non-repeat callers. */
+	slotKey?: string;
+	instancePath?: string;
 	task: (context: AttachmentTaskContext) => Promise<T>;
 }): Promise<T> {
 	const queue = queueFor(args.entryKey);
-	const previous = queue.paths.get(args.instancePath);
+	const key = taskKey(args);
+	const previous = queue.paths.get(key);
 	previous?.controller.abort();
 	const current: PathTask = {
 		controller: new AbortController(),
 		generation: (previous?.generation ?? 0) + 1,
 	};
-	queue.paths.set(args.instancePath, current);
+	queue.paths.set(key, current);
 	const isCurrent = () =>
 		entryQueues.get(args.entryKey) === queue &&
-		queue.paths.get(args.instancePath) === current &&
+		queue.paths.get(key) === current &&
 		!current.controller.signal.aborted;
 	return enqueue(args.entryKey, async () => {
 		current.controller.signal.throwIfAborted();
@@ -121,22 +165,19 @@ export function runAttachmentTask<T>(args: {
 			isCurrent,
 		});
 	}).finally(() => {
-		if (queue.paths.get(args.instancePath) === current) {
-			queue.paths.delete(args.instancePath);
+		if (queue.paths.get(key) === current) {
+			queue.paths.delete(key);
 		}
 		releaseQueueIfIdle(args.entryKey, queue);
 	});
 }
 
-/** Abort and invalidate one concrete capture path. */
-export function cancelAttachmentTask(
-	entryKey: string,
-	instancePath: string,
-): void {
+/** Abort and invalidate one stable capture slot. */
+export function cancelAttachmentTask(entryKey: string, slotKey: string): void {
 	const queue = entryQueues.get(entryKey);
-	const current = queue?.paths.get(instancePath);
+	const current = queue?.paths.get(slotKey);
 	current?.controller.abort();
-	if (current !== undefined) queue?.paths.delete(instancePath);
+	if (current !== undefined) queue?.paths.delete(slotKey);
 	if (queue !== undefined) releaseQueueIfIdle(entryKey, queue);
 }
 
@@ -157,19 +198,19 @@ export class AttachmentNotReadyError extends Error {
 
 export function markAttachmentNotReady(
 	entryKey: string,
-	instancePath: string,
+	slotKey: string,
 	message: string,
 ): void {
-	queueFor(entryKey).notReady.set(instancePath, message);
+	queueFor(entryKey).notReady.set(slotKey, message);
 }
 
 export function clearAttachmentNotReady(
 	entryKey: string,
-	instancePath: string,
+	slotKey: string,
 ): void {
 	const queue = entryQueues.get(entryKey);
 	if (queue === undefined) return;
-	queue.notReady.delete(instancePath);
+	queue.notReady.delete(slotKey);
 	releaseQueueIfIdle(entryKey, queue);
 }
 
@@ -192,66 +233,194 @@ export function runFormAttachmentBarrier<T>(
 	});
 }
 
+/** Register one stable slot's current positional projection. Ordinary
+ * component unmounts deliberately leave this record intact. */
+export function registerAttachmentSlotPath(args: {
+	appId: string;
+	entryKey: string;
+	slotKey: string;
+	instancePath: string;
+}): void {
+	const slots = slotsFor(args.entryKey);
+	const current = slots.get(args.slotKey);
+	slots.set(args.slotKey, {
+		appId: args.appId,
+		desiredInstancePath: args.instancePath,
+		...(current?.appId === args.appId && current.owned !== undefined
+			? { owned: current.owned }
+			: {}),
+	});
+}
+
+/** Read the authoritative current engine projection for an upload callback. */
+export function getAttachmentSlotPath(args: {
+	appId: string;
+	entryKey: string;
+	slotKey: string;
+}): string | undefined {
+	const slot = attachmentSlots.get(args.entryKey)?.get(args.slotKey);
+	return slot?.appId === args.appId ? slot.desiredInstancePath : undefined;
+}
+
 /** Remember confirmed row ownership above any one rendered component. */
 export function rememberOwnedStagedAttachment(args: {
 	appId: string;
 	entryKey: string;
+	slotKey?: string;
 	instancePath: string;
 	attachment: StagedAttachment;
 }): void {
-	let entry = ownedAttachments.get(args.entryKey);
-	if (entry === undefined) {
-		entry = new Map();
-		ownedAttachments.set(args.entryKey, entry);
-	}
-	entry.set(args.instancePath, {
+	const key = taskKey(args);
+	const slots = slotsFor(args.entryKey);
+	const current = slots.get(key);
+	slots.set(key, {
 		appId: args.appId,
-		attachment: args.attachment,
+		desiredInstancePath:
+			current?.appId === args.appId
+				? current.desiredInstancePath
+				: args.instancePath,
+		owned: {
+			attachment: args.attachment,
+			instancePath: args.instancePath,
+		},
 	});
 }
 
 export function getOwnedStagedAttachment(args: {
 	appId: string;
 	entryKey: string;
-	instancePath: string;
+	slotKey?: string;
+	instancePath?: string;
 }): StagedAttachment | undefined {
-	const owned = ownedAttachments.get(args.entryKey)?.get(args.instancePath);
-	return owned?.appId === args.appId ? owned.attachment : undefined;
+	const slot = attachmentSlots.get(args.entryKey)?.get(taskKey(args));
+	return slot?.appId === args.appId ? slot.owned?.attachment : undefined;
 }
 
 export function forgetOwnedStagedAttachment(args: {
 	appId: string;
 	entryKey: string;
-	instancePath: string;
+	slotKey?: string;
+	instancePath?: string;
 }): StagedAttachment | undefined {
-	const entry = ownedAttachments.get(args.entryKey);
-	const owned = entry?.get(args.instancePath);
-	if (entry === undefined || owned?.appId !== args.appId) return undefined;
-	entry.delete(args.instancePath);
-	if (entry.size === 0) ownedAttachments.delete(args.entryKey);
-	return owned.attachment;
+	const slot = attachmentSlots.get(args.entryKey)?.get(taskKey(args));
+	if (slot?.appId !== args.appId || slot.owned === undefined) return undefined;
+	const attachment = slot.owned.attachment;
+	slot.owned = undefined;
+	return attachment;
 }
 
-export function moveOwnedStagedAttachment(args: {
+export interface AttachmentRepeatCompaction {
+	readonly removedPrefix: string;
+	readonly moves: ReadonlyArray<{
+		readonly fromPrefix: string;
+		readonly toPrefix: string;
+	}>;
+}
+
+export interface AttachmentRetargetFailure {
+	readonly slotKey: string;
+	readonly instancePath: string;
+}
+
+function descendantPath(path: string, prefix: string): boolean {
+	return path.startsWith(`${prefix}/`);
+}
+
+/**
+ * Reconcile every registered slot after one engine-owned repeat compaction.
+ *
+ * This runs independently of rendered relevance. It updates desired paths
+ * synchronously, then queues server CAS work behind any already-visible
+ * upload/encoding and ahead of Submit. A pending signature therefore keeps
+ * its stable slot/draft/notReady blocker, and a row confirmed against the old
+ * path is retargeted only after that latest ink owns the slot.
+ */
+export async function reconcileAttachmentRepeatCompaction(args: {
 	appId: string;
 	entryKey: string;
-	expectedInstancePath: string;
-	instancePath: string;
-}): StagedAttachment | undefined {
-	const owned = forgetOwnedStagedAttachment({
-		appId: args.appId,
-		entryKey: args.entryKey,
-		instancePath: args.expectedInstancePath,
-	});
-	if (owned !== undefined) {
-		rememberOwnedStagedAttachment({
-			appId: args.appId,
-			entryKey: args.entryKey,
-			instancePath: args.instancePath,
-			attachment: owned,
-		});
+	compaction: AttachmentRepeatCompaction;
+	onRetargetFailure?: (failure: AttachmentRetargetFailure) => void;
+}): Promise<readonly AttachmentRetargetFailure[]> {
+	const slots = attachmentSlots.get(args.entryKey);
+	if (slots === undefined) return [];
+	const jobs: Array<Promise<AttachmentRetargetFailure | undefined>> = [];
+
+	for (const [slotKey, slot] of [...slots]) {
+		if (slot.appId !== args.appId) continue;
+		const currentPath = slot.desiredInstancePath;
+		if (descendantPath(currentPath, args.compaction.removedPrefix)) {
+			const owned = slot.owned?.attachment;
+			slots.delete(slotKey);
+			cancelAttachmentTask(args.entryKey, slotKey);
+			clearAttachmentNotReady(args.entryKey, slotKey);
+			clearSignatureDraft(args.entryKey, slotKey);
+			if (owned !== undefined) {
+				jobs.push(
+					enqueue(args.entryKey, async () => {
+						await discardAttachment({
+							appId: args.appId,
+							attachmentId: owned.attachmentId,
+						}).catch(() => undefined);
+						return undefined;
+					}),
+				);
+			}
+			continue;
+		}
+
+		const move = args.compaction.moves.find(({ fromPrefix }) =>
+			descendantPath(currentPath, fromPrefix),
+		);
+		if (move === undefined) continue;
+		slot.desiredInstancePath = `${move.toPrefix}${currentPath.slice(
+			move.fromPrefix.length,
+		)}`;
+		jobs.push(
+			enqueue(args.entryKey, async () => {
+				const live = attachmentSlots.get(args.entryKey)?.get(slotKey);
+				if (live?.appId !== args.appId || live.owned === undefined) {
+					return undefined;
+				}
+				const target = live.desiredInstancePath;
+				const expected = live.owned.instancePath;
+				if (target === expected) return undefined;
+				const attachment = live.owned.attachment;
+				try {
+					await retargetAttachment({
+						appId: args.appId,
+						attachmentId: attachment.attachmentId,
+						expectedInstancePath: expected,
+						instancePath: target,
+					});
+					const latest = attachmentSlots
+						.get(args.entryKey)
+						?.get(slotKey)?.owned;
+					if (latest?.attachment.attachmentId === attachment.attachmentId) {
+						latest.instancePath = target;
+					}
+					return undefined;
+				} catch {
+					const latest = attachmentSlots.get(args.entryKey)?.get(slotKey);
+					if (
+						latest?.owned?.attachment.attachmentId === attachment.attachmentId
+					) {
+						latest.owned = undefined;
+					}
+					await discardAttachment({
+						appId: args.appId,
+						attachmentId: attachment.attachmentId,
+					}).catch(() => undefined);
+					const failure = { slotKey, instancePath: target };
+					args.onRetargetFailure?.(failure);
+					return failure;
+				}
+			}),
+		);
 	}
-	return owned;
+	if (slots.size === 0) attachmentSlots.delete(args.entryKey);
+	return (await Promise.all(jobs)).filter(
+		(failure): failure is AttachmentRetargetFailure => failure !== undefined,
+	);
 }
 
 export function getSignatureDraft(
@@ -301,13 +470,15 @@ export async function discardAttachmentEntry(args: {
 }): Promise<void> {
 	cancelAttachmentEntry(args.entryKey);
 	signatureDrafts.delete(args.entryKey);
-	const entry = ownedAttachments.get(args.entryKey);
-	ownedAttachments.delete(args.entryKey);
+	const entry = attachmentSlots.get(args.entryKey);
+	attachmentSlots.delete(args.entryKey);
 	if (entry === undefined) return;
 	const ids = new Set(
 		[...entry.values()]
-			.filter((owned) => owned.appId === args.appId)
-			.map((owned) => owned.attachment.attachmentId),
+			.filter((slot) => slot.appId === args.appId)
+			.flatMap((slot) =>
+				slot.owned === undefined ? [] : [slot.owned.attachment.attachmentId],
+			),
 	);
 	await Promise.all(
 		[...ids].map((attachmentId) =>
@@ -324,7 +495,7 @@ export function __resetAttachmentCoordinatorForTests(): void {
 		for (const path of queue.paths.values()) path.controller.abort();
 	}
 	entryQueues.clear();
-	ownedAttachments.clear();
+	attachmentSlots.clear();
 	signatureDrafts.clear();
 }
 

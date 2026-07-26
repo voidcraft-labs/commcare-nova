@@ -4,9 +4,12 @@ import {
 	cancelAttachmentEntry,
 	clearAttachmentNotReady,
 	discardAttachmentEntry,
+	getAttachmentSlotPath,
 	getOwnedStagedAttachment,
 	isAttachmentTaskAbort,
 	markAttachmentNotReady,
+	reconcileAttachmentRepeatCompaction,
+	registerAttachmentSlotPath,
 	rememberOwnedStagedAttachment,
 	runAttachmentTask,
 	runFormAttachmentBarrier,
@@ -208,6 +211,275 @@ describe("form attachment coordinator", () => {
 				entryKey: "entry-keep",
 				instancePath: "/data/photo",
 			}),
+		).toBeUndefined();
+	});
+
+	it("retargets a hidden capture before the post-compaction submit barrier", async () => {
+		const entryKey = "entry-hidden-repeat";
+		const slotKey = "photo:stable-row-2";
+		registerAttachmentSlotPath({
+			appId: "app-1",
+			entryKey,
+			slotKey,
+			instancePath: "/data/visits[1]/photo",
+		});
+		rememberOwnedStagedAttachment({
+			appId: "app-1",
+			entryKey,
+			slotKey,
+			instancePath: "/data/visits[1]/photo",
+			attachment: {
+				attachmentId: "attachment-hidden",
+				attachmentName: "attachment-hidden.png",
+				originalFilename: "hidden.png",
+				sizeBytes: 3,
+			},
+		});
+		const order: string[] = [];
+		const fetchMock = vi.fn().mockImplementation(async (_url, init) => {
+			order.push("retarget");
+			expect(init).toMatchObject({ method: "PATCH" });
+			expect(JSON.parse(String(init?.body))).toEqual({
+				expectedInstancePath: "/data/visits[1]/photo",
+				instancePath: "/data/visits[0]/photo",
+			});
+			return { ok: true, status: 200 };
+		});
+		vi.stubGlobal("fetch", fetchMock);
+
+		// No AttachmentField is mounted here: relevance hid it before row 1
+		// was removed. The entry/form owner still receives compaction.
+		const maintenance = reconcileAttachmentRepeatCompaction({
+			appId: "app-1",
+			entryKey,
+			compaction: {
+				removedPrefix: "/data/visits[0]",
+				moves: [
+					{
+						fromPrefix: "/data/visits[1]",
+						toPrefix: "/data/visits[0]",
+					},
+				],
+			},
+		});
+		const submit = runFormAttachmentBarrier(entryKey, async () => {
+			order.push("submit");
+		});
+		await Promise.all([maintenance, submit]);
+
+		expect(order).toEqual(["retarget", "submit"]);
+		expect(getAttachmentSlotPath({ appId: "app-1", entryKey, slotKey })).toBe(
+			"/data/visits[0]/photo",
+		);
+		expect(
+			getOwnedStagedAttachment({ appId: "app-1", entryKey, slotKey }),
+		)?.toMatchObject({ attachmentId: "attachment-hidden" });
+	});
+
+	it("cancels and discards a hidden capture whose repeat instance was removed", async () => {
+		const entryKey = "entry-hidden-removed-repeat";
+		const slotKey = "signature:removed-row";
+		registerAttachmentSlotPath({
+			appId: "app-1",
+			entryKey,
+			slotKey,
+			instancePath: "/data/visits[0]/signature",
+		});
+		rememberOwnedStagedAttachment({
+			appId: "app-1",
+			entryKey,
+			slotKey,
+			instancePath: "/data/visits[0]/signature",
+			attachment: {
+				attachmentId: "attachment-removed",
+				attachmentName: "attachment-removed.png",
+				originalFilename: "signature.png",
+				sizeBytes: 3,
+			},
+		});
+		markAttachmentNotReady(
+			entryKey,
+			slotKey,
+			"The removed signature is still being saved.",
+		);
+		const active = runAttachmentTask({
+			entryKey,
+			slotKey,
+			task: async ({ signal }) => {
+				await new Promise<void>((_resolve, reject) => {
+					signal.addEventListener("abort", () => reject(signal.reason), {
+						once: true,
+					});
+				});
+			},
+		}).catch((error: unknown) => {
+			expect(isAttachmentTaskAbort(error)).toBe(true);
+		});
+		await Promise.resolve();
+
+		const order: string[] = [];
+		vi.stubGlobal(
+			"fetch",
+			vi.fn().mockImplementation(async () => {
+				order.push("discard");
+				return { ok: true, status: 200 };
+			}),
+		);
+		const maintenance = reconcileAttachmentRepeatCompaction({
+			appId: "app-1",
+			entryKey,
+			compaction: {
+				removedPrefix: "/data/visits[0]",
+				moves: [],
+			},
+		});
+		const submit = runFormAttachmentBarrier(entryKey, async () => {
+			order.push("submit");
+		});
+		await Promise.all([active, maintenance, submit]);
+
+		expect(order).toEqual(["discard", "submit"]);
+		expect(
+			getAttachmentSlotPath({ appId: "app-1", entryKey, slotKey }),
+		).toBeUndefined();
+	});
+
+	it("retargets the newest row when compaction races an already queued replacement", async () => {
+		const entryKey = "entry-latest-compaction";
+		const slotKey = "signature:stable-row-2";
+		registerAttachmentSlotPath({
+			appId: "app-1",
+			entryKey,
+			slotKey,
+			instancePath: "/data/visits[1]/signature",
+		});
+		rememberOwnedStagedAttachment({
+			appId: "app-1",
+			entryKey,
+			slotKey,
+			instancePath: "/data/visits[1]/signature",
+			attachment: {
+				attachmentId: "attachment-old",
+				attachmentName: "attachment-old.png",
+				originalFilename: "signature.png",
+				sizeBytes: 3,
+			},
+		});
+		const replacementRelease = deferred<void>();
+		const replacement = runAttachmentTask({
+			entryKey,
+			slotKey,
+			task: async () => {
+				await replacementRelease.promise;
+				rememberOwnedStagedAttachment({
+					appId: "app-1",
+					entryKey,
+					slotKey,
+					// The upload began before compaction, so confirm still owns
+					// the old concrete coordinate.
+					instancePath: "/data/visits[1]/signature",
+					attachment: {
+						attachmentId: "attachment-latest",
+						attachmentName: "attachment-latest.png",
+						originalFilename: "signature.png",
+						sizeBytes: 4,
+					},
+				});
+			},
+		});
+		const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+		vi.stubGlobal("fetch", fetchMock);
+		const maintenance = reconcileAttachmentRepeatCompaction({
+			appId: "app-1",
+			entryKey,
+			compaction: {
+				removedPrefix: "/data/visits[0]",
+				moves: [
+					{
+						fromPrefix: "/data/visits[1]",
+						toPrefix: "/data/visits[0]",
+					},
+				],
+			},
+		});
+		let submitted = false;
+		const submit = runFormAttachmentBarrier(entryKey, async () => {
+			submitted = true;
+		});
+		await Promise.resolve();
+		expect(submitted).toBe(false);
+
+		replacementRelease.resolve();
+		await Promise.all([replacement, maintenance, submit]);
+		expect(fetchMock).toHaveBeenCalledWith(
+			"/api/apps/app-1/attachments/attachment-latest",
+			expect.objectContaining({ method: "PATCH" }),
+		);
+		expect(submitted).toBe(true);
+	});
+
+	it("clears a failed retarget before the submit barrier can observe the answer", async () => {
+		const entryKey = "entry-retarget-failure";
+		const slotKey = "photo:stable-row-2";
+		registerAttachmentSlotPath({
+			appId: "app-1",
+			entryKey,
+			slotKey,
+			instancePath: "/data/visits[1]/photo",
+		});
+		rememberOwnedStagedAttachment({
+			appId: "app-1",
+			entryKey,
+			slotKey,
+			instancePath: "/data/visits[1]/photo",
+			attachment: {
+				attachmentId: "attachment-failed-retarget",
+				attachmentName: "attachment-failed-retarget.png",
+				originalFilename: "photo.png",
+				sizeBytes: 3,
+			},
+		});
+		const order: string[] = [];
+		const fetchMock = vi.fn().mockImplementation(async (_url, init) => {
+			if (init?.method === "PATCH") {
+				order.push("retarget");
+				return { ok: false, status: 409 };
+			}
+			order.push("discard");
+			return { ok: true, status: 200 };
+		});
+		vi.stubGlobal("fetch", fetchMock);
+
+		const maintenance = reconcileAttachmentRepeatCompaction({
+			appId: "app-1",
+			entryKey,
+			compaction: {
+				removedPrefix: "/data/visits[0]",
+				moves: [
+					{
+						fromPrefix: "/data/visits[1]",
+						toPrefix: "/data/visits[0]",
+					},
+				],
+			},
+			onRetargetFailure: ({ instancePath }) => {
+				order.push(`clear:${instancePath}`);
+			},
+		});
+		const submit = runFormAttachmentBarrier(entryKey, async () => {
+			order.push("submit");
+		});
+
+		await Promise.all([maintenance, submit]);
+
+		expect(order).toEqual([
+			"retarget",
+			"discard",
+			"clear:/data/visits[0]/photo",
+			"submit",
+		]);
+		expect(
+			getOwnedStagedAttachment({ appId: "app-1", entryKey, slotKey }),
 		).toBeUndefined();
 	});
 });

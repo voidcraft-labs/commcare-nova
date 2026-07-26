@@ -2,7 +2,14 @@
 import { Icon } from "@iconify/react/offline";
 import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import tablerRefresh from "@iconify-icons/tabler/refresh";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+	type SyntheticEvent,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { ContentFrame } from "@/components/builder/ContentFrame";
 import { FormTypeButton } from "@/components/builder/detail/FormDetail";
 import { FormSettingsButton } from "@/components/builder/detail/formSettings/FormSettingsButton";
@@ -34,6 +41,7 @@ import type { SubmissionResult } from "@/lib/preview/engine/caseDataBindingTypes
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import { useCaseDataReplacementRevision } from "@/lib/preview/hooks/caseDataInvalidation";
 import { useCaseData, useCases } from "@/lib/preview/hooks/useCaseDataBinding";
+import { useEngineEntry } from "@/lib/preview/hooks/useEngineEntry";
 import { useFormEngine } from "@/lib/preview/hooks/useFormEngine";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import {
@@ -52,6 +60,7 @@ import { FormRenderer } from "../form/FormRenderer";
 import {
 	cancelAttachmentEntry,
 	discardAttachmentEntry,
+	reconcileAttachmentRepeatCompaction,
 	runFormAttachmentBarrier,
 } from "../form/fields/attachment/attachmentClient";
 
@@ -181,6 +190,7 @@ interface SubmissionContextSnapshot {
 	readonly entryKey: string | undefined;
 	readonly personaUuid: string | undefined;
 	readonly caseId: string | undefined;
+	readonly formType: FormType | undefined;
 	readonly destination: PostSubmitDestination | undefined;
 }
 
@@ -346,56 +356,61 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	const editable = isReady;
 
 	const controller = useFormEngine(formUuid, caseData);
+	const engineEntry = useEngineEntry();
+	const entryKey =
+		engineEntry.formUuid === formUuid ? engineEntry.entryKey : undefined;
+	const postSubmitDestination =
+		form === undefined
+			? undefined
+			: (form.postSubmit ?? defaultPostSubmit(form.type));
 	const submissionContextRef = useRef<SubmissionContextSnapshot>({
 		scopeEpoch,
 		appId,
 		formUuid,
 		moduleUuid,
-		entryKey: controller.entryKey,
+		entryKey,
 		personaUuid,
 		caseId: effectiveCaseId,
-		destination:
-			form === undefined
-				? undefined
-				: (form.postSubmit ?? defaultPostSubmit(form.type)),
+		formType: form?.type,
+		destination: postSubmitDestination,
 	});
 	submissionContextRef.current = {
 		scopeEpoch,
 		appId,
 		formUuid,
 		moduleUuid,
-		entryKey: controller.entryKey,
+		entryKey,
 		personaUuid,
 		caseId: effectiveCaseId,
-		destination:
-			form === undefined
-				? undefined
-				: (form.postSubmit ?? defaultPostSubmit(form.type)),
+		formType: form?.type,
+		destination: postSubmitDestination,
 	};
-	const attachmentEntryLifetimeKey = `${scopeEpoch}\u0000${formUuid ?? ""}\u0000${caseId ?? ""}\u0000${personaUuid ?? ""}`;
-
 	useEffect(() => {
-		// The key is deliberately read here: its only job is to end the
-		// previous ownership lifetime when logical navigation/scope changes.
-		void attachmentEntryLifetimeKey;
-		const ownedAppId = appId;
-		let ownedEntryKey = controller.entryKey;
-		let live = true;
-		// Identity rotation belongs to the provider's parent effect, which runs
-		// after this child effect. Capture the resulting entry in a microtask so
-		// the next cleanup owns the correct lifetime too.
-		queueMicrotask(() => {
-			if (live) ownedEntryKey = controller.entryKey;
-		});
+		if (appId === undefined || entryKey === undefined) return;
 		return () => {
-			live = false;
-			if (ownedAppId === undefined || ownedEntryKey === undefined) return;
 			void discardAttachmentEntry({
-				appId: ownedAppId,
-				entryKey: ownedEntryKey,
+				appId,
+				entryKey,
 			});
 		};
-	}, [appId, attachmentEntryLifetimeKey, controller]);
+	}, [appId, entryKey]);
+
+	useEffect(
+		() =>
+			controller.subscribeRepeatCompaction((event) => {
+				if (appId === undefined) return;
+				void reconcileAttachmentRepeatCompaction({
+					appId,
+					entryKey: event.entryKey,
+					compaction: event,
+					onRetargetFailure: (failure) => {
+						if (controller.entryKey !== event.entryKey) return;
+						controller.setValueAt(failure.instancePath, "");
+					},
+				});
+			}),
+		[appId, controller],
+	);
 
 	const prevModeRef = useRef(mode);
 	useEffect(() => {
@@ -436,16 +451,29 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		kind: "idle",
 	});
 	const [clearRevision, setClearRevision] = useState(0);
-	const submitScopeEpochRef = useRef(scopeEpoch);
+	const submissionAttemptRef = useRef(0);
 	const setPreviewCaseTarget = useSetPreviewCaseTarget();
 	const setPreviewSelectedCase = useSetPreviewSelectedCase();
+	const submissionIdentityKey = JSON.stringify([
+		scopeEpoch,
+		appId,
+		formUuid,
+		moduleUuid,
+		entryKey,
+		personaUuid,
+		effectiveCaseId,
+		form?.type,
+		postSubmitDestination,
+	]);
 	useEffect(() => {
-		/* Submission UI is tied to the case/runtime generation. The access gate
-		 * masks this screen while the reload runs; reset before it can reopen. */
-		if (submitScopeEpochRef.current === scopeEpoch) return;
-		submitScopeEpochRef.current = scopeEpoch;
+		void submissionIdentityKey;
+		/* Every material submission identity boundary invalidates the old
+		 * attempt. Entry identity is controller-reactive, so a collaborator
+		 * changing the selected persona's data (same UUID, different worker
+		 * projection) lands here even when no route/session prop changed. */
+		submissionAttemptRef.current += 1;
 		setSubmitStatus({ kind: "idle" });
-	}, [scopeEpoch]);
+	}, [submissionIdentityKey]);
 
 	/* Replacing all rows destroys the identity this navigation frame carries.
 	 * Leave the stale form with `replace` (so browser Back cannot re-enter it),
@@ -539,10 +567,16 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		) {
 			return;
 		}
+		const attempt = ++submissionAttemptRef.current;
+		const attemptIsCurrent = () => submissionAttemptRef.current === attempt;
+		const settleAttempt = (status: SubmitStatus): void => {
+			if (attemptIsCurrent()) setSubmitStatus(status);
+		};
 		const isCurrent = () => {
 			const current = session.getState();
 			const latest = submissionContextRef.current;
 			return (
+				attemptIsCurrent() &&
 				current.scopeEpoch === submitted.scopeEpoch &&
 				current.accessPhase === "authorized" &&
 				current.canEdit &&
@@ -553,6 +587,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				latest.entryKey === submitted.entryKey &&
 				latest.personaUuid === submitted.personaUuid &&
 				latest.caseId === submitted.caseId &&
+				latest.formType === submitted.formType &&
 				latest.destination === submitted.destination &&
 				controller.entryKey === submitted.entryKey &&
 				controller.formUuid === submitted.formUuid
@@ -567,13 +602,13 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		 *      required indicators).
 		 *   2. A second submit after a server error must replace, not
 		 *      augment — the alert always reflects the latest attempt. */
-		setSubmitStatus({ kind: "idle" });
+		settleAttempt({ kind: "idle" });
 
 		/* This repeats the disabled-button condition at the mutation boundary.
 		 * A queued click or stale event handler must never submit after a case-data
 		 * replacement, while the row is reloading, or after it resolved missing. */
 		if (!caseBindingReady) {
-			setSubmitStatus({
+			settleAttempt({
 				kind: "error",
 				message:
 					"This case is no longer available. Return to Results and choose a case.",
@@ -588,7 +623,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		 * than reaching the server action with `undefined`. */
 		const submittedAppId = submitted.appId;
 		if (!submittedAppId) {
-			setSubmitStatus({
+			settleAttempt({
 				kind: "error",
 				message:
 					"This app isn't fully loaded yet. Wait a moment and try again.",
@@ -596,7 +631,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			return;
 		}
 
-		setSubmitStatus({ kind: "running" });
+		settleAttempt({ kind: "running" });
 		try {
 			const submitStableAnswers = async (): Promise<
 				SubmissionResult | "invalid" | "stale"
@@ -625,10 +660,16 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				entryKey === undefined
 					? await submitStableAnswers()
 					: await runFormAttachmentBarrier(entryKey, submitStableAnswers);
-			if (!isCurrent()) return;
-			if (result === "stale") return;
+			if (!isCurrent()) {
+				settleAttempt({ kind: "idle" });
+				return;
+			}
+			if (result === "stale") {
+				settleAttempt({ kind: "idle" });
+				return;
+			}
 			if (result === "invalid") {
-				setSubmitStatus({ kind: "idle" });
+				settleAttempt({ kind: "idle" });
 				const errorEl = formBodyElRef.current?.querySelector(
 					'[data-invalid="true"]',
 				);
@@ -641,16 +682,19 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				result.kind === "close" ||
 				result.kind === "survey"
 			) {
-				setSubmitStatus({ kind: "idle" });
+				settleAttempt({ kind: "idle" });
 				dispatchPostSubmit(submitted.destination, submitted.moduleUuid);
 				return;
 			}
-			setSubmitStatus({
+			settleAttempt({
 				kind: "error",
 				message: describeSubmitError(result),
 			});
 		} catch {
-			if (!isCurrent()) return;
+			if (!isCurrent()) {
+				settleAttempt({ kind: "idle" });
+				return;
+			}
 			/* Wire-level failures (RSC serialization, transport rejects)
 			 * and any invariant throw the action / engine surfaces collapse
 			 * to one user-facing line. The throw's message body carries
@@ -658,7 +702,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			 * stack traces) that doesn't belong on the user's screen, so
 			 * we deliberately ignore it and emit the same generic line
 			 * `CaseListScreen.handleGenerate` uses for its sibling case. */
-			setSubmitStatus({
+			settleAttempt({
 				kind: "error",
 				message: "Could not submit form. Try again.",
 			});
@@ -671,7 +715,6 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	 * model — the form's reset must be visible across every surface. */
 	const handleClear = useCallback((): void => {
 		setSubmitStatus({ kind: "idle" });
-		const entryKey = controller.entryKey;
 		if (entryKey === undefined) {
 			controller.reset();
 			setClearRevision((revision) => revision + 1);
@@ -682,10 +725,21 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			if (appId !== undefined) {
 				await discardAttachmentEntry({ appId, entryKey });
 			}
+			if (controller.entryKey !== entryKey) return;
 			controller.reset();
 			setClearRevision((revision) => revision + 1);
 		});
-	}, [appId, controller]);
+	}, [appId, controller, entryKey]);
+
+	const formFrozen = submitStatus.kind === "running";
+	const blockFrozenInteraction = useCallback(
+		(event: SyntheticEvent): void => {
+			if (!formFrozen) return;
+			event.preventDefault();
+			event.stopPropagation();
+		},
+		[formFrozen],
+	);
 
 	if (!form || !formUuid) return null;
 
@@ -771,21 +825,34 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			</div>
 
 			{/* Unified `pt-4` for flipbook parity: edit-mode `insertion(0)` row + live-mode `pt-6` both land the first field at Y = 40px so toggling modes never shifts reading position. Bottom symmetric via `insertion(N+1)` in edit / last field's `mb-6` in live. */}
-			<div ref={formBodyRef} className="flex-1 pt-4">
-				{hasFields ? (
-					/* Every interactive field owns browser continuations (camera,
-					 * geolocation, Places, focus). A Project generation is a hard
-					 * runtime boundary: remount the renderer so no local UI state can
-					 * be projected into the destination controller. */
-					<FormRenderer
-						key={`${scopeEpoch}:${clearRevision}`}
-						parentEntityId={formUuid}
-					/>
-				) : (
-					<div className="text-center text-nova-text-muted py-8">
-						This form has no fields.
-					</div>
-				)}
+			<div
+				ref={formBodyRef}
+				className="flex-1 pt-4"
+				aria-busy={formFrozen}
+				inert={formFrozen ? true : undefined}
+				onBeforeInputCapture={blockFrozenInteraction}
+				onChangeCapture={blockFrozenInteraction}
+				onClickCapture={blockFrozenInteraction}
+				onInputCapture={blockFrozenInteraction}
+				onKeyDownCapture={blockFrozenInteraction}
+				onPointerDownCapture={blockFrozenInteraction}
+			>
+				<fieldset disabled={formFrozen} className="contents">
+					{hasFields ? (
+						/* Every interactive field owns browser continuations (camera,
+						 * geolocation, Places, focus). A Project generation is a hard
+						 * runtime boundary: remount the renderer so no local UI state can
+						 * be projected into the destination controller. */
+						<FormRenderer
+							key={`${scopeEpoch}:${clearRevision}`}
+							parentEntityId={formUuid}
+						/>
+					) : (
+						<div className="text-center text-nova-text-muted py-8">
+							This form has no fields.
+						</div>
+					)}
+				</fieldset>
 			</div>
 
 			{/* Hidden in design mode where it's non-functional. The form above
@@ -830,6 +897,11 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 							</button>
 						</div>
 					)}
+					{formFrozen ? (
+						<p role="status" className="px-6 pb-3 text-xs text-nova-text-muted">
+							Answers are locked while this submission finishes.
+						</p>
+					) : null}
 					{/* Inline error sits BELOW the submit row so the user's
 					 *  amend-then-resubmit loop keeps the action affordance
 					 *  steady in place — the row doesn't reflow when an error

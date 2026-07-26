@@ -54,6 +54,11 @@ That is there because a signature is the one attachment with no copy
 anywhere else: a photo they clear is still on their phone, but a
 signature they clear is gone. Undo puts it back.
 
+The signature also follows the available width. Rotating a phone or
+narrowing the browser redraws the same complete signature to fit; adding
+another stroke afterward does not crop away ink that was drawn on the
+wider pad.
+
 ## File attachments only work in the web app
 
 The **File** question is a real question in CommCare Web Apps. In the
@@ -102,7 +107,10 @@ are answered and submitted in one sitting, avoids most of this.
 Temporary layout changes do not throw the file away. If a condition hides
 the question and later shows it again, or an author flips to Edit and back
 while that same form entry remains open, Nova restores the confirmed
-filename and answer. Leaving or clearing the form ends that entry.
+filename and answer. The same is true when deleting an earlier repeat row
+moves a surviving answer up one position: Nova moves the attachment with
+that repeat entry even if the question is hidden at the time. Leaving or
+clearing the form ends that entry.
 
 ## Clearing a required attachment
 
@@ -141,8 +149,10 @@ When a worker presses Submit, Nova first waits for every attachment change
 still in progress — including the signature pad's short pause and PNG
 encoding after the latest stroke. If that encoding fails, Nova asks the
 worker to clear or draw again instead of silently submitting an older
-signature. The form answers and the exact set of attached files are
-then accepted together. If moving a file into long-term storage is temporarily
+signature. While that work and the submission finish, the form is visibly
+locked: answers, file controls, pickers, and repeat rows cannot change
+underneath the request. The form answers and the exact set of attached files
+are then accepted together. If moving a file into long-term storage is temporarily
 interrupted, Nova keeps retrying in the background — the worker should not
 submit the form again. Replacing, clearing, or deleting a repeat row can affect
 only the current unsubmitted attempt, never a file already accepted with a

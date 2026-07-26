@@ -66,6 +66,85 @@ async function drawOneStroke(
 }
 
 describe("SignaturePad", () => {
+	it("keeps the latest ink blocked and drawable when its stable repeat instance compacts", async () => {
+		const onDrawn = vi.fn();
+		const view = render(
+			<SignaturePad
+				entryKey="entry-repeat"
+				instancePath="/data/visits[1]/signature"
+				uploading={false}
+				hasAnswer={true}
+				onDrawn={onDrawn}
+				onClear={vi.fn()}
+			/>,
+		);
+		const canvas = screen.getByLabelText(/Signature pad/) as HTMLCanvasElement;
+		Object.assign(canvas, {
+			setPointerCapture: vi.fn(),
+			releasePointerCapture: vi.fn(),
+		});
+
+		// Establish the older confirmed PNG.
+		await drawOneStroke(canvas, 1);
+		await act(async () => {
+			blobCallbacks[0]?.(new Blob(["old"], { type: "image/png" }));
+			await Promise.resolve();
+		});
+		expect(onDrawn).toHaveBeenCalledTimes(1);
+
+		// The latest visible stroke is still inside its queued debounce when
+		// deleting row 1 compacts this stable row from [1] to [0].
+		fireEvent.pointerDown(canvas, {
+			pointerId: 2,
+			clientX: 20,
+			clientY: 20,
+		});
+		fireEvent.pointerUp(canvas, {
+			pointerId: 2,
+			clientX: 20,
+			clientY: 20,
+		});
+		view.rerender(
+			<SignaturePad
+				entryKey="entry-repeat"
+				instancePath="/data/visits[0]/signature"
+				uploading={false}
+				hasAnswer={true}
+				onDrawn={onDrawn}
+				onClear={vi.fn()}
+			/>,
+		);
+
+		const submit = vi.fn();
+		const barrier = runFormAttachmentBarrier("entry-repeat", async () => {
+			submit();
+		});
+		await act(async () => {
+			await Promise.resolve();
+		});
+		expect(submit).not.toHaveBeenCalled();
+		expect(
+			(
+				screen.getByRole("button", {
+					name: "Clear signature",
+				}) as HTMLButtonElement
+			).disabled,
+		).toBe(false);
+
+		await act(async () => {
+			vi.advanceTimersByTime(700);
+			await Promise.resolve();
+		});
+		expect(blobCallbacks).toHaveLength(2);
+		await act(async () => {
+			blobCallbacks[1]?.(new Blob(["latest"], { type: "image/png" }));
+			await Promise.resolve();
+			await barrier;
+		});
+		expect(onDrawn).toHaveBeenCalledTimes(2);
+		expect(submit).toHaveBeenCalledTimes(1);
+	});
+
 	it("generation-fences an older toBlob callback after a newer stroke", async () => {
 		const onDrawn = vi.fn();
 		render(
@@ -283,6 +362,136 @@ describe("SignaturePad", () => {
 			await Promise.resolve();
 		});
 		expect(onDrawn).toHaveBeenCalledTimes(1);
+	});
+
+	it("rescales retained ink when the pad narrows before another stroke", async () => {
+		let width = 200;
+		vi.spyOn(
+			HTMLCanvasElement.prototype,
+			"getBoundingClientRect",
+		).mockImplementation(
+			() =>
+				({
+					width,
+					height: 160,
+					left: 0,
+					top: 0,
+					right: width,
+					bottom: 160,
+					x: 0,
+					y: 0,
+					toJSON: () => ({}),
+				}) as DOMRect,
+		);
+		const onDrawn = vi.fn();
+		render(
+			<SignaturePad
+				entryKey="entry-responsive"
+				instancePath="/data/signature"
+				uploading={false}
+				hasAnswer={false}
+				onDrawn={onDrawn}
+				onClear={vi.fn()}
+			/>,
+		);
+		const canvas = screen.getByLabelText(/Signature pad/) as HTMLCanvasElement;
+		Object.assign(canvas, {
+			setPointerCapture: vi.fn(),
+			releasePointerCapture: vi.fn(),
+		});
+		fireEvent.pointerDown(canvas, {
+			pointerId: 1,
+			clientX: 180,
+			clientY: 80,
+		});
+		fireEvent.pointerUp(canvas, {
+			pointerId: 1,
+			clientX: 180,
+			clientY: 80,
+		});
+
+		width = 100;
+		vi.mocked(context.moveTo).mockClear();
+		fireEvent(window, new Event("resize"));
+		expect(context.moveTo).toHaveBeenCalledWith(90, 80);
+
+		fireEvent.pointerDown(canvas, {
+			pointerId: 2,
+			clientX: 50,
+			clientY: 100,
+		});
+		fireEvent.pointerUp(canvas, {
+			pointerId: 2,
+			clientX: 50,
+			clientY: 100,
+		});
+		await act(async () => {
+			vi.advanceTimersByTime(700);
+			await Promise.resolve();
+		});
+		// Continuing the signature must retain the rescaled first stroke.
+		expect(context.moveTo).toHaveBeenCalledWith(90, 80);
+		expect(context.moveTo).toHaveBeenCalledWith(50, 100);
+	});
+
+	it("keeps the first clear undoable when Clear is tapped twice before its queued answer update", async () => {
+		const onClear = vi.fn();
+		render(
+			<SignaturePad
+				entryKey="entry-double-clear"
+				instancePath="/data/signature"
+				uploading={false}
+				hasAnswer={true}
+				onDrawn={vi.fn()}
+				onClear={onClear}
+			/>,
+		);
+		const canvas = screen.getByLabelText(/Signature pad/) as HTMLCanvasElement;
+		Object.assign(canvas, {
+			setPointerCapture: vi.fn(),
+			releasePointerCapture: vi.fn(),
+		});
+		fireEvent.pointerDown(canvas, {
+			pointerId: 1,
+			clientX: 10,
+			clientY: 10,
+		});
+		fireEvent.pointerUp(canvas, {
+			pointerId: 1,
+			clientX: 10,
+			clientY: 10,
+		});
+
+		const clear = screen.getByRole("button", { name: "Clear signature" });
+		fireEvent.click(clear);
+		fireEvent.click(clear);
+
+		expect(onClear).toHaveBeenCalledTimes(1);
+		expect(screen.getByRole("button", { name: "Undo" })).toBeDefined();
+	});
+
+	it("can clear a saved signature even when this entry has no local pixel draft", () => {
+		const onClear = vi.fn();
+		render(
+			<SignaturePad
+				entryKey="entry-preloaded-answer"
+				instancePath="/data/signature"
+				uploading={false}
+				hasAnswer={true}
+				onDrawn={vi.fn()}
+				onClear={onClear}
+			/>,
+		);
+
+		const clear = screen.getByRole("button", {
+			name: "Clear signature",
+		}) as HTMLButtonElement;
+		expect(clear.disabled).toBe(false);
+		fireEvent.click(clear);
+		fireEvent.click(clear);
+
+		expect(onClear).toHaveBeenCalledTimes(1);
+		expect(clear.disabled).toBe(true);
 	});
 });
 
