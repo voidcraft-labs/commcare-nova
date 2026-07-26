@@ -115,6 +115,32 @@ describe("CaseTypePicker", () => {
 		expect(screen.getByText("Use at least one letter or number")).toBeDefined();
 	});
 
+	it("cannot select or create a type excluded by the authoring context", () => {
+		state.caseTypes = [{ name: "patient" }, { name: "commcare-user" }];
+		const onChange = vi.fn();
+		render(
+			<CaseTypePickerContent
+				onChange={onChange}
+				exclude={new Set(["commcare-user", "forbidden_type"])}
+			/>,
+		);
+
+		expect(screen.queryByRole("button", { name: "Commcare user" })).toBeNull();
+		const input = screen.getByLabelText("Create case type");
+		fireEvent.change(input, { target: { value: "Forbidden type" } });
+		expect(
+			screen.getByText(
+				"That case type is managed by the platform and cannot be changed here.",
+			),
+		).toBeDefined();
+		expect(
+			(screen.getByRole("button", { name: "Create" }) as HTMLButtonElement)
+				.disabled,
+		).toBe(true);
+		fireEvent.click(screen.getByRole("button", { name: "Create" }));
+		expect(onChange).not.toHaveBeenCalled();
+	});
+
 	it("reveals stored values only when friendly labels collide", async () => {
 		state.caseTypes = [{ name: "home_visit" }, { name: "home-visit" }];
 		vi.stubGlobal("ResizeObserver", ResizeObserverStub);

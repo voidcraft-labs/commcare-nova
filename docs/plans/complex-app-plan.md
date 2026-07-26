@@ -268,6 +268,17 @@ them — so the offered set cannot drift from the accepted set. `field` terms,
 editor only when a surface supplies `formFields` / `operationScope`; absent means
 unauthorable, which is what keeps every other surface's round-trip-only behavior
 exactly as it was (`operationScopeFailsClosed.test.ts` pins it).
+
+The same vocabulary is authorable through the Solutions Architect and MCP.
+`getCaseOperations`/`get_case_operations` projects the ordered sequence with
+operation ids and form-field paths; batch add plus singular update, move, and
+remove use those same author identities and cross to immutable UUID leaves
+before checking. Batch add resolves earlier creates within its working overlay
+and commits the complete sequence atomically. Full-shape updates emit only
+identity-keyed scalar, write-property, link-identifier, and order mutations, so
+unrelated concurrent edits compose. Action-illegal facet combinations,
+platform-owned case types, and reserved write properties are unconstructible at
+the shared tool boundary, with the validator as the replay/import backstop.
 `content/docs/case-changes.mdx` is the user-facing guide.
 
 ### Case identity storage
@@ -831,12 +842,12 @@ confirmation UX that lets lookup schema governance leave package-private scope.
 **The file holds** the asymmetric source-mode switch, the one semantic that
 silently ships an inert feature when missed.
 
-### 3 — SA, MCP, and docs for conditions, operations, and lookups
+### 3 — SA, MCP, and docs for conditions and lookups
 
-[`complex-app/03-sa-mcp-and-docs-for-conditions-operations-lookups.md`](complex-app/03-sa-mcp-and-docs-for-conditions-operations-lookups.md)
+[`complex-app/03-sa-mcp-and-docs-for-conditions-lookups.md`](complex-app/03-sa-mcp-and-docs-for-conditions-lookups.md)
 · depends on unit 2 · blocks nothing
 
-Expose the shipped conditions, operations, and lookup vocabulary through both the
+Expose the shipped condition and lookup vocabulary through both the
 camelCase chat tools and the snake_case MCP projection, with public docs and one
 integrated end-to-end flow. **The file holds** the two pieces of engineering under
 that packaging: the SA identity bridge and the null-clears contract.
@@ -990,7 +1001,7 @@ Each unit's prerequisites, matching the "Depends on" line in its file:
 | Unit | Needs |
 | --- | --- |
 | [2 Project data workspace](complex-app/02-project-data-workspace.md) | — |
-| [3 SA, MCP, docs](complex-app/03-sa-mcp-and-docs-for-conditions-operations-lookups.md) | 2 |
+| [3 SA, MCP, docs](complex-app/03-sa-mcp-and-docs-for-conditions-lookups.md) | 2 |
 | [4 grouped case tiles](complex-app/04-case-tiles.md) | — |
 | [5 media capture in forms](complex-app/05-media-capture-in-forms.md) | — |
 | [6 save-to-case and attachment link UX](complex-app/06-attachment-emission-and-link-ux.md) | 5, 11 |

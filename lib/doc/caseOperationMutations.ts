@@ -14,6 +14,198 @@ import { plannedMoveSlotKey } from "./order/keys";
 import { caseOperationCatalogMutations } from "./scaffolds";
 import type { Mutation } from "./types";
 
+type UpdateFormMutation = Extract<Mutation, { kind: "updateForm" }>;
+type CaseOperationChange = NonNullable<
+	UpdateFormMutation["caseOperationChange"]
+>;
+type OperationPatch = Extract<
+	CaseOperationChange,
+	{ operation: "update" }
+>["patch"];
+type WritePatch = Extract<
+	CaseOperationChange,
+	{ operation: "update-write" }
+>["patch"];
+type LinkPatch = Extract<
+	CaseOperationChange,
+	{ operation: "update-link" }
+>["patch"];
+
+const OPERATION_PATCH_KEYS = [
+	"id",
+	"action",
+	"caseType",
+	"target",
+	"condition",
+	"forEach",
+	"name",
+	"owner",
+	"rename",
+	"retype",
+] as const satisfies readonly (keyof OperationPatch)[];
+
+function equal(left: unknown, right: unknown): boolean {
+	return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function clearable<T>(value: T | undefined): T | null {
+	return value === undefined ? null : structuredClone(value);
+}
+
+function operationMutation(
+	formUuid: Uuid,
+	change: CaseOperationChange,
+): UpdateFormMutation {
+	return {
+		kind: "updateForm",
+		uuid: formUuid,
+		patch: {},
+		caseOperationChange: change,
+	};
+}
+
+/**
+ * Identity-keyed edits that turn one operation snapshot into another.
+ *
+ * The operation itself, each write (by property), and each link (by
+ * identifier) are independent merge units. Replaying a stale edit to one slot
+ * on a document where a peer changed another therefore composes instead of
+ * replacing the peer's whole operation.
+ */
+export function caseOperationChangesForUpdate(
+	formUuid: Uuid,
+	before: CaseOperation,
+	after: CaseOperation,
+): Mutation[] {
+	if (before.uuid !== after.uuid) return [];
+	const mutations: Mutation[] = [];
+
+	const patch: OperationPatch = {};
+	for (const key of OPERATION_PATCH_KEYS) {
+		if (equal(before[key], after[key])) continue;
+		patch[key] = clearable(after[key]) as never;
+	}
+	if (Object.keys(patch).length > 0) {
+		mutations.push(
+			operationMutation(formUuid, {
+				operation: "update",
+				uuid: before.uuid,
+				patch,
+			}),
+		);
+	}
+
+	const beforeWrites = new Map(
+		(before.writes ?? []).map((write) => [write.property, write]),
+	);
+	const afterWrites = new Map(
+		(after.writes ?? []).map((write) => [write.property, write]),
+	);
+	for (const [property] of beforeWrites) {
+		if (afterWrites.has(property)) continue;
+		mutations.push(
+			operationMutation(formUuid, {
+				operation: "remove-write",
+				uuid: before.uuid,
+				property,
+			}),
+		);
+	}
+	for (const [index, write] of (after.writes ?? []).entries()) {
+		const prior = beforeWrites.get(write.property);
+		if (prior === undefined) {
+			mutations.push(
+				operationMutation(formUuid, {
+					operation: "add-write",
+					uuid: before.uuid,
+					value: structuredClone(write),
+					index,
+				}),
+			);
+			continue;
+		}
+		const writePatch: WritePatch = {};
+		if (!equal(prior.value, write.value)) {
+			writePatch.value = structuredClone(write.value);
+		}
+		if (!equal(prior.condition, write.condition)) {
+			writePatch.condition = clearable(write.condition);
+		}
+		if (Object.keys(writePatch).length > 0) {
+			mutations.push(
+				operationMutation(formUuid, {
+					operation: "update-write",
+					uuid: before.uuid,
+					property: write.property,
+					patch: writePatch,
+				}),
+			);
+		}
+	}
+
+	const beforeLinks = new Map(
+		(before.links ?? []).map((link) => [link.identifier, link]),
+	);
+	const afterLinks = new Map(
+		(after.links ?? []).map((link) => [link.identifier, link]),
+	);
+	for (const [identifier] of beforeLinks) {
+		if (afterLinks.has(identifier)) continue;
+		mutations.push(
+			operationMutation(formUuid, {
+				operation: "remove-link",
+				uuid: before.uuid,
+				identifier,
+			}),
+		);
+	}
+	for (const [index, link] of (after.links ?? []).entries()) {
+		const prior = beforeLinks.get(link.identifier);
+		if (prior === undefined) {
+			mutations.push(
+				operationMutation(formUuid, {
+					operation: "add-link",
+					uuid: before.uuid,
+					value: structuredClone(link),
+					index,
+				}),
+			);
+			continue;
+		}
+		const linkPatch: LinkPatch = {};
+		for (const key of [
+			"targetType",
+			"target",
+			"relationship",
+		] as const satisfies readonly (keyof LinkPatch)[]) {
+			if (equal(prior[key], link[key])) continue;
+			linkPatch[key] = structuredClone(link[key]) as never;
+		}
+		if (Object.keys(linkPatch).length > 0) {
+			mutations.push(
+				operationMutation(formUuid, {
+					operation: "update-link",
+					uuid: before.uuid,
+					identifier: link.identifier,
+					patch: linkPatch,
+				}),
+			);
+		}
+	}
+
+	if (!equal(before.order, after.order)) {
+		mutations.push(
+			operationMutation(formUuid, {
+				operation: "move",
+				uuid: before.uuid,
+				order: after.order ?? null,
+			}),
+		);
+	}
+
+	return mutations;
+}
+
 export type CaseOperationMutationPlan =
 	| { readonly ok: true; readonly mutations: readonly Mutation[] }
 	| {
@@ -69,16 +261,7 @@ export function updateCaseOperationMutations(
 	};
 	return [
 		...caseOperationCatalogMutations(doc, value),
-		{
-			kind: "updateForm",
-			uuid: formUuid,
-			patch: {},
-			caseOperationChange: {
-				operation: "update",
-				uuid: value.uuid,
-				value,
-			},
-		},
+		...caseOperationChangesForUpdate(formUuid, existing, value),
 	];
 }
 

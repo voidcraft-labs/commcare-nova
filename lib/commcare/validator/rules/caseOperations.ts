@@ -33,6 +33,7 @@ import {
 	orderedCaseOperations,
 	planCaseRetype,
 	prepareCaseOperationTextValue,
+	RESERVED_CASE_OPERATION_TYPES,
 	type Uuid,
 } from "@/lib/domain";
 import {
@@ -57,12 +58,6 @@ import {
 	type LookupTypeIndex,
 	semanticCheckErrors,
 } from "../lookupTypeContext";
-
-const RESERVED_OPERATION_CASE_TYPES: ReadonlySet<string> = new Set([
-	"commcare-user",
-	"commcare-case-claim",
-	"user-owner-mapping-case",
-]);
 
 /**
  * Case properties an operation may never write, because the operation's
@@ -576,7 +571,7 @@ function validateCaseType(
 			),
 		);
 	}
-	if (RESERVED_OPERATION_CASE_TYPES.has(caseType)) {
+	if (RESERVED_CASE_OPERATION_TYPES.has(caseType)) {
 		errors.push(
 			opError(
 				ctx,

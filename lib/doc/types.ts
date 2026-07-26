@@ -233,6 +233,35 @@ const carrierBlindFormSchema = formSchema.extend({
 function caseOperationChangeSchemaFor(
 	operationValueSchema: typeof caseOperationSchema,
 ) {
+	const operationPatchSchema = clearablePartialPatch(operationValueSchema)
+		.omit({
+			order: true,
+			writes: true,
+			links: true,
+		})
+		.strict()
+		.refine((patch) => Object.keys(patch).length > 0, {
+			message: "A case-operation update patch must change at least one slot.",
+		});
+	const writeSchema = operationValueSchema.shape.writes.unwrap().element;
+	const writePatchSchema = z
+		.object({
+			value: writeSchema.shape.value.optional(),
+			condition: writeSchema.shape.condition.unwrap().nullable().optional(),
+		})
+		.strict()
+		.refine((patch) => Object.keys(patch).length > 0, {
+			message: "A case-operation write patch must change at least one slot.",
+		});
+	const linkSchema = operationValueSchema.shape.links.unwrap().element;
+	const linkPatchSchema = linkSchema
+		.omit({ identifier: true })
+		.partial()
+		.strict()
+		.refine((patch) => Object.keys(patch).length > 0, {
+			message: "A case-operation link patch must change at least one slot.",
+		});
+
 	return z.discriminatedUnion("operation", [
 		z
 			.object({
@@ -244,23 +273,61 @@ function caseOperationChangeSchemaFor(
 			.object({
 				operation: z.literal("update"),
 				uuid: uuidSchema,
-				value: operationValueSchema,
+				patch: operationPatchSchema,
 			})
-			.strict()
-			.superRefine((change, ctx) => {
-				if (change.uuid === change.value.uuid) return;
-				ctx.addIssue({
-					code: "custom",
-					path: ["value", "uuid"],
-					message: "A case-operation replacement must preserve UUID identity.",
-				});
-			}),
+			.strict(),
+		z
+			.object({
+				operation: z.literal("add-write"),
+				uuid: uuidSchema,
+				value: writeSchema,
+				index: z.number().int().nonnegative().optional(),
+			})
+			.strict(),
+		z
+			.object({
+				operation: z.literal("update-write"),
+				uuid: uuidSchema,
+				property: writeSchema.shape.property,
+				patch: writePatchSchema,
+			})
+			.strict(),
+		z
+			.object({
+				operation: z.literal("remove-write"),
+				uuid: uuidSchema,
+				property: writeSchema.shape.property,
+			})
+			.strict(),
+		z
+			.object({
+				operation: z.literal("add-link"),
+				uuid: uuidSchema,
+				value: linkSchema,
+				index: z.number().int().nonnegative().optional(),
+			})
+			.strict(),
+		z
+			.object({
+				operation: z.literal("update-link"),
+				uuid: uuidSchema,
+				identifier: linkSchema.shape.identifier,
+				patch: linkPatchSchema,
+			})
+			.strict(),
+		z
+			.object({
+				operation: z.literal("remove-link"),
+				uuid: uuidSchema,
+				identifier: linkSchema.shape.identifier,
+			})
+			.strict(),
 		z.object({ operation: z.literal("remove"), uuid: uuidSchema }).strict(),
 		z
 			.object({
 				operation: z.literal("move"),
 				uuid: uuidSchema,
-				order: z.string(),
+				order: z.string().nullable(),
 			})
 			.strict(),
 	]);
@@ -436,6 +503,31 @@ const optionsSourcePlacementSchema = z
 				: undefined;
 		const rootAllowsOptionsSource =
 			rootKind === "addField" || rootKind === "updateField";
+		if (
+			rootKind === "updateForm" &&
+			typeof value === "object" &&
+			value !== null &&
+			"caseOperationChange" in value
+		) {
+			const change = value.caseOperationChange;
+			if (
+				typeof change === "object" &&
+				change !== null &&
+				"operation" in change &&
+				change.operation === "update" &&
+				"patch" in change &&
+				typeof change.patch === "object" &&
+				change.patch !== null &&
+				Object.hasOwn(change.patch, "uuid")
+			) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["caseOperationChange", "patch", "uuid"],
+					message:
+						"A case-operation update cannot change immutable operation identity.",
+				});
+			}
+		}
 		const visited = new WeakSet<object>();
 
 		function visit(node: unknown, path: PropertyKey[]): void {

@@ -36,7 +36,7 @@ import {
 	caseOperationWritePropertyVerdict,
 	isReservedCaseOperationProperty,
 } from "@/lib/doc/identifierVerdicts";
-import { effectiveDataType, humanizeId, slugifyId } from "@/lib/domain";
+import { humanizeId, slugifyId } from "@/lib/domain";
 import { literal, term, type ValueExpression } from "@/lib/domain/predicate";
 import { seedWriteValue, writeSeedUnavailableReason } from "./seeds";
 
@@ -58,25 +58,29 @@ export function WritePropertyPicker({
 	const inputId = useId();
 	const errorId = `${inputId}-error`;
 
-	const available = useMemo(() => {
+	const declaredProperties = useMemo(() => {
 		const caseType = caseTypes.find(
 			(candidate) => candidate.name === caseTypeName,
 		);
-		return (caseType?.properties ?? [])
-			.filter(
-				(property) =>
-					!alreadyWritten.has(property.name) &&
-					!isReservedCaseOperationProperty(property.name),
-			)
+		return (caseType?.properties ?? []).filter(
+			(property) => !isReservedCaseOperationProperty(property.name),
+		);
+	}, [caseTypes, caseTypeName]);
+	const available = useMemo(() => {
+		return declaredProperties
+			.filter((property) => !alreadyWritten.has(property.name))
 			.map((property) => {
-				const dataType = effectiveDataType(property);
+				// Missing metadata is not proof of "text" for an authoring
+				// compatibility choice. Keep it unknown so the operation writer
+				// can establish the property's effective type.
+				const dataType = property.data_type;
 				return {
 					property,
 					dataType,
 					seed: seedWriteValue(dataType, formFields),
 				};
 			});
-	}, [caseTypes, caseTypeName, alreadyWritten, formFields]);
+	}, [declaredProperties, alreadyWritten, formFields]);
 
 	const candidate = slugifyId(draft, "");
 	const verdict = caseOperationWritePropertyVerdict(candidate, alreadyWritten);
@@ -145,8 +149,9 @@ export function WritePropertyPicker({
 					))}
 					{available.length === 0 && (
 						<p className="px-3 py-2 text-[13px] leading-relaxed text-nova-text-muted">
-							This change already saves every property on {caseTypeName}. Add a
-							new one below.
+							{declaredProperties.length === 0
+								? `${caseTypeName} has no custom properties yet. Add one below.`
+								: `This change already saves every available property on ${caseTypeName}. Add a new one below.`}
 						</p>
 					)}
 				</div>

@@ -118,3 +118,16 @@ Removing is offered only when nothing depends on the change. When something
 does, the panel names each one and the exact place holding the reference — the
 value it saves, the case it changes, when it runs — so you know what to edit
 first.
+
+## Ask Nova or an MCP agent
+
+Case changes are also part of Nova's shared authoring tools. You can ask Nova in
+chat to add, edit, move, or remove them, and a connected MCP agent has the same
+abilities. Both surfaces use the names you see in the builder: the module,
+form, and change ids plus field paths such as `visits/outcome`. Internal storage
+ids never enter the conversation.
+
+A request that adds several changes can connect them in one atomic call — for
+example, create a referral and then update that new referral. If any change is
+invalid or the order cannot be preserved on submission, none of the call is
+saved and the response says what to adjust.

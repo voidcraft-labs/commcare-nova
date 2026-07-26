@@ -41,10 +41,11 @@ import {
 	caseOperationIdVerdict,
 } from "@/lib/doc/identifierVerdicts";
 import type { Uuid } from "@/lib/doc/types";
-import type {
-	CaseOperation,
-	CaseOperationAction,
-	CaseTarget,
+import {
+	type CaseOperation,
+	type CaseOperationAction,
+	type CaseTarget,
+	RESERVED_CASE_OPERATION_TYPES,
 } from "@/lib/domain";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useCanEdit } from "@/lib/session/hooks";
@@ -154,131 +155,136 @@ export function CaseOperationInspectorBody({
 				</div>
 			)}
 
-			<Row
-				title="Name"
-				description="What this change is called here and in messages about it."
-			>
-				<OperationIdInput
-					operation={operation}
-					operations={operations}
-					canEdit={canEdit}
-					onCommit={(id) => commit({ ...operation, id })}
-				/>
-			</Row>
+			<fieldset disabled={!canEdit} className="contents">
+				<Row
+					title="Name"
+					description="What this change is called here and in messages about it."
+				>
+					<OperationIdInput
+						operation={operation}
+						operations={operations}
+						canEdit={canEdit}
+						onCommit={(id) => commit({ ...operation, id })}
+					/>
+				</Row>
 
-			<Row title="What it does" description={ACTION_DETAIL[operation.action]}>
-				<ActionMenu
-					operation={operation}
-					canEdit={canEdit}
-					sessionUnavailableReason={sessionUnavailableReason}
-					onChange={(action) =>
-						commit(reshapeForAction(operation, action, fallbackTarget))
-					}
-				/>
-			</Row>
+				<Row title="What it does" description={ACTION_DETAIL[operation.action]}>
+					<ActionMenu
+						operation={operation}
+						canEdit={canEdit}
+						sessionUnavailableReason={sessionUnavailableReason}
+						onChange={(action) =>
+							commit(reshapeForAction(operation, action, fallbackTarget))
+						}
+					/>
+				</Row>
 
-			<Row
-				title="Kind of case"
-				description="The type of case this change acts on."
-			>
-				<CaseTypePicker
-					value={operation.caseType}
-					ariaLabel="Kind of case"
-					onChange={(caseType) => commit({ ...operation, caseType })}
-				/>
-			</Row>
+				<Row
+					title="Kind of case"
+					description="The type of case this change acts on."
+				>
+					<CaseTypePicker
+						value={operation.caseType}
+						exclude={RESERVED_CASE_OPERATION_TYPES}
+						ariaLabel="Kind of case"
+						onChange={(caseType) => commit({ ...operation, caseType })}
+					/>
+				</Row>
 
-			<Row
-				title="Which case"
-				description="The case this change acts on when the form is submitted."
-			>
-				<CaseTargetPicker
-					value={operation.target}
-					ariaLabel="Which case"
-					context={{
-						priorCreates,
-						sessionUnavailableReason,
-						// A create's case comes into existence here, so "a new case" is
-						// not one option among several — it is the only target the facet
-						// rules admit on a create.
-						newOnly: operation.action === "create",
-						allowsNone: false,
-					}}
-					onChange={(target) => {
-						if (target === null) return;
-						commit({ ...operation, target });
-					}}
-				/>
-			</Row>
+				<Row
+					title="Which case"
+					description="The case this change acts on when the form is submitted."
+				>
+					<CaseTargetPicker
+						value={operation.target}
+						ariaLabel="Which case"
+						context={{
+							priorCreates,
+							sessionUnavailableReason,
+							// A create's case comes into existence here, so "a new case" is
+							// not one option among several — it is the only target the facet
+							// rules admit on a create.
+							newOnly: operation.action === "create",
+							allowsNone: false,
+						}}
+						onChange={(target) => {
+							if (target === null) return;
+							commit({ ...operation, target });
+						}}
+					/>
+				</Row>
 
-			{operation.target.kind === "new" &&
-				(identityKeys.length > 0 || operation.target.idFrom !== undefined) && (
+				{operation.target.kind === "new" &&
+					(identityKeys.length > 0 ||
+						operation.target.idFrom !== undefined) && (
+						<Row
+							title="Identity"
+							description="Normally each submission makes a distinct case. Key it on an answer instead when re-submitting the same answer should reach the same case."
+						>
+							<IdentityKeyMenu
+								value={operation.target.idFrom}
+								options={identityKeys}
+								canEdit={canEdit}
+								onChange={(idFrom) =>
+									commit({
+										...operation,
+										target:
+											idFrom === undefined
+												? { kind: "new" }
+												: { kind: "new", idFrom },
+									})
+								}
+							/>
+						</Row>
+					)}
+
+				{repeats.length > 0 && (
 					<Row
-						title="Identity"
-						description="Normally each submission makes a distinct case. Key it on an answer instead when re-submitting the same answer should reach the same case."
+						title="How often"
+						description="A change can happen once per submission, or once for every entry someone adds to a repeating section."
 					>
-						<IdentityKeyMenu
-							value={operation.target.idFrom}
-							options={identityKeys}
+						<MultiplicityMenu
+							operation={operation}
+							repeats={repeats}
 							canEdit={canEdit}
-							onChange={(idFrom) =>
+							wouldStrandReads={(repeat) =>
+								operationReadsOutsideRepeat(fieldEntries, operation, repeat)
+							}
+							onChange={(repeat) =>
 								commit({
 									...operation,
-									target:
-										idFrom === undefined
-											? { kind: "new" }
-											: { kind: "new", idFrom },
+									forEach: repeat === undefined ? undefined : { repeat },
 								})
 							}
 						/>
 					</Row>
 				)}
 
-			{repeats.length > 0 && (
-				<Row
-					title="How often"
-					description="A change can happen once per submission, or once for every entry someone adds to a repeating section."
-				>
-					<MultiplicityMenu
+				{operation.action === "update" && (
+					<Row
+						title="Change the case's type"
+						description="Rare. Turns the case into another type, keeping its values."
+					>
+						<CaseTypePicker
+							value={operation.retype}
+							exclude={RESERVED_CASE_OPERATION_TYPES}
+							placeholder="Leave the type alone"
+							ariaLabel="Change the case's type"
+							onChange={(retype) => commit({ ...operation, retype })}
+							onClear={() => commit({ ...operation, retype: undefined })}
+						/>
+					</Row>
+				)}
+
+				{canEdit && (
+					<RemoveOperationRow
 						operation={operation}
-						repeats={repeats}
-						canEdit={canEdit}
-						wouldStrandReads={(repeat) =>
-							operationReadsOutsideRepeat(fieldEntries, operation, repeat)
-						}
-						onChange={(repeat) =>
-							commit({
-								...operation,
-								forEach: repeat === undefined ? undefined : { repeat },
-							})
-						}
+						view={view}
+						onRemoved={() => navigate.openFormOperations(moduleUuid, formUuid)}
+						onRefusal={setRefusal}
 					/>
-				</Row>
-			)}
-
-			{operation.action === "update" && (
-				<Row
-					title="Change the case's type"
-					description="Rare. Turns the case into another type, keeping its values."
-				>
-					<CaseTypePicker
-						value={operation.retype}
-						placeholder="Leave the type alone"
-						ariaLabel="Change the case's type"
-						onChange={(retype) => commit({ ...operation, retype })}
-						onClear={() => commit({ ...operation, retype: undefined })}
-					/>
-				</Row>
-			)}
-
-			{canEdit && (
-				<RemoveOperationRow
-					operation={operation}
-					view={view}
-					onRemoved={() => navigate.openFormOperations(moduleUuid, formUuid)}
-					onRefusal={setRefusal}
-				/>
-			)}
+				)}
+			</fieldset>
 		</div>
 	);
 }

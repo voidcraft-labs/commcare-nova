@@ -93,6 +93,8 @@ interface CaseTypePickerContentProps {
 	readonly onChange: (name: string) => void;
 	/** When provided, a consequence-labeled removal row shows (settings only). */
 	readonly onClear?: () => void;
+	/** Names this authoring context cannot construct or select. */
+	readonly exclude?: ReadonlySet<string>;
 }
 
 /**
@@ -103,6 +105,7 @@ export function CaseTypePickerContent({
 	value,
 	onChange,
 	onClear,
+	exclude,
 }: CaseTypePickerContentProps) {
 	const caseTypes = useCaseTypes();
 	const [draft, setDraft] = useState("");
@@ -113,9 +116,13 @@ export function CaseTypePickerContent({
 		() => new Set(caseTypes.map((c) => c.name)),
 		[caseTypes],
 	);
+	const availableCaseTypes = useMemo(
+		() => caseTypes.filter((caseType) => !exclude?.has(caseType.name)),
+		[caseTypes, exclude],
+	);
 	const displays = useMemo(
-		() => caseTypeDisplays(caseTypes.map((caseType) => caseType.name)),
-		[caseTypes],
+		() => caseTypeDisplays(availableCaseTypes.map((caseType) => caseType.name)),
+		[availableCaseTypes],
 	);
 	const candidate = useMemo(() => slugifyId(draft, ""), [draft]);
 	const verdict = useMemo(
@@ -124,10 +131,12 @@ export function CaseTypePickerContent({
 	);
 	// Only surface the reason once the user has typed something — an empty
 	// field shouldn't read as an error before they start.
-	const showError = draft.trim().length > 0 && !verdict.ok;
+	const excludedCandidate = exclude?.has(candidate) === true;
+	const showError =
+		draft.trim().length > 0 && (!verdict.ok || excludedCandidate);
 
 	const commitNew = () => {
-		if (!verdict.ok) return;
+		if (!verdict.ok || excludedCandidate) return;
 		onChange(candidate);
 		setDraft("");
 	};
@@ -138,14 +147,18 @@ export function CaseTypePickerContent({
 				Case types
 			</div>
 
-			{caseTypes.length === 0 ? (
+			{availableCaseTypes.length === 0 ? (
 				<div className="px-3 py-2 text-[13px] leading-relaxed text-nova-text-muted">
-					<p>No case types yet</p>
+					<p>
+						{caseTypes.length === 0
+							? "No case types yet"
+							: "No case types available here"}
+					</p>
 					<p className="mt-0.5">Create one below</p>
 				</div>
 			) : (
 				<div className="min-h-0 max-h-56 flex-1 overflow-y-auto overscroll-contain">
-					{caseTypes.map((ct) => {
+					{availableCaseTypes.map((ct) => {
 						const active = ct.name === value;
 						const display = displays.get(ct.name) ?? {
 							label: humanizeId(ct.name),
@@ -236,7 +249,7 @@ export function CaseTypePickerContent({
 						type="button"
 						variant="ghost"
 						onClick={commitNew}
-						disabled={!verdict.ok}
+						disabled={!verdict.ok || excludedCandidate}
 						className="min-h-11 w-full gap-1 bg-nova-violet/15 px-3 text-sm text-nova-violet-bright not-disabled:hover:bg-nova-violet/25"
 					>
 						<Icon icon={tablerPlus} width="15" height="15" />
@@ -250,6 +263,16 @@ export function CaseTypePickerContent({
 						className="mt-1 px-0.5 text-xs text-nova-rose"
 					>
 						{creationErrorMessage(verdict, candidate)}
+					</p>
+				)}
+				{draft.trim().length > 0 && excludedCandidate && (
+					<p
+						id={errorId}
+						role="alert"
+						className="mt-1 px-0.5 text-xs text-nova-rose"
+					>
+						That case type is managed by the platform and cannot be changed
+						here.
 					</p>
 				)}
 			</div>
@@ -290,6 +313,7 @@ export function CaseTypePicker({
 	value,
 	onChange,
 	onClear,
+	exclude,
 	placeholder = "Pick a case type",
 	ariaLabel = "Case type",
 	triggerRef,
@@ -363,6 +387,7 @@ export function CaseTypePicker({
 						onChange(name);
 						setOpen(false);
 					}}
+					exclude={exclude}
 					{...(onClear && {
 						onClear: () => {
 							onClear();

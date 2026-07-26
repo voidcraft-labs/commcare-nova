@@ -150,6 +150,20 @@ function carrierBlindCaseOperation(
 	return projected;
 }
 
+/**
+ * Project an ordered case-operation list for an SA/MCP read surface.
+ *
+ * Exported for the dedicated case-operation read tool, whose author-identity
+ * projection happens after the dormant-carrier boundary.
+ */
+export function carrierBlindCaseOperationsProjection(
+	operations: readonly CaseOperation[],
+): CaseOperation[] {
+	return operations
+		.map(carrierBlindCaseOperation)
+		.filter((operation): operation is CaseOperation => operation !== undefined);
+}
+
 export type AgentFormSnapshot = Form & { fields: FieldWithChildren[] };
 
 /**
@@ -175,11 +189,9 @@ export function carrierBlindFormProjection<T extends AgentFormSnapshot>(
 	}
 
 	if (form.caseOperations !== undefined) {
-		const operations = form.caseOperations
-			.map(carrierBlindCaseOperation)
-			.filter(
-				(operation): operation is CaseOperation => operation !== undefined,
-			);
+		const operations = carrierBlindCaseOperationsProjection(
+			form.caseOperations,
+		);
 		if (operations.length === 0 && form.caseOperations.length > 0) {
 			delete projected.caseOperations;
 		} else {

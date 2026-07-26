@@ -40,13 +40,12 @@ import { useCaseOperations } from "@/lib/doc/hooks/useCaseOperations";
 import { useEffectiveCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useFormFieldEntries } from "@/lib/doc/hooks/useFormFieldEntries";
 import type { Uuid } from "@/lib/doc/types";
-import {
-	type CaseOperation,
-	type CaseOperationWrite,
-	type CaseProperty,
-	type CasePropertyDataType,
-	type CaseType,
-	effectiveDataType,
+import type {
+	CaseOperation,
+	CaseOperationWrite,
+	CaseProperty,
+	CasePropertyDataType,
+	CaseType,
 } from "@/lib/domain";
 import {
 	actingUser,
@@ -54,7 +53,6 @@ import {
 	type Predicate,
 	storageAssignmentConstraint,
 	term,
-	textShapedConstraint,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
 import { useNavigate } from "@/lib/routing/hooks";
@@ -248,201 +246,207 @@ export function CaseOperationDetailCanvas({
 				</div>
 			)}
 
-			<Section
-				title="When this runs"
-				description={
-					operation.condition === undefined
-						? "Every time this form is submitted."
-						: "Only when this is true of the submitted answers."
-				}
-				action={
-					operation.condition !== undefined && canEdit ? (
-						<ClearConditionButton
-							label="Always run"
-							title="Always run this change?"
-							consequence="It will happen on every submission of this form."
-							onConfirm={() => commit({ ...operation, condition: undefined })}
-						/>
-					) : undefined
-				}
-			>
-				{operation.condition === undefined ? (
-					<AddSlotButton
-						label="Add a condition"
-						disabled={!canEdit}
-						onClick={() =>
-							commit({
-								...operation,
-								condition: firstComparisonDefault({
-									caseTypes,
-									currentCaseType: expressionCaseType,
-									knownInputs: [],
-									caseDataScope: "per-case",
-								}),
-							})
-						}
-					/>
-				) : (
-					<PredicateWorkbench
-						value={operation.condition}
-						onChange={(condition: Predicate) =>
-							commit({ ...operation, condition })
-						}
-						rootLabel="when this runs"
-						caseTypes={caseTypes}
-						currentCaseType={expressionCaseType}
-						formFields={formFields}
-						operationScope={operationScope}
-					/>
-				)}
-			</Section>
-
-			{operation.target.kind === "expression" && (
+			<fieldset disabled={!canEdit} className="contents">
 				<Section
-					title="Which case to change"
-					description="Work out the case this change acts on. The result must be a case id."
+					title="When this runs"
+					description={
+						operation.condition === undefined
+							? "Every time this form is submitted."
+							: "Only when this is true of the submitted answers."
+					}
+					action={
+						operation.condition !== undefined && canEdit ? (
+							<ClearConditionButton
+								label="Always run"
+								title="Always run this change?"
+								consequence="It will happen on every submission of this form."
+								onConfirm={() => commit({ ...operation, condition: undefined })}
+							/>
+						) : undefined
+					}
 				>
-					<ExpressionCardEditor
-						value={operation.target.expr}
-						onChange={(expr: ValueExpression) =>
-							commit({ ...operation, target: { kind: "expression", expr } })
-						}
-						constraint={storageAssignmentConstraint(["text"])}
-						{...editorScope}
-					/>
-				</Section>
-			)}
-
-			{operation.action === "create" && operation.name !== undefined && (
-				<Section
-					title="The case's name"
-					description="What people will see this case called in lists."
-				>
-					<ExpressionCardEditor
-						value={operation.name}
-						onChange={(name: ValueExpression) => commit({ ...operation, name })}
-						constraint={textShapedConstraint()}
-						{...editorScope}
-					/>
-				</Section>
-			)}
-
-			{operation.action === "update" && (
-				<OptionalExpressionSection
-					title="Give the case a new name"
-					description="Changes what people see this case called."
-					addLabel="Set a new name"
-					clearLabel="Leave the name alone"
-					clearTitle="Leave the name alone?"
-					clearConsequence="This change will stop renaming the case."
-					value={operation.rename}
-					canEdit={canEdit}
-					seed={() => term(literal(""))}
-					onChange={(rename) => commit({ ...operation, rename })}
-					constraint={textShapedConstraint()}
-					editorScope={editorScope}
-				/>
-			)}
-
-			{operation.action !== "close" && (
-				<OptionalExpressionSection
-					title="Who owns the case"
-					description="Ownership decides whose device the case reaches. Without this, a new case belongs to the person who submitted the form."
-					addLabel="Choose an owner"
-					clearLabel="Use the default owner"
-					clearTitle="Use the default owner?"
-					clearConsequence="The case will belong to whoever submits the form."
-					value={operation.owner}
-					canEdit={canEdit}
-					seed={() => actingUser()}
-					onChange={(owner) => commit({ ...operation, owner })}
-					constraint={textShapedConstraint()}
-					editorScope={editorScope}
-				/>
-			)}
-
-			<Section
-				title="What it saves"
-				description={
-					destinationType === undefined
-						? `Values saved onto the ${destination} case.`
-						: `Values saved onto the ${destination} case. They stay on the case after the form is submitted.`
-				}
-			>
-				<div className="space-y-3">
-					{(operation.writes ?? []).map((write, writeIndex) => (
-						<WriteRow
-							key={write.property}
-							write={write}
-							canEdit={canEdit}
-							editorScope={editorScope}
-							destinationType={declaredPropertyType(
-								destinationType,
-								write.property,
-							)}
-							onChange={(next) =>
+					{operation.condition === undefined ? (
+						<AddSlotButton
+							label="Add a condition"
+							disabled={!canEdit}
+							onClick={() =>
 								commit({
 									...operation,
-									writes: (operation.writes ?? []).map((candidate, i) =>
-										i === writeIndex ? next : candidate,
-									),
-								})
-							}
-							onRemove={() =>
-								commit({
-									...operation,
-									writes: (operation.writes ?? []).filter(
-										(_, i) => i !== writeIndex,
-									),
+									condition: firstComparisonDefault({
+										caseTypes,
+										currentCaseType: expressionCaseType,
+										knownInputs: [],
+										caseDataScope: "per-case",
+									}),
 								})
 							}
 						/>
-					))}
-					{canEdit && (
-						<WritePropertyPicker
-							caseTypeName={destination}
-							alreadyWritten={
-								new Set((operation.writes ?? []).map((write) => write.property))
+					) : (
+						<PredicateWorkbench
+							value={operation.condition}
+							onChange={(condition: Predicate) =>
+								commit({ ...operation, condition })
 							}
+							rootLabel="when this runs"
+							caseTypes={caseTypes}
+							currentCaseType={expressionCaseType}
 							formFields={formFields}
-							onChoose={(property, value) =>
-								commit({
-									...operation,
-									writes: [
-										...(operation.writes ?? []),
-										seedCaseOperationWrite(property, value),
-									],
-								})
-							}
+							operationScope={operationScope}
 						/>
 					)}
-				</div>
-			</Section>
-
-			{operation.action !== "close" && (
-				<Section
-					title="Connections to other cases"
-					description="How this case relates to another one. A connection can also be broken here — that is what an author reaches for when a temporary grouping has served its purpose."
-				>
-					<CaseOperationLinks
-						operation={operation}
-						canEdit={canEdit}
-						defaultTargetType={
-							expressionCaseType.length > 0
-								? expressionCaseType
-								: operation.caseType
-						}
-						targetContext={{
-							priorCreates: operationScope.creates,
-							sessionUnavailableReason,
-							// A case cannot connect to itself, so the change's own
-							// target is withheld with that reason.
-							excludes: operation.target,
-						}}
-						onChange={(links) => commit({ ...operation, links })}
-					/>
 				</Section>
-			)}
+
+				{operation.target.kind === "expression" && (
+					<Section
+						title="Which case to change"
+						description="Work out the case this change acts on. The result must be a case id."
+					>
+						<ExpressionCardEditor
+							value={operation.target.expr}
+							onChange={(expr: ValueExpression) =>
+								commit({ ...operation, target: { kind: "expression", expr } })
+							}
+							constraint={storageAssignmentConstraint(["text"])}
+							{...editorScope}
+						/>
+					</Section>
+				)}
+
+				{operation.action === "create" && operation.name !== undefined && (
+					<Section
+						title="The case's name"
+						description="What people will see this case called in lists."
+					>
+						<ExpressionCardEditor
+							value={operation.name}
+							onChange={(name: ValueExpression) =>
+								commit({ ...operation, name })
+							}
+							constraint={storageAssignmentConstraint(["text"])}
+							{...editorScope}
+						/>
+					</Section>
+				)}
+
+				{operation.action === "update" && (
+					<OptionalExpressionSection
+						title="Give the case a new name"
+						description="Changes what people see this case called."
+						addLabel="Set a new name"
+						clearLabel="Leave the name alone"
+						clearTitle="Leave the name alone?"
+						clearConsequence="This change will stop renaming the case."
+						value={operation.rename}
+						canEdit={canEdit}
+						seed={() => term(literal(""))}
+						onChange={(rename) => commit({ ...operation, rename })}
+						constraint={storageAssignmentConstraint(["text"])}
+						editorScope={editorScope}
+					/>
+				)}
+
+				{operation.action !== "close" && (
+					<OptionalExpressionSection
+						title="Who owns the case"
+						description="Ownership decides whose device the case reaches. Without this, a new case belongs to the person who submitted the form."
+						addLabel="Choose an owner"
+						clearLabel="Use the default owner"
+						clearTitle="Use the default owner?"
+						clearConsequence="The case will belong to whoever submits the form."
+						value={operation.owner}
+						canEdit={canEdit}
+						seed={() => actingUser()}
+						onChange={(owner) => commit({ ...operation, owner })}
+						constraint={storageAssignmentConstraint(["text"])}
+						editorScope={editorScope}
+					/>
+				)}
+
+				<Section
+					title="What it saves"
+					description={
+						destinationType === undefined
+							? `Values saved onto the ${destination} case.`
+							: `Values saved onto the ${destination} case. They stay on the case after the form is submitted.`
+					}
+				>
+					<div className="space-y-3">
+						{(operation.writes ?? []).map((write, writeIndex) => (
+							<WriteRow
+								key={write.property}
+								write={write}
+								canEdit={canEdit}
+								editorScope={editorScope}
+								destinationType={declaredPropertyType(
+									destinationType,
+									write.property,
+								)}
+								onChange={(next) =>
+									commit({
+										...operation,
+										writes: (operation.writes ?? []).map((candidate, i) =>
+											i === writeIndex ? next : candidate,
+										),
+									})
+								}
+								onRemove={() =>
+									commit({
+										...operation,
+										writes: (operation.writes ?? []).filter(
+											(_, i) => i !== writeIndex,
+										),
+									})
+								}
+							/>
+						))}
+						{canEdit && (
+							<WritePropertyPicker
+								caseTypeName={destination}
+								alreadyWritten={
+									new Set(
+										(operation.writes ?? []).map((write) => write.property),
+									)
+								}
+								formFields={formFields}
+								onChoose={(property, value) =>
+									commit({
+										...operation,
+										writes: [
+											...(operation.writes ?? []),
+											seedCaseOperationWrite(property, value),
+										],
+									})
+								}
+							/>
+						)}
+					</div>
+				</Section>
+
+				{operation.action !== "close" && (
+					<Section
+						title="Connections to other cases"
+						description="How this case relates to another one. A connection can also be broken here — that is what an author reaches for when a temporary grouping has served its purpose."
+					>
+						<CaseOperationLinks
+							operation={operation}
+							canEdit={canEdit}
+							defaultTargetType={
+								expressionCaseType.length > 0
+									? expressionCaseType
+									: operation.caseType
+							}
+							targetContext={{
+								priorCreates: operationScope.creates,
+								sessionUnavailableReason,
+								// A case cannot connect to itself, so the change's own
+								// target is withheld with that reason.
+								excludes: operation.target,
+							}}
+							onChange={(links) => commit({ ...operation, links })}
+						/>
+					</Section>
+				)}
+			</fieldset>
 		</ContentFrame>
 	);
 }
@@ -533,7 +537,7 @@ function OptionalExpressionSection({
 	readonly canEdit: boolean;
 	readonly seed: () => ValueExpression;
 	readonly onChange: (next: ValueExpression | undefined) => void;
-	readonly constraint: ReturnType<typeof textShapedConstraint>;
+	readonly constraint: ReturnType<typeof storageAssignmentConstraint>;
 	readonly editorScope: EditorScope;
 }) {
 	return (
@@ -672,5 +676,5 @@ function declaredPropertyType(
 	const declared: CaseProperty | undefined = caseType?.properties.find(
 		(candidate) => candidate.name === property,
 	);
-	return declared === undefined ? undefined : effectiveDataType(declared);
+	return declared?.data_type;
 }

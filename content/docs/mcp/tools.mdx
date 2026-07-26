@@ -78,6 +78,20 @@ CommCare has four form types: `registration` creates a new case, `followup` upda
 | `remove_form` | Delete a form. |
 | `get_form` | Show details for one form. |
 
+## Changing cases on submission
+
+Most forms save their answers onto their primary case through their fields. Case operations cover additional ordered effects: create another case, update or close a known case, connect cases, rename or retype one, assign an owner, or repeat an effect for every row in a repeating section.
+
+These tools use author identities throughout: module, form, and operation slug ids, plus field paths such as `visits/outcome`. They never ask for or return storage UUIDs. A later operation in one add call can target an earlier create from that call by its operation id; the whole list is checked and saved atomically.
+
+| Tool | What it does |
+|---|---|
+| `get_case_operations` | List a form's case operations in execution order, using operation ids and field paths. |
+| `add_case_operations` | Add one or more complete create, update, or close operations. Later items may target an earlier create in the same call. |
+| `update_case_operation` | Replace one operation's author shape by id. Only changed identity-keyed slots are written, so unrelated concurrent edits compose. |
+| `move_case_operation` | Move an operation to a new execution index. Refuses dependency-breaking or non-portable order. |
+| `remove_case_operation` | Remove an operation by id. Refuses while another operation still depends on it and names the dependents. |
+
 ## Working on fields (questions)
 
 A field is a single question on a form: text input, dropdown, date, number, repeat group, label, and so on. Most fields also save to a case property; some (on survey forms, or label-only fields) don't.

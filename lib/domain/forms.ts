@@ -193,7 +193,21 @@ export type CaseTarget = z.infer<typeof caseTargetSchema>;
 export const CASE_OPERATION_ACTIONS = ["create", "update", "close"] as const;
 export type CaseOperationAction = (typeof CASE_OPERATION_ACTIONS)[number];
 
-const caseOperationWriteSchema = z
+/**
+ * Platform-owned case types that an authored case operation may never create,
+ * update, close, link to, or retype into.
+ *
+ * This is domain vocabulary, not an emitter detail: every authoring surface
+ * filters the same closed set before construction, while the validator remains
+ * the import/replay backstop.
+ */
+export const RESERVED_CASE_OPERATION_TYPES: ReadonlySet<string> = new Set([
+	"commcare-user",
+	"commcare-case-claim",
+	"user-owner-mapping-case",
+]);
+
+export const caseOperationWriteSchema = z
 	.object({
 		property: z.string(),
 		value: valueExpressionSchema,
@@ -206,7 +220,7 @@ export type CaseOperationWrite = {
 	condition?: Predicate;
 };
 
-const caseOperationLinkSchema = z
+export const caseOperationLinkSchema = z
 	.object({
 		identifier: z.string(),
 		targetType: z.string(),

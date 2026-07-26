@@ -74,6 +74,22 @@ const TOOL_ACTIONS: Record<string, ActionPhrases> = {
 		doing: "Updating the search screen",
 		done: "Updated the search screen",
 	},
+	addCaseOperations: {
+		doing: "Adding case operations",
+		done: "Added case operations",
+	},
+	updateCaseOperation: {
+		doing: "Updating case operation",
+		done: "Updated case operation",
+	},
+	removeCaseOperation: {
+		doing: "Removing case operation",
+		done: "Removed case operation",
+	},
+	moveCaseOperation: {
+		doing: "Moving case operation",
+		done: "Moved case operation",
+	},
 	attachFieldMedia: { doing: "Setting field media", done: "Set field media" },
 	attachOptionMedia: {
 		doing: "Setting option media",
@@ -132,6 +148,8 @@ const COUNTABLE_ACTIONS: Record<string, (n: number) => string> = {
 	addCaseListColumns: (n) => `Added ${n} ${n === 1 ? "column" : "columns"}`,
 	addSearchInputs: (n) =>
 		`Added ${n} ${n === 1 ? "search input" : "search inputs"}`,
+	addCaseOperations: (n) =>
+		`Added ${n} case ${n === 1 ? "operation" : "operations"}`,
 	reorderCaseListColumns: (n) =>
 		`Reordered ${n} ${n === 1 ? "column" : "columns"}`,
 	reorderSearchInputs: (n) =>

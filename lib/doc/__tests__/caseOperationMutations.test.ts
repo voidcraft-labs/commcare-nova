@@ -171,6 +171,102 @@ describe("case-operation mutation planning", () => {
 		);
 	});
 
+	it("composes stale peer edits to different operation slots", () => {
+		const { doc, formUuid } = fixture();
+		(doc.forms[formUuid] as Form).caseOperations = [createOperation()];
+
+		const rename = updateCaseOperationMutations(doc, formUuid, {
+			...createOperation(),
+			id: "create_encounter",
+		});
+		const changeName = updateCaseOperationMutations(doc, formUuid, {
+			...createOperation(),
+			name: term(literal("Encounter")),
+		});
+
+		expect(rename).toContainEqual({
+			kind: "updateForm",
+			uuid: formUuid,
+			patch: {},
+			caseOperationChange: {
+				operation: "update",
+				uuid: CREATE,
+				patch: { id: "create_encounter" },
+			},
+		});
+		expect(changeName).toContainEqual({
+			kind: "updateForm",
+			uuid: formUuid,
+			patch: {},
+			caseOperationChange: {
+				operation: "update",
+				uuid: CREATE,
+				patch: { name: term(literal("Encounter")) },
+			},
+		});
+
+		const next = apply(apply(doc, rename), changeName);
+		expect(next.forms[formUuid].caseOperations?.[0]).toMatchObject({
+			id: "create_encounter",
+			name: term(literal("Encounter")),
+		});
+	});
+
+	it("composes stale peer edits to different write slots", () => {
+		const { doc, formUuid } = fixture();
+		const original = consumerOperation({
+			writes: [
+				{ property: "source_id", value: term(literal("original")) },
+				{ property: "note", value: term(literal("original")) },
+			],
+		});
+		(doc.forms[formUuid] as Form).caseOperations = [original];
+
+		const sourceEdit = updateCaseOperationMutations(doc, formUuid, {
+			...original,
+			writes: [
+				{ property: "source_id", value: term(literal("source edit")) },
+				{ property: "note", value: term(literal("original")) },
+			],
+		});
+		const noteEdit = updateCaseOperationMutations(doc, formUuid, {
+			...original,
+			writes: [
+				{ property: "source_id", value: term(literal("original")) },
+				{ property: "note", value: term(literal("note edit")) },
+			],
+		});
+
+		expect(sourceEdit).toContainEqual({
+			kind: "updateForm",
+			uuid: formUuid,
+			patch: {},
+			caseOperationChange: {
+				operation: "update-write",
+				uuid: CONSUMER,
+				property: "source_id",
+				patch: { value: term(literal("source edit")) },
+			},
+		});
+		expect(noteEdit).toContainEqual({
+			kind: "updateForm",
+			uuid: formUuid,
+			patch: {},
+			caseOperationChange: {
+				operation: "update-write",
+				uuid: CONSUMER,
+				property: "note",
+				patch: { value: term(literal("note edit")) },
+			},
+		});
+
+		const next = apply(apply(doc, sourceEdit), noteEdit);
+		expect(next.forms[formUuid].caseOperations?.[0].writes).toEqual([
+			{ property: "source_id", value: term(literal("source edit")) },
+			{ property: "note", value: term(literal("note edit")) },
+		]);
+	});
+
 	it("rejects removal and reordering while later references depend on a create", () => {
 		const { doc, formUuid } = fixture();
 		(doc.forms[formUuid] as Form).caseOperations = [
@@ -341,6 +437,51 @@ describe("case-operation mutation planning", () => {
 });
 
 describe("case-operation persistence and reference participation", () => {
+	it("rejects identity-changing and empty granular update patches at ingress", () => {
+		const { formUuid } = fixture();
+		const update = (caseOperationChange: Record<string, unknown>) => ({
+			kind: "updateForm",
+			uuid: formUuid,
+			patch: {},
+			caseOperationChange,
+		});
+
+		expect(
+			mutationSchema.safeParse(
+				update({
+					operation: "update",
+					uuid: CREATE,
+					patch: { uuid: OTHER },
+				}),
+			).success,
+		).toBe(false);
+		expect(
+			mutationSchema.safeParse(
+				update({ operation: "update", uuid: CREATE, patch: {} }),
+			).success,
+		).toBe(false);
+		expect(
+			mutationSchema.safeParse(
+				update({
+					operation: "update-write",
+					uuid: CREATE,
+					property: "source_id",
+					patch: {},
+				}),
+			).success,
+		).toBe(false);
+		expect(
+			mutationSchema.safeParse(
+				update({
+					operation: "update-link",
+					uuid: CREATE,
+					identifier: "parent",
+					patch: {},
+				}),
+			).success,
+		).toBe(false);
+	});
+
 	it("renames defensive Search-input references carried by case operations", () => {
 		const { doc, formUuid } = fixture();
 		const form = doc.forms[formUuid] as Form;
@@ -416,6 +557,19 @@ describe("case-operation persistence and reference participation", () => {
 					mutation.caseOperationChange?.operation,
 			);
 		expect(changeKinds).toEqual(["update", "move"]);
+		expect(
+			diffDocsToMutations(next, changed).find(
+				(mutation) =>
+					mutation.kind === "updateForm" &&
+					mutation.caseOperationChange?.operation === "update",
+			),
+		).toMatchObject({
+			caseOperationChange: {
+				operation: "update",
+				uuid: CREATE,
+				patch: { name: term(literal("Visit record")) },
+			},
+		});
 
 		const removed = produce(changed, (draft) => {
 			draft.forms[formUuid].caseOperations = [
@@ -451,7 +605,7 @@ describe("case-operation persistence and reference participation", () => {
 				caseOperationChange: {
 					operation: "update",
 					uuid: CREATE,
-					value: createOperation(),
+					patch: { id: "still_absent" },
 				},
 			},
 			{

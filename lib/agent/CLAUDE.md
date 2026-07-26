@@ -104,6 +104,12 @@ Two more parse-time narrowings mirror the validator's global-context rules: a se
 
 The case-search-config tools accept the typed AST shape directly via Zod — `Predicate`, `ValueExpression` — pulled from `lib/domain/predicate`. The wholesale tools emit a single `updateModule` mutation patching `caseSearchConfig` via `updateModuleMutations`. The shared `moduleNotFoundResult` helper (used by every module-addressing SA tool family) lives at `tools/shared/moduleNotFoundResult.ts` so both families consume one Elm-style error shape; `tools/case-list-config/shared.ts` re-exports it for the existing case-list-config call sites.
 
+### Case-operation authoring — author ids in, immutable identity stored
+
+The shared case-operation family (`tools/case-operations/`) registers unchanged in chat and MCP: `getCaseOperations`, batch `addCaseOperations`, and singular update/remove/move. The tool boundary never exposes UUIDs. Modules, forms, and operations are addressed by slug id; field leaves use their full form path. `authorAst.ts` rebuilds the carrier-blind Predicate/ValueExpression grammar with only two leaf substitutions (`field.path`, `id-of.operationId`) and walks those leaves to canonical UUIDs before the checker runs; the read projector performs the exact inverse. `getForm` projects its operation subtree through the same bridge.
+
+Action legality is structural in `caseOperationInputSchema`: create requires a new target plus name and cannot carry rename/retype; update targets an existing case and cannot carry a create name; close targets an existing case and cannot carry owner/rename/retype/links. Platform-owned case types and reserved write properties are rejected at this boundary as well as by the validator backstop. Batch add plans against a working overlay, so a later item can target an earlier create in the same call and the one guarded commit remains atomic. Full-shape update does not imply whole-object replacement: `updateCaseOperationMutations` diffs it into identity-keyed operation, write-property, and link-identifier mutations, preserving unrelated concurrent edits.
+
 ### Media authoring — dedicated carriers + the asset library
 
 The generic mutation tools deliberately omit every media slot (`toolSchemaGenerator.ts`'s `saOptionSchema` drops `media`; the field-edit schema carries no `*_media` key). The SA can neither mint nor discover an asset id from those surfaces, so a media slot there would only let it write a dangling reference. Media authoring lives in its own `tools/media/` package:

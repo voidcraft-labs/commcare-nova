@@ -23,6 +23,7 @@ import {
 	term,
 } from "@/lib/domain/predicate";
 import { makeStubToolContext } from "../../__tests__/fixtures";
+import { getCaseOperationsTool } from "../case-operations/getCaseOperations";
 import { getFieldTool } from "../getField";
 import { getFormTool } from "../getForm";
 import { getModuleTool } from "../getModule";
@@ -246,14 +247,29 @@ describe("shared read tools — dormant lookup carriers", () => {
 			ctx,
 			doc,
 		);
+		const operationRead = await getCaseOperationsTool.execute(
+			{
+				moduleId: doc.modules[MODULE].id,
+				formId: doc.forms[FORM].id,
+			},
+			ctx,
+			doc,
+		);
 
 		if ("error" in fieldRead.data) throw new Error(fieldRead.data.error);
 		if ("error" in formRead.data) throw new Error(formRead.data.error);
 		if ("error" in moduleRead.data) throw new Error(moduleRead.data.error);
+		if ("error" in operationRead.data) {
+			throw new Error(operationRead.data.error);
+		}
 
 		expectNoDormantCarrier(fieldRead.data);
 		expectNoDormantCarrier(formRead.data);
 		expectNoDormantCarrier(moduleRead.data);
+		expectNoDormantCarrier(operationRead.data);
+		expect(
+			operationRead.data.operations.map((operation) => operation.id),
+		).toEqual(["safe_update", "partial_update"]);
 
 		const field = fieldRead.data.field;
 		if (!("children" in field) || field.children === undefined) {

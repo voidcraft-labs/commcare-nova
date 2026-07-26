@@ -61,7 +61,10 @@ import {
 } from "@/lib/doc/hooks/useCaseOperationFacts";
 import { useCaseOperations } from "@/lib/doc/hooks/useCaseOperations";
 import type { Uuid } from "@/lib/doc/types";
-import type { CaseOperation } from "@/lib/domain";
+import {
+	type CaseOperation,
+	RESERVED_CASE_OPERATION_TYPES,
+} from "@/lib/domain";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useCanEdit } from "@/lib/session/hooks";
 import { CaseOperationRow } from "./CaseOperationRow";
@@ -417,7 +420,10 @@ function AddChangeControl({
 	const moduleCaseType = useModuleCaseType(moduleUuid);
 	const sessionAvailable = useModuleSelectsCaseFirst(moduleUuid);
 	const sessionReason = sessionAvailable
-		? undefined
+		? moduleCaseType !== undefined &&
+			RESERVED_CASE_OPERATION_TYPES.has(moduleCaseType)
+			? "This case type is managed by the platform and cannot be changed here"
+			: undefined
 		: "This module does not choose a case before opening its forms, so there is no case in hand to change";
 
 	return (
@@ -449,6 +455,7 @@ function AddChangeControl({
 							What kind of case does this form create?
 						</p>
 						<CaseTypePickerContent
+							exclude={RESERVED_CASE_OPERATION_TYPES}
 							onChange={(caseType) => onAdd({ kind: "create", caseType })}
 						/>
 						<Button

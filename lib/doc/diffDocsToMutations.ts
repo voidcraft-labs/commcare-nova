@@ -76,6 +76,7 @@ import {
 	columnAddMutation,
 	columnSnapshotMutations,
 } from "@/lib/doc/caseListColumnMutations";
+import { caseOperationChangesForUpdate } from "@/lib/doc/caseOperationMutations";
 import {
 	cleanupCaseSearchAfterFinalInputMutation,
 	disableUnusedCaseSearchMutation,
@@ -741,44 +742,9 @@ function diffCaseOperations(
 			});
 			continue;
 		}
-		const priorWithoutOrder = { ...prior, order: undefined };
-		const operationWithoutOrder = { ...operation, order: undefined };
-		if (!deepEqual(priorWithoutOrder, operationWithoutOrder)) {
-			mutations.push({
-				kind: "updateForm",
-				uuid: formUuid,
-				patch: {},
-				caseOperationChange: {
-					operation: "update",
-					uuid,
-					value: cloneEntity(operation),
-				},
-			});
-		} else if (prior.order !== operation.order) {
-			mutations.push(
-				operation.order === undefined
-					? {
-							kind: "updateForm",
-							uuid: formUuid,
-							patch: {},
-							caseOperationChange: {
-								operation: "update",
-								uuid,
-								value: cloneEntity(operation),
-							},
-						}
-					: {
-							kind: "updateForm",
-							uuid: formUuid,
-							patch: {},
-							caseOperationChange: {
-								operation: "move",
-								uuid,
-								order: operation.order,
-							},
-						},
-			);
-		}
+		mutations.push(
+			...caseOperationChangesForUpdate(formUuid, prior, cloneEntity(operation)),
+		);
 	}
 	return mutations;
 }

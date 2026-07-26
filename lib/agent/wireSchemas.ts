@@ -26,6 +26,10 @@ import {
 	predicateSchema,
 	valueExpressionSchema,
 } from "@/lib/domain/predicate";
+import {
+	authorPredicateSchema,
+	authorValueExpressionSchema,
+} from "./tools/case-operations/authorAst";
 
 const AST_STUBS = new Map<z.ZodType, Record<string, unknown>>([
 	[
@@ -47,6 +51,15 @@ const AST_STUBS = new Map<z.ZodType, Record<string, unknown>>([
 		},
 	],
 	[
+		authorPredicateSchema,
+		{
+			type: "object",
+			additionalProperties: true,
+			description:
+				'Author Predicate AST node. Shape reference: "Filters & expressions" in your instructions; in case-operation tools a field leaf uses path instead of uuid, and id-of uses operationId.',
+		},
+	],
+	[
 		valueExpressionSchema,
 		{
 			type: "object",
@@ -62,6 +75,15 @@ const AST_STUBS = new Map<z.ZodType, Record<string, unknown>>([
 			additionalProperties: true,
 			description:
 				'ValueExpression AST node (typed value). Shape reference: "Filters & expressions" in your instructions.',
+		},
+	],
+	[
+		authorValueExpressionSchema,
+		{
+			type: "object",
+			additionalProperties: true,
+			description:
+				'Author ValueExpression AST node. Shape reference: "Filters & expressions" in your instructions; in case-operation tools a field leaf uses path instead of uuid, and id-of uses operationId.',
 		},
 	],
 ]);

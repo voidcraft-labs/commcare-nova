@@ -27,6 +27,7 @@ import {
 	isValueStorageAssignable,
 	MATCH_PROPERTY_TYPES_BY_MODE,
 	type ResolvedType,
+	SEQUENCE_TYPE,
 	TEXT_SHAPED_TYPES,
 	type ValueExpressionResultClass,
 	valueExpressionKindResultClass,
@@ -349,7 +350,15 @@ export function storageAssignmentConstraint(
 	destinationTypes: readonly CasePropertyDataType[],
 ): SlotConstraint {
 	const destinations = [...new Set(destinationTypes)];
-	if (destinations.length === 0) return ANY_CONSTRAINT;
+	if (destinations.length === 0) {
+		return {
+			accepts: new Set(
+				ALL_RESOLVED_TYPES.filter(
+					(type) => type !== ANY_TYPE && type !== SEQUENCE_TYPE,
+				),
+			),
+		};
+	}
 	return {
 		accepts: new Set(
 			ALL_RESOLVED_TYPES.filter((type) =>

@@ -124,6 +124,21 @@ export function applyFormMutation(
 			const change = mut.caseOperationChange;
 			if (change === undefined) return;
 			const operations = form.caseOperations ?? [];
+			const operation = (
+				uuid: Extract<
+					NonNullable<typeof mut.caseOperationChange>,
+					{ uuid: unknown }
+				>["uuid"],
+			) => operations.find((candidate) => candidate.uuid === uuid);
+			const applyPatch = (
+				target: Record<string, unknown>,
+				patch: Record<string, unknown>,
+			) => {
+				for (const [key, value] of Object.entries(patch)) {
+					if (value === null || value === undefined) delete target[key];
+					else target[key] = value;
+				}
+			};
 			switch (change.operation) {
 				case "add":
 					if (
@@ -136,11 +151,96 @@ export function applyFormMutation(
 					}
 					return;
 				case "update": {
-					const index = operations.findIndex(
-						(operation) => operation.uuid === change.uuid,
+					const current = operation(change.uuid);
+					if (current === undefined) return;
+					applyPatch(
+						current as unknown as Record<string, unknown>,
+						change.patch as Record<string, unknown>,
 					);
-					if (index === -1) return;
-					operations[index] = change.value;
+					form.caseOperations = operations;
+					return;
+				}
+				case "add-write": {
+					const current = operation(change.uuid);
+					if (current === undefined) return;
+					const writes = current.writes ?? [];
+					if (
+						writes.some((write) => write.property === change.value.property)
+					) {
+						return;
+					}
+					const index = Math.max(
+						0,
+						Math.min(change.index ?? writes.length, writes.length),
+					);
+					writes.splice(index, 0, change.value);
+					current.writes = writes;
+					form.caseOperations = operations;
+					return;
+				}
+				case "update-write": {
+					const current = operation(change.uuid);
+					const write = current?.writes?.find(
+						(candidate) => candidate.property === change.property,
+					);
+					if (write === undefined) return;
+					applyPatch(
+						write as unknown as Record<string, unknown>,
+						change.patch as Record<string, unknown>,
+					);
+					form.caseOperations = operations;
+					return;
+				}
+				case "remove-write": {
+					const current = operation(change.uuid);
+					if (current === undefined) return;
+					const writes = (current.writes ?? []).filter(
+						(write) => write.property !== change.property,
+					);
+					if (writes.length === 0) delete current.writes;
+					else current.writes = writes;
+					form.caseOperations = operations;
+					return;
+				}
+				case "add-link": {
+					const current = operation(change.uuid);
+					if (current === undefined) return;
+					const links = current.links ?? [];
+					if (
+						links.some((link) => link.identifier === change.value.identifier)
+					) {
+						return;
+					}
+					const index = Math.max(
+						0,
+						Math.min(change.index ?? links.length, links.length),
+					);
+					links.splice(index, 0, change.value);
+					current.links = links;
+					form.caseOperations = operations;
+					return;
+				}
+				case "update-link": {
+					const current = operation(change.uuid);
+					const link = current?.links?.find(
+						(candidate) => candidate.identifier === change.identifier,
+					);
+					if (link === undefined) return;
+					applyPatch(
+						link as unknown as Record<string, unknown>,
+						change.patch as Record<string, unknown>,
+					);
+					form.caseOperations = operations;
+					return;
+				}
+				case "remove-link": {
+					const current = operation(change.uuid);
+					if (current === undefined) return;
+					const links = (current.links ?? []).filter(
+						(link) => link.identifier !== change.identifier,
+					);
+					if (links.length === 0) delete current.links;
+					else current.links = links;
 					form.caseOperations = operations;
 					return;
 				}
@@ -154,11 +254,10 @@ export function applyFormMutation(
 					return;
 				}
 				case "move": {
-					const operation = operations.find(
-						(candidate) => candidate.uuid === change.uuid,
-					);
-					if (operation === undefined) return;
-					operation.order = change.order;
+					const current = operation(change.uuid);
+					if (current === undefined) return;
+					if (change.order === null) delete current.order;
+					else current.order = change.order;
 					form.caseOperations = operations;
 					return;
 				}
