@@ -123,6 +123,7 @@ describe("/api/apps/[id]/attachments/[attachmentId] URL-app binding", () => {
 		});
 		expect(mocks.getStoredObjectMetadata).not.toHaveBeenCalled();
 		expect(mocks.confirm).not.toHaveBeenCalled();
+		await response.json();
 	});
 
 	it("binds confirm's second row write to the same URL app", async () => {
@@ -170,6 +171,23 @@ describe("/api/apps/[id]/attachments/[attachmentId] URL-app binding", () => {
 			expectedAppId: "app-b",
 			expectedProjectId: "project-1",
 		});
+		expect(mocks.deleteAsset).not.toHaveBeenCalled();
+		expect(mocks.deleteAssetGeneration).not.toHaveBeenCalled();
+		await response.json();
+	});
+
+	it("leaves a preparing row recoverable for scheduled exact-generation discard", async () => {
+		mocks.remove.mockResolvedValue({
+			attachmentId: "attachment-from-app-a",
+			status: "discarding",
+			gcsObjectKey: "captures-staged/project-1/attachment.png",
+			objectGeneration: "17",
+			preparedGeneration: null,
+		});
+
+		const response = await DELETE(request("DELETE"), params);
+
+		expect(response.status).toBe(200);
 		expect(mocks.deleteAsset).not.toHaveBeenCalled();
 		expect(mocks.deleteAssetGeneration).not.toHaveBeenCalled();
 		await response.json();

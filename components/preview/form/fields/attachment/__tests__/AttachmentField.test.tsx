@@ -177,7 +177,7 @@ describe("AttachmentField", () => {
 				issue: {
 					kind: "retarget",
 					message:
-						"This signature could not move with its repeat entry. Retry now, draw it again, or remove it.",
+						"This signature could not move with its repeat entry. Retry now, draw it again, or use Clear signature.",
 				},
 			});
 		});
@@ -1069,6 +1069,38 @@ describe("AttachmentField", () => {
 		await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
 	});
 
+	it("keeps a failed picked-file diagnostic actionable across remount", async () => {
+		const props = {
+			field: FIELD,
+			state: EMPTY_STATE,
+			path: "/data/photo",
+			appId: "app-1",
+			entryKey: "entry-file-save-remount",
+			attachmentSlotKey: "photo:stable-slot",
+			onChange: vi.fn(),
+			onBlur: vi.fn(),
+		} as const;
+		const view = render(<AttachmentField {...props} />);
+		fireEvent.change(screen.getByLabelText(/Photo.*Attach file/i), {
+			target: {
+				files: [new File(["png"], "photo.png", { type: "image/png" })],
+			},
+		});
+
+		expect((await screen.findByRole("alert")).textContent).toMatch(
+			/couldn't be saved/i,
+		);
+		view.unmount();
+		render(<AttachmentField {...props} />);
+
+		expect((await screen.findByRole("alert")).textContent).toMatch(
+			/couldn't be saved/i,
+		);
+		expect(
+			screen.getByRole("button", { name: /choose file.*Photo/i }).textContent,
+		).toMatch(/choose file/i);
+	});
+
 	it("retains failed signature ink and offers Retry and Remove after remount", async () => {
 		const entryKey = "entry-signature-retarget-remount";
 		const slotKey = "signature:stable-row-2";
@@ -1149,14 +1181,14 @@ describe("AttachmentField", () => {
 			});
 		});
 		expect((await screen.findByRole("alert")).textContent).toContain(
-			"This signature could not move with its repeat entry. Retry now, draw it again, or remove it.",
+			"This signature could not move with its repeat entry. Retry now, draw it again, or use Clear signature.",
 		);
 		expect(canvasContext.stroke).toHaveBeenCalled();
 
 		view.unmount();
 		render(<AttachmentField {...props} />);
 		expect((await screen.findByRole("alert")).textContent).toMatch(
-			/retry now, draw it again, or remove it/i,
+			/retry now, draw it again, or use clear signature/i,
 		);
 		expect(
 			(
@@ -1248,6 +1280,82 @@ describe("AttachmentField", () => {
 		expect(onChange).toHaveBeenCalledTimes(1);
 	});
 
+	it("lets signature Clear supersede a queued retarget instead of becoming a no-op", async () => {
+		const entryKey = "entry-signature-clear-retarget";
+		const slotKey = "signature:stable-row";
+		registerAttachmentSlotPath({
+			appId: "app-1",
+			entryKey,
+			slotKey,
+			instancePath: "/data/visits[0]/consent",
+			captureKind: "signature",
+		});
+		rememberOwnedStagedAttachment({
+			appId: "app-1",
+			entryKey,
+			slotKey,
+			instancePath: "/data/visits[1]/consent",
+			attachment: {
+				attachmentId: "signature-retargeting",
+				attachmentName: "signature-retargeting.png",
+				originalFilename: "signature.png",
+				sizeBytes: 3,
+			},
+		});
+		setAttachmentSlotIssue({
+			appId: "app-1",
+			entryKey,
+			slotKey,
+			issue: {
+				kind: "retarget",
+				message:
+					"This signature could not move with its repeat entry. Retry now, draw it again, or use Clear signature.",
+			},
+		});
+		const fetchMock = vi.fn(
+			(_url, init?: RequestInit) =>
+				new Promise<never>((_resolve, reject) => {
+					init?.signal?.addEventListener(
+						"abort",
+						() => reject(init.signal?.reason),
+						{ once: true },
+					);
+				}),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+		const onChange = vi.fn();
+		render(
+			<AttachmentField
+				field={SIGNATURE_FIELD}
+				state={{
+					...EMPTY_STATE,
+					path: "/data/visits[0]/consent",
+					value: "signature-retargeting.png",
+				}}
+				path="/data/visits[0]/consent"
+				appId="app-1"
+				entryKey={entryKey}
+				attachmentSlotKey={slotKey}
+				onChange={onChange}
+				onBlur={vi.fn()}
+			/>,
+		);
+
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: /retry signature.*Signed consent/i,
+			}),
+		);
+		await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+		const clear = screen.getByRole("button", {
+			name: /clear signature.*Signed consent/i,
+		}) as HTMLButtonElement;
+		expect(clear.disabled).toBe(false);
+		fireEvent.click(clear);
+
+		await waitFor(() => expect(onChange).toHaveBeenCalledWith(""));
+	});
+
 	it("persists a failed signature save with retained ink and retries it after remount", async () => {
 		vi.useFakeTimers();
 		const canvasContext = {
@@ -1305,7 +1413,7 @@ describe("AttachmentField", () => {
 			await vi.advanceTimersByTimeAsync(700);
 		});
 		expect(screen.getByRole("alert").textContent).toContain(
-			"This signature could not be saved. Retry now or remove it.",
+			"This signature could not be saved. Retry now or use Clear signature.",
 		);
 
 		view.unmount();
@@ -1314,7 +1422,7 @@ describe("AttachmentField", () => {
 			await vi.advanceTimersByTimeAsync(0);
 		});
 		expect(screen.getByRole("alert").textContent).toMatch(
-			/retry now or remove it/i,
+			/retry now or use clear signature/i,
 		);
 		expect(canvasContext.stroke).toHaveBeenCalled();
 

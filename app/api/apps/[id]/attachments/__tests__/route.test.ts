@@ -62,10 +62,11 @@ const ENTRY_KEY = "11111111-1111-4111-8111-111111111111";
 const FIELD_UUID = "22222222-2222-4222-8222-222222222222";
 const ATTACHMENT_ID = "33333333-3333-4333-8333-333333333333";
 
-function request(): NextRequest {
+function request(signal?: AbortSignal): NextRequest {
 	return new Request("http://localhost/api/apps/app-1/attachments", {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
+		...(signal === undefined ? {} : { signal }),
 		body: JSON.stringify({
 			entryKey: ENTRY_KEY,
 			fieldUuid: FIELD_UUID,
@@ -167,6 +168,36 @@ describe("POST /api/apps/[id]/attachments initiation compensation", () => {
 		expect(mocks.error).toHaveBeenCalledWith(
 			"[apiError] unhandled",
 			signingError,
+		);
+		await response.json();
+	});
+
+	it("compensates the pending row when the request aborts during URL signing", async () => {
+		const controller = new AbortController();
+		mocks.createSignedUploadUrl.mockReturnValue(
+			new Promise<never>((_resolve, reject) => {
+				controller.signal.addEventListener(
+					"abort",
+					() => reject(controller.signal.reason),
+					{ once: true },
+				);
+			}),
+		);
+
+		const responsePromise = POST(request(controller.signal), params);
+		await vi.waitFor(() =>
+			expect(mocks.createSignedUploadUrl).toHaveBeenCalled(),
+		);
+		controller.abort(new DOMException("Worker left the form", "AbortError"));
+		const response = await responsePromise;
+
+		expect(response.status).toBe(499);
+		expect(mocks.compensatePending).toHaveBeenCalledWith(
+			expect.objectContaining({
+				attachmentId: ATTACHMENT_ID,
+				appId: "app-1",
+				projectId: "project-1",
+			}),
 		);
 		await response.json();
 	});

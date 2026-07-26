@@ -39,9 +39,14 @@ const setCorsConfiguration =
 			}>,
 		) => Promise<void>
 	>();
+const storageOptions = vi.fn();
 
 vi.mock("@google-cloud/storage", () => ({
 	Storage: class {
+		constructor(options: unknown) {
+			storageOptions(options);
+		}
+
 		bucket() {
 			return { addLifecycleRule, setCorsConfiguration };
 		}
@@ -70,7 +75,21 @@ describe("media bucket lifecycle", () => {
 		addLifecycleRule.mockResolvedValue(undefined);
 		setCorsConfiguration.mockReset();
 		setCorsConfiguration.mockResolvedValue(undefined);
+		storageOptions.mockReset();
 		process.env.NOVA_MEDIA_BUCKET = "test-bucket";
+	});
+
+	it("bounds each storage request and the complete retry loop", async () => {
+		await applyAndCapture();
+		expect(storageOptions).toHaveBeenCalledWith(
+			expect.objectContaining({
+				timeout: 30_000,
+				retryOptions: expect.objectContaining({
+					maxRetries: 3,
+					totalTimeout: 30,
+				}),
+			}),
+		);
 	});
 
 	it("replaces the whole policy rather than appending", () => {
@@ -119,8 +138,8 @@ describe("media bucket lifecycle", () => {
 	});
 
 	it("keeps the staging prefix disjoint from the durable capture prefix", async () => {
-		// The promotion at submit is what protects a kept capture, and it
-		// only works if the durable key cannot match the staging prefix.
+		// Pre-acceptance preparation protects a kept capture, and it only
+		// works if the durable key cannot match the staging prefix.
 		const { captureObjectKeyFor } = await import("@/lib/domain/captureFormats");
 		const durable = captureObjectKeyFor("proj", "att", ".jpg");
 		expect(durable.startsWith(STAGED_CAPTURE_PREFIX)).toBe(false);

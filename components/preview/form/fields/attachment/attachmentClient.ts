@@ -164,7 +164,7 @@ function retargetIssueFor(slot: AttachmentSlot): AttachmentSlotIssue {
 		? {
 				kind: "retarget",
 				message:
-					"This signature could not move with its repeat entry. Retry now, draw it again, or remove it.",
+					"This signature could not move with its repeat entry. Retry now, draw it again, or use Clear signature.",
 			}
 		: {
 				kind: "retarget",
@@ -566,11 +566,11 @@ function reconcileBarrierDispositions(
 		}
 	}
 	// Synthetic queue keys (for example a destructive Clear) are classified
-	// by their real target above. If that target became dormant/removed, abort
-	// the private task too; if it remains active, leave it ahead of Submit.
+	// by their real target above. A dormant target retains that explicit intent
+	// and lets it run ahead of Submit; only a removed target retires the task.
 	for (const [key, task] of [...queue.paths]) {
 		const disposition = dispositions.get(task.target.slotKey) ?? "active";
-		if (disposition !== "active" && key !== task.target.slotKey) {
+		if (disposition === "removed" && key !== task.target.slotKey) {
 			cancelAttachmentTask(entryKey, key);
 		}
 	}
@@ -1131,11 +1131,10 @@ function abortReason(signal: AbortSignal): unknown {
  * generation signal. The explicit race matters because a browser/fetch mock
  * that fails to observe abort must not hold the entry-wide queue forever.
  */
-async function fetchWithDeadline(
-	input: RequestInfo | URL,
-	init: RequestInit,
+async function withAttachmentRequestDeadline<T>(
+	work: (signal: AbortSignal) => Promise<T>,
 	externalSignal?: AbortSignal,
-): Promise<Response> {
+): Promise<T> {
 	externalSignal?.throwIfAborted();
 	const controller = new AbortController();
 	const boundaryClosed = Symbol("attachment request boundary closed");
@@ -1163,10 +1162,7 @@ async function fetchWithDeadline(
 		rejectBoundary(error);
 	}, ATTACHMENT_REQUEST_TIMEOUT_MS);
 	try {
-		const result = await Promise.race([
-			fetch(input, { ...init, signal: controller.signal }),
-			boundary,
-		]);
+		const result = await Promise.race([work(controller.signal), boundary]);
 		if (result === boundaryClosed) {
 			throw new Error(
 				"Attachment request boundary closed before fetch settled.",
@@ -1182,33 +1178,44 @@ async function fetchWithDeadline(
 	}
 }
 
+async function fetchWithDeadline(
+	input: RequestInfo | URL,
+	init: RequestInit,
+	externalSignal?: AbortSignal,
+): Promise<Response> {
+	return withAttachmentRequestDeadline(
+		(signal) => fetch(input, { ...init, signal }),
+		externalSignal,
+	);
+}
+
 async function postJson<T>(
 	url: string,
 	body?: unknown,
 	signal?: AbortSignal,
 ): Promise<T> {
-	const res = await fetchWithDeadline(
-		url,
-		{
+	return withAttachmentRequestDeadline(async (requestSignal) => {
+		const res = await fetch(url, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			...(body === undefined ? {} : { body: JSON.stringify(body) }),
-		},
-		signal,
-	);
-	if (!res.ok) {
-		// The routes speak person-to-person for the 4xx cases, so surface
-		// their message verbatim rather than inventing a generic one.
-		const detail = await res
-			.json()
-			.then((j: { error?: string }) => j.error)
-			.catch(() => undefined);
-		throw new AttachmentRejected(
-			detail ??
-				"That attachment couldn't be saved. Check your connection and try again.",
-		);
-	}
-	return res.json() as Promise<T>;
+			signal: requestSignal,
+		});
+		if (!res.ok) {
+			// Parsing the route's person-to-person error is part of the same
+			// request deadline. A peer that sends headers and stalls its body
+			// must not hold the form-wide attachment queue forever.
+			const detail = await res
+				.json()
+				.then((j: { error?: string }) => j.error)
+				.catch(() => undefined);
+			throw new AttachmentRejected(
+				detail ??
+					"That attachment couldn't be saved. Check your connection and try again.",
+			);
+		}
+		return (await res.json()) as T;
+	}, signal);
 }
 
 /**
@@ -1316,11 +1323,12 @@ export async function discardAttachment(args: {
 	attachmentId: string;
 	signal?: AbortSignal;
 }): Promise<void> {
-	const response = await fetch(
+	const response = await fetchWithDeadline(
 		`/api/apps/${encodeURIComponent(args.appId)}/attachments/${encodeURIComponent(
 			args.attachmentId,
 		)}`,
-		{ method: "DELETE", signal: args.signal },
+		{ method: "DELETE" },
+		args.signal,
 	);
 	if (!response.ok && response.status !== 404) {
 		throw new Error("The staged attachment cleanup request failed.");
@@ -1341,7 +1349,7 @@ export async function retargetAttachment(args: {
 	instancePath: string;
 	signal?: AbortSignal;
 }): Promise<void> {
-	const response = await fetch(
+	const response = await fetchWithDeadline(
 		`/api/apps/${encodeURIComponent(args.appId)}/attachments/${encodeURIComponent(
 			args.attachmentId,
 		)}`,
@@ -1352,8 +1360,8 @@ export async function retargetAttachment(args: {
 				expectedInstancePath: args.expectedInstancePath,
 				instancePath: args.instancePath,
 			}),
-			signal: args.signal,
 		},
+		args.signal,
 	);
 	if (!response.ok) {
 		throw new AttachmentRejected(

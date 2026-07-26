@@ -23,7 +23,12 @@ Cloud Scheduler's API must be enabled before the script grants its Google-
 managed service agent token-creator access or the first build creates the
 capture-maintenance job. The provisioning script does that enablement first;
 `gcloud services enable` is the idempotent prerequisite, not a manual setup
-step.
+step. That five-minute Cloud Run Job is correctness infrastructure, not merely
+orphan hygiene: it resumes DB-first `preparing` rows, verifies deterministic
+durable destinations after request crashes, and completes exact `discarding`
+cleanup without relying on app traffic. The bucket lifecycle remains the
+independent backstop for ordinary staging-prefix sources; it must never match
+the durable capture prefix accepted submissions use.
 
 The first database split has an explicit Cloud SQL Admin API prerequisite:
 assign the runtime role as the migration IAM user's sole custom database role,

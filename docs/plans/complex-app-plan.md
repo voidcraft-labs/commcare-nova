@@ -728,14 +728,16 @@ surface it in the media picker, count it against the export budget, and make it
 deletable through the library UI. CommCare's own model agrees, keeping staged
 capture bytes under the form session and disposable.
 
-Lifecycle is `pending → staged → promotion_pending → submitted`. A form answer
-may name an attachment only once it is `staged`, because a `pending` row's
-object may never have been PUT. Bytes take the media lane's initiate →
-signed-PUT → confirm shape so they never travel through Cloud Run, and the
-routes nest under `/api/apps/[id]/attachments`, which needs no
-`lib/hostnames.ts` entry because allowlist matching is segment-anchored. The
-signed PUT binds the exact declared byte length and creation generation zero;
-confirm records the immutable GCS generation, CRC32C, size, and content type.
+The acceptance lifecycle is
+`pending → staged → preparing → prepared → submitted`; Clear or expiry sends a
+`preparing`/`prepared` row through `discarding` instead. A form answer may name
+an attachment only once it is `staged`, because a `pending` row's object may
+never have been PUT. Bytes take the media lane's initiate → signed-PUT →
+confirm shape so they never travel through Cloud Run, and the routes nest under
+`/api/apps/[id]/attachments`, which needs no `lib/hostnames.ts` entry because
+allowlist matching is segment-anchored. The signed PUT binds the exact declared
+byte length and creation generation zero; confirm records the immutable GCS
+generation, CRC32C, size, and content type.
 
 **Names are server-minted and derived from nothing about the question** — not
 the field id, not the node path, not the repeat index — because
@@ -752,36 +754,48 @@ and scopes the writes: reservation is keyed on a client-minted `entry_key`, so
 without it a co-member in a shared Project could reserve or delete another
 member's in-flight attachments by sending their key.
 
-**Acceptance is atomic; byte promotion is retry-safe.** The client submits
-exact `{ attachmentName, fieldUuid, instancePath }` references. The server
-re-derives the committed capture-path templates, then one case-store
-transaction inserts an idempotency intent, reserves exactly those staged rows,
-applies every case effect, and stores the replay result. A case failure rolls
-all four back; a matching retry returns the stored result; a different payload
-under the same entry key is rejected. The request then attempts immutable
-generation-pinned promotion to a create-only durable key. Failure leaves the
-row `promotion_pending`: the scheduled five-minute worker leases bounded
-batches with `FOR UPDATE SKIP LOCKED`, verifies any prior destination by
-size/CRC32C/type, and retries with backoff. An already accepted form is never
-reported failed or discarded because that external copy was transiently
-unavailable. If the staging generation has already expired after a prior copy
-landed, promotion accepts the durable destination only after independently
-matching its exact size, CRC32C, content type, and concrete generation. A
-missing or mismatched destination remains retryable and fail-closed.
+**Accepted means the bytes are already durable.** The client submits exact
+`{ attachmentName, fieldUuid, instancePath }` references. Before any case
+effect, the server builds capture authority from the authorized committed
+document. A DB transaction then locks that entry, validates the selected rows
+against that server-built intent, and moves them from `staged` to `preparing`.
+Only then may a bounded worker copy each immutable,
+generation-pinned source to its deterministic create-only durable key and
+verify size, CRC32C, content type, and concrete generation. The worker records
+`prepared` only after that proof. If the request dies after the copy but before
+the row update, the deterministic destination plus the prior `preparing` row
+lets the scheduled five-minute worker rediscover and verify the exact copy.
+There is no cross-system interval in which external bytes exist without a DB
+recovery record. Scheduled failures use backoff; pressing Submit again may make
+a recorded failure due immediately, but never steals an active copy lease.
+
+The later case-store transaction independently requires every selected row to
+be `prepared`, inserts the idempotency intent, moves those rows to `submitted`,
+applies every case effect, and stores the replay result atomically. A case
+failure rolls all of that back to `prepared`; a matching retry returns the
+stored result; a different payload under the same entry key is rejected. No GCS
+operation or other post-commit attachment await remains, so an accepted form
+cannot be reported failed by a hung copy and cannot point at bytes still
+subject to the staging TTL.
 
 There is deliberately no destructive hook on value change or repeat removal.
-Clear/replace may delete only `pending`/`staged` rows; anything reserved by a
-submission is durable state. Unselected staged attempts expire. The Project
-move protocol blocks under the app lock whenever capture rows or submission
-intents exist, because no partial move may strand their rows or bytes in the
-source tenant.
+Clear/replace deletes `pending`/`staged` metadata directly, moves
+`preparing`/`prepared` rows to `discarding`, and can never delete `submitted`
+state. The preparation worker observes Clear through the row's serialized
+terminal transition, then deletes the exact source and durable generations
+before removing the discard row. Unselected attempts expire through the same
+distinction. The Project move protocol blocks under the app lock whenever
+capture rows or submission intents exist, because no partial move may strand
+their rows or bytes in the source tenant.
 
 Initiate is also a lifecycle boundary: once POST has minted a pending row, a
 failed/aborted signed PUT or confirm schedules a bounded compensating DELETE.
-If signed-URL creation itself fails after the insert, the route runs a bounded
-pending-only compare-and-delete using the full server-created attempt identity;
-a row that advanced is preserved, and cleanup failure leaves the expiry sweep
-as the explicit backstop without masking the signing error.
+Signed-URL creation and the final response handoff both remain fenced by the
+request abort signal after the insert. If either fails or the request aborts,
+the route runs a bounded pending-only compare-and-delete using the full
+server-created attempt identity; a row that advanced is preserved, and cleanup
+failure leaves the expiry sweep as the explicit backstop without masking the
+signing error.
 That cleanup, replacement cleanup, explicit removal, repeat deletion, and entry
 retirement are all detached from the entry's critical mutation queue. A slow or
 hung DELETE can therefore leave only an expiring orphan; it can never hold a
@@ -797,20 +811,22 @@ Nova diverges from the platform in exactly two places, both toward correctness:
 - **Clear and replace touch the answer first, bytes second.** The runtime does
   the reverse and strands a required question naming a file it just deleted.
 
-Retention is two independent mechanisms, because the data decides it. These are
-worker photographs, so the BYTES get a hard, traffic-independent GCS lifecycle
-TTL on the staging prefix — an idle Project must stop holding them whether or
-not anyone writes again. The ROWS get `expires_at` plus a scheduled bounded
-sweep (also run opportunistically when a new attempt starts); row cleanup is
-hygiene only.
+Retention has two traffic-independent mechanisms with deliberately different
+authority. The GCS lifecycle TTL reaps ordinary staged and browser-abandoned
+source bytes even if the app receives no traffic, but GCS-only policy cannot
+atomically distinguish a DB-accepted submission; therefore an accepted
+generation must first live at a durable prefix the lifecycle never matches.
+The scheduled bounded worker owns the cross-system `preparing`/`prepared`/
+`discarding` recovery and the row `expires_at` sweep, including exact
+destination verification after a crash before the row update. Accepted
+durability takes priority over staging cleanup.
 `applyMediaBucketLifecycle` applies the bucket's whole policy in one
 `{ append: false }` call, so every prefix needing a TTL lives there and
 `lib/storage/__tests__/mediaBucketLifecycle.test.ts` pins that both survive — a
 second call would silently delete the first with no symptom until objects
-stopped being collected. An accepted submission atomically reserves the exact
-staged generation and checksum, then a retrying worker promotes it out of the
-TTL'd prefix. The seven-day staging TTL leaves that worker a bounded recovery
-window while still reaping abandoned form data without traffic.
+stopped being collected. The seven-day staging TTL remains a hard backstop for
+source objects, while acceptance requires the exact verified copy outside that
+prefix before the submission transaction can commit.
 
 Clear and Replace carry no confirmation on the picked kinds, deliberately:
 the device does not confirm either, and nothing is actually lost — the file
@@ -842,25 +858,30 @@ survives cold identity/lookup/case-data rebuilds and rotates only for a genuine
 new activation or concrete worker. Capture mutations share one entry-wide
 serialized queue; same-slot replacement is latest-wins, but deletion is never
 queue-critical. Submit classifies every known/running capture **before** it joins
-the queue, then keeps reclassifying while it waits: signal-aware work for a
-dormant question is cancelled without losing its draft/diagnostic, removed work
-is retired, and only effectively visible `notReady` state can block. This
-preflight includes queued retarget maintenance, so a hidden or removed question
-cannot starve Submit behind a never-settling upload or PATCH. A destructive
-Clear has a private serialization key but carries its real stable slot,
-concrete path, and field UUID into that classification, so an active Clear
-stays ahead of Submit. Initiate, PUT, and confirm each have a 30-second
-foreground deadline. A visible Cancel aborts a file upload generation while
-preserving the previous confirmed owner and answer; a late completion is
-generation-fenced and cleaned up.
+the queue, then keeps reclassifying while it waits: ordinary signal-aware work
+for a dormant question is cancelled without losing its draft/diagnostic,
+removed work is retired, and only effectively visible `notReady` state can
+block. An explicit queued Clear remains owned and runs despite dormancy, ahead
+of Submit, so an older answer cannot revive later. This preflight
+includes queued retarget maintenance, so a hidden or removed question cannot
+starve Submit behind a never-settling upload or PATCH. A destructive Clear has
+a private serialization key but carries its real stable slot, concrete path,
+and field UUID into that classification, so an active Clear stays ahead of
+Submit. Initiate, PUT, confirm, and retarget each have a 30-second foreground
+deadline covering both the fetch and success/error response-body read. A
+visible Cancel aborts a file upload generation while preserving the previous
+confirmed owner and answer; a late completion is generation-fenced and cleaned
+up.
 
 Repeat instances keep stable render keys through index compaction. A failed
 retarget is recoverable, not destructive: the confirmed row, answer, filename,
 signature ink, desired path, and a generation-tagged blocker remain owned by the
-slot. The control keeps the exact actionable error across ordinary remounts and
-offers Retry plus replace/remove for picked files; Signature keeps Retry beside
-its single Clear action. Every recovery action has a question-qualified
-accessible name. Retry
+slot. Picked-file save diagnostics live in that same stable slot rather than
+component-local state, so they survive ordinary remounts and still offer
+**Choose file** plus remove. Retarget recovery offers Retry plus
+replace/remove for picked files; Signature keeps Retry beside its single
+**Clear signature** action, and every message names that exact action. Every
+recovery action has a question-qualified accessible name. Retry
 compare-and-sets the retained row in place; a newer replacement/drawing
 generation wins and clears only the older diagnostic. No failed retarget deletes
 the only recoverable row or silently submits it under the wrong path.
@@ -870,10 +891,11 @@ ratio, and backing-store dimensions live together in stable draft state. A
 material change — including DPR-only change or a remount at a different width —
 generation-fences stale `toBlob` callbacks, redraws normalized ink, and re-encodes
 before Submit. A failed encode/upload retains both ink and an actionable
-Retry/Clear error across remounts. Clear's inverse stroke buffer also lives in
-stable draft state, so Undo survives ordinary remounts until new ink supersedes
-it. `pointercancel` and `lostpointercapture` settle the dirty drawing, and a
-dirty draft interrupted by unmount starts encoding when the pad returns.
+Retry/**Clear signature** error across remounts. Clear's inverse stroke buffer
+also lives in stable draft state, so Undo survives ordinary remounts until new
+ink supersedes it. `pointercancel` and `lostpointercapture` settle the dirty
+drawing, and a dirty draft interrupted by unmount starts encoding when the pad
+returns.
 DPR-only detection uses a self-rearming resolution media query rather than
 relying on a resize event; an interaction-blocked canvas exposes
 disabled/read-only semantics. Clear is an explicit newer intent even during

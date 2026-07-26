@@ -1969,7 +1969,7 @@ describe("combined submission", () => {
 // Atomic form-capture intent
 // ---------------------------------------------------------------
 
-async function seedStagedCapture() {
+async function seedPreparedCapture() {
 	const attachmentId = "55555555-5555-4555-8555-555555555555";
 	const entryKey = "77777777-7777-4777-8777-777777777777";
 	const fieldUuid = "88888888-8888-4888-8888-888888888888";
@@ -1997,6 +1997,7 @@ async function seedStagedCapture() {
 			gcs_object_key,
 			object_generation,
 			object_checksum,
+			prepared_generation,
 			status,
 			expires_at
 		) VALUES (
@@ -2015,7 +2016,8 @@ async function seedStagedCapture() {
 			${`captures-staged/${PROJECT_A}/${attachmentId}.png`},
 			'generation-1',
 			'checksum-1',
-			'staged',
+			'prepared-generation-1',
+			'prepared',
 			now() + interval '1 day'
 		)
 	`.execute(dbHandle.db);
@@ -2052,9 +2054,9 @@ async function seedStagedCapture() {
 }
 
 describe("atomic form-capture intent", () => {
-	it("commits the receipt and exact staged-row reservation together and replays the result", async () => {
+	it("commits the receipt and prepared-to-submitted transition together and replays the result", async () => {
 		const store = makeStore();
-		const capture = await seedStagedCapture();
+		const capture = await seedPreparedCapture();
 		const args = {
 			appId: APP_ID,
 			ordinary: { kind: "none" as const },
@@ -2067,15 +2069,17 @@ describe("atomic form-capture intent", () => {
 
 		const attachment = await sql<{
 			status: string;
-			next_promotion_at: Date | null;
+			object_generation: string | null;
+			prepared_generation: string | null;
 		}>`
-			SELECT status, next_promotion_at
+			SELECT status, object_generation, prepared_generation
 			FROM form_attachments
 			WHERE attachment_id = ${capture.attachmentId}
 		`.execute(dbHandle.db);
 		expect(attachment.rows[0]).toMatchObject({
-			status: "promotion_pending",
-			next_promotion_at: expect.any(Date),
+			status: "submitted",
+			object_generation: "prepared-generation-1",
+			prepared_generation: null,
 		});
 		const intents = await sql<{ count: string; result: unknown }>`
 			SELECT count(*) OVER ()::text AS count, result
@@ -2101,7 +2105,7 @@ describe("atomic form-capture intent", () => {
 
 	it("replays an accepted submission after unrelated app mutations advance the fence", async () => {
 		const store = makeStore();
-		const capture = await seedStagedCapture();
+		const capture = await seedPreparedCapture();
 		const first = await store.applySubmission({
 			appId: APP_ID,
 			ordinary: { kind: "none" },
@@ -2127,7 +2131,7 @@ describe("atomic form-capture intent", () => {
 
 	it("refuses a confirmed image after the committed descriptor changes to audio", async () => {
 		const store = makeStore();
-		const capture = await seedStagedCapture();
+		const capture = await seedPreparedCapture();
 
 		await expect(
 			store.applySubmission({
@@ -2155,12 +2159,12 @@ describe("atomic form-capture intent", () => {
 			FROM form_attachments
 			WHERE attachment_id = ${capture.attachmentId}
 		`.execute(dbHandle.db);
-		expect(row.rows[0]?.status).toBe("staged");
+		expect(row.rows[0]?.status).toBe("prepared");
 	});
 
 	it("rolls the capture reservation and receipt back when the case envelope fails", async () => {
 		const store = makeStore();
-		const capture = await seedStagedCapture();
+		const capture = await seedPreparedCapture();
 		await seedSchemas(store);
 
 		await expect(
@@ -2176,7 +2180,7 @@ describe("atomic form-capture intent", () => {
 			FROM form_attachments
 			WHERE attachment_id = ${capture.attachmentId}
 		`.execute(dbHandle.db);
-		expect(attachment.rows[0]?.status).toBe("staged");
+		expect(attachment.rows[0]?.status).toBe("prepared");
 		const intent = await sql<{ count: string }>`
 			SELECT count(*)::text AS count
 			FROM form_submission_intents
@@ -2187,7 +2191,7 @@ describe("atomic form-capture intent", () => {
 
 	it("rejects two staged rows forged into one concrete answer slot", async () => {
 		const store = makeStore();
-		const capture = await seedStagedCapture();
+		const capture = await seedPreparedCapture();
 		const secondAttachmentId = "99999999-9999-4999-8999-999999999999";
 		await sql`
 			INSERT INTO form_attachments (
@@ -2206,6 +2210,7 @@ describe("atomic form-capture intent", () => {
 				gcs_object_key,
 				object_generation,
 				object_checksum,
+				prepared_generation,
 				status,
 				expires_at
 			) VALUES (
@@ -2224,7 +2229,8 @@ describe("atomic form-capture intent", () => {
 				${`captures-staged/${PROJECT_A}/${secondAttachmentId}.png`},
 				'generation-2',
 				'checksum-2',
-				'staged',
+				'prepared-generation-2',
+				'prepared',
 				now() + interval '1 day'
 			)
 		`.execute(dbHandle.db);
@@ -2254,7 +2260,10 @@ describe("atomic form-capture intent", () => {
 			WHERE entry_key = ${capture.entryKey}
 			ORDER BY attachment_id
 		`.execute(dbHandle.db);
-		expect(rows.rows.map((row) => row.status)).toEqual(["staged", "staged"]);
+		expect(rows.rows.map((row) => row.status)).toEqual([
+			"prepared",
+			"prepared",
+		]);
 	});
 });
 

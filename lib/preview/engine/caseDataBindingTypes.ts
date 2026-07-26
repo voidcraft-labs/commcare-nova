@@ -378,9 +378,9 @@ export interface SubmissionAttachmentReference {
  * the staged rows accepted by this submission.
  *
  * Both are optional so a client that predates them submits normally —
- * nothing is promoted, and the staged rows expire on their own. Neither is
+ * nothing is prepared, and the staged rows expire on their own. Neither is
  * authority: the server matches names against the acting member's own rows
- * in the app's Project, so a forged list can neither promote nor preserve
+ * in the app's Project, so a forged list can neither prepare nor preserve
  * another member's attachment.
  *
  * The slots are plain JSON by necessity as well as by taste. A `File` or a

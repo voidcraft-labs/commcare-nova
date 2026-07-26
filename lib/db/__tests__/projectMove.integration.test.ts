@@ -777,8 +777,9 @@ describe("dormant atomic Project move", () => {
 				gcs_object_key: `captures-staged/${SOURCE}/${attachmentId}.png`,
 				object_generation: null,
 				object_checksum: null,
+				prepared_generation: null,
 				status: "pending",
-				last_promotion_error: null,
+				last_preparation_error: null,
 				expires_at: new Date(Date.now() + 60_000),
 			})
 			.execute();

@@ -924,7 +924,7 @@ export class FormEngine {
 	 *
 	 * Walks every capture question, including one instance per live repeat
 	 * iteration, and collects the non-empty answers of the questions that
-	 * are still RELEVANT. That set is what the server promotes; everything
+	 * are still RELEVANT. That set is what the server prepares; everything
 	 * else staged under this form entry is discarded.
 	 *
 	 * ## Why this consults visibility when the case-property collector does not

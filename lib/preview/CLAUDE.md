@@ -99,10 +99,11 @@ unreserved rows immediately; the scheduled row sweep and staging TTL remain the
 failure backstop. Every cleanup DELETE — teardown, replacement, remove, repeat
 deletion, or post-initiate PUT/confirm compensation — is bounded and detached
 from the entry queue. It can leave an expiring orphan but cannot delay an answer
-commit, confirmed replacement, or Submit. Initiate, signed PUT, and confirm each
-also own a foreground deadline. Cancel aborts the current slot generation
-without changing its prior confirmed owner; a late completion is fenced and
-cleaned up. That absence of cross-entry resume is
+commit, confirmed replacement, or Submit. Initiate, signed PUT, confirm, and
+retarget each own a foreground deadline covering the request plus its
+success/error response body. Cancel aborts the current slot generation without
+changing its prior confirmed owner; a late completion is fenced and cleaned up.
+That absence of cross-entry resume is
 also why nothing simulates
 the runtime's blank-pad-over-live-signature behavior: the state cannot arise
 here. A future resume story must carry the entry key forward with the answers,
@@ -133,7 +134,9 @@ signature Clear during queued/active save is itself the newer explicit intent:
 it aborts that generation and queues exactly one answer-clear transition. Its
 private serialization key carries the real stable slot/path/field target, so
 Submit classifies and waits for that active clear rather than mistaking the
-synthetic key for a deleted engine path.
+synthetic key for a deleted engine path. Dormancy cancels an older signal-aware
+upload/retarget but does not cancel this explicit Clear: it runs ahead of Submit
+so the old answer cannot revive later.
 Submit first classifies every registered, active, not-ready, and retargeting
 slot **before** it joins the tail; it continues classification while waiting.
 Dormant work is aborted without dropping its draft/issue, removed work is
@@ -157,13 +160,16 @@ retargets after any already-running upload/encoding and before Submit, and
 cancels/discards only slots belonging to the removed instance. A failed old
 retarget NEVER clears the answer or discards the retained row. It preserves the
 owned attachment, desired and server paths, filename/signature ink, and a
-generation-tagged `notReady` issue. Picked files expose Retry plus
-replace/remove; Signature exposes Retry beside the pad's single Clear action.
-Recovery controls have question-qualified accessible names. The issue survives
-ordinary remounts. Retry CASes the retained row; a newer
-replacement generation supersedes it and clears only the older issue. A
-surviving pending signature keeps its draft and `notReady` blocker until its
-latest PNG confirms, then the newly owned row—not an older PNG—is retargeted.
+generation-tagged `notReady` issue. A picked-file save failure also writes that
+stable slot issue instead of component-local state, so **Choose file** recovery
+survives an ordinary remount. Retarget failure exposes Retry plus
+replace/remove for picked files; Signature exposes Retry beside the pad's single
+**Clear signature** action, and its message names that exact action. Recovery
+controls have question-qualified accessible names. Retry CASes the retained
+row; a newer replacement generation supersedes it and clears only the older
+issue. A surviving pending signature keeps its draft and `notReady` blocker
+until its latest PNG confirms, then the newly owned row—not an older PNG—is
+retargeted.
 
 Signature pixels are entry/stable-slot-local across ordinary remounts and reset
 on an entry/persona change. Points are normalized to the canvas bounds, so a
@@ -173,7 +179,8 @@ different geometry redraw and re-encode the complete signature rather than
 clipping old absolute coordinates or submitting stale pixels. `toBlob`
 callbacks also carry a generation fence because the browser API cannot itself
 be aborted. Encode/upload failure retains the ink plus an actionable
-Retry/Clear slot issue across remounts; Retry re-encodes the retained strokes.
+Retry/**Clear signature** slot issue across remounts; Retry re-encodes the
+retained strokes.
 The DPR watcher is a self-rearming resolution media query, so a density-only
 change does not depend on a window resize event. Clear's inverse stroke buffer
 is stable-slot state, so Undo survives ordinary remounts until the worker draws

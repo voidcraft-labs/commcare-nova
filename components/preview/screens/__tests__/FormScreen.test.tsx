@@ -1192,7 +1192,7 @@ describe("FormScreen — validate-fail short-circuit", () => {
 				/Section 2.*Visit.*Question 2.*Signed consent.*Signature pad/i,
 			recoveryName: /Retry.*Signed consent/i,
 			message:
-				"This signature could not move with its repeat entry. Retry now, draw it again, or remove it.",
+				"This signature could not move with its repeat entry. Retry now, draw it again, or use Clear signature.",
 		},
 	])(
 		"expands a collapsed $kind recovery target, announces it, and focuses its action",

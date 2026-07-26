@@ -23,6 +23,8 @@ import { PENDING_OBJECT_PREFIX } from "@/lib/domain/multimedia";
 
 let _storage: Storage | null = null;
 let _bucket: Bucket | null = null;
+const STORAGE_REQUEST_TIMEOUT_MS = 30_000;
+const STORAGE_RETRY_TOTAL_TIMEOUT_SECONDS = 30;
 
 /**
  * Returns the GCS Storage client singleton. First call resolves the
@@ -34,7 +36,18 @@ function getStorage(): Storage {
 		// `projectId` is read from the env when set (local dev names the dev
 		// project explicitly); on Cloud Run it is omitted and the client
 		// resolves it from the metadata server.
-		_storage = new Storage({ projectId: process.env.GOOGLE_CLOUD_PROJECT });
+		_storage = new Storage({
+			projectId: process.env.GOOGLE_CLOUD_PROJECT,
+			// A GCS call is often inside a form-entry serialization boundary.
+			// Bound both one HTTP attempt and the library's complete retry loop;
+			// a socket that never settles must not hold Submit or scheduled
+			// cleanup indefinitely.
+			timeout: STORAGE_REQUEST_TIMEOUT_MS,
+			retryOptions: {
+				maxRetries: 3,
+				totalTimeout: STORAGE_RETRY_TOTAL_TIMEOUT_SECONDS,
+			},
+		});
 	}
 	return _storage;
 }
@@ -73,12 +86,12 @@ const PENDING_OBJECT_TTL_DAYS = 1;
  *
  * A capture is staged while its form is being filled in, and Nova's
  * preview does not resume a partially-filled form — navigating away
- * discards the answers. Seven days leaves a retry window for a submitted
- * row whose durable promotion is temporarily failing while still bounding
- * abandoned worker data independently of request traffic.
+ * discards the answers. Seven days bounds abandoned source bytes
+ * independently of request traffic.
  *
- * Submission promotes a kept capture OUT of the staging prefix
- * (`captureObjectKeyFor`), so this rule can never reach one.
+ * Before submission acceptance, preparation copies a kept capture OUT of
+ * this prefix and verifies it. The case transaction may accept only that
+ * prepared generation, so this rule can never remove accepted evidence.
  */
 const STAGED_CAPTURE_TTL_DAYS = 7;
 

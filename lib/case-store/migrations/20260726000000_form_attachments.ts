@@ -17,24 +17,29 @@
 // in-flight captures by sending their `entry_key` — reachable, not
 // theoretical.
 //
-// Four statuses, and the reason each exists:
+// Six statuses, and the reason each exists:
 //
 //   - `pending`   — the row is minted and a signed PUT URL issued, but
 //     the bytes are unverified. A form answer must NOT reference a
 //     pending row; the client sets the answer only after confirm.
 //   - `staged`    — the object exists and its size is known. The answer
 //     may reference it, and it may be replaced or removed.
-//   - `promotion_pending` — the case write and exact attachment intent
-//     committed together; a retryable worker still has to copy the immutable
-//     staged generation to its durable key.
-//   - `submitted` — promotion completed; the row now names a durable
-//     per-Project key outside the TTL'd staging prefix.
+//   - `preparing` — a DB-first lease exists before any durable-key copy.
+//     Crashes therefore always leave a row the scheduled worker can resume.
+//   - `prepared` — the exact immutable bytes have been copied and verified
+//     outside the staging lifecycle. Only this state may enter the atomic
+//     case-submission transaction.
+//   - `discarding` — Clear/expiry won while preparation was in flight or
+//     after it completed. The row remains until exact source/destination
+//     cleanup finishes, so no durable-key orphan loses its recovery record.
+//   - `submitted` — the case write, replay receipt, and prepared→submitted
+//     transition committed together; the row names the durable Project key.
 //
-// `expires_at` bounds only the first two. It is metadata hygiene, not the
-// retention guarantee: the bytes are reaped independently by a GCS bucket
-// lifecycle rule on the staging prefix, so a Project that never writes
-// again still stops holding photographs. See
-// `lib/storage/media.ts::applyMediaBucketLifecycle`.
+// `expires_at` bounds every unsubmitted state. Staging bytes also have an
+// independent GCS lifecycle backstop. A deterministic final-key copy exists
+// only after a `preparing` row commits; the traffic-independent scheduled
+// worker can therefore always resume or discard that cross-system window.
+// Submitted rows are excluded from both cleanup paths.
 
 import { type Kysely, sql } from "kysely";
 
@@ -83,25 +88,45 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 				gcs_object_key text NOT NULL,
 				object_generation text,
 				object_checksum text,
+				prepared_generation text,
 				status text NOT NULL,
-				promotion_attempts integer NOT NULL DEFAULT 0,
-				last_promotion_error text,
-				next_promotion_at timestamptz(3),
+				preparation_attempts integer NOT NULL DEFAULT 0,
+				last_preparation_error text,
+				next_preparation_at timestamptz(3),
 				created_at timestamptz(3) NOT NULL DEFAULT now(),
 				expires_at timestamptz(3) NOT NULL DEFAULT (now() + interval '7 days'),
 				submitted_at timestamptz(3),
 				CONSTRAINT form_attachments_status_check
-					CHECK (status IN ('pending', 'staged', 'promotion_pending', 'submitted')),
+					CHECK (
+						status IN (
+							'pending',
+							'staged',
+							'preparing',
+							'prepared',
+							'discarding',
+							'submitted'
+						)
+					),
 				CONSTRAINT form_attachments_size_check
 					CHECK (size_bytes > 0 AND size_bytes <= 4000000),
-				CONSTRAINT form_attachments_promotion_attempts_check
-					CHECK (promotion_attempts >= 0),
+				CONSTRAINT form_attachments_preparation_attempts_check
+					CHECK (preparation_attempts >= 0),
 				CONSTRAINT form_attachments_expiry_check CHECK (expires_at > created_at),
 				CONSTRAINT form_attachments_submitted_stamp_check
 					CHECK ((status = 'submitted') = (submitted_at IS NOT NULL)),
-				CONSTRAINT form_attachments_promotion_schedule_check
+				CONSTRAINT form_attachments_preparation_schedule_check
 					CHECK (
-						(status = 'promotion_pending') = (next_promotion_at IS NOT NULL)
+						(status IN ('preparing', 'discarding')) =
+							(next_preparation_at IS NOT NULL)
+					),
+				CONSTRAINT form_attachments_prepared_generation_check
+					CHECK (
+						(status = 'prepared' AND prepared_generation IS NOT NULL)
+						OR status = 'discarding'
+						OR (
+							status NOT IN ('prepared', 'discarding')
+							AND prepared_generation IS NULL
+						)
 					),
 				CONSTRAINT form_attachments_generation_check
 					CHECK (
@@ -126,17 +151,21 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 			ON form_attachments (entry_key, created_by)`.execute(db);
 
 	// The scheduled/opportunistic purge sweeps only unreserved attempts. A
-	// partial index keeps it off promotion-pending and submitted rows, which
-	// are durable submission state.
+	// partial index covers states not already owned by the discard retry
+	// queue. Preparing/prepared rows are moved to `discarding`, not
+	// metadata-deleted, so their deterministic final copy retains a recovery
+	// record until exact cleanup finishes.
 	await sql`
-		CREATE INDEX IF NOT EXISTS form_attachments_expiry
-				ON form_attachments (expires_at, attachment_id)
-				WHERE status IN ('pending', 'staged')`.execute(db);
+			CREATE INDEX IF NOT EXISTS form_attachments_expiry
+					ON form_attachments (expires_at, attachment_id)
+					WHERE status IN ('pending', 'staged', 'preparing', 'prepared')`.execute(
+		db,
+	);
 
 	await sql`
-		CREATE INDEX IF NOT EXISTS form_attachments_promotion_retry
-			ON form_attachments (next_promotion_at, attachment_id)
-			WHERE status = 'promotion_pending'`.execute(db);
+		CREATE INDEX IF NOT EXISTS form_attachments_preparation_retry
+			ON form_attachments (next_preparation_at, attachment_id)
+			WHERE status IN ('preparing', 'discarding')`.execute(db);
 
 	// A whole-tenant walk (a Project move, an eventual Project deletion)
 	// reaches an app's captures by this pair, the same axis case rows use.

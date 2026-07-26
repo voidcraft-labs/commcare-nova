@@ -51,7 +51,6 @@ import {
 	captureAttachmentName,
 	captureExtensionFor,
 	captureInstancePathMatchesTemplate,
-	captureObjectKeyFor,
 	committedCapturePath,
 	MAX_CAPTURE_ATTEMPTS_PER_MINUTE,
 	MAX_CAPTURE_ROWS_PER_ENTRY,
@@ -72,7 +71,9 @@ import { projectRoleForInTransaction } from "./projectMembership";
 export type FormAttachmentStatus =
 	| "pending"
 	| "staged"
-	| "promotion_pending"
+	| "preparing"
+	| "prepared"
+	| "discarding"
 	| "submitted";
 
 export class FormAttachmentWriteRejectedError extends Error {
@@ -95,6 +96,7 @@ export interface FormAttachmentRecord {
 	gcsObjectKey: string;
 	objectGeneration: string | null;
 	objectChecksum: string | null;
+	preparedGeneration: string | null;
 	status: FormAttachmentStatus;
 }
 
@@ -119,6 +121,7 @@ function recordFromRow(
 		gcsObjectKey: row.gcs_object_key,
 		objectGeneration: row.object_generation,
 		objectChecksum: row.object_checksum,
+		preparedGeneration: row.prepared_generation,
 		status: row.status as FormAttachmentStatus,
 	};
 }
@@ -295,8 +298,9 @@ export async function createPendingFormAttachment(args: {
 				gcs_object_key: objectKey,
 				object_generation: null,
 				object_checksum: null,
+				prepared_generation: null,
 				status: "pending",
-				last_promotion_error: null,
+				last_preparation_error: null,
 			})
 			.execute();
 	});
@@ -602,13 +606,175 @@ export async function confirmFormAttachment(args: {
 }
 
 /**
+ * Establish the DB half of pre-acceptance durability before any GCS copy.
+ *
+ * The entry advisory lock serializes this transition with Clear, retarget,
+ * and the terminal submission transaction. Once a row is `preparing`, every
+ * deterministic final-key copy has a durable recovery record before it can
+ * exist. A request crash can therefore be resumed by scheduled maintenance;
+ * no copied object is ever orphaned merely because its request disappeared.
+ */
+export async function beginFormAttachmentPreparation(args: {
+	appId: string;
+	projectId: string;
+	actorUserId: string;
+	entryKey: string;
+	formUuid: string;
+	requestDigest: string;
+	attachments: ReadonlyArray<{
+		attachmentName: string;
+		fieldUuid: string;
+		instancePath: string;
+	}>;
+}): Promise<
+	| { readonly kind: "replay" }
+	| { readonly kind: "prepare"; readonly attachmentIds: readonly string[] }
+> {
+	return withAppTx(async (tx) => {
+		await lockFormAttachmentEntry(tx, {
+			appId: args.appId,
+			actorUserId: args.actorUserId,
+			entryKey: args.entryKey,
+		});
+		const prior = await tx
+			.selectFrom("form_submission_intents")
+			.select(["form_uuid", "request_digest", "result"])
+			.where("app_id", "=", args.appId)
+			.where("project_id", "=", args.projectId)
+			.where("created_by", "=", args.actorUserId)
+			.where("entry_key", "=", args.entryKey)
+			.forUpdate()
+			.executeTakeFirst();
+		if (prior !== undefined) {
+			if (
+				prior.form_uuid !== args.formUuid ||
+				prior.request_digest !== args.requestDigest
+			) {
+				throw new FormAttachmentWriteRejectedError(
+					"This form entry was already submitted with different answers. Start a new form entry before submitting again.",
+				);
+			}
+			if (prior.result === null) {
+				throw new Error(
+					"A committed form submission intent is missing its atomic result.",
+				);
+			}
+			return { kind: "replay" };
+		}
+
+		const names = args.attachments.map(
+			(attachment) => attachment.attachmentName,
+		);
+		if (new Set(names).size !== names.length) {
+			throw new FormAttachmentWriteRejectedError(
+				"A form submission cannot name the same attachment more than once.",
+			);
+		}
+		const rows = await tx
+			.selectFrom("form_attachments")
+			.selectAll()
+			.where("app_id", "=", args.appId)
+			.where("project_id", "=", args.projectId)
+			.where("created_by", "=", args.actorUserId)
+			.where("entry_key", "=", args.entryKey)
+			.forUpdate()
+			.execute();
+		const byName = new Map(rows.map((row) => [row.attachment_name, row]));
+		const now = new Date();
+		const selected = args.attachments.map((attachment) => {
+			const row = byName.get(attachment.attachmentName);
+			if (
+				row === undefined ||
+				!["staged", "preparing", "prepared"].includes(row.status) ||
+				row.expires_at <= now ||
+				row.field_uuid !== attachment.fieldUuid ||
+				row.instance_path !== attachment.instancePath ||
+				row.object_generation === null ||
+				row.object_checksum === null
+			) {
+				throw new FormAttachmentWriteRejectedError(
+					"An attachment named by this form is no longer ready for this entry. Attach it again.",
+				);
+			}
+			return row;
+		});
+		const stagedIds = selected
+			.filter((row) => row.status === "staged")
+			.map((row) => row.attachment_id);
+		const foregroundRetryIds = selected
+			.filter(
+				(row) =>
+					row.status === "preparing" && row.last_preparation_error !== null,
+			)
+			.map((row) => row.attachment_id);
+		const dueIds = [...stagedIds, ...foregroundRetryIds];
+		if (dueIds.length > 0) {
+			await tx
+				.updateTable("form_attachments")
+				.set({
+					status: "preparing",
+					next_preparation_at: now,
+					last_preparation_error: null,
+				})
+				.where("attachment_id", "in", dueIds)
+				// A user retry may bypass scheduled backoff only after a worker
+				// recorded its failure. An active lease has no error and remains
+				// fenced from concurrent foreground copies.
+				.where((eb) =>
+					eb.or([
+						eb("status", "=", "staged"),
+						eb.and([
+							eb("status", "=", "preparing"),
+							eb("last_preparation_error", "is not", null),
+						]),
+					]),
+				)
+				.execute();
+		}
+		return {
+			kind: "prepare",
+			attachmentIds: selected.map((row) => row.attachment_id),
+		};
+	});
+}
+
+/** Confirm every selected row is durably prepared (or already submitted). */
+export async function formAttachmentsArePrepared(args: {
+	appId: string;
+	projectId: string;
+	actorUserId: string;
+	entryKey: string;
+	attachmentIds: readonly string[];
+}): Promise<boolean> {
+	if (args.attachmentIds.length === 0) return true;
+	const db = await getAppDb();
+	const rows = await db
+		.selectFrom("form_attachments")
+		.select(["attachment_id", "status", "prepared_generation"])
+		.where("app_id", "=", args.appId)
+		.where("project_id", "=", args.projectId)
+		.where("created_by", "=", args.actorUserId)
+		.where("entry_key", "=", args.entryKey)
+		.where("attachment_id", "in", args.attachmentIds)
+		.execute();
+	return (
+		rows.length === args.attachmentIds.length &&
+		rows.every(
+			(row) =>
+				(row.status === "prepared" && row.prepared_generation !== null) ||
+				row.status === "submitted",
+		)
+	);
+}
+
+/**
  * Delete one not-yet-submitted attachment — the clear and replace path.
  *
- * Returns the row so the caller can remove its object; storage cleanup is
- * deliberately the caller's, after the metadata commits, matching
- * `deleteAsset`'s contract. A `submitted` row is never deletable here: it
- * is part of a submission's durable record, and removing it would leave
- * an answer naming bytes that no longer exist.
+ * Pending/staged rows may be deleted immediately because their source prefix
+ * has a GCS lifecycle fallback. Preparing/prepared rows instead become
+ * `discarding`: their deterministic final copy is outside that lifecycle,
+ * so metadata must survive until exact source/destination cleanup completes.
+ * A `submitted` row is never deletable here.
  *
  * Scoped to the acting member's own rows for the same reason submission
  * reservation is.
@@ -649,16 +815,44 @@ export async function deleteUnsubmittedFormAttachment(args: {
 			actorUserId: args.actorUserId,
 			entryKey: candidate.entry_key,
 		});
-		const deleted = await tx
-			.deleteFrom("form_attachments")
+		const row = await tx
+			.selectFrom("form_attachments")
+			.selectAll()
 			.where("attachment_id", "=", args.attachmentId)
 			.where("app_id", "=", args.expectedAppId)
 			.where("project_id", "=", args.expectedProjectId)
 			.where("created_by", "=", args.actorUserId)
-			.where("status", "in", ["pending", "staged"])
+			.forUpdate()
+			.executeTakeFirst();
+		if (row === undefined || row.status === "submitted") return null;
+		if (row.status === "pending" || row.status === "staged") {
+			const deleted = await tx
+				.deleteFrom("form_attachments")
+				.where("attachment_id", "=", args.attachmentId)
+				.where("status", "=", row.status)
+				.returningAll()
+				.executeTakeFirst();
+			return deleted === undefined ? null : recordFromRow(deleted);
+		}
+		if (row.status === "discarding") return recordFromRow(row);
+		const discard = await tx
+			.updateTable("form_attachments")
+			.set({
+				status: "discarding",
+				// Preserve a live preparation lease. The copy call has a strict
+				// request timeout shorter than that lease, so the original worker
+				// gets first responsibility for deleting any generation it creates.
+				next_preparation_at:
+					row.status === "preparing"
+						? row.next_preparation_at
+						: sql<Date>`now()`,
+				last_preparation_error: null,
+			})
+			.where("attachment_id", "=", args.attachmentId)
+			.where("status", "=", row.status)
 			.returningAll()
 			.executeTakeFirst();
-		return deleted === undefined ? null : recordFromRow(deleted);
+		return discard === undefined ? null : recordFromRow(discard);
 	});
 }
 
@@ -770,27 +964,30 @@ export async function retargetStagedFormAttachment(args: {
 }
 
 /**
- * Lease retryable durable-intent rows.
+ * Lease retryable preparation or discard rows.
  *
- * `SKIP LOCKED` lets overlapping cleanup jobs share work without copying the
- * same source concurrently. A crashed worker's lease expires, at which point
- * the create-only destination verification makes the retry safe.
+ * `SKIP LOCKED` lets overlapping maintenance jobs share work without copying
+ * or deleting the same generation concurrently. A crashed worker's lease
+ * expires; create-only copy plus exact destination verification makes replay
+ * safe.
  */
-export async function claimFormAttachmentPromotions(args?: {
+export async function claimFormAttachmentPreparations(args?: {
 	appId?: string;
 	entryKey?: string;
 	actorUserId?: string;
 	expectedProjectId?: string;
+	attachmentIds?: readonly string[];
 	limit?: number;
 }): Promise<readonly FormAttachmentRecord[]> {
+	if (args?.attachmentIds?.length === 0) return [];
 	return withAppTx(async (tx) => {
 		const now = new Date();
 		let query = tx
 			.selectFrom("form_attachments")
 			.select("attachment_id")
-			.where("status", "=", "promotion_pending")
-			.where("next_promotion_at", "<=", now)
-			.orderBy("next_promotion_at")
+			.where("status", "in", ["preparing", "discarding"])
+			.where("next_preparation_at", "<=", now)
+			.orderBy("next_preparation_at")
 			.orderBy("attachment_id")
 			.limit(Math.min(Math.max(args?.limit ?? 100, 1), 500))
 			.forUpdate()
@@ -807,28 +1004,37 @@ export async function claimFormAttachmentPromotions(args?: {
 		if (args?.expectedProjectId !== undefined) {
 			query = query.where("project_id", "=", args.expectedProjectId);
 		}
+		if (args?.attachmentIds !== undefined) {
+			query = query.where("attachment_id", "in", args.attachmentIds);
+		}
 		const claimed = await query.execute();
 		if (claimed.length === 0) return [];
 		const rows = await tx
 			.updateTable("form_attachments")
 			.set((eb) => ({
-				promotion_attempts: eb("promotion_attempts", "+", 1),
-				next_promotion_at: new Date(now.getTime() + 5 * 60 * 1000),
+				preparation_attempts: eb("preparation_attempts", "+", 1),
+				next_preparation_at: new Date(now.getTime() + 5 * 60 * 1000),
 			}))
 			.where(
 				"attachment_id",
 				"in",
 				claimed.map((row) => row.attachment_id),
 			)
-			.where("status", "=", "promotion_pending")
+			.where("status", "in", ["preparing", "discarding"])
 			.returningAll()
 			.execute();
 		return rows.map(recordFromRow);
 	});
 }
 
-/** Mark one successfully copied generation durable. Idempotent/CAS guarded. */
-export async function completeFormAttachmentPromotion(
+/**
+ * Record the verified final generation without accepting the submission.
+ *
+ * Clear may win after the copy lease. In that serial order the row remains
+ * `discarding`, but recording the generation gives the same worker and every
+ * scheduled retry an exact deletion target.
+ */
+export async function completeFormAttachmentPreparation(
 	attachmentId: string,
 	destinationGeneration: string,
 ): Promise<FormAttachmentRecord | null> {
@@ -837,35 +1043,47 @@ export async function completeFormAttachmentPromotion(
 			.selectFrom("form_attachments")
 			.selectAll()
 			.where("attachment_id", "=", attachmentId)
-			.where("status", "=", "promotion_pending")
+			.where("status", "in", ["preparing", "discarding"])
 			.forUpdate()
 			.executeTakeFirst();
 		if (row === undefined) return null;
-		const durableKey = captureObjectKeyFor(
-			row.project_id,
-			row.attachment_id,
-			row.extension,
-		);
 		const updated = await tx
 			.updateTable("form_attachments")
 			.set({
-				status: "submitted",
-				submitted_at: new Date(),
-				gcs_object_key: durableKey,
-				object_generation: destinationGeneration,
-				next_promotion_at: null,
-				last_promotion_error: null,
+				status: row.status === "preparing" ? "prepared" : "discarding",
+				prepared_generation: destinationGeneration,
+				next_preparation_at:
+					row.status === "preparing" ? null : sql<Date>`now()`,
+				last_preparation_error: null,
 			})
 			.where("attachment_id", "=", attachmentId)
-			.where("status", "=", "promotion_pending")
+			.where("status", "=", row.status)
 			.returningAll()
 			.executeTakeFirst();
 		return updated === undefined ? null : recordFromRow(updated);
 	});
 }
 
-/** Preserve the row and schedule another promotion after a transient failure. */
-export async function recordFormAttachmentPromotionFailure(
+/** Remove a discard row only after all of its exact objects are gone. */
+export async function completeFormAttachmentDiscard(
+	attachmentId: string,
+	preparedGeneration: string | null,
+): Promise<boolean> {
+	const db = await getAppDb();
+	let query = db
+		.deleteFrom("form_attachments")
+		.where("attachment_id", "=", attachmentId)
+		.where("status", "=", "discarding");
+	query =
+		preparedGeneration === null
+			? query.where("prepared_generation", "is", null)
+			: query.where("prepared_generation", "=", preparedGeneration);
+	const deleted = await query.returning("attachment_id").executeTakeFirst();
+	return deleted !== undefined;
+}
+
+/** Preserve the row and schedule another preparation/discard attempt. */
+export async function recordFormAttachmentPreparationFailure(
 	attachmentId: string,
 	error: unknown,
 ): Promise<number> {
@@ -877,22 +1095,22 @@ export async function recordFormAttachmentPromotionFailure(
 	const updated = await db
 		.updateTable("form_attachments")
 		.set({
-			last_promotion_error: message,
-			next_promotion_at: sql<Date>`now() + make_interval(
+			last_preparation_error: message,
+			next_preparation_at: sql<Date>`now() + make_interval(
 				secs => least(
 					21600,
 					60 * power(
 						2,
-						least(greatest(promotion_attempts - 1, 0), 8)
+						least(greatest(preparation_attempts - 1, 0), 8)
 					)
 				)::integer
 			)`,
 		})
 		.where("attachment_id", "=", attachmentId)
-		.where("status", "=", "promotion_pending")
-		.returning("promotion_attempts")
+		.where("status", "in", ["preparing", "discarding"])
+		.returning("preparation_attempts")
 		.executeTakeFirst();
-	return updated?.promotion_attempts ?? 0;
+	return updated?.preparation_attempts ?? 0;
 }
 
 /**
@@ -922,42 +1140,71 @@ export async function loadFormAttachmentForActor(args: {
 }
 
 /**
- * Drop expired non-submitted rows and hand back their object keys.
+ * Retire a bounded batch of expired unsubmitted rows.
  *
- * Metadata hygiene only. The bytes have an independent, traffic-
- * independent guarantee — the bucket lifecycle rule on the staging prefix
- * (`lib/storage/media.ts::applyMediaBucketLifecycle`) — because a Project
- * that never writes again must still stop holding a worker's
- * photographs. This sweep exists so the table does not accumulate rows
- * describing bytes GCS has already reaped.
- *
- * Called by the scheduled capture-maintenance job and opportunistically,
- * failure-swallowed, by the initiate route. The two paths share this one
- * bounded deletion primitive.
+ * Pending/staged rows are metadata-deleted immediately and hand their staging
+ * object back to the caller; GCS lifecycle is the independent byte backstop.
+ * Preparing/prepared rows instead become `discarding` because a deterministic
+ * final-key copy may exist outside that lifecycle. The scheduled maintenance
+ * worker deletes exact source/destination generations and only then removes
+ * those rows. A live preparation lease is preserved so expiry cannot race an
+ * in-flight copy and lose its cleanup record.
  */
 export async function purgeExpiredFormAttachments(
 	limit = 200,
 ): Promise<readonly { objectKey: string; objectGeneration: string | null }[]> {
-	const db = await getAppDb();
-	const deleted = await db
-		.deleteFrom("form_attachments")
-		.where("status", "in", ["pending", "staged"])
-		.where((eb) =>
-			eb(
-				"attachment_id",
-				"in",
-				eb
-					.selectFrom("form_attachments")
-					.select("attachment_id")
-					.where("status", "in", ["pending", "staged"])
-					.where("expires_at", "<", new Date())
-					.limit(limit),
-			),
-		)
-		.returning(["gcs_object_key", "object_generation"])
-		.execute();
-	return deleted.map((row) => ({
-		objectKey: row.gcs_object_key,
-		objectGeneration: row.object_generation,
-	}));
+	return withAppTx(async (tx) => {
+		const expired = await tx
+			.selectFrom("form_attachments")
+			.selectAll()
+			// `discarding` is already owned by the retry queue. Including it
+			// here would let a permanently failing early discard fill every
+			// expiry batch and starve later pending/staged rows forever.
+			.where("status", "in", ["pending", "staged", "preparing", "prepared"])
+			.where("expires_at", "<", new Date())
+			.orderBy("expires_at")
+			.orderBy("attachment_id")
+			.limit(Math.min(Math.max(limit, 1), 500))
+			.forUpdate()
+			.skipLocked()
+			.execute();
+		const directlyDeletable = expired.filter(
+			(row) => row.status === "pending" || row.status === "staged",
+		);
+		const recoverable = expired.filter(
+			(row) => row.status === "preparing" || row.status === "prepared",
+		);
+		const deleted =
+			directlyDeletable.length === 0
+				? []
+				: await tx
+						.deleteFrom("form_attachments")
+						.where(
+							"attachment_id",
+							"in",
+							directlyDeletable.map((row) => row.attachment_id),
+						)
+						.where("status", "in", ["pending", "staged"])
+						.returning(["gcs_object_key", "object_generation"])
+						.execute();
+		for (const row of recoverable) {
+			await tx
+				.updateTable("form_attachments")
+				.set({
+					status: "discarding",
+					next_preparation_at:
+						row.status === "preparing"
+							? row.next_preparation_at
+							: sql<Date>`now()`,
+					last_preparation_error: null,
+				})
+				.where("attachment_id", "=", row.attachment_id)
+				.where("status", "=", row.status)
+				.execute();
+		}
+		return deleted.map((row) => ({
+			objectKey: row.gcs_object_key,
+			objectGeneration: row.object_generation,
+		}));
+	});
 }

@@ -128,6 +128,9 @@ import type { SearchInputValues } from "../runtimeBindings";
 vi.mock("@/lib/auth-utils", () => ({
 	getSession: vi.fn(),
 }));
+const { prepareCaptureSubmissionBytesMock } = vi.hoisted(() => ({
+	prepareCaptureSubmissionBytesMock: vi.fn(),
+}));
 vi.mock("@/lib/case-store", async () => {
 	const actual =
 		await vi.importActual<typeof import("@/lib/case-store")>(
@@ -138,6 +141,9 @@ vi.mock("@/lib/case-store", async () => {
 		withProjectContext: vi.fn(),
 	};
 });
+vi.mock("@/lib/case-store/postgres/submissionAttachments", () => ({
+	prepareCaptureSubmissionBytes: prepareCaptureSubmissionBytesMock,
+}));
 // The schema heal's Postgres boundary, stubbed for the SAME reason the
 // auth boundary is: the actions wrap their store in
 // `schemaHealingCaseStore`, whose heal loads the persisted blueprint via
@@ -146,21 +152,14 @@ vi.mock("@/lib/case-store", async () => {
 // leak no unit test may create. The heal-reaching action test scripts these per
 // call; every other test never enters the heal (only
 // `SchemaNotSyncedError` does), so the stubs stay invisible to them.
-const {
-	loadAppMock,
-	materializeMock,
-	promotePendingFormAttachmentsMock,
-	resolveAppScopeMock,
-} = vi.hoisted(() => ({
-	loadAppMock: vi.fn(),
-	materializeMock: vi.fn(),
-	promotePendingFormAttachmentsMock: vi.fn(),
-	resolveAppScopeMock: vi.fn(),
-}));
+const { loadAppMock, materializeMock, resolveAppScopeMock } = vi.hoisted(
+	() => ({
+		loadAppMock: vi.fn(),
+		materializeMock: vi.fn(),
+		resolveAppScopeMock: vi.fn(),
+	}),
+);
 vi.mock("@/lib/db/apps", () => ({ loadApp: loadAppMock }));
-vi.mock("@/lib/db/formAttachmentPromotion", () => ({
-	promotePendingFormAttachments: promotePendingFormAttachmentsMock,
-}));
 vi.mock("@/lib/db/materializeCaseStoreSchemas", () => ({
 	materializeCaseStoreSchemas: materializeMock,
 }));
@@ -3716,7 +3715,7 @@ describe("submitFormAction", () => {
 		expect(gateOrder).toBeLessThan(docReadOrder);
 	});
 
-	it("commits and promotes an attachment-bearing survey instead of taking the legacy no-op guard", async () => {
+	it("prepares and atomically commits an attachment-bearing survey instead of taking the legacy no-op guard", async () => {
 		const { getSession } = await import("@/lib/auth-utils");
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
@@ -3802,12 +3801,19 @@ describe("submitFormAction", () => {
 			],
 		});
 		expect(envelope.captureIntent.requestDigest).toMatch(/^[0-9a-f]{64}$/);
-		expect(promotePendingFormAttachmentsMock).toHaveBeenCalledWith({
+		expect(prepareCaptureSubmissionBytesMock).toHaveBeenCalledWith({
 			appId: APP_ID,
-			entryKey,
 			actorUserId: OWNER_A,
 			projectId: PROJECT_A,
+			intent: envelope.captureIntent,
 		});
+		expect(
+			prepareCaptureSubmissionBytesMock.mock.invocationCallOrder[0],
+		).toBeLessThan(applySubmission.mock.invocationCallOrder[0] ?? Infinity);
+		// There is deliberately no post-commit attachment callback: once
+		// applySubmission resolves, the action can return without awaiting any
+		// storage promise that could make an accepted form appear failed.
+		expect(prepareCaptureSubmissionBytesMock).toHaveBeenCalledTimes(1);
 	});
 
 	it("keeps replay identity stable when an unrelated app edit advances mutation_seq", async () => {

@@ -1,14 +1,15 @@
 /**
  * Scheduled form-capture maintenance entrypoint.
  *
- * Each run leases bounded promotion batches, retries the immutable staged
- * generation → durable-key copy, then removes expired pending/staged metadata
- * and its exact known generation. GCS lifecycle remains the independent
- * retention backstop for objects written after a row expired.
+ * Each run first retires expired attempts, then leases bounded preparation
+ * and discard batches. Preparing rows copy+verify immutable bytes before
+ * acceptance; discarding rows delete exact source/final generations before
+ * metadata removal. GCS lifecycle remains the independent backstop for
+ * abandoned staging-prefix bytes.
  */
 
 import { closeCaseStoreDatabase } from "@/lib/case-store/postgres/connection";
-import { promotePendingFormAttachments } from "@/lib/db/formAttachmentPromotion";
+import { preparePendingFormAttachments } from "@/lib/db/formAttachmentPreparation";
 import { purgeExpiredFormAttachments } from "@/lib/db/formAttachments";
 import { deleteAsset, deleteAssetGeneration } from "@/lib/storage/media";
 
@@ -17,15 +18,6 @@ const MAX_BATCHES = 10;
 const TEARDOWN_TIMEOUT_MS = 10_000;
 
 async function main(): Promise<void> {
-	let promoted = 0;
-	let promotionFailures = 0;
-	for (let batch = 0; batch < MAX_BATCHES; batch++) {
-		const result = await promotePendingFormAttachments({ limit: BATCH_SIZE });
-		promoted += result.promoted;
-		promotionFailures += result.failed;
-		if (result.promoted + result.failed < BATCH_SIZE) break;
-	}
-
 	let expiredRows = 0;
 	let objectDeleteFailures = 0;
 	for (let batch = 0; batch < MAX_BATCHES; batch++) {
@@ -44,13 +36,27 @@ async function main(): Promise<void> {
 		if (objects.length < BATCH_SIZE) break;
 	}
 
+	let prepared = 0;
+	let discarded = 0;
+	let preparationFailures = 0;
+	for (let batch = 0; batch < MAX_BATCHES; batch++) {
+		const result = await preparePendingFormAttachments({ limit: BATCH_SIZE });
+		prepared += result.prepared;
+		discarded += result.discarded;
+		preparationFailures += result.failed;
+		if (result.prepared + result.discarded + result.failed < BATCH_SIZE) break;
+	}
+
 	console.log(
 		JSON.stringify({
 			severity:
-				promotionFailures > 0 || objectDeleteFailures > 0 ? "WARNING" : "INFO",
+				preparationFailures > 0 || objectDeleteFailures > 0
+					? "WARNING"
+					: "INFO",
 			message: "[attachments] scheduled maintenance complete",
-			promoted,
-			promotionFailures,
+			prepared,
+			discarded,
+			preparationFailures,
 			expiredRows,
 			objectDeleteFailures,
 		}),

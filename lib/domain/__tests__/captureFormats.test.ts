@@ -124,16 +124,16 @@ describe("object keys", () => {
 		expect(key).toBe("captures-staged/proj-1/att-1.jpg");
 	});
 
-	it("promotes out of the staging prefix, where no TTL can reach it", () => {
+	it("prepares outside the staging prefix, where no TTL can reach it", () => {
 		const durable = captureObjectKeyFor("proj-1", "att-1", ".jpg");
 		expect(durable.startsWith(STAGED_CAPTURE_PREFIX)).toBe(false);
 		expect(durable).toBe("projects/proj-1/captures/att-1.jpg");
 	});
 
-	it("gives promotion a destination distinct from its source", () => {
-		// The promotion copies staging -> durable and only then repoints the
-		// row. If these two ever collided, the copy would be a no-op and the
-		// subsequent staging delete would destroy the submitted attachment.
+	it("gives preparation a destination distinct from its source", () => {
+		// Preparation copies staging -> durable before the row can be accepted.
+		// If these two ever collided, the staging lifecycle could destroy an
+		// accepted attachment.
 		const staged = stagedCaptureObjectKeyFor("p", "att", ".jpg");
 		const durable = captureObjectKeyFor("p", "att", ".jpg");
 		expect(staged).not.toBe(durable);
@@ -195,7 +195,7 @@ describe("committed capture paths", () => {
 		}
 	});
 
-	it("does not resolve non-capture fields as promotion authority", () => {
+	it("does not resolve non-capture fields as preparation authority", () => {
 		const doc = {
 			forms: { form: { uuid: "form" } },
 			fields: {

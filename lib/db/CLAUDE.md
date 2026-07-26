@@ -465,23 +465,37 @@ admission rule; post-commit `syncMediaReferences` is legacy/backfill help only.
 
 **Form attachments are a separate lane from `media_assets`, on purpose.**
 `formAttachments.ts` holds the files a worker attaches while filling in a form:
-`pending → staged → promotion_pending → submitted`, tenant-scoped
+`pending → staged → preparing → prepared → submitted`, tenant-scoped
 `(app_id, project_id)` like case rows and additionally bound to `created_by`
-because the idempotency/reservation key is client-minted. The case-store
-transaction inserts `form_submission_intents`, reserves the exact staged
-`(attachment_name, field_uuid, instance_path)` rows, applies every case effect,
-and stores the replay result atomically. Promotion is the external retry-safe
-half: it copies the immutable confirmed GCS generation to a create-only durable
-key, verifies a pre-existing destination by size/CRC32C/type, and only then
-marks the row submitted. The request tries immediately; the five-minute Cloud
-Scheduler job leases bounded batches with `FOR UPDATE SKIP LOCKED` and retries
-with backoff. Transient failure never deletes a reserved row or reports the
-already-committed form as failed. The bucket's seven-day staging lifecycle is
-the traffic-independent byte backstop; the scheduled worker and initiate-route
-sweep share `purgeExpiredFormAttachments` for unreserved row hygiene. Repeat
+because the idempotency/reservation key is client-minted. A DB transaction
+locks the entry and moves the exact selected
+`(attachment_name, field_uuid, instance_path)` rows to `preparing` before any
+GCS copy. `formAttachmentPreparation.ts` copies the immutable confirmed
+generation to a deterministic create-only durable key, verifies a pre-existing
+destination by size/CRC32C/type, and records `prepared`. The later case-store
+transaction accepts only `prepared`, then inserts `form_submission_intents`,
+moves those rows to `submitted`, applies every case effect, and stores the
+replay result atomically. A case failure restores `prepared`; no post-commit
+external await can make an accepted form appear failed.
+
+The request prepares its selected rows immediately; the five-minute Cloud
+Scheduler job leases bounded `preparing`/`discarding` batches with
+`FOR UPDATE SKIP LOCKED` and retries with backoff. The DB-first transition plus
+deterministic final key makes a crash before the row update recoverable by
+destination verification. A foreground Submit retry may make a row due
+immediately only when the prior worker recorded an error; an active lease has
+no recorded error and cannot be stolen, while unattended scheduler failures
+keep their backoff. GCS lifecycle remains the traffic-independent
+backstop for ordinary staged/browser-abandoned source bytes, but cannot
+atomically distinguish DB acceptance; accepted durability therefore requires
+the verified destination outside that TTL prefix before commit. The scheduled
+worker and initiate-route sweep share `purgeExpiredFormAttachments`. Repeat
 compaction preserves attachment-id identity and CAS-moves only a `staged` row's
 concrete `instance_path` under the same entry advisory lock; pending uploads
-cancel, while `promotion_pending` and `submitted` rows are immutable.
+cancel, `preparing`/`prepared` rows are fenced from retarget, and `submitted`
+rows are immutable. Clear/expiry moves `preparing`/`prepared` through
+`discarding`, where exact source and destination generations are deleted before
+the metadata row.
 Every item-route helper also takes the URL's `expectedAppId` and includes it in
 all candidate, lock-following, CAS, and delete predicates. Project membership
 alone never lets app B's URL read, confirm, retarget, or delete app A's row

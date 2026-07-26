@@ -187,16 +187,25 @@ export async function DELETE(
 			// not-found shape for all four, so a caller cannot probe which.
 			throw new ApiError("Attachment not found", 404);
 		}
-		// Metadata first, bytes second: an orphaned object is reaped by the
-		// staging TTL, while an orphaned ROW would describe bytes that exist
-		// with nothing able to reach them.
-		const cleanup =
-			deleted.objectGeneration === null
-				? deleteAsset(deleted.gcsObjectKey)
-				: deleteAssetGeneration(deleted.gcsObjectKey, deleted.objectGeneration);
-		await cleanup.catch((err: unknown) => {
-			log.warn("[attachments] object cleanup failed", { err, attachmentId });
-		});
+		if (deleted.status !== "discarding") {
+			// Pending/staged metadata first, bytes second: an orphaned source
+			// remains covered by the staging lifecycle. Preparing/prepared rows
+			// instead stay `discarding`; scheduled maintenance owns exact
+			// source+final cleanup before it metadata-deletes them.
+			const cleanup =
+				deleted.objectGeneration === null
+					? deleteAsset(deleted.gcsObjectKey)
+					: deleteAssetGeneration(
+							deleted.gcsObjectKey,
+							deleted.objectGeneration,
+						);
+			await cleanup.catch((err: unknown) => {
+				log.warn("[attachments] object cleanup failed", {
+					err,
+					attachmentId,
+				});
+			});
+		}
 		return NextResponse.json({ ok: true });
 	} catch (err) {
 		return handleApiError(

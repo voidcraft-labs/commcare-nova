@@ -73,6 +73,36 @@ const requestBodySchema = z
  *  the schema rejects it. */
 const ATTACHMENT_METADATA_MAX_BYTES = 4 * 1024;
 
+async function whileRequestIsActive<T>(
+	signal: AbortSignal,
+	operation: Promise<T>,
+): Promise<T> {
+	signal.throwIfAborted();
+	const boundaryClosed = Symbol("request activity boundary closed");
+	let rejectAbort!: (reason: unknown) => void;
+	let closeAbort!: () => void;
+	const aborted = new Promise<typeof boundaryClosed>((resolve, reject) => {
+		rejectAbort = reject;
+		closeAbort = () => resolve(boundaryClosed);
+	});
+	const onAbort = () =>
+		rejectAbort(signal.reason ?? new DOMException("Aborted", "AbortError"));
+	signal.addEventListener("abort", onAbort, { once: true });
+	if (signal.aborted) onAbort();
+	try {
+		const result = await Promise.race([operation, aborted]);
+		if (result === boundaryClosed) {
+			throw new Error(
+				"Request activity boundary closed before signing settled.",
+			);
+		}
+		return result;
+	} finally {
+		closeAbort();
+		signal.removeEventListener("abort", onAbort);
+	}
+}
+
 export async function POST(
 	req: NextRequest,
 	{ params }: { params: Promise<{ id: string }> },
@@ -161,12 +191,19 @@ export async function POST(
 
 		let upload: Awaited<ReturnType<typeof createSignedUploadUrl>>;
 		try {
-			upload = await createSignedUploadUrl({
-				gcsObjectKey: objectKey,
-				contentType,
-				minBytes: sizeBytes,
-				maxBytes: sizeBytes,
-			});
+			// The row commits before URL signing. Bind that external gap to
+			// request liveness so a browser disconnect promptly runs the same
+			// exact pending-row compensation as a signing failure.
+			upload = await whileRequestIsActive(
+				req.signal,
+				createSignedUploadUrl({
+					gcsObjectKey: objectKey,
+					contentType,
+					minBytes: sizeBytes,
+					maxBytes: sizeBytes,
+				}),
+			);
+			req.signal.throwIfAborted();
 		} catch (signingError) {
 			try {
 				const compensated = await compensatePendingFormAttachmentInitiation({

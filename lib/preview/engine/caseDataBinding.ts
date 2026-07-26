@@ -26,6 +26,7 @@ import {
 	ParkedValueNotFoundError,
 	type TermBindings,
 } from "@/lib/case-store";
+import { prepareCaptureSubmissionBytes } from "@/lib/case-store/postgres/submissionAttachments";
 import { AppAccessError } from "@/lib/db/appAccess";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type {
@@ -66,7 +67,6 @@ import {
 	resolvePreviewIdentity,
 	resolvePreviewIdentityForApp,
 	seedSampleCases,
-	settleSubmittedAttachments,
 	submissionEnvelopeArgs,
 } from "./caseDataBindingHelpers";
 import { reportUnexpectedActionError } from "./caseDataBindingTelemetry";
@@ -1015,40 +1015,20 @@ export async function submitFormAction(
 		) {
 			return { kind: "survey" };
 		}
+		if (built.captureIntent !== undefined) {
+			await prepareCaptureSubmissionBytes({
+				appId,
+				projectId: scope.projectId,
+				actorUserId: identity.actorUserId,
+				intent: built.captureIntent,
+			});
+		}
 		// The schema heal wraps `applySubmission` at the envelope
 		// boundary: the whole submission is one transaction, so a heal
 		// retry re-runs the whole envelope with nothing partial persisted.
 		const result = await store.applySubmission(
 			submissionEnvelopeArgs(mutation, appId, built),
 		);
-
-		// The case effect, idempotent receipt, and exact attachment intent
-		// committed together above. Promotion is deliberately the external,
-		// retry-safe half: a request failure leaves the row `promotion_pending`
-		// for the scheduled worker and never loses the accepted submission.
-		// `actorUserId`, NOT `ownerId`. The attachment rows were created with
-		// the signed-in member's id, and that same value both authorizes the
-		// Project membership and scopes the retry claim — so passing the
-		// preview's `ownerId` would key an authorization decision on authored
-		// blueprint content AND match zero rows whenever a persona is
-		// selected, silently expiring every attachment the worker just made.
-		// The two ids are identical when previewing as yourself, which is
-		// precisely why that bug would hide.
-		try {
-			await settleSubmittedAttachments({
-				appId,
-				mutation,
-				actorUserId: identity.actorUserId,
-				projectId: scope.projectId,
-			});
-		} catch (err) {
-			// The durable intent and case effects are already committed together.
-			// A request-level retry or the scheduled worker will retry promotion;
-			// reporting the submission as failed would invite duplicate user work.
-			reportUnexpectedActionError("promoteSubmittedAttachments", err, {
-				appId,
-			});
-		}
 
 		if (mutation.kind === "survey") return { kind: "survey" };
 		if (result.primaryCaseId === undefined) {

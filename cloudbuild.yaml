@@ -144,11 +144,11 @@ steps:
           --task-timeout=600
         gcloud run jobs execute commcare-nova-migrate --region=us-central1 --wait
 
-  # Promotion is deliberately outside the submission transaction, but never
-  # best-effort: a leased Cloud Run Job retries immutable staged generations,
-  # and Cloud Scheduler invokes it every five minutes. Deploy and execute the
-  # worker once before traffic moves so an incompatible or unauthorized worker
-  # fails the release instead of silently accumulating capture debt.
+  # Pre-acceptance preparation and exact discard recovery are traffic-
+  # independent: a leased Cloud Run Job resumes DB-first recovery rows, and
+  # Cloud Scheduler invokes it every five minutes. Deploy and execute the worker
+  # once before traffic moves so an incompatible or unauthorized worker fails
+  # the release instead of silently accumulating capture debt.
   - id: capture-cleanup
     name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
     entrypoint: bash

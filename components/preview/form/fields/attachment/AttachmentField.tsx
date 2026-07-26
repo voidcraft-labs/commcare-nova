@@ -16,6 +16,7 @@ import {
 	type AttachmentSlotIssue,
 	type AttachmentTaskContext,
 	cancelAttachmentTask,
+	clearAttachmentSlotIssue,
 	forgetOwnedStagedAttachment,
 	getAttachmentSlotIssue,
 	getAttachmentSlotPath,
@@ -300,6 +301,12 @@ function AttachmentControl({
 				throw unavailable;
 			}
 			setError(undefined);
+			clearAttachmentSlotIssue({
+				appId,
+				entryKey,
+				slotKey,
+				kind: "save",
+			});
 			setIntent("uploading");
 			try {
 				const next = await stageAttachment({
@@ -345,20 +352,18 @@ function AttachmentControl({
 					err instanceof AttachmentRejected
 						? err.message
 						: "That attachment couldn't be saved. Check your connection and try again.";
-				if (field.kind === "signature") {
-					setAttachmentSlotIssue({
-						appId,
-						entryKey,
-						slotKey,
-						issue: {
-							kind: "save",
-							message:
-								"This signature could not be saved. Retry now or remove it.",
-						},
-					});
-				} else {
-					setError(message);
-				}
+				setAttachmentSlotIssue({
+					appId,
+					entryKey,
+					slotKey,
+					issue: {
+						kind: "save",
+						message:
+							field.kind === "signature"
+								? "This signature could not be saved. Retry now or use Clear signature."
+								: message,
+					},
+				});
 				throw err;
 			} finally {
 				if (context.isCurrent()) {
@@ -410,7 +415,9 @@ function AttachmentControl({
 			activeIntent !== "idle" &&
 			!(
 				field.kind === "signature" &&
-				(activeIntent === "queued-upload" || activeIntent === "uploading")
+				(activeIntent === "queued-upload" ||
+					activeIntent === "uploading" ||
+					activeIntent === "queued-retarget")
 			)
 		) {
 			return;
@@ -562,6 +569,10 @@ function AttachmentControl({
 			return;
 		}
 		if (slotIssue.kind === "save") {
+			if (field.kind !== "signature") {
+				inputRef.current?.click();
+				return;
+			}
 			setIntent("queued-upload");
 			setSignatureRetryRevision((revision) => revision + 1);
 			return;
@@ -572,11 +583,13 @@ function AttachmentControl({
 				if (!isAttachmentTaskAbort(error)) blurCurrent();
 			})
 			.finally(() => setIntent("idle"));
-	}, [appId, entryKey, slotIssue, slotKey, blurCurrent, setIntent]);
+	}, [appId, entryKey, field.kind, slotIssue, slotKey, blurCurrent, setIntent]);
 
 	const hasAnswer = state.value !== "";
 	const busy = intent !== "idle";
 	const uploadActive = intent === "queued-upload" || intent === "uploading";
+	const chooseFileRecovery =
+		slotIssue?.kind === "save" && field.kind !== "signature";
 	const showError = state.touched && !state.valid;
 	const labelledBy = questionLabelledBy ?? questionLabelId;
 	const describedBy = [
@@ -620,7 +633,7 @@ function AttachmentControl({
 								issue: {
 									kind: "save",
 									message:
-										"This signature could not be saved. Retry now or remove it.",
+										"This signature could not be saved. Retry now or use Clear signature.",
 								},
 							});
 						}
@@ -770,15 +783,21 @@ function AttachmentControl({
 							onClick={retryIssue}
 							disabled={busy}
 							data-attachment-recovery
-							aria-label={`Retry ${
-								field.kind === "signature" ? "signature" : "attachment"
+							aria-label={`${
+								chooseFileRecovery
+									? "Choose file"
+									: `Retry ${
+											field.kind === "signature" ? "signature" : "attachment"
+										}`
 							} for ${accessibleQuestionLabel}`}
 							aria-labelledby={
 								labelledBy ? `${retryActionId} ${labelledBy}` : undefined
 							}
 							className="inline-flex min-h-11 touch-manipulation items-center rounded-md border border-current px-3 font-medium transition-colors not-disabled:hover:bg-nova-red/10 disabled:cursor-not-allowed disabled:opacity-40"
 						>
-							<span id={retryActionId}>Retry</span>
+							<span id={retryActionId}>
+								{chooseFileRecovery ? "Choose file" : "Retry"}
+							</span>
 						</button>
 						{field.kind === "signature" ? null : (
 							<button

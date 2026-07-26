@@ -44,7 +44,6 @@ import {
 } from "@/lib/case-store/errors";
 import { resolveAppScope } from "@/lib/db/appAccess";
 import { loadApp } from "@/lib/db/apps";
-import { promotePendingFormAttachments } from "@/lib/db/formAttachmentPromotion";
 import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
 import {
 	caseOperationConditionalGuardUuids,
@@ -1586,42 +1585,4 @@ export function schemaHealingCaseStore(
 		generateSampleData: (a) => heal(() => store.generateSampleData(a)),
 		resetSampleData: (a) => heal(() => store.resetSampleData(a)),
 	};
-}
-
-/**
- * Attempt the retry-safe external half of a submission whose case effects and
- * exact attachment intent already committed atomically.
- *
- * A failure never reclassifies or deletes a named attachment. Its row remains
- * `promotion_pending`, records the failure, and the scheduled cleanup job
- * retries it. Copy binds the immutable source generation and a create-only
- * destination; a 412 is the successful replay of a copy whose metadata flip
- * was interrupted.
- */
-export async function settleSubmittedAttachments(args: {
-	appId: string;
-	mutation: SubmissionMutation;
-	/**
-	 * The signed-in member — `identity.actorUserId`, never `ownerId`.
-	 *
-	 * It both authorizes Project membership and scopes the reconcile to the
-	 * rows this member staged, and the attachment rows were created with
-	 * exactly this id. Passing the preview's `ownerId` would key an
-	 * authorization decision on authored blueprint content AND match zero
-	 * rows whenever a persona is selected, silently expiring every
-	 * attachment the worker just made. The two are identical when previewing
-	 * as yourself, which is why that mistake hides from every test that does
-	 * not use a persona.
-	 */
-	actorUserId: string;
-	projectId: string;
-}): Promise<void> {
-	const { entryKey } = args.mutation;
-	if (entryKey === undefined) return;
-	await promotePendingFormAttachments({
-		appId: args.appId,
-		entryKey,
-		actorUserId: args.actorUserId,
-		projectId: args.projectId,
-	});
 }

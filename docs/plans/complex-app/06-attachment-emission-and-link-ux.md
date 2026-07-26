@@ -2,8 +2,7 @@
 
 **PR:** `Attachment URL columns, link presentation, and the opt-in legacy attachment mode`
 
-**Depends on:** unit 5, and the deployment target from unit 11. · **Blocks:**
-nothing.
+**Depends on:** the deployment target from unit 11. · **Blocks:** nothing.
 
 > Read [the binding contracts](00-contracts.md) first — the link-first
 > case-attachment gap there is the product decision this unit implements.

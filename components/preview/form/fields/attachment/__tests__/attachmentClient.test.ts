@@ -12,6 +12,7 @@ import {
 	reconcileAttachmentRepeatCompaction,
 	registerAttachmentSlotPath,
 	rememberOwnedStagedAttachment,
+	retargetAttachment,
 	retryAttachmentRetarget,
 	runAttachmentTask,
 	runFormAttachmentBarrier,
@@ -380,6 +381,57 @@ describe("form attachment coordinator", () => {
 		} finally {
 			vi.useRealTimers();
 		}
+	});
+
+	it("preserves a queued Clear intent when its real slot becomes dormant", async () => {
+		const entryKey = "entry-dormant-clear";
+		const slotKey = "signature:conditional-clear";
+		registerAttachmentSlotPath({
+			appId: "app-1",
+			entryKey,
+			slotKey,
+			instancePath: "/data/conditional/signature",
+			captureKind: "signature",
+		});
+		const activeStarted = deferred<void>();
+		const active = runAttachmentTask({
+			entryKey,
+			slotKey,
+			task: async ({ signal }) => {
+				activeStarted.resolve();
+				await new Promise<never>((_resolve, reject) => {
+					signal.addEventListener("abort", () => reject(signal.reason), {
+						once: true,
+					});
+				});
+			},
+		}).catch((error: unknown) => {
+			expect(isAttachmentTaskAbort(error)).toBe(true);
+		});
+		await activeStarted.promise;
+
+		let clearRan = false;
+		const clear = runAttachmentTask({
+			entryKey,
+			slotKey: "$nova-clear$signature:conditional-clear:1",
+			target: {
+				slotKey,
+				instancePath: "/data/conditional/signature",
+			},
+			task: async () => {
+				clearRan = true;
+			},
+		}).catch((error: unknown) => {
+			expect(isAttachmentTaskAbort(error)).toBe(true);
+		});
+
+		await expect(
+			runFormAttachmentBarrier(entryKey, async () => "submitted", {
+				classifySlot: () => "dormant",
+			}),
+		).resolves.toBe("submitted");
+		await Promise.all([active, clear]);
+		expect(clearRan).toBe(true);
 	});
 
 	it("cancels a hung retarget when its slot becomes dormant before Submit", async () => {
@@ -961,6 +1013,55 @@ describe("stageAttachment", () => {
 		expect(fetchMock).toHaveBeenCalledTimes(1);
 	});
 
+	it("keeps the initiate deadline open through a stalled success body", async () => {
+		vi.useFakeTimers();
+		const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) =>
+			Promise.resolve({
+				ok: true,
+				json: () => waitForAbort(init?.signal),
+			} as unknown as Response),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+
+		const stage = stageAttachment({
+			appId: "app-1",
+			entryKey: "11111111-1111-4111-8111-111111111111",
+			fieldUuid: "22222222-2222-4222-8222-222222222222",
+			instancePath: "/data/photo",
+			file: { name: "photo.png", size: 3 } as File,
+		});
+		const rejection = expect(stage).rejects.toThrow(/timed out/i);
+		await vi.advanceTimersByTimeAsync(30_000);
+
+		await rejection;
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+
+	it("keeps the initiate deadline open through a stalled error body", async () => {
+		vi.useFakeTimers();
+		const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) =>
+			Promise.resolve({
+				ok: false,
+				status: 409,
+				json: () => waitForAbort(init?.signal),
+			} as unknown as Response),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+
+		const stage = stageAttachment({
+			appId: "app-1",
+			entryKey: "11111111-1111-4111-8111-111111111111",
+			fieldUuid: "22222222-2222-4222-8222-222222222222",
+			instancePath: "/data/photo",
+			file: { name: "photo.png", size: 3 } as File,
+		});
+		const rejection = expect(stage).rejects.toThrow(/timed out/i);
+		await vi.advanceTimersByTimeAsync(30_000);
+
+		await rejection;
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+
 	it("times out a hung PUT and schedules cleanup for the minted attempt", async () => {
 		vi.useFakeTimers();
 		let call = 0;
@@ -1047,6 +1148,129 @@ describe("stageAttachment", () => {
 				"/api/apps/app-1/attachments/attachment-confirm-timeout",
 				expect.objectContaining({ method: "DELETE" }),
 			),
+		);
+	});
+
+	it("keeps the confirm deadline open through a stalled success body", async () => {
+		vi.useFakeTimers();
+		let call = 0;
+		const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+			call += 1;
+			if (call === 1) {
+				return Promise.resolve({
+					ok: true,
+					json: async () => ({
+						attachmentId: "attachment-confirm-body-timeout",
+						attachmentName: "attachment-confirm-body-timeout.png",
+						uploadUrl: "https://storage.test/upload",
+						uploadContentType: "image/png",
+						uploadHeaders: { "x-goog-if-generation-match": "0" },
+					}),
+				} as Response);
+			}
+			if (call === 2 || init?.method === "DELETE") {
+				return Promise.resolve({ ok: true, status: 200 } as Response);
+			}
+			return Promise.resolve({
+				ok: true,
+				json: () => waitForAbort(init?.signal),
+			} as unknown as Response);
+		});
+		vi.stubGlobal("fetch", fetchMock);
+
+		const stage = stageAttachment({
+			appId: "app-1",
+			entryKey: "11111111-1111-4111-8111-111111111111",
+			fieldUuid: "22222222-2222-4222-8222-222222222222",
+			instancePath: "/data/photo",
+			file: { name: "photo.png", size: 3 } as File,
+		});
+		const rejection = expect(stage).rejects.toThrow(/timed out/i);
+		await Promise.resolve();
+		await Promise.resolve();
+		await vi.advanceTimersByTimeAsync(30_000);
+
+		await rejection;
+		await vi.waitFor(() =>
+			expect(fetchMock).toHaveBeenLastCalledWith(
+				"/api/apps/app-1/attachments/attachment-confirm-body-timeout",
+				expect.objectContaining({ method: "DELETE" }),
+			),
+		);
+	});
+
+	it("keeps the confirm deadline open through a stalled error body", async () => {
+		vi.useFakeTimers();
+		let call = 0;
+		const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+			call += 1;
+			if (call === 1) {
+				return Promise.resolve({
+					ok: true,
+					json: async () => ({
+						attachmentId: "attachment-confirm-error-body-timeout",
+						attachmentName: "attachment-confirm-error-body-timeout.png",
+						uploadUrl: "https://storage.test/upload",
+						uploadContentType: "image/png",
+						uploadHeaders: { "x-goog-if-generation-match": "0" },
+					}),
+				} as Response);
+			}
+			if (call === 2 || init?.method === "DELETE") {
+				return Promise.resolve({ ok: true, status: 200 } as Response);
+			}
+			return Promise.resolve({
+				ok: false,
+				status: 409,
+				json: () => waitForAbort(init?.signal),
+			} as unknown as Response);
+		});
+		vi.stubGlobal("fetch", fetchMock);
+
+		const stage = stageAttachment({
+			appId: "app-1",
+			entryKey: "11111111-1111-4111-8111-111111111111",
+			fieldUuid: "22222222-2222-4222-8222-222222222222",
+			instancePath: "/data/photo",
+			file: { name: "photo.png", size: 3 } as File,
+		});
+		const rejection = expect(stage).rejects.toThrow(/timed out/i);
+		await Promise.resolve();
+		await Promise.resolve();
+		await vi.advanceTimersByTimeAsync(30_000);
+
+		await rejection;
+		await vi.waitFor(() =>
+			expect(fetchMock).toHaveBeenLastCalledWith(
+				"/api/apps/app-1/attachments/attachment-confirm-error-body-timeout",
+				expect.objectContaining({ method: "DELETE" }),
+			),
+		);
+	});
+
+	it("bounds and cancels repeat retarget requests", async () => {
+		vi.useFakeTimers();
+		const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) =>
+			waitForAbort(init?.signal),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+
+		const retarget = retargetAttachment({
+			appId: "app-1",
+			attachmentId: "attachment-retarget-timeout",
+			expectedInstancePath: "/data/visits[1]/photo",
+			instancePath: "/data/visits[0]/photo",
+		});
+		const rejection = expect(retarget).rejects.toThrow(/timed out/i);
+		await vi.advanceTimersByTimeAsync(30_000);
+
+		await rejection;
+		expect(fetchMock).toHaveBeenCalledWith(
+			"/api/apps/app-1/attachments/attachment-retarget-timeout",
+			expect.objectContaining({
+				method: "PATCH",
+				signal: expect.any(AbortSignal),
+			}),
 		);
 	});
 });

@@ -427,7 +427,7 @@ export function SignaturePad({
 						}
 						if (blob === null) {
 							onEncodingError?.(
-								"The signature couldn't be saved. Clear it or draw it again before submitting.",
+								"The signature couldn't be saved. Use Clear signature or draw it again before submitting.",
 							);
 							return;
 						}
@@ -453,7 +453,7 @@ export function SignaturePad({
 					} catch (error) {
 						if (isAttachmentTaskAbort(error)) return;
 						onEncodingError?.(
-							"The signature couldn't be saved. Clear it or draw it again before submitting.",
+							"The signature couldn't be saved. Use Clear signature or draw it again before submitting.",
 						);
 					} finally {
 						if (context.isCurrent()) {
@@ -465,7 +465,7 @@ export function SignaturePad({
 			}).catch((error: unknown) => {
 				if (isAttachmentTaskAbort(error)) return;
 				onEncodingError?.(
-					"The signature couldn't be saved. Clear it or draw it again before submitting.",
+					"The signature couldn't be saved. Use Clear signature or draw it again before submitting.",
 				);
 			});
 		},
@@ -494,7 +494,7 @@ export function SignaturePad({
 		retryRevisionRef.current = retryRevision;
 		if (strokesRef.current.length === 0) {
 			onEncodingError?.(
-				"The signature couldn't be saved. Clear it or draw it again before submitting.",
+				"The signature couldn't be saved. Use Clear signature or draw it again before submitting.",
 			);
 			return;
 		}

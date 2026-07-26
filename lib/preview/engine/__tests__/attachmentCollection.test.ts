@@ -2,7 +2,7 @@
  * What a submission carries as its attachment set.
  *
  * `collectAttachmentNames` decides which staged attachments survive a
- * submission. The server promotes that exact set; omitted staged rows remain
+ * submission. The server prepares that exact set; omitted staged rows remain
  * retryable/expirable rather than being destructively classified.
  *
  * The two behaviors most worth pinning are the ones that differ from the
@@ -75,7 +75,7 @@ describe("collectAttachmentNames", () => {
 
 	it("ignores non-capture answers", () => {
 		// A text answer is a case property, not an attachment name; collecting
-		// it would ask the server to promote a row that does not exist.
+		// it would ask the server to prepare a row that does not exist.
 		const engine = new FormEngine(
 			input([
 				{ id: "note", kind: "text", label: "Note" },

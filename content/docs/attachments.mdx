@@ -110,8 +110,10 @@ back. There is no way to open the file again from inside the form.
 While Nova is attaching a new file, a visible **Cancel** action stops that
 attempt. Replacing a file is confirm-before-swap, so canceling a replacement
 leaves the previous confirmed filename and answer in place. Initiate, upload,
-and confirmation requests each have a deadline; a stalled network request
-becomes a recoverable error instead of holding the whole form forever.
+confirmation, and repeat-move requests each have a deadline covering both the
+request and its success or error response. A stalled network request or
+response body becomes a recoverable error instead of holding the whole form
+forever.
 
 That means a worker cannot check what they attached — only that they
 attached something. Where getting the right file matters, ask for it in
@@ -123,13 +125,14 @@ worker who reloads mid-form sees the attachment is there but not which
 file it was. Keeping attachment questions near the end of a form, so they
 are answered and submitted in one sitting, avoids most of this.
 
-Temporary layout changes do not throw the file away. If a condition hides
-the question and later shows it again, or an author flips to Edit and back
-while that same form entry remains open, Nova restores the confirmed
-filename and answer. The same is true when deleting an earlier repeat row
-moves a surviving answer up one position: Nova moves the attachment with
-that repeat entry even if the question is hidden at the time. Leaving or
-clearing the form ends that entry.
+Temporary layout changes do not throw the file away. If saving a newly picked
+file fails, its message and **Choose file** recovery action remain with that
+question through an ordinary remount. If a condition hides the question and
+later shows it again, or an author flips to Edit and back while that same form
+entry remains open, Nova restores the confirmed filename and answer. The same
+is true when deleting an earlier repeat row moves a surviving answer up one
+position: Nova moves the attachment with that repeat entry even if the question
+is hidden at the time. Leaving or clearing the form ends that entry.
 
 If that repeat move cannot be saved — for example, while the browser is
 offline — Nova keeps the attachment and its answer in place and blocks Submit
@@ -137,7 +140,8 @@ only while the question is active. The question shows **Retry**,
 **Attach a replacement**, and **Remove** for picked files. Signature keeps
 **Retry** beside its single **Clear signature** action. The same message is
 still there after an ordinary remount. Retry moves the retained file; a
-confirmed replacement takes over cleanly; Remove or Clear clears the answer.
+confirmed replacement takes over cleanly; **Remove** or **Clear signature**
+clears the answer.
 
 ## Clearing a required attachment
 
@@ -175,23 +179,25 @@ the submission with the rest of the form.
 When a worker presses Submit, Nova first waits for every attachment change
 still in progress — including the signature pad's short pause and PNG
 encoding after the latest stroke. If that encoding or upload fails, Nova keeps
-the ink and offers Retry or Clear instead of silently submitting an older
-signature. A file or signature action that is waiting behind another
-attachment says so immediately and disables conflicting gestures. Before
-waiting, Submit cancels unfinished work for questions that are now hidden and
-retires work for questions that were removed; it keeps checking relevance while
-it waits. A hidden question's draft and error do not block the current
-submission, but become active again if the question reappears. A slow cleanup
-request for an old/replaced file never delays its replacement or Submit; the
-staging expiry remains the backstop. While attachment work and the submission
-finish, the form is visibly
-locked: answers, file controls, pickers, and repeat rows cannot change
-underneath the request. The form answers and the exact set of attached files
-are then accepted together. If moving a file into long-term storage is temporarily
-interrupted, Nova keeps retrying in the background — the worker should not
-submit the form again. Replacing, clearing, or deleting a repeat row can affect
-only the current unsubmitted attempt, never a file already accepted with a
-submission.
+the ink and offers **Retry** or **Clear signature** instead of silently
+submitting an older signature. A file or signature action that is waiting
+behind another attachment says so immediately and disables conflicting
+gestures. Before waiting, Submit cancels unfinished work for questions that are
+now hidden and retires work for questions that were removed; it keeps checking
+relevance while it waits. A **Clear signature** action the worker already chose
+still completes if the question becomes hidden, so old ink cannot return later.
+A hidden question's draft and error do not block the current submission, but
+become active again if the question reappears. A slow cleanup request for an
+old/replaced file never delays its replacement or Submit; the staging expiry
+remains the backstop. While attachment work and the submission finish, the form
+is visibly locked: answers, file controls, pickers, and repeat rows cannot change
+underneath the request. Nova makes the exact selected bytes durable before it
+accepts the form answers and files together. If that preparation is temporarily
+interrupted, Submit reports a recoverable failure and can be tried again; the
+form has not been accepted yet. Once Nova reports success, no background file
+copy remains that can later fail. Replacing, clearing, or deleting a repeat row
+can affect only the current unsubmitted attempt, never a file already accepted
+with a submission.
 
 If Submit finds an unanswered required question inside a collapsed group or
 repeating section, Nova opens every ancestor, announces the problem, scrolls it
@@ -200,8 +206,9 @@ signature pad — so the worker can fix it immediately.
 
 The same recovery works when a failed attachment save or repeat move blocks
 Submit: Nova opens the exact question, announces its retained error, and focuses
-that question's **Retry** action. Scrolling is not animated when the worker has
-requested reduced motion.
+that question's exact recovery action — **Choose file** for a picked-file save
+or **Retry** for a repeat move or signature. Scrolling is not animated when the
+worker has requested reduced motion.
 
 The preview shows you exactly what a worker sees, which means it shows
 you a filename and a **Remove** action and nothing else — no thumbnail, no

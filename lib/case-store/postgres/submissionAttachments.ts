@@ -1,9 +1,16 @@
-import { sql, type Transaction } from "kysely";
+import type { Transaction } from "kysely";
 import { lockFormAttachmentEntry } from "@/lib/db/formAttachmentLocks";
+import { preparePendingFormAttachments } from "@/lib/db/formAttachmentPreparation";
+import {
+	beginFormAttachmentPreparation,
+	FormAttachmentWriteRejectedError,
+	formAttachmentsArePrepared,
+} from "@/lib/db/formAttachments";
 import {
 	captureContentType,
 	captureExtensionFor,
 	captureInstancePathMatchesTemplate,
+	captureObjectKeyFor,
 	MAX_SUBMITTED_CAPTURE_BYTES,
 	MAX_SUBMITTED_CAPTURE_COUNT,
 } from "@/lib/domain/captureFormats";
@@ -36,6 +43,60 @@ function storedResult(value: unknown): SubmissionEnvelopeResult {
 
 type CaptureIntent = NonNullable<ApplySubmissionArgs["captureIntent"]>;
 type CommittedCaptureDescriptor = CaptureIntent["allowedAttachments"][number];
+
+/**
+ * Copy and verify every selected immutable generation before case acceptance.
+ *
+ * The DB-first `preparing` transition necessarily precedes the deterministic
+ * final-key copy, so a request crash always leaves scheduled maintenance a
+ * recovery row. This function never accepts a case effect; the later atomic
+ * envelope transaction independently re-proves `prepared` and consumes it.
+ */
+export async function prepareCaptureSubmissionBytes(args: {
+	appId: string;
+	projectId: string;
+	actorUserId: string;
+	intent: CaptureIntent;
+}): Promise<void> {
+	let begun: Awaited<ReturnType<typeof beginFormAttachmentPreparation>>;
+	try {
+		begun = await beginFormAttachmentPreparation({
+			appId: args.appId,
+			projectId: args.projectId,
+			actorUserId: args.actorUserId,
+			entryKey: args.intent.entryKey,
+			formUuid: args.intent.formUuid,
+			requestDigest: args.intent.requestDigest,
+			attachments: args.intent.attachments,
+		});
+	} catch (error) {
+		if (error instanceof FormAttachmentWriteRejectedError) {
+			reject(error.message);
+		}
+		throw error;
+	}
+	if (begun.kind === "replay") return;
+	await preparePendingFormAttachments({
+		appId: args.appId,
+		projectId: args.projectId,
+		actorUserId: args.actorUserId,
+		entryKey: args.intent.entryKey,
+		attachmentIds: begun.attachmentIds,
+		limit: begun.attachmentIds.length,
+	});
+	const ready = await formAttachmentsArePrepared({
+		appId: args.appId,
+		projectId: args.projectId,
+		actorUserId: args.actorUserId,
+		entryKey: args.intent.entryKey,
+		attachmentIds: begun.attachmentIds,
+	});
+	if (!ready) {
+		reject(
+			"An attachment could not be made durable before submission. Check your connection and try Submit again.",
+		);
+	}
+}
 
 /**
  * Re-prove immutable staged-row metadata against the capture kind in the
@@ -163,9 +224,14 @@ export async function prepareCaptureSubmission(
 	const now = new Date();
 	const selected = attachments.map((attachment) => {
 		const row = byName.get(attachment.attachmentName);
-		if (row === undefined || row.status !== "staged" || row.expires_at <= now) {
+		if (
+			row === undefined ||
+			row.status !== "prepared" ||
+			row.prepared_generation === null ||
+			row.expires_at <= now
+		) {
 			reject(
-				"An attachment named by this form is no longer staged for this entry. Attach it again.",
+				"An attachment named by this form is no longer durably prepared for this entry. Attach it again.",
 			);
 		}
 		const descriptor = allowed.get(attachment.fieldUuid);
@@ -216,20 +282,33 @@ export async function prepareCaptureSubmission(
 		})
 		.execute();
 	if (selected.length > 0) {
-		await trx
-			.updateTable("form_attachments")
-			.set({
-				status: "promotion_pending",
-				next_promotion_at: sql<Date>`now()`,
-				last_promotion_error: null,
-			})
-			.where(
-				"attachment_id",
-				"in",
-				selected.map((row) => row.attachment_id),
-			)
-			.where("status", "=", "staged")
-			.execute();
+		for (const row of selected) {
+			const updated = await trx
+				.updateTable("form_attachments")
+				.set({
+					status: "submitted",
+					submitted_at: now,
+					gcs_object_key: captureObjectKeyFor(
+						row.project_id,
+						row.attachment_id,
+						row.extension,
+					),
+					object_generation: row.prepared_generation,
+					prepared_generation: null,
+					next_preparation_at: null,
+					last_preparation_error: null,
+				})
+				.where("attachment_id", "=", row.attachment_id)
+				.where("status", "=", "prepared")
+				.where("prepared_generation", "=", row.prepared_generation)
+				.returning("attachment_id")
+				.executeTakeFirst();
+			if (updated === undefined) {
+				throw new Error(
+					"A prepared attachment changed during atomic submission.",
+				);
+			}
+		}
 	}
 	return undefined;
 }

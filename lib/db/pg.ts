@@ -407,17 +407,19 @@ export interface FormAttachmentsTable {
 	object_generation: string | null;
 	/** GCS CRC32C used to prove an idempotent destination is the same bytes. */
 	object_checksum: string | null;
-	/** `pending` | `staged` | `promotion_pending` | `submitted`. */
+	/** Verified deterministic final-key generation before atomic acceptance. */
+	prepared_generation: string | null;
+	/** `pending` | `staged` | `preparing` | `prepared` | `discarding` | `submitted`. */
 	status: string;
-	promotion_attempts: ColumnType<number, number | undefined, number>;
-	last_promotion_error: string | null;
-	next_promotion_at: ColumnType<
+	preparation_attempts: ColumnType<number, number | undefined, number>;
+	last_preparation_error: string | null;
+	next_preparation_at: ColumnType<
 		Date | null,
 		Date | string | null | undefined,
 		Date | string | null
 	>;
 	created_at: Timestamp;
-	/** Bounds `pending`/`staged` rows only; bytes have their own GCS TTL. */
+	/** Bounds every unsubmitted state; submitted rows are never swept. */
 	expires_at: Timestamp;
 	submitted_at: Timestamp | null;
 }

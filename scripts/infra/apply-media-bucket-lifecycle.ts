@@ -6,7 +6,7 @@
  * media) plus a create-only precondition, so GCS rejects an invalid or reused
  * attempt at the boundary. This idempotent operation installs both GCS
  * lifecycle rules: abandoned media attempts under `pending/` after one day
- * and staged captures after their seven-day promotion/retry window. The
+ * and staged capture sources after their seven-day preparation window. The
  * complete rule set lives in
  * `lib/storage/media.ts::applyMediaBucketLifecycle` so the prefix + TTL
  * stay coupled to the upload code.
