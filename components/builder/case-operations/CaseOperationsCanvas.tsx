@@ -135,7 +135,7 @@ export function CaseOperationsCanvas({
 						{ moved: uuid, dependsOn: view.dependenciesOf(uuid) },
 					)}`,
 				);
-				return false;
+				return undefined;
 			}
 			const outcome = view.move(uuid, toIndex);
 			if (outcome === undefined) {
@@ -144,10 +144,14 @@ export function CaseOperationsCanvas({
 				setRefusal(
 					"This change could not move just now, because the list changed while you were moving it. Try again.",
 				);
-				return false;
+				return undefined;
 			}
-			setRefusal(outcome.ok ? undefined : outcome.messages.join(" "));
-			return outcome.ok;
+			if (!outcome.ok) {
+				setRefusal(outcome.messages.join(" "));
+				return undefined;
+			}
+			setRefusal(undefined);
+			return outcome;
 		},
 		[view],
 	);
@@ -164,9 +168,9 @@ export function CaseOperationsCanvas({
 		onReorder: (_next, move) => {
 			if (!canEdit) return;
 			const moved = commitMove(move.item.uuid, move.toIndex);
-			if (moved) {
+			if (moved !== undefined) {
 				setAnnouncement(
-					`${move.item.id} moved, now ${move.toIndex + 1} of ${operations.length}.`,
+					`${move.item.id} moved, now ${moved.index + 1} of ${moved.total}.`,
 				);
 			}
 		},
@@ -186,8 +190,11 @@ export function CaseOperationsCanvas({
 		});
 		if (outcome === undefined) return;
 		if (outcome.kind === "move") {
-			if (commitMove(uuid, outcome.toIndex)) {
-				setAnnouncement(outcome.announcement);
+			const moved = commitMove(uuid, outcome.toIndex);
+			if (moved !== undefined) {
+				setAnnouncement(
+					`${view.nameOf(uuid) ?? "This change"} moved, now ${moved.index + 1} of ${moved.total}.`,
+				);
 				setRefusal(undefined);
 			}
 			return;

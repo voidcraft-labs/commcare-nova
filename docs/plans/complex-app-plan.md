@@ -240,10 +240,14 @@ rest, not on hover.
 at once; drag feeds it to `useReorderableList`'s `canDropAtIndex` — capturing the
 source on the handle's pointer-down, so the first pointer move is already gated —
 and the keyboard asks the same map before committing. Neither gesture can commit
-what the other would refuse, and `view.move` re-plans at commit so a peer edit
-mid-gesture cannot slip one through. A refused keyboard move ANNOUNCES why and
-names the operations involved (`keyboardMove.ts`), which is the whole point: a
-pointer author reads a refusal off a drop zone that will not open, and a
+what the other would refuse, and `view.move` re-plans from the invocation-time
+document so a peer edit mid-gesture cannot slip one through. The move mutation
+carries both its fractional key and requested final rank; the authoritative
+commit rejects it if a peer insertion makes that key land elsewhere. Successful
+pointer, keyboard, SA, and MCP outcomes all report the rank in the committed
+document, never the stale requested rank. A refused keyboard move ANNOUNCES why
+and names the operations involved (`keyboardMove.ts`), which is the whole point:
+a pointer author reads a refusal off a drop zone that will not open, and a
 keyboard author would otherwise get a key that silently does nothing. Refusals
 go to `role="alert"` (the screen is otherwise unchanged, so the press would read
 as a no-op) and the polite region carries only outcomes that did something.
@@ -259,12 +263,13 @@ lands a complete operation the commit gate already accepts
 `mutationCommitVerdict`). Existing-operation choices ask
 `caseOperationEditVerdict` — the real mutation planner plus that same commit
 gate — before they are offered. Changing a create into an update/close retargets
-both the case identity and its proven rolling type; case-type, retype, and link
-type pickers disable an impossible choice with the gate's reason, and omit the
-three platform-owned types everywhere. Removal asks `removalPlan` first and,
-when something depends on the operation, names each consumer and the exact slot
-holding the reference instead of offering a delete that would bounce. Viewer
-mode renders these controls as explicit disabled triggers.
+both the case identity and its proven rolling type; case-type, retype, link-type,
+identity-key, and multiplicity pickers disable every impossible choice
+with the gate's exact reason, and omit the three platform-owned types
+everywhere. Removal asks `removalPlan` first and, when something depends on the
+operation, names each consumer and the exact slot holding the reference instead
+of offering a delete that would bounce. Viewer mode renders these controls as
+explicit disabled triggers.
 
 Which form answers an operation may read is ONE rule with two callers:
 `lib/domain/caseOperationScope.ts` holds `operationCanReadFormField` and
@@ -282,18 +287,37 @@ remove use those same author identities and cross to immutable UUID leaves
 before checking. Batch add resolves earlier creates within its working overlay
 and commits the complete sequence atomically. Full-shape updates emit only
 identity-keyed scalar, write-property, link-identifier, and order mutations, so
-unrelated concurrent edits compose. Each granular event carries the deployed
-full-operation `caseOperationChange.update.value` as the immediate-parent
-fallback and its current intent in top-level `caseOperationPatch`; current
-reducers apply only the intent, immediate-parent reducers apply the equivalent
-fallback, and immediate-parent events still replay as full replacements.
-Schema integrity binds both views to one UUID and value. The authoritative
-commit guard tracks operation UUIDs plus write-property and link-identifier
-sets through the batch, rejecting peer-deleted targets and same-key peer adds
-instead of allowing a total reducer no-op to report success. Action-illegal
+unrelated concurrent edits compose. Builder full-shape edits additionally
+rebase only the slots changed from their render snapshot onto the
+invocation-time operation; peer-deleted targets and same-key write/link adds
+fail before local state changes. Each non-order granular event carries the
+deployed full-operation `caseOperationChange.update.value` as the
+immediate-parent fallback and its current intent in top-level
+`caseOperationPatch`; an ordinary move uses the deployed carrier-blind
+`caseOperationChange.move` as its exact fallback. Current reducers apply only
+the intent, immediate-parent reducers apply the equivalent fallback, and
+immediate-parent events still replay with their established semantics. Schema
+integrity binds both views to one UUID and value. The authoritative commit guard
+tracks operation UUIDs, requested move ranks, and write-property/link-identifier
+sets through the batch, rejecting peer-deleted targets, shifted destinations,
+and same-key peer adds instead of allowing a total reducer no-op to report
+success.
+
+The operation id, write property, and link identifier vocabularies share their
+validator-owned grammar with the builder and tool schemas: ASCII letters,
+digits, and underscores only; an operation id or link identifier starts with a
+letter or underscore, and a write property starts with a letter. Action-illegal
 facet combinations, platform-owned case types, and reserved write properties
-are unconstructible at
-the shared tool boundary, with the validator as the replay/import backstop.
+are unconstructible at the shared tool boundary, with the validator as the
+replay/import backstop.
+
+Lookup-backed predicates and expressions already persisted on a case operation
+remain preserved. The builder keeps the operation visible and movable but
+refuses every other edit until lookup authoring owns those slots. The carrier
+inventory is the single exhaustive oracle. Builder edits refuse before changing
+local state, carrier-blind SA/MCP reads cannot clear a hidden slot through a
+full-shape update, and moves stay persistable because their deployed fallback
+carries only UUID plus order.
 `content/docs/case-changes.mdx` is the user-facing guide.
 
 ### Case identity storage

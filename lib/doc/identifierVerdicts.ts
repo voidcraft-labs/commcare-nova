@@ -37,7 +37,11 @@ import { RESERVED_OPERATION_PROPERTIES } from "@/lib/commcare/validator/rules/ca
 import { declarersOf } from "@/lib/doc/referenceIndex";
 import {
 	type BlueprintDoc,
+	CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
+	CASE_OPERATION_PROPERTY_FORMAT_MESSAGE,
 	fieldCasePropertyOn,
+	isCaseOperationIdentifier,
+	isCaseOperationProperty,
 	type Uuid,
 } from "@/lib/domain";
 
@@ -435,12 +439,11 @@ export function caseOperationIdVerdict(
 			userMessage: "Give this change a name.",
 		};
 	}
-	if (!XML_ELEMENT_NAME_REGEX.test(trimmed)) {
+	if (id !== trimmed || !isCaseOperationIdentifier(trimmed)) {
 		return {
 			ok: false,
 			code: "illegal_format",
-			userMessage:
-				"Start with a letter; use only letters, digits, underscores, hyphens, or dots.",
+			userMessage: CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
 		};
 	}
 	if (trimmed.startsWith(RESERVED_XFORM_NODE_PREFIX)) {
@@ -495,15 +498,11 @@ export function caseOperationWritePropertyVerdict(
 	if (trimmed.length === 0) {
 		return { ok: false, code: "empty", userMessage: "Enter a property name." };
 	}
-	if (
-		!XML_ELEMENT_NAME_REGEX.test(trimmed) ||
-		!/^[a-zA-Z][a-zA-Z0-9_-]*$/.test(trimmed)
-	) {
+	if (property !== trimmed || !isCaseOperationProperty(trimmed)) {
 		return {
 			ok: false,
 			code: "illegal_format",
-			userMessage:
-				"Start with a letter; use only letters, digits, underscores, or hyphens.",
+			userMessage: CASE_OPERATION_PROPERTY_FORMAT_MESSAGE,
 		};
 	}
 	if (trimmed.length > MAX_CASE_PROPERTY_LENGTH) {
@@ -550,12 +549,11 @@ export function caseOperationLinkIdentifierVerdict(
 	if (trimmed.length === 0) {
 		return { ok: false, code: "empty", userMessage: "Name this connection." };
 	}
-	if (!XML_ELEMENT_NAME_REGEX.test(trimmed)) {
+	if (identifier !== trimmed || !isCaseOperationIdentifier(trimmed)) {
 		return {
 			ok: false,
 			code: "illegal_format",
-			userMessage:
-				"Start with a letter; use only letters, digits, underscores, hyphens, or dots.",
+			userMessage: CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
 		};
 	}
 	if (trimmed.startsWith(RESERVED_XFORM_NODE_PREFIX)) {

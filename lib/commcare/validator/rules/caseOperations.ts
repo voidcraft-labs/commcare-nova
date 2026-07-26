@@ -1,12 +1,10 @@
 import {
-	CASE_PROPERTY_REGEX,
 	CASE_TYPE_REGEX,
 	MAX_CASE_INDEX_IDENTIFIER_LENGTH,
 	MAX_CASE_PROPERTY_LENGTH,
 	MAX_CASE_TYPE_LENGTH,
 	RESERVED_CASE_PROPERTIES,
 	RESERVED_XFORM_NODE_PREFIX,
-	XML_ELEMENT_NAME_REGEX,
 } from "@/lib/commcare/constants";
 import { emitOnDeviceExpression } from "@/lib/commcare/expression";
 import { inertLookupWireNaming } from "@/lib/commcare/lookup/naming";
@@ -18,6 +16,8 @@ import {
 } from "@/lib/doc/caseOperationOrder";
 import {
 	type BlueprintDoc,
+	CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
+	CASE_OPERATION_PROPERTY_FORMAT_MESSAGE,
 	type CaseOperation,
 	type CasePropertyDataType,
 	caseDataTypeForFieldKind,
@@ -27,6 +27,8 @@ import {
 	formFieldCanKeyCreate,
 	formFieldCorrelatesWithCreate,
 	isCaseFirstModule,
+	isCaseOperationIdentifier,
+	isCaseOperationProperty,
 	MAX_CASE_OPERATION_TEXT_LENGTH,
 	type Module,
 	operationCanReadFormField,
@@ -204,7 +206,7 @@ export function validateCaseOperations(
 		}
 		seenUuids.add(operation.uuid);
 		if (
-			!XML_ELEMENT_NAME_REGEX.test(operation.id) ||
+			!isCaseOperationIdentifier(operation.id) ||
 			operation.id.startsWith(RESERVED_XFORM_NODE_PREFIX)
 		) {
 			errors.push(
@@ -212,7 +214,9 @@ export function validateCaseOperations(
 					ctx,
 					operation,
 					"CASE_OPERATION_INVALID_ID",
-					`Case operation id "${operation.id}" must be an XML-safe slug outside Nova's reserved namespace.`,
+					!isCaseOperationIdentifier(operation.id)
+						? `Case operation id "${operation.id}" is invalid. ${CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE}`
+						: `Case operation id "${operation.id}" starts with Nova's reserved "${RESERVED_XFORM_NODE_PREFIX}" namespace.`,
 				),
 			);
 		}
@@ -403,10 +407,11 @@ function validateOperation(
 	);
 	const seenWrites = new Set<string>();
 	for (const write of operation.writes ?? []) {
+		const invalidPropertyFormat = !isCaseOperationProperty(write.property);
+		const propertyTooLong = write.property.length > MAX_CASE_PROPERTY_LENGTH;
 		if (
-			!CASE_PROPERTY_REGEX.test(write.property) ||
-			!XML_ELEMENT_NAME_REGEX.test(write.property) ||
-			write.property.length > MAX_CASE_PROPERTY_LENGTH ||
+			invalidPropertyFormat ||
+			propertyTooLong ||
 			!persistedProperties.has(write.property)
 		) {
 			errors.push(
@@ -414,7 +419,11 @@ function validateOperation(
 					ctx,
 					operation,
 					"CASE_OPERATION_UNKNOWN_PROPERTY",
-					`Case property "${write.property}" is not declared on ${destination}.`,
+					invalidPropertyFormat
+						? `Case property "${write.property}" is invalid. ${CASE_OPERATION_PROPERTY_FORMAT_MESSAGE}`
+						: propertyTooLong
+							? `Case property "${write.property}" is longer than ${MAX_CASE_PROPERTY_LENGTH} characters.`
+							: `Case property "${write.property}" is not declared on ${destination}.`,
 				),
 			);
 		}
@@ -461,18 +470,24 @@ function validateOperation(
 
 	const linkIds = new Set<string>();
 	for (const link of operation.links ?? []) {
-		if (
-			!XML_ELEMENT_NAME_REGEX.test(link.identifier) ||
-			link.identifier.length > MAX_CASE_INDEX_IDENTIFIER_LENGTH ||
-			link.identifier.startsWith(RESERVED_XFORM_NODE_PREFIX) ||
-			linkIds.has(link.identifier)
-		) {
+		const invalidLinkFormat = !isCaseOperationIdentifier(link.identifier);
+		const linkTooLong =
+			link.identifier.length > MAX_CASE_INDEX_IDENTIFIER_LENGTH;
+		const reservedLink = link.identifier.startsWith(RESERVED_XFORM_NODE_PREFIX);
+		const duplicateLink = linkIds.has(link.identifier);
+		if (invalidLinkFormat || linkTooLong || reservedLink || duplicateLink) {
 			errors.push(
 				opError(
 					ctx,
 					operation,
 					"CASE_OPERATION_LINK_INVALID",
-					`Link identifier "${link.identifier}" must be unique, XML-safe, and at most ${MAX_CASE_INDEX_IDENTIFIER_LENGTH} characters.`,
+					invalidLinkFormat
+						? `Link identifier "${link.identifier}" is invalid. ${CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE}`
+						: linkTooLong
+							? `Link identifier "${link.identifier}" is longer than ${MAX_CASE_INDEX_IDENTIFIER_LENGTH} characters.`
+							: reservedLink
+								? `Link identifier "${link.identifier}" starts with Nova's reserved "${RESERVED_XFORM_NODE_PREFIX}" namespace.`
+								: `Link identifier "${link.identifier}" is used more than once by this operation.`,
 				),
 			);
 		}

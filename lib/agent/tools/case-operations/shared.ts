@@ -21,6 +21,10 @@ import {
 import {
 	asUuid,
 	type BlueprintDoc,
+	CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
+	CASE_OPERATION_IDENTIFIER_REGEX,
+	CASE_OPERATION_PROPERTY_FORMAT_MESSAGE,
+	CASE_OPERATION_PROPERTY_REGEX,
 	type CaseOperation,
 	type CaseOperationLink,
 	type CaseOperationWrite,
@@ -42,8 +46,6 @@ import {
 export { authorPredicateSchema, authorValueExpressionSchema };
 
 const CASE_TYPE_PATTERN = /^[A-Za-z][A-Za-z0-9_-]{0,254}$/;
-const XML_ID_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
-const PROPERTY_PATTERN = /^[A-Za-z][A-Za-z0-9_-]{0,254}$/;
 
 const caseTypeInputSchema = z
 	.string()
@@ -59,8 +61,8 @@ const caseTypeInputSchema = z
 const operationIdInputSchema = z
 	.string()
 	.regex(
-		XML_ID_PATTERN,
-		"Operation id must start with a letter or underscore and use only letters, digits, or underscores.",
+		CASE_OPERATION_IDENTIFIER_REGEX,
+		CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
 	)
 	.refine(
 		(value) => !value.startsWith("__nova_"),
@@ -69,10 +71,7 @@ const operationIdInputSchema = z
 
 const propertyInputSchema = z
 	.string()
-	.regex(
-		PROPERTY_PATTERN,
-		"Property must start with a letter and use only letters, digits, underscores, or hyphens.",
-	)
+	.regex(CASE_OPERATION_PROPERTY_REGEX, CASE_OPERATION_PROPERTY_FORMAT_MESSAGE)
 	.superRefine((value, ctx) => {
 		const verdict = caseOperationWritePropertyVerdict(value, new Set());
 		if (verdict.ok) return;
@@ -82,8 +81,8 @@ const propertyInputSchema = z
 const linkIdInputSchema = z
 	.string()
 	.regex(
-		XML_ID_PATTERN,
-		"Connection id must start with a letter or underscore and use only letters, digits, or underscores.",
+		CASE_OPERATION_IDENTIFIER_REGEX,
+		CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
 	)
 	.max(255)
 	.superRefine((value, ctx) => {

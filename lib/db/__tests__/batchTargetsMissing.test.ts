@@ -743,6 +743,103 @@ describe("batchTargetsMissing — case-operation logical identities", () => {
 		).toBe(true);
 	});
 
+	it("rejects a move whose fractional key no longer lands at its requested rank", () => {
+		const { doc, formUuid } = fixture();
+		const first = operationIn(doc, formUuid);
+		const second: CaseOperation = {
+			...first,
+			uuid: OTHER_OPERATION,
+			id: "second",
+			order: "c",
+		};
+		doc.forms[formUuid].caseOperations = [first, second];
+		const move: Mutation = {
+			kind: "updateForm",
+			uuid: asUuid(formUuid),
+			patch: {},
+			caseOperationChange: {
+				operation: "move",
+				uuid: OPERATION,
+				order: "d",
+			},
+			caseOperationPatch: {
+				operation: "move",
+				uuid: OPERATION,
+				order: "d",
+				index: 1,
+			},
+		};
+
+		expect(batchTargetsMissing(doc, [move])).toBe(false);
+
+		const fresh = structuredClone(doc);
+		fresh.forms[formUuid].caseOperations?.push({
+			...first,
+			uuid: asUuid("33333333-3333-4333-8333-333333333333"),
+			id: "peer",
+			order: "b",
+		});
+		expect(batchTargetsMissing(fresh, [move])).toBe(true);
+	});
+
+	it("judges rank intent against the complete same-batch membership and order projection", () => {
+		const { doc, formUuid } = fixture();
+		const first = operationIn(doc, formUuid);
+		const second: CaseOperation = {
+			...first,
+			uuid: OTHER_OPERATION,
+			id: "second",
+			order: "b",
+		};
+		const third: CaseOperation = {
+			...first,
+			uuid: asUuid("33333333-3333-4333-8333-333333333333"),
+			id: "third",
+			order: "c",
+		};
+		doc.forms[formUuid].caseOperations = [first, second, third];
+		const move = (
+			uuid: ReturnType<typeof asUuid>,
+			order: string,
+			index: number,
+		): Mutation => ({
+			kind: "updateForm",
+			uuid: asUuid(formUuid),
+			patch: {},
+			caseOperationChange: { operation: "move", uuid, order },
+			caseOperationPatch: { operation: "move", uuid, order, index },
+		});
+
+		// The first event temporarily puts `second` last. Only the complete
+		// batch has C(x), B(y), A(z), so an intermediate-rank check would
+		// falsely reject B's intended final rank 1.
+		expect(
+			batchTargetsMissing(doc, [
+				move(OTHER_OPERATION, "y", 1),
+				move(OPERATION, "z", 2),
+				move(third.uuid, "x", 0),
+			]),
+		).toBe(false);
+
+		const peer: CaseOperation = {
+			...first,
+			uuid: asUuid("44444444-4444-4444-8444-444444444444"),
+			id: "same_batch_birth",
+			order: "b",
+		};
+		expect(
+			batchTargetsMissing(doc, [
+				move(OPERATION, "z", 3),
+				{
+					kind: "updateForm",
+					uuid: asUuid(formUuid),
+					patch: {},
+					caseOperationChange: { operation: "add", value: peer },
+				},
+			]),
+		).toBe(false);
+	});
+
 	it("advances births, removals, and full replacements across one batch", () => {
 		const { doc, formUuid } = fixture();
 		const operation = operationIn(doc, formUuid);

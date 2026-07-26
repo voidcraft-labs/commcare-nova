@@ -155,6 +155,19 @@ export function batchTargetsMissing(
 	const caseOperationsByForm = new Map<string, Set<string>>();
 	const caseOperationWrites = new Map<string, Set<string>>();
 	const caseOperationLinks = new Map<string, Set<string>>();
+	const caseOperationOrders = new Map<
+		string,
+		{ readonly uuid: string; order: string | undefined }
+	>();
+	// Rank intent describes the batch's committed end state. Defer the check
+	// until every same-batch add/remove/move has advanced the projection; an
+	// autosave may carry several absolute order-key changes, and validating an
+	// intermediate rank would reject its own later mutations as a fake peer
+	// conflict. Only the final rank-bearing move for an identity survives.
+	const caseOperationMoveExpectations = new Map<
+		string,
+		{ readonly formUuid: string; readonly uuid: string; readonly index: number }
+	>();
 	const caseOperationKey = (formUuid: string, operationUuid: string) =>
 		`${formUuid}\0${operationUuid}`;
 	const seedCaseOperation = (
@@ -175,6 +188,11 @@ export function batchTargetsMissing(
 			key,
 			new Set((operation.links ?? []).map((link) => link.identifier)),
 		);
+		caseOperationMoveExpectations.delete(key);
+		caseOperationOrders.set(key, {
+			uuid: operation.uuid,
+			order: operation.order,
+		});
 	};
 	const removeSeededCaseOperation = (
 		formUuid: string,
@@ -184,6 +202,35 @@ export function batchTargetsMissing(
 		const key = caseOperationKey(formUuid, operationUuid);
 		caseOperationWrites.delete(key);
 		caseOperationLinks.delete(key);
+		caseOperationOrders.delete(key);
+		caseOperationMoveExpectations.delete(key);
+	};
+	const movedCaseOperationRank = (
+		formUuid: string,
+		operationUuid: string,
+		order: string | undefined,
+	): number => {
+		const entries = [...(caseOperationsByForm.get(formUuid) ?? [])]
+			.map((uuid) => {
+				const existing = caseOperationOrders.get(
+					caseOperationKey(formUuid, uuid),
+				);
+				return {
+					uuid,
+					order: uuid === operationUuid ? order : existing?.order,
+				};
+			})
+			.sort((left, right) => {
+				if (left.order !== undefined && right.order !== undefined) {
+					if (left.order < right.order) return -1;
+					if (left.order > right.order) return 1;
+					return left.uuid.localeCompare(right.uuid);
+				}
+				if (left.order !== undefined) return -1;
+				if (right.order !== undefined) return 1;
+				return left.uuid.localeCompare(right.uuid);
+			});
+		return entries.findIndex((entry) => entry.uuid === operationUuid);
 	};
 	for (const form of Object.values(doc.forms)) {
 		caseOperationsByForm.set(form.uuid, new Set());
@@ -286,6 +333,20 @@ export function batchTargetsMissing(
 							links.delete(semantic.identifier);
 							break;
 						case "move":
+							if (semantic.index !== undefined) {
+								if (semantic.order === null) return true;
+								caseOperationMoveExpectations.set(key, {
+									formUuid: m.uuid,
+									uuid: semantic.uuid,
+									index: semantic.index,
+								});
+							} else {
+								caseOperationMoveExpectations.delete(key);
+							}
+							caseOperationOrders.set(key, {
+								uuid: semantic.uuid,
+								order: semantic.order ?? undefined,
+							});
 							break;
 					}
 					break;
@@ -312,6 +373,13 @@ export function batchTargetsMissing(
 						break;
 					case "move":
 						if (!operationUuids.has(change.uuid)) return true;
+						caseOperationMoveExpectations.delete(
+							caseOperationKey(m.uuid, change.uuid),
+						);
+						caseOperationOrders.set(caseOperationKey(m.uuid, change.uuid), {
+							uuid: change.uuid,
+							order: change.order,
+						});
 						break;
 				}
 				break;
@@ -455,6 +523,17 @@ export function batchTargetsMissing(
 				break;
 			default:
 				assertNever(m, "batchTargetsMissing");
+		}
+	}
+	for (const expectation of caseOperationMoveExpectations.values()) {
+		const order = caseOperationOrders.get(
+			caseOperationKey(expectation.formUuid, expectation.uuid),
+		)?.order;
+		if (
+			movedCaseOperationRank(expectation.formUuid, expectation.uuid, order) !==
+			expectation.index
+		) {
+			return true;
 		}
 	}
 	return false;

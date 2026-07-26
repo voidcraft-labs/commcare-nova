@@ -84,12 +84,19 @@ Most forms save their answers onto their primary case through their fields. Case
 
 These tools use author identities throughout: module, form, and operation slug ids, plus field paths such as `visits/outcome`. They never ask for or return storage UUIDs. A later operation in one add call can target an earlier create from that call by its operation id; the whole list is checked and saved atomically.
 
+Operation ids and link identifiers contain letters, numbers, and underscores
+and start with a letter or underscore. Write-property names use the same
+characters and start with a letter. An operation that already contains
+lookup-table logic is preserved and remains movable by id, but its unreadable
+slots are withheld and a full-shape update is refused rather than dropping
+logic the author projection cannot represent.
+
 | Tool | What it does |
 |---|---|
 | `get_case_operations` | List a form's case operations in execution order, using operation ids and field paths. |
 | `add_case_operations` | Add one or more complete create, update, or close operations. Later items may target an earlier create in the same call. |
-| `update_case_operation` | Replace one operation's author shape by id. Only changed identity-keyed slots are written, so unrelated concurrent edits compose. |
-| `move_case_operation` | Move an operation to a new execution index. Refuses dependency-breaking or non-portable order. |
+| `update_case_operation` | Edit one operation's complete author shape by id. Only changed identity-keyed slots are written, so unrelated concurrent edits compose. |
+| `move_case_operation` | Move an operation to a new execution index. Refuses dependency-breaking, non-portable, or peer-shifted placement and reports the committed index. |
 | `remove_case_operation` | Remove an operation by id. Refuses while another operation still depends on it and names the dependents. |
 
 ## Working on fields (questions)

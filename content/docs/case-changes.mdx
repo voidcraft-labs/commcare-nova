@@ -85,6 +85,11 @@ A case type that would conflict with the chosen case, a later type change, or a
 connection is disabled with the reason beside it; platform-owned case types
 never appear. You can choose an available option knowing it will save.
 
+If an imported change contains lookup-table logic that this editor does not
+author, Nova preserves the logic and makes the change read-only instead of
+risking a partial save. You can still move the whole change in the execution
+order.
+
 Values can come from a **form answer**, from information already on a case, from
 fixed values, from information about the person using the app, or from a
 calculation you build.
@@ -131,7 +136,9 @@ Case changes are also part of Nova's shared authoring tools. You can ask Nova in
 chat to add, edit, move, or remove them, and a connected MCP agent has the same
 abilities. Both surfaces use the names you see in the builder: the module,
 form, and change ids plus field paths such as `visits/outcome`. Internal storage
-ids never enter the conversation.
+ids never enter the conversation. Change ids and connection names use letters,
+numbers, and underscores and start with a letter or underscore; saved property
+names use the same characters and start with a letter.
 
 A request that adds several changes can connect them in one atomic call — for
 example, create a referral and then update that new referral. If any change is

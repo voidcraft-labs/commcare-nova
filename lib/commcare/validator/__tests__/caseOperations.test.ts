@@ -3,7 +3,14 @@ import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { LookupTypeIndex } from "@/lib/commcare/validator/lookupTypeContext";
 import { validateCaseOperations } from "@/lib/commcare/validator/rules/caseOperations";
 import { asUuid } from "@/lib/doc/types";
-import type { BlueprintDoc, CaseOperation, Form, Uuid } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
+	CASE_OPERATION_PROPERTY_FORMAT_MESSAGE,
+	type CaseOperation,
+	type Form,
+	type Uuid,
+} from "@/lib/domain";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import {
 	concat,
@@ -323,6 +330,47 @@ describe("case-operation activation and identity", () => {
 			update({ id: "create_visit" }),
 		]);
 		expectCode("CASE_OPERATION_INVALID_ID", [update({ id: "__nova_bad" })]);
+	});
+
+	it("accepts underscores but rejects hyphens and dots in emitted node names", () => {
+		expect(codesFor([update({ id: "_update_patient2" })])).not.toContain(
+			"CASE_OPERATION_INVALID_ID",
+		);
+		for (const id of ["update-patient", "update.patient"]) {
+			const error = errorsFor([update({ id })]).find(
+				(candidate) => candidate.code === "CASE_OPERATION_INVALID_ID",
+			);
+			expect(error?.message).toContain(
+				CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
+			);
+		}
+		for (const property of ["not-wire-safe", "not.wire.safe"]) {
+			const error = errorsFor([
+				update({
+					writes: [{ property, value: term(literal("not emitted as a node")) }],
+				}),
+			]).find(
+				(candidate) => candidate.code === "CASE_OPERATION_UNKNOWN_PROPERTY",
+			);
+			expect(error?.message).toContain(CASE_OPERATION_PROPERTY_FORMAT_MESSAGE);
+		}
+		for (const identifier of ["parent-link", "parent.link"]) {
+			const error = errorsFor([
+				update({
+					links: [
+						{
+							identifier,
+							targetType: "visit",
+							target: null,
+							relationship: "child",
+						},
+					],
+				}),
+			]).find((candidate) => candidate.code === "CASE_OPERATION_LINK_INVALID");
+			expect(error?.message).toContain(
+				CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
+			);
+		}
 	});
 
 	it("keeps repeated operations on an explicit in-form repeat", () => {

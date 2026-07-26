@@ -29,8 +29,8 @@ import {
 	type CaseOperationMutationPlan,
 	caseOperationEditVerdict,
 	moveCaseOperationMutation,
+	planCaseOperationUpdate,
 	removeCaseOperationMutation,
-	updateCaseOperationMutations,
 } from "../caseOperationMutations";
 import { caseOperationConditionalGuardUuids } from "../caseOperationOrder";
 import {
@@ -41,7 +41,7 @@ import {
 	caseOperationMoveVerdicts,
 } from "../caseOperationReview";
 import type { Uuid } from "../types";
-import { useBlueprintDoc } from "./useBlueprintDoc";
+import { useBlueprintDoc, useBlueprintDocApi } from "./useBlueprintDoc";
 import {
 	type CommitOutcome,
 	useBlueprintMutations,
@@ -69,11 +69,23 @@ export interface CaseOperationsView {
 	readonly add: (operation: CaseOperation, index?: number) => CommitOutcome;
 	readonly update: (operation: CaseOperation) => CommitOutcome;
 	readonly remove: (uuid: Uuid) => CommitOutcome | undefined;
-	readonly move: (uuid: Uuid, index: number) => CommitOutcome | undefined;
+	readonly move: (
+		uuid: Uuid,
+		index: number,
+	) => CaseOperationMoveCommitOutcome | undefined;
+}
+
+export type CaseOperationMoveCommitOutcome =
+	| { readonly ok: true; readonly index: number; readonly total: number }
+	| { readonly ok: false; readonly messages: string[] };
+
+function refused(message: string): CommitOutcome {
+	return { ok: false, messages: [message] };
 }
 
 export function useCaseOperations(formUuid: Uuid): CaseOperationsView {
 	const mutations = useBlueprintMutations();
+	const docApi = useBlueprintDocApi();
 	/* The whole doc: every planner takes it, and the operation graph spans
 	 * the form's fields (repeat scopes) as well as its operations. */
 	const doc = useBlueprintDoc((state) => state);
@@ -145,41 +157,85 @@ export function useCaseOperations(formUuid: Uuid): CaseOperationsView {
 	/* Inline, not toasting: a refusal belongs beside the list it is about,
 	 * and these surfaces all have somewhere to put it. */
 	const add = useCallback(
-		(operation: CaseOperation, index?: number) =>
-			mutations.inline.commitMany(
-				addCaseOperationMutations(doc, formUuid, operation, index),
-			),
-		[doc, formUuid, mutations],
+		(operation: CaseOperation, index?: number) => {
+			const fresh = docApi.getState();
+			const form = fresh.forms[formUuid];
+			if (form === undefined) {
+				return refused("This form is no longer part of the app.");
+			}
+			if (
+				(form.caseOperations ?? []).some(
+					(candidate) => candidate.uuid === operation.uuid,
+				)
+			) {
+				return refused(
+					"This case change was added elsewhere first. Review the latest list and try again.",
+				);
+			}
+			return mutations.inline.commitMany(
+				addCaseOperationMutations(fresh, formUuid, operation, index),
+			);
+		},
+		[docApi, formUuid, mutations],
 	);
 
 	const update = useCallback(
-		(operation: CaseOperation) =>
-			mutations.inline.commitMany(
-				updateCaseOperationMutations(doc, formUuid, operation),
-			),
-		[doc, formUuid, mutations],
+		(operation: CaseOperation) => {
+			const base = doc.forms[formUuid]?.caseOperations?.find(
+				(candidate) => candidate.uuid === operation.uuid,
+			);
+			if (base === undefined) {
+				return refused("This case change is no longer part of the form.");
+			}
+			const fresh = docApi.getState();
+			const plan = planCaseOperationUpdate(fresh, formUuid, operation, base);
+			if (!plan.ok) return refused(plan.reason);
+			return mutations.inline.commitMany([...plan.mutations]);
+		},
+		[doc, docApi, formUuid, mutations],
 	);
 
 	const remove = useCallback(
 		(uuid: Uuid) => {
-			const plan = removeCaseOperationMutation(doc, formUuid, uuid);
+			const plan = removeCaseOperationMutation(
+				docApi.getState(),
+				formUuid,
+				uuid,
+			);
 			// A refused plan never reaches the store: the surface asked
 			// `removalPlan` first and is showing the review instead.
 			return plan.ok
 				? mutations.inline.commitMany([...plan.mutations])
 				: undefined;
 		},
-		[doc, formUuid, mutations],
+		[docApi, formUuid, mutations],
 	);
 
 	const move = useCallback(
 		(uuid: Uuid, index: number) => {
-			const plan = moveCaseOperationMutation(doc, formUuid, uuid, index);
-			return plan.ok
-				? mutations.inline.commitMany([...plan.mutations])
-				: undefined;
+			const plan = moveCaseOperationMutation(
+				docApi.getState(),
+				formUuid,
+				uuid,
+				index,
+			);
+			if (!plan.ok) return undefined;
+			const outcome = mutations.inline.commitMany([...plan.mutations]);
+			if (!outcome.ok) return outcome;
+			const committed = orderedCaseOperations(
+				docApi.getState().forms[formUuid] ?? {},
+			);
+			const committedIndex = committed.findIndex(
+				(operation) => operation.uuid === uuid,
+			);
+			if (committedIndex < 0) return undefined;
+			return {
+				ok: true as const,
+				index: committedIndex,
+				total: committed.length,
+			};
 		},
-		[doc, formUuid, mutations],
+		[docApi, formUuid, mutations],
 	);
 
 	return {

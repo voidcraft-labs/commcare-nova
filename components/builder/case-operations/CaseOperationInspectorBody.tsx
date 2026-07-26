@@ -330,6 +330,15 @@ export function CaseOperationInspectorBody({
 								value={operation.target.idFrom}
 								options={identityKeys}
 								canEdit={canEdit}
+								choiceVerdict={(idFrom) =>
+									view.editVerdict({
+										...operation,
+										target:
+											idFrom === undefined
+												? { kind: "new" }
+												: { kind: "new", idFrom },
+									})
+								}
 								onChange={(idFrom) =>
 									commit({
 										...operation,
@@ -352,6 +361,12 @@ export function CaseOperationInspectorBody({
 							operation={operation}
 							repeats={repeats}
 							canEdit={canEdit}
+							choiceVerdict={(repeat) =>
+								view.editVerdict({
+									...operation,
+									forEach: repeat === undefined ? undefined : { repeat },
+								})
+							}
 							wouldStrandReads={(repeat) =>
 								operationReadsOutsideRepeat(fieldEntries, operation, repeat)
 							}
@@ -614,11 +629,15 @@ function IdentityKeyMenu({
 	value,
 	options,
 	canEdit,
+	choiceVerdict,
 	onChange,
 }: {
 	readonly value: Uuid | undefined;
 	readonly options: ReturnType<typeof identityKeyFieldDecls>;
 	readonly canEdit: boolean;
+	readonly choiceVerdict: (
+		idFrom: Uuid | undefined,
+	) => { readonly ok: true } | { readonly ok: false; readonly reason: string };
 	readonly onChange: (idFrom: Uuid | undefined) => void;
 }) {
 	const triggerRef = useRef<HTMLButtonElement>(null);
@@ -673,36 +692,40 @@ function IdentityKeyMenu({
 					style={{ minWidth: "var(--anchor-width)" }}
 				>
 					<DropdownMenuPopup className="min-w-0">
-						<DropdownMenuItem
-							onClick={() => onChange(undefined)}
-							className={
-								value === undefined
-									? "bg-nova-violet/10 text-nova-violet-bright"
-									: ""
-							}
-						>
-							<span className="min-w-0 flex-1 text-left">
-								<span className="block">A distinct case each time</span>
-								<span className="block text-xs text-nova-text-muted">
-									Every submission makes its own case
-								</span>
-							</span>
-						</DropdownMenuItem>
-						{options.map((option) => (
-							<DropdownMenuItem
-								key={option.uuid}
-								onClick={() => onChange(option.uuid)}
-								className={
-									option.uuid === value
-										? "bg-nova-violet/10 text-nova-violet-bright"
-										: ""
-								}
-							>
-								<span className="min-w-0 flex-1 break-words text-left">
-									Keyed by “{option.label}”
-								</span>
-							</DropdownMenuItem>
-						))}
+						{[
+							{ uuid: undefined, label: "A distinct case each time" },
+							...options,
+						].map((option) => {
+							const active = option.uuid === value;
+							const verdict = active
+								? ({ ok: true } as const)
+								: choiceVerdict(option.uuid);
+							return (
+								<DropdownMenuItem
+									key={option.uuid ?? "generated"}
+									disabled={!verdict.ok}
+									onClick={() => onChange(option.uuid)}
+									className={
+										active ? "bg-nova-violet/10 text-nova-violet-bright" : ""
+									}
+								>
+									<span className="min-w-0 flex-1 text-left">
+										<span className="block break-words">
+											{option.uuid === undefined
+												? option.label
+												: `Keyed by “${option.label}”`}
+										</span>
+										<span className="block break-words text-xs text-nova-text-muted">
+											{verdict.ok
+												? option.uuid === undefined
+													? "Every submission makes its own case"
+													: "The same answer reaches the same case"
+												: verdict.reason}
+										</span>
+									</span>
+								</DropdownMenuItem>
+							);
+						})}
 					</DropdownMenuPopup>
 				</DropdownMenuPositioner>
 			</DropdownMenuPortal>
@@ -714,12 +737,16 @@ function MultiplicityMenu({
 	operation,
 	repeats,
 	canEdit,
+	choiceVerdict,
 	wouldStrandReads,
 	onChange,
 }: {
 	readonly operation: CaseOperation;
 	readonly repeats: ReturnType<typeof repeatFieldDecls>;
 	readonly canEdit: boolean;
+	readonly choiceVerdict: (
+		repeat: Uuid | undefined,
+	) => { readonly ok: true } | { readonly ok: false; readonly reason: string };
 	readonly wouldStrandReads: (repeat: Uuid | undefined) => boolean;
 	readonly onChange: (repeat: Uuid | undefined) => void;
 }) {
@@ -774,10 +801,18 @@ function MultiplicityMenu({
 								 * per iteration. Refusing here is what keeps the saved
 								 * expressions from becoming references the gate rejects. */
 								const strands = !active && wouldStrandReads(candidate);
+								const verdict = active
+									? ({ ok: true } as const)
+									: choiceVerdict(candidate);
+								const reason = !verdict.ok
+									? verdict.reason
+									: strands
+										? "This change reads answers it could no longer reach here. Change those values first."
+										: undefined;
 								return (
 									<DropdownMenuItem
 										key={candidate ?? "once"}
-										disabled={strands}
+										disabled={reason !== undefined}
 										onClick={() => onChange(candidate)}
 										className={
 											active ? "bg-nova-violet/10 text-nova-violet-bright" : ""
@@ -789,10 +824,9 @@ function MultiplicityMenu({
 													? "Once per submission"
 													: `Once for each “${repeat.label}” entry`}
 											</span>
-											{strands && (
+											{reason !== undefined && (
 												<span className="block break-words text-xs text-nova-text-muted">
-													This change reads answers it could no longer reach
-													here. Change those values first.
+													{reason}
 												</span>
 											)}
 										</span>

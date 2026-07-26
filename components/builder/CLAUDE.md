@@ -250,6 +250,20 @@ operation the gate already accepts (`seeds.ts`, proved through
 `mutationCommitVerdict`); removal asks `removalPlan` first and, when something
 depends on it, names each consumer and the exact slot rather than offering a
 delete that would bounce. Inline confirmations use `useInlineConfirmFocus`.
+Every candidate in the action, case-type, target, identity-key, multiplicity,
+retype, and link-type menus asks `view.editVerdict`; a stranded downstream
+consumer therefore disables the exact choice with the planner's reason instead
+of allowing a commit-gate bounce. A saved lookup-carrier-bearing operation is
+read-only for all non-no-op edits with the shared carrier reason, but remains
+movable because the move envelope never serializes its hidden AST.
+
+`useCaseOperations` treats the render snapshot as intent, never as commit state.
+Every callback reads `docApi.getState()` at invocation. Full-shape edits rebase
+only changed scalar/write/link slots onto that fresh operation, refusing a
+peer-deleted logical target or same-key peer add before local mutation. Adds,
+removes, and moves resolve their targets against the same fresh snapshot; move
+announcements use the rank and list length after the synchronous commit, not
+the requested index captured by the gesture.
 
 Which answers a change may read is not decided here: `lib/domain/caseOperationScope.ts`
 holds the rule and the validator calls the same functions, so `formFieldScope.ts`

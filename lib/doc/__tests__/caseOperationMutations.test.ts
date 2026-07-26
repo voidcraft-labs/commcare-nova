@@ -544,6 +544,53 @@ describe("case-operation builder choice verdict", () => {
 			}),
 		).toMatchObject({ ok: false });
 	});
+
+	it("rejects keying a generated create after an earlier non-create effect", () => {
+		const { doc, formUuid } = fixture();
+		const earlier: CaseOperation = {
+			uuid: OTHER,
+			id: "update_patient",
+			order: "a",
+			action: "update",
+			caseType: "patient",
+			target: { kind: "session" },
+		};
+		const generated = createOperation({ order: "b" });
+		(doc.forms[formUuid] as Form).caseOperations = [earlier, generated];
+
+		expect(caseOperationEditVerdict(doc, formUuid, generated)).toEqual({
+			ok: true,
+		});
+		expect(
+			caseOperationEditVerdict(doc, formUuid, {
+				...generated,
+				target: { kind: "new", idFrom: NAME },
+			}),
+		).toMatchObject({
+			ok: false,
+			reason: expect.stringContaining("follows a non-create effect"),
+		});
+	});
+
+	it("rejects repeating a create when a later root operation consumes it", () => {
+		const { doc, formUuid } = fixture();
+		const create = createOperation();
+		const consumer = consumerOperation();
+		(doc.forms[formUuid] as Form).caseOperations = [create, consumer];
+
+		expect(caseOperationEditVerdict(doc, formUuid, create)).toEqual({
+			ok: true,
+		});
+		expect(
+			caseOperationEditVerdict(doc, formUuid, {
+				...create,
+				forEach: { repeat: REPEAT },
+			}),
+		).toMatchObject({
+			ok: false,
+			reason: expect.stringMatching(/repeat|iteration/i),
+		});
+	});
 });
 
 describe("case-operation persistence and reference participation", () => {

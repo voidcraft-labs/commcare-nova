@@ -25,6 +25,9 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import {
+	caseOperationIdVerdict,
+	caseOperationLinkIdentifierVerdict,
+	caseOperationWritePropertyVerdict,
 	caseTypeNameVerdict,
 	fieldIdVerdict,
 	findRenameSiblingConflict,
@@ -340,5 +343,50 @@ describe("caseTypeNameVerdict", () => {
 		// "Patient" and "patient" are distinct, wire-valid case types; the
 		// picker must not be stricter than the wire (no DUPLICATE_CASE_TYPE rule).
 		expect(caseTypeNameVerdict("Patient", existing).ok).toBe(true);
+	});
+});
+
+describe("case-operation identifier vocabulary", () => {
+	it("accepts the shared letters/digits/underscores grammar", () => {
+		expect(caseOperationIdVerdict("_create_visit2", new Set())).toEqual({
+			ok: true,
+		});
+		expect(caseOperationWritePropertyVerdict("source_id2", new Set())).toEqual({
+			ok: true,
+		});
+		expect(caseOperationLinkIdentifierVerdict("_parent2", new Set())).toEqual({
+			ok: true,
+		});
+	});
+
+	it("rejects hyphens, dots, and boundary whitespace with one honest message", () => {
+		for (const candidate of ["create-visit", "create.visit", " create_visit"]) {
+			const verdict = caseOperationIdVerdict(candidate, new Set());
+			expect(verdict).toMatchObject({
+				ok: false,
+				code: "illegal_format",
+				userMessage:
+					"Start with a letter or underscore; use only letters, digits, or underscores.",
+			});
+		}
+		for (const candidate of ["source-id", "source.id", "_source_id"]) {
+			const verdict = caseOperationWritePropertyVerdict(candidate, new Set());
+			expect(verdict).toMatchObject({
+				ok: false,
+				code: "illegal_format",
+				userMessage:
+					"Start with a letter; use only letters, digits, or underscores.",
+			});
+		}
+		for (const candidate of ["parent-link", "parent.link", " parent_link"]) {
+			expect(
+				caseOperationLinkIdentifierVerdict(candidate, new Set()),
+			).toMatchObject({
+				ok: false,
+				code: "illegal_format",
+				userMessage:
+					"Start with a letter or underscore; use only letters, digits, or underscores.",
+			});
+		}
 	});
 });

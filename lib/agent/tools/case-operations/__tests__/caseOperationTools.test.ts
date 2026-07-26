@@ -6,8 +6,23 @@ import {
 	BlueprintCommitRejectedError,
 	batchTargetsMissing,
 } from "@/lib/db/commitGuard";
+import { keyBetween } from "@/lib/doc/order/keys";
 import type { Mutation } from "@/lib/doc/types";
-import { asUuid, type BlueprintDoc } from "@/lib/domain";
+import {
+	asUuid,
+	type BlueprintDoc,
+	type CaseOperation,
+	type LookupColumnId,
+	type LookupTableId,
+	orderedCaseOperations,
+} from "@/lib/domain";
+import {
+	eq,
+	literal,
+	tableColumn,
+	tableLookup,
+	term,
+} from "@/lib/domain/predicate";
 import { makeStubToolContext } from "../../../__tests__/fixtures";
 import { getFormTool } from "../../getForm";
 import {
@@ -24,6 +39,18 @@ import {
 import { updateCaseOperationTool } from "../updateCaseOperation";
 
 const TEXT = asUuid("44444444-4444-4444-8444-444444444444");
+const LOOKUP_TABLE = "018f3e8a-7b2c-7def-8abc-1234567890ab" as LookupTableId;
+const LOOKUP_VALUE = "018f3e8a-7b2c-7def-8abc-1234567890ad" as LookupColumnId;
+const LOOKUP_FILTER = "018f3e8a-7b2c-7def-8abc-1234567890ae" as LookupColumnId;
+const lookupExpression = tableLookup(
+	LOOKUP_TABLE,
+	LOOKUP_VALUE,
+	eq(tableColumn(LOOKUP_TABLE, LOOKUP_FILTER), literal("enabled")),
+);
+const lookupPredicate = eq(
+	tableColumn(LOOKUP_TABLE, LOOKUP_FILTER),
+	literal("enabled"),
+);
 
 function fixture(): {
 	readonly doc: BlueprintDoc;
@@ -143,6 +170,45 @@ describe("case-operation author boundary", () => {
 				owner: fieldValue,
 			}).success,
 		).toBe(false);
+	});
+
+	it("uses the validator's exact identifier vocabulary on every author slot", () => {
+		const accepted = {
+			...createVisit,
+			id: "_create_visit2",
+			writes: [{ property: "source_id2", value: fieldValue }],
+			links: [
+				{
+					identifier: "_parent2",
+					targetType: "patient",
+					target: null,
+					relationship: "child" as const,
+				},
+			],
+		};
+		expect(caseOperationInputSchema.safeParse(accepted).success).toBe(true);
+
+		for (const id of ["create-visit", "create.visit"]) {
+			expect(
+				caseOperationInputSchema.safeParse({ ...accepted, id }).success,
+			).toBe(false);
+		}
+		for (const property of ["source-id", "source.id"]) {
+			expect(
+				caseOperationInputSchema.safeParse({
+					...accepted,
+					writes: [{ property, value: fieldValue }],
+				}).success,
+			).toBe(false);
+		}
+		for (const identifier of ["parent-link", "parent.link"]) {
+			expect(
+				caseOperationInputSchema.safeParse({
+					...accepted,
+					links: [{ ...accepted.links[0], identifier }],
+				}).success,
+			).toBe(false);
+		}
 	});
 
 	it("keeps the chat wire compact without weakening author validation", async () => {
@@ -297,6 +363,212 @@ describe("shared case-operation tools", () => {
 		).toBe(true);
 	});
 
+	it("refuses every carrier-blind read-to-update shape before hidden behavior can be cleared", async () => {
+		const cases: readonly {
+			readonly slot: string;
+			readonly operation: CaseOperation;
+			readonly authorShape: Parameters<
+				typeof updateCaseOperationTool.execute
+			>[0]["operation"];
+		}[] = [
+			{
+				slot: "condition",
+				operation: {
+					uuid: asUuid("10000000-0000-4000-8000-000000000001"),
+					id: "carrier_condition",
+					action: "create",
+					caseType: "visit",
+					target: { kind: "new" },
+					name: term(literal("Visit")),
+					condition: lookupPredicate,
+				},
+				authorShape: {
+					...createVisit,
+					id: "renamed_condition",
+					condition: undefined,
+				},
+			},
+			{
+				slot: "name",
+				operation: {
+					uuid: asUuid("10000000-0000-4000-8000-000000000002"),
+					id: "carrier_name",
+					action: "create",
+					caseType: "visit",
+					target: { kind: "new" },
+					name: lookupExpression,
+				},
+				authorShape: {
+					...createVisit,
+					id: "renamed_name",
+					name: fieldValue,
+				},
+			},
+			{
+				slot: "owner",
+				operation: {
+					uuid: asUuid("10000000-0000-4000-8000-000000000003"),
+					id: "carrier_owner",
+					action: "create",
+					caseType: "visit",
+					target: { kind: "new" },
+					name: term(literal("Visit")),
+					owner: lookupExpression,
+				},
+				authorShape: {
+					...createVisit,
+					id: "renamed_owner",
+					owner: undefined,
+				},
+			},
+			{
+				slot: "rename",
+				operation: {
+					uuid: asUuid("10000000-0000-4000-8000-000000000004"),
+					id: "carrier_rename",
+					action: "update",
+					caseType: "patient",
+					target: { kind: "session" },
+					rename: lookupExpression,
+				},
+				authorShape: {
+					id: "renamed_rename",
+					action: "update",
+					caseType: "patient",
+					target: { kind: "session" },
+				},
+			},
+			{
+				slot: "write value",
+				operation: {
+					uuid: asUuid("10000000-0000-4000-8000-000000000005"),
+					id: "carrier_write_value",
+					action: "create",
+					caseType: "visit",
+					target: { kind: "new" },
+					name: term(literal("Visit")),
+					writes: [{ property: "source_id", value: lookupExpression }],
+				},
+				authorShape: {
+					...createVisit,
+					id: "renamed_write_value",
+					writes: undefined,
+				},
+			},
+			{
+				slot: "write condition",
+				operation: {
+					uuid: asUuid("10000000-0000-4000-8000-000000000006"),
+					id: "carrier_write_condition",
+					action: "create",
+					caseType: "visit",
+					target: { kind: "new" },
+					name: term(literal("Visit")),
+					writes: [
+						{
+							property: "source_id",
+							value: term(literal("visible")),
+							condition: lookupPredicate,
+						},
+					],
+				},
+				authorShape: {
+					...createVisit,
+					id: "renamed_write_condition",
+					writes: [
+						{
+							property: "source_id",
+							value: {
+								kind: "term",
+								term: { kind: "literal", value: "visible" },
+							},
+						},
+					],
+				},
+			},
+			{
+				slot: "link target",
+				operation: {
+					uuid: asUuid("10000000-0000-4000-8000-000000000007"),
+					id: "carrier_link",
+					action: "create",
+					caseType: "visit",
+					target: { kind: "new" },
+					name: term(literal("Visit")),
+					links: [
+						{
+							identifier: "parent",
+							targetType: "patient",
+							target: { kind: "expression", expr: lookupExpression },
+							relationship: "child",
+						},
+					],
+				},
+				authorShape: {
+					...createVisit,
+					id: "renamed_link",
+					links: undefined,
+				},
+			},
+			{
+				slot: "operation target",
+				operation: {
+					uuid: asUuid("10000000-0000-4000-8000-000000000008"),
+					id: "carrier_target",
+					action: "update",
+					caseType: "patient",
+					target: { kind: "expression", expr: lookupExpression },
+				},
+				authorShape: {
+					id: "renamed_target",
+					action: "update",
+					caseType: "patient",
+					target: { kind: "session" },
+				},
+			},
+		];
+
+		for (const scenario of cases) {
+			const { doc, formUuid } = fixture();
+			doc.forms[formUuid].caseOperations = [scenario.operation];
+			const { ctx, recordMutations } = makeStubToolContext();
+			const read = await getCaseOperationsTool.execute(
+				{ moduleId: "patients", formId: "edit" },
+				ctx,
+				doc,
+			);
+			expect(JSON.stringify(read.data), scenario.slot).not.toMatch(
+				/table-column|table-lookup/,
+			);
+
+			const result = await updateCaseOperationTool.execute(
+				{
+					moduleId: "patients",
+					formId: "edit",
+					operationId: scenario.operation.id,
+					operation: scenario.authorShape,
+				},
+				ctx,
+				doc,
+			);
+
+			expect(result.result, scenario.slot).toEqual(
+				expect.objectContaining({
+					error: expect.stringContaining(
+						"uses lookup-table logic that Nova preserves but cannot safely edit from this surface",
+					),
+				}),
+			);
+			expect(result.mutations, scenario.slot).toEqual([]);
+			expect(result.newDoc, scenario.slot).toBe(doc);
+			expect(
+				result.newDoc.forms[formUuid].caseOperations?.[0],
+				scenario.slot,
+			).toEqual(scenario.operation);
+			expect(recordMutations, scenario.slot).not.toHaveBeenCalled();
+		}
+	});
+
 	it("refuses removing or moving a producer past its dependent", async () => {
 		const { doc } = fixture();
 		const { ctx, recordMutations } = makeStubToolContext();
@@ -366,6 +638,81 @@ describe("shared case-operation tools", () => {
 			index: 0,
 			message: 'Moved case operation "create_visit" to index 0.',
 		});
+	});
+
+	it("rejects an authoritative peer shift instead of reporting the stale requested rank", async () => {
+		const { doc, formUuid } = fixture();
+		const setup = makeStubToolContext();
+		const added = await addCaseOperationsTool.execute(
+			{
+				moduleId: "patients",
+				formId: "edit",
+				operations: [
+					{ ...createVisit, id: "first_visit" },
+					{ ...createVisit, id: "second_visit" },
+					{ ...createVisit, id: "third_visit" },
+				],
+			},
+			setup.ctx,
+			doc,
+		);
+		const stale = added.newDoc;
+		const ordered = orderedCaseOperations(stale.forms[formUuid]);
+		const first = ordered[0];
+		if (first?.order === undefined) throw new Error("fixture order missing");
+		const firstOrder = first.order;
+
+		const { ctx, recordMutations } = makeStubToolContext();
+		recordMutations.mockImplementation(
+			async (mutations: Mutation[], candidate: BlueprintDoc) => {
+				const move = mutations.find(
+					(mutation): mutation is Extract<Mutation, { kind: "updateForm" }> =>
+						mutation.kind === "updateForm" &&
+						mutation.caseOperationPatch?.operation === "move",
+				);
+				if (move === undefined) throw new Error("move intent missing");
+				const movePatch = move.caseOperationPatch;
+				if (movePatch?.operation !== "move" || movePatch.order === null) {
+					throw new Error("move intent missing");
+				}
+				const moveOrder = movePatch.order;
+				expect(movePatch.index).toBe(1);
+				expect(move.caseOperationChange).toEqual({
+					operation: "move",
+					uuid: movePatch.uuid,
+					order: moveOrder,
+				});
+
+				const fresh = produce(stale, (draft) => {
+					draft.forms[formUuid].caseOperations?.push({
+						...first,
+						uuid: asUuid("10000000-0000-4000-8000-000000000099"),
+						id: "peer_visit",
+						order: keyBetween(firstOrder, moveOrder),
+					});
+				});
+				if (batchTargetsMissing(fresh, mutations)) {
+					throw new BlueprintCommitRejectedError(
+						"A peer changed this case operation first.",
+					);
+				}
+				return { events: [], committedDoc: candidate };
+			},
+		);
+
+		await expect(
+			moveCaseOperationTool.execute(
+				{
+					moduleId: "patients",
+					formId: "edit",
+					operationId: "third_visit",
+					index: 1,
+				},
+				ctx,
+				stale,
+			),
+		).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
+		expect(recordMutations).toHaveBeenCalledTimes(1);
 	});
 
 	it("surfaces authoritative operation/write/link races instead of reporting success", async () => {

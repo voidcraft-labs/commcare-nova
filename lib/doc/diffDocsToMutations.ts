@@ -101,21 +101,20 @@ import {
 	type Mutation,
 	type Uuid,
 } from "@/lib/doc/types";
-import type {
-	AssetId,
-	CaseListConfig,
-	CaseType,
-	Column,
-	Field,
-	Form,
-	Media,
-	Module,
-	SearchInputDef,
-	SelectOption,
-} from "@/lib/domain";
 import {
+	type AssetId,
+	type CaseListConfig,
+	type CaseType,
+	type Column,
 	caseSearchConfigAfterFinalInputRemoval,
 	caseSearchConfigHasAuthoredSettings,
+	type Field,
+	type Form,
+	type Media,
+	type Module,
+	orderedCaseOperations,
+	type SearchInputDef,
+	type SelectOption,
 } from "@/lib/domain";
 import { effectiveFilterForEmission } from "@/lib/domain/predicate";
 
@@ -712,6 +711,12 @@ function diffCaseOperations(
 	next: Form,
 	formUuid: Uuid,
 ): Mutation[] {
+	const nextRanks = new Map(
+		orderedCaseOperations(next).map((operation, index) => [
+			operation.uuid,
+			index,
+		]),
+	);
 	const before = new Map(
 		(prev.caseOperations ?? []).map((operation) => [operation.uuid, operation]),
 	);
@@ -728,22 +733,30 @@ function diffCaseOperations(
 			caseOperationChange: { operation: "remove", uuid },
 		});
 	}
+	// Births precede edits so every rank-bearing move is evaluated against the
+	// batch's complete final membership by the authoritative conflict guard.
+	for (const [uuid, operation] of after) {
+		if (before.has(uuid)) continue;
+		mutations.push({
+			kind: "updateForm",
+			uuid: formUuid,
+			patch: {},
+			caseOperationChange: {
+				operation: "add",
+				value: cloneEntity(operation),
+			},
+		});
+	}
 	for (const [uuid, operation] of after) {
 		const prior = before.get(uuid);
-		if (prior === undefined) {
-			mutations.push({
-				kind: "updateForm",
-				uuid: formUuid,
-				patch: {},
-				caseOperationChange: {
-					operation: "add",
-					value: cloneEntity(operation),
-				},
-			});
-			continue;
-		}
+		if (prior === undefined) continue;
 		mutations.push(
-			...caseOperationChangesForUpdate(formUuid, prior, cloneEntity(operation)),
+			...caseOperationChangesForUpdate(
+				formUuid,
+				prior,
+				cloneEntity(operation),
+				nextRanks.get(uuid),
+			),
 		);
 	}
 	return mutations;

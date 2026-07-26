@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { BlueprintCommitRejectedError } from "@/lib/db/commitGuard";
 import { moveCaseOperationMutation } from "@/lib/doc/caseOperationMutations";
 import { type BlueprintDoc, orderedCaseOperations } from "@/lib/domain";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
@@ -108,13 +109,21 @@ export const moveCaseOperationTool = {
 					result: { error: commit.error },
 				};
 			}
+			const committedIndex = orderedCaseOperations(
+				commit.newDoc.forms[address.formUuid] ?? {},
+			).findIndex((candidate) => candidate.uuid === operation.uuid);
+			if (committedIndex < 0) {
+				throw new BlueprintCommitRejectedError(
+					`Case operation "${input.operationId}" changed while it was moving. Reload the form and try again.`,
+				);
+			}
 			return {
 				kind: "mutate",
 				mutations,
 				newDoc: commit.newDoc,
 				result: {
-					message: `Moved case operation "${input.operationId}" to index ${actualIndex}.`,
-					index: actualIndex,
+					message: `Moved case operation "${input.operationId}" to index ${committedIndex}.`,
+					index: committedIndex,
 					summary: {
 						location: doc.forms[address.formUuid]?.name ?? input.formId,
 						subject: input.operationId,

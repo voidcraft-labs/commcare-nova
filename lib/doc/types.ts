@@ -366,6 +366,12 @@ function caseOperationPatchSchemaFor(
 				operation: z.literal("move"),
 				uuid: uuidSchema,
 				order: z.string().nullable(),
+				/**
+				 * Optional current-writer placement intent. The fractional key is
+				 * still the deterministic replay value; the guarded writer uses this
+				 * rank only to reject a peer-shifted placement on its fresh doc.
+				 */
+				index: z.number().int().nonnegative().optional(),
 			})
 			.strict(),
 	]);
@@ -700,6 +706,16 @@ function reportCaseOperationPatchIntegrity(
 	const issue = (path: readonly (string | number)[], message: string): void => {
 		ctx.addIssue({ code: "custom", path: [...path], message });
 	};
+	if (
+		semantic?.operation === "move" &&
+		fallback?.operation === "move" &&
+		typeof semantic.uuid === "string" &&
+		fallback.uuid === semantic.uuid &&
+		semantic.order !== null &&
+		fallback.order === semantic.order
+	) {
+		return;
+	}
 	if (
 		semantic === undefined ||
 		fallback === undefined ||

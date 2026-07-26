@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { updateCaseOperationMutations } from "@/lib/doc/caseOperationMutations";
+import { planCaseOperationUpdate } from "@/lib/doc/caseOperationMutations";
 import type { BlueprintDoc } from "@/lib/domain";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import {
@@ -88,11 +88,18 @@ export const updateCaseOperationTool = {
 				input.operation,
 				existing.uuid,
 			);
-			const mutations = updateCaseOperationMutations(
-				doc,
-				address.formUuid,
-				next,
-			);
+			const plan = planCaseOperationUpdate(doc, address.formUuid, next);
+			if (!plan.ok) {
+				return {
+					kind: "mutate",
+					mutations: [],
+					newDoc: doc,
+					result: {
+						error: `Operation "${input.operationId}" was not updated: ${plan.reason}`,
+					},
+				};
+			}
+			const mutations = [...plan.mutations];
 			const commit = await guardedMutate(
 				ctx,
 				doc,

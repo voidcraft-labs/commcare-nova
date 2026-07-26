@@ -774,6 +774,11 @@ describe("case operations — exact immediate-parent rolling envelope", () => {
 			after: withoutOperationSlots(rollingOperation(), "links"),
 		},
 		{
+			name: "order move",
+			before: rollingOperation(),
+			after: rollingOperation({ order: "z" }),
+		},
+		{
 			name: "order clear",
 			before: rollingOperation(),
 			after: withoutOperationSlots(rollingOperation(), "order"),
