@@ -2035,7 +2035,18 @@ async function seedStagedCapture() {
 					instancePath: "/data/photo",
 				},
 			],
-			allowedAttachments: [{ fieldUuid, instancePathTemplate: "/data/photo" }],
+			allowedAttachments: [
+				{
+					fieldUuid,
+					instancePathTemplate: "/data/photo",
+					captureKind: "image" as const,
+					acceptedFormats: [
+						{ extension: ".jpg", contentType: "image/jpeg" },
+						{ extension: ".jpeg", contentType: "image/jpeg" },
+						{ extension: ".png", contentType: "image/png" },
+					],
+				},
+			],
 		},
 	};
 }
@@ -2086,6 +2097,65 @@ describe("atomic form-capture intent", () => {
 				},
 			}),
 		).rejects.toBeInstanceOf(CaptureSubmissionRejectedError);
+	});
+
+	it("replays an accepted submission after unrelated app mutations advance the fence", async () => {
+		const store = makeStore();
+		const capture = await seedStagedCapture();
+		const first = await store.applySubmission({
+			appId: APP_ID,
+			ordinary: { kind: "none" },
+			captureIntent: capture.intent,
+		});
+		await sql`
+			UPDATE apps
+			SET mutation_seq = mutation_seq + 1
+			WHERE id = ${APP_ID}
+		`.execute(dbHandle.db);
+
+		await expect(
+			store.applySubmission({
+				appId: APP_ID,
+				ordinary: { kind: "none" },
+				captureIntent: {
+					...capture.intent,
+					expectedAppMutationSeq: 1,
+				},
+			}),
+		).resolves.toEqual(first);
+	});
+
+	it("refuses a confirmed image after the committed descriptor changes to audio", async () => {
+		const store = makeStore();
+		const capture = await seedStagedCapture();
+
+		await expect(
+			store.applySubmission({
+				appId: APP_ID,
+				ordinary: { kind: "none" },
+				captureIntent: {
+					...capture.intent,
+					allowedAttachments: [
+						{
+							fieldUuid: capture.fieldUuid,
+							instancePathTemplate: "/data/photo",
+							captureKind: "audio",
+							acceptedFormats: [
+								{ extension: ".mp3", contentType: "audio/mpeg" },
+								{ extension: ".wav", contentType: "audio/wav" },
+							],
+						},
+					],
+				},
+			}),
+		).rejects.toBeInstanceOf(CaptureSubmissionRejectedError);
+
+		const row = await sql<{ status: string }>`
+			SELECT status
+			FROM form_attachments
+			WHERE attachment_id = ${capture.attachmentId}
+		`.execute(dbHandle.db);
+		expect(row.rows[0]?.status).toBe("staged");
 	});
 
 	it("rolls the capture reservation and receipt back when the case envelope fails", async () => {

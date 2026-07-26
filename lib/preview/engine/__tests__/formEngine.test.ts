@@ -975,6 +975,58 @@ describe("FormEngine", () => {
 			engine.setValue("/data/toggle", "no");
 			expect(engine.validateAll()).toBe(true);
 		});
+
+		it("skips required descendants of an irrelevant group", () => {
+			const input = dTree([
+				{ id: "gate", kind: "text", label: "Gate" },
+				{
+					id: "section",
+					kind: "group",
+					label: "Section",
+					relevant: "/data/gate = 'yes'",
+					children: [
+						{
+							id: "photo",
+							kind: "image",
+							label: "Photo",
+							required: "true()",
+						},
+					],
+				},
+			]);
+			const engine = new FormEngine(input);
+			engine.setValue("/data/gate", "no");
+
+			expect(engine.getState("/data/section").visible).toBe(false);
+			expect(engine.getState("/data/section/photo").visible).toBe(true);
+			expect(engine.validateAll()).toBe(true);
+			expect(engine.getState("/data/section/photo").touched).toBe(false);
+		});
+
+		it("skips required descendants of an irrelevant repeat", () => {
+			const input = dTree([
+				{ id: "gate", kind: "text", label: "Gate" },
+				{
+					id: "visits",
+					kind: "repeat",
+					label: "Visits",
+					relevant: "/data/gate = 'yes'",
+					children: [
+						{
+							id: "photo",
+							kind: "image",
+							label: "Photo",
+							required: "true()",
+						},
+					],
+				},
+			]);
+			const engine = new FormEngine(input);
+			engine.setValue("/data/gate", "no");
+
+			expect(engine.validateAll()).toBe(true);
+			expect(engine.getState("/data/visits[0]/photo").touched).toBe(false);
+		});
 	});
 
 	describe("Zustand store reactivity", () => {

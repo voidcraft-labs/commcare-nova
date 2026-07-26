@@ -65,7 +65,11 @@ import {
 	type UserCollections,
 	type Uuid,
 } from "@/lib/domain";
-import { committedCapturePath } from "@/lib/domain/captureFormats";
+import {
+	CAPTURE_EXTENSIONS_BY_KIND,
+	captureContentType,
+	committedCapturePath,
+} from "@/lib/domain/captureFormats";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
 import { asWalkableDoc } from "@/lib/domain/mediaRefs";
 import type { Predicate, ValueExpression } from "@/lib/domain/predicate";
@@ -1003,20 +1007,26 @@ export async function buildSubmissionOperationProgram(args: {
 			"The submitted form no longer exists in the committed app.",
 		);
 	}
-	const allowedAttachments = Object.values(app.blueprint.fields)
-		.filter((field) => isCaptureFieldKind(field.kind))
-		.map((field) => ({
-			field,
-			path: committedCapturePath(app.blueprint, field.uuid),
-		}))
-		.filter(
-			(entry) =>
-				entry.path !== undefined && entry.path.formUuid === validated.formUuid,
-		)
-		.map((entry) => ({
-			fieldUuid: entry.field.uuid,
-			instancePathTemplate: entry.path?.instancePathTemplate ?? "",
-		}));
+	const allowedAttachments = Object.values(app.blueprint.fields).flatMap(
+		(field) => {
+			if (!isCaptureFieldKind(field.kind)) return [];
+			const path = committedCapturePath(app.blueprint, field.uuid);
+			if (path === undefined || path.formUuid !== validated.formUuid) return [];
+			return [
+				{
+					fieldUuid: field.uuid,
+					instancePathTemplate: path.instancePathTemplate,
+					captureKind: field.kind,
+					acceptedFormats: CAPTURE_EXTENSIONS_BY_KIND[field.kind].map(
+						(extension) => ({
+							extension,
+							contentType: captureContentType(extension),
+						}),
+					),
+				},
+			];
+		},
+	);
 	const captureIntentWithoutDigest = {
 		entryKey: validated.entryKey,
 		formUuid: validated.formUuid,
@@ -1025,19 +1035,12 @@ export async function buildSubmissionOperationProgram(args: {
 		attachments: validated.attachmentRefs,
 		allowedAttachments,
 	};
-	const withCapture: BuiltSubmissionOperations = {
-		...built,
-		captureIntent: captureIntentWithoutDigest,
-	};
 	const requestDigest = createHash("sha256")
 		.update(
 			canonicalJson({
-				envelope: submissionEnvelopeArgs(
-					args.mutation,
-					args.appId,
-					withCapture,
-				),
-				projectId: app.project_id,
+				appId: args.appId,
+				mutation: args.mutation,
+				viewerTimeZone: args.viewerTimeZone,
 				identity: {
 					actorUserId: args.identity.actorUserId,
 					ownerId: args.identity.ownerId,

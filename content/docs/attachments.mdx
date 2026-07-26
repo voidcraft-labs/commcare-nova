@@ -99,6 +99,11 @@ worker who reloads mid-form sees the attachment is there but not which
 file it was. Keeping attachment questions near the end of a form, so they
 are answered and submitted in one sitting, avoids most of this.
 
+Temporary layout changes do not throw the file away. If a condition hides
+the question and later shows it again, or an author flips to Edit and back
+while that same form entry remains open, Nova restores the confirmed
+filename and answer. Leaving or clearing the form ends that entry.
+
 ## Clearing a required attachment
 
 There is a bug in CommCare worth knowing about, because it affects what
@@ -133,7 +138,10 @@ a real file, replace it, or remove it, and it rides the submission with
 the rest of the form.
 
 When a worker presses Submit, Nova first waits for every attachment change
-still in progress. The form answers and the exact set of attached files are
+still in progress — including the signature pad's short pause and PNG
+encoding after the latest stroke. If that encoding fails, Nova asks the
+worker to clear or draw again instead of silently submitting an older
+signature. The form answers and the exact set of attached files are
 then accepted together. If moving a file into long-term storage is temporarily
 interrupted, Nova keeps retrying in the background — the worker should not
 submit the form again. Replacing, clearing, or deleting a repeat row can affect

@@ -1,6 +1,8 @@
 import { sql, type Transaction } from "kysely";
 import { lockFormAttachmentEntry } from "@/lib/db/formAttachmentLocks";
 import {
+	captureContentType,
+	captureExtensionFor,
 	captureInstancePathMatchesTemplate,
 	MAX_SUBMITTED_CAPTURE_BYTES,
 	MAX_SUBMITTED_CAPTURE_COUNT,
@@ -33,6 +35,42 @@ function storedResult(value: unknown): SubmissionEnvelopeResult {
 }
 
 type CaptureIntent = NonNullable<ApplySubmissionArgs["captureIntent"]>;
+type CommittedCaptureDescriptor = CaptureIntent["allowedAttachments"][number];
+
+/**
+ * Re-prove immutable staged-row metadata against the capture kind in the
+ * exact committed snapshot that admitted this submission.
+ *
+ * Confirm and submit are deliberately separate transactions. A peer can
+ * keep a field UUID/path stable while changing image → audio between them,
+ * so UUID/path alone is not terminal authority over the already-uploaded
+ * bytes.
+ */
+export function captureRowMatchesCommittedDescriptor(
+	row: {
+		readonly originalFilename: string;
+		readonly extension: string;
+		readonly contentType: string;
+	},
+	descriptor: Pick<
+		CommittedCaptureDescriptor,
+		"captureKind" | "acceptedFormats"
+	>,
+): boolean {
+	const committedExtension = captureExtensionFor(
+		descriptor.captureKind,
+		row.originalFilename,
+	);
+	return (
+		committedExtension === row.extension &&
+		captureContentType(row.extension) === row.contentType &&
+		descriptor.acceptedFormats.some(
+			(format) =>
+				format.extension === row.extension &&
+				format.contentType === row.contentType,
+		)
+	);
+}
 
 /**
  * Claim the form entry before any case effect. A committed prior claim is an
@@ -138,6 +176,14 @@ export async function prepareCaptureSubmission(
 			!captureInstancePathMatchesTemplate(
 				attachment.instancePath,
 				descriptor.instancePathTemplate,
+			) ||
+			!captureRowMatchesCommittedDescriptor(
+				{
+					originalFilename: row.original_filename,
+					extension: row.extension,
+					contentType: row.content_type,
+				},
+				descriptor,
 			)
 		) {
 			reject(

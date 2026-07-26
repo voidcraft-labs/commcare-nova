@@ -19,6 +19,12 @@ adds two identities while preserving the existing, already permissioned
 - `commcare-nova` remains the runtime identity. It serves the app and receives
   ordinary application DML, but no fixed-schema ownership or public-schema DDL.
 
+Cloud Scheduler's API must be enabled before the script grants its Google-
+managed service agent token-creator access or the first build creates the
+capture-maintenance job. The provisioning script does that enablement first;
+`gcloud services enable` is the idempotent prerequisite, not a manual setup
+step.
+
 The first database split has an explicit Cloud SQL Admin API prerequisite:
 assign the runtime role as the migration IAM user's sole custom database role,
 give a temporary built-in administrator MEMBER+SET access to migration and (if

@@ -21,6 +21,7 @@ import {
 	defaultPostSubmit,
 	type FormType,
 	POST_SUBMIT_DESTINATIONS,
+	type PostSubmitDestination,
 	reachableCaseTypes,
 } from "@/lib/domain";
 import { unhandledKindMessage } from "@/lib/domain/predicate/errors";
@@ -50,6 +51,7 @@ import { FormLayoutProvider } from "../form/FormLayoutContext";
 import { FormRenderer } from "../form/FormRenderer";
 import {
 	cancelAttachmentEntry,
+	discardAttachmentEntry,
 	runFormAttachmentBarrier,
 } from "../form/fields/attachment/attachmentClient";
 
@@ -170,6 +172,17 @@ type SubmitStatus =
 	| { kind: "idle" }
 	| { kind: "running" }
 	| { kind: "error"; message: string };
+
+interface SubmissionContextSnapshot {
+	readonly scopeEpoch: number;
+	readonly appId: string | undefined;
+	readonly formUuid: Uuid | undefined;
+	readonly moduleUuid: Uuid | undefined;
+	readonly entryKey: string | undefined;
+	readonly personaUuid: string | undefined;
+	readonly caseId: string | undefined;
+	readonly destination: PostSubmitDestination | undefined;
+}
 
 interface FormScreenProps {
 	/** Passed from PreviewShell so the subtree stays valid while Activity hides it. Only `caseId` is consumed here. */
@@ -333,6 +346,56 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	const editable = isReady;
 
 	const controller = useFormEngine(formUuid, caseData);
+	const submissionContextRef = useRef<SubmissionContextSnapshot>({
+		scopeEpoch,
+		appId,
+		formUuid,
+		moduleUuid,
+		entryKey: controller.entryKey,
+		personaUuid,
+		caseId: effectiveCaseId,
+		destination:
+			form === undefined
+				? undefined
+				: (form.postSubmit ?? defaultPostSubmit(form.type)),
+	});
+	submissionContextRef.current = {
+		scopeEpoch,
+		appId,
+		formUuid,
+		moduleUuid,
+		entryKey: controller.entryKey,
+		personaUuid,
+		caseId: effectiveCaseId,
+		destination:
+			form === undefined
+				? undefined
+				: (form.postSubmit ?? defaultPostSubmit(form.type)),
+	};
+	const attachmentEntryLifetimeKey = `${scopeEpoch}\u0000${formUuid ?? ""}\u0000${caseId ?? ""}\u0000${personaUuid ?? ""}`;
+
+	useEffect(() => {
+		// The key is deliberately read here: its only job is to end the
+		// previous ownership lifetime when logical navigation/scope changes.
+		void attachmentEntryLifetimeKey;
+		const ownedAppId = appId;
+		let ownedEntryKey = controller.entryKey;
+		let live = true;
+		// Identity rotation belongs to the provider's parent effect, which runs
+		// after this child effect. Capture the resulting entry in a microtask so
+		// the next cleanup owns the correct lifetime too.
+		queueMicrotask(() => {
+			if (live) ownedEntryKey = controller.entryKey;
+		});
+		return () => {
+			live = false;
+			if (ownedAppId === undefined || ownedEntryKey === undefined) return;
+			void discardAttachmentEntry({
+				appId: ownedAppId,
+				entryKey: ownedEntryKey,
+			});
+		};
+	}, [appId, attachmentEntryLifetimeKey, controller]);
 
 	const prevModeRef = useRef(mode);
 	useEffect(() => {
@@ -422,55 +485,77 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			caseDataState.kind === "row" &&
 			caseDataState.row.case_id === effectiveCaseId);
 
-	const dispatchPostSubmit = useCallback((): void => {
-		if (!form) return;
-		const dest = form.postSubmit ?? defaultPostSubmit(form.type);
-		switch (dest) {
-			case "module":
-			case "parent_module":
-				if (moduleUuid) navigate.openModule(moduleUuid);
-				return;
-			case "root":
-			case "app_home":
-				navigate.goHome();
-				return;
-			case "previous":
-				/* Return to whatever screen sent the user here. `onBack`
-				 * reads from BuilderLayout, which holds the back-stack and
-				 * falls through to the module home when the stack is
-				 * empty. */
-				onBack();
-				return;
-			default: {
-				/* Exhaustive switch — a future `PostSubmitDestination`
-				 * arm landing without a case here surfaces as the
-				 * standard `unhandledKindMessage` shape rather than
-				 * silently routing to `onBack()`. */
-				const _exhaustive: never = dest;
-				throw new Error(
-					unhandledKindMessage({
-						where: "preview.FormScreen.dispatchPostSubmit",
-						family: "PostSubmitDestination",
-						received: _exhaustive,
-						knownKinds: [...POST_SUBMIT_DESTINATIONS],
-					}),
-				);
+	const dispatchPostSubmit = useCallback(
+		(
+			dest: PostSubmitDestination,
+			submittedModuleUuid: Uuid | undefined,
+		): void => {
+			switch (dest) {
+				case "module":
+				case "parent_module":
+					if (submittedModuleUuid) navigate.openModule(submittedModuleUuid);
+					return;
+				case "root":
+				case "app_home":
+					navigate.goHome();
+					return;
+				case "previous":
+					/* Return to whatever screen sent the user here. `onBack`
+					 * reads from BuilderLayout, which holds the back-stack and
+					 * falls through to the module home when the stack is
+					 * empty. */
+					onBack();
+					return;
+				default: {
+					/* Exhaustive switch — a future `PostSubmitDestination`
+					 * arm landing without a case here surfaces as the
+					 * standard `unhandledKindMessage` shape rather than
+					 * silently routing to `onBack()`. */
+					const _exhaustive: never = dest;
+					throw new Error(
+						unhandledKindMessage({
+							where: "preview.FormScreen.dispatchPostSubmit",
+							family: "PostSubmitDestination",
+							received: _exhaustive,
+							knownKinds: [...POST_SUBMIT_DESTINATIONS],
+						}),
+					);
+				}
 			}
-		}
-	}, [form, moduleUuid, navigate, onBack]);
+		},
+		[navigate, onBack],
+	);
 
 	const handleSubmit = async (): Promise<void> => {
 		const start = session.getState();
 		/* Authority is read imperatively at the mutation boundary. A queued click
 		 * can run after the synchronous reset but before React commits fresh props. */
 		if (start.accessPhase !== "authorized" || !start.canEdit) return;
-		const submittedScopeEpoch = start.scopeEpoch;
+		const submitted = { ...submissionContextRef.current };
+		if (
+			submitted.scopeEpoch !== start.scopeEpoch ||
+			submitted.formUuid === undefined ||
+			submitted.destination === undefined
+		) {
+			return;
+		}
 		const isCurrent = () => {
 			const current = session.getState();
+			const latest = submissionContextRef.current;
 			return (
-				current.scopeEpoch === submittedScopeEpoch &&
+				current.scopeEpoch === submitted.scopeEpoch &&
 				current.accessPhase === "authorized" &&
-				current.canEdit
+				current.canEdit &&
+				latest.scopeEpoch === submitted.scopeEpoch &&
+				latest.appId === submitted.appId &&
+				latest.formUuid === submitted.formUuid &&
+				latest.moduleUuid === submitted.moduleUuid &&
+				latest.entryKey === submitted.entryKey &&
+				latest.personaUuid === submitted.personaUuid &&
+				latest.caseId === submitted.caseId &&
+				latest.destination === submitted.destination &&
+				controller.entryKey === submitted.entryKey &&
+				controller.formUuid === submitted.formUuid
 			);
 		};
 		/* Clear any prior error state up-front. Two reasons:
@@ -501,7 +586,8 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		 * is an upstream contract failure. Guard explicitly so a
 		 * stale-mount path surfaces a readable inline message rather
 		 * than reaching the server action with `undefined`. */
-		if (!appId) {
+		const submittedAppId = submitted.appId;
+		if (!submittedAppId) {
 			setSubmitStatus({
 				kind: "error",
 				message:
@@ -519,21 +605,22 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				const valid = controller.validateAll();
 				if (!valid) return "invalid";
 				const mutation = controller.computeSubmissionMutation({
-					caseId: effectiveCaseId,
+					caseId: submitted.caseId,
 					caseTypes,
 				});
+				if (mutation.formUuid !== submitted.formUuid) return "stale";
 				/* The persona rides the WRITE, not just the reads. Its uuid is the
 				 * `owner_id` stamped on every case this submission creates, so
 				 * dropping it here would quietly give a persona's work to the
 				 * signed-in member while every read still looked persona-scoped. */
 				return await submitFormAction(
 					mutation,
-					appId,
+					submittedAppId,
 					viewerTimeZone(),
-					personaUuid,
+					submitted.personaUuid,
 				);
 			};
-			const entryKey = controller.entryKey;
+			const entryKey = submitted.entryKey;
 			const result =
 				entryKey === undefined
 					? await submitStableAnswers()
@@ -555,7 +642,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				result.kind === "survey"
 			) {
 				setSubmitStatus({ kind: "idle" });
-				dispatchPostSubmit();
+				dispatchPostSubmit(submitted.destination, submitted.moduleUuid);
 				return;
 			}
 			setSubmitStatus({
@@ -592,10 +679,13 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		}
 		cancelAttachmentEntry(entryKey);
 		void runFormAttachmentBarrier(entryKey, async () => {
+			if (appId !== undefined) {
+				await discardAttachmentEntry({ appId, entryKey });
+			}
 			controller.reset();
 			setClearRevision((revision) => revision + 1);
 		});
-	}, [controller]);
+	}, [appId, controller]);
 
 	if (!form || !formUuid) return null;
 

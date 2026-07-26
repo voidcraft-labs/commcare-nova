@@ -96,6 +96,12 @@ bind_act_as() {
 		--quiet
 }
 
+# Enabling the API creates Google's Cloud Scheduler service agent. Do this
+# before any IAM binding names that agent and before the build identity can run
+# its first scheduler-bearing deployment. `services enable` is idempotent.
+run gcloud services enable cloudscheduler.googleapis.com \
+	--project="$PROJECT"
+
 ensure_service_account "$BUILD_ACCOUNT" "nova-build" "Nova Cloud Build deployer"
 ensure_service_account "$MIGRATION_ACCOUNT" "nova-migrate" "Nova database migrator"
 ensure_service_account "$MEDIA_POLICY_ACCOUNT" "nova-media-policy" "Nova media bucket policy"

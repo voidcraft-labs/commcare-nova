@@ -80,15 +80,20 @@ identity, lookup, and case-data rebuilds; a key minted by each rebuilt engine
 would rotate under already staged bytes. A genuinely new activation or concrete
 worker identity rotates it. **There is no form resume** — nothing persists
 runtime answers and `deactivate` wipes the store — so leaving a form starts a
-new entry and the old one's unreserved attachments are collected by the
-scheduled row sweep and staging TTL. That absence is also why nothing simulates
+new entry. Confirmed row ownership lives at `(app, entryKey, instancePath)`
+above any one rendered field, so relevance, group/repeat remounts, and
+Preview/Edit flips cannot delete an answer whose entry is still live. A real
+entry teardown/reset best-effort deletes those unreserved rows immediately;
+the scheduled row sweep and staging TTL remain the failure backstop. That
+absence of cross-entry resume is also why nothing simulates
 the runtime's blank-pad-over-live-signature behavior: the state cannot arise
 here. A future resume story must carry the entry key forward with the answers,
 and must leave the pad blank rather than helpfully restoring it.
 
 `FormEngine.collectAttachmentReferences` carries the exact server-minted name,
 field UUID, and concrete repeat-indexed path for every surviving answer, and it
-DOES consult `state.visible` — unlike the case-property collector, whose
+DOES consult effective visibility (the field plus every group/repeat ancestor)
+— unlike the case-property collector, whose
 visibility-blindness is an AJV storage constraint with nothing to say about
 attachments. The server re-derives the committed field/path templates and
 rejects stale or mismatched provenance. An irrelevant question's node is
@@ -99,13 +104,19 @@ directory and uploads orphans anyway.
 
 Every capture mutation for one entry goes through one form-wide queue. A newer
 operation aborts and generation-fences an older operation on the same path;
-Submit is a barrier behind prior uploads and ahead of later ones; Clear cancels
-the entry before its reset barrier. Repeat instances use stable render keys so
+signature debounce and `toBlob` encoding enter that queue immediately, and a
+dirty/failed encoding keeps the barrier blocked rather than submitting an
+older answer. `pointercancel` settles the ink through the same path. Submit is
+a barrier behind prior work and ahead of later work, and rechecks the initiating
+form, entry, persona, case, Project scope, and post-submit destination before
+calling the action; Clear cancels the entry before its reset barrier. Repeat
+instances use stable render keys so
 index compaction does not unmount a surviving capture control; the same queued
 operation CAS-moves its staged row from the old concrete path to the compacted
 one before submit. Pending uploads are cancelled rather than retargeted.
-Signature `toBlob` callbacks have their own generation fence because the
-browser API cannot be aborted.
+Signature pixels are entry/path-local across ordinary remounts and reset on an
+entry/persona change; `toBlob` callbacks also carry a generation fence because
+the browser API cannot itself be aborted.
 
 ## Repeat instances are first-class
 

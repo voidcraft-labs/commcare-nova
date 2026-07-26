@@ -123,5 +123,17 @@ describe("durable deployment policy", () => {
 		expect(provisioning).toContain("roles/cloudscheduler.admin");
 		expect(provisioning).toContain("roles/storage.admin");
 		expect(provisioning).toContain("roles/storage.objectUser");
+		const schedulerEnablement = provisioning.indexOf(
+			"gcloud services enable cloudscheduler.googleapis.com",
+		);
+		const schedulerAgentBinding = provisioning.indexOf(
+			'--member="serviceAccount:' + "$" + '{SCHEDULER_SERVICE_AGENT}"',
+		);
+		const buildTriggerUpdate = provisioning.indexOf(
+			"gcloud beta builds triggers update developer-connect",
+		);
+		expect(schedulerEnablement).toBeGreaterThanOrEqual(0);
+		expect(schedulerAgentBinding).toBeGreaterThan(schedulerEnablement);
+		expect(buildTriggerUpdate).toBeGreaterThan(schedulerEnablement);
 	});
 });

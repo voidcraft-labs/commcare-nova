@@ -22,7 +22,12 @@
 // `lib/doc/caseOperationOrder.ts`, plus the physical multiplicity
 // scopes with their per-iteration form-answer bindings.
 
-import type { CaseOperation, CaseType, Uuid } from "@/lib/domain";
+import type {
+	CaptureFieldKind,
+	CaseOperation,
+	CaseType,
+	Uuid,
+} from "@/lib/domain";
 import type { Predicate } from "@/lib/domain/predicate";
 import type { JsonObject } from "./sql/database";
 
@@ -192,6 +197,17 @@ export interface ApplySubmissionArgs {
 			readonly fieldUuid: string;
 			/** Engine path with `[0]` at every authored repeat segment. */
 			readonly instancePathTemplate: string;
+			/** The committed question kind at the submission snapshot. */
+			readonly captureKind: CaptureFieldKind;
+			/**
+			 * Exact immutable row metadata accepted by that committed kind.
+			 * Carried across the case-store boundary so the terminal transaction
+			 * need not trust the earlier confirm or re-read the blueprint.
+			 */
+			readonly acceptedFormats: ReadonlyArray<{
+				readonly extension: string;
+				readonly contentType: string;
+			}>;
 		}>;
 	};
 }

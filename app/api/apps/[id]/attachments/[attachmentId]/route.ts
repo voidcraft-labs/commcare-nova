@@ -68,6 +68,7 @@ export async function POST(
 		const existing = await loadFormAttachmentForEdit({
 			attachmentId,
 			actorUserId: session.user.id,
+			expectedAppId: appId,
 			expectedProjectId: projectId,
 		});
 		if (existing === null) throw new ApiError("Attachment not found", 404);
@@ -102,6 +103,7 @@ export async function POST(
 		const confirmed = await confirmFormAttachment({
 			attachmentId,
 			actorUserId: session.user.id,
+			expectedAppId: appId,
 			expectedProjectId: projectId,
 			sizeBytes: stored.size,
 			objectGeneration: stored.generation,
@@ -147,6 +149,7 @@ export async function PATCH(
 		const moved = await retargetStagedFormAttachment({
 			attachmentId,
 			actorUserId: session.user.id,
+			expectedAppId: appId,
 			expectedProjectId: projectId,
 			expectedInstancePath: parsed.data.expectedInstancePath,
 			instancePath: parsed.data.instancePath,
@@ -176,12 +179,13 @@ export async function DELETE(
 		const deleted = await deleteUnsubmittedFormAttachment({
 			attachmentId,
 			actorUserId: session.user.id,
+			expectedAppId: appId,
 			expectedProjectId: projectId,
 		});
 		if (deleted === null) {
-			// Already gone, submitted, or another member's — one shape for all
-			// three, so a caller cannot probe which.
-			return NextResponse.json({ ok: true });
+			// Already gone, submitted, foreign-app, or another member's — one
+			// not-found shape for all four, so a caller cannot probe which.
+			throw new ApiError("Attachment not found", 404);
 		}
 		// Metadata first, bytes second: an orphaned object is reaped by the
 		// staging TTL, while an orphaned ROW would describe bytes that exist

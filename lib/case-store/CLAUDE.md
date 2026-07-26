@@ -23,8 +23,14 @@ sequence and exact structured attachment references, and moves only those
 staged rows to `promotion_pending`; it then applies the ordinary/advanced case
 effects and stores the exact replay result before commit. Any case failure
 rolls the receipt and row reservations back. A matching retry returns the
-stored result without repeating case effects; a different digest for the same
-entry is a typed `CaptureSubmissionRejectedError`. GCS promotion is outside the
+stored result without repeating case effects, even if an unrelated app edit
+advanced `mutation_seq` after acceptance: the digest identifies the stable
+client request, while the sequence remains a separate fresh-claim fence. Before
+reservation, each row's immutable filename/extension/content type is re-proved
+against the capture kind and accepted-format table in the committed snapshot,
+so a stable UUID/path cannot carry image bytes after a peer changes the field
+to audio. A different digest for the same entry is a typed
+`CaptureSubmissionRejectedError`. GCS promotion is outside the
 transaction but never best-effort state: immutable generation/checksum metadata
 and a scheduled leased retry worker complete it without discarding an accepted
 submission.

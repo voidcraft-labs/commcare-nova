@@ -13,9 +13,15 @@ import type { FieldState } from "@/lib/preview/engine/types";
 import { useEditMode } from "@/lib/session/hooks";
 import {
 	AttachmentRejected,
+	type AttachmentTaskContext,
 	cancelAttachmentTask,
 	discardAttachment,
+	discardAttachmentEntry,
+	forgetOwnedStagedAttachment,
+	getOwnedStagedAttachment,
 	isAttachmentTaskAbort,
+	moveOwnedStagedAttachment,
+	rememberOwnedStagedAttachment,
 	retargetAttachment,
 	runAttachmentTask,
 	type StagedAttachment,
@@ -40,9 +46,10 @@ import { SignaturePad } from "./SignaturePad";
  *
  * The filename shown after attaching is this page's knowledge, not the
  * form's. On the real runtime it lives in `form_ui.js`'s in-memory
- * `fileNameCache` and does not survive a page load; here it lives in
- * component state and does not survive one either. Both tell the worker
- * the same truth for the same duration.
+ * `fileNameCache` and does not survive a page load; here it lives in the
+ * entry/path ownership registry and likewise does not survive one. Keeping it
+ * above this component matters because relevance and Preview/Edit can remount
+ * the control without ending the form entry.
  *
  * ## Wording
  *
@@ -118,90 +125,160 @@ function AttachmentControl({
 	onBlur,
 }: AttachmentFieldProps) {
 	const inputId = useId();
+	const statusId = useId();
+	const errorId = useId();
+	const validationId = useId();
+	const helpId = useId();
 	const inputRef = useRef<HTMLInputElement>(null);
-	const stagedRef = useRef<StagedAttachment | undefined>(undefined);
+	const initialOwned =
+		appId && entryKey && path
+			? getOwnedStagedAttachment({
+					appId,
+					entryKey,
+					instancePath: path,
+				})
+			: undefined;
+	const stagedRef = useRef<StagedAttachment | undefined>(initialOwned);
 	const maintenanceTaskSequenceRef = useRef(0);
-	const maintenanceTaskKeysRef = useRef(new Set<string>());
 	const previousPathRef = useRef(path);
 	const latestPathRef = useRef(path);
+	const previousAnswerValueRef = useRef(state.value);
 	latestPathRef.current = path;
-	const [staged, setStaged] = useState<StagedAttachment | undefined>();
+	const [staged, setStaged] = useState<StagedAttachment | undefined>(
+		initialOwned,
+	);
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | undefined>();
+	const ownershipScopeRef = useRef({ appId, entryKey });
+
+	useEffect(() => {
+		const previous = ownershipScopeRef.current;
+		if (previous.appId === appId && previous.entryKey === entryKey) return;
+		if (
+			previous.appId !== undefined &&
+			previous.entryKey !== undefined &&
+			previous.entryKey !== entryKey
+		) {
+			void discardAttachmentEntry({
+				appId: previous.appId,
+				entryKey: previous.entryKey,
+			});
+		}
+		ownershipScopeRef.current = { appId, entryKey };
+		const owned =
+			appId && entryKey && path
+				? getOwnedStagedAttachment({
+						appId,
+						entryKey,
+						instancePath: path,
+					})
+				: undefined;
+		stagedRef.current = owned;
+		setStaged(owned);
+		setBusy(false);
+		setError(undefined);
+		previousPathRef.current = path;
+	}, [appId, entryKey, path]);
+
+	const stageWithinTask = useCallback(
+		async (file: File, context: AttachmentTaskContext): Promise<void> => {
+			if (!appId || !entryKey || !path) {
+				const unavailable = new AttachmentRejected(
+					"This form isn't ready to take attachments yet. Wait a moment and try again.",
+				);
+				setError(unavailable.message);
+				throw unavailable;
+			}
+			setError(undefined);
+			setBusy(true);
+			try {
+				const next = await stageAttachment({
+					appId,
+					entryKey,
+					fieldUuid: field.uuid,
+					instancePath: path,
+					file,
+					signal: context.signal,
+				});
+				if (!context.isCurrent()) {
+					await discardAttachment({
+						appId,
+						attachmentId: next.attachmentId,
+					}).catch(() => undefined);
+					return;
+				}
+				// Replace only after the new generation confirms. Ownership lives
+				// at entry/path scope, above this component's render lifetime.
+				const previous = stagedRef.current;
+				stagedRef.current = next;
+				rememberOwnedStagedAttachment({
+					appId,
+					entryKey,
+					instancePath: path,
+					attachment: next,
+				});
+				setStaged(next);
+				onChange(next.attachmentName);
+				if (
+					previous !== undefined &&
+					previous.attachmentId !== next.attachmentId
+				) {
+					await discardAttachment({
+						appId,
+						attachmentId: previous.attachmentId,
+						signal: context.signal,
+					}).catch(() => undefined);
+				}
+			} catch (err) {
+				if (!context.isCurrent() || isAttachmentTaskAbort(err)) throw err;
+				setError(
+					err instanceof AttachmentRejected
+						? err.message
+						: "That attachment couldn't be saved. Check your connection and try again.",
+				);
+				throw err;
+			} finally {
+				if (context.isCurrent()) {
+					setBusy(false);
+					onBlur();
+				}
+			}
+		},
+		[appId, entryKey, field.uuid, path, onChange, onBlur],
+	);
 
 	const stage = useCallback(
 		async (file: File) => {
-			if (!appId || !entryKey || !path) {
+			if (!entryKey || !path) {
 				setError(
 					"This form isn't ready to take attachments yet. Wait a moment and try again.",
 				);
 				return;
 			}
-			setError(undefined);
-			setBusy(true);
 			await runAttachmentTask({
 				entryKey,
 				instancePath: path,
-				task: async ({ signal, isCurrent }) => {
-					try {
-						const next = await stageAttachment({
-							appId,
-							entryKey,
-							fieldUuid: field.uuid,
-							instancePath: path,
-							file,
-							signal,
-						});
-						if (!isCurrent()) {
-							await discardAttachment({
-								appId,
-								attachmentId: next.attachmentId,
-							}).catch(() => undefined);
-							return;
-						}
-						// Replace only after the new generation confirms. The ref is
-						// authoritative across fast signature callbacks; React state
-						// may not have committed between two generations.
-						const previous = stagedRef.current;
-						stagedRef.current = next;
-						setStaged(next);
-						onChange(next.attachmentName);
-						if (previous !== undefined) {
-							await discardAttachment({
-								appId,
-								attachmentId: previous.attachmentId,
-								signal,
-							}).catch(() => undefined);
-						}
-					} catch (err) {
-						if (!isCurrent() || isAttachmentTaskAbort(err)) return;
-						setError(
-							err instanceof AttachmentRejected
-								? err.message
-								: "That attachment couldn't be saved. Check your connection and try again.",
-						);
-					} finally {
-						if (isCurrent()) {
-							setBusy(false);
-							onBlur();
-						}
-					}
-				},
+				task: (context) => stageWithinTask(file, context),
 			}).catch((err: unknown) => {
 				if (!isAttachmentTaskAbort(err)) {
 					setBusy(false);
-					setError(
-						"That attachment couldn't be saved. Check your connection and try again.",
-					);
 					onBlur();
 				}
 			});
 		},
-		[appId, entryKey, field.uuid, path, onChange, onBlur],
+		[entryKey, path, stageWithinTask, onBlur],
 	);
 
 	const clear = useCallback(() => {
-		const previous = stagedRef.current;
+		const owned =
+			appId && entryKey && path
+				? forgetOwnedStagedAttachment({
+						appId,
+						entryKey,
+						instancePath: path,
+					})
+				: undefined;
+		const previous = owned ?? stagedRef.current;
 		stagedRef.current = undefined;
 		setStaged(undefined);
 		setBusy(false);
@@ -214,7 +291,6 @@ function AttachmentControl({
 			// for this answer-clear, not abort it and resurrect the old answer
 			// when the replacement later fails.
 			const clearTaskKey = `$nova-clear$${path}:${++maintenanceTaskSequenceRef.current}`;
-			maintenanceTaskKeysRef.current.add(clearTaskKey);
 			void runAttachmentTask({
 				entryKey,
 				instancePath: clearTaskKey,
@@ -233,17 +309,13 @@ function AttachmentControl({
 					}
 					onBlur();
 				},
-			})
-				.catch((err: unknown) => {
-					if (!isAttachmentTaskAbort(err)) {
-						setError(
-							"That attachment couldn't be cleared. Check your connection and try again.",
-						);
-					}
-				})
-				.finally(() => {
-					maintenanceTaskKeysRef.current.delete(clearTaskKey);
-				});
+			}).catch((err: unknown) => {
+				if (!isAttachmentTaskAbort(err)) {
+					setError(
+						"That attachment couldn't be cleared. Check your connection and try again.",
+					);
+				}
+			});
 			return;
 		}
 
@@ -260,8 +332,33 @@ function AttachmentControl({
 	// Engine reset and repeat removal own the answer, so mirror an externally
 	// cleared value into local filename/busy state and cancel any late upload.
 	useEffect(() => {
-		if (state.value !== "" || stagedRef.current === undefined) return;
-		const previous = stagedRef.current;
+		const previousValue = previousAnswerValueRef.current;
+		previousAnswerValueRef.current = state.value;
+		if (state.value !== "") {
+			if (stagedRef.current === undefined && appId && entryKey && path) {
+				const owned = getOwnedStagedAttachment({
+					appId,
+					entryKey,
+					instancePath: path,
+				});
+				if (owned !== undefined) {
+					stagedRef.current = owned;
+					setStaged(owned);
+				}
+			}
+			return;
+		}
+		if (previousValue === "" || stagedRef.current === undefined) {
+			return;
+		}
+		const previous =
+			appId && entryKey && path
+				? (forgetOwnedStagedAttachment({
+						appId,
+						entryKey,
+						instancePath: path,
+					}) ?? stagedRef.current)
+				: stagedRef.current;
 		stagedRef.current = undefined;
 		setStaged(undefined);
 		setBusy(false);
@@ -290,7 +387,6 @@ function AttachmentControl({
 
 		setBusy(true);
 		const taskKey = `$nova-retarget$${path}:${++maintenanceTaskSequenceRef.current}`;
-		maintenanceTaskKeysRef.current.add(taskKey);
 		void runAttachmentTask({
 			entryKey,
 			instancePath: taskKey,
@@ -302,6 +398,12 @@ function AttachmentControl({
 						expectedInstancePath: previousPath,
 						instancePath: path,
 						signal,
+					});
+					moveOwnedStagedAttachment({
+						appId,
+						entryKey,
+						expectedInstancePath: previousPath,
+						instancePath: path,
 					});
 				} catch (err) {
 					if (isAttachmentTaskAbort(err)) throw err;
@@ -315,6 +417,11 @@ function AttachmentControl({
 								: "That attachment couldn't follow its repeat row. Attach it again.",
 						);
 					}
+					forgetOwnedStagedAttachment({
+						appId,
+						entryKey,
+						instancePath: previousPath,
+					});
 					await discardAttachment({
 						appId,
 						attachmentId: current.attachmentId,
@@ -325,80 +432,71 @@ function AttachmentControl({
 					}
 				}
 			},
-		})
-			.catch((err: unknown) => {
-				if (!isAttachmentTaskAbort(err)) {
-					setBusy(false);
-					setError(
-						"That attachment couldn't follow its repeat row. Attach it again.",
-					);
-				}
-			})
-			.finally(() => {
-				maintenanceTaskKeysRef.current.delete(taskKey);
-			});
+		}).catch((err: unknown) => {
+			if (!isAttachmentTaskAbort(err)) {
+				setBusy(false);
+				setError(
+					"That attachment couldn't follow its repeat row. Attach it again.",
+				);
+			}
+		});
 	}, [appId, entryKey, path, onChange]);
-
-	useEffect(
-		() => () => {
-			const latestPath = latestPathRef.current;
-			if (entryKey && latestPath) {
-				cancelAttachmentTask(entryKey, latestPath);
-			}
-			if (entryKey) {
-				for (const taskKey of maintenanceTaskKeysRef.current) {
-					cancelAttachmentTask(entryKey, taskKey);
-				}
-			}
-			maintenanceTaskKeysRef.current.clear();
-			const previous = stagedRef.current;
-			stagedRef.current = undefined;
-			if (previous !== undefined && appId !== undefined) {
-				void discardAttachment({
-					appId,
-					attachmentId: previous.attachmentId,
-				}).catch(() => undefined);
-			}
-		},
-		[appId, entryKey],
-	);
 
 	const hasAnswer = state.value !== "";
 	const showError = state.touched && !state.valid;
+	const describedBy = [
+		statusId,
+		error ? errorId : undefined,
+		showError && !error ? validationId : undefined,
+		helpId,
+	]
+		.filter((id): id is string => id !== undefined)
+		.join(" ");
 
 	return (
 		<div className="space-y-2">
 			{field.kind === "signature" ? (
 				<SignaturePad
+					entryKey={entryKey ?? ""}
+					instancePath={path ?? ""}
 					uploading={busy}
 					hasAnswer={hasAnswer}
-					onDrawn={(file) => void stage(file)}
+					onDrawn={stageWithinTask}
 					onClear={clear}
+					onEncodingError={(message) => setError(message)}
 				/>
 			) : (
 				<div className="flex items-center gap-2">
-					<input
-						ref={inputRef}
-						id={inputId}
-						type="file"
-						className="sr-only"
-						accept={captureAcceptAttribute(field.kind)}
-						disabled={busy}
-						onChange={(e) => {
-							const file = e.target.files?.[0];
-							// A file input suppresses `change` when the same path is
-							// picked twice. Reset immediately so a rejected upload can
-							// be retried without choosing a different file first.
-							e.currentTarget.value = "";
-							if (file) void stage(file);
-						}}
-					/>
 					{/* A label styled as the control, so the 48px target and the
 					    keyboard focus ring belong to the real input. */}
 					<label
 						htmlFor={inputId}
-						className="inline-flex min-h-12 cursor-pointer items-center gap-2 rounded-md border border-pv-input-border bg-pv-surface px-4 text-sm font-medium text-nova-text transition-colors hover:border-pv-input-focus focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-pv-input-focus has-disabled:cursor-default has-disabled:opacity-40"
+						aria-disabled={busy}
+						className={`relative inline-flex min-h-12 items-center gap-2 overflow-hidden rounded-md border border-pv-input-border bg-pv-surface px-4 text-sm font-medium text-nova-text transition-colors focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-pv-input-focus ${
+							busy
+								? "cursor-default opacity-40"
+								: "cursor-pointer hover:border-pv-input-focus"
+						}`}
 					>
+						<input
+							ref={inputRef}
+							id={inputId}
+							type="file"
+							className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0 disabled:cursor-default"
+							accept={captureAcceptAttribute(field.kind)}
+							disabled={busy}
+							aria-describedby={describedBy}
+							autoComplete="off"
+							data-1p-ignore
+							onChange={(e) => {
+								const file = e.target.files?.[0];
+								// A file input suppresses `change` when the same path is
+								// picked twice. Reset immediately so a rejected upload can
+								// be retried without choosing a different file first.
+								e.currentTarget.value = "";
+								if (file) void stage(file);
+							}}
+						/>
 						<Icon
 							icon={tablerPaperclip}
 							width="16"
@@ -423,14 +521,27 @@ function AttachmentControl({
 
 			{/* The whole confirmation a worker gets: a name, or nothing. Matches
 			    `entry_file.html`'s `fileNameDisplay`. */}
-			<p className="text-xs text-nova-text-muted">
-				{hasAnswer
-					? (staged?.originalFilename ?? "File attached")
-					: "No file attached."}
+			<p
+				id={statusId}
+				role="status"
+				aria-live="polite"
+				className="text-xs text-nova-text-muted"
+			>
+				{busy
+					? field.kind === "signature"
+						? "Saving signature…"
+						: "Attaching file…"
+					: hasAnswer
+						? (staged?.originalFilename ?? "File attached")
+						: "No file attached."}
 			</p>
 
 			{error ? (
-				<p className="flex items-start gap-1.5 text-xs text-nova-red">
+				<p
+					id={errorId}
+					role="alert"
+					className="flex items-start gap-1.5 text-xs text-nova-red"
+				>
 					<Icon
 						icon={tablerAlertTriangle}
 						width="14"
@@ -443,12 +554,12 @@ function AttachmentControl({
 			) : null}
 
 			{showError && !error ? (
-				<p className="text-xs text-nova-red">
+				<p id={validationId} role="alert" className="text-xs text-nova-red">
 					{state.errorMessage ?? "This question needs an attachment."}
 				</p>
 			) : null}
 
-			<p className="text-xs text-nova-text-muted/70">
+			<p id={helpId} className="text-xs text-nova-text-muted/70">
 				Up to {Math.floor(MAX_CAPTURE_BYTES / 1_000_000)} MB.
 			</p>
 		</div>

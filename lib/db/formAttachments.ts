@@ -314,6 +314,7 @@ export async function createPendingFormAttachment(args: {
 export async function loadFormAttachmentForEdit(args: {
 	attachmentId: string;
 	actorUserId: string;
+	expectedAppId: string;
 	expectedProjectId: string;
 }): Promise<FormAttachmentRecord | null> {
 	return withAppTx(async (tx) => {
@@ -327,6 +328,7 @@ export async function loadFormAttachmentForEdit(args: {
 			.selectFrom("form_attachments")
 			.selectAll()
 			.where("attachment_id", "=", args.attachmentId)
+			.where("app_id", "=", args.expectedAppId)
 			.where("project_id", "=", args.expectedProjectId)
 			.where("created_by", "=", args.actorUserId)
 			.executeTakeFirst();
@@ -414,6 +416,7 @@ export type ConfirmFormAttachmentResult =
 export async function confirmFormAttachment(args: {
 	attachmentId: string;
 	actorUserId: string;
+	expectedAppId: string;
 	expectedProjectId: string;
 	sizeBytes: number;
 	objectGeneration: string;
@@ -424,6 +427,7 @@ export async function confirmFormAttachment(args: {
 			.selectFrom("form_attachments")
 			.select(["app_id", "entry_key"])
 			.where("attachment_id", "=", args.attachmentId)
+			.where("app_id", "=", args.expectedAppId)
 			.where("project_id", "=", args.expectedProjectId)
 			.where("created_by", "=", args.actorUserId)
 			.executeTakeFirst();
@@ -446,7 +450,7 @@ export async function confirmFormAttachment(args: {
 			return { kind: "not_found" };
 		}
 		await lockFormAttachmentEntry(tx, {
-			appId: candidate.app_id,
+			appId: args.expectedAppId,
 			actorUserId: args.actorUserId,
 			entryKey: candidate.entry_key,
 		});
@@ -455,6 +459,7 @@ export async function confirmFormAttachment(args: {
 			.selectFrom("form_attachments")
 			.selectAll()
 			.where("attachment_id", "=", args.attachmentId)
+			.where("app_id", "=", args.expectedAppId)
 			.where("project_id", "=", args.expectedProjectId)
 			.where("created_by", "=", args.actorUserId)
 			.forUpdate()
@@ -477,7 +482,7 @@ export async function confirmFormAttachment(args: {
 				"The uploaded file does not match the size selected by the form. Attach it again.",
 			);
 		}
-		const committed = await loadAppInTransaction(tx, candidate.app_id);
+		const committed = await loadAppInTransaction(tx, args.expectedAppId);
 		const field = committed?.blueprint.fields[current.fieldUuid];
 		const committedPath =
 			committed === null
@@ -525,6 +530,9 @@ export async function confirmFormAttachment(args: {
 				object_checksum: args.objectChecksum,
 			})
 			.where("attachment_id", "=", args.attachmentId)
+			.where("app_id", "=", args.expectedAppId)
+			.where("project_id", "=", args.expectedProjectId)
+			.where("created_by", "=", args.actorUserId)
 			.where("status", "=", "pending")
 			.returningAll()
 			.executeTakeFirst();
@@ -548,6 +556,7 @@ export async function confirmFormAttachment(args: {
 export async function deleteUnsubmittedFormAttachment(args: {
 	attachmentId: string;
 	actorUserId: string;
+	expectedAppId: string;
 	expectedProjectId: string;
 }): Promise<FormAttachmentRecord | null> {
 	return withAppTx(async (tx) => {
@@ -555,6 +564,7 @@ export async function deleteUnsubmittedFormAttachment(args: {
 			.selectFrom("form_attachments")
 			.select(["app_id", "entry_key"])
 			.where("attachment_id", "=", args.attachmentId)
+			.where("app_id", "=", args.expectedAppId)
 			.where("project_id", "=", args.expectedProjectId)
 			.where("created_by", "=", args.actorUserId)
 			.executeTakeFirst();
@@ -575,13 +585,14 @@ export async function deleteUnsubmittedFormAttachment(args: {
 		);
 		if (role === null || !roleAllowsApp(role, "edit")) return null;
 		await lockFormAttachmentEntry(tx, {
-			appId: candidate.app_id,
+			appId: args.expectedAppId,
 			actorUserId: args.actorUserId,
 			entryKey: candidate.entry_key,
 		});
 		const deleted = await tx
 			.deleteFrom("form_attachments")
 			.where("attachment_id", "=", args.attachmentId)
+			.where("app_id", "=", args.expectedAppId)
 			.where("project_id", "=", args.expectedProjectId)
 			.where("created_by", "=", args.actorUserId)
 			.where("status", "in", ["pending", "staged"])
@@ -603,6 +614,7 @@ export async function deleteUnsubmittedFormAttachment(args: {
 export async function retargetStagedFormAttachment(args: {
 	attachmentId: string;
 	actorUserId: string;
+	expectedAppId: string;
 	expectedProjectId: string;
 	expectedInstancePath: string;
 	instancePath: string;
@@ -612,6 +624,7 @@ export async function retargetStagedFormAttachment(args: {
 			.selectFrom("form_attachments")
 			.select(["app_id", "entry_key"])
 			.where("attachment_id", "=", args.attachmentId)
+			.where("app_id", "=", args.expectedAppId)
 			.where("project_id", "=", args.expectedProjectId)
 			.where("created_by", "=", args.actorUserId)
 			.executeTakeFirst();
@@ -632,7 +645,7 @@ export async function retargetStagedFormAttachment(args: {
 		);
 		if (role === null || !roleAllowsApp(role, "edit")) return null;
 		await lockFormAttachmentEntry(tx, {
-			appId: candidate.app_id,
+			appId: args.expectedAppId,
 			actorUserId: args.actorUserId,
 			entryKey: candidate.entry_key,
 		});
@@ -640,6 +653,7 @@ export async function retargetStagedFormAttachment(args: {
 			.selectFrom("form_attachments")
 			.selectAll()
 			.where("attachment_id", "=", args.attachmentId)
+			.where("app_id", "=", args.expectedAppId)
 			.where("project_id", "=", args.expectedProjectId)
 			.where("created_by", "=", args.actorUserId)
 			.forUpdate()
@@ -652,7 +666,7 @@ export async function retargetStagedFormAttachment(args: {
 				"The repeat row changed again while its attachment moved. Attach the file again.",
 			);
 		}
-		const committed = await loadAppInTransaction(tx, candidate.app_id);
+		const committed = await loadAppInTransaction(tx, args.expectedAppId);
 		const field = committed?.blueprint.fields[current.fieldUuid];
 		const committedPath =
 			committed === null
@@ -679,6 +693,9 @@ export async function retargetStagedFormAttachment(args: {
 			.updateTable("form_attachments")
 			.set({ instance_path: args.instancePath })
 			.where("attachment_id", "=", args.attachmentId)
+			.where("app_id", "=", args.expectedAppId)
+			.where("project_id", "=", args.expectedProjectId)
+			.where("created_by", "=", args.actorUserId)
 			.where("status", "=", "staged")
 			.where("instance_path", "=", args.expectedInstancePath)
 			.returningAll()

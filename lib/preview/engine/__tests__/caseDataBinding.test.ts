@@ -102,6 +102,7 @@ import {
 	pickBlueprintDoc,
 } from "../caseDataBindingClient";
 import {
+	buildSubmissionOperationProgram,
 	readCaseData,
 	readCases,
 	readFilterPreview,
@@ -3726,12 +3727,21 @@ describe("submitFormAction", () => {
 			appName: "Capture survey",
 			modules: [
 				{
+					uuid: "31111111-1111-4111-8111-111111111111",
 					name: "Mod",
 					forms: [
 						{
+							uuid: "41111111-1111-4111-8111-111111111111",
 							name: "Survey",
 							type: "survey",
-							fields: [f({ kind: "image", id: "photo", label: "Photo" })],
+							fields: [
+								f({
+									uuid: "51111111-1111-4111-8111-111111111111",
+									kind: "image",
+									id: "photo",
+									label: "Photo",
+								}),
+							],
 						},
 					],
 				},
@@ -3780,6 +3790,16 @@ describe("submitFormAction", () => {
 			formUuid,
 			expectedAppMutationSeq: 17,
 			attachments: mutation.attachmentRefs,
+			allowedAttachments: [
+				expect.objectContaining({
+					fieldUuid: photoUuid,
+					captureKind: "image",
+					acceptedFormats: expect.arrayContaining([
+						{ extension: ".jpg", contentType: "image/jpeg" },
+						{ extension: ".png", contentType: "image/png" },
+					]),
+				}),
+			],
 		});
 		expect(envelope.captureIntent.requestDigest).toMatch(/^[0-9a-f]{64}$/);
 		expect(promotePendingFormAttachmentsMock).toHaveBeenCalledWith({
@@ -3788,6 +3808,86 @@ describe("submitFormAction", () => {
 			actorUserId: OWNER_A,
 			projectId: PROJECT_A,
 		});
+	});
+
+	it("keeps replay identity stable when an unrelated app edit advances mutation_seq", async () => {
+		const doc = buildDoc({
+			appName: "Stable capture retry",
+			modules: [
+				{
+					uuid: "61111111-1111-4111-8111-111111111111",
+					name: "Mod",
+					forms: [
+						{
+							uuid: "71111111-1111-4111-8111-111111111111",
+							name: "Survey",
+							type: "survey",
+							fields: [
+								f({
+									uuid: "81111111-1111-4111-8111-111111111111",
+									kind: "image",
+									id: "photo",
+									label: "Photo",
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const formUuid = Object.keys(doc.forms)[0] as Uuid;
+		const photoUuid = Object.values(doc.fields).find(
+			(field) => field.id === "photo",
+		)?.uuid as Uuid;
+		const mutation: SubmissionMutation = {
+			kind: "survey",
+			formUuid,
+			entryKey: "21111111-1111-4111-8111-111111111111",
+			attachmentNames: ["photo.jpg"],
+			attachmentRefs: [
+				{
+					attachmentName: "photo.jpg",
+					fieldUuid: photoUuid,
+					instancePath: "/data/photo",
+				},
+			],
+		};
+		const identity = {
+			actorUserId: OWNER_A,
+			ownerId: OWNER_A,
+			session: { context: {}, user: {} },
+			usercase: {},
+		};
+		loadAppMock
+			.mockResolvedValueOnce({
+				blueprint: doc,
+				mutation_seq: 17,
+				project_id: PROJECT_A,
+			})
+			.mockResolvedValueOnce({
+				blueprint: doc,
+				mutation_seq: 18,
+				project_id: PROJECT_A,
+			});
+
+		const first = await buildSubmissionOperationProgram({
+			appId: APP_ID,
+			identity,
+			mutation,
+			viewerTimeZone: "UTC",
+		});
+		const retry = await buildSubmissionOperationProgram({
+			appId: APP_ID,
+			identity,
+			mutation,
+			viewerTimeZone: "UTC",
+		});
+
+		expect(first.captureIntent?.expectedAppMutationSeq).toBe(17);
+		expect(retry.captureIntent?.expectedAppMutationSeq).toBe(18);
+		expect(retry.captureIntent?.requestDigest).toBe(
+			first.captureIntent?.requestDigest,
+		);
 	});
 });
 

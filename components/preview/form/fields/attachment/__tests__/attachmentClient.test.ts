@@ -1,7 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+	__resetAttachmentCoordinatorForTests,
 	cancelAttachmentEntry,
+	clearAttachmentNotReady,
+	discardAttachmentEntry,
+	getOwnedStagedAttachment,
 	isAttachmentTaskAbort,
+	markAttachmentNotReady,
+	rememberOwnedStagedAttachment,
 	runAttachmentTask,
 	runFormAttachmentBarrier,
 	stageAttachment,
@@ -16,6 +22,7 @@ function deferred<T>() {
 }
 
 afterEach(() => {
+	__resetAttachmentCoordinatorForTests();
 	vi.unstubAllGlobals();
 });
 
@@ -142,6 +149,66 @@ describe("form attachment coordinator", () => {
 		expect(errors).toHaveLength(2);
 		expect(errors.every(isAttachmentTaskAbort)).toBe(true);
 		expect(resetRan).toBe(true);
+	});
+
+	it("blocks submit while visible capture data is not yet safely encoded", async () => {
+		markAttachmentNotReady(
+			"entry-dirty",
+			"/data/signature",
+			"The signature couldn't be saved.",
+		);
+
+		await expect(
+			runFormAttachmentBarrier("entry-dirty", async () => "submitted"),
+		).rejects.toThrow(/signature couldn't be saved/i);
+
+		clearAttachmentNotReady("entry-dirty", "/data/signature");
+		await expect(
+			runFormAttachmentBarrier("entry-dirty", async () => "submitted"),
+		).resolves.toBe("submitted");
+	});
+
+	it("keeps a confirmed row owned by the entry across ordinary component unmounts", async () => {
+		const staged = {
+			attachmentId: "attachment-keep",
+			attachmentName: "attachment-keep.png",
+			originalFilename: "photo.png",
+			sizeBytes: 3,
+		};
+		rememberOwnedStagedAttachment({
+			appId: "app-1",
+			entryKey: "entry-keep",
+			instancePath: "/data/photo",
+			attachment: staged,
+		});
+
+		// A relevance/group/edit-mode remount performs no ownership mutation.
+		expect(
+			getOwnedStagedAttachment({
+				appId: "app-1",
+				entryKey: "entry-keep",
+				instancePath: "/data/photo",
+			}),
+		).toEqual(staged);
+
+		const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+		vi.stubGlobal("fetch", fetchMock);
+		await discardAttachmentEntry({
+			appId: "app-1",
+			entryKey: "entry-keep",
+		});
+
+		expect(fetchMock).toHaveBeenCalledWith(
+			"/api/apps/app-1/attachments/attachment-keep",
+			expect.objectContaining({ method: "DELETE" }),
+		);
+		expect(
+			getOwnedStagedAttachment({
+				appId: "app-1",
+				entryKey: "entry-keep",
+				instancePath: "/data/photo",
+			}),
+		).toBeUndefined();
 	});
 });
 

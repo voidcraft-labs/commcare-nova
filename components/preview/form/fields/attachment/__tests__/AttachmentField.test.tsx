@@ -1,11 +1,15 @@
 // @vitest-environment happy-dom
 
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CaptureField } from "@/lib/domain";
 import type { FieldState } from "@/lib/preview/engine/types";
 import { AttachmentField } from "../AttachmentField";
-import { runAttachmentTask } from "../attachmentClient";
+import {
+	__resetAttachmentCoordinatorForTests,
+	getOwnedStagedAttachment,
+	runAttachmentTask,
+} from "../attachmentClient";
 
 const { stageAttachmentMock, discardAttachmentMock, retargetAttachmentMock } =
 	vi.hoisted(() => ({
@@ -59,6 +63,10 @@ beforeEach(() => {
 	discardAttachmentMock.mockResolvedValue(undefined);
 	retargetAttachmentMock.mockResolvedValue(undefined);
 	stageAttachmentMock.mockRejectedValue(new Error("network failed"));
+});
+
+afterEach(() => {
+	__resetAttachmentCoordinatorForTests();
 });
 
 describe("AttachmentField", () => {
@@ -255,5 +263,136 @@ describe("AttachmentField", () => {
 				attachmentId: "66666666-6666-4666-8666-666666666666",
 			}),
 		);
+	});
+
+	it("keeps a confirmed answer through relevance or Preview/Edit remounts", async () => {
+		const entryKey = "88888888-8888-4888-8888-888888888888";
+		const attachmentName = "99999999-9999-4999-8999-999999999999.png";
+		stageAttachmentMock.mockResolvedValue({
+			attachmentId: "99999999-9999-4999-8999-999999999999",
+			attachmentName,
+			originalFilename: "visit-photo.png",
+			sizeBytes: 3,
+		});
+		const onChange = vi.fn();
+		const mounted = render(
+			<AttachmentField
+				field={FIELD}
+				state={EMPTY_STATE}
+				path="/data/photo"
+				appId="app-1"
+				entryKey={entryKey}
+				onChange={onChange}
+				onBlur={vi.fn()}
+			/>,
+		);
+		fireEvent.change(screen.getByLabelText("Attach file"), {
+			target: {
+				files: [new File(["png"], "visit-photo.png", { type: "image/png" })],
+			},
+		});
+		await waitFor(() => expect(onChange).toHaveBeenCalledWith(attachmentName));
+		mounted.rerender(
+			<AttachmentField
+				field={FIELD}
+				state={{ ...EMPTY_STATE, value: attachmentName }}
+				path="/data/photo"
+				appId="app-1"
+				entryKey={entryKey}
+				onChange={onChange}
+				onBlur={vi.fn()}
+			/>,
+		);
+		await screen.findByText("visit-photo.png");
+
+		mounted.unmount();
+
+		expect(discardAttachmentMock).not.toHaveBeenCalled();
+		expect(
+			getOwnedStagedAttachment({
+				appId: "app-1",
+				entryKey,
+				instancePath: "/data/photo",
+			}),
+		).toMatchObject({ attachmentName, originalFilename: "visit-photo.png" });
+
+		render(
+			<AttachmentField
+				field={FIELD}
+				state={{ ...EMPTY_STATE, value: attachmentName }}
+				path="/data/photo"
+				appId="app-1"
+				entryKey={entryKey}
+				onChange={onChange}
+				onBlur={vi.fn()}
+			/>,
+		);
+		expect(await screen.findByText("visit-photo.png")).toBeDefined();
+		expect(discardAttachmentMock).not.toHaveBeenCalled();
+	});
+
+	it("exposes a focusable picker, honest disabled state, and described async feedback", async () => {
+		stageAttachmentMock.mockImplementation(
+			({ signal }: { signal: AbortSignal }) =>
+				new Promise<never>((_resolve, reject) => {
+					signal.addEventListener("abort", () => reject(signal.reason), {
+						once: true,
+					});
+				}),
+		);
+		render(
+			<AttachmentField
+				field={FIELD}
+				state={EMPTY_STATE}
+				path="/data/photo"
+				appId="app-1"
+				entryKey="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+				onChange={vi.fn()}
+				onBlur={vi.fn()}
+			/>,
+		);
+		const input = screen.getByLabelText("Attach file") as HTMLInputElement;
+		const label = input.closest("label");
+		expect(label).not.toBeNull();
+		input.focus();
+		expect(document.activeElement).toBe(input);
+		expect(input.getAttribute("aria-describedby")).toContain(
+			screen.getByRole("status").id,
+		);
+
+		fireEvent.change(input, {
+			target: {
+				files: [new File(["png"], "photo.png", { type: "image/png" })],
+			},
+		});
+		await waitFor(() => expect(input.disabled).toBe(true));
+		expect(label?.getAttribute("aria-disabled")).toBe("true");
+		expect(label?.className).toContain("opacity-40");
+		expect(screen.getByRole("status").textContent).toMatch(/attaching/i);
+
+		__resetAttachmentCoordinatorForTests();
+	});
+
+	it("announces attachment failures and associates them with the picker", async () => {
+		render(
+			<AttachmentField
+				field={FIELD}
+				state={EMPTY_STATE}
+				path="/data/photo"
+				appId="app-1"
+				entryKey="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+				onChange={vi.fn()}
+				onBlur={vi.fn()}
+			/>,
+		);
+		const input = screen.getByLabelText("Attach file") as HTMLInputElement;
+		fireEvent.change(input, {
+			target: {
+				files: [new File(["png"], "photo.png", { type: "image/png" })],
+			},
+		});
+		const alert = await screen.findByRole("alert");
+		expect(alert.textContent).toMatch(/couldn't be saved/i);
+		expect(input.getAttribute("aria-describedby")).toContain(alert.id);
 	});
 });

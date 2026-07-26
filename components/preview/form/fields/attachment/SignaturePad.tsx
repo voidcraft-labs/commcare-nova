@@ -3,6 +3,18 @@ import { Icon } from "@iconify/react/offline";
 import tablerArrowBackUp from "@iconify-icons/tabler/arrow-back-up";
 import tablerX from "@iconify-icons/tabler/x";
 import { useCallback, useEffect, useRef, useState } from "react";
+import {
+	type AttachmentTaskContext,
+	cancelAttachmentTask,
+	clearAttachmentNotReady,
+	clearSignatureDraft,
+	getSignatureDraft,
+	isAttachmentTaskAbort,
+	markAttachmentNotReady,
+	rememberSignatureDraft,
+	runAttachmentTask,
+	type SignaturePoint,
+} from "./attachmentClient";
 
 /**
  * A signature pad — the one capture a worker produces in-app rather than
@@ -33,14 +45,20 @@ import { useCallback, useEffect, useRef, useState } from "react";
  * takes.
  */
 interface SignaturePadProps {
+	readonly entryKey: string;
+	readonly instancePath: string;
 	/** Whether an upload is in flight. Deliberately NOT used to disable the
 	 *  drawing surface — see `SIGNATURE_SETTLE_MS`. */
 	readonly uploading: boolean;
 	readonly hasAnswer: boolean;
 	/** Fired once the worker has stopped drawing, with the pad's whole
 	 *  content as a PNG. */
-	readonly onDrawn: (file: File) => void;
+	readonly onDrawn: (
+		file: File,
+		context: AttachmentTaskContext,
+	) => Promise<void> | void;
 	readonly onClear: () => void;
+	readonly onEncodingError?: (message: string) => void;
 }
 
 /**
@@ -62,24 +80,71 @@ interface SignaturePadProps {
  */
 const SIGNATURE_SETTLE_MS = 700;
 
-type Point = { x: number; y: number };
+type Point = SignaturePoint;
+
+function abortReason(signal: AbortSignal): unknown {
+	return signal.reason ?? new DOMException("Aborted", "AbortError");
+}
+
+function waitForSignatureSettle(
+	delayMs: number,
+	signal: AbortSignal,
+): Promise<void> {
+	signal.throwIfAborted();
+	return new Promise<void>((resolve, reject) => {
+		const timer = setTimeout(() => {
+			signal.removeEventListener("abort", onAbort);
+			resolve();
+		}, delayMs);
+		const onAbort = () => {
+			clearTimeout(timer);
+			reject(abortReason(signal));
+		};
+		signal.addEventListener("abort", onAbort, { once: true });
+	});
+}
+
+function signatureBlob(
+	canvas: HTMLCanvasElement,
+	signal: AbortSignal,
+): Promise<Blob | null> {
+	signal.throwIfAborted();
+	return new Promise<Blob | null>((resolve, reject) => {
+		let settled = false;
+		const onAbort = () => {
+			if (settled) return;
+			settled = true;
+			reject(abortReason(signal));
+		};
+		signal.addEventListener("abort", onAbort, { once: true });
+		canvas.toBlob((blob) => {
+			if (settled) return;
+			settled = true;
+			signal.removeEventListener("abort", onAbort);
+			resolve(blob);
+		}, "image/png");
+	});
+}
 
 export function SignaturePad({
+	entryKey,
+	instancePath,
 	uploading,
 	hasAnswer,
 	onDrawn,
 	onClear,
+	onEncodingError,
 }: SignaturePadProps) {
 	const canvasRef = useRef<HTMLCanvasElement>(null);
 	/** Completed strokes plus the one in progress, in CSS pixels. Retained
 	 *  so a resize can replay rather than lose the signature. */
-	const strokesRef = useRef<Point[][]>([]);
-	const drawingRef = useRef(false);
-	const settleRef = useRef<ReturnType<typeof setTimeout> | undefined>(
-		undefined,
+	const strokesRef = useRef<Point[][]>(
+		getSignatureDraft(entryKey, instancePath),
 	);
+	const drawingRef = useRef(false);
 	/** Fences `canvas.toBlob` callbacks, which cannot themselves be aborted. */
 	const renderGenerationRef = useRef(0);
+	const identityRef = useRef({ entryKey, instancePath });
 	/**
 	 * The strokes the last Clear removed, kept so it can be undone.
 	 *
@@ -99,7 +164,7 @@ export function SignaturePad({
 	 */
 	const clearedRef = useRef<Point[][] | undefined>(undefined);
 	const [cleared, setCleared] = useState(false);
-	const [empty, setEmpty] = useState(true);
+	const [empty, setEmpty] = useState(strokesRef.current.length === 0);
 
 	const redraw = useCallback(() => {
 		const canvas = canvasRef.current;
@@ -138,47 +203,104 @@ export function SignaturePad({
 		return () => window.removeEventListener("resize", onResize);
 	}, [redraw]);
 
-	// A pending settle must not outlive the pad; without this the timer
-	// fires into an unmounted component after a form change.
-	useEffect(
-		() => () => {
-			clearTimeout(settleRef.current);
-			renderGenerationRef.current += 1;
-		},
-		[],
-	);
+	// A material identity change is a different worker/form entry. Local
+	// pixels must never project across it, even when React preserves this
+	// component instance.
+	useEffect(() => {
+		const previous = identityRef.current;
+		if (
+			previous.entryKey === entryKey &&
+			previous.instancePath === instancePath
+		) {
+			return;
+		}
+		cancelAttachmentTask(previous.entryKey, previous.instancePath);
+		clearAttachmentNotReady(previous.entryKey, previous.instancePath);
+		renderGenerationRef.current += 1;
+		drawingRef.current = false;
+		identityRef.current = { entryKey, instancePath };
+		strokesRef.current = getSignatureDraft(entryKey, instancePath);
+		clearedRef.current = undefined;
+		setCleared(false);
+		setEmpty(strokesRef.current.length === 0);
+		redraw();
+	}, [entryKey, instancePath, redraw]);
 
 	const pointFrom = (e: React.PointerEvent<HTMLCanvasElement>): Point => {
 		const rect = e.currentTarget.getBoundingClientRect();
 		return { x: e.clientX - rect.left, y: e.clientY - rect.top };
 	};
 
-	const emit = useCallback(() => {
-		const canvas = canvasRef.current;
-		if (!canvas) return;
-		const generation = ++renderGenerationRef.current;
-		canvas.toBlob((blob) => {
-			if (!blob || generation !== renderGenerationRef.current) return;
-			// The name matters only as a transport label — the server mints the
-			// stored name — but it must carry a `.png` extension, which is what
-			// the accepted-format check reads.
-			onDrawn(new File([blob], "signature.png", { type: "image/png" }));
-		}, "image/png");
-	}, [onDrawn]);
+	const scheduleEmit = useCallback(
+		(settleMs = SIGNATURE_SETTLE_MS) => {
+			const canvas = canvasRef.current;
+			if (!canvas) return;
+			const generation = ++renderGenerationRef.current;
+			const scheduledIdentity = { entryKey, instancePath };
+			void runAttachmentTask({
+				entryKey,
+				instancePath,
+				task: async (context) => {
+					try {
+						await waitForSignatureSettle(settleMs, context.signal);
+						const blob = await signatureBlob(canvas, context.signal);
+						if (
+							!context.isCurrent() ||
+							generation !== renderGenerationRef.current ||
+							identityRef.current.entryKey !== scheduledIdentity.entryKey ||
+							identityRef.current.instancePath !==
+								scheduledIdentity.instancePath
+						) {
+							return;
+						}
+						if (blob === null) {
+							onEncodingError?.(
+								"The signature couldn't be saved. Clear it or draw it again before submitting.",
+							);
+							return;
+						}
+						// The name matters only as a transport label — the server
+						// mints the stored name — but it must carry `.png`, which is
+						// what the accepted-format check reads.
+						await onDrawn(
+							new File([blob], "signature.png", { type: "image/png" }),
+							context,
+						);
+						if (context.isCurrent()) {
+							clearAttachmentNotReady(entryKey, instancePath);
+						}
+					} catch (error) {
+						if (isAttachmentTaskAbort(error)) return;
+						onEncodingError?.(
+							"The signature couldn't be saved. Clear it or draw it again before submitting.",
+						);
+					}
+				},
+			}).catch((error: unknown) => {
+				if (isAttachmentTaskAbort(error)) return;
+				onEncodingError?.(
+					"The signature couldn't be saved. Clear it or draw it again before submitting.",
+				);
+			});
+		},
+		[entryKey, instancePath, onDrawn, onEncodingError],
+	);
 
 	const clear = useCallback(() => {
-		// Cancel any settle in flight: a timer that survived would re-upload
-		// the strokes the worker just cleared.
-		clearTimeout(settleRef.current);
+		// Cancel any settle/encoding in flight so it cannot re-upload the
+		// strokes the worker just cleared.
+		cancelAttachmentTask(entryKey, instancePath);
+		clearAttachmentNotReady(entryKey, instancePath);
 		renderGenerationRef.current += 1;
 		clearedRef.current =
 			strokesRef.current.length > 0 ? strokesRef.current : undefined;
 		setCleared(clearedRef.current !== undefined);
 		strokesRef.current = [];
+		clearSignatureDraft(entryKey, instancePath);
 		setEmpty(true);
 		redraw();
 		onClear();
-	}, [redraw, onClear]);
+	}, [entryKey, instancePath, redraw, onClear]);
 
 	const undo = useCallback(() => {
 		const restored = clearedRef.current;
@@ -186,13 +308,19 @@ export function SignaturePad({
 		clearedRef.current = undefined;
 		setCleared(false);
 		strokesRef.current = restored;
+		rememberSignatureDraft(entryKey, instancePath, restored);
 		setEmpty(false);
 		redraw();
 		// Restoring the pixels is not enough: `onClear` discarded the staged
 		// attachment, so the answer has to be re-minted from the restored
-		// canvas. `emit` is the same path an ordinary stroke takes.
-		emit();
-	}, [redraw, emit]);
+		// canvas. It joins the queue immediately just like an ordinary stroke.
+		markAttachmentNotReady(
+			entryKey,
+			instancePath,
+			"The restored signature is still being saved.",
+		);
+		scheduleEmit(0);
+	}, [entryKey, instancePath, redraw, scheduleEmit]);
 
 	return (
 		<div className="space-y-2">
@@ -203,7 +331,12 @@ export function SignaturePad({
 				onPointerDown={(e) => {
 					// No disabled check: the surface stays live even while an
 					// upload is in flight, so a worker can keep signing.
-					clearTimeout(settleRef.current);
+					cancelAttachmentTask(entryKey, instancePath);
+					markAttachmentNotReady(
+						entryKey,
+						instancePath,
+						"The latest signature is still being saved.",
+					);
 					// Invalidate a `toBlob` from the prior stroke set. The next
 					// settled emission captures the complete, newer bitmap.
 					renderGenerationRef.current += 1;
@@ -216,6 +349,7 @@ export function SignaturePad({
 					e.currentTarget.setPointerCapture(e.pointerId);
 					drawingRef.current = true;
 					strokesRef.current = [...strokesRef.current, [pointFrom(e)]];
+					rememberSignatureDraft(entryKey, instancePath, strokesRef.current);
 					setEmpty(false);
 					redraw();
 				}}
@@ -225,24 +359,31 @@ export function SignaturePad({
 					const current = strokes[strokes.length - 1];
 					if (!current) return;
 					current.push(pointFrom(e));
+					rememberSignatureDraft(entryKey, instancePath, strokesRef.current);
 					redraw();
 				}}
 				onPointerUp={(e) => {
 					if (!drawingRef.current) return;
 					drawingRef.current = false;
 					e.currentTarget.releasePointerCapture(e.pointerId);
-					// Upload once the worker has stopped, not once per stroke.
-					clearTimeout(settleRef.current);
-					settleRef.current = setTimeout(emit, SIGNATURE_SETTLE_MS);
+					// The debounce itself is inside the form queue, so Submit
+					// cannot overtake the worker's visible latest ink.
+					scheduleEmit();
 				}}
 				onPointerCancel={() => {
+					if (!drawingRef.current) return;
 					drawingRef.current = false;
+					scheduleEmit();
 				}}
 			/>
 			{/* The pad stays drawable while this shows — it reports progress,
 			    it does not gate the surface. */}
 			<div className="flex flex-wrap items-center gap-2">
-				<p aria-live="polite" className="text-xs text-nova-text-muted">
+				<p
+					role="status"
+					aria-live="polite"
+					className="text-xs text-nova-text-muted"
+				>
 					{uploading
 						? "Saving signature…"
 						: cleared

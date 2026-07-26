@@ -22,7 +22,7 @@ export class AttachmentRejected extends Error {
 	readonly name = "AttachmentRejected";
 }
 
-interface AttachmentTaskContext {
+export interface AttachmentTaskContext {
 	readonly signal: AbortSignal;
 	readonly isCurrent: () => boolean;
 }
@@ -36,17 +36,44 @@ interface EntryQueue {
 	tail: Promise<void>;
 	pending: number;
 	readonly paths: Map<string, PathTask>;
+	readonly notReady: Map<string, string>;
 }
 
 const entryQueues = new Map<string, EntryQueue>();
+const ownedAttachments = new Map<
+	string,
+	Map<string, { appId: string; attachment: StagedAttachment }>
+>();
+
+export interface SignaturePoint {
+	readonly x: number;
+	readonly y: number;
+}
+
+const signatureDrafts = new Map<string, Map<string, SignaturePoint[][]>>();
 
 function queueFor(entryKey: string): EntryQueue {
 	let queue = entryQueues.get(entryKey);
 	if (queue === undefined) {
-		queue = { tail: Promise.resolve(), pending: 0, paths: new Map() };
+		queue = {
+			tail: Promise.resolve(),
+			pending: 0,
+			paths: new Map(),
+			notReady: new Map(),
+		};
 		entryQueues.set(entryKey, queue);
 	}
 	return queue;
+}
+
+function releaseQueueIfIdle(entryKey: string, queue: EntryQueue): void {
+	if (
+		queue.pending === 0 &&
+		queue.paths.size === 0 &&
+		queue.notReady.size === 0
+	) {
+		entryQueues.delete(entryKey);
+	}
 }
 
 function enqueue<T>(entryKey: string, work: () => Promise<T>): Promise<T> {
@@ -59,9 +86,7 @@ function enqueue<T>(entryKey: string, work: () => Promise<T>): Promise<T> {
 	);
 	return result.finally(() => {
 		queue.pending -= 1;
-		if (queue.pending === 0 && queue.paths.size === 0) {
-			entryQueues.delete(entryKey);
-		}
+		releaseQueueIfIdle(entryKey, queue);
 	});
 }
 
@@ -99,9 +124,7 @@ export function runAttachmentTask<T>(args: {
 		if (queue.paths.get(args.instancePath) === current) {
 			queue.paths.delete(args.instancePath);
 		}
-		if (queue.pending === 0 && queue.paths.size === 0) {
-			entryQueues.delete(args.entryKey);
-		}
+		releaseQueueIfIdle(args.entryKey, queue);
 	});
 }
 
@@ -114,9 +137,7 @@ export function cancelAttachmentTask(
 	const current = queue?.paths.get(instancePath);
 	current?.controller.abort();
 	if (current !== undefined) queue?.paths.delete(instancePath);
-	if (queue?.pending === 0 && queue.paths.size === 0) {
-		entryQueues.delete(entryKey);
-	}
+	if (queue !== undefined) releaseQueueIfIdle(entryKey, queue);
 }
 
 /** Abort every path in an entry before a form-wide reset. */
@@ -125,7 +146,31 @@ export function cancelAttachmentEntry(entryKey: string): void {
 	if (queue === undefined) return;
 	for (const current of queue.paths.values()) current.controller.abort();
 	queue.paths.clear();
-	if (queue.pending === 0) entryQueues.delete(entryKey);
+	queue.notReady.clear();
+	releaseQueueIfIdle(entryKey, queue);
+}
+
+/** A visible capture draft that cannot yet be represented by a staged row. */
+export class AttachmentNotReadyError extends Error {
+	readonly name = "AttachmentNotReadyError";
+}
+
+export function markAttachmentNotReady(
+	entryKey: string,
+	instancePath: string,
+	message: string,
+): void {
+	queueFor(entryKey).notReady.set(instancePath, message);
+}
+
+export function clearAttachmentNotReady(
+	entryKey: string,
+	instancePath: string,
+): void {
+	const queue = entryQueues.get(entryKey);
+	if (queue === undefined) return;
+	queue.notReady.delete(instancePath);
+	releaseQueueIfIdle(entryKey, queue);
 }
 
 /**
@@ -137,7 +182,150 @@ export function runFormAttachmentBarrier<T>(
 	entryKey: string,
 	task: () => Promise<T>,
 ): Promise<T> {
-	return enqueue(entryKey, task);
+	const queue = queueFor(entryKey);
+	return enqueue(entryKey, async () => {
+		const blocked = queue.notReady.values().next().value;
+		if (typeof blocked === "string") {
+			throw new AttachmentNotReadyError(blocked);
+		}
+		return task();
+	});
+}
+
+/** Remember confirmed row ownership above any one rendered component. */
+export function rememberOwnedStagedAttachment(args: {
+	appId: string;
+	entryKey: string;
+	instancePath: string;
+	attachment: StagedAttachment;
+}): void {
+	let entry = ownedAttachments.get(args.entryKey);
+	if (entry === undefined) {
+		entry = new Map();
+		ownedAttachments.set(args.entryKey, entry);
+	}
+	entry.set(args.instancePath, {
+		appId: args.appId,
+		attachment: args.attachment,
+	});
+}
+
+export function getOwnedStagedAttachment(args: {
+	appId: string;
+	entryKey: string;
+	instancePath: string;
+}): StagedAttachment | undefined {
+	const owned = ownedAttachments.get(args.entryKey)?.get(args.instancePath);
+	return owned?.appId === args.appId ? owned.attachment : undefined;
+}
+
+export function forgetOwnedStagedAttachment(args: {
+	appId: string;
+	entryKey: string;
+	instancePath: string;
+}): StagedAttachment | undefined {
+	const entry = ownedAttachments.get(args.entryKey);
+	const owned = entry?.get(args.instancePath);
+	if (entry === undefined || owned?.appId !== args.appId) return undefined;
+	entry.delete(args.instancePath);
+	if (entry.size === 0) ownedAttachments.delete(args.entryKey);
+	return owned.attachment;
+}
+
+export function moveOwnedStagedAttachment(args: {
+	appId: string;
+	entryKey: string;
+	expectedInstancePath: string;
+	instancePath: string;
+}): StagedAttachment | undefined {
+	const owned = forgetOwnedStagedAttachment({
+		appId: args.appId,
+		entryKey: args.entryKey,
+		instancePath: args.expectedInstancePath,
+	});
+	if (owned !== undefined) {
+		rememberOwnedStagedAttachment({
+			appId: args.appId,
+			entryKey: args.entryKey,
+			instancePath: args.instancePath,
+			attachment: owned,
+		});
+	}
+	return owned;
+}
+
+export function getSignatureDraft(
+	entryKey: string,
+	instancePath: string,
+): SignaturePoint[][] {
+	return (
+		signatureDrafts
+			.get(entryKey)
+			?.get(instancePath)
+			?.map((stroke) => stroke.map((point) => ({ ...point }))) ?? []
+	);
+}
+
+export function rememberSignatureDraft(
+	entryKey: string,
+	instancePath: string,
+	strokes: SignaturePoint[][],
+): void {
+	let entry = signatureDrafts.get(entryKey);
+	if (entry === undefined) {
+		entry = new Map();
+		signatureDrafts.set(entryKey, entry);
+	}
+	entry.set(
+		instancePath,
+		strokes.map((stroke) => stroke.map((point) => ({ ...point }))),
+	);
+}
+
+export function clearSignatureDraft(
+	entryKey: string,
+	instancePath: string,
+): void {
+	const entry = signatureDrafts.get(entryKey);
+	entry?.delete(instancePath);
+	if (entry?.size === 0) signatureDrafts.delete(entryKey);
+}
+
+/**
+ * End the real form-entry lifetime. Ordinary field unmounts must never call
+ * this; navigation, persona rotation, and Clear form do.
+ */
+export async function discardAttachmentEntry(args: {
+	appId: string;
+	entryKey: string;
+}): Promise<void> {
+	cancelAttachmentEntry(args.entryKey);
+	signatureDrafts.delete(args.entryKey);
+	const entry = ownedAttachments.get(args.entryKey);
+	ownedAttachments.delete(args.entryKey);
+	if (entry === undefined) return;
+	const ids = new Set(
+		[...entry.values()]
+			.filter((owned) => owned.appId === args.appId)
+			.map((owned) => owned.attachment.attachmentId),
+	);
+	await Promise.all(
+		[...ids].map((attachmentId) =>
+			discardAttachment({ appId: args.appId, attachmentId }).catch(
+				() => undefined,
+			),
+		),
+	);
+}
+
+/** Test-only process-local cleanup; never performs network I/O. */
+export function __resetAttachmentCoordinatorForTests(): void {
+	for (const queue of entryQueues.values()) {
+		for (const path of queue.paths.values()) path.controller.abort();
+	}
+	entryQueues.clear();
+	ownedAttachments.clear();
+	signatureDrafts.clear();
 }
 
 export function isAttachmentTaskAbort(error: unknown): boolean {

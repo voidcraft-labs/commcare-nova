@@ -482,6 +482,11 @@ sweep share `purgeExpiredFormAttachments` for unreserved row hygiene. Repeat
 compaction preserves attachment-id identity and CAS-moves only a `staged` row's
 concrete `instance_path` under the same entry advisory lock; pending uploads
 cancel, while `promotion_pending` and `submitted` rows are immutable.
+Every item-route helper also takes the URL's `expectedAppId` and includes it in
+all candidate, lock-following, CAS, and delete predicates. Project membership
+alone never lets app B's URL read, confirm, retarget, or delete app A's row
+inside the same Project; absent/foreign/terminal cases retain the same collapsed
+not-found shape.
 Initiation is bounded independently by a fixed-minute Project/actor counter,
 per-entry attempt rows, and Project-wide row/byte quotas; the Project quota
 advisory lock makes each admission decision serial across apps.

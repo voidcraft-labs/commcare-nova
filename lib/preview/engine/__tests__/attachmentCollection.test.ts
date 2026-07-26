@@ -152,6 +152,53 @@ describe("collectAttachmentNames", () => {
 		expect(engine.collectAttachmentNames()).toEqual([]);
 	});
 
+	it("DROPS an answered capture beneath an irrelevant group", () => {
+		const engine = new FormEngine(
+			input([
+				{ id: "gate", kind: "text", label: "Gate" },
+				{
+					id: "section",
+					kind: "group",
+					label: "Section",
+					relevant: "/data/gate = 'yes'",
+					children: [{ id: "photo", kind: "image", label: "Photo" }],
+				},
+			]),
+		);
+		engine.setValue("/data/gate", "yes");
+		engine.setValue("/data/section/photo", "att-1.jpg");
+		expect(engine.collectAttachmentNames()).toEqual(["att-1.jpg"]);
+
+		engine.setValue("/data/gate", "no");
+
+		// The child's own relevance remains true. Effective visibility must
+		// nevertheless inherit the hidden group, so its stale answer is absent
+		// from both the attachment reservation and the submitted instance.
+		expect(engine.getState("/data/section/photo").visible).toBe(true);
+		expect(engine.collectAttachmentNames()).toEqual([]);
+	});
+
+	it("DROPS an answered capture beneath an irrelevant repeat", () => {
+		const engine = new FormEngine(
+			input([
+				{ id: "gate", kind: "text", label: "Gate" },
+				{
+					id: "visits",
+					kind: "repeat",
+					label: "Visits",
+					repeat_mode: "user_controlled",
+					relevant: "/data/gate = 'yes'",
+					children: [{ id: "photo", kind: "image", label: "Photo" }],
+				},
+			]),
+		);
+		engine.setValue("/data/gate", "yes");
+		engine.setValue("/data/visits[0]/photo", "att-1.jpg");
+		engine.setValue("/data/gate", "no");
+
+		expect(engine.collectAttachmentNames()).toEqual([]);
+	});
+
 	it("collects one name per live repeat iteration", () => {
 		const engine = new FormEngine(
 			input([

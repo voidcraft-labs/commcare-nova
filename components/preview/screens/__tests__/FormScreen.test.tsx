@@ -40,8 +40,14 @@ import { xp } from "@/lib/__tests__/docHelpers";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
 import { asUuid } from "@/lib/doc/types";
 import type { SubmissionResult } from "@/lib/preview/engine/caseDataBindingTypes";
+import type { EngineController } from "@/lib/preview/engine/engineController";
+import { useBuilderFormEngine } from "@/lib/preview/engine/provider";
 import type { Location } from "@/lib/routing/types";
-import { BuilderSessionProvider } from "@/lib/session/provider";
+import {
+	BuilderSessionProvider,
+	type BuilderSessionStoreApi,
+	useBuilderSessionApi,
+} from "@/lib/session/provider";
 
 // ── Mocks ────────────────────────────────────────────────────────
 
@@ -63,6 +69,7 @@ const SURVEY_FORM_UUID = asUuid("00000000-0000-0000-0000-000000000b04");
 const REQUIRED_FORM_UUID = asUuid("00000000-0000-0000-0000-000000000b05");
 const FIELD_UUID = asUuid("00000000-0000-0000-0000-000000000c01");
 const FIELD_REQUIRED_UUID = asUuid("00000000-0000-0000-0000-000000000c02");
+const PERSONA_UUID = asUuid("00000000-0000-0000-0000-000000000d01");
 
 /* The currentLocation is mutated per-test (one shared `Location`
  *  carrier the `useLocation` mock reads from) so each test can pin
@@ -95,6 +102,9 @@ const setPreviewSelectedCaseMock = vi.fn();
  *  to `undefined` for a single run. `beforeEach` resets to the
  *  default so test ordering doesn't matter. */
 let currentAppId: string | undefined = APP_ID;
+let currentAuthUser: { id: string; name: string; email: string } | null = null;
+let capturedSession: BuilderSessionStoreApi | undefined;
+let capturedController: EngineController | undefined;
 
 /* The screen mounts BuilderFormEngineProvider, which resolves "Preview
  * as me" from `useAuth()`. Mock it so the suite doesn't subscribe Better
@@ -104,8 +114,8 @@ let currentAppId: string | undefined = APP_ID;
  * reads user slices as absent, which these tests never assert on. */
 vi.mock("@/lib/auth/hooks/useAuth", () => ({
 	useAuth: () => ({
-		user: null,
-		isAuthenticated: false,
+		user: currentAuthUser,
+		isAuthenticated: currentAuthUser !== null,
 		isAdmin: false,
 		isImpersonating: false,
 		isPending: false,
@@ -165,6 +175,10 @@ import {
 } from "@/lib/preview/engine/caseDataBinding";
 import { BuilderFormEngineProvider } from "@/lib/preview/engine/provider";
 import { invalidateCaseData } from "@/lib/preview/hooks/caseDataInvalidation";
+import {
+	__resetAttachmentCoordinatorForTests,
+	runAttachmentTask,
+} from "../../form/fields/attachment/attachmentClient";
 import { FormScreen } from "../FormScreen";
 
 // ── Fixtures ─────────────────────────────────────────────────────
@@ -173,6 +187,12 @@ const CASE_TYPE = "patient";
 const FOLLOWUP_CASE_ID = "11111111-1111-1111-1111-111111111111";
 
 const onBackMock = vi.fn();
+
+function CaptureRuntimeHandles() {
+	capturedSession = useBuilderSessionApi();
+	capturedController = useBuilderFormEngine();
+	return null;
+}
 
 /* Mount FormScreen against a BlueprintDocProvider that carries
  *  every FormType arm under one module. Each form owns one text
@@ -205,6 +225,12 @@ function renderFormScreen(opts: {
 				appId: APP_ID,
 				appName: "Form screen test app",
 				connectType: null,
+				personas: {
+					[PERSONA_UUID]: {
+						uuid: PERSONA_UUID,
+						name: "Persona B",
+					},
+				},
 				caseTypes: [
 					{
 						name: CASE_TYPE,
@@ -297,6 +323,7 @@ function renderFormScreen(opts: {
 				}}
 			>
 				<BuilderFormEngineProvider>
+					<CaptureRuntimeHandles />
 					<FormScreen
 						screen={{
 							type: "form",
@@ -322,6 +349,10 @@ beforeEach(() => {
 	/* Reset the appId carrier so the `!appId` guard test's per-run
 	 *  override doesn't leak into sibling tests. */
 	currentAppId = APP_ID;
+	currentAuthUser = null;
+	capturedSession = undefined;
+	capturedController = undefined;
+	__resetAttachmentCoordinatorForTests();
 	/* Default `loadCaseDataAction` to `missing` so followup screens
 	 *  in test mode either short-circuit on the no-case empty state
 	 *  (when no caseId is supplied) or proceed to render the form
@@ -749,6 +780,62 @@ describe("FormScreen — pending UX", () => {
 		await waitFor(() => {
 			expect(navigateMock.goHome).toHaveBeenCalledTimes(1);
 		});
+	});
+
+	it("does not cross-submit queued answers after persona and form navigation rotate the entry", async () => {
+		currentAuthUser = {
+			id: "member-1",
+			name: "Member One",
+			email: "member@example.com",
+		};
+		vi.mocked(submitFormAction).mockClear();
+		renderFormScreen({ formUuid: REG_FORM_UUID });
+		const submit = await screen.findByRole("button", { name: /^submit$/i });
+		await waitFor(() => expect(capturedController?.entryKey).toBeDefined());
+		const initiatingEntryKey = capturedController?.entryKey;
+		if (!initiatingEntryKey) throw new Error("Expected an active form entry");
+
+		let releaseUpload!: () => void;
+		let uploadStarted!: () => void;
+		const started = new Promise<void>((resolve) => {
+			uploadStarted = resolve;
+		});
+		const release = new Promise<void>((resolve) => {
+			releaseUpload = resolve;
+		});
+		const upload = runAttachmentTask({
+			entryKey: initiatingEntryKey,
+			instancePath: "/data/photo",
+			task: async () => {
+				uploadStarted();
+				await release;
+			},
+		});
+		await started;
+
+		fireEvent.click(submit);
+		currentLocation = {
+			kind: "form",
+			moduleUuid: MODULE_UUID,
+			formUuid: SURVEY_FORM_UUID,
+		};
+		act(() => {
+			capturedSession?.getState().setPreviewPersonaUuid(PERSONA_UUID);
+		});
+		await waitFor(() => {
+			expect(capturedController?.entryKey).not.toBe(initiatingEntryKey);
+		});
+
+		releaseUpload();
+		await upload;
+		await act(async () => {
+			await Promise.resolve();
+			await Promise.resolve();
+		});
+
+		expect(vi.mocked(submitFormAction)).not.toHaveBeenCalled();
+		expect(navigateMock.goHome).not.toHaveBeenCalled();
+		expect(onBackMock).not.toHaveBeenCalled();
 	});
 });
 

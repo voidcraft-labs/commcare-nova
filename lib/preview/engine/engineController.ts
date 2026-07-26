@@ -299,9 +299,10 @@ export class EngineController {
 	 * contract. **This controller does not resume a form.** `activateForm`
 	 * begins by calling `deactivate`, which resets the whole runtime store,
 	 * and nothing persists answers to storage — so leaving a form and
-	 * returning starts a new entry with a new key, and the previous entry's
-	 * staged attachments become unreferenced. The scheduled row sweep and
-	 * staging TTL collect them.
+	 * returning starts a new entry with a new key. The preview owner
+	 * best-effort deletes the previous entry's staged attachments at that
+	 * boundary; the scheduled row sweep and staging TTL collect anything a
+	 * dropped request leaves behind.
 	 *
 	 * If preview ever gains resume, it must carry the entry key forward
 	 * with the answers or every resumed attachment is orphaned. Resume is
@@ -523,6 +524,11 @@ export class EngineController {
 	 *  active. Capture widgets stage against it; submission reconciles it. */
 	get entryKey(): string | undefined {
 		return this.currentEntryKey;
+	}
+
+	/** The form identity paired with `entryKey`, for queued-mutation fencing. */
+	get formUuid(): Uuid | undefined {
+		return this.activeFormUuid;
 	}
 
 	// ── Public actions (called by components) ────────────────────────

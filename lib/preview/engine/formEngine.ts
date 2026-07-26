@@ -602,10 +602,11 @@ export class FormEngine {
 		let valid = true;
 		const updates: EngineStoreState = {};
 		const currentState = this.store.getState();
+		const effectivelyVisible = this.effectivelyVisiblePaths(currentState);
 
 		for (const [path, state] of Object.entries(currentState)) {
 			if (state === DEFAULT_ENGINE_STATE) continue;
-			if (!state.visible) continue;
+			if (!effectivelyVisible.has(path)) continue;
 
 			const touched = state.touched ? state : { ...state, touched: true };
 			if (touched !== state) updates[path] = touched;
@@ -619,6 +620,41 @@ export class FormEngine {
 			this.store.setState(updates);
 		}
 		return valid;
+	}
+
+	/**
+	 * Materialize effective relevance through the structural tree.
+	 *
+	 * A child's own `visible` flag is only its authored expression. The wire
+	 * suppresses the entire subtree of an irrelevant group/repeat, so every
+	 * submission-facing consumer must also inherit all ancestor visibility.
+	 */
+	private effectivelyVisiblePaths(
+		states: Readonly<EngineStoreState>,
+	): ReadonlySet<string> {
+		const visible = new Set<string>();
+		const walk = (
+			nodes: ReadonlyArray<FieldTreeNode>,
+			prefix: string,
+			ancestorsVisible: boolean,
+		): void => {
+			for (const node of nodes) {
+				const fieldPath = `${prefix}/${node.field.id}`;
+				const effective =
+					ancestorsVisible && states[fieldPath]?.visible !== false;
+				if (effective) visible.add(fieldPath);
+				if (node.field.kind === "repeat") {
+					const count = this.instance.getRepeatCount(fieldPath);
+					for (let index = 0; index < count; index++) {
+						walk(node.children ?? [], `${fieldPath}[${index}]`, effective);
+					}
+				} else if (node.children) {
+					walk(node.children, fieldPath, effective);
+				}
+			}
+		};
+		walk(this.tree, "/data", true);
+		return visible;
 	}
 
 	/**
@@ -796,23 +832,29 @@ export class FormEngine {
 	collectAttachmentReferences(): SubmissionAttachmentReference[] {
 		const references: SubmissionAttachmentReference[] = [];
 		const states = this.store.getState();
-		const walk = (nodes: FieldTreeNode[], prefix: string): void => {
+		const walk = (
+			nodes: FieldTreeNode[],
+			prefix: string,
+			ancestorsVisible: boolean,
+		): void => {
 			for (const node of nodes) {
 				const f = node.field;
 				const fieldPath = `${prefix}/${f.id}`;
+				const effective =
+					ancestorsVisible && states[fieldPath]?.visible !== false;
 				if (f.kind === "repeat") {
 					const count = this.instance.getRepeatCount(fieldPath);
 					for (let i = 0; i < count; i++) {
-						walk(node.children ?? [], `${fieldPath}[${i}]`);
+						walk(node.children ?? [], `${fieldPath}[${i}]`, effective);
 					}
 					continue;
 				}
 				if (node.children) {
-					walk(node.children, fieldPath);
+					walk(node.children, fieldPath, effective);
 					continue;
 				}
 				if (!isCaptureFieldKind(f.kind)) continue;
-				if (states[fieldPath]?.visible === false) continue;
+				if (!effective) continue;
 				const raw = this.instance.get(fieldPath);
 				if (typeof raw === "string" && raw !== "") {
 					references.push({
@@ -823,7 +865,7 @@ export class FormEngine {
 				}
 			}
 		};
-		walk(this.tree, "/data");
+		walk(this.tree, "/data", true);
 		return references;
 	}
 
