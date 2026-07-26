@@ -3,6 +3,7 @@ import {
 	__resetAttachmentCoordinatorForTests,
 	cancelAttachmentEntry,
 	clearAttachmentNotReady,
+	discardAttachment,
 	discardAttachmentEntry,
 	getAttachmentSlotIssue,
 	getAttachmentSlotPath,
@@ -33,6 +34,26 @@ function waitForAbort(
 	return new Promise((_resolve, reject) => {
 		if (signal === undefined || signal === null) {
 			reject(new Error("Expected cleanup fetch to carry an abort signal."));
+			return;
+		}
+		if (signal.aborted) {
+			reject(signal.reason);
+			return;
+		}
+		signal.addEventListener("abort", () => reject(signal.reason), {
+			once: true,
+		});
+	});
+}
+
+function waitForBodyAbort(
+	signal: AbortSignal | null | undefined,
+): Promise<ArrayBuffer> {
+	return new Promise((_resolve, reject) => {
+		if (signal === undefined || signal === null) {
+			reject(
+				new Error("Expected response-body read to carry an abort signal."),
+			);
 			return;
 		}
 		if (signal.aborted) {
@@ -1106,6 +1127,112 @@ describe("stageAttachment", () => {
 		);
 	});
 
+	it("keeps the PUT deadline open through a stalled success body", async () => {
+		vi.useFakeTimers();
+		const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+			if (String(input) === "https://storage.test/upload") {
+				return Promise.resolve({
+					ok: true,
+					status: 200,
+					arrayBuffer: () => waitForBodyAbort(init?.signal),
+				} as unknown as Response);
+			}
+			if (init?.method === "DELETE") {
+				return Promise.resolve({ ok: true, status: 200 } as Response);
+			}
+			if (fetchMock.mock.calls.length === 1) {
+				return Promise.resolve({
+					ok: true,
+					json: async () => ({
+						attachmentId: "attachment-put-body-timeout",
+						attachmentName: "attachment-put-body-timeout.png",
+						uploadUrl: "https://storage.test/upload",
+						uploadContentType: "image/png",
+						uploadHeaders: { "x-goog-if-generation-match": "0" },
+					}),
+				} as Response);
+			}
+			return Promise.resolve({
+				ok: true,
+				json: async () => ({
+					attachmentId: "attachment-put-body-timeout",
+					attachmentName: "attachment-put-body-timeout.png",
+					originalFilename: "photo.png",
+					sizeBytes: 3,
+				}),
+			} as Response);
+		});
+		vi.stubGlobal("fetch", fetchMock);
+
+		const stage = stageAttachment({
+			appId: "app-1",
+			entryKey: "11111111-1111-4111-8111-111111111111",
+			fieldUuid: "22222222-2222-4222-8222-222222222222",
+			instancePath: "/data/photo",
+			file: { name: "photo.png", size: 3 } as File,
+		});
+		const rejection = expect(stage).rejects.toThrow(/timed out/i);
+		await Promise.resolve();
+		await vi.advanceTimersByTimeAsync(30_000);
+
+		await rejection;
+		expect(
+			fetchMock.mock.calls.filter(
+				([input]) => String(input) === "https://storage.test/upload",
+			),
+		).toHaveLength(1);
+		expect(
+			fetchMock.mock.calls.some(([, init]) => init?.method === "POST"),
+		).toBe(true);
+	});
+
+	it("keeps external cancellation attached while a PUT response body stalls", async () => {
+		const controller = new AbortController();
+		const bodyStarted = deferred<void>();
+		const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+			if (String(input) === "https://storage.test/upload") {
+				return Promise.resolve({
+					ok: true,
+					status: 200,
+					arrayBuffer: () => {
+						bodyStarted.resolve();
+						return waitForBodyAbort(init?.signal);
+					},
+				} as unknown as Response);
+			}
+			if (init?.method === "DELETE") {
+				return Promise.resolve({ ok: true, status: 200 } as Response);
+			}
+			return Promise.resolve({
+				ok: true,
+				json: async () => ({
+					attachmentId: "attachment-put-body-abort",
+					attachmentName: "attachment-put-body-abort.png",
+					uploadUrl: "https://storage.test/upload",
+					uploadContentType: "image/png",
+					uploadHeaders: { "x-goog-if-generation-match": "0" },
+				}),
+			} as Response);
+		});
+		vi.stubGlobal("fetch", fetchMock);
+
+		const stage = stageAttachment({
+			appId: "app-1",
+			entryKey: "11111111-1111-4111-8111-111111111111",
+			fieldUuid: "22222222-2222-4222-8222-222222222222",
+			instancePath: "/data/photo",
+			file: { name: "photo.png", size: 3 } as File,
+			signal: controller.signal,
+		});
+		const rejection = expect(stage).rejects.toMatchObject({
+			name: "AbortError",
+		});
+		await bodyStarted.promise;
+		controller.abort(new DOMException("Question hidden", "AbortError"));
+
+		await rejection;
+	});
+
 	it("times out a hung confirm and schedules cleanup for the uploaded attempt", async () => {
 		vi.useFakeTimers();
 		let call = 0;
@@ -1272,5 +1399,134 @@ describe("stageAttachment", () => {
 				signal: expect.any(AbortSignal),
 			}),
 		);
+	});
+
+	it("keeps the retarget deadline open through a stalled success body", async () => {
+		vi.useFakeTimers();
+		const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) =>
+			Promise.resolve({
+				ok: true,
+				status: 200,
+				arrayBuffer: () => waitForBodyAbort(init?.signal),
+			} as unknown as Response),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+
+		const retarget = retargetAttachment({
+			appId: "app-1",
+			attachmentId: "attachment-retarget-body-timeout",
+			expectedInstancePath: "/data/visits[1]/photo",
+			instancePath: "/data/visits[0]/photo",
+		});
+		const rejection = expect(retarget).rejects.toThrow(/timed out/i);
+		await vi.advanceTimersByTimeAsync(30_000);
+
+		await rejection;
+	});
+
+	it("keeps external cancellation attached while a retarget body stalls", async () => {
+		const controller = new AbortController();
+		const bodyStarted = deferred<void>();
+		vi.stubGlobal(
+			"fetch",
+			vi.fn((_input: RequestInfo | URL, init?: RequestInit) =>
+				Promise.resolve({
+					ok: true,
+					status: 200,
+					arrayBuffer: () => {
+						bodyStarted.resolve();
+						return waitForBodyAbort(init?.signal);
+					},
+				} as unknown as Response),
+			),
+		);
+		const retarget = retargetAttachment({
+			appId: "app-1",
+			attachmentId: "attachment-retarget-body-abort",
+			expectedInstancePath: "/data/visits[1]/photo",
+			instancePath: "/data/visits[0]/photo",
+			signal: controller.signal,
+		});
+		const rejection = expect(retarget).rejects.toMatchObject({
+			name: "AbortError",
+		});
+		await bodyStarted.promise;
+		controller.abort(new DOMException("Question hidden", "AbortError"));
+
+		await rejection;
+	});
+
+	it("keeps the cleanup deadline open through a stalled success body", async () => {
+		vi.useFakeTimers();
+		vi.stubGlobal(
+			"fetch",
+			vi.fn((_input: RequestInfo | URL, init?: RequestInit) =>
+				Promise.resolve({
+					ok: true,
+					status: 200,
+					arrayBuffer: () => waitForBodyAbort(init?.signal),
+				} as unknown as Response),
+			),
+		);
+		const cleanup = discardAttachment({
+			appId: "app-1",
+			attachmentId: "attachment-delete-body-timeout",
+		});
+		const rejection = expect(cleanup).rejects.toThrow(/timed out/i);
+		await vi.advanceTimersByTimeAsync(30_000);
+
+		await rejection;
+	});
+
+	it("keeps the cleanup deadline open through a stalled error body", async () => {
+		vi.useFakeTimers();
+		vi.stubGlobal(
+			"fetch",
+			vi.fn((_input: RequestInfo | URL, init?: RequestInit) =>
+				Promise.resolve({
+					ok: false,
+					status: 503,
+					arrayBuffer: () => waitForBodyAbort(init?.signal),
+				} as unknown as Response),
+			),
+		);
+		const cleanup = discardAttachment({
+			appId: "app-1",
+			attachmentId: "attachment-delete-error-body-timeout",
+		});
+		const rejection = expect(cleanup).rejects.toThrow(/timed out/i);
+		await vi.advanceTimersByTimeAsync(30_000);
+
+		await rejection;
+	});
+
+	it("keeps external cancellation attached while a cleanup body stalls", async () => {
+		const controller = new AbortController();
+		const bodyStarted = deferred<void>();
+		vi.stubGlobal(
+			"fetch",
+			vi.fn((_input: RequestInfo | URL, init?: RequestInit) =>
+				Promise.resolve({
+					ok: true,
+					status: 200,
+					arrayBuffer: () => {
+						bodyStarted.resolve();
+						return waitForBodyAbort(init?.signal);
+					},
+				} as unknown as Response),
+			),
+		);
+		const cleanup = discardAttachment({
+			appId: "app-1",
+			attachmentId: "attachment-delete-body-abort",
+			signal: controller.signal,
+		});
+		const rejection = expect(cleanup).rejects.toMatchObject({
+			name: "AbortError",
+		});
+		await bodyStarted.promise;
+		controller.abort(new DOMException("Entry retired", "AbortError"));
+
+		await rejection;
 	});
 });

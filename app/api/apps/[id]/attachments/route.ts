@@ -167,8 +167,9 @@ export async function POST(
 		// could never have picked.
 		const extension = captureExtensionFor(field.kind, filename);
 		if (extension === undefined) {
+			const article = /^[aeiou]/u.test(field.kind) ? "An" : "A";
 			throw new ApiError(
-				`A ${field.kind} question accepts ${CAPTURE_EXTENSIONS_BY_KIND[field.kind].join(", ")}. Attach one of those instead.`,
+				`${article} ${field.kind} question accepts ${CAPTURE_EXTENSIONS_BY_KIND[field.kind].join(", ")}. Attach one of those instead.`,
 				400,
 			);
 		}

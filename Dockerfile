@@ -99,7 +99,7 @@ RUN npx esbuild scripts/migrate.ts \
       --tsconfig=tsconfig.json --external:pg-native \
       --outfile=migrate.cjs
 
-# Bundle the two deployment/maintenance jobs into the same immutable image.
+# Bundle the deployment/maintenance jobs into the same immutable image.
 # `react-server` resolves the `server-only` marker to its no-op export; these
 # are server entrypoints, not browser bundles.
 RUN npx esbuild scripts/cleanup-form-attachments.ts \
@@ -109,7 +109,11 @@ RUN npx esbuild scripts/cleanup-form-attachments.ts \
     npx esbuild scripts/infra/apply-media-bucket-policy.ts \
       --bundle --platform=node --target=node24 --format=cjs \
       --conditions=react-server --tsconfig=tsconfig.json \
-      --outfile=media-bucket-policy.cjs
+      --outfile=media-bucket-policy.cjs && \
+    npx esbuild scripts/infra/check-database-capacity.ts \
+      --bundle --platform=node --target=node24 --format=cjs \
+      --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
+      --outfile=capacity-preflight.cjs
 
 # --- Stage 3: Production runner ---
 FROM ${NODE_IMAGE} AS runner
@@ -160,6 +164,7 @@ COPY --from=deps --chown=nextjs:nodejs /app/node_modules/@img ./node_modules/@im
 COPY --from=builder --chown=nextjs:nodejs /app/migrate.cjs ./migrate.cjs
 COPY --from=builder --chown=nextjs:nodejs /app/capture-cleanup.cjs ./capture-cleanup.cjs
 COPY --from=builder --chown=nextjs:nodejs /app/media-bucket-policy.cjs ./media-bucket-policy.cjs
+COPY --from=builder --chown=nextjs:nodejs /app/capacity-preflight.cjs ./capacity-preflight.cjs
 
 USER nextjs
 

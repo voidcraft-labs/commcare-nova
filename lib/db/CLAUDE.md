@@ -467,16 +467,19 @@ admission rule; post-commit `syncMediaReferences` is legacy/backfill help only.
 `formAttachments.ts` holds the files a worker attaches while filling in a form:
 `pending → staged → preparing → prepared → submitted`, tenant-scoped
 `(app_id, project_id)` like case rows and additionally bound to `created_by`
-because the idempotency/reservation key is client-minted. A DB transaction
-locks the entry and moves the exact selected
+because the idempotency/reservation key is client-minted. A preparation
+transaction locks the current app row, freshly proves Project `edit`
+membership, then locks the entry and moves the exact selected
 `(attachment_name, field_uuid, instance_path)` rows to `preparing` before any
-GCS copy. `formAttachmentPreparation.ts` copies the immutable confirmed
-generation to a deterministic create-only durable key, verifies a pre-existing
-destination by size/CRC32C/type, and records `prepared`. The later case-store
-transaction accepts only `prepared`, then inserts `form_submission_intents`,
-moves those rows to `submitted`, applies every case effect, and stores the
-replay result atomically. A case failure restores `prepared`; no post-commit
-external await can make an accepted form appear failed.
+GCS copy. Revocation after the route's initial Submit gate therefore wins
+before durable-copy work starts. `formAttachmentPreparation.ts` copies the
+immutable confirmed generation to a deterministic create-only durable key,
+verifies a pre-existing destination by size/CRC32C/type, and records
+`prepared`. The later case-store transaction accepts only `prepared`, then
+inserts `form_submission_intents`, moves those rows to `submitted`, applies
+every case effect, and stores the replay result atomically. A case failure
+restores `prepared`; no post-commit external await can make an accepted form
+appear failed.
 
 The request prepares its selected rows immediately; the five-minute Cloud
 Scheduler job leases bounded `preparing`/`discarding` batches with
@@ -485,7 +488,22 @@ deterministic final key makes a crash before the row update recoverable by
 destination verification. A foreground Submit retry may make a row due
 immediately only when the prior worker recorded an error; an active lease has
 no recorded error and cannot be stolen, while unattended scheduler failures
-keep their backoff. GCS lifecycle remains the traffic-independent
+keep their backoff. Scheduler delivery and the deploy-time invocation may
+overlap, so `captureCleanupLease.ts` holds one session advisory lock for the
+whole maintenance run. The active worker's pool max is two (the lock session
+plus one work connection). The cleanup login role's hard connection limit is
+three: one losing execution can consume its lock-probe connection and exit
+without work, while any further pre-lock contender receives SQLSTATE `53300`
+and exits as a saturated no-op. A `53300` after this process owns the advisory
+lock is an active-worker failure, so it unlocks and fails the Job rather than
+masking skipped maintenance. Every scheduled/deploy execution audits the
+server settings and all three login-role limits before acquiring the lock.
+After winning, the owner prewarms its second connection with a bounded retry:
+two simultaneously admitted probes may briefly fill cleanup's three slots,
+then destroy their losing sessions; maintenance starts only once the owner's
+same pool holds the work session idle for Kysely to reuse. A stuck reservation
+times out and fails the Job.
+GCS lifecycle remains the traffic-independent
 backstop for ordinary staged/browser-abandoned source bytes, but cannot
 atomically distinguish DB acceptance; accepted durability therefore requires
 the verified destination outside that TTL prefix before commit. The scheduled

@@ -1,15 +1,26 @@
 import type { QueryResultRow } from "pg";
+import {
+	CAPTURE_CLEANUP_DB_ROLE_CONNECTION_LIMIT,
+	MIGRATION_DB_ROLE_CONNECTION_LIMIT,
+	RUNTIME_DB_ROLE_CONNECTION_LIMIT,
+} from "@/lib/case-store/postgres/connection";
 
 export const DEPLOYMENT_DATABASE = "nova_cases";
 export const MIGRATION_DATABASE_ROLE = "nova-migrate@commcare-nova.iam";
 export const RUNTIME_DATABASE_ROLE = "commcare-nova@commcare-nova.iam";
+export const CAPTURE_CLEANUP_DATABASE_ROLE =
+	"nova-capture-cleanup@commcare-nova.iam";
 export const LEGACY_DATABASE_ROLE = "51003905459-compute@developer";
 
 export interface DatabaseOwnerBootstrapConfig {
 	readonly database: string;
 	readonly migrationRole: string;
 	readonly runtimeRole: string;
+	readonly cleanupRole: string;
 	readonly legacyRole: string;
+	readonly migrationConnectionLimit: number;
+	readonly runtimeConnectionLimit: number;
+	readonly cleanupConnectionLimit: number;
 }
 
 export const DATABASE_OWNER_BOOTSTRAP_CONFIG: DatabaseOwnerBootstrapConfig =
@@ -17,7 +28,11 @@ export const DATABASE_OWNER_BOOTSTRAP_CONFIG: DatabaseOwnerBootstrapConfig =
 		database: DEPLOYMENT_DATABASE,
 		migrationRole: MIGRATION_DATABASE_ROLE,
 		runtimeRole: RUNTIME_DATABASE_ROLE,
+		cleanupRole: CAPTURE_CLEANUP_DATABASE_ROLE,
 		legacyRole: LEGACY_DATABASE_ROLE,
+		migrationConnectionLimit: MIGRATION_DB_ROLE_CONNECTION_LIMIT,
+		runtimeConnectionLimit: RUNTIME_DB_ROLE_CONNECTION_LIMIT,
+		cleanupConnectionLimit: CAPTURE_CLEANUP_DB_ROLE_CONNECTION_LIMIT,
 	});
 
 export interface DatabaseBootstrapFacts {
@@ -30,15 +45,41 @@ export interface DatabaseBootstrapFacts {
 	readonly publicSchemaOwner: string;
 	readonly migrationRoleExists: boolean;
 	readonly runtimeRoleExists: boolean;
+	readonly cleanupRoleExists: boolean;
 	readonly legacyRoleExists: boolean;
+	readonly migrationRoleCanLogin: boolean;
+	readonly runtimeRoleCanLogin: boolean;
+	readonly cleanupRoleCanLogin: boolean;
+	readonly migrationRoleIsSuperuser: boolean;
+	readonly runtimeRoleIsSuperuser: boolean;
+	readonly cleanupRoleIsSuperuser: boolean;
+	readonly migrationRoleConnectionLimit: number;
+	readonly runtimeRoleConnectionLimit: number;
+	readonly cleanupRoleConnectionLimit: number;
 	readonly currentUserIsMigrationMember: boolean;
 	readonly currentUserCanSetMigration: boolean;
+	readonly currentUserIsRuntimeMember: boolean;
+	readonly currentUserCanSetRuntime: boolean;
+	readonly currentUserIsCleanupMember: boolean;
+	readonly currentUserCanSetCleanup: boolean;
 	readonly currentUserIsLegacyMember: boolean;
 	readonly currentUserCanSetLegacy: boolean;
 	readonly migrationIsRuntimeMember: boolean;
 	readonly migrationCanSetRuntime: boolean;
+	readonly migrationIsCleanupMember: boolean;
+	readonly migrationCanSetCleanup: boolean;
+	readonly migrationIsLegacyMember: boolean;
+	readonly migrationCanSetLegacy: boolean;
+	readonly cleanupIsRuntimeMember: boolean;
+	readonly cleanupCanSetRuntime: boolean;
+	readonly cleanupIsMigrationMember: boolean;
+	readonly cleanupCanSetMigration: boolean;
+	readonly cleanupIsLegacyMember: boolean;
+	readonly cleanupCanSetLegacy: boolean;
 	readonly runtimeIsMigrationMember: boolean;
 	readonly runtimeCanSetMigration: boolean;
+	readonly runtimeIsCleanupMember: boolean;
+	readonly runtimeCanSetCleanup: boolean;
 	readonly runtimeIsLegacyMember: boolean;
 	readonly runtimeCanSetLegacy: boolean;
 	readonly runtimeCanCreateDatabase: boolean;
@@ -69,15 +110,41 @@ interface DatabaseBootstrapFactRow extends QueryResultRow {
 	readonly public_schema_owner: string;
 	readonly migration_role_exists: boolean;
 	readonly runtime_role_exists: boolean;
+	readonly cleanup_role_exists: boolean;
 	readonly legacy_role_exists: boolean;
+	readonly migration_role_can_login: boolean;
+	readonly runtime_role_can_login: boolean;
+	readonly cleanup_role_can_login: boolean;
+	readonly migration_role_is_superuser: boolean;
+	readonly runtime_role_is_superuser: boolean;
+	readonly cleanup_role_is_superuser: boolean;
+	readonly migration_role_connection_limit: number;
+	readonly runtime_role_connection_limit: number;
+	readonly cleanup_role_connection_limit: number;
 	readonly current_user_is_migration_member: boolean;
 	readonly current_user_can_set_migration: boolean;
+	readonly current_user_is_runtime_member: boolean;
+	readonly current_user_can_set_runtime: boolean;
+	readonly current_user_is_cleanup_member: boolean;
+	readonly current_user_can_set_cleanup: boolean;
 	readonly current_user_is_legacy_member: boolean;
 	readonly current_user_can_set_legacy: boolean;
 	readonly migration_is_runtime_member: boolean;
 	readonly migration_can_set_runtime: boolean;
+	readonly migration_is_cleanup_member: boolean;
+	readonly migration_can_set_cleanup: boolean;
+	readonly migration_is_legacy_member: boolean;
+	readonly migration_can_set_legacy: boolean;
+	readonly cleanup_is_runtime_member: boolean;
+	readonly cleanup_can_set_runtime: boolean;
+	readonly cleanup_is_migration_member: boolean;
+	readonly cleanup_can_set_migration: boolean;
+	readonly cleanup_is_legacy_member: boolean;
+	readonly cleanup_can_set_legacy: boolean;
 	readonly runtime_is_migration_member: boolean;
 	readonly runtime_can_set_migration: boolean;
+	readonly runtime_is_cleanup_member: boolean;
+	readonly runtime_can_set_cleanup: boolean;
 	readonly runtime_is_legacy_member: boolean;
 	readonly runtime_can_set_legacy: boolean;
 	readonly runtime_can_create_database: boolean;
@@ -120,14 +187,19 @@ export function quoteIdentifier(identifier: string): string {
 }
 
 /** Role memberships are a Cloud SQL Admin API prerequisite on PostgreSQL 18.
- * This plan deliberately contains ownership/ACL SQL only. */
+ * This transaction owns the hard login-role caps plus ownership/ACL SQL. */
 export function databaseOwnerBootstrapStatements(
 	facts: Pick<DatabaseBootstrapFacts, "currentUser" | "legacyRoleExists">,
 	config: DatabaseOwnerBootstrapConfig = DATABASE_OWNER_BOOTSTRAP_CONFIG,
 ): readonly string[] {
 	const migration = quoteIdentifier(config.migrationRole);
+	const runtime = quoteIdentifier(config.runtimeRole);
+	const cleanup = quoteIdentifier(config.cleanupRole);
 	const bootstrap = quoteIdentifier(facts.currentUser);
 	const statements = [
+		`ALTER ROLE ${runtime} CONNECTION LIMIT ${config.runtimeConnectionLimit}`,
+		`ALTER ROLE ${migration} CONNECTION LIMIT ${config.migrationConnectionLimit}`,
+		`ALTER ROLE ${cleanup} CONNECTION LIMIT ${config.cleanupConnectionLimit}`,
 		`ALTER DATABASE ${quoteIdentifier(config.database)} OWNER TO ${migration}`,
 	];
 	if (facts.legacyRoleExists) {
@@ -155,6 +227,86 @@ function assertNoEffectiveRuntimeCreate(
 	}
 }
 
+function assertApplicationLoginRoleShape(
+	facts: DatabaseBootstrapFacts,
+	config: DatabaseOwnerBootstrapConfig,
+	expectExactConnectionLimits: boolean,
+): void {
+	if (
+		!facts.migrationRoleExists ||
+		!facts.runtimeRoleExists ||
+		!facts.cleanupRoleExists
+	) {
+		throw new Error(
+			"Migration, runtime, and capture-cleanup IAM database users must exist before bootstrap.",
+		);
+	}
+	if (
+		!facts.migrationRoleCanLogin ||
+		!facts.runtimeRoleCanLogin ||
+		!facts.cleanupRoleCanLogin
+	) {
+		throw new Error(
+			"Migration, runtime, and capture-cleanup database roles must remain direct LOGIN roles.",
+		);
+	}
+	if (
+		facts.migrationRoleIsSuperuser ||
+		facts.runtimeRoleIsSuperuser ||
+		facts.cleanupRoleIsSuperuser
+	) {
+		throw new Error(
+			"Application database login roles must not be PostgreSQL superusers.",
+		);
+	}
+	if (
+		expectExactConnectionLimits &&
+		(facts.migrationRoleConnectionLimit !== config.migrationConnectionLimit ||
+			facts.runtimeRoleConnectionLimit !== config.runtimeConnectionLimit ||
+			facts.cleanupRoleConnectionLimit !== config.cleanupConnectionLimit)
+	) {
+		throw new Error(
+			[
+				"Application database login-role connection limits are unsafe.",
+				`Expected runtime=${config.runtimeConnectionLimit}, migration=${config.migrationConnectionLimit}, cleanup=${config.cleanupConnectionLimit}; found runtime=${facts.runtimeRoleConnectionLimit}, migration=${facts.migrationRoleConnectionLimit}, cleanup=${facts.cleanupRoleConnectionLimit}.`,
+			].join(" "),
+		);
+	}
+}
+
+function assertApplicationRoleMemberships(facts: DatabaseBootstrapFacts): void {
+	if (
+		!facts.migrationIsRuntimeMember ||
+		!facts.migrationCanSetRuntime ||
+		!facts.cleanupIsRuntimeMember ||
+		!facts.cleanupCanSetRuntime
+	) {
+		throw new Error(
+			"Migration and capture-cleanup must each have MEMBER and SET access to runtime.",
+		);
+	}
+	if (
+		facts.migrationIsCleanupMember ||
+		facts.migrationCanSetCleanup ||
+		facts.migrationIsLegacyMember ||
+		facts.migrationCanSetLegacy ||
+		facts.cleanupIsMigrationMember ||
+		facts.cleanupCanSetMigration ||
+		facts.cleanupIsLegacyMember ||
+		facts.cleanupCanSetLegacy ||
+		facts.runtimeIsMigrationMember ||
+		facts.runtimeCanSetMigration ||
+		facts.runtimeIsCleanupMember ||
+		facts.runtimeCanSetCleanup ||
+		facts.runtimeIsLegacyMember ||
+		facts.runtimeCanSetLegacy
+	) {
+		throw new Error(
+			"Application database role membership is wider than the two one-way runtime grants.",
+		);
+	}
+}
+
 export function assertDatabaseBootstrapPreconditions(
 	facts: DatabaseBootstrapFacts,
 	config: DatabaseOwnerBootstrapConfig = DATABASE_OWNER_BOOTSTRAP_CONFIG,
@@ -168,11 +320,7 @@ export function assertDatabaseBootstrapPreconditions(
 			"Database bootstrap requires a temporary built-in Cloud SQL administrator.",
 		);
 	}
-	if (!facts.migrationRoleExists || !facts.runtimeRoleExists) {
-		throw new Error(
-			"Migration and runtime IAM database users must exist before bootstrap.",
-		);
-	}
+	assertApplicationLoginRoleShape(facts, config, false);
 	if (facts.currentDatabase !== config.database) {
 		throw new Error(
 			`Database bootstrap connected to ${facts.currentDatabase}, expected ${config.database}.`,
@@ -181,6 +329,7 @@ export function assertDatabaseBootstrapPreconditions(
 	if (
 		facts.currentUser === config.migrationRole ||
 		facts.currentUser === config.runtimeRole ||
+		facts.currentUser === config.cleanupRole ||
 		facts.currentUser === config.legacyRole
 	) {
 		throw new Error(
@@ -190,28 +339,18 @@ export function assertDatabaseBootstrapPreconditions(
 	if (
 		!facts.currentUserIsMigrationMember ||
 		!facts.currentUserCanSetMigration ||
+		!facts.currentUserIsRuntimeMember ||
+		!facts.currentUserCanSetRuntime ||
+		!facts.currentUserIsCleanupMember ||
+		!facts.currentUserCanSetCleanup ||
 		(facts.legacyRoleExists &&
 			(!facts.currentUserIsLegacyMember || !facts.currentUserCanSetLegacy))
 	) {
 		throw new Error(
-			"The temporary administrator needs Cloud SQL API-assigned MEMBER and SET access to the legacy and migration roles.",
+			"The temporary administrator needs Cloud SQL API-assigned MEMBER and SET access to runtime, migration, capture-cleanup, and legacy when present.",
 		);
 	}
-	if (!facts.migrationIsRuntimeMember || !facts.migrationCanSetRuntime) {
-		throw new Error(
-			"The migration role must have MEMBER and SET access to the runtime role.",
-		);
-	}
-	if (
-		facts.runtimeIsMigrationMember ||
-		facts.runtimeCanSetMigration ||
-		facts.runtimeIsLegacyMember ||
-		facts.runtimeCanSetLegacy
-	) {
-		throw new Error(
-			"Runtime inherited-role membership must be removed through the Cloud SQL Admin API before SQL bootstrap.",
-		);
-	}
+	assertApplicationRoleMemberships(facts);
 	assertNoEffectiveRuntimeCreate(facts, config);
 	if (facts.legacyForeignOrSharedDependencyCount > 0) {
 		throw new Error(
@@ -241,22 +380,14 @@ export function assertDatabaseBootstrapResult(
 	facts: DatabaseBootstrapFacts,
 	config: DatabaseOwnerBootstrapConfig = DATABASE_OWNER_BOOTSTRAP_CONFIG,
 ): void {
+	assertApplicationLoginRoleShape(facts, config, true);
 	if (facts.databaseOwner !== config.migrationRole) {
 		throw new Error("Migration identity does not own the Nova database.");
 	}
 	if (facts.publicSchemaOwner !== "pg_database_owner") {
 		throw new Error("The public schema is not owned by pg_database_owner.");
 	}
-	if (
-		!facts.migrationIsRuntimeMember ||
-		!facts.migrationCanSetRuntime ||
-		facts.runtimeIsMigrationMember ||
-		facts.runtimeCanSetMigration ||
-		facts.runtimeIsLegacyMember ||
-		facts.runtimeCanSetLegacy
-	) {
-		throw new Error("Migration/runtime database membership is unsafe.");
-	}
+	assertApplicationRoleMemberships(facts);
 	assertNoEffectiveRuntimeCreate(facts, config);
 	if (
 		facts.currentUserDependencyCount > 0 ||
@@ -284,8 +415,8 @@ export function assertDatabaseBootstrapResult(
 	}
 }
 
-/** Read both membership modes: PostgreSQL 18 can allow membership without
- * allowing SET ROLE, and both are required for the ownership transfer. */
+/** Audit direct MEMBER + SET grants where the Cloud SQL API must establish a
+ * specific edge. PostgreSQL 18 can allow membership without SET ROLE. */
 export async function readDatabaseBootstrapFacts(
 	client: DatabaseBootstrapSqlClient,
 	config: DatabaseOwnerBootstrapConfig = DATABASE_OWNER_BOOTSTRAP_CONFIG,
@@ -298,6 +429,8 @@ export async function readDatabaseBootstrapFacts(
 				(SELECT oid FROM pg_catalog.pg_roles WHERE rolname = $2)
 					AS runtime_oid,
 				(SELECT oid FROM pg_catalog.pg_roles WHERE rolname = $3)
+					AS cleanup_oid,
+				(SELECT oid FROM pg_catalog.pg_roles WHERE rolname = $4)
 					AS legacy_oid,
 				(SELECT oid FROM pg_catalog.pg_roles
 					WHERE rolname = 'cloudsqlsuperuser')
@@ -326,33 +459,160 @@ export async function readDatabaseBootstrapFacts(
 			pg_catalog.pg_get_userbyid(namespace.nspowner) AS public_schema_owner,
 			role_oids.migration_oid IS NOT NULL AS migration_role_exists,
 			role_oids.runtime_oid IS NOT NULL AS runtime_role_exists,
+			role_oids.cleanup_oid IS NOT NULL AS cleanup_role_exists,
 			role_oids.legacy_oid IS NOT NULL AS legacy_role_exists,
+			COALESCE(migration_role.rolcanlogin, false)
+				AS migration_role_can_login,
+			COALESCE(runtime_role.rolcanlogin, false)
+				AS runtime_role_can_login,
+			COALESCE(cleanup_role.rolcanlogin, false)
+				AS cleanup_role_can_login,
+			COALESCE(migration_role.rolsuper, false)
+				AS migration_role_is_superuser,
+			COALESCE(runtime_role.rolsuper, false)
+				AS runtime_role_is_superuser,
+			COALESCE(cleanup_role.rolsuper, false)
+				AS cleanup_role_is_superuser,
+			COALESCE(migration_role.rolconnlimit, -1)
+				AS migration_role_connection_limit,
+			COALESCE(runtime_role.rolconnlimit, -1)
+				AS runtime_role_connection_limit,
+			COALESCE(cleanup_role.rolconnlimit, -1)
+				AS cleanup_role_connection_limit,
 			CASE WHEN role_oids.migration_oid IS NULL THEN false ELSE
-				pg_catalog.pg_has_role(
-					login_role.oid, role_oids.migration_oid, 'MEMBER'
+				EXISTS (
+					SELECT 1
+					FROM pg_catalog.pg_auth_members AS membership
+					WHERE membership.member = login_role.oid
+						AND membership.roleid = role_oids.migration_oid
 				) END AS current_user_is_migration_member,
 			CASE WHEN role_oids.migration_oid IS NULL THEN false ELSE
-				pg_catalog.pg_has_role(
-					login_role.oid, role_oids.migration_oid, 'SET'
+				EXISTS (
+					SELECT 1
+					FROM pg_catalog.pg_auth_members AS membership
+					WHERE membership.member = login_role.oid
+						AND membership.roleid = role_oids.migration_oid
+						AND membership.set_option
 				) END AS current_user_can_set_migration,
+			CASE WHEN role_oids.runtime_oid IS NULL THEN false ELSE
+				EXISTS (
+					SELECT 1
+					FROM pg_catalog.pg_auth_members AS membership
+					WHERE membership.member = login_role.oid
+						AND membership.roleid = role_oids.runtime_oid
+				) END AS current_user_is_runtime_member,
+			CASE WHEN role_oids.runtime_oid IS NULL THEN false ELSE
+				EXISTS (
+					SELECT 1
+					FROM pg_catalog.pg_auth_members AS membership
+					WHERE membership.member = login_role.oid
+						AND membership.roleid = role_oids.runtime_oid
+						AND membership.set_option
+				) END AS current_user_can_set_runtime,
+			CASE WHEN role_oids.cleanup_oid IS NULL THEN false ELSE
+				EXISTS (
+					SELECT 1
+					FROM pg_catalog.pg_auth_members AS membership
+					WHERE membership.member = login_role.oid
+						AND membership.roleid = role_oids.cleanup_oid
+				) END AS current_user_is_cleanup_member,
+			CASE WHEN role_oids.cleanup_oid IS NULL THEN false ELSE
+				EXISTS (
+					SELECT 1
+					FROM pg_catalog.pg_auth_members AS membership
+					WHERE membership.member = login_role.oid
+						AND membership.roleid = role_oids.cleanup_oid
+						AND membership.set_option
+				) END AS current_user_can_set_cleanup,
 			CASE WHEN role_oids.legacy_oid IS NULL THEN false ELSE
-				pg_catalog.pg_has_role(
-					login_role.oid, role_oids.legacy_oid, 'MEMBER'
+				EXISTS (
+					SELECT 1
+					FROM pg_catalog.pg_auth_members AS membership
+					WHERE membership.member = login_role.oid
+						AND membership.roleid = role_oids.legacy_oid
 				) END AS current_user_is_legacy_member,
 			CASE WHEN role_oids.legacy_oid IS NULL THEN false ELSE
-				pg_catalog.pg_has_role(
-					login_role.oid, role_oids.legacy_oid, 'SET'
+				EXISTS (
+					SELECT 1
+					FROM pg_catalog.pg_auth_members AS membership
+					WHERE membership.member = login_role.oid
+						AND membership.roleid = role_oids.legacy_oid
+						AND membership.set_option
 				) END AS current_user_can_set_legacy,
 			CASE WHEN role_oids.migration_oid IS NULL
 				OR role_oids.runtime_oid IS NULL THEN false ELSE
-				pg_catalog.pg_has_role(
-					role_oids.migration_oid, role_oids.runtime_oid, 'MEMBER'
+				EXISTS (
+					SELECT 1
+					FROM pg_catalog.pg_auth_members AS membership
+					WHERE membership.member = role_oids.migration_oid
+						AND membership.roleid = role_oids.runtime_oid
 				) END AS migration_is_runtime_member,
 			CASE WHEN role_oids.migration_oid IS NULL
 				OR role_oids.runtime_oid IS NULL THEN false ELSE
-				pg_catalog.pg_has_role(
-					role_oids.migration_oid, role_oids.runtime_oid, 'SET'
+				EXISTS (
+					SELECT 1
+					FROM pg_catalog.pg_auth_members AS membership
+					WHERE membership.member = role_oids.migration_oid
+						AND membership.roleid = role_oids.runtime_oid
+						AND membership.set_option
 				) END AS migration_can_set_runtime,
+			CASE WHEN role_oids.migration_oid IS NULL
+				OR role_oids.cleanup_oid IS NULL THEN false ELSE
+				pg_catalog.pg_has_role(
+					role_oids.migration_oid, role_oids.cleanup_oid, 'MEMBER'
+				) END AS migration_is_cleanup_member,
+			CASE WHEN role_oids.migration_oid IS NULL
+				OR role_oids.cleanup_oid IS NULL THEN false ELSE
+				pg_catalog.pg_has_role(
+					role_oids.migration_oid, role_oids.cleanup_oid, 'SET'
+				) END AS migration_can_set_cleanup,
+			CASE WHEN role_oids.migration_oid IS NULL
+				OR role_oids.legacy_oid IS NULL THEN false ELSE
+				pg_catalog.pg_has_role(
+					role_oids.migration_oid, role_oids.legacy_oid, 'MEMBER'
+				) END AS migration_is_legacy_member,
+			CASE WHEN role_oids.migration_oid IS NULL
+				OR role_oids.legacy_oid IS NULL THEN false ELSE
+				pg_catalog.pg_has_role(
+					role_oids.migration_oid, role_oids.legacy_oid, 'SET'
+				) END AS migration_can_set_legacy,
+			CASE WHEN role_oids.cleanup_oid IS NULL
+				OR role_oids.runtime_oid IS NULL THEN false ELSE
+				EXISTS (
+					SELECT 1
+					FROM pg_catalog.pg_auth_members AS membership
+					WHERE membership.member = role_oids.cleanup_oid
+						AND membership.roleid = role_oids.runtime_oid
+				) END AS cleanup_is_runtime_member,
+			CASE WHEN role_oids.cleanup_oid IS NULL
+				OR role_oids.runtime_oid IS NULL THEN false ELSE
+				EXISTS (
+					SELECT 1
+					FROM pg_catalog.pg_auth_members AS membership
+					WHERE membership.member = role_oids.cleanup_oid
+						AND membership.roleid = role_oids.runtime_oid
+						AND membership.set_option
+				) END AS cleanup_can_set_runtime,
+			CASE WHEN role_oids.cleanup_oid IS NULL
+				OR role_oids.migration_oid IS NULL THEN false ELSE
+				pg_catalog.pg_has_role(
+					role_oids.cleanup_oid, role_oids.migration_oid, 'MEMBER'
+				) END AS cleanup_is_migration_member,
+			CASE WHEN role_oids.cleanup_oid IS NULL
+				OR role_oids.migration_oid IS NULL THEN false ELSE
+				pg_catalog.pg_has_role(
+					role_oids.cleanup_oid, role_oids.migration_oid, 'SET'
+				) END AS cleanup_can_set_migration,
+			CASE WHEN role_oids.cleanup_oid IS NULL
+				OR role_oids.legacy_oid IS NULL THEN false ELSE
+				pg_catalog.pg_has_role(
+					role_oids.cleanup_oid, role_oids.legacy_oid, 'MEMBER'
+				) END AS cleanup_is_legacy_member,
+			CASE WHEN role_oids.cleanup_oid IS NULL
+				OR role_oids.legacy_oid IS NULL THEN false ELSE
+				pg_catalog.pg_has_role(
+					role_oids.cleanup_oid, role_oids.legacy_oid, 'SET'
+				) END AS cleanup_can_set_legacy,
 			CASE WHEN role_oids.migration_oid IS NULL
 				OR role_oids.runtime_oid IS NULL THEN false ELSE
 				pg_catalog.pg_has_role(
@@ -363,6 +623,16 @@ export async function readDatabaseBootstrapFacts(
 				pg_catalog.pg_has_role(
 					role_oids.runtime_oid, role_oids.migration_oid, 'SET'
 				) END AS runtime_can_set_migration,
+			CASE WHEN role_oids.cleanup_oid IS NULL
+				OR role_oids.runtime_oid IS NULL THEN false ELSE
+				pg_catalog.pg_has_role(
+					role_oids.runtime_oid, role_oids.cleanup_oid, 'MEMBER'
+				) END AS runtime_is_cleanup_member,
+			CASE WHEN role_oids.cleanup_oid IS NULL
+				OR role_oids.runtime_oid IS NULL THEN false ELSE
+				pg_catalog.pg_has_role(
+					role_oids.runtime_oid, role_oids.cleanup_oid, 'SET'
+				) END AS runtime_can_set_cleanup,
 			CASE WHEN role_oids.legacy_oid IS NULL
 				OR role_oids.runtime_oid IS NULL THEN false ELSE
 				pg_catalog.pg_has_role(
@@ -476,8 +746,19 @@ export async function readDatabaseBootstrapFacts(
 		CROSS JOIN database_row
 		JOIN pg_catalog.pg_namespace AS namespace
 			ON namespace.nspname = 'public'
+		LEFT JOIN pg_catalog.pg_roles AS migration_role
+			ON migration_role.oid = role_oids.migration_oid
+		LEFT JOIN pg_catalog.pg_roles AS runtime_role
+			ON runtime_role.oid = role_oids.runtime_oid
+		LEFT JOIN pg_catalog.pg_roles AS cleanup_role
+			ON cleanup_role.oid = role_oids.cleanup_oid
 		WHERE login_role.rolname = current_user`,
-		[config.migrationRole, config.runtimeRole, config.legacyRole],
+		[
+			config.migrationRole,
+			config.runtimeRole,
+			config.cleanupRole,
+			config.legacyRole,
+		],
 	);
 	const row = result.rows[0];
 	if (!row) throw new Error("Database bootstrap fact query returned no row.");
@@ -491,15 +772,41 @@ export async function readDatabaseBootstrapFacts(
 		publicSchemaOwner: row.public_schema_owner,
 		migrationRoleExists: row.migration_role_exists,
 		runtimeRoleExists: row.runtime_role_exists,
+		cleanupRoleExists: row.cleanup_role_exists,
 		legacyRoleExists: row.legacy_role_exists,
+		migrationRoleCanLogin: row.migration_role_can_login,
+		runtimeRoleCanLogin: row.runtime_role_can_login,
+		cleanupRoleCanLogin: row.cleanup_role_can_login,
+		migrationRoleIsSuperuser: row.migration_role_is_superuser,
+		runtimeRoleIsSuperuser: row.runtime_role_is_superuser,
+		cleanupRoleIsSuperuser: row.cleanup_role_is_superuser,
+		migrationRoleConnectionLimit: row.migration_role_connection_limit,
+		runtimeRoleConnectionLimit: row.runtime_role_connection_limit,
+		cleanupRoleConnectionLimit: row.cleanup_role_connection_limit,
 		currentUserIsMigrationMember: row.current_user_is_migration_member,
 		currentUserCanSetMigration: row.current_user_can_set_migration,
+		currentUserIsRuntimeMember: row.current_user_is_runtime_member,
+		currentUserCanSetRuntime: row.current_user_can_set_runtime,
+		currentUserIsCleanupMember: row.current_user_is_cleanup_member,
+		currentUserCanSetCleanup: row.current_user_can_set_cleanup,
 		currentUserIsLegacyMember: row.current_user_is_legacy_member,
 		currentUserCanSetLegacy: row.current_user_can_set_legacy,
 		migrationIsRuntimeMember: row.migration_is_runtime_member,
 		migrationCanSetRuntime: row.migration_can_set_runtime,
+		migrationIsCleanupMember: row.migration_is_cleanup_member,
+		migrationCanSetCleanup: row.migration_can_set_cleanup,
+		migrationIsLegacyMember: row.migration_is_legacy_member,
+		migrationCanSetLegacy: row.migration_can_set_legacy,
+		cleanupIsRuntimeMember: row.cleanup_is_runtime_member,
+		cleanupCanSetRuntime: row.cleanup_can_set_runtime,
+		cleanupIsMigrationMember: row.cleanup_is_migration_member,
+		cleanupCanSetMigration: row.cleanup_can_set_migration,
+		cleanupIsLegacyMember: row.cleanup_is_legacy_member,
+		cleanupCanSetLegacy: row.cleanup_can_set_legacy,
 		runtimeIsMigrationMember: row.runtime_is_migration_member,
 		runtimeCanSetMigration: row.runtime_can_set_migration,
+		runtimeIsCleanupMember: row.runtime_is_cleanup_member,
+		runtimeCanSetCleanup: row.runtime_can_set_cleanup,
 		runtimeIsLegacyMember: row.runtime_is_legacy_member,
 		runtimeCanSetLegacy: row.runtime_can_set_legacy,
 		runtimeCanCreateDatabase: row.runtime_can_create_database,

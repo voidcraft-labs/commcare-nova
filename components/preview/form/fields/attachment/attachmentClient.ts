@@ -78,11 +78,24 @@ interface AttachmentSlot {
 	/** Generation that established `issue`; diagnostics from older work may
 	 * never clear a newer replacement/save. */
 	issueGeneration?: number;
+	/**
+	 * A worker-picked file is entry/slot state, not component state. Keeping the
+	 * exact File object here lets relevance and group remounts restore both the
+	 * filename and the generation's Cancel/recovery controls without attempting
+	 * to repopulate the browser's protected file input value.
+	 */
+	draft?: AttachmentSlotDraft;
 }
 
 export interface AttachmentSlotIssue {
 	readonly kind: "retarget" | "save";
 	readonly message: string;
+}
+
+export interface AttachmentSlotDraft {
+	readonly file: File;
+	readonly status: "queued-upload" | "uploading" | "needs-attention";
+	readonly generation?: number;
 }
 
 /**
@@ -119,7 +132,7 @@ interface SignatureDraftState {
 }
 
 const signatureDrafts = new Map<string, Map<string, SignatureDraftState>>();
-const attachmentIssueListeners = new Map<string, Set<() => void>>();
+const attachmentSlotStateListeners = new Map<string, Set<() => void>>();
 
 const ATTACHMENT_CLEANUP_TIMEOUT_MS = 10_000;
 const ATTACHMENT_REQUEST_TIMEOUT_MS = 30_000;
@@ -153,8 +166,8 @@ function slotsFor(entryKey: string): Map<string, AttachmentSlot> {
 	return entry;
 }
 
-function notifyAttachmentIssues(entryKey: string): void {
-	for (const listener of attachmentIssueListeners.get(entryKey) ?? []) {
+function notifyAttachmentSlotState(entryKey: string): void {
+	for (const listener of attachmentSlotStateListeners.get(entryKey) ?? []) {
 		listener();
 	}
 }
@@ -183,7 +196,7 @@ function setSlotIssue(
 	slot.issue = issue;
 	slot.issueGeneration = generation;
 	markAttachmentNotReady(entryKey, slotKey, issue.message);
-	notifyAttachmentIssues(entryKey);
+	notifyAttachmentSlotState(entryKey);
 }
 
 function clearSlotIssue(
@@ -203,7 +216,7 @@ function clearSlotIssue(
 	slot.issue = undefined;
 	slot.issueGeneration = undefined;
 	clearAttachmentNotReady(entryKey, slotKey);
-	notifyAttachmentIssues(entryKey);
+	notifyAttachmentSlotState(entryKey);
 }
 
 export function getAttachmentSlotIssue(args: {
@@ -216,19 +229,67 @@ export function getAttachmentSlotIssue(args: {
 	return { ...slot.issue };
 }
 
-export function subscribeAttachmentSlotIssues(
+export function getAttachmentSlotDraft(args: {
+	appId: string;
+	entryKey: string;
+	slotKey: string;
+}): AttachmentSlotDraft | undefined {
+	const slot = attachmentSlots.get(args.entryKey)?.get(args.slotKey);
+	if (slot?.appId !== args.appId || slot.draft === undefined) return undefined;
+	return { ...slot.draft };
+}
+
+export function rememberAttachmentSlotDraft(args: {
+	appId: string;
+	entryKey: string;
+	slotKey: string;
+	file: File;
+	status: AttachmentSlotDraft["status"];
+	generation?: number;
+}): void {
+	const slot = attachmentSlots.get(args.entryKey)?.get(args.slotKey);
+	if (slot?.appId !== args.appId) return;
+	slot.draft = {
+		file: args.file,
+		status: args.status,
+		...(args.generation === undefined ? {} : { generation: args.generation }),
+	};
+	notifyAttachmentSlotState(args.entryKey);
+}
+
+export function clearAttachmentSlotDraft(args: {
+	appId: string;
+	entryKey: string;
+	slotKey: string;
+	maximumGeneration?: number;
+}): void {
+	const slot = attachmentSlots.get(args.entryKey)?.get(args.slotKey);
+	if (slot?.appId !== args.appId || slot.draft === undefined) return;
+	if (
+		args.maximumGeneration !== undefined &&
+		(slot.draft.generation ?? 0) > args.maximumGeneration
+	) {
+		return;
+	}
+	slot.draft = undefined;
+	notifyAttachmentSlotState(args.entryKey);
+}
+
+export function subscribeAttachmentSlotState(
 	entryKey: string,
 	listener: () => void,
 ): () => void {
-	let listeners = attachmentIssueListeners.get(entryKey);
+	let listeners = attachmentSlotStateListeners.get(entryKey);
 	if (listeners === undefined) {
 		listeners = new Set();
-		attachmentIssueListeners.set(entryKey, listeners);
+		attachmentSlotStateListeners.set(entryKey, listeners);
 	}
 	listeners.add(listener);
 	return () => {
 		listeners?.delete(listener);
-		if (listeners?.size === 0) attachmentIssueListeners.delete(entryKey);
+		if (listeners?.size === 0) {
+			attachmentSlotStateListeners.delete(entryKey);
+		}
 	};
 }
 
@@ -501,7 +562,7 @@ function retireAttachmentSlot(entryKey: string, slotKey: string): void {
 	cancelAttachmentTask(entryKey, slotKey);
 	clearAttachmentNotReady(entryKey, slotKey);
 	clearSignatureDraft(entryKey, slotKey);
-	notifyAttachmentIssues(entryKey);
+	notifyAttachmentSlotState(entryKey);
 	if (slot?.owned !== undefined) {
 		scheduleAttachmentCleanup({
 			appId: slot.appId,
@@ -559,6 +620,37 @@ function reconcileBarrierDispositions(
 		if (disposition === "removed") {
 			retireAttachmentSlot(entryKey, slotKey);
 		} else if (disposition === "dormant") {
+			// Preserve a picked file above the now-unmounted control. If Submit
+			// later fails and the question becomes relevant again, the worker
+			// gets the same filename and an actionable stable-slot blocker
+			// instead of a deceptively empty picker.
+			const slot = slots?.get(slotKey);
+			const currentTask = [...queue.paths.values()].find(
+				(task) => task.target.slotKey === slotKey,
+			);
+			if (
+				slot?.draft !== undefined &&
+				slot.draft.status !== "needs-attention"
+			) {
+				slot.draft = {
+					...slot.draft,
+					status: "needs-attention",
+					...(currentTask === undefined
+						? {}
+						: { generation: currentTask.generation }),
+				};
+				setSlotIssue(
+					entryKey,
+					slotKey,
+					slot,
+					{
+						kind: "save",
+						message:
+							"That attachment couldn't be saved. Choose the file again.",
+					},
+					currentTask?.generation ?? slot.draft.generation ?? 0,
+				);
+			}
 			// A dormant draft remains registered and not-ready. Only its
 			// signal-aware active work is cancelled so Submit cannot starve
 			// behind a question that no longer participates.
@@ -649,6 +741,9 @@ export function registerAttachmentSlotPath(args: {
 					issueGeneration: current.issueGeneration,
 				}
 			: {}),
+		...(current?.appId === args.appId && current.draft !== undefined
+			? { draft: current.draft }
+			: {}),
 	});
 }
 
@@ -669,10 +764,23 @@ export function rememberOwnedStagedAttachment(args: {
 	slotKey?: string;
 	instancePath: string;
 	attachment: StagedAttachment;
+	/**
+	 * A confirmed generation may clear only its own/older picked-file draft.
+	 * Callers that already own an entry-wide generation fence pass it here;
+	 * setup/reconciliation callers omit it and publish an authoritative owner.
+	 */
+	maximumDraftGeneration?: number;
 }): void {
 	const key = taskKey(args);
 	const slots = slotsFor(args.entryKey);
 	const current = slots.get(key);
+	const newerDraft =
+		current?.appId === args.appId &&
+		current.draft !== undefined &&
+		args.maximumDraftGeneration !== undefined &&
+		(current.draft.generation ?? 0) > args.maximumDraftGeneration
+			? current.draft
+			: undefined;
 	slots.set(key, {
 		appId: args.appId,
 		fieldUuid: current?.appId === args.appId ? current.fieldUuid : undefined,
@@ -686,9 +794,18 @@ export function rememberOwnedStagedAttachment(args: {
 			attachment: args.attachment,
 			instancePath: args.instancePath,
 		},
+		...(newerDraft === undefined ? {} : { draft: newerDraft }),
+		...(newerDraft !== undefined && current?.issue !== undefined
+			? {
+					issue: current.issue,
+					issueGeneration: current.issueGeneration,
+				}
+			: {}),
 	});
-	clearAttachmentNotReady(args.entryKey, key);
-	notifyAttachmentIssues(args.entryKey);
+	if (newerDraft === undefined) {
+		clearAttachmentNotReady(args.entryKey, key);
+	}
+	notifyAttachmentSlotState(args.entryKey);
 }
 
 export function getOwnedStagedAttachment(args: {
@@ -1051,7 +1168,7 @@ function detachAttachmentEntry(args: {
 }): string[] {
 	cancelAttachmentEntry(args.entryKey);
 	signatureDrafts.delete(args.entryKey);
-	attachmentIssueListeners.delete(args.entryKey);
+	attachmentSlotStateListeners.delete(args.entryKey);
 	const entry = attachmentSlots.get(args.entryKey);
 	attachmentSlots.delete(args.entryKey);
 	if (entry === undefined) return [];
@@ -1113,7 +1230,7 @@ export async function __resetAttachmentCoordinatorForTests(): Promise<void> {
 	entryQueues.clear();
 	attachmentSlots.clear();
 	signatureDrafts.clear();
-	attachmentIssueListeners.clear();
+	attachmentSlotStateListeners.clear();
 }
 
 export function isAttachmentTaskAbort(error: unknown): boolean {
@@ -1183,10 +1300,17 @@ async function fetchWithDeadline(
 	init: RequestInit,
 	externalSignal?: AbortSignal,
 ): Promise<Response> {
-	return withAttachmentRequestDeadline(
-		(signal) => fetch(input, { ...init, signal }),
-		externalSignal,
-	);
+	return withAttachmentRequestDeadline(async (signal) => {
+		const response = await fetch(input, { ...init, signal });
+		// Headers are not completion. Keep the request boundary (and the
+		// caller's Cancel signal) attached until the peer's success or error
+		// body has actually ended. This also prevents an ignored response body
+		// from retaining a transport outside the entry coordinator.
+		if (typeof response.arrayBuffer === "function") {
+			await response.arrayBuffer();
+		}
+		return response;
+	}, externalSignal);
 }
 
 async function postJson<T>(

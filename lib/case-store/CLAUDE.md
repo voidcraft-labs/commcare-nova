@@ -534,7 +534,9 @@ pinned postgis image the test harness uses) and applies the migrations
 `pg.Pool` against it instead of the Cloud SQL connector — an EXPLICIT
 opt-in, not a `NODE_ENV` fallback, so a production misconfig still
 hits the connector's loud `NOVA_DB_*` validation instead of silently
-falling back to localhost.
+falling back to localhost. Local app processes may omit
+`NOVA_DB_WORKLOAD` and default to `service`; `npm run db:migrate`
+declares `migration` explicitly.
 
 The read-only inspect scripts (`scripts/inspect-*.ts`) take `--prod`,
 which points this same connection layer at the production instance
@@ -542,7 +544,32 @@ over its PUBLIC IP (`NOVA_DB_IP_TYPE=PUBLIC`) authenticating as YOUR
 gcloud identity via IAM — per-developer prerequisites in
 `scripts/lib/prodDb.ts`. The instance has no authorized networks, so
 the connector's IAM-authenticated path is the only way in; Cloud Run
-keeps riding the private IP (it never sets `NOVA_DB_IP_TYPE`).
+keeps riding the private IP (it never sets `NOVA_DB_IP_TYPE`). That
+central `--prod` helper authoritatively declares the `operator`
+workload, whose pool max is one of the two residual ordinary-login
+connections.
+
+Every non-local process must declare its pool workload exactly:
+`service` = 3 pooled connections, `migration` = 1,
+`capture-cleanup` = 2, and `operator` = 1 ordinary connection. The
+serving process also owns one dedicated LISTEN connection outside its
+pool. PostgreSQL's direct-login `CONNECTION LIMIT` is the hard,
+cluster-wide boundary: runtime = 16, migration = 1, and cleanup = 3.
+Role attributes are not inherited, so migration and cleanup sessions count
+against their own login roles even though both inherit runtime's table
+privileges. Those caps total 20 against `max_connections=25`; two more slots
+remain for ordinary/operator logins, while the final three are protected by
+`superuser_reserved_connections=3` for true superusers
+(`reserved_connections=0`).
+
+Cloud Run's service/revision maximum of four is a soft outer control; it keeps
+ordinary demand aligned at `4 * (pool 3 + listener 1) = 16`, but PostgreSQL
+admission is what prevents a transient platform overrun from consuming the
+maintenance/headroom allocations. Before every production migration and
+capture-cleanup execution, the entrypoint audits all three exact role limits
+and all three server settings. The deploy preflight additionally waits for
+runtime sessions opened before a lowered cap to drain to 16 before migration.
+Unknown or absent production workloads fail before connecting.
 
 Data lives in the persistent `nova-cases-data` Docker volume
 (`npm run db:dev:down` stops the container; `docker compose down -v`
@@ -661,19 +688,29 @@ override under a dedicated migration identity on the service's network. It calls
 `getCaseStoreDatabase()`, so it connects through the SAME
 `@google-cloud/cloud-sql-connector` + IAM path the runtime uses. Its connector
 env wires `NOVA_DB_USER` / `NOVA_DB_INSTANCE_CONNECTION_NAME` /
-`NOVA_DB_NAME`; privilege convergence additionally requires exactly
-`NOVA_MIGRATION_DB_USER` and `NOVA_RUNTIME_DB_USER`.
+`NOVA_DB_NAME` plus `NOVA_DB_WORKLOAD=migration`. Its mandatory capacity audit
+requires `NOVA_MIGRATION_DB_USER`, `NOVA_RUNTIME_DB_USER`, and
+`NOVA_CAPTURE_CLEANUP_DB_USER`; privilege convergence consumes the first two
+after migrations.
 
-The one-time bootstrap happens outside Nova: create both non-administrative
-database roles, make migration a member of runtime (never the reverse), and
-make the migration identity owner of the database before running this
-entrypoint. `public` remains owned by PostgreSQL's `pg_database_owner`, whose
-current member is the database owner, so migration is its effective owner
-without replacing that built-in role. Existing legacy objects must also be
-maintainable by migration; the one-way runtime membership covers the
-runtime-owned tables. Convergence deliberately does not create roles or
-transfer the database ownership it needs to authorize its own `REVOKE`,
-`GRANT`, and ownership changes.
+Cloud Build first updates the already-serving service's global and revision
+maxima to four and verifies both reported values. It then runs the capacity
+preflight, which audits the exact server settings and 16/1/3 role caps and
+waits for runtime sessions to drain to 16 before this Job. A new deployment
+also pins both maxima. The Cloud Run controls are soft; PostgreSQL role limits
+remain the hard boundary while the old revision serves during migration.
+
+The one-time bootstrap happens outside Nova: create runtime, migration, and
+capture-cleanup as non-superuser direct LOGIN roles; make migration and cleanup
+members of runtime (never the reverse); apply their exact CONNECTION LIMIT
+16/1/3; and make migration the database owner before running this entrypoint.
+`public` remains owned by PostgreSQL's `pg_database_owner`, whose current
+member is the database owner, so migration is its effective owner without
+replacing that built-in role. Existing legacy objects must also be maintainable
+by migration; the one-way runtime membership covers runtime-owned tables.
+Convergence deliberately does not create roles, alter role limits, or transfer
+the database ownership it needs to authorize its own `REVOKE`, `GRANT`, and
+ownership changes.
 
 The first schema split is a maintenance cutover, not a rolling migration. The
 migration transaction moves `public.cases` before the new revision starts; an

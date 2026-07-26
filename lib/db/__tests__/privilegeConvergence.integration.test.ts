@@ -12,8 +12,11 @@ import { runAuthAppMigrations } from "@/lib/auth/migrate";
 import { authMigrateOptions } from "@/lib/auth-migrate-options";
 import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
 import {
+	CAPTURE_CLEANUP_DB_ROLE_CONNECTION_LIMIT,
 	CASE_RUNTIME_SCHEMA,
 	DATABASE_CONNECTION_OPTIONS,
+	MIGRATION_DB_ROLE_CONNECTION_LIMIT,
+	RUNTIME_DB_ROLE_CONNECTION_LIMIT,
 } from "@/lib/case-store/postgres/connection";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 import {
@@ -29,6 +32,10 @@ import {
 const h = setupPerTestDatabase({
 	databaseNamePrefix: "privilege_convergence_",
 });
+
+interface BootstrapTestRoleConfig extends DatabasePrivilegeRoleConfig {
+	readonly cleanupRole: string;
+}
 
 async function asRole<T>(
 	db: Kysely<unknown>,
@@ -46,17 +53,23 @@ async function asRole<T>(
 
 async function createRoles(
 	db: Kysely<unknown>,
-): Promise<DatabasePrivilegeRoleConfig> {
+): Promise<BootstrapTestRoleConfig> {
 	const suffix = Math.random().toString(36).slice(2, 10);
 	const config = {
 		migrationRole: `nova_migrate_${suffix}`,
 		runtimeRole: `nova_runtime_${suffix}`,
+		cleanupRole: `nova_cleanup_${suffix}`,
 	};
-	for (const role of [config.migrationRole, config.runtimeRole]) {
-		await sql`CREATE ROLE ${sql.id(role)} NOLOGIN`.execute(db);
+	for (const role of [
+		config.migrationRole,
+		config.runtimeRole,
+		config.cleanupRole,
+	]) {
+		await sql`CREATE ROLE ${sql.id(role)} LOGIN`.execute(db);
 	}
 	await sql`
-		GRANT ${sql.id(config.runtimeRole)} TO ${sql.id(config.migrationRole)}
+		GRANT ${sql.id(config.runtimeRole)}
+		TO ${sql.id(config.migrationRole)}, ${sql.id(config.cleanupRole)}
 	`.execute(db);
 	const identity = await sql<{ name: string }>`
 		SELECT current_user AS name
@@ -64,7 +77,9 @@ async function createRoles(
 	const bootstrapUser = identity.rows[0]?.name;
 	if (!bootstrapUser) throw new Error("Current role query returned no row.");
 	await sql`
-		GRANT ${sql.id(config.migrationRole)} TO ${sql.id(bootstrapUser)}
+		GRANT ${sql.id(config.runtimeRole)}, ${sql.id(config.migrationRole)},
+			${sql.id(config.cleanupRole)}
+		TO ${sql.id(bootstrapUser)}
 	`.execute(db);
 	return config;
 }
@@ -73,6 +88,7 @@ async function createLegacyBootstrapRoles(db: Kysely<unknown>): Promise<{
 	readonly convergence: DatabasePrivilegeRoleConfig;
 	readonly bootstrap: DatabaseOwnerBootstrapConfig;
 	readonly bootstrapRole: string;
+	readonly cleanupRole: string;
 	readonly legacyRole: string;
 }> {
 	const suffix = Math.random().toString(36).slice(2, 10);
@@ -80,24 +96,28 @@ async function createLegacyBootstrapRoles(db: Kysely<unknown>): Promise<{
 		migrationRole: `nova_migrate_legacy_${suffix}`,
 		runtimeRole: `nova_runtime_legacy_${suffix}`,
 	};
+	const cleanupRole = `nova_cleanup_legacy_${suffix}`;
 	const legacyRole = `nova_legacy_${suffix}`;
 	const bootstrapRole = `nova_bootstrap_${suffix}`;
 	for (const role of [
 		convergence.migrationRole,
 		convergence.runtimeRole,
-		legacyRole,
+		cleanupRole,
 	]) {
-		await sql`CREATE ROLE ${sql.id(role)} NOLOGIN`.execute(db);
+		await sql`CREATE ROLE ${sql.id(role)} LOGIN`.execute(db);
 	}
+	await sql`CREATE ROLE ${sql.id(legacyRole)} NOLOGIN`.execute(db);
 	await sql`
 		CREATE ROLE ${sql.id(bootstrapRole)} NOLOGIN SUPERUSER CREATEDB CREATEROLE
 	`.execute(db);
 	await sql`
 		GRANT ${sql.id(convergence.runtimeRole)}
-		TO ${sql.id(convergence.migrationRole)}
+		TO ${sql.id(convergence.migrationRole)}, ${sql.id(cleanupRole)}
 	`.execute(db);
 	await sql`
-		GRANT ${sql.id(convergence.migrationRole)}, ${sql.id(legacyRole)}
+		GRANT ${sql.id(convergence.runtimeRole)},
+			${sql.id(convergence.migrationRole)}, ${sql.id(cleanupRole)},
+			${sql.id(legacyRole)}
 		TO ${sql.id(bootstrapRole)}
 	`.execute(db);
 	await sql`
@@ -112,9 +132,14 @@ async function createLegacyBootstrapRoles(db: Kysely<unknown>): Promise<{
 			database: h.databaseName,
 			migrationRole: convergence.migrationRole,
 			runtimeRole: convergence.runtimeRole,
+			cleanupRole,
 			legacyRole,
+			migrationConnectionLimit: MIGRATION_DB_ROLE_CONNECTION_LIMIT,
+			runtimeConnectionLimit: RUNTIME_DB_ROLE_CONNECTION_LIMIT,
+			cleanupConnectionLimit: CAPTURE_CLEANUP_DB_ROLE_CONNECTION_LIMIT,
 		},
 		bootstrapRole,
+		cleanupRole,
 		legacyRole,
 	};
 }
@@ -340,6 +365,7 @@ describe("database privilege convergence", () => {
 			await legacy.db.destroy().catch(() => undefined);
 			await migration?.db.destroy().catch(() => undefined);
 			await dropRoles(h.db, fixture.convergence, [
+				fixture.cleanupRole,
 				fixture.legacyRole,
 				fixture.bootstrapRole,
 			]);
@@ -359,8 +385,10 @@ describe("database privilege convergence", () => {
 			NOLOGIN SUPERUSER CREATEDB CREATEROLE
 		`.execute(h.db);
 		await sql`
-			GRANT ${sql.id(config.migrationRole)} TO ${sql.id(bootstrapRole)}
-		`.execute(h.db);
+				GRANT ${sql.id(config.runtimeRole)}, ${sql.id(config.migrationRole)},
+					${sql.id(config.cleanupRole)}
+				TO ${sql.id(bootstrapRole)}
+			`.execute(h.db);
 		const bootstrapClient = new Client({ connectionString: h.uri });
 		let migration:
 			| { readonly db: Kysely<unknown>; readonly pool: Pool }
@@ -386,7 +414,11 @@ describe("database privilege convergence", () => {
 					database: h.databaseName,
 					migrationRole: config.migrationRole,
 					runtimeRole: config.runtimeRole,
+					cleanupRole: config.cleanupRole,
 					legacyRole: `absent_${config.migrationRole}`,
+					migrationConnectionLimit: MIGRATION_DB_ROLE_CONNECTION_LIMIT,
+					runtimeConnectionLimit: RUNTIME_DB_ROLE_CONNECTION_LIMIT,
+					cleanupConnectionLimit: CAPTURE_CLEANUP_DB_ROLE_CONNECTION_LIMIT,
 				},
 			);
 			expect(freshBootstrap.before.legacyRoleExists).toBe(false);
@@ -394,6 +426,9 @@ describe("database privilege convergence", () => {
 				0,
 			);
 			expect(freshBootstrap.statements).toEqual([
+				`ALTER ROLE "${config.runtimeRole}" CONNECTION LIMIT ${RUNTIME_DB_ROLE_CONNECTION_LIMIT}`,
+				`ALTER ROLE "${config.migrationRole}" CONNECTION LIMIT ${MIGRATION_DB_ROLE_CONNECTION_LIMIT}`,
+				`ALTER ROLE "${config.cleanupRole}" CONNECTION LIMIT ${CAPTURE_CLEANUP_DB_ROLE_CONNECTION_LIMIT}`,
 				`ALTER DATABASE "${h.databaseName}" OWNER TO "${config.migrationRole}"`,
 				`REASSIGN OWNED BY "${bootstrapRole}" TO "${config.migrationRole}"`,
 				`DROP OWNED BY "${bootstrapRole}" RESTRICT`,
@@ -610,7 +645,7 @@ describe("database privilege convergence", () => {
 			await bootstrapClient.query("RESET ROLE").catch(() => undefined);
 			await bootstrapClient.end().catch(() => undefined);
 			await migration?.db.destroy().catch(() => undefined);
-			await dropRoles(h.db, config, [bootstrapRole]);
+			await dropRoles(h.db, config, [config.cleanupRole, bootstrapRole]);
 		}
 	});
 });

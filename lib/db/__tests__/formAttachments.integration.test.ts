@@ -6,7 +6,9 @@
  * row through app B's item URL inside the same shared Project.
  */
 
+import { sql } from "kysely";
 import { describe, expect, it } from "vitest";
+import { resolveAuthorizedAppSnapshot } from "../appAccess";
 import {
 	beginFormAttachmentPreparation,
 	claimFormAttachmentPreparations,
@@ -209,6 +211,90 @@ describe("form attachment initiation compensation", () => {
 });
 
 describe("form attachment preparation concurrency", () => {
+	it("re-proves edit membership before a staged row can enter preparation", async () => {
+		const owner = "capture-preparation-owner";
+		const appId = await h.seedApp({
+			id: "capture-prepare-revoked-app",
+			owner,
+			project_id: PROJECT,
+		});
+		await h.seedProjectMember(ACTOR, PROJECT, "editor");
+		const entryKey = crypto.randomUUID();
+		const attachmentId = crypto.randomUUID();
+		const fieldUuid = crypto.randomUUID();
+		await h
+			.db()
+			.insertInto("form_attachments")
+			.values({
+				attachment_id: attachmentId,
+				attachment_name: `${attachmentId}.png`,
+				app_id: appId,
+				project_id: PROJECT,
+				created_by: ACTOR,
+				entry_key: entryKey,
+				field_uuid: fieldUuid,
+				instance_path: "/data/photo",
+				original_filename: "photo.png",
+				extension: ".png",
+				content_type: "image/png",
+				size_bytes: 3,
+				gcs_object_key: `captures-staged/${PROJECT}/${attachmentId}.png`,
+				object_generation: "17",
+				object_checksum: "checksum",
+				prepared_generation: null,
+				status: "staged",
+				last_preparation_error: null,
+				expires_at: new Date(Date.now() + 60_000),
+			})
+			.execute();
+
+		// The actual initial Submit gate admits this actor and releases its
+		// transaction. Revoke membership in that exact race window before the
+		// preparation transaction begins: the durable-copy transition must use
+		// current authority, not the earlier authorized snapshot.
+		await expect(
+			resolveAuthorizedAppSnapshot(appId, ACTOR, "edit"),
+		).resolves.toMatchObject({
+			projectId: PROJECT,
+			actorUserId: ACTOR,
+			canEdit: true,
+		});
+		await sql`
+			DELETE FROM auth_member
+			WHERE "userId" = ${ACTOR}
+				AND "organizationId" = ${PROJECT}
+		`.execute(h.db());
+
+		await expect(
+			beginFormAttachmentPreparation({
+				appId,
+				projectId: PROJECT,
+				actorUserId: ACTOR,
+				entryKey,
+				formUuid: crypto.randomUUID(),
+				requestDigest: "request-after-revocation",
+				attachments: [
+					{
+						attachmentName: `${attachmentId}.png`,
+						fieldUuid,
+						instancePath: "/data/photo",
+					},
+				],
+			}),
+		).rejects.toThrow("App not found.");
+		await expect(
+			h
+				.db()
+				.selectFrom("form_attachments")
+				.select(["status", "next_preparation_at"])
+				.where("attachment_id", "=", attachmentId)
+				.executeTakeFirstOrThrow(),
+		).resolves.toEqual({
+			status: "staged",
+			next_preparation_at: null,
+		});
+	});
+
 	it("keeps a recovery row when Clear wins after preparation starts", async () => {
 		const appId = await h.seedApp({
 			id: "capture-prepare-clear-app",

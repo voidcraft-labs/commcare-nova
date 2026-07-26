@@ -608,11 +608,14 @@ export async function confirmFormAttachment(args: {
 /**
  * Establish the DB half of pre-acceptance durability before any GCS copy.
  *
- * The entry advisory lock serializes this transition with Clear, retarget,
- * and the terminal submission transaction. Once a row is `preparing`, every
- * deterministic final-key copy has a durable recovery record before it can
- * exist. A request crash can therefore be resumed by scheduled maintenance;
- * no copied object is ever orphaned merely because its request disappeared.
+ * The current app/Project edit authority is re-proved in this transaction,
+ * after the route's earlier admission check and before any row can enter
+ * `preparing`. The entry advisory lock then serializes this transition with
+ * Clear, retarget, and the terminal submission transaction. Once a row is
+ * `preparing`, every deterministic final-key copy has a durable recovery
+ * record before it can exist. A request crash can therefore be resumed by
+ * scheduled maintenance; no copied object is ever orphaned merely because its
+ * request disappeared.
  */
 export async function beginFormAttachmentPreparation(args: {
 	appId: string;
@@ -631,6 +634,25 @@ export async function beginFormAttachmentPreparation(args: {
 	| { readonly kind: "prepare"; readonly attachmentIds: readonly string[] }
 > {
 	return withAppTx(async (tx) => {
+		// Keep the repo-wide writer lock order: app row, Project-membership
+		// gate/row, then the entry advisory lock and attachment rows.
+		const app = await tx
+			.selectFrom("apps")
+			.select(["project_id", "deleted_at"])
+			.where("id", "=", args.appId)
+			.forShare()
+			.executeTakeFirst();
+		if (app?.project_id !== args.projectId || app.deleted_at !== null) {
+			throw new FormAttachmentWriteRejectedError("App not found.");
+		}
+		const role = await projectRoleForInTransaction(
+			tx,
+			args.actorUserId,
+			args.projectId,
+		);
+		if (role === null || !roleAllowsApp(role, "edit")) {
+			throw new FormAttachmentWriteRejectedError("App not found.");
+		}
 		await lockFormAttachmentEntry(tx, {
 			appId: args.appId,
 			actorUserId: args.actorUserId,

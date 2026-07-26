@@ -21,6 +21,7 @@ import {
 	rememberSignatureDraft,
 	runAttachmentTask,
 	runFormAttachmentBarrier,
+	type StagedAttachment,
 	setAttachmentSlotIssue,
 } from "../attachmentClient";
 
@@ -539,6 +540,186 @@ describe("AttachmentField", () => {
 		);
 	});
 
+	it("restores a picked file and Cancel after the question really unmounts mid-upload", async () => {
+		const entryKey = "entry-active-upload-remount";
+		stageAttachmentMock.mockImplementation(
+			({ signal }: { signal: AbortSignal }) =>
+				new Promise((_resolve, reject) => {
+					signal.addEventListener("abort", () => reject(signal.reason), {
+						once: true,
+					});
+				}),
+		);
+		const props = {
+			field: FIELD,
+			state: EMPTY_STATE,
+			path: "/data/photo",
+			appId: "app-1",
+			entryKey,
+			onChange: vi.fn(),
+			onBlur: vi.fn(),
+		} as const;
+		const view = render(<AttachmentField {...props} />);
+		fireEvent.change(screen.getByLabelText(/Photo.*Attach file/i), {
+			target: {
+				files: [new File(["png"], "field-photo.png", { type: "image/png" })],
+			},
+		});
+		await waitFor(() => expect(stageAttachmentMock).toHaveBeenCalledTimes(1));
+
+		view.unmount();
+		render(<AttachmentField {...props} />);
+
+		expect(
+			screen.getByRole("button", { name: /Cancel attachment.*Photo/i }),
+		).toBeDefined();
+		expect(screen.getByRole("status").textContent).toContain("field-photo.png");
+		expect(
+			(screen.getByLabelText(/Photo.*Attaching/i) as HTMLInputElement).disabled,
+		).toBe(true);
+
+		fireEvent.click(
+			screen.getByRole("button", { name: /Cancel attachment.*Photo/i }),
+		);
+		await waitFor(() =>
+			expect(
+				screen.queryByRole("button", {
+					name: /Cancel attachment.*Photo/i,
+				}),
+			).toBeNull(),
+		);
+	});
+
+	it("publishes a confirmed replacement to the remounted control", async () => {
+		const entryKey = "entry-replacement-completes-after-remount";
+		const slotKey = "photo:replacement-slot";
+		registerAttachmentSlotPath({
+			appId: "app-1",
+			entryKey,
+			slotKey,
+			instancePath: "/data/photo",
+		});
+		rememberOwnedStagedAttachment({
+			appId: "app-1",
+			entryKey,
+			slotKey,
+			instancePath: "/data/photo",
+			attachment: {
+				attachmentId: "attachment-old",
+				attachmentName: "attachment-old.png",
+				originalFilename: "old.png",
+				sizeBytes: 3,
+			},
+		});
+		const replacement = deferred<StagedAttachment>();
+		stageAttachmentMock.mockReturnValue(replacement.promise);
+		const onChange = vi.fn();
+		const props = {
+			field: FIELD,
+			state: { ...EMPTY_STATE, value: "attachment-old.png" },
+			path: "/data/photo",
+			appId: "app-1",
+			entryKey,
+			attachmentSlotKey: slotKey,
+			onChange,
+			onBlur: vi.fn(),
+		} as const;
+		const first = render(<AttachmentField {...props} />);
+		fireEvent.change(screen.getByLabelText(/Photo.*Replace file/i), {
+			target: {
+				files: [new File(["new"], "new.png", { type: "image/png" })],
+			},
+		});
+		await waitFor(() => expect(stageAttachmentMock).toHaveBeenCalledTimes(1));
+
+		first.unmount();
+		render(<AttachmentField {...props} />);
+		expect(
+			screen.getByRole("button", { name: /Cancel attachment.*Photo/i }),
+		).toBeDefined();
+
+		replacement.resolve({
+			attachmentId: "attachment-new",
+			attachmentName: "attachment-new.png",
+			originalFilename: "new.png",
+			sizeBytes: 4,
+		});
+		await waitFor(() =>
+			expect(screen.getByRole("status").textContent).toBe("new.png"),
+		);
+		expect(
+			screen.queryByRole("button", { name: /Cancel attachment.*Photo/i }),
+		).toBeNull();
+		expect(onChange).toHaveBeenCalledWith("attachment-new.png");
+	});
+
+	it("returns from a failed Submit with a dormant picked-file draft and blocker intact", async () => {
+		const entryKey = "entry-dormant-upload-failed-submit";
+		const slotKey = "photo:conditional-slot";
+		stageAttachmentMock.mockImplementation(
+			({ signal }: { signal: AbortSignal }) =>
+				new Promise((_resolve, reject) => {
+					signal.addEventListener("abort", () => reject(signal.reason), {
+						once: true,
+					});
+				}),
+		);
+		const props = {
+			field: FIELD,
+			state: EMPTY_STATE,
+			path: "/data/photo",
+			appId: "app-1",
+			entryKey,
+			attachmentSlotKey: slotKey,
+			onChange: vi.fn(),
+			onBlur: vi.fn(),
+		} as const;
+		const view = render(<AttachmentField {...props} />);
+		fireEvent.change(screen.getByLabelText(/Photo.*Attach file/i), {
+			target: {
+				files: [
+					new File(["png"], "conditional-photo.png", { type: "image/png" }),
+				],
+			},
+		});
+		await waitFor(() => expect(stageAttachmentMock).toHaveBeenCalledTimes(1));
+
+		// A display condition hides the real control, then Submit classifies
+		// its stable slot as dormant. The server attempt fails and returns the
+		// worker to the same entry before the condition shows the question again.
+		view.unmount();
+		await expect(
+			runFormAttachmentBarrier(
+				entryKey,
+				async () => {
+					throw new Error("submission failed");
+				},
+				{ classifySlot: () => "dormant" },
+			),
+		).rejects.toThrow("submission failed");
+
+		render(<AttachmentField {...props} />);
+		expect(screen.getByRole("status").textContent).toContain(
+			"conditional-photo.png",
+		);
+		expect(screen.getByRole("alert").textContent).toMatch(
+			/couldn't be saved|could not be saved/i,
+		);
+		expect(
+			screen.getByRole("button", {
+				name: /Choose file.*Photo/i,
+			}),
+		).toBeDefined();
+		await expect(
+			runFormAttachmentBarrier(entryKey, async () => undefined, {
+				classifySlot: () => "active",
+			}),
+		).rejects.toMatchObject({
+			name: "AttachmentNotReadyError",
+			slotKey,
+		});
+	});
+
 	it("keeps staged UI on the stable slot while its concrete path compacts", async () => {
 		stageAttachmentMock.mockResolvedValue({
 			attachmentId: "44444444-4444-4444-8444-444444444444",
@@ -827,6 +1008,15 @@ describe("AttachmentField", () => {
 			/>,
 		);
 		expect(await screen.findByText("visit-photo.png")).toBeDefined();
+		expect(
+			screen.queryByRole("button", {
+				name: /Cancel attachment.*Photo/i,
+			}),
+		).toBeNull();
+		expect(
+			(screen.getByLabelText(/Photo.*Replace file/i) as HTMLInputElement)
+				.disabled,
+		).toBe(false);
 		expect(discardAttachmentMock).not.toHaveBeenCalled();
 	});
 

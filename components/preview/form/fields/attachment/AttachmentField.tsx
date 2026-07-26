@@ -13,16 +13,20 @@ import type { FieldState } from "@/lib/preview/engine/types";
 import { useEditMode } from "@/lib/session/hooks";
 import {
 	AttachmentRejected,
+	type AttachmentSlotDraft,
 	type AttachmentSlotIssue,
 	type AttachmentTaskContext,
 	cancelAttachmentTask,
+	clearAttachmentSlotDraft,
 	clearAttachmentSlotIssue,
 	forgetOwnedStagedAttachment,
+	getAttachmentSlotDraft,
 	getAttachmentSlotIssue,
 	getAttachmentSlotPath,
 	getOwnedStagedAttachment,
 	isAttachmentTaskAbort,
 	registerAttachmentSlotPath,
+	rememberAttachmentSlotDraft,
 	rememberOwnedStagedAttachment,
 	retryAttachmentRetarget,
 	runAttachmentTask,
@@ -30,7 +34,7 @@ import {
 	scheduleAttachmentCleanup,
 	setAttachmentSlotIssue,
 	stageAttachment,
-	subscribeAttachmentSlotIssues,
+	subscribeAttachmentSlotState,
 } from "./attachmentClient";
 import { SignaturePad } from "./SignaturePad";
 
@@ -82,6 +86,21 @@ interface AttachmentFieldProps {
 	readonly onBlur: () => void;
 	readonly onChangeAt?: ((path: string, value: string) => void) | undefined;
 	readonly onBlurAt?: ((path: string) => void) | undefined;
+}
+
+type AttachmentIntent =
+	| "idle"
+	| "queued-upload"
+	| "uploading"
+	| "queued-clear"
+	| "queued-retarget";
+
+function intentForDraft(
+	draft: AttachmentSlotDraft | undefined,
+): AttachmentIntent {
+	if (draft?.status === "queued-upload") return "queued-upload";
+	if (draft?.status === "uploading") return "uploading";
+	return "idle";
 }
 
 export function AttachmentField({
@@ -184,15 +203,17 @@ function AttachmentControl({
 	const [staged, setStaged] = useState<StagedAttachment | undefined>(
 		initialOwned,
 	);
-	type Intent =
-		| "idle"
-		| "queued-upload"
-		| "uploading"
-		| "queued-clear"
-		| "queued-retarget";
-	const intentRef = useRef<Intent>("idle");
-	const [intent, setIntentState] = useState<Intent>("idle");
-	const setIntent = useCallback((next: Intent): void => {
+	const initialDraft =
+		appId && entryKey
+			? getAttachmentSlotDraft({ appId, entryKey, slotKey })
+			: undefined;
+	const [slotDraft, setSlotDraftState] = useState<
+		AttachmentSlotDraft | undefined
+	>(initialDraft);
+	const initialIntent = intentForDraft(initialDraft);
+	const intentRef = useRef<AttachmentIntent>(initialIntent);
+	const [intent, setIntentState] = useState<AttachmentIntent>(initialIntent);
+	const setIntent = useCallback((next: AttachmentIntent): void => {
 		intentRef.current = next;
 		setIntentState(next);
 	}, []);
@@ -226,7 +247,12 @@ function AttachmentControl({
 				: undefined;
 		stagedRef.current = owned;
 		setStaged(owned);
-		setIntent("idle");
+		const draft =
+			appId && entryKey
+				? getAttachmentSlotDraft({ appId, entryKey, slotKey })
+				: undefined;
+		setSlotDraftState(draft);
+		setIntent(intentForDraft(draft));
 		setError(undefined);
 		setSlotIssueState(
 			appId && entryKey
@@ -252,11 +278,34 @@ function AttachmentControl({
 			setSlotIssueState(undefined);
 			return;
 		}
-		const update = () =>
+		const update = () => {
+			const owned = getOwnedStagedAttachment({
+				appId,
+				entryKey,
+				slotKey,
+			});
+			if (
+				owned?.attachmentId !== stagedRef.current?.attachmentId ||
+				owned?.attachmentName !== stagedRef.current?.attachmentName
+			) {
+				stagedRef.current = owned;
+				setStaged(owned);
+			}
 			setSlotIssueState(getAttachmentSlotIssue({ appId, entryKey, slotKey }));
+			const draft = getAttachmentSlotDraft({ appId, entryKey, slotKey });
+			setSlotDraftState(draft);
+			const draftIntent = intentForDraft(draft);
+			if (
+				draftIntent !== "idle" ||
+				intentRef.current === "queued-upload" ||
+				intentRef.current === "uploading"
+			) {
+				setIntent(draftIntent);
+			}
+		};
 		update();
-		return subscribeAttachmentSlotIssues(entryKey, update);
-	}, [appId, entryKey, slotKey]);
+		return subscribeAttachmentSlotState(entryKey, update);
+	}, [appId, entryKey, slotKey, setIntent]);
 
 	const currentPath = useCallback((): string | undefined => {
 		if (!appId || !entryKey) return path;
@@ -307,6 +356,16 @@ function AttachmentControl({
 				slotKey,
 				kind: "save",
 			});
+			if (field.kind !== "signature") {
+				rememberAttachmentSlotDraft({
+					appId,
+					entryKey,
+					slotKey,
+					file,
+					status: "uploading",
+					generation: context.generation,
+				});
+			}
 			setIntent("uploading");
 			try {
 				const next = await stageAttachment({
@@ -334,6 +393,7 @@ function AttachmentControl({
 					slotKey,
 					instancePath: uploadPath,
 					attachment: next,
+					maximumDraftGeneration: context.generation,
 				});
 				setStaged(next);
 				changeCurrent(next.attachmentName);
@@ -364,6 +424,16 @@ function AttachmentControl({
 								: message,
 					},
 				});
+				if (field.kind !== "signature") {
+					rememberAttachmentSlotDraft({
+						appId,
+						entryKey,
+						slotKey,
+						file,
+						status: "needs-attention",
+						generation: context.generation,
+					});
+				}
 				throw err;
 			} finally {
 				if (context.isCurrent()) {
@@ -394,6 +464,15 @@ function AttachmentControl({
 				);
 				return;
 			}
+			if (appId) {
+				rememberAttachmentSlotDraft({
+					appId,
+					entryKey,
+					slotKey,
+					file,
+					status: "queued-upload",
+				});
+			}
 			setIntent("queued-upload");
 			await runAttachmentTask({
 				entryKey,
@@ -406,7 +485,15 @@ function AttachmentControl({
 				}
 			});
 		},
-		[entryKey, slotKey, currentPath, stageWithinTask, blurCurrent, setIntent],
+		[
+			appId,
+			entryKey,
+			slotKey,
+			currentPath,
+			stageWithinTask,
+			blurCurrent,
+			setIntent,
+		],
 	);
 
 	const clear = useCallback(() => {
@@ -426,6 +513,9 @@ function AttachmentControl({
 		// bitmap is uploading. Cancel that generation before composing the one
 		// queued answer-clear transition; a late confirm cannot resurrect ink.
 		if (entryKey) cancelAttachmentTask(entryKey, slotKey);
+		if (appId && entryKey) {
+			clearAttachmentSlotDraft({ appId, entryKey, slotKey });
+		}
 		setIntent("queued-clear");
 		const owned =
 			appId && entryKey
@@ -510,6 +600,9 @@ function AttachmentControl({
 			return;
 		}
 		if (entryKey) cancelAttachmentTask(entryKey, slotKey);
+		if (appId && entryKey) {
+			clearAttachmentSlotDraft({ appId, entryKey, slotKey });
+		}
 		if (inputRef.current) inputRef.current.value = "";
 		setIntent("idle");
 		setError(
@@ -518,7 +611,7 @@ function AttachmentControl({
 				: "Attachment canceled. No file was attached.",
 		);
 		blurCurrent();
-	}, [blurCurrent, entryKey, setIntent, slotKey, state.value]);
+	}, [appId, blurCurrent, entryKey, setIntent, slotKey, state.value]);
 
 	// Engine reset and repeat removal own the answer, so mirror an externally
 	// cleared value into local filename/busy state and cancel any late upload.
@@ -556,6 +649,9 @@ function AttachmentControl({
 		if (inputRef.current) inputRef.current.value = "";
 		setIntent("idle");
 		if (entryKey) cancelAttachmentTask(entryKey, slotKey);
+		if (appId && entryKey) {
+			clearAttachmentSlotDraft({ appId, entryKey, slotKey });
+		}
 		if (previous !== undefined && appId !== undefined) {
 			scheduleAttachmentCleanup({
 				appId,
@@ -750,14 +846,18 @@ function AttachmentControl({
 					className="min-w-0 break-words text-xs text-nova-text-muted [overflow-wrap:anywhere]"
 				>
 					{intent === "queued-upload"
-						? "Waiting to attach file…"
+						? slotDraft === undefined
+							? "Waiting to attach file…"
+							: `Waiting to attach ${slotDraft.file.name}…`
 						: intent === "uploading"
-							? "Attaching file…"
+							? slotDraft === undefined
+								? "Attaching file…"
+								: `Attaching ${slotDraft.file.name}…`
 							: intent === "queued-clear"
 								? "Waiting to remove file…"
 								: hasAnswer
 									? (staged?.originalFilename ?? "File attached")
-									: "No file attached."}
+									: (slotDraft?.file.name ?? "No file attached.")}
 				</p>
 			) : null}
 

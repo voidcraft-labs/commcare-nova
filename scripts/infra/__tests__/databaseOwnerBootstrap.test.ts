@@ -18,15 +18,41 @@ const safeFacts: DatabaseBootstrapFacts = {
 	publicSchemaOwner: "pg_database_owner",
 	migrationRoleExists: true,
 	runtimeRoleExists: true,
+	cleanupRoleExists: true,
 	legacyRoleExists: true,
+	migrationRoleCanLogin: true,
+	runtimeRoleCanLogin: true,
+	cleanupRoleCanLogin: true,
+	migrationRoleIsSuperuser: false,
+	runtimeRoleIsSuperuser: false,
+	cleanupRoleIsSuperuser: false,
+	migrationRoleConnectionLimit: 1,
+	runtimeRoleConnectionLimit: 16,
+	cleanupRoleConnectionLimit: 3,
 	currentUserIsMigrationMember: true,
 	currentUserCanSetMigration: true,
+	currentUserIsRuntimeMember: true,
+	currentUserCanSetRuntime: true,
+	currentUserIsCleanupMember: true,
+	currentUserCanSetCleanup: true,
 	currentUserIsLegacyMember: true,
 	currentUserCanSetLegacy: true,
 	migrationIsRuntimeMember: true,
 	migrationCanSetRuntime: true,
+	migrationIsCleanupMember: false,
+	migrationCanSetCleanup: false,
+	migrationIsLegacyMember: false,
+	migrationCanSetLegacy: false,
+	cleanupIsRuntimeMember: true,
+	cleanupCanSetRuntime: true,
+	cleanupIsMigrationMember: false,
+	cleanupCanSetMigration: false,
+	cleanupIsLegacyMember: false,
+	cleanupCanSetLegacy: false,
 	runtimeIsMigrationMember: false,
 	runtimeCanSetMigration: false,
+	runtimeIsCleanupMember: false,
+	runtimeCanSetCleanup: false,
 	runtimeIsLegacyMember: false,
 	runtimeCanSetLegacy: false,
 	runtimeCanCreateDatabase: false,
@@ -51,6 +77,9 @@ describe("deployment database owner bootstrap", () => {
 	test("quotes identifiers and emits the legacy ownership transfer without SQL membership changes", () => {
 		expect(quoteIdentifier('role"name')).toBe('"role""name"');
 		expect(databaseOwnerBootstrapStatements(safeFacts)).toEqual([
+			'ALTER ROLE "commcare-nova@commcare-nova.iam" CONNECTION LIMIT 16',
+			'ALTER ROLE "nova-migrate@commcare-nova.iam" CONNECTION LIMIT 1',
+			'ALTER ROLE "nova-capture-cleanup@commcare-nova.iam" CONNECTION LIMIT 3',
 			'ALTER DATABASE "nova_cases" OWNER TO "nova-migrate@commcare-nova.iam"',
 			`REASSIGN OWNED BY "${LEGACY_DATABASE_ROLE}" TO "nova-migrate@commcare-nova.iam"`,
 			`DROP OWNED BY "${LEGACY_DATABASE_ROLE}" RESTRICT`,
@@ -63,6 +92,9 @@ describe("deployment database owner bootstrap", () => {
 				legacyRoleExists: false,
 			}),
 		).toEqual([
+			'ALTER ROLE "commcare-nova@commcare-nova.iam" CONNECTION LIMIT 16',
+			'ALTER ROLE "nova-migrate@commcare-nova.iam" CONNECTION LIMIT 1',
+			'ALTER ROLE "nova-capture-cleanup@commcare-nova.iam" CONNECTION LIMIT 3',
 			'ALTER DATABASE "nova_cases" OWNER TO "nova-migrate@commcare-nova.iam"',
 			'REASSIGN OWNED BY "nova-deployment-bootstrap" TO "nova-migrate@commcare-nova.iam"',
 			'DROP OWNED BY "nova-deployment-bootstrap" RESTRICT',
@@ -88,13 +120,43 @@ describe("deployment database owner bootstrap", () => {
 				...safeFacts,
 				currentUserCanSetLegacy: false,
 			}),
-		).toThrow("MEMBER and SET access to the legacy and migration roles");
+		).toThrow("MEMBER and SET access to runtime, migration, capture-cleanup");
+		expect(() =>
+			assertDatabaseBootstrapPreconditions({
+				...safeFacts,
+				currentUserIsCleanupMember: false,
+			}),
+		).toThrow("MEMBER and SET access to runtime, migration, capture-cleanup");
 		expect(() =>
 			assertDatabaseBootstrapPreconditions({
 				...safeFacts,
 				migrationCanSetRuntime: false,
 			}),
-		).toThrow("migration role must have MEMBER and SET access");
+		).toThrow("Migration and capture-cleanup must each have MEMBER and SET");
+		expect(() =>
+			assertDatabaseBootstrapPreconditions({
+				...safeFacts,
+				cleanupRoleExists: false,
+			}),
+		).toThrow("capture-cleanup IAM database users must exist");
+		expect(() =>
+			assertDatabaseBootstrapPreconditions({
+				...safeFacts,
+				cleanupRoleCanLogin: false,
+			}),
+		).toThrow("must remain direct LOGIN roles");
+		expect(() =>
+			assertDatabaseBootstrapPreconditions({
+				...safeFacts,
+				runtimeRoleIsSuperuser: true,
+			}),
+		).toThrow("must not be PostgreSQL superusers");
+		expect(() =>
+			assertDatabaseBootstrapPreconditions({
+				...safeFacts,
+				cleanupIsMigrationMember: true,
+			}),
+		).toThrow("wider than the two one-way runtime grants");
 		expect(() =>
 			assertDatabaseBootstrapPreconditions({
 				...safeFacts,
@@ -133,7 +195,13 @@ describe("deployment database owner bootstrap", () => {
 				...safeFacts,
 				runtimeIsMigrationMember: true,
 			}),
-		).toThrow("membership is unsafe");
+		).toThrow("wider than the two one-way runtime grants");
+		expect(() =>
+			assertDatabaseBootstrapResult({
+				...safeFacts,
+				runtimeRoleConnectionLimit: 17,
+			}),
+		).toThrow("connection limits are unsafe");
 		expect(() =>
 			assertDatabaseBootstrapResult({
 				...safeFacts,

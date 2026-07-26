@@ -5,19 +5,33 @@
  * and discard batches. Preparing rows copy+verify immutable bytes before
  * acceptance; discarding rows delete exact source/final generations before
  * metadata removal. GCS lifecycle remains the independent backstop for
- * abandoned staging-prefix bytes.
+ * abandoned staging-prefix bytes. Each execution first audits the shared
+ * database settings and hard login-role caps, then a session advisory lock held
+ * for the whole run collapses Scheduler/build overlap to one active worker.
  */
 
-import { closeCaseStoreDatabase } from "@/lib/case-store/postgres/connection";
+import type { PoolClient } from "pg";
+import {
+	closeCaseStoreDatabase,
+	getCaseStorePool,
+} from "@/lib/case-store/postgres/connection";
+import {
+	isDatabaseConnectionSaturatedError,
+	withExclusiveCaptureCleanupWorker,
+} from "@/lib/db/captureCleanupLease";
 import { preparePendingFormAttachments } from "@/lib/db/formAttachmentPreparation";
 import { purgeExpiredFormAttachments } from "@/lib/db/formAttachments";
 import { deleteAsset, deleteAssetGeneration } from "@/lib/storage/media";
+import {
+	readDatabaseCapacityRoleConfig,
+	runDatabaseCapacityPreflight,
+} from "@/scripts/infra/databaseCapacityPreflight";
 
 const BATCH_SIZE = 100;
 const MAX_BATCHES = 10;
 const TEARDOWN_TIMEOUT_MS = 10_000;
 
-async function main(): Promise<void> {
+async function runMaintenance(): Promise<void> {
 	let expiredRows = 0;
 	let objectDeleteFailures = 0;
 	for (let batch = 0; batch < MAX_BATCHES; batch++) {
@@ -61,6 +75,47 @@ async function main(): Promise<void> {
 			objectDeleteFailures,
 		}),
 	);
+}
+
+async function main(): Promise<void> {
+	const pool = await getCaseStorePool();
+	let capacityClient: PoolClient;
+	try {
+		capacityClient = await pool.connect();
+	} catch (error) {
+		if (isDatabaseConnectionSaturatedError(error)) {
+			console.log(
+				JSON.stringify({
+					severity: "INFO",
+					message:
+						"[attachments] scheduled maintenance skipped; database connection capacity is saturated before capacity audit",
+				}),
+			);
+			return;
+		}
+		throw error;
+	}
+	try {
+		await runDatabaseCapacityPreflight(
+			capacityClient,
+			readDatabaseCapacityRoleConfig(),
+		);
+	} finally {
+		capacityClient.release();
+	}
+
+	const result = await withExclusiveCaptureCleanupWorker(runMaintenance);
+	if (result.kind !== "ran") {
+		console.log(
+			JSON.stringify({
+				severity: "INFO",
+				message:
+					result.kind === "already-running"
+						? "[attachments] scheduled maintenance skipped; another execution owns the lease"
+						: "[attachments] scheduled maintenance skipped; database connection capacity is saturated",
+			}),
+		);
+	}
 }
 
 async function finish(code: number): Promise<never> {

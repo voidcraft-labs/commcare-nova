@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 
 const cloudBuild = readFileSync("cloudbuild.yaml", "utf8");
+const packageJson = readFileSync("package.json", "utf8");
 const dockerfile = readFileSync("Dockerfile", "utf8");
 const dockerignore = readFileSync(".dockerignore", "utf8");
 const provisioning = readFileSync(
@@ -10,6 +11,12 @@ const provisioning = readFileSync(
 );
 const cloudSqlProvisioning = readFileSync(
 	"scripts/infra/provision-cloud-sql.sh",
+	"utf8",
+);
+const prodDb = readFileSync("scripts/lib/prodDb.ts", "utf8");
+const migrateEntrypoint = readFileSync("scripts/migrate.ts", "utf8");
+const cleanupEntrypoint = readFileSync(
+	"scripts/cleanup-form-attachments.ts",
 	"utf8",
 );
 
@@ -26,6 +33,13 @@ describe("durable deployment policy", () => {
 		);
 		expect(stepOffset("build")).toBeLessThan(stepOffset("push"));
 		expect(stepOffset("push")).toBeLessThan(stepOffset("media-policy"));
+		expect(stepOffset("media-policy")).toBeLessThan(
+			stepOffset("capacity-precap"),
+		);
+		expect(stepOffset("capacity-precap")).toBeLessThan(
+			stepOffset("capacity-audit"),
+		);
+		expect(stepOffset("capacity-audit")).toBeLessThan(stepOffset("migrate"));
 		expect(stepOffset("media-policy")).toBeLessThan(stepOffset("migrate"));
 		expect(stepOffset("push")).toBeLessThan(stepOffset("migrate"));
 		expect(stepOffset("migrate")).toBeLessThan(stepOffset("capture-cleanup"));
@@ -36,6 +50,10 @@ describe("durable deployment policy", () => {
 		expect(cloudBuild).not.toContain("update-traffic");
 		expect(dockerfile).not.toContain("rollout.cjs");
 		expect(dockerignore).toContain("!scripts/infra/databaseOwnerBootstrap.ts");
+		expect(dockerignore).toContain("!scripts/infra/check-database-capacity.ts");
+		expect(dockerignore).toContain(
+			"!scripts/infra/databaseCapacityPreflight.ts",
+		);
 		expect(cloudBuild).toContain("https://commcare.app/");
 		expect(cloudBuild).toContain("https://docs.commcare.app/");
 		expect(cloudBuild).toContain("https://mcp.commcare.app/mcp");
@@ -43,7 +61,7 @@ describe("durable deployment policy", () => {
 
 	test("pins one unique image and the runtime platform limits", () => {
 		expect(cloudBuild).not.toContain("app:$COMMIT_SHA");
-		expect(cloudBuild.match(/app:\$BUILD_ID/g)).toHaveLength(6);
+		expect(cloudBuild.match(/app:\$BUILD_ID/g)).toHaveLength(7);
 		expect(cloudBuild).toContain('--build-arg NOVA_BUILD_ID="$$NOVA_BUILD_ID"');
 		expect(cloudBuild).toContain(
 			'--timeout="$${NOVA_CLOUD_RUN_REQUEST_SECONDS}s"',
@@ -51,7 +69,104 @@ describe("durable deployment policy", () => {
 		expect(cloudBuild).toContain(
 			"--no-default-url --ingress=internal-and-cloud-load-balancing",
 		);
-		expect(cloudBuild).toContain("--min-instances=1 --max-instances=5");
+		expect(cloudBuild).toContain("--min-instances=1 --max=4 --max-instances=4");
+		expect(cloudSqlProvisioning).toContain(
+			"readonly CLOUD_RUN_MAX_INSTANCES=4",
+		);
+		expect(cloudSqlProvisioning).toContain("readonly MAX_CONNECTIONS=25");
+		expect(cloudSqlProvisioning).toContain(
+			'expected_database_flags="cloudsql.iam_authentication=on,max_connections=$' +
+				'{MAX_CONNECTIONS}"',
+		);
+		expect(cloudSqlProvisioning).toContain(
+			'CAPTURE_CLEANUP_SA_EMAIL="nova-capture-cleanup@',
+		);
+		expect(cloudSqlProvisioning).toContain(
+			'assign-roles "$CAPTURE_CLEANUP_SA_DBUSER"',
+		);
+		expect(cloudSqlProvisioning).toContain('--max="$CLOUD_RUN_MAX_INSTANCES"');
+		expect(cloudSqlProvisioning).toContain("NOVA_DB_WORKLOAD=service");
+		expect(cloudSqlProvisioning).toContain(
+			"yaml(metadata.annotations,spec.template.metadata.annotations",
+		);
+	});
+
+	test("ships every bundled Job entrypoint in the clean Docker context", () => {
+		const esbuildEntrypoints = [
+			...dockerfile.matchAll(/npx esbuild (scripts\/[^\s\\]+)/g),
+		].map((match) => match[1]);
+		expect(esbuildEntrypoints).toEqual([
+			"scripts/migrate.ts",
+			"scripts/cleanup-form-attachments.ts",
+			"scripts/infra/apply-media-bucket-policy.ts",
+			"scripts/infra/check-database-capacity.ts",
+		]);
+		for (const entrypoint of esbuildEntrypoints) {
+			expect(dockerignore).toContain(`!${entrypoint}`);
+		}
+	});
+
+	test("caps the old service globally and per revision before migration", () => {
+		const capacityPrecap = cloudBuild.slice(
+			stepOffset("capacity-precap"),
+			stepOffset("capacity-audit"),
+		);
+		expect(capacityPrecap).toContain(
+			"gcloud run services update commcare-nova",
+		);
+		expect(capacityPrecap).toContain("--max=4");
+		expect(capacityPrecap).toContain("--max-instances=4");
+		expect(capacityPrecap).toContain("run.googleapis.com/maxScale");
+		expect(capacityPrecap).toContain("autoscaling.knative.dev/maxScale");
+		expect(capacityPrecap).toContain('if [[ "$${reported_maxima}" != "4,4" ]]');
+	});
+
+	test("audits hard database caps and drains old runtime sessions before migration", () => {
+		const capacityAudit = cloudBuild.slice(
+			stepOffset("capacity-audit"),
+			stepOffset("migrate"),
+		);
+		const migration = cloudBuild.slice(
+			stepOffset("migrate"),
+			stepOffset("capture-cleanup"),
+		);
+		const cleanup = cloudBuild.slice(
+			stepOffset("capture-cleanup"),
+			stepOffset("deploy"),
+		);
+		const roleEnvironment = [
+			"NOVA_RUNTIME_DB_USER=commcare-nova@commcare-nova.iam",
+			"NOVA_MIGRATION_DB_USER=nova-migrate@commcare-nova.iam",
+			"NOVA_CAPTURE_CLEANUP_DB_USER=nova-capture-cleanup@commcare-nova.iam",
+		];
+		expect(dockerfile).toContain("scripts/infra/check-database-capacity.ts");
+		expect(dockerfile).toContain("capacity-preflight.cjs");
+		expect(capacityAudit).toContain("commcare-nova-capacity-preflight");
+		for (const role of roleEnvironment) {
+			expect(capacityAudit).toContain(role);
+			expect(migration).toContain(role);
+			expect(cleanup).toContain(role);
+		}
+		expect(capacityAudit).toContain("--args=capacity-preflight.cjs");
+		expect(capacityAudit).toContain("--max-retries=0");
+		expect(capacityAudit).toContain("--task-timeout=420");
+		expect(migration).toContain("--task-timeout=1020");
+		expect(cleanup).toContain("--task-timeout=1260");
+		expect(capacityAudit).toContain(
+			'gcloud run jobs execute "$${capacity_job}" --region=us-central1 --wait',
+		);
+		expect(migrateEntrypoint).toContain("await runDatabaseCapacityPreflight(");
+		expect(
+			migrateEntrypoint.indexOf("await runDatabaseCapacityPreflight("),
+		).toBeLessThan(migrateEntrypoint.indexOf("await runCaseStoreMigrations("));
+		expect(cleanupEntrypoint).toContain("await runDatabaseCapacityPreflight(");
+		expect(
+			cleanupEntrypoint.indexOf("await runDatabaseCapacityPreflight("),
+		).toBeLessThan(
+			cleanupEntrypoint.indexOf(
+				"const result = await withExclusiveCaptureCleanupWorker(",
+			),
+		);
 	});
 
 	test("keeps build, migration, and runtime authority distinct", () => {
@@ -90,6 +205,9 @@ describe("durable deployment policy", () => {
 		expect(provisioning).toContain("--revoke-existing-roles");
 		expect(cloudSqlProvisioning).toContain('MIGRATION_SA_EMAIL="nova-migrate@');
 		expect(cloudSqlProvisioning).toContain('RUNTIME_SA_EMAIL="commcare-nova@');
+		expect(cloudSqlProvisioning).toContain(
+			'CAPTURE_CLEANUP_SA_EMAIL="nova-capture-cleanup@',
+		);
 		expect(cloudSqlProvisioning).toContain('assign-roles "$RUNTIME_SA_DBUSER"');
 		expect(cloudSqlProvisioning).not.toContain("compute@developer");
 	});
@@ -113,6 +231,14 @@ describe("durable deployment policy", () => {
 			'gcloud run jobs execute "$${cleanup_job}" --region=us-central1 --wait',
 		);
 		expect(cloudBuild).toContain('--schedule="*/5 * * * *"');
+		expect(cloudBuild).toContain("NOVA_DB_WORKLOAD=capture-cleanup");
+		expect(cloudBuild).toContain("NOVA_DB_WORKLOAD=migration");
+		expect(cloudBuild).toContain("NOVA_DB_WORKLOAD=service");
+		expect(prodDb).toContain('process.env.NOVA_DB_WORKLOAD = "operator"');
+		expect(packageJson).toContain(
+			'"db:migrate": "NOVA_DB_WORKLOAD=migration tsx scripts/migrate.ts"',
+		);
+		expect(cloudBuild.match(/--tasks=1 --parallelism=1/g)).toHaveLength(3);
 		expect(cloudBuild).toContain(
 			'--oauth-service-account-email="$${scheduler_account}"',
 		);

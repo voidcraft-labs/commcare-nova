@@ -842,6 +842,48 @@ describe("SignaturePad", () => {
 		expect(screen.getByRole("button", { name: "Undo" })).toBeDefined();
 	});
 
+	it("does not encode blank ink when Clear interrupts an active pointer stroke", async () => {
+		const onDrawn = vi.fn();
+		const onClear = vi.fn();
+		render(
+			<SignaturePad
+				entryKey="entry-clear-mid-stroke"
+				instancePath="/data/signature"
+				uploading={false}
+				hasAnswer={true}
+				onDrawn={onDrawn}
+				onClear={onClear}
+			/>,
+		);
+		const canvas = screen.getByLabelText(/Signature pad/) as HTMLCanvasElement;
+		Object.assign(canvas, {
+			setPointerCapture: vi.fn(),
+			releasePointerCapture: vi.fn(),
+		});
+		fireEvent.pointerDown(canvas, {
+			pointerId: 7,
+			clientX: 10,
+			clientY: 10,
+		});
+
+		// Keyboard activation (or another pointer) can reach Clear while the
+		// canvas still owns pointer capture. Its later terminal event must be
+		// inert rather than queueing an encoding of the now-blank canvas.
+		fireEvent.click(screen.getByRole("button", { name: "Clear signature" }));
+		fireEvent.pointerUp(canvas, {
+			pointerId: 7,
+			clientX: 10,
+			clientY: 10,
+		});
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(800);
+		});
+
+		expect(onClear).toHaveBeenCalledTimes(1);
+		expect(blobCallbacks).toHaveLength(0);
+		expect(onDrawn).not.toHaveBeenCalled();
+	});
+
 	it("keeps Clear undoable across an ordinary unmount and remount", async () => {
 		const onDrawn = vi.fn();
 		const props = {

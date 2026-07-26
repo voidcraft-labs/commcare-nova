@@ -127,21 +127,23 @@ are answered and submitted in one sitting, avoids most of this.
 
 Temporary layout changes do not throw the file away. If saving a newly picked
 file fails, its message and **Choose file** recovery action remain with that
-question through an ordinary remount. If a condition hides the question and
-later shows it again, or an author flips to Edit and back while that same form
-entry remains open, Nova restores the confirmed filename and answer. The same
-is true when deleting an earlier repeat row moves a surviving answer up one
-position: Nova moves the attachment with that repeat entry even if the question
-is hidden at the time. Leaving or clearing the form ends that entry.
+question through an ordinary remount. An attachment still in progress also
+restores its picked filename and **Cancel** action. If a condition hides the
+question and later shows it again, or an author flips to Edit and back while
+that same form entry remains open, Nova restores the confirmed filename and
+answer. The same is true when deleting an earlier repeat row moves a surviving
+answer up one position: Nova moves the attachment with that repeat entry even
+if the question is hidden at the time. Leaving or clearing the form ends that
+entry.
 
 If that repeat move cannot be saved — for example, while the browser is
 offline — Nova keeps the attachment and its answer in place and blocks Submit
 only while the question is active. The question shows **Retry**,
-**Attach a replacement**, and **Remove** for picked files. Signature keeps
+**Replace file**, and **Remove attachment** for picked files. Signature keeps
 **Retry** beside its single **Clear signature** action. The same message is
 still there after an ordinary remount. Retry moves the retained file; a
-confirmed replacement takes over cleanly; **Remove** or **Clear signature**
-clears the answer.
+confirmed replacement takes over cleanly; **Remove attachment** or **Clear
+signature** clears the answer.
 
 ## Clearing a required attachment
 

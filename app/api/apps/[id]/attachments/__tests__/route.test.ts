@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
 	compensatePending: vi.fn(),
 	purgeExpired: vi.fn(),
 	createSignedUploadUrl: vi.fn(),
+	captureExtensionFor: vi.fn(),
 	deleteAsset: vi.fn(),
 	deleteAssetGeneration: vi.fn(),
 	error: vi.fn(),
@@ -38,7 +39,7 @@ vi.mock("@/lib/domain/captureFormats", () => ({
 	CAPTURE_EXTENSIONS_BY_KIND: { image: [".jpg"] },
 	MAX_CAPTURE_BYTES: 4_000_000,
 	captureContentType: vi.fn(() => "image/jpeg"),
-	captureExtensionFor: vi.fn(() => ".jpg"),
+	captureExtensionFor: mocks.captureExtensionFor,
 	captureInstancePathMatchesTemplate: vi.fn(() => true),
 	committedCapturePath: vi.fn(() => ({
 		instancePathTemplate: "/data/photo",
@@ -101,8 +102,21 @@ describe("POST /api/apps/[id]/attachments initiation compensation", () => {
 			objectKey: `captures-staged/project-1/${ATTACHMENT_ID}.jpg`,
 		});
 		mocks.createSignedUploadUrl.mockRejectedValue(signingError);
+		mocks.captureExtensionFor.mockReturnValue(".jpg");
 		mocks.compensatePending.mockResolvedValue(true);
 		mocks.purgeExpired.mockResolvedValue([]);
+	});
+
+	it("uses the correct article for an image-format rejection", async () => {
+		mocks.captureExtensionFor.mockReturnValue(undefined);
+
+		const response = await POST(request(), params);
+
+		expect(response.status).toBe(400);
+		expect(await response.json()).toEqual({
+			error: "An image question accepts .jpg. Attach one of those instead.",
+		});
+		expect(mocks.createPending).not.toHaveBeenCalled();
 	});
 
 	it("removes the exact pending row when URL signing fails", async () => {

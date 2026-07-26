@@ -519,6 +519,7 @@ export function SignaturePad({
 		setClearPending(true);
 		// Cancel any settle/encoding in flight so it cannot re-upload the
 		// strokes the worker just cleared.
+		drawingRef.current = false;
 		cancelAttachmentTask(entryKey, coordinationKey);
 		clearAttachmentNotReady(entryKey, coordinationKey);
 		renderGenerationRef.current += 1;
@@ -610,7 +611,7 @@ export function SignaturePad({
 				data-instance-path={instancePath}
 				className="h-40 w-full touch-none rounded-lg border border-pv-input-border bg-white"
 				onPointerDown={(e) => {
-					if (interactionBlocked) return;
+					if (interactionBlocked || clearPendingRef.current) return;
 					// No disabled check: the surface stays live even while an
 					// upload is in flight, so a worker can keep signing.
 					cancelAttachmentTask(entryKey, coordinationKey);
@@ -641,7 +642,7 @@ export function SignaturePad({
 					redraw();
 				}}
 				onPointerMove={(e) => {
-					if (!drawingRef.current) return;
+					if (!drawingRef.current || clearPendingRef.current) return;
 					const strokes = strokesRef.current;
 					const current = strokes[strokes.length - 1];
 					if (!current) return;
@@ -650,7 +651,7 @@ export function SignaturePad({
 					redraw();
 				}}
 				onPointerUp={(e) => {
-					if (!drawingRef.current) return;
+					if (!drawingRef.current || clearPendingRef.current) return;
 					drawingRef.current = false;
 					e.currentTarget.releasePointerCapture(e.pointerId);
 					// The debounce itself is inside the form queue, so Submit
@@ -658,12 +659,12 @@ export function SignaturePad({
 					scheduleEmit();
 				}}
 				onPointerCancel={() => {
-					if (!drawingRef.current) return;
+					if (!drawingRef.current || clearPendingRef.current) return;
 					drawingRef.current = false;
 					scheduleEmit();
 				}}
 				onLostPointerCapture={() => {
-					if (!drawingRef.current) return;
+					if (!drawingRef.current || clearPendingRef.current) return;
 					drawingRef.current = false;
 					scheduleEmit();
 				}}

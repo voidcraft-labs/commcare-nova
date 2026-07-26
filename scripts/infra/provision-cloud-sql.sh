@@ -10,7 +10,7 @@
 #     backup, and PITR with 4-day WAL retention (Phase 2)
 #   - The application database (Phase 3)
 #   - Project IAM bindings + Cloud SQL database users for the dedicated
-#     migration/runtime SAs and the developer principal (Phase 4)
+#     migration/runtime/capture-cleanup SAs and the developer principal (Phase 4)
 #   - Cloud Run wiring (Direct VPC Egress + the env vars `connection.ts`
 #     reads) (Phase 6)
 #
@@ -53,15 +53,17 @@ readonly MAX_CONNECTIONS=25
 # Dedicated IAM identities (full form, used for project IAM bindings).
 readonly MIGRATION_SA_EMAIL="nova-migrate@${PROJECT_ID}.iam.gserviceaccount.com"
 readonly RUNTIME_SA_EMAIL="commcare-nova@${PROJECT_ID}.iam.gserviceaccount.com"
+readonly CAPTURE_CLEANUP_SA_EMAIL="nova-capture-cleanup@${PROJECT_ID}.iam.gserviceaccount.com"
 # Cloud SQL database usernames (truncated form — the .gserviceaccount.com
 # suffix is appended internally by Cloud SQL during IAM token exchange and
 # rejected by `gcloud sql users create`).
 readonly MIGRATION_SA_DBUSER="nova-migrate@${PROJECT_ID}.iam"
 readonly RUNTIME_SA_DBUSER="commcare-nova@${PROJECT_ID}.iam"
+readonly CAPTURE_CLEANUP_SA_DBUSER="nova-capture-cleanup@${PROJECT_ID}.iam"
 readonly DEVELOPER_USER="bperry@dimagi.com"
 
 readonly CLOUD_RUN_SERVICE="commcare-nova"
-readonly CLOUD_RUN_MAX_INSTANCES=5
+readonly CLOUD_RUN_MAX_INSTANCES=4
 
 # Set DRY_RUN=1 to print commands instead of executing them.
 DRY_RUN=0
@@ -145,6 +147,7 @@ fi
 # ---------------------------------------------------------------------------
 echo "=== Phase 2: Create Cloud SQL instance ==="
 if gcloud sql instances describe "$INSTANCE_ID" --format='value(name)' >/dev/null 2>&1; then
+	instance_existed=1
 	echo "Instance '$INSTANCE_ID' already exists; skipping P2-1."
 	# P2-2: converge the public-IP setting on the existing instance.
 	ipv4_enabled="$(gcloud sql instances describe "$INSTANCE_ID" \
@@ -155,6 +158,7 @@ if gcloud sql instances describe "$INSTANCE_ID" --format='value(name)' >/dev/nul
 		run gcloud sql instances patch "$INSTANCE_ID" --assign-ip --quiet
 	fi
 else
+	instance_existed=0
 	run gcloud beta sql instances create "$INSTANCE_ID" \
 		--project="$PROJECT_ID" \
 		--edition="$EDITION" \
@@ -177,6 +181,43 @@ else
 		--quiet
 fi
 
+# P2-3: converge the capacity/IAM-auth flags even on an existing instance.
+# `--database-flags` is a replacement set, so every durable flag belongs in
+# this exact contract. The database preflight independently audits the
+# effective PostgreSQL settings before migration and maintenance Jobs.
+expected_database_flags="cloudsql.iam_authentication=on,max_connections=${MAX_CONNECTIONS}"
+read_database_flags() {
+	gcloud sql instances describe "$INSTANCE_ID" \
+		--format='json(settings.databaseFlags)' \
+	| python3 -c '
+import json
+import sys
+
+document = json.load(sys.stdin)
+flags = document.get("settings", {}).get("databaseFlags", [])
+print(",".join(sorted("{}={}".format(flag["name"], flag["value"]) for flag in flags)))
+'
+}
+if [[ "$DRY_RUN" -eq 1 && "$instance_existed" -eq 0 ]]; then
+	echo "New instance is plan-only; its create command carries the exact flags, so P2-3 verification will run after apply."
+else
+	actual_database_flags="$(read_database_flags)"
+	if [[ "$actual_database_flags" == "$expected_database_flags" ]]; then
+		echo "Cloud SQL database flags already match the capacity contract."
+	else
+		run gcloud sql instances patch "$INSTANCE_ID" \
+			--database-flags="$expected_database_flags" \
+			--quiet
+		if [[ "$DRY_RUN" -eq 0 ]]; then
+			actual_database_flags="$(read_database_flags)"
+			if [[ "$actual_database_flags" != "$expected_database_flags" ]]; then
+				echo "ERROR: Cloud SQL flags are '$actual_database_flags', expected '$expected_database_flags'." >&2
+				exit 1
+			fi
+		fi
+	fi
+fi
+
 # ---------------------------------------------------------------------------
 # Phase 3 — Create the application database.
 # ---------------------------------------------------------------------------
@@ -197,7 +238,7 @@ fi
 # ---------------------------------------------------------------------------
 echo "=== Phase 4: IAM bindings + database users ==="
 
-# Ensure both durable database identities exist. The broader build/deploy
+# Ensure all three durable database identities exist. The broader build/deploy
 # grants remain owned by `provision-deployment-identities.sh`; creating the
 # accounts here makes a first-ever Cloud SQL provision self-contained.
 if ! gcloud iam service-accounts describe "$MIGRATION_SA_EMAIL" \
@@ -212,10 +253,19 @@ if ! gcloud iam service-accounts describe "$RUNTIME_SA_EMAIL" \
 		--project="$PROJECT_ID" \
 		--display-name="Nova runtime"
 fi
+if ! gcloud iam service-accounts describe "$CAPTURE_CLEANUP_SA_EMAIL" \
+	--project="$PROJECT_ID" >/dev/null 2>&1; then
+	run gcloud iam service-accounts create nova-capture-cleanup \
+		--project="$PROJECT_ID" \
+		--display-name="Nova capture cleanup worker"
+fi
 
 # Project-level IAM grants. add-iam-policy-binding is idempotent
 # (re-applying an existing binding is a no-op + a verbose policy print).
-for account in "$MIGRATION_SA_EMAIL" "$RUNTIME_SA_EMAIL"; do
+for account in \
+	"$MIGRATION_SA_EMAIL" \
+	"$RUNTIME_SA_EMAIL" \
+	"$CAPTURE_CLEANUP_SA_EMAIL"; do
 	for role in roles/cloudsql.client roles/cloudsql.instanceUser; do
 		run gcloud projects add-iam-policy-binding "$PROJECT_ID" \
 			--member="serviceAccount:${account}" \
@@ -230,9 +280,13 @@ for role in roles/cloudsql.client roles/cloudsql.instanceUser; do
 		--condition=None
 done
 
-# Dedicated runtime and migration database users. Runtime is created first
-# because migration's sole custom database-role membership is runtime.
-for database_user in "$RUNTIME_SA_DBUSER" "$MIGRATION_SA_DBUSER"; do
+# Dedicated runtime, migration, and cleanup database users. Runtime is created
+# first because the other two users' sole custom database-role membership is
+# runtime.
+for database_user in \
+	"$RUNTIME_SA_DBUSER" \
+	"$MIGRATION_SA_DBUSER" \
+	"$CAPTURE_CLEANUP_SA_DBUSER"; do
 	if gcloud sql users list --instance="$INSTANCE_ID" \
 		--format='value(name)' 2>/dev/null \
 		| grep -qx "$database_user"; then
@@ -251,6 +305,11 @@ run gcloud sql users assign-roles "$RUNTIME_SA_DBUSER" \
 	--type=CLOUD_IAM_SERVICE_ACCOUNT \
 	--revoke-existing-roles
 run gcloud sql users assign-roles "$MIGRATION_SA_DBUSER" \
+	--instance="$INSTANCE_ID" \
+	--type=CLOUD_IAM_SERVICE_ACCOUNT \
+	--database-roles="$RUNTIME_SA_DBUSER" \
+	--revoke-existing-roles
+run gcloud sql users assign-roles "$CAPTURE_CLEANUP_SA_DBUSER" \
 	--instance="$INSTANCE_ID" \
 	--type=CLOUD_IAM_SERVICE_ACCOUNT \
 	--database-roles="$RUNTIME_SA_DBUSER" \
@@ -283,9 +342,14 @@ run gcloud sql users assign-roles "$DEVELOPER_USER" \
 # cloudsqlsuperuser role, which only a built-in administrator has. This work
 # runs through Cloud SQL Studio in the Google Cloud Console:
 #
-#   1. Create the temporary built-in administrator exactly as shown in the
-#      S02c runbook; never rotate or expose the permanent `postgres` password.
-#   2. Sign into Studio as that temporary user; run against `nova_cases`:
+#   1. Create a strong-password temporary BUILT_IN administrator with NO inline
+#      `--database-roles`; assigning roles at creation suppresses its automatic
+#      cloudsqlsuperuser membership.
+#   2. After creation, assign runtime, migration, cleanup, and the retired role
+#      when present WITHOUT `--revoke-existing-roles`, preserving
+#      cloudsqlsuperuser. Migration and cleanup each keep runtime as their sole
+#      custom role; runtime keeps none.
+#   3. Sign into Studio as that temporary user; run against `nova_cases`:
 #
 #        CREATE EXTENSION IF NOT EXISTS pg_trgm;
 #        CREATE EXTENSION IF NOT EXISTS fuzzystrmatch;
@@ -293,13 +357,16 @@ run gcloud sql users assign-roles "$DEVELOPER_USER" \
 #
 #        GRANT USAGE ON SCHEMA public TO "bperry@dimagi.com";
 #
-#   3. Run `bootstrap-database-owner.ts` exactly as documented in the S02c
-#      runbook. On a fresh instance it makes `nova-migrate` the database owner;
-#      `pg_database_owner` then gives migration CREATE on `public` without
-#      granting fixed-schema DDL to runtime.
-#   4. Delete the temporary built-in administrator and verify it is absent.
-#   5. Verify each extension is reachable under IAM auth as the developer
+#   4. Run `bootstrap-database-owner.ts` without `--apply`, then with `--apply`.
+#      It transactionally sets runtime/migration/cleanup CONNECTION LIMIT
+#      16/1/3, makes `nova-migrate` the database owner, transfers temporary and
+#      legacy ownership, and audits every result.
+#   5. Delete the temporary built-in administrator through Cloud SQL and verify
+#      it is absent.
+#   6. Verify each extension is reachable under IAM auth as the developer
 #      user (a smoke query against `pg_extension`).
+#   7. Converge Cloud Run global/revision maxima to four and run the capacity
+#      preflight; it must observe <=16 runtime sessions before database Jobs.
 #
 # The split exists because PostGIS specifically requires `cloudsqlsuperuser`
 # per Cloud SQL's documented extension allowlist. Every subsequent schema
@@ -319,7 +386,12 @@ echo "=== Phase 5: SKIPPED (manual — runs interactively in Cloud SQL Studio) =
 #
 # `connection.ts` uses @google-cloud/cloud-sql-connector, which resolves the
 # private IP from NOVA_DB_INSTANCE_CONNECTION_NAME via the SQL Admin API at
-# connection time. No NOVA_DB_HOST env var is needed.
+# connection time. No NOVA_DB_HOST env var is needed. Both the service-level
+# `--max` (which spans revisions) and revision-level `--max-instances` stay at
+# four as soft outer controls. PostgreSQL's runtime login cap of 16 is the hard
+# boundary for the current `4 * (pool 3 + listener 1)` demand; migration=1 and
+# cleanup=3 are separate non-inherited login-role caps. NOVA_DB_WORKLOAD=service
+# selects pool 3 and fails closed if a non-local deployment omits its workload.
 # ---------------------------------------------------------------------------
 echo "=== Phase 6: Wire Cloud Run to Cloud SQL ==="
 run gcloud run services update "$CLOUD_RUN_SERVICE" \
@@ -327,8 +399,9 @@ run gcloud run services update "$CLOUD_RUN_SERVICE" \
 	--network="$NETWORK" \
 	--subnet="$NETWORK" \
 	--vpc-egress=private-ranges-only \
+	--max="$CLOUD_RUN_MAX_INSTANCES" \
 	--max-instances="$CLOUD_RUN_MAX_INSTANCES" \
-	--update-env-vars="NOVA_DB_NAME=${DATABASE_NAME},NOVA_DB_USER=${RUNTIME_SA_DBUSER},NOVA_DB_INSTANCE_CONNECTION_NAME=${PROJECT_ID}:${REGION}:${INSTANCE_ID}"
+	--update-env-vars="NOVA_DB_WORKLOAD=service,NOVA_DB_NAME=${DATABASE_NAME},NOVA_DB_USER=${RUNTIME_SA_DBUSER},NOVA_DB_INSTANCE_CONNECTION_NAME=${PROJECT_ID}:${REGION}:${INSTANCE_ID}"
 
 # ---------------------------------------------------------------------------
 # Phase 7 — Final verification.
@@ -340,6 +413,6 @@ run gcloud sql instances describe "$INSTANCE_ID" \
 
 echo "--- Cloud Run service ---"
 run gcloud run services describe "$CLOUD_RUN_SERVICE" --region="$REGION" \
-	--format='yaml(spec.template.metadata.annotations,spec.template.spec.containers[0].env)'
+	--format='yaml(metadata.annotations,spec.template.metadata.annotations,spec.template.spec.containers[0].env)'
 
 echo "=== Provisioning complete ==="
