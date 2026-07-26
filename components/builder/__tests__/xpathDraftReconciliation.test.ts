@@ -172,6 +172,88 @@ describe("reconcileXPathDraft", () => {
 		});
 	});
 
+	it("makes a catalog-only rename sticky before a later raw-text edit can masquerade as identity", () => {
+		const base = "#user/region";
+		const draft = "not(#user/region)";
+		const catalogOnly = reconcileXPathDraft({
+			base,
+			draft,
+			incoming: base,
+			baseUserProperties: BASE_WORKER_INFORMATION,
+			incomingUserProperties: RENAMED_WORKER_INFORMATION,
+		});
+		expect(catalogOnly).toEqual({
+			base,
+			draft,
+			conflict: true,
+		});
+
+		expect(
+			reconcileXPathDraft({
+				base: catalogOnly.base,
+				draft: catalogOnly.draft,
+				incoming: "#user/district",
+				baseUserProperties: RENAMED_WORKER_INFORMATION,
+				incomingUserProperties: RENAMED_WORKER_INFORMATION,
+				conflict: catalogOnly.conflict,
+			}),
+		).toEqual({
+			base: "#user/district",
+			draft,
+			conflict: true,
+		});
+	});
+
+	it("does not demote a draft-only identity when another property renames in the same catalog snapshot", () => {
+		const base = "#user/region";
+		const draft = "#user/region and #user/zone";
+		const incoming = "#user/district";
+
+		expect(
+			reconcileXPathDraft({
+				base,
+				draft,
+				incoming,
+				baseUserProperties: [
+					...BASE_WORKER_INFORMATION,
+					{ uuid: "worker-property-zone", slug: "zone" },
+				],
+				incomingUserProperties: [
+					...RENAMED_WORKER_INFORMATION,
+					{ uuid: "worker-property-zone", slug: "area" },
+				],
+			}),
+		).toEqual({
+			base: incoming,
+			draft,
+			conflict: true,
+		});
+	});
+
+	it("fails closed when deleting one of two same-spelled raw and identity tokens makes correspondence ambiguous", () => {
+		const base = "#user/region or #user/region";
+		const draft = "#user/region";
+		const incoming = "#user/district or #user/region";
+
+		expect(reconcileRename({ base, draft, incoming })).toEqual({
+			base: incoming,
+			draft,
+			conflict: true,
+		});
+	});
+
+	it("fails closed when parser recovery leaves a token extension outside the hashtag node", () => {
+		const base = "#user/region";
+		const draft = "#user/region/";
+		const incoming = "#user/district";
+
+		expect(reconcileRename({ base, draft, incoming })).toEqual({
+			base: incoming,
+			draft,
+			conflict: true,
+		});
+	});
+
 	it("rebases distinct surrounding local edits around the untouched identity token", () => {
 		const base = "true() and #user/region";
 		const draft = "#user/region and false()";

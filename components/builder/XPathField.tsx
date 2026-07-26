@@ -34,6 +34,7 @@ import {
 	novaXPathTheme,
 } from "@/lib/codemirror/xpath-theme";
 import { validateXPath } from "@/lib/commcare/validator/xpathValidator";
+import { useUserProperties } from "@/lib/doc/hooks/useUserCollections";
 import type { CommitOutcome } from "@/lib/domain";
 import { ReferenceProvider } from "@/lib/references/provider";
 import {
@@ -289,9 +290,9 @@ interface InlineXPathEditorProps {
 }
 
 function userPropertyProjection(
-	context: XPathLintContext | undefined,
+	properties: readonly XPathUserPropertyProjection[],
 ): XPathUserPropertyProjection[] {
-	return [...(context?.userProperties ?? [])]
+	return [...properties]
 		.map(({ uuid, slug }) => ({ uuid, slug }))
 		.sort(
 			(left, right) =>
@@ -329,13 +330,15 @@ function InlineXPathEditor({
 	clickPosition,
 }: InlineXPathEditorProps) {
 	const projectedValue = prettyPrintXPath(value);
+	const userProperties = useUserProperties();
+	const currentUserProperties = useMemo(
+		() => userPropertyProjection(userProperties),
+		[userProperties],
+	);
 	const editorRef = useRef<ReactCodeMirrorRef>(null);
 	const wrapperRef = useRef<HTMLDivElement>(null);
 	const baseProjectionRef = useRef(projectedValue);
-	const [initialUserProperties] = useState(() =>
-		userPropertyProjection(getLintContext?.()),
-	);
-	const baseUserPropertiesRef = useRef(initialUserProperties);
+	const baseUserPropertiesRef = useRef(currentUserProperties);
 	const draftRef = useRef(projectedValue);
 	const projectionConflictRef = useRef(false);
 	const [draft, setDraft] = useState(projectedValue);
@@ -359,25 +362,23 @@ function InlineXPathEditor({
 	 * edits so the controlled CodeMirror value never erases local work.
 	 */
 	useEffect(() => {
-		if (projectedValue === baseProjectionRef.current) return;
-		const incomingUserProperties = userPropertyProjection(getLintContext?.());
 		const reconciled = reconcileXPathDraft({
 			base: baseProjectionRef.current,
 			draft: draftRef.current,
 			incoming: projectedValue,
 			baseUserProperties: baseUserPropertiesRef.current,
-			incomingUserProperties,
+			incomingUserProperties: currentUserProperties,
 			conflict: projectionConflictRef.current,
 		});
 		baseProjectionRef.current = reconciled.base;
-		baseUserPropertiesRef.current = incomingUserProperties;
+		baseUserPropertiesRef.current = currentUserProperties;
 		draftRef.current = reconciled.draft;
 		projectionConflictRef.current = reconciled.conflict;
 		setDraft(reconciled.draft);
 		if (reconciled.conflict) {
 			setTooltipMessage(XPATH_PROJECTION_CONFLICT_MESSAGE);
 		}
-	}, [projectedValue, getLintContext]);
+	}, [projectedValue, currentUserProperties]);
 
 	/* Auto-dismiss tooltip after 4 seconds. */
 	useEffect(() => {

@@ -13,29 +13,28 @@ const HASHTAG_REF = (() => {
 })();
 
 /**
- * Return only grammar-owned hashtag spans. Lezer error recovery may still
- * construct a `HashtagRef`; a nested error makes that span ineligible.
+ * Return grammar-owned hashtag spans only when the whole expression parsed
+ * without recovery. Lezer can construct a complete-looking `HashtagRef` below
+ * a recovered parent (for example the `#user/region` prefix of
+ * `#user/region/`); no span from such a tree is safe for source rewriting.
  */
-export function cleanXPathHashtagSpans(value: string): XPathHashtagSpan[] {
+export function cleanXPathHashtagSpans(
+	value: string,
+): XPathHashtagSpan[] | null {
 	const spans: XPathHashtagSpan[] = [];
+	let recovered = false;
 	parser.parse(value).iterate({
 		enter(node) {
-			if (node.type !== HASHTAG_REF) return;
-			let clean = true;
-			node.node.toTree().iterate({
-				enter(inner) {
-					if (inner.type.isError) clean = false;
-				},
-			});
-			if (clean) {
+			if (node.type.isError) {
+				recovered = true;
+			} else if (node.type === HASHTAG_REF) {
 				spans.push({
 					text: value.slice(node.from, node.to),
 					start: node.from,
 					end: node.to,
 				});
 			}
-			return false;
 		},
 	});
-	return spans;
+	return recovered ? null : spans;
 }

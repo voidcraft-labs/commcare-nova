@@ -55,6 +55,79 @@ function uniquePropertiesByUuid(
 	return byUuid;
 }
 
+function sameCatalogProjection(
+	before: readonly XPathUserPropertyProjection[],
+	after: readonly XPathUserPropertyProjection[],
+): boolean {
+	const beforeByUuid = uniquePropertiesByUuid(before);
+	const afterByUuid = uniquePropertiesByUuid(after);
+	if (!beforeByUuid || !afterByUuid || beforeByUuid.size !== afterByUuid.size) {
+		return false;
+	}
+	for (const [uuid, property] of beforeByUuid) {
+		if (afterByUuid.get(uuid)?.slug !== property.slug) return false;
+	}
+	return true;
+}
+
+function singleCatalogRename(
+	before: readonly XPathUserPropertyProjection[],
+	after: readonly XPathUserPropertyProjection[],
+): IdentityRename | null {
+	const beforeByUuid = uniquePropertiesByUuid(before);
+	const afterByUuid = uniquePropertiesByUuid(after);
+	if (!beforeByUuid || !afterByUuid || beforeByUuid.size !== afterByUuid.size) {
+		return null;
+	}
+
+	let rename: IdentityRename | null = null;
+	for (const [uuid, oldProperty] of beforeByUuid) {
+		const newProperty = afterByUuid.get(uuid);
+		if (!newProperty) return null;
+		if (oldProperty.slug === newProperty.slug) continue;
+		if (rename !== null) return null;
+		if (
+			uniqueIdentityForSlug(before, oldProperty.slug) !== uuid ||
+			uniqueIdentityForSlug(after, newProperty.slug) !== uuid
+		) {
+			return null;
+		}
+		rename = {
+			oldToken: `#user/${oldProperty.slug}`,
+			newToken: `#user/${newProperty.slug}`,
+		};
+	}
+	return rename;
+}
+
+function userSlug(token: string): string | undefined {
+	const prefix = "#user/";
+	return token.startsWith(prefix) ? token.slice(prefix.length) : undefined;
+}
+
+function catalogChangeTouchesSpans(
+	spans: readonly {
+		readonly text: string;
+		readonly start: number;
+		readonly end: number;
+	}[],
+	before: readonly XPathUserPropertyProjection[],
+	after: readonly XPathUserPropertyProjection[],
+	skip?: { readonly start: number; readonly end: number },
+): boolean {
+	for (const span of spans) {
+		if (span.start === skip?.start && span.end === skip.end) continue;
+		const slug = userSlug(span.text);
+		if (slug === undefined) continue;
+		if (
+			uniqueIdentityForSlug(before, slug) !== uniqueIdentityForSlug(after, slug)
+		) {
+			return true;
+		}
+	}
+	return false;
+}
+
 /**
  * Prove that `incoming` is `base` with exactly one complete UUID-backed
  * custom-worker token renamed and no other byte changed.
@@ -70,34 +143,36 @@ function exactPeerIdentityRename({
 	readonly baseUserProperties: readonly XPathUserPropertyProjection[];
 	readonly incomingUserProperties: readonly XPathUserPropertyProjection[];
 }): IdentityRename | null {
-	const beforeByUuid = uniquePropertiesByUuid(baseUserProperties);
-	const afterByUuid = uniquePropertiesByUuid(incomingUserProperties);
-	if (!beforeByUuid || !afterByUuid) return null;
+	const rename = singleCatalogRename(
+		baseUserProperties,
+		incomingUserProperties,
+	);
+	if (!rename) return null;
 
 	const baseHashtags = cleanXPathHashtagSpans(base);
-	const candidates: IdentityRename[] = [];
-	for (const [uuid, before] of beforeByUuid) {
-		const after = afterByUuid.get(uuid);
-		if (!after || before.slug === after.slug) continue;
-		if (
-			uniqueIdentityForSlug(baseUserProperties, before.slug) !== uuid ||
-			uniqueIdentityForSlug(incomingUserProperties, after.slug) !== uuid
-		) {
-			continue;
-		}
-
-		const oldToken = `#user/${before.slug}`;
-		const newToken = `#user/${after.slug}`;
-		for (const span of baseHashtags) {
-			if (span.text !== oldToken) continue;
-			const projected =
-				base.slice(0, span.start) + newToken + base.slice(span.end);
-			if (projected !== incoming) continue;
-			candidates.push({ oldToken, newToken });
-			if (candidates.length > 1) return null;
-		}
+	if (baseHashtags === null) return null;
+	const oldSpans = baseHashtags.filter((span) => span.text === rename.oldToken);
+	if (oldSpans.length !== 1) return null;
+	const [renamedSpan] = oldSpans;
+	if (
+		base.slice(0, renamedSpan.start) +
+			rename.newToken +
+			base.slice(renamedSpan.end) !==
+		incoming
+	) {
+		return null;
 	}
-	return candidates[0] ?? null;
+	if (
+		catalogChangeTouchesSpans(
+			baseHashtags,
+			baseUserProperties,
+			incomingUserProperties,
+			renamedSpan,
+		)
+	) {
+		return null;
+	}
+	return rename;
 }
 
 export function reconcileXPathDraft({
@@ -121,7 +196,26 @@ export function reconcileXPathDraft({
 	// the draft and the refusal until the editor's explicit cancel/reload path
 	// unmounts this controller.
 	if (conflict) return { base: incoming, draft, conflict: true };
-	if (incoming === base) return { base, draft, conflict: false };
+	if (incoming === base) {
+		if (
+			sameCatalogProjection(baseUserProperties, incomingUserProperties) ||
+			draft === base
+		) {
+			return { base, draft, conflict: false };
+		}
+		const draftHashtags = cleanXPathHashtagSpans(draft);
+		return {
+			base,
+			draft,
+			conflict:
+				draftHashtags === null ||
+				catalogChangeTouchesSpans(
+					draftHashtags,
+					baseUserProperties,
+					incomingUserProperties,
+				),
+		};
+	}
 	if (draft === base || draft === incoming) {
 		return { base: incoming, draft: incoming, conflict: false };
 	}
@@ -134,13 +228,25 @@ export function reconcileXPathDraft({
 	});
 	if (!rename) return { base: incoming, draft, conflict: true };
 
-	const mapped = cleanXPathHashtagSpans(draft).filter(
-		(span) => span.text === rename.oldToken,
-	);
+	const draftHashtags = cleanXPathHashtagSpans(draft);
+	if (draftHashtags === null) {
+		return { base: incoming, draft, conflict: true };
+	}
+	const mapped = draftHashtags.filter((span) => span.text === rename.oldToken);
 	if (mapped.length !== 1) {
 		return { base: incoming, draft, conflict: true };
 	}
 	const [span] = mapped;
+	if (
+		catalogChangeTouchesSpans(
+			draftHashtags,
+			baseUserProperties,
+			incomingUserProperties,
+			span,
+		)
+	) {
+		return { base: incoming, draft, conflict: true };
+	}
 	return {
 		base: incoming,
 		draft: draft.slice(0, span.start) + rename.newToken + draft.slice(span.end),

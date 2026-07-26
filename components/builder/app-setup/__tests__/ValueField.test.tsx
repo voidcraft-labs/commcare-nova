@@ -2,6 +2,7 @@
 
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { settleBaseUiTransitions } from "@/__tests__/helpers/baseUiInteractions";
 import { asUuid, type UserProperty } from "@/lib/domain";
 import { ValueField } from "../ValueField";
 
@@ -17,7 +18,7 @@ function pressSelectOption(option: HTMLElement): void {
 }
 
 describe("ValueField override semantics", () => {
-	it("round-trips inherited, explicit blank, and a choice equal to the old sentinel", () => {
+	it("round-trips inherited, explicit blank, and a choice equal to the old sentinel", async () => {
 		const onChange = vi.fn();
 		const property: UserProperty = {
 			...PROPERTY,
@@ -34,6 +35,7 @@ describe("ValueField override semantics", () => {
 		);
 
 		fireEvent.click(screen.getByRole("combobox", { name: "Region" }));
+		await settleBaseUiTransitions();
 		expect(
 			screen.getByRole("option", { name: "Use role value: south" }),
 		).toBeDefined();
@@ -43,6 +45,7 @@ describe("ValueField override semantics", () => {
 		});
 		expect(screen.getAllByRole("option")).toHaveLength(4);
 		pressSelectOption(oldSentinelChoice);
+		await settleBaseUiTransitions();
 		expect(onChange).toHaveBeenLastCalledWith("__nova_no_value");
 
 		view.rerender(
@@ -54,6 +57,7 @@ describe("ValueField override semantics", () => {
 				onChange={onChange}
 			/>,
 		);
+		await settleBaseUiTransitions();
 		expect(
 			screen.getByRole("combobox", { name: "Region" }).textContent,
 		).toContain("Blank");
