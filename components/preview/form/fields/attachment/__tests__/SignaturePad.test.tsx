@@ -35,9 +35,10 @@ beforeEach(() => {
 	);
 });
 
-afterEach(() => {
-	__resetAttachmentCoordinatorForTests();
+afterEach(async () => {
+	await __resetAttachmentCoordinatorForTests();
 	vi.useRealTimers();
+	vi.unstubAllGlobals();
 	vi.restoreAllMocks();
 });
 
@@ -305,7 +306,7 @@ describe("SignaturePad", () => {
 			blockerRelease.resolve();
 			await blocker;
 			await Promise.resolve();
-			__resetAttachmentCoordinatorForTests();
+			await __resetAttachmentCoordinatorForTests();
 			await Promise.resolve();
 		});
 	});
@@ -584,6 +585,106 @@ describe("SignaturePad", () => {
 		expect(submit).toHaveBeenCalledTimes(1);
 	});
 
+	it("re-encodes retained ink when only devicePixelRatio changes", async () => {
+		vi.stubGlobal("devicePixelRatio", 1);
+		vi.spyOn(
+			HTMLCanvasElement.prototype,
+			"getBoundingClientRect",
+		).mockReturnValue({
+			width: 200,
+			height: 160,
+			left: 0,
+			top: 0,
+			right: 200,
+			bottom: 160,
+			x: 0,
+			y: 0,
+			toJSON: () => ({}),
+		} as DOMRect);
+		const onDrawn = vi.fn();
+		render(
+			<SignaturePad
+				entryKey="entry-dpr"
+				instancePath="/data/signature"
+				uploading={false}
+				hasAnswer={false}
+				onDrawn={onDrawn}
+				onClear={vi.fn()}
+			/>,
+		);
+		const canvas = screen.getByLabelText(/Signature pad/) as HTMLCanvasElement;
+		await drawOneStroke(canvas, 1);
+		await act(async () => {
+			blobCallbacks[0]?.(new Blob(["one-x"], { type: "image/png" }));
+			await Promise.resolve();
+		});
+		expect(onDrawn).toHaveBeenCalledTimes(1);
+
+		vi.stubGlobal("devicePixelRatio", 2);
+		fireEvent(window, new Event("resize"));
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(0);
+		});
+		expect(blobCallbacks).toHaveLength(2);
+
+		await act(async () => {
+			blobCallbacks[1]?.(new Blob(["two-x"], { type: "image/png" }));
+			await Promise.resolve();
+		});
+		expect(onDrawn).toHaveBeenCalledTimes(2);
+	});
+
+	it("re-encodes retained ink after remounting at different canvas geometry", async () => {
+		let width = 200;
+		vi.spyOn(
+			HTMLCanvasElement.prototype,
+			"getBoundingClientRect",
+		).mockImplementation(
+			() =>
+				({
+					width,
+					height: 160,
+					left: 0,
+					top: 0,
+					right: width,
+					bottom: 160,
+					x: 0,
+					y: 0,
+					toJSON: () => ({}),
+				}) as DOMRect,
+		);
+		const onDrawn = vi.fn();
+		const props = {
+			entryKey: "entry-remount-geometry",
+			instancePath: "/data/signature",
+			uploading: false,
+			hasAnswer: true,
+			onDrawn,
+			onClear: vi.fn(),
+		} as const;
+		const view = render(<SignaturePad {...props} />);
+		const canvas = screen.getByLabelText(/Signature pad/) as HTMLCanvasElement;
+		await drawOneStroke(canvas, 1);
+		await act(async () => {
+			blobCallbacks[0]?.(new Blob(["wide"], { type: "image/png" }));
+			await Promise.resolve();
+		});
+		expect(onDrawn).toHaveBeenCalledTimes(1);
+
+		view.unmount();
+		width = 100;
+		render(<SignaturePad {...props} />);
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(0);
+		});
+		expect(blobCallbacks).toHaveLength(2);
+		await act(async () => {
+			blobCallbacks[1]?.(new Blob(["narrow"], { type: "image/png" }));
+			await Promise.resolve();
+		});
+		expect(onDrawn).toHaveBeenCalledTimes(2);
+	});
+
 	it("keeps the first clear undoable when Clear is tapped twice before its queued answer update", async () => {
 		const onClear = vi.fn();
 		render(
@@ -618,6 +719,42 @@ describe("SignaturePad", () => {
 
 		expect(onClear).toHaveBeenCalledTimes(1);
 		expect(screen.getByRole("button", { name: "Undo" })).toBeDefined();
+	});
+
+	it("makes a disabled Undo visibly and pointer-semantically disabled", async () => {
+		const props = {
+			entryKey: "entry-disabled-undo",
+			instancePath: "/data/signature",
+			uploading: false,
+			hasAnswer: true,
+			onDrawn: vi.fn(),
+			onClear: vi.fn(),
+		};
+		const view = render(<SignaturePad {...props} />);
+		const canvas = screen.getByLabelText(/Signature pad/) as HTMLCanvasElement;
+		Object.assign(canvas, {
+			setPointerCapture: vi.fn(),
+			releasePointerCapture: vi.fn(),
+		});
+		fireEvent.pointerDown(canvas, {
+			pointerId: 1,
+			clientX: 10,
+			clientY: 10,
+		});
+		fireEvent.pointerUp(canvas, {
+			pointerId: 1,
+			clientX: 10,
+			clientY: 10,
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Clear signature" }));
+
+		view.rerender(<SignaturePad {...props} interactionBlocked />);
+		const undo = screen.getByRole("button", {
+			name: "Undo",
+		}) as HTMLButtonElement;
+		expect(undo.disabled).toBe(true);
+		expect(undo.className).toContain("disabled:cursor-not-allowed");
+		expect(undo.className).toContain("disabled:opacity-40");
 	});
 
 	it("can clear a saved signature even when this entry has no local pixel draft", () => {

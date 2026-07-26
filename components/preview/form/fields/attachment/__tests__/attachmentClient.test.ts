@@ -4,6 +4,7 @@ import {
 	cancelAttachmentEntry,
 	clearAttachmentNotReady,
 	discardAttachmentEntry,
+	getAttachmentSlotIssue,
 	getAttachmentSlotPath,
 	getOwnedStagedAttachment,
 	isAttachmentTaskAbort,
@@ -11,6 +12,7 @@ import {
 	reconcileAttachmentRepeatCompaction,
 	registerAttachmentSlotPath,
 	rememberOwnedStagedAttachment,
+	retryAttachmentRetarget,
 	runAttachmentTask,
 	runFormAttachmentBarrier,
 	stageAttachment,
@@ -24,8 +26,26 @@ function deferred<T>() {
 	return { promise, resolve };
 }
 
-afterEach(() => {
-	__resetAttachmentCoordinatorForTests();
+function waitForAbort(
+	signal: AbortSignal | null | undefined,
+): Promise<Response> {
+	return new Promise((_resolve, reject) => {
+		if (signal === undefined || signal === null) {
+			reject(new Error("Expected cleanup fetch to carry an abort signal."));
+			return;
+		}
+		if (signal.aborted) {
+			reject(signal.reason);
+			return;
+		}
+		signal.addEventListener("abort", () => reject(signal.reason), {
+			once: true,
+		});
+	});
+}
+
+afterEach(async () => {
+	await __resetAttachmentCoordinatorForTests();
 	vi.unstubAllGlobals();
 });
 
@@ -226,6 +246,229 @@ describe("form attachment coordinator", () => {
 		);
 	});
 
+	it("pre-classifies and cancels a signal-aware dormant task before joining its queue", async () => {
+		const entryKey = "entry-dormant-before-barrier";
+		const slotKey = "signature:conditional";
+		registerAttachmentSlotPath({
+			appId: "app-1",
+			entryKey,
+			slotKey,
+			instancePath: "/data/conditional/signature",
+		});
+		markAttachmentNotReady(
+			entryKey,
+			slotKey,
+			"The hidden signature is still being saved.",
+		);
+		const started = deferred<void>();
+		let aborted = false;
+		const active = runAttachmentTask({
+			entryKey,
+			slotKey,
+			task: async ({ signal }) => {
+				started.resolve();
+				await new Promise<never>((_resolve, reject) => {
+					signal.addEventListener(
+						"abort",
+						() => {
+							aborted = true;
+							reject(signal.reason);
+						},
+						{ once: true },
+					);
+				});
+			},
+		}).catch((error: unknown) => {
+			expect(isAttachmentTaskAbort(error)).toBe(true);
+		});
+		await started.promise;
+
+		await expect(
+			runFormAttachmentBarrier(entryKey, async () => "submitted", {
+				classifySlot: () => "dormant",
+			}),
+		).resolves.toBe("submitted");
+		await active;
+		expect(aborted).toBe(true);
+
+		// Dormancy preserves the draft blocker. If the question reappears,
+		// its failed/unfinished signature becomes actionable again.
+		await expect(
+			runFormAttachmentBarrier(entryKey, async () => "must not submit", {
+				classifySlot: () => "active",
+			}),
+		).rejects.toThrow(/hidden signature is still being saved/i);
+	});
+
+	it("reclassifies a slot that becomes dormant while Submit is waiting", async () => {
+		vi.useFakeTimers();
+		try {
+			const entryKey = "entry-dormant-during-barrier";
+			const slotKey = "signature:changing-relevance";
+			registerAttachmentSlotPath({
+				appId: "app-1",
+				entryKey,
+				slotKey,
+				instancePath: "/data/conditional/signature",
+			});
+			const started = deferred<void>();
+			const active = runAttachmentTask({
+				entryKey,
+				slotKey,
+				task: async ({ signal }) => {
+					started.resolve();
+					await new Promise<never>((_resolve, reject) => {
+						signal.addEventListener("abort", () => reject(signal.reason), {
+							once: true,
+						});
+					});
+				},
+			}).catch((error: unknown) => {
+				expect(isAttachmentTaskAbort(error)).toBe(true);
+			});
+			await started.promise;
+			let disposition: "active" | "dormant" = "active";
+			let submitted = false;
+			const barrier = runFormAttachmentBarrier(
+				entryKey,
+				async () => {
+					submitted = true;
+				},
+				{ classifySlot: () => disposition },
+			);
+			await Promise.resolve();
+			expect(submitted).toBe(false);
+
+			disposition = "dormant";
+			await vi.advanceTimersByTimeAsync(100);
+			await barrier;
+			await active;
+			expect(submitted).toBe(true);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("cancels a hung retarget when its slot becomes dormant before Submit", async () => {
+		const entryKey = "entry-dormant-retarget";
+		const slotKey = "photo:conditional-repeat";
+		registerAttachmentSlotPath({
+			appId: "app-1",
+			entryKey,
+			slotKey,
+			instancePath: "/data/visits[1]/photo",
+			captureKind: "image",
+		});
+		rememberOwnedStagedAttachment({
+			appId: "app-1",
+			entryKey,
+			slotKey,
+			instancePath: "/data/visits[1]/photo",
+			attachment: {
+				attachmentId: "attachment-retarget-hung",
+				attachmentName: "attachment-retarget-hung.png",
+				originalFilename: "photo.png",
+				sizeBytes: 3,
+			},
+		});
+		const started = deferred<void>();
+		vi.stubGlobal(
+			"fetch",
+			vi.fn((_url, init?: RequestInit) => {
+				started.resolve();
+				return new Promise<never>((_resolve, reject) => {
+					init?.signal?.addEventListener(
+						"abort",
+						() => reject(init.signal?.reason),
+						{ once: true },
+					);
+				});
+			}),
+		);
+		const maintenance = reconcileAttachmentRepeatCompaction({
+			appId: "app-1",
+			entryKey,
+			compaction: {
+				removedPrefix: "/data/visits[0]",
+				moves: [
+					{
+						fromPrefix: "/data/visits[1]",
+						toPrefix: "/data/visits[0]",
+					},
+				],
+			},
+		});
+		await started.promise;
+
+		await expect(
+			runFormAttachmentBarrier(entryKey, async () => "submitted", {
+				classifySlot: () => "dormant",
+			}),
+		).resolves.toBe("submitted");
+		await expect(maintenance).resolves.toEqual([]);
+	});
+
+	it("lets a newer slot intent supersede a hung retarget", async () => {
+		const entryKey = "entry-replacement-over-retarget";
+		const slotKey = "photo:replacement-repeat";
+		registerAttachmentSlotPath({
+			appId: "app-1",
+			entryKey,
+			slotKey,
+			instancePath: "/data/visits[1]/photo",
+		});
+		rememberOwnedStagedAttachment({
+			appId: "app-1",
+			entryKey,
+			slotKey,
+			instancePath: "/data/visits[1]/photo",
+			attachment: {
+				attachmentId: "attachment-retarget-before-replacement",
+				attachmentName: "attachment-retarget-before-replacement.png",
+				originalFilename: "photo.png",
+				sizeBytes: 3,
+			},
+		});
+		const retargetStarted = deferred<void>();
+		vi.stubGlobal(
+			"fetch",
+			vi.fn((_url, init?: RequestInit) => {
+				retargetStarted.resolve();
+				return new Promise<never>((_resolve, reject) => {
+					init?.signal?.addEventListener(
+						"abort",
+						() => reject(init.signal?.reason),
+						{ once: true },
+					);
+				});
+			}),
+		);
+		const maintenance = reconcileAttachmentRepeatCompaction({
+			appId: "app-1",
+			entryKey,
+			compaction: {
+				removedPrefix: "/data/visits[0]",
+				moves: [
+					{
+						fromPrefix: "/data/visits[1]",
+						toPrefix: "/data/visits[0]",
+					},
+				],
+			},
+		});
+		await retargetStarted.promise;
+
+		const replacement = vi.fn();
+		await runAttachmentTask({
+			entryKey,
+			slotKey,
+			task: async () => replacement(),
+		});
+
+		expect(replacement).toHaveBeenCalledOnce();
+		await expect(maintenance).resolves.toEqual([]);
+	});
+
 	it("keeps a confirmed row owned by the entry across ordinary component unmounts", async () => {
 		const staged = {
 			attachmentId: "attachment-keep",
@@ -399,6 +642,50 @@ describe("form attachment coordinator", () => {
 		).toBeUndefined();
 	});
 
+	it("does not let a hung repeat-removal DELETE hold the form queue", async () => {
+		const entryKey = "entry-hung-repeat-delete";
+		const slotKey = "photo:removed-row";
+		registerAttachmentSlotPath({
+			appId: "app-1",
+			entryKey,
+			slotKey,
+			instancePath: "/data/visits[0]/photo",
+		});
+		rememberOwnedStagedAttachment({
+			appId: "app-1",
+			entryKey,
+			slotKey,
+			instancePath: "/data/visits[0]/photo",
+			attachment: {
+				attachmentId: "attachment-hung-delete",
+				attachmentName: "attachment-hung-delete.png",
+				originalFilename: "photo.png",
+				sizeBytes: 3,
+			},
+		});
+		const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) =>
+			waitForAbort(init?.signal),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+
+		const maintenance = reconcileAttachmentRepeatCompaction({
+			appId: "app-1",
+			entryKey,
+			compaction: {
+				removedPrefix: "/data/visits[0]",
+				moves: [],
+			},
+		});
+		await expect(
+			runFormAttachmentBarrier(entryKey, async () => "submitted"),
+		).resolves.toBe("submitted");
+		await expect(maintenance).resolves.toEqual([]);
+		expect(fetchMock).toHaveBeenCalledWith(
+			"/api/apps/app-1/attachments/attachment-hung-delete",
+			expect.objectContaining({ method: "DELETE" }),
+		);
+	});
+
 	it("retargets the newest row when compaction races an already queued replacement", async () => {
 		const entryKey = "entry-latest-compaction";
 		const slotKey = "signature:stable-row-2";
@@ -473,7 +760,7 @@ describe("form attachment coordinator", () => {
 		expect(submitted).toBe(true);
 	});
 
-	it("clears a failed retarget before the submit barrier can observe the answer", async () => {
+	it("preserves a failed retarget as a recoverable blocker and retries it in place", async () => {
 		const entryKey = "entry-retarget-failure";
 		const slotKey = "photo:stable-row-2";
 		registerAttachmentSlotPath({
@@ -481,6 +768,7 @@ describe("form attachment coordinator", () => {
 			entryKey,
 			slotKey,
 			instancePath: "/data/visits[1]/photo",
+			captureKind: "image",
 		});
 		rememberOwnedStagedAttachment({
 			appId: "app-1",
@@ -494,18 +782,16 @@ describe("form attachment coordinator", () => {
 				sizeBytes: 3,
 			},
 		});
-		const order: string[] = [];
+		let offline = true;
 		const fetchMock = vi.fn().mockImplementation(async (_url, init) => {
 			if (init?.method === "PATCH") {
-				order.push("retarget");
-				return { ok: false, status: 409 };
+				return { ok: !offline, status: offline ? 409 : 200 };
 			}
-			order.push("discard");
 			return { ok: true, status: 200 };
 		});
 		vi.stubGlobal("fetch", fetchMock);
 
-		const maintenance = reconcileAttachmentRepeatCompaction({
+		await reconcileAttachmentRepeatCompaction({
 			appId: "app-1",
 			entryKey,
 			compaction: {
@@ -517,25 +803,32 @@ describe("form attachment coordinator", () => {
 					},
 				],
 			},
-			onRetargetFailure: ({ instancePath }) => {
-				order.push(`clear:${instancePath}`);
-			},
 		});
-		const submit = runFormAttachmentBarrier(entryKey, async () => {
-			order.push("submit");
-		});
-
-		await Promise.all([maintenance, submit]);
-
-		expect(order).toEqual([
-			"retarget",
-			"discard",
-			"clear:/data/visits[0]/photo",
-			"submit",
-		]);
 		expect(
 			getOwnedStagedAttachment({ appId: "app-1", entryKey, slotKey }),
+		)?.toMatchObject({ attachmentId: "attachment-failed-retarget" });
+		expect(
+			getAttachmentSlotIssue({ appId: "app-1", entryKey, slotKey }),
+		).toEqual({
+			kind: "retarget",
+			message:
+				"This attachment could not move with its repeat entry. Retry now, attach a replacement, or remove it.",
+		});
+		expect(
+			fetchMock.mock.calls.filter(([, init]) => init?.method === "DELETE"),
+		).toHaveLength(0);
+		await expect(
+			runFormAttachmentBarrier(entryKey, async () => "must not submit"),
+		).rejects.toThrow(/retry now, attach a replacement, or remove it/i);
+
+		offline = false;
+		await retryAttachmentRetarget({ appId: "app-1", entryKey, slotKey });
+		expect(
+			getAttachmentSlotIssue({ appId: "app-1", entryKey, slotKey }),
 		).toBeUndefined();
+		await expect(
+			runFormAttachmentBarrier(entryKey, async () => "submitted"),
+		).resolves.toBe("submitted");
 	});
 });
 
@@ -578,5 +871,39 @@ describe("stageAttachment", () => {
 			attachmentName: "attachment-1.png",
 		});
 		expect(fetchMock).toHaveBeenCalledTimes(3);
+	});
+
+	it("compensates a failed PUT out of band without waiting for DELETE", async () => {
+		const fetchMock = vi
+			.fn((_input: RequestInfo | URL, init?: RequestInit) =>
+				waitForAbort(init?.signal),
+			)
+			.mockResolvedValueOnce({
+				ok: true,
+				json: async () => ({
+					attachmentId: "attachment-compensate",
+					attachmentName: "attachment-compensate.png",
+					uploadUrl: "https://storage.test/upload",
+					uploadContentType: "image/png",
+					uploadHeaders: { "x-goog-if-generation-match": "0" },
+				}),
+			} as Response)
+			.mockResolvedValueOnce({ ok: false, status: 500 } as Response);
+		vi.stubGlobal("fetch", fetchMock);
+
+		await expect(
+			stageAttachment({
+				appId: "app-1",
+				entryKey: "11111111-1111-4111-8111-111111111111",
+				fieldUuid: "22222222-2222-4222-8222-222222222222",
+				instancePath: "/data/photo",
+				file: { name: "photo.png", size: 3 } as File,
+			}),
+		).rejects.toThrow();
+		expect(fetchMock).toHaveBeenCalledTimes(3);
+		expect(fetchMock).toHaveBeenLastCalledWith(
+			"/api/apps/app-1/attachments/attachment-compensate",
+			expect.objectContaining({ method: "DELETE" }),
+		);
 	});
 });

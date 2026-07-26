@@ -18,15 +18,21 @@ import {
 	reconcileAttachmentRepeatCompaction,
 	registerAttachmentSlotPath,
 	rememberOwnedStagedAttachment,
+	rememberSignatureDraft,
 	runAttachmentTask,
 } from "../attachmentClient";
 
-const { stageAttachmentMock, discardAttachmentMock, retargetAttachmentMock } =
-	vi.hoisted(() => ({
-		stageAttachmentMock: vi.fn(),
-		discardAttachmentMock: vi.fn(),
-		retargetAttachmentMock: vi.fn(),
-	}));
+const {
+	stageAttachmentMock,
+	discardAttachmentMock,
+	retargetAttachmentMock,
+	scheduleAttachmentCleanupMock,
+} = vi.hoisted(() => ({
+	stageAttachmentMock: vi.fn(),
+	discardAttachmentMock: vi.fn(),
+	retargetAttachmentMock: vi.fn(),
+	scheduleAttachmentCleanupMock: vi.fn(),
+}));
 
 vi.mock("@/lib/session/hooks", () => ({
 	useEditMode: () => "preview" as const,
@@ -39,6 +45,7 @@ vi.mock("../attachmentClient", async (importOriginal) => {
 		stageAttachment: stageAttachmentMock,
 		discardAttachment: discardAttachmentMock,
 		retargetAttachment: retargetAttachmentMock,
+		scheduleAttachmentCleanup: scheduleAttachmentCleanupMock,
 	};
 });
 
@@ -80,13 +87,16 @@ beforeEach(() => {
 	stageAttachmentMock.mockReset();
 	discardAttachmentMock.mockReset();
 	retargetAttachmentMock.mockReset();
+	scheduleAttachmentCleanupMock.mockReset();
 	discardAttachmentMock.mockResolvedValue(undefined);
 	retargetAttachmentMock.mockResolvedValue(undefined);
 	stageAttachmentMock.mockRejectedValue(new Error("network failed"));
 });
 
-afterEach(() => {
-	__resetAttachmentCoordinatorForTests();
+afterEach(async () => {
+	await __resetAttachmentCoordinatorForTests();
+	vi.useRealTimers();
+	vi.restoreAllMocks();
 });
 
 describe("AttachmentField", () => {
@@ -416,10 +426,8 @@ describe("AttachmentField", () => {
 			originalFilename: "new.png",
 			sizeBytes: 4,
 		});
-		let setAnswer!: (value: string) => void;
 		function Harness() {
 			const [value, setValue] = useState(oldAttachmentName);
-			setAnswer = setValue;
 			return (
 				<AttachmentField
 					field={FIELD}
@@ -452,7 +460,6 @@ describe("AttachmentField", () => {
 					},
 				],
 			},
-			onRetargetFailure: () => setAnswer(""),
 		});
 		await waitFor(() =>
 			expect(vi.mocked(fetch)).toHaveBeenCalledWith(
@@ -544,7 +551,7 @@ describe("AttachmentField", () => {
 
 		await screen.findByText("No file attached.");
 		await waitFor(() =>
-			expect(discardAttachmentMock).toHaveBeenCalledWith({
+			expect(scheduleAttachmentCleanupMock).toHaveBeenCalledWith({
 				appId: "app-1",
 				attachmentId: "66666666-6666-4666-8666-666666666666",
 			}),
@@ -658,7 +665,7 @@ describe("AttachmentField", () => {
 		expect(label?.className).toContain("opacity-40");
 		expect(screen.getByRole("status").textContent).toMatch(/attaching/i);
 
-		__resetAttachmentCoordinatorForTests();
+		await __resetAttachmentCoordinatorForTests();
 	});
 
 	it("announces attachment failures and associates them with the picker", async () => {
@@ -684,5 +691,467 @@ describe("AttachmentField", () => {
 		const alert = await screen.findByRole("alert");
 		expect(alert.textContent).toMatch(/couldn't be saved/i);
 		expect(input.getAttribute("aria-describedby")).toContain(alert.id);
+	});
+
+	it("uses attach-only copy when the form attachment lane is unavailable", async () => {
+		render(
+			<AttachmentField
+				field={FIELD}
+				state={EMPTY_STATE}
+				path="/data/photo"
+				appId={undefined}
+				entryKey="entry-unavailable"
+				onChange={vi.fn()}
+				onBlur={vi.fn()}
+			/>,
+		);
+		fireEvent.change(screen.getByLabelText(/Photo.*Attach file/i), {
+			target: {
+				files: [new File(["png"], "photo.png", { type: "image/png" })],
+			},
+		});
+
+		const alert = await screen.findByRole("alert");
+		expect(alert.textContent).toMatch(/ready to attach files/i);
+		expect(alert.textContent).not.toMatch(/\btake\b/i);
+	});
+
+	it("finishes a confirmed replacement without waiting for a hung cleanup DELETE", async () => {
+		const entryKey = "entry-hung-replacement-cleanup";
+		const slotKey = "/data/photo";
+		rememberOwnedStagedAttachment({
+			appId: "app-1",
+			entryKey,
+			slotKey,
+			instancePath: "/data/photo",
+			attachment: {
+				attachmentId: "attachment-old",
+				attachmentName: "attachment-old.png",
+				originalFilename: "old.png",
+				sizeBytes: 3,
+			},
+		});
+		stageAttachmentMock.mockResolvedValue({
+			attachmentId: "attachment-new",
+			attachmentName: "attachment-new.png",
+			originalFilename: "new.png",
+			sizeBytes: 4,
+		});
+		const onChange = vi.fn();
+		render(
+			<AttachmentField
+				field={FIELD}
+				state={{ ...EMPTY_STATE, value: "attachment-old.png" }}
+				path="/data/photo"
+				appId="app-1"
+				entryKey={entryKey}
+				onChange={onChange}
+				onBlur={vi.fn()}
+			/>,
+		);
+
+		const input = screen.getByLabelText(
+			/Photo.*Replace file/i,
+		) as HTMLInputElement;
+		fireEvent.change(input, {
+			target: {
+				files: [new File(["new"], "new.png", { type: "image/png" })],
+			},
+		});
+
+		await waitFor(() =>
+			expect(onChange).toHaveBeenCalledWith("attachment-new.png"),
+		);
+		await waitFor(() => expect(input.disabled).toBe(false));
+		expect(await screen.findByText("new.png")).toBeDefined();
+		expect(scheduleAttachmentCleanupMock).toHaveBeenCalledWith({
+			appId: "app-1",
+			attachmentId: "attachment-old",
+		});
+	});
+
+	it("keeps a failed repeat retarget actionable across remount and clears it with a replacement", async () => {
+		const entryKey = "entry-retarget-remount";
+		const slotKey = "photo:stable-row-2";
+		registerAttachmentSlotPath({
+			appId: "app-1",
+			entryKey,
+			slotKey,
+			instancePath: "/data/visits[1]/photo",
+			captureKind: "image",
+		});
+		rememberOwnedStagedAttachment({
+			appId: "app-1",
+			entryKey,
+			slotKey,
+			instancePath: "/data/visits[1]/photo",
+			attachment: {
+				attachmentId: "attachment-old",
+				attachmentName: "attachment-old.png",
+				originalFilename: "old.png",
+				sizeBytes: 3,
+			},
+		});
+		vi.stubGlobal(
+			"fetch",
+			vi.fn().mockResolvedValue({ ok: false, status: 409 }),
+		);
+		const onChange = vi.fn();
+		const props = {
+			field: FIELD,
+			state: {
+				...EMPTY_STATE,
+				path: "/data/visits[1]/photo",
+				value: "attachment-old.png",
+			},
+			path: "/data/visits[1]/photo",
+			appId: "app-1",
+			entryKey,
+			attachmentSlotKey: slotKey,
+			onChange,
+			onBlur: vi.fn(),
+		} as const;
+		const view = render(<AttachmentField {...props} />);
+		await act(async () => {
+			await reconcileAttachmentRepeatCompaction({
+				appId: "app-1",
+				entryKey,
+				compaction: {
+					removedPrefix: "/data/visits[0]",
+					moves: [
+						{
+							fromPrefix: "/data/visits[1]",
+							toPrefix: "/data/visits[0]",
+						},
+					],
+				},
+			});
+		});
+
+		expect((await screen.findByRole("alert")).textContent).toContain(
+			"This attachment could not move with its repeat entry. Retry now, attach a replacement, or remove it.",
+		);
+		expect(screen.getByRole("button", { name: /^retry$/i })).toBeDefined();
+		expect(
+			screen.getByRole("button", { name: /remove attachment/i }),
+		).toBeDefined();
+
+		view.unmount();
+		render(<AttachmentField {...props} />);
+		expect((await screen.findByRole("alert")).textContent).toMatch(
+			/attach a replacement, or remove it/i,
+		);
+
+		stageAttachmentMock.mockResolvedValue({
+			attachmentId: "attachment-new",
+			attachmentName: "attachment-new.png",
+			originalFilename: "new.png",
+			sizeBytes: 4,
+		});
+		fireEvent.change(screen.getByLabelText(/Photo.*Replace file/i), {
+			target: {
+				files: [new File(["new"], "new.png", { type: "image/png" })],
+			},
+		});
+		await waitFor(() =>
+			expect(
+				getOwnedStagedAttachment({ appId: "app-1", entryKey, slotKey }),
+			)?.toMatchObject({ attachmentId: "attachment-new" }),
+		);
+		await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+	});
+
+	it("retains failed signature ink and offers Retry and Remove after remount", async () => {
+		const entryKey = "entry-signature-retarget-remount";
+		const slotKey = "signature:stable-row-2";
+		registerAttachmentSlotPath({
+			appId: "app-1",
+			entryKey,
+			slotKey,
+			instancePath: "/data/visits[1]/consent",
+			captureKind: "signature",
+		});
+		rememberOwnedStagedAttachment({
+			appId: "app-1",
+			entryKey,
+			slotKey,
+			instancePath: "/data/visits[1]/consent",
+			attachment: {
+				attachmentId: "signature-old",
+				attachmentName: "signature-old.png",
+				originalFilename: "signature.png",
+				sizeBytes: 3,
+			},
+		});
+		rememberSignatureDraft(entryKey, slotKey, [[{ x: 0.2, y: 0.3 }]]);
+		const canvasContext = {
+			setTransform: vi.fn(),
+			clearRect: vi.fn(),
+			beginPath: vi.fn(),
+			moveTo: vi.fn(),
+			lineTo: vi.fn(),
+			stroke: vi.fn(),
+			lineWidth: 0,
+			lineCap: "round",
+			lineJoin: "round",
+			strokeStyle: "",
+		} as unknown as CanvasRenderingContext2D;
+		vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(
+			canvasContext,
+		);
+		let offline = true;
+		vi.stubGlobal(
+			"fetch",
+			vi.fn((_url, init?: RequestInit) =>
+				Promise.resolve({
+					ok: init?.method === "PATCH" ? !offline : true,
+					status: init?.method === "PATCH" && offline ? 409 : 200,
+				}),
+			),
+		);
+		const onChange = vi.fn();
+		const props = {
+			field: SIGNATURE_FIELD,
+			state: {
+				...EMPTY_STATE,
+				path: "/data/visits[1]/consent",
+				value: "signature-old.png",
+			},
+			path: "/data/visits[1]/consent",
+			appId: "app-1",
+			entryKey,
+			attachmentSlotKey: slotKey,
+			onChange,
+			onBlur: vi.fn(),
+		} as const;
+		const view = render(<AttachmentField {...props} />);
+		await act(async () => {
+			await reconcileAttachmentRepeatCompaction({
+				appId: "app-1",
+				entryKey,
+				compaction: {
+					removedPrefix: "/data/visits[0]",
+					moves: [
+						{
+							fromPrefix: "/data/visits[1]",
+							toPrefix: "/data/visits[0]",
+						},
+					],
+				},
+			});
+		});
+		expect((await screen.findByRole("alert")).textContent).toContain(
+			"This signature could not move with its repeat entry. Retry now, draw it again, or remove it.",
+		);
+		expect(canvasContext.stroke).toHaveBeenCalled();
+
+		view.unmount();
+		render(<AttachmentField {...props} />);
+		expect((await screen.findByRole("alert")).textContent).toMatch(
+			/retry now, draw it again, or remove it/i,
+		);
+		expect(
+			screen.getByRole("button", { name: /remove signature/i }),
+		).toBeDefined();
+		expect(
+			(
+				screen.getByRole("button", {
+					name: /clear signature/i,
+				}) as HTMLButtonElement
+			).disabled,
+		).toBe(false);
+
+		offline = false;
+		fireEvent.click(screen.getByRole("button", { name: /^retry$/i }));
+		await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+	});
+
+	it("cancels an active signature upload and commits one clear transition", async () => {
+		vi.useFakeTimers();
+		const canvasContext = {
+			setTransform: vi.fn(),
+			clearRect: vi.fn(),
+			beginPath: vi.fn(),
+			moveTo: vi.fn(),
+			lineTo: vi.fn(),
+			stroke: vi.fn(),
+			lineWidth: 0,
+			lineCap: "round",
+			lineJoin: "round",
+			strokeStyle: "",
+		} as unknown as CanvasRenderingContext2D;
+		vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(
+			canvasContext,
+		);
+		vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(
+			(callback) => callback(new Blob(["ink"], { type: "image/png" })),
+		);
+		stageAttachmentMock.mockImplementation(
+			({ signal }: { signal: AbortSignal }) =>
+				new Promise<never>((_resolve, reject) => {
+					signal.addEventListener("abort", () => reject(signal.reason), {
+						once: true,
+					});
+				}),
+		);
+		const onChange = vi.fn();
+		render(
+			<AttachmentField
+				field={SIGNATURE_FIELD}
+				state={{ ...EMPTY_STATE, path: "/data/consent" }}
+				path="/data/consent"
+				appId="app-1"
+				entryKey="entry-active-signature-clear"
+				onChange={onChange}
+				onBlur={vi.fn()}
+			/>,
+		);
+		const canvas = screen.getByLabelText(/Signature pad/i);
+		Object.assign(canvas, {
+			setPointerCapture: vi.fn(),
+			releasePointerCapture: vi.fn(),
+		});
+		fireEvent.pointerDown(canvas, {
+			pointerId: 1,
+			clientX: 10,
+			clientY: 10,
+		});
+		fireEvent.pointerUp(canvas, {
+			pointerId: 1,
+			clientX: 10,
+			clientY: 10,
+		});
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(700);
+		});
+		expect(stageAttachmentMock).toHaveBeenCalledTimes(1);
+
+		fireEvent.click(screen.getByRole("button", { name: /clear signature/i }));
+		await act(async () => {
+			for (let index = 0; index < 5; index++) await Promise.resolve();
+		});
+		expect(onChange).toHaveBeenCalledWith("");
+		expect(onChange).toHaveBeenCalledTimes(1);
+	});
+
+	it("persists a failed signature save with retained ink and retries it after remount", async () => {
+		vi.useFakeTimers();
+		const canvasContext = {
+			setTransform: vi.fn(),
+			clearRect: vi.fn(),
+			beginPath: vi.fn(),
+			moveTo: vi.fn(),
+			lineTo: vi.fn(),
+			stroke: vi.fn(),
+			lineWidth: 0,
+			lineCap: "round",
+			lineJoin: "round",
+			strokeStyle: "",
+		} as unknown as CanvasRenderingContext2D;
+		vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(
+			canvasContext,
+		);
+		let encodedBlob: Blob | null = null;
+		vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(
+			(callback) => callback(encodedBlob),
+		);
+		stageAttachmentMock.mockResolvedValue({
+			attachmentId: "signature-retry",
+			attachmentName: "signature-retry.png",
+			originalFilename: "signature.png",
+			sizeBytes: 3,
+		});
+		const onChange = vi.fn();
+		const props = {
+			field: SIGNATURE_FIELD,
+			state: { ...EMPTY_STATE, path: "/data/consent" },
+			path: "/data/consent",
+			appId: "app-1",
+			entryKey: "entry-signature-save-remount",
+			onChange,
+			onBlur: vi.fn(),
+		} as const;
+		const view = render(<AttachmentField {...props} />);
+		const canvas = screen.getByLabelText(/Signature pad/i);
+		Object.assign(canvas, {
+			setPointerCapture: vi.fn(),
+			releasePointerCapture: vi.fn(),
+		});
+		fireEvent.pointerDown(canvas, {
+			pointerId: 1,
+			clientX: 10,
+			clientY: 10,
+		});
+		fireEvent.pointerUp(canvas, {
+			pointerId: 1,
+			clientX: 10,
+			clientY: 10,
+		});
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(700);
+		});
+		expect(screen.getByRole("alert").textContent).toContain(
+			"This signature could not be saved. Retry now or remove it.",
+		);
+
+		view.unmount();
+		render(<AttachmentField {...props} />);
+		expect(screen.getByRole("alert").textContent).toMatch(
+			/retry now or remove it/i,
+		);
+		expect(canvasContext.stroke).toHaveBeenCalled();
+
+		encodedBlob = new Blob(["ink"], { type: "image/png" });
+		fireEvent.click(screen.getByRole("button", { name: /^retry$/i }));
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(0);
+			for (let index = 0; index < 5; index++) await Promise.resolve();
+		});
+		expect(onChange).toHaveBeenCalledWith("signature-retry.png");
+		expect(screen.queryByRole("alert")).toBeNull();
+	});
+
+	it("wraps narrow attachment actions and breaks a 255-character filename", async () => {
+		const longFilename = `${"a".repeat(251)}.png`;
+		stageAttachmentMock.mockResolvedValue({
+			attachmentId: "attachment-long-name",
+			attachmentName: "attachment-long-name.png",
+			originalFilename: longFilename,
+			sizeBytes: 3,
+		});
+		const onChange = vi.fn();
+		const view = render(
+			<AttachmentField
+				field={FIELD}
+				state={EMPTY_STATE}
+				path="/data/photo"
+				appId="app-1"
+				entryKey="entry-long-filename"
+				onChange={onChange}
+				onBlur={vi.fn()}
+			/>,
+		);
+		const input = screen.getByLabelText(/Photo.*Attach file/i);
+		fireEvent.change(input, {
+			target: {
+				files: [new File(["png"], longFilename, { type: "image/png" })],
+			},
+		});
+		await waitFor(() => expect(onChange).toHaveBeenCalled());
+		view.rerender(
+			<AttachmentField
+				field={FIELD}
+				state={{ ...EMPTY_STATE, value: "attachment-long-name.png" }}
+				path="/data/photo"
+				appId="app-1"
+				entryKey="entry-long-filename"
+				onChange={onChange}
+				onBlur={vi.fn()}
+			/>,
+		);
+		const status = await screen.findByRole("status");
+		expect(status.textContent).toBe(longFilename);
+		expect(status.className).toContain("[overflow-wrap:anywhere]");
+		expect(input.closest("div")?.className).toContain("flex-wrap");
 	});
 });

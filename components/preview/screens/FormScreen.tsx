@@ -56,7 +56,10 @@ import {
 	useSetPreviewSelectedCase,
 } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
-import { FormLayoutProvider } from "../form/FormLayoutContext";
+import {
+	type FormLayoutHandle,
+	FormLayoutProvider,
+} from "../form/FormLayoutContext";
 import { FormRenderer } from "../form/FormRenderer";
 import {
 	reconcileAttachmentRepeatCompaction,
@@ -403,10 +406,6 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 					appId,
 					entryKey: event.entryKey,
 					compaction: event,
-					onRetargetFailure: (failure) => {
-						if (controller.entryKey !== event.entryKey) return;
-						controller.setValueAt(failure.instancePath, "");
-					},
 				});
 			}),
 		[appId, controller],
@@ -421,6 +420,8 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	}, [mode, controller]);
 
 	const formBodyElRef = useRef<HTMLDivElement>(null);
+	const formLayoutRef = useRef<FormLayoutHandle>(null);
+	const invalidFocusRafRef = useRef<number | undefined>(undefined);
 
 	const formBodyRef = useCallback(
 		(el: HTMLDivElement | null) => {
@@ -430,13 +431,22 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			const raf = requestAnimationFrame(() => {
 				const qEl = el.querySelector(`[data-field-uuid="${selectedUuid}"]`);
 				const input = qEl?.querySelector(
-					"input, select, textarea",
+					'input, select, textarea, button, [role="textbox"], [tabindex]:not([tabindex="-1"])',
 				) as HTMLElement | null;
 				input?.focus();
 			});
 			return () => cancelAnimationFrame(raf);
 		},
 		[mode, selectedUuid],
+	);
+
+	useEffect(
+		() => () => {
+			if (invalidFocusRafRef.current !== undefined) {
+				cancelAnimationFrame(invalidFocusRafRef.current);
+			}
+		},
+		[],
 	);
 
 	/* Submit lifecycle + post-submit dispatch live above the early-
@@ -450,6 +460,9 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	const [submitStatus, setSubmitStatus] = useState<SubmitStatus>({
 		kind: "idle",
 	});
+	const [validationAnnouncement, setValidationAnnouncement] = useState<
+		{ readonly attempt: number; readonly message: string } | undefined
+	>();
 	const [clearRevision, setClearRevision] = useState(0);
 	const [clearTargetEntryKey, setClearTargetEntryKey] = useState<
 		string | undefined
@@ -478,6 +491,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		 * projection) lands here even when no route/session prop changed. */
 		submissionAttemptRef.current += 1;
 		setSubmitStatus({ kind: "idle" });
+		setValidationAnnouncement(undefined);
 	}, [submissionIdentityKey]);
 	useEffect(() => {
 		if (clearTargetEntryKey === undefined || entryKey !== clearTargetEntryKey) {
@@ -566,6 +580,35 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		[navigate, onBack],
 	);
 
+	const revealAndFocusFirstInvalid = useCallback((): void => {
+		const target = controller.firstInvalidFieldTarget();
+		if (target === undefined) return;
+		formLayoutRef.current?.expandContainers(target.ancestorUuids);
+		if (invalidFocusRafRef.current !== undefined) {
+			cancelAnimationFrame(invalidFocusRafRef.current);
+		}
+		// Expansion is a React state commit. Two frames let nested collapsed
+		// ancestors mount before resolving the concrete repeated question.
+		invalidFocusRafRef.current = requestAnimationFrame(() => {
+			invalidFocusRafRef.current = requestAnimationFrame(() => {
+				invalidFocusRafRef.current = undefined;
+				const body = formBodyElRef.current;
+				if (body === null) return;
+				const invalid = [
+					...body.querySelectorAll<HTMLElement>('[data-invalid="true"]'),
+				].find(
+					(element) => element.dataset.instancePath === target.instancePath,
+				);
+				if (invalid === undefined) return;
+				invalid.scrollIntoView?.({ behavior: "smooth", block: "center" });
+				const control = invalid.querySelector<HTMLElement>(
+					'[aria-invalid="true"], input:not([type="hidden"]), select, textarea, button, [role="textbox"], [tabindex]:not([tabindex="-1"])',
+				);
+				(control ?? invalid).focus();
+			});
+		});
+	}, [controller]);
+
 	const handleSubmit = async (): Promise<void> => {
 		if (clearInFlightRef.current) return;
 		const start = session.getState();
@@ -616,6 +659,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		 *   2. A second submit after a server error must replace, not
 		 *      augment — the alert always reflects the latest attempt. */
 		settleAttempt({ kind: "idle" });
+		setValidationAnnouncement(undefined);
 
 		/* This repeats the disabled-button condition at the mutation boundary.
 		 * A queued click or stale event handler must never submit after a case-data
@@ -686,10 +730,11 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			}
 			if (result === "invalid") {
 				settleAttempt({ kind: "idle" });
-				const errorEl = formBodyElRef.current?.querySelector(
-					'[data-invalid="true"]',
-				);
-				errorEl?.scrollIntoView({ behavior: "smooth", block: "center" });
+				setValidationAnnouncement({
+					attempt,
+					message: "Review the highlighted required question.",
+				});
+				revealAndFocusFirstInvalid();
 				return;
 			}
 			if (
@@ -739,6 +784,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			}
 			clearInFlightRef.current = true;
 			setSubmitStatus({ kind: "idle" });
+			setValidationAnnouncement(undefined);
 			if (entryKey === undefined) {
 				controller.reset();
 				setClearRevision((revision) => revision + 1);
@@ -894,7 +940,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 							case before continuing.
 						</div>
 					) : (
-						<div className="flex items-center justify-between px-6 py-3">
+						<div className="flex flex-wrap items-center justify-between gap-2 px-6 py-3">
 							<button
 								type="button"
 								onClick={handleSubmit}
@@ -904,7 +950,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 									!caseBindingReady ||
 									!mayWriteCaseData
 								}
-								className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-pv-accent text-white not-disabled:hover:brightness-110 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+								className="inline-flex min-h-11 touch-manipulation cursor-pointer items-center gap-2 rounded-lg bg-pv-accent px-4 py-2 text-sm font-medium text-white transition-[filter] not-disabled:hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
 							>
 								{submitStatus.kind === "running" && (
 									<Icon
@@ -912,6 +958,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 										width="14"
 										height="14"
 										className="animate-spin"
+										aria-hidden="true"
 									/>
 								)}
 								{submitStatus.kind === "running" ? "Submitting..." : "Submit"}
@@ -920,18 +967,28 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 								type="button"
 								onClick={handleClear}
 								disabled={submitStatus.kind === "running" || clearRunning}
-								className="inline-flex items-center gap-1.5 px-3 py-2 text-sm text-nova-text-muted not-disabled:hover:text-nova-text not-disabled:hover:bg-white/5 transition-colors cursor-pointer rounded-lg disabled:opacity-40 disabled:cursor-not-allowed disabled:not-disabled:hover:bg-transparent"
+								className="inline-flex min-h-11 touch-manipulation cursor-pointer items-center gap-1.5 rounded-lg px-3 py-2 text-sm text-nova-text-muted transition-colors not-disabled:hover:bg-white/5 not-disabled:hover:text-nova-text disabled:cursor-not-allowed disabled:opacity-40 disabled:not-disabled:hover:bg-transparent"
 							>
 								<Icon
 									icon={tablerRefresh}
 									width="14"
 									height="14"
 									className={clearRunning ? "animate-spin" : undefined}
+									aria-hidden="true"
 								/>
 								{clearRunning ? "Starting fresh…" : "Clear form"}
 							</button>
 						</div>
 					)}
+					{validationAnnouncement ? (
+						<p
+							key={validationAnnouncement.attempt}
+							role="alert"
+							className="sr-only"
+						>
+							{validationAnnouncement.message}
+						</p>
+					) : null}
 					{formFrozen ? (
 						<p role="status" className="px-6 pb-3 text-xs text-nova-text-muted">
 							{clearRunning
@@ -993,7 +1050,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			{persistentTile}
 			<ContentFrame width="5xl" className="flex flex-1 flex-col">
 				{/* FormLayoutProvider owns the group/repeat collapse set, shared across edit and live modes so a folded group stays folded when the user flips. */}
-				<FormLayoutProvider>{formBody}</FormLayoutProvider>
+				<FormLayoutProvider ref={formLayoutRef}>{formBody}</FormLayoutProvider>
 			</ContentFrame>
 		</div>
 	);

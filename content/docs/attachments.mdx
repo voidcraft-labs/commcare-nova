@@ -56,8 +56,17 @@ signature they clear is gone. Undo puts it back.
 
 The signature also follows the available width. Rotating a phone or
 narrowing the browser redraws the same complete signature to fit and saves
-that resized version before Submit can continue; adding another stroke
-afterward does not crop away ink that was drawn on the wider pad.
+that resized version before Submit can continue. Moving the page between
+screens with different pixel density does the same even when its CSS width
+does not change, and returning to a still-open form at a different width
+re-encodes the retained ink automatically. Adding another stroke afterward
+does not crop away ink that was drawn on the wider pad.
+
+If saving fails, the ink stays on the pad and Nova shows **Retry** and
+**Remove signature**. The message and ink survive a temporary hide, collapse,
+or Preview/Edit switch. Retry saves the retained drawing; Remove clears it.
+Pressing **Clear signature** while an earlier save is still running cancels
+that older save and clears the answer once — old ink cannot reappear later.
 
 ## File attachments only work in the web app
 
@@ -112,6 +121,13 @@ moves a surviving answer up one position: Nova moves the attachment with
 that repeat entry even if the question is hidden at the time. Leaving or
 clearing the form ends that entry.
 
+If that repeat move cannot be saved — for example, while the browser is
+offline — Nova keeps the attachment and its answer in place and blocks Submit
+only while the question is active. The question shows **Retry**,
+**Attach a replacement** (or draw again for Signature), and **Remove**. The
+same message is still there after an ordinary remount. Retry moves the retained
+file; a confirmed replacement takes over cleanly; Remove clears the answer.
+
 ## Clearing a required attachment
 
 There is a bug in CommCare worth knowing about, because it affects what
@@ -147,13 +163,17 @@ the submission with the rest of the form.
 
 When a worker presses Submit, Nova first waits for every attachment change
 still in progress — including the signature pad's short pause and PNG
-encoding after the latest stroke. If that encoding fails, Nova asks the
-worker to clear or draw again instead of silently submitting an older
+encoding after the latest stroke. If that encoding or upload fails, Nova keeps
+the ink and offers Retry or Remove instead of silently submitting an older
 signature. A file or signature action that is waiting behind another
-attachment says so immediately and disables conflicting gestures. A hidden
-question's unfinished signature does not block the current submission; it
-becomes active again if the question reappears. While attachment work and the
-submission finish, the form is visibly
+attachment says so immediately and disables conflicting gestures. Before
+waiting, Submit cancels unfinished work for questions that are now hidden and
+retires work for questions that were removed; it keeps checking relevance while
+it waits. A hidden question's draft and error do not block the current
+submission, but become active again if the question reappears. A slow cleanup
+request for an old/replaced file never delays its replacement or Submit; the
+staging expiry remains the backstop. While attachment work and the submission
+finish, the form is visibly
 locked: answers, file controls, pickers, and repeat rows cannot change
 underneath the request. The form answers and the exact set of attached files
 are then accepted together. If moving a file into long-term storage is temporarily
@@ -161,6 +181,11 @@ interrupted, Nova keeps retrying in the background — the worker should not
 submit the form again. Replacing, clearing, or deleting a repeat row can affect
 only the current unsubmitted attempt, never a file already accepted with a
 submission.
+
+If Submit finds an unanswered required question inside a collapsed group or
+repeating section, Nova opens every ancestor, announces the problem, scrolls it
+into view, and focuses the real attachment control — the file picker or
+signature pad — so the worker can fix it immediately.
 
 The preview shows you exactly what a worker sees, which means it shows
 you a filename and a **Remove** action and nothing else — no thumbnail, no

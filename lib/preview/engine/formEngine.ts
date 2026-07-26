@@ -78,6 +78,11 @@ import {
 } from "./types";
 
 export type AttachmentPathDisposition = "active" | "dormant" | "removed";
+export interface InvalidFieldTarget {
+	readonly fieldUuid: Uuid;
+	readonly instancePath: string;
+	readonly ancestorUuids: readonly Uuid[];
+}
 
 /** Stable fallback for paths that don't exist in the engine. Frozen so
  *  Zustand selectors always return the same reference — no spurious re-renders. */
@@ -622,6 +627,65 @@ export class FormEngine {
 			this.store.setState(updates);
 		}
 		return valid;
+	}
+
+	/**
+	 * First effectively visible invalid question in runtime document order.
+	 *
+	 * Structural ancestors are returned by UUID because preview collapse state
+	 * is structural, while the target itself keeps its concrete repeat path.
+	 * Call after `validateAll()` so required checks have populated validity.
+	 */
+	firstInvalidFieldTarget(): InvalidFieldTarget | undefined {
+		const states = this.store.getState();
+		const walk = (
+			nodes: ReadonlyArray<FieldTreeNode>,
+			prefix: string,
+			ancestorsVisible: boolean,
+			ancestorUuids: readonly Uuid[],
+		): InvalidFieldTarget | undefined => {
+			for (const node of nodes) {
+				const instancePath = `${prefix}/${node.field.id}`;
+				const effective =
+					ancestorsVisible && states[instancePath]?.visible !== false;
+				if (!effective) continue;
+				const structural =
+					node.field.kind === "group" || node.field.kind === "repeat";
+				if (
+					!structural &&
+					node.field.kind !== "label" &&
+					node.field.kind !== "hidden" &&
+					states[instancePath]?.valid === false
+				) {
+					return {
+						fieldUuid: node.field.uuid,
+						instancePath,
+						ancestorUuids,
+					};
+				}
+				if (node.field.kind === "repeat") {
+					const nextAncestors = [...ancestorUuids, node.field.uuid];
+					const count = this.instance.getRepeatCount(instancePath);
+					for (let index = 0; index < count; index++) {
+						const target = walk(
+							node.children ?? [],
+							`${instancePath}[${index}]`,
+							effective,
+							nextAncestors,
+						);
+						if (target !== undefined) return target;
+					}
+				} else if (node.children !== undefined) {
+					const target = walk(node.children, instancePath, effective, [
+						...ancestorUuids,
+						node.field.uuid,
+					]);
+					if (target !== undefined) return target;
+				}
+			}
+			return undefined;
+		};
+		return walk(this.tree, "/data", true, []);
 	}
 
 	/**

@@ -92,10 +92,15 @@ Confirmed row ownership lives at `(app, entryKey, stableSlotKey)` above any one
 rendered field. A stable slot is the field UUID plus every enclosing repeat's
 stable instance identity; its concrete indexed path is a mutable projection.
 Relevance, group/repeat remounts, Preview/Edit flips, and positional repeat
-compaction therefore cannot delete or misidentify an answer whose entry is
-still live. A real entry teardown/reset best-effort deletes those unreserved
-rows immediately; the scheduled row sweep and staging TTL remain the failure
-backstop. That absence of cross-entry resume is also why nothing simulates
+compaction therefore cannot delete or misidentify an answer whose entry is still
+live. The same slot retains its filename, recoverable issue, and signature draft
+above component lifetime. A real entry teardown/reset best-effort deletes those
+unreserved rows immediately; the scheduled row sweep and staging TTL remain the
+failure backstop. Every cleanup DELETE — teardown, replacement, remove, repeat
+deletion, or post-initiate PUT/confirm compensation — is bounded and detached
+from the entry queue. It can leave an expiring orphan but cannot delay an answer
+commit, confirmed replacement, or Submit. That absence of cross-entry resume is
+also why nothing simulates
 the runtime's blank-pad-over-live-signature behavior: the state cannot arise
 here. A future resume story must carry the entry key forward with the answers,
 and must leave the pad blank rather than helpfully restoring it.
@@ -118,18 +123,23 @@ slot. The control publishes queued intent before it waits behind another slot,
 so a second picker/clear/draw gesture cannot silently supersede the first;
 signature debounce and `toBlob` encoding enter that queue immediately,
 and a dirty/failed encoding keeps the barrier blocked rather than submitting
-an older answer. `pointercancel` settles the ink through the same path. Submit
-is a barrier behind prior work and ahead of later work, and rechecks the
+an older answer. `pointercancel` settles the ink through the same path. A
+signature Clear during queued/active save is itself the newer explicit intent:
+it aborts that generation and queues exactly one answer-clear transition.
+Submit first classifies every registered, active, not-ready, and retargeting
+slot **before** it joins the tail; it continues classification while waiting.
+Dormant work is aborted without dropping its draft/issue, removed work is
+retired, and only active `notReady` state can reject. Retarget PATCH maintenance
+is signal-aware and registered by slot too — otherwise an offline PATCH for a
+now-hidden question could starve the barrier it sits ahead of. Submit remains a
+barrier behind participating prior work and ahead of later work, and rechecks the
 initiating form, entry, persona, case, Project scope, and post-submit
 destination before calling the action. Once Submit enters `running`, the
 entire answer surface is inert/disabled until the barrier and server action
 settle; a post-click text,
 picker, signature, repeat, replace, or remove gesture cannot join only one side
-of the submission snapshot. At the barrier, only effectively visible capture
-slots can block Submit: an irrelevant slot stays dormant (including its draft
-and diagnostic in case it reappears), while a deleted field or repeat instance
-is retired. Clear form does not use this barrier; it retires the old entry and
-synchronously mounts a new idempotency scope.
+of the submission snapshot. Clear form does not use this barrier; it retires the
+old entry and synchronously mounts a new idempotency scope.
 
 `EngineController.removeRepeat` is the ONE compaction owner. It emits the
 removed prefix plus every positional move; FormScreen binds that event to the
@@ -137,17 +147,31 @@ entry coordinator even when the affected capture is irrelevant/unmounted. The
 coordinator updates desired slot paths synchronously, queues server CAS
 retargets after any already-running upload/encoding and before Submit, and
 cancels/discards only slots belonging to the removed instance. A failed old
-retarget may clear its old projected answer, but a coordinator-origin marker
-prevents that clear from aborting a newer queued replacement on the same slot.
-A surviving
-pending signature keeps its draft and `notReady` blocker until its latest PNG
-confirms, then the newly owned row—not an older PNG—is retargeted.
+retarget NEVER clears the answer or discards the retained row. It preserves the
+owned attachment, desired and server paths, filename/signature ink, and a
+generation-tagged `notReady` issue with Retry plus replace/draw/remove actions.
+The issue survives ordinary remounts. Retry CASes the retained row; a newer
+replacement generation supersedes it and clears only the older issue. A
+surviving pending signature keeps its draft and `notReady` blocker until its
+latest PNG confirms, then the newly owned row—not an older PNG—is retargeted.
 
 Signature pixels are entry/stable-slot-local across ordinary remounts and reset
 on an entry/persona change. Points are normalized to the canvas bounds, so a
-responsive resize redraws and re-encodes the complete signature rather than
-clipping old absolute coordinates. `toBlob` callbacks also carry a generation
-fence because the browser API cannot itself be aborted.
+successful encoding records CSS width/height, device pixel ratio, and backing
+width/height beside the strokes. CSS resize, DPR-only change, and a remount at
+different geometry redraw and re-encode the complete signature rather than
+clipping old absolute coordinates or submitting stale pixels. `toBlob`
+callbacks also carry a generation fence because the browser API cannot itself
+be aborted. Encode/upload failure retains the ink plus an actionable
+Retry/Remove slot issue across remounts; Retry re-encodes the retained strokes.
+
+`FormEngine.firstInvalidFieldTarget` returns the first effectively visible
+invalid concrete path plus every structural ancestor UUID. On invalid Submit,
+`FormScreen` expands those group/repeat ancestors in one layout commit, announces
+the failure, then scrolls and focuses the real invalid control (`input`,
+signature canvas/custom textbox, button, or the focusable question wrapper
+fallback). Collapse toggles carry `aria-expanded` and `aria-controls`; selected
+capture questions use the same custom-control-aware focus selector.
 
 ## Repeat instances are first-class
 

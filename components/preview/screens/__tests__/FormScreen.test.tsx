@@ -35,11 +35,11 @@ import {
 	screen,
 	waitFor,
 } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { xp } from "@/lib/__tests__/docHelpers";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
-import { asUuid } from "@/lib/doc/types";
+import { asUuid, type Uuid } from "@/lib/doc/types";
 import type { SubmissionResult } from "@/lib/preview/engine/caseDataBindingTypes";
 import type { EngineController } from "@/lib/preview/engine/engineController";
 import { useBuilderFormEngine } from "@/lib/preview/engine/provider";
@@ -232,11 +232,13 @@ function CaptureRuntimeHandles() {
 function renderFormScreen(opts: {
 	formUuid: typeof REG_FORM_UUID;
 	caseId?: string;
+	selectedUuid?: Uuid;
 }) {
 	currentLocation = {
 		kind: "form",
 		moduleUuid: MODULE_UUID,
 		formUuid: opts.formUuid,
+		selectedUuid: opts.selectedUuid,
 	};
 	/* The required-form arm registers `FIELD_REQUIRED_UUID`; every
 	 *  other arm registers the non-required `FIELD_UUID`. The active
@@ -368,6 +370,7 @@ function renderFormScreen(opts: {
 						id: "photo",
 						kind: "image",
 						label: "Photo",
+						required: xp("true()"),
 					},
 					[GROUP_TWO_PHOTO_UUID]: {
 						uuid: GROUP_TWO_PHOTO_UUID,
@@ -442,7 +445,7 @@ function renderFormScreen(opts: {
 	);
 }
 
-beforeEach(() => {
+beforeEach(async () => {
 	onBackMock.mockClear();
 	navigateMock.goHome.mockClear();
 	navigateMock.openModule.mockClear();
@@ -456,7 +459,7 @@ beforeEach(() => {
 	capturedSession = undefined;
 	capturedController = undefined;
 	updateCapturedPersona = undefined;
-	__resetAttachmentCoordinatorForTests();
+	await __resetAttachmentCoordinatorForTests();
 	vi.unstubAllGlobals();
 	/* Default `loadCaseDataAction` to `missing` so followup screens
 	 *  in test mode either short-circuit on the no-case empty state
@@ -469,6 +472,11 @@ beforeEach(() => {
 	 *  directly-previewed case-loading form) to an empty store; tests that
 	 *  exercise auto-selection override with rows. */
 	vi.mocked(loadCasesAction).mockResolvedValue({ kind: "empty" });
+});
+
+afterEach(async () => {
+	await __resetAttachmentCoordinatorForTests();
+	vi.unstubAllGlobals();
 });
 
 describe("FormScreen — destructive case-data replacement", () => {
@@ -1091,12 +1099,43 @@ describe("FormScreen — validate-fail short-circuit", () => {
 		await waitFor(() => {
 			expect(vi.mocked(submitFormAction)).not.toHaveBeenCalled();
 		});
-		/* No inline error renders — the validate-fail branch leaves
-		 *  `submitStatus` at `idle`; per-field error UI is owned by
-		 *  the field renderers, not by the submit row's alert. */
-		expect(screen.queryByRole("alert")).toBeNull();
+		/* The field owns its visible error; FormScreen contributes only a
+		 * screen-reader announcement for the focus jump. */
+		expect(
+			await screen.findByText(/review the highlighted required question/i),
+		).toBeDefined();
 		expect(navigateMock.goHome).not.toHaveBeenCalled();
 		expect(onBackMock).not.toHaveBeenCalled();
+	});
+
+	it("expands collapsed ancestors, announces the error, and focuses the invalid control", async () => {
+		renderFormScreen({ formUuid: STRUCTURE_FORM_UUID });
+		const groupToggle = await screen.findByRole("button", {
+			name: /Collapse.*Section 1.*Visit/i,
+		});
+		fireEvent.click(groupToggle);
+		expect(groupToggle.getAttribute("aria-expanded")).toBe("false");
+		expect(groupToggle.getAttribute("aria-controls")).toBeTruthy();
+		expect(
+			screen.queryByLabelText(
+				/Section 1.*Visit.*Question 1.*Photo.*Attach file/i,
+			),
+		).toBeNull();
+
+		fireEvent.click(screen.getByRole("button", { name: /^submit$/i }));
+
+		await waitFor(() => {
+			expect(groupToggle.getAttribute("aria-expanded")).toBe("true");
+		});
+		const file = await screen.findByLabelText(
+			/Section 1.*Visit.*Question 1.*Photo.*Required.*Attach file/i,
+		);
+		await waitFor(() => expect(document.activeElement).toBe(file));
+		expect(file.getAttribute("aria-invalid")).toBe("true");
+		expect(
+			screen.getByText(/review the highlighted required question/i),
+		).toBeDefined();
+		expect(vi.mocked(submitFormAction)).not.toHaveBeenCalled();
 	});
 });
 
@@ -1417,8 +1456,35 @@ describe("FormScreen — repeated structure accessibility", () => {
 		expect(canvas.getAttribute("aria-required")).toBe("true");
 		expect(file.getAttribute("aria-describedby")).toBeTruthy();
 		expect(canvas.getAttribute("aria-describedby")).toBeTruthy();
-		expect(screen.getAllByRole("alert")).toHaveLength(2);
+		expect(screen.getAllByRole("alert")).toHaveLength(3);
 		expect(screen.getAllByRole("status")).toHaveLength(2);
+		expect(vi.mocked(submitFormAction)).not.toHaveBeenCalled();
+	});
+
+	it("focuses a selected signature control when Preview opens", async () => {
+		renderFormScreen({
+			formUuid: CAPTURE_REQUIRED_FORM_UUID,
+			selectedUuid: REQUIRED_SIGNATURE_UUID,
+		});
+		const canvas = await screen.findByLabelText(
+			/Question 2.*Signed consent.*Signature pad/i,
+		);
+		await waitFor(() => expect(document.activeElement).toBe(canvas));
+	});
+
+	it("focuses the signature pad when it is the first invalid control", async () => {
+		renderFormScreen({ formUuid: CAPTURE_REQUIRED_FORM_UUID });
+		await waitFor(() => expect(capturedController).toBeDefined());
+		act(() => {
+			capturedController?.setValueAt("/data/photo", "already-attached.png");
+		});
+		fireEvent.click(screen.getByRole("button", { name: /^submit$/i }));
+
+		const canvas = await screen.findByLabelText(
+			/Question 2.*Signed consent.*Required.*Signature pad/i,
+		);
+		await waitFor(() => expect(document.activeElement).toBe(canvas));
+		expect(canvas.getAttribute("aria-invalid")).toBe("true");
 		expect(vi.mocked(submitFormAction)).not.toHaveBeenCalled();
 	});
 
@@ -1438,6 +1504,8 @@ describe("FormScreen — repeated structure accessibility", () => {
 			expect(toggle.className).toContain("min-h-11");
 			expect(toggle.className).toContain("min-w-11");
 			expect(toggle.className).toContain("touch-manipulation");
+			expect(toggle.getAttribute("aria-expanded")).toBe("true");
+			expect(toggle.getAttribute("aria-controls")).toBeTruthy();
 		}
 
 		expect(
@@ -1473,5 +1541,16 @@ describe("FormScreen — repeated structure accessibility", () => {
 		});
 		expect(removeSecond.className).toContain("min-h-11");
 		expect(removeSecond.className).toContain("min-w-11");
+	});
+
+	it("keeps footer actions touch-sized and wrapping at compact widths", async () => {
+		renderFormScreen({ formUuid: REG_FORM_UUID });
+		const submit = await screen.findByRole("button", { name: /^submit$/i });
+		const clear = screen.getByRole("button", { name: /clear form/i });
+		for (const action of [submit, clear]) {
+			expect(action.className).toContain("min-h-11");
+			expect(action.className).toContain("touch-manipulation");
+		}
+		expect(submit.parentElement?.className).toContain("flex-wrap");
 	});
 });

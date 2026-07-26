@@ -148,6 +148,7 @@ export function RepeatField({
 	const collapsed = isCollapsed(field.uuid);
 	const headerId = useId();
 	const titleId = useId();
+	const contentId = useId();
 	const toggleActionId = useId();
 	const addActionId = useId();
 	const instanceLabelBaseId = useId();
@@ -199,6 +200,8 @@ export function RepeatField({
 							type="button"
 							onClick={onToggle}
 							className="inline-flex min-h-11 min-w-11 touch-manipulation items-center justify-center rounded text-nova-text-muted transition-colors hover:text-nova-text"
+							aria-expanded={!collapsed}
+							aria-controls={contentId}
 							aria-labelledby={[
 								toggleActionId,
 								accessibleContext,
@@ -277,7 +280,7 @@ export function RepeatField({
 					 *  edge — it must stay inside so the close cap sits 24px
 					 *  below the last field, matching edit mode's
 					 *  insertion(N+1) row. */}
-					<div className="relative flow-root pt-6">
+					<div id={contentId} className="relative flow-root pt-6">
 						<div
 							className="absolute top-0 bottom-0 border-l border-r border-pv-input-border pointer-events-none"
 							style={{
@@ -383,6 +386,7 @@ export function RepeatField({
 					</div>
 				</>
 			)}
+			{collapsed ? <div id={contentId} hidden /> : null}
 		</>
 	);
 }

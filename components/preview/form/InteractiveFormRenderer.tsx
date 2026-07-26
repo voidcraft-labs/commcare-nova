@@ -392,6 +392,8 @@ const InteractiveField = memo(function InteractiveField({
 			className="relative mb-6"
 			data-invalid={showInvalid ? "true" : undefined}
 			data-field-uuid={uuid}
+			data-instance-path={path}
+			tabIndex={showInvalid ? -1 : undefined}
 		>
 			{content}
 		</div>

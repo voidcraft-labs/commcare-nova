@@ -13,19 +13,23 @@ import type { FieldState } from "@/lib/preview/engine/types";
 import { useEditMode } from "@/lib/session/hooks";
 import {
 	AttachmentRejected,
+	type AttachmentSlotIssue,
 	type AttachmentTaskContext,
 	cancelAttachmentTask,
-	consumeCoordinatorAttachmentAnswerClear,
-	discardAttachment,
 	forgetOwnedStagedAttachment,
+	getAttachmentSlotIssue,
 	getAttachmentSlotPath,
 	getOwnedStagedAttachment,
 	isAttachmentTaskAbort,
 	registerAttachmentSlotPath,
 	rememberOwnedStagedAttachment,
+	retryAttachmentRetarget,
 	runAttachmentTask,
 	type StagedAttachment,
+	scheduleAttachmentCleanup,
+	setAttachmentSlotIssue,
 	stageAttachment,
+	subscribeAttachmentSlotIssues,
 } from "./attachmentClient";
 import { SignaturePad } from "./SignaturePad";
 
@@ -177,7 +181,12 @@ function AttachmentControl({
 	const [staged, setStaged] = useState<StagedAttachment | undefined>(
 		initialOwned,
 	);
-	type Intent = "idle" | "queued-upload" | "uploading" | "queued-clear";
+	type Intent =
+		| "idle"
+		| "queued-upload"
+		| "uploading"
+		| "queued-clear"
+		| "queued-retarget";
 	const intentRef = useRef<Intent>("idle");
 	const [intent, setIntentState] = useState<Intent>("idle");
 	const setIntent = useCallback((next: Intent): void => {
@@ -185,6 +194,14 @@ function AttachmentControl({
 		setIntentState(next);
 	}, []);
 	const [error, setError] = useState<string | undefined>();
+	const initialIssue =
+		appId && entryKey
+			? getAttachmentSlotIssue({ appId, entryKey, slotKey })
+			: undefined;
+	const [slotIssue, setSlotIssueState] = useState<
+		AttachmentSlotIssue | undefined
+	>(initialIssue);
+	const [signatureRetryRevision, setSignatureRetryRevision] = useState(0);
 	const ownershipScopeRef = useRef({ appId, entryKey, slotKey });
 
 	useEffect(() => {
@@ -208,6 +225,11 @@ function AttachmentControl({
 		setStaged(owned);
 		setIntent("idle");
 		setError(undefined);
+		setSlotIssueState(
+			appId && entryKey
+				? getAttachmentSlotIssue({ appId, entryKey, slotKey })
+				: undefined,
+		);
 	}, [appId, entryKey, slotKey, setIntent]);
 
 	useEffect(() => {
@@ -217,8 +239,20 @@ function AttachmentControl({
 			entryKey,
 			slotKey,
 			instancePath: path,
+			captureKind: field.kind,
 		});
-	}, [appId, entryKey, path, slotKey]);
+	}, [appId, entryKey, field.kind, path, slotKey]);
+
+	useEffect(() => {
+		if (!appId || !entryKey) {
+			setSlotIssueState(undefined);
+			return;
+		}
+		const update = () =>
+			setSlotIssueState(getAttachmentSlotIssue({ appId, entryKey, slotKey }));
+		update();
+		return subscribeAttachmentSlotIssues(entryKey, update);
+	}, [appId, entryKey, slotKey]);
 
 	const currentPath = useCallback((): string | undefined => {
 		if (!appId || !entryKey) return path;
@@ -257,7 +291,7 @@ function AttachmentControl({
 			const uploadPath = currentPath();
 			if (!appId || !entryKey || !uploadPath) {
 				const unavailable = new AttachmentRejected(
-					"This form isn't ready to take attachments yet. Wait a moment and try again.",
+					"This form isn't ready to attach files yet. Wait a moment and try again.",
 				);
 				setError(unavailable.message);
 				throw unavailable;
@@ -274,10 +308,10 @@ function AttachmentControl({
 					signal: context.signal,
 				});
 				if (!context.isCurrent()) {
-					await discardAttachment({
+					scheduleAttachmentCleanup({
 						appId,
 						attachmentId: next.attachmentId,
-					}).catch(() => undefined);
+					});
 					return;
 				}
 				// Replace only after the new generation confirms. Ownership lives
@@ -297,19 +331,31 @@ function AttachmentControl({
 					previous !== undefined &&
 					previous.attachmentId !== next.attachmentId
 				) {
-					await discardAttachment({
+					scheduleAttachmentCleanup({
 						appId,
 						attachmentId: previous.attachmentId,
-						signal: context.signal,
-					}).catch(() => undefined);
+					});
 				}
 			} catch (err) {
 				if (!context.isCurrent() || isAttachmentTaskAbort(err)) throw err;
-				setError(
+				const message =
 					err instanceof AttachmentRejected
 						? err.message
-						: "That attachment couldn't be saved. Check your connection and try again.",
-				);
+						: "That attachment couldn't be saved. Check your connection and try again.";
+				if (field.kind === "signature") {
+					setAttachmentSlotIssue({
+						appId,
+						entryKey,
+						slotKey,
+						issue: {
+							kind: "save",
+							message:
+								"This signature could not be saved. Retry now or remove it.",
+						},
+					});
+				} else {
+					setError(message);
+				}
 				throw err;
 			} finally {
 				if (context.isCurrent()) {
@@ -321,6 +367,7 @@ function AttachmentControl({
 		[
 			appId,
 			entryKey,
+			field.kind,
 			field.uuid,
 			slotKey,
 			currentPath,
@@ -335,7 +382,7 @@ function AttachmentControl({
 			if (intentRef.current !== "idle") return;
 			if (!entryKey || currentPath() === undefined) {
 				setError(
-					"This form isn't ready to take attachments yet. Wait a moment and try again.",
+					"This form isn't ready to attach files yet. Wait a moment and try again.",
 				);
 				return;
 			}
@@ -355,7 +402,20 @@ function AttachmentControl({
 	);
 
 	const clear = useCallback(() => {
-		if (intentRef.current !== "idle") return;
+		const activeIntent = intentRef.current;
+		if (
+			activeIntent !== "idle" &&
+			!(
+				field.kind === "signature" &&
+				(activeIntent === "queued-upload" || activeIntent === "uploading")
+			)
+		) {
+			return;
+		}
+		// Signature Clear is an explicit replacement intent even while its old
+		// bitmap is uploading. Cancel that generation before composing the one
+		// queued answer-clear transition; a late confirm cannot resurrect ink.
+		if (entryKey) cancelAttachmentTask(entryKey, slotKey);
 		setIntent("queued-clear");
 		const owned =
 			appId && entryKey
@@ -370,7 +430,6 @@ function AttachmentControl({
 		setStaged(undefined);
 		setError(undefined);
 		if (inputRef.current) inputRef.current.value = "";
-		if (entryKey) cancelAttachmentTask(entryKey, slotKey);
 		if (appId && entryKey) {
 			// Clear is its own queued operation rather than another generation
 			// of the upload path. A file picked immediately afterward must wait
@@ -380,18 +439,17 @@ function AttachmentControl({
 			void runAttachmentTask({
 				entryKey,
 				slotKey: clearTaskKey,
-				task: async ({ signal }) => {
+				task: async () => {
 					// Answer first, bytes second. The reverse order is the
 					// upstream defect this lane exists beside: on a device,
 					// clearing a REQUIRED capture removes the file and leaves
 					// the question still naming it.
 					changeCurrent("");
 					if (previous !== undefined) {
-						await discardAttachment({
+						scheduleAttachmentCleanup({
 							appId,
 							attachmentId: previous.attachmentId,
-							signal,
-						}).catch(() => undefined);
+						});
 					}
 					blurCurrent();
 				},
@@ -409,14 +467,22 @@ function AttachmentControl({
 
 		changeCurrent("");
 		if (previous && appId) {
-			void discardAttachment({
+			scheduleAttachmentCleanup({
 				appId,
 				attachmentId: previous.attachmentId,
-			}).catch(() => undefined);
+			});
 		}
 		blurCurrent();
 		setIntent("idle");
-	}, [appId, entryKey, slotKey, changeCurrent, blurCurrent, setIntent]);
+	}, [
+		appId,
+		entryKey,
+		field.kind,
+		slotKey,
+		changeCurrent,
+		blurCurrent,
+		setIntent,
+	]);
 
 	// Engine reset and repeat removal own the answer, so mirror an externally
 	// cleared value into local filename/busy state and cancel any late upload.
@@ -440,14 +506,6 @@ function AttachmentControl({
 		if (previousValue === "" || stagedRef.current === undefined) {
 			return;
 		}
-		const coordinatorClear =
-			appId !== undefined && entryKey !== undefined
-				? consumeCoordinatorAttachmentAnswerClear({
-						appId,
-						entryKey,
-						slotKey,
-					})
-				: undefined;
 		const previous =
 			appId && entryKey
 				? (forgetOwnedStagedAttachment({
@@ -460,21 +518,32 @@ function AttachmentControl({
 		setStaged(undefined);
 		setError(undefined);
 		if (inputRef.current) inputRef.current.value = "";
-		if (coordinatorClear?.preserveNewerTask !== true) {
-			setIntent("idle");
-			if (entryKey) cancelAttachmentTask(entryKey, slotKey);
-		}
-		if (
-			coordinatorClear === undefined &&
-			previous !== undefined &&
-			appId !== undefined
-		) {
-			void discardAttachment({
+		setIntent("idle");
+		if (entryKey) cancelAttachmentTask(entryKey, slotKey);
+		if (previous !== undefined && appId !== undefined) {
+			scheduleAttachmentCleanup({
 				appId,
 				attachmentId: previous.attachmentId,
-			}).catch(() => undefined);
+			});
 		}
 	}, [appId, entryKey, slotKey, state.value, setIntent]);
+
+	const retryIssue = useCallback(() => {
+		if (!slotIssue || !appId || !entryKey || intentRef.current !== "idle") {
+			return;
+		}
+		if (slotIssue.kind === "save") {
+			setIntent("queued-upload");
+			setSignatureRetryRevision((revision) => revision + 1);
+			return;
+		}
+		setIntent("queued-retarget");
+		void retryAttachmentRetarget({ appId, entryKey, slotKey })
+			.catch((error: unknown) => {
+				if (!isAttachmentTaskAbort(error)) blurCurrent();
+			})
+			.finally(() => setIntent("idle"));
+	}, [appId, entryKey, slotIssue, slotKey, blurCurrent, setIntent]);
 
 	const hasAnswer = state.value !== "";
 	const busy = intent !== "idle";
@@ -483,8 +552,8 @@ function AttachmentControl({
 	const describedBy = [
 		questionDescriptionIds,
 		statusId,
-		error ? errorId : undefined,
-		showError && !error ? validationId : undefined,
+		error || slotIssue ? errorId : undefined,
+		showError && !error && !slotIssue ? validationId : undefined,
 		helpId,
 	]
 		.filter((id): id is string => id !== undefined)
@@ -501,25 +570,41 @@ function AttachmentControl({
 					questionLabelledBy={labelledBy}
 					questionLabel={accessibleQuestionLabel}
 					uploading={intent === "uploading"}
-					queued={intent === "queued-upload"}
+					queued={intent === "queued-upload" || intent === "queued-retarget"}
 					interactionBlocked={intent === "queued-clear"}
 					hasAnswer={hasAnswer}
+					needsAttention={slotIssue !== undefined}
+					retryRevision={signatureRetryRevision}
 					required={state.required}
 					invalid={showError}
 					statusId={statusId}
 					describedBy={describedBy}
 					onDrawn={stageWithinTask}
 					onClear={clear}
-					onEncodingError={(message) => setError(message)}
+					onEncodingError={() => {
+						if (appId && entryKey) {
+							setAttachmentSlotIssue({
+								appId,
+								entryKey,
+								slotKey,
+								issue: {
+									kind: "save",
+									message:
+										"This signature could not be saved. Retry now or remove it.",
+								},
+							});
+						}
+						setIntent("idle");
+					}}
 				/>
 			) : (
-				<div className="flex items-center gap-2">
+				<div className="flex min-w-0 flex-wrap items-center gap-2">
 					{/* A label styled as the control, so the 48px target and the
 					    keyboard focus ring belong to the real input. */}
 					<label
 						htmlFor={inputId}
 						aria-disabled={busy}
-						className={`relative inline-flex min-h-12 items-center gap-2 overflow-hidden rounded-md border border-pv-input-border bg-pv-surface px-4 text-sm font-medium text-nova-text transition-colors focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-pv-input-focus ${
+						className={`relative inline-flex min-h-12 min-w-0 max-w-full touch-manipulation items-center gap-2 overflow-hidden rounded-md border border-pv-input-border bg-pv-surface px-4 text-sm font-medium text-nova-text transition-colors focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-pv-input-focus ${
 							busy
 								? "cursor-default opacity-40"
 								: "cursor-pointer hover:border-pv-input-focus"
@@ -576,7 +661,7 @@ function AttachmentControl({
 										: "Attach file"}
 						</span>
 					</label>
-					{hasAnswer ? (
+					{hasAnswer && !slotIssue ? (
 						<button
 							type="button"
 							onClick={clear}
@@ -585,7 +670,7 @@ function AttachmentControl({
 							aria-labelledby={
 								labelledBy ? `${removeActionId} ${labelledBy}` : undefined
 							}
-							className="inline-flex min-h-12 items-center justify-center gap-1.5 rounded-md px-3 py-2 text-sm text-nova-text-muted transition-colors not-disabled:hover:bg-white/[0.06] not-disabled:hover:text-nova-text disabled:opacity-40"
+							className="inline-flex min-h-12 touch-manipulation items-center justify-center gap-1.5 rounded-md px-3 py-2 text-sm text-nova-text-muted transition-colors not-disabled:hover:bg-white/[0.06] not-disabled:hover:text-nova-text disabled:cursor-not-allowed disabled:opacity-40"
 						>
 							<Icon icon={tablerX} width="16" height="16" aria-hidden="true" />
 							<span id={removeActionId}>Remove</span>
@@ -608,7 +693,7 @@ function AttachmentControl({
 					role="status"
 					aria-label={`${accessibleQuestionLabel} attachment status`}
 					aria-live="polite"
-					className="text-xs text-nova-text-muted"
+					className="min-w-0 break-words text-xs text-nova-text-muted [overflow-wrap:anywhere]"
 				>
 					{intent === "queued-upload"
 						? "Waiting to attach file…"
@@ -622,7 +707,44 @@ function AttachmentControl({
 				</p>
 			) : null}
 
-			{error ? (
+			{slotIssue ? (
+				<div
+					id={errorId}
+					role="alert"
+					className="space-y-2 text-xs text-nova-red"
+				>
+					<p className="flex items-start gap-1.5">
+						<Icon
+							icon={tablerAlertTriangle}
+							width="14"
+							height="14"
+							aria-hidden="true"
+							className="mt-0.5 shrink-0"
+						/>
+						<span>{slotIssue.message}</span>
+					</p>
+					<div className="flex flex-wrap gap-2">
+						<button
+							type="button"
+							onClick={retryIssue}
+							disabled={busy}
+							className="inline-flex min-h-11 touch-manipulation items-center rounded-md border border-current px-3 font-medium transition-colors not-disabled:hover:bg-nova-red/10 disabled:cursor-not-allowed disabled:opacity-40"
+						>
+							Retry
+						</button>
+						<button
+							type="button"
+							onClick={clear}
+							disabled={busy}
+							className="inline-flex min-h-11 touch-manipulation items-center rounded-md px-3 font-medium transition-colors not-disabled:hover:bg-nova-red/10 disabled:cursor-not-allowed disabled:opacity-40"
+						>
+							Remove {field.kind === "signature" ? "signature" : "attachment"}
+						</button>
+					</div>
+				</div>
+			) : null}
+
+			{error && !slotIssue ? (
 				<p
 					id={errorId}
 					role="alert"
@@ -639,7 +761,7 @@ function AttachmentControl({
 				</p>
 			) : null}
 
-			{showError && !error ? (
+			{showError && !error && !slotIssue ? (
 				<p id={validationId} role="alert" className="text-xs text-nova-red">
 					{state.errorMessage ?? "This question needs an attachment."}
 				</p>

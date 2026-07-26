@@ -85,6 +85,7 @@ export function GroupField({
 	const { toggleCollapse, isCollapsed } = useFormLayout();
 	const collapsed = isCollapsed(field.uuid);
 	const headerId = useId();
+	const contentId = useId();
 	const toggleActionId = useId();
 	const childContext = [accessibleContext, headerId].filter(Boolean).join(" ");
 
@@ -117,6 +118,8 @@ export function GroupField({
 							type="button"
 							onClick={onToggle}
 							className="inline-flex min-h-11 min-w-11 touch-manipulation items-center justify-center rounded text-nova-text-muted transition-colors hover:text-nova-text"
+							aria-expanded={!collapsed}
+							aria-controls={contentId}
 							aria-labelledby={[toggleActionId, accessibleContext, headerId]
 								.filter(Boolean)
 								.join(" ")}
@@ -162,7 +165,7 @@ export function GroupField({
 			{/* ── Rails + children ─────────────────────────────────────── */}
 			{!collapsed && (
 				<>
-					<div className="relative">
+					<div id={contentId} className="relative">
 						{/* Nesting rail — absolute L/R borders spanning from just
 						 *  below the header to just above the close cap. Positioned
 						 *  via inline style so it tracks the depth-padded column
@@ -200,6 +203,7 @@ export function GroupField({
 					</div>
 				</>
 			)}
+			{collapsed ? <div id={contentId} hidden /> : null}
 		</>
 	);
 }

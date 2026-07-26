@@ -9,10 +9,13 @@ import {
 	clearAttachmentNotReady,
 	clearSignatureDraft,
 	getSignatureDraft,
+	getSignatureEncodedGeometry,
 	isAttachmentTaskAbort,
 	markAttachmentNotReady,
 	rememberSignatureDraft,
+	rememberSignatureEncodedGeometry,
 	runAttachmentTask,
+	type SignatureCanvasGeometry,
 	type SignaturePoint,
 } from "./attachmentClient";
 
@@ -33,8 +36,8 @@ import {
  * reachable and describable. This is the honest limit of the interaction
  * — a signature is a physical gesture — and it matches the device, where
  * the canvas is equally pointer-only. What must NOT happen is the pad
- * silently swallowing focus with no way out, which is why it is not
- * focusable itself.
+ * silently swallowing focus with no way out, so it is focusable and followed
+ * by ordinary keyboard actions.
  *
  * ## What happens on a resize
  *
@@ -60,6 +63,9 @@ interface SignaturePadProps {
 	 * commits; new ink must not race behind it. */
 	readonly interactionBlocked?: boolean;
 	readonly hasAnswer: boolean;
+	readonly needsAttention?: boolean;
+	/** Parent-owned retry intent. Incrementing it re-encodes retained ink. */
+	readonly retryRevision?: number;
 	readonly required?: boolean;
 	readonly invalid?: boolean;
 	readonly statusId?: string;
@@ -94,6 +100,21 @@ interface SignaturePadProps {
 const SIGNATURE_SETTLE_MS = 700;
 
 type Point = SignaturePoint;
+
+function sameGeometry(
+	left: SignatureCanvasGeometry | undefined,
+	right: SignatureCanvasGeometry | undefined,
+): boolean {
+	return (
+		left !== undefined &&
+		right !== undefined &&
+		left.cssWidth === right.cssWidth &&
+		left.cssHeight === right.cssHeight &&
+		left.devicePixelRatio === right.devicePixelRatio &&
+		left.backingWidth === right.backingWidth &&
+		left.backingHeight === right.backingHeight
+	);
+}
 
 function abortReason(signal: AbortSignal): unknown {
 	return signal.reason ?? new DOMException("Aborted", "AbortError");
@@ -150,6 +171,8 @@ export function SignaturePad({
 	queued = false,
 	interactionBlocked = false,
 	hasAnswer,
+	needsAttention = false,
+	retryRevision = 0,
 	required = false,
 	invalid = false,
 	statusId,
@@ -173,10 +196,12 @@ export function SignaturePad({
 	const drawingRef = useRef(false);
 	/** Fences `canvas.toBlob` callbacks, which cannot themselves be aborted. */
 	const renderGenerationRef = useRef(0);
-	const canvasSizeRef = useRef<{ width: number; height: number } | undefined>(
+	const canvasSizeRef = useRef<SignatureCanvasGeometry | undefined>(undefined);
+	const pendingGeometryRef = useRef<SignatureCanvasGeometry | undefined>(
 		undefined,
 	);
 	const scheduleEmitRef = useRef<(settleMs?: number) => void>(() => undefined);
+	const retryRevisionRef = useRef(retryRevision);
 	const identityRef = useRef({ entryKey, slotKey: coordinationKey });
 	/**
 	 * The strokes the last Clear removed, kept so it can be undone.
@@ -210,13 +235,18 @@ export function SignaturePad({
 		if (!canvas || !ctx) return;
 		const ratio = window.devicePixelRatio || 1;
 		const { width, height } = canvas.getBoundingClientRect();
-		canvasSizeRef.current = { width, height };
-		if (
-			canvas.width !== Math.round(width * ratio) ||
-			canvas.height !== Math.round(height * ratio)
-		) {
-			canvas.width = Math.round(width * ratio);
-			canvas.height = Math.round(height * ratio);
+		const backingWidth = Math.round(width * ratio);
+		const backingHeight = Math.round(height * ratio);
+		canvasSizeRef.current = {
+			cssWidth: width,
+			cssHeight: height,
+			devicePixelRatio: ratio,
+			backingWidth,
+			backingHeight,
+		};
+		if (canvas.width !== backingWidth || canvas.height !== backingHeight) {
+			canvas.width = backingWidth;
+			canvas.height = backingHeight;
 		}
 		ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
 		ctx.clearRect(0, 0, width, height);
@@ -244,13 +274,14 @@ export function SignaturePad({
 
 	useEffect(() => {
 		const redrawForResize = () => {
-			const previous = canvasSizeRef.current;
 			redraw();
 			const next = canvasSizeRef.current;
+			const encoded = getSignatureEncodedGeometry(entryKey, coordinationKey);
+			const previousEncodingGeometry = pendingGeometryRef.current ?? encoded;
 			if (
-				previous === undefined ||
 				next === undefined ||
-				(previous.width === next.width && previous.height === next.height) ||
+				previousEncodingGeometry === undefined ||
+				sameGeometry(previousEncodingGeometry, next) ||
 				strokesRef.current.length === 0 ||
 				drawingRef.current
 			) {
@@ -262,6 +293,7 @@ export function SignaturePad({
 			// ResizeObserver notifications for the same resize.
 			cancelAttachmentTask(entryKey, coordinationKey);
 			renderGenerationRef.current += 1;
+			pendingGeometryRef.current = next;
 			markAttachmentNotReady(
 				entryKey,
 				coordinationKey,
@@ -299,6 +331,7 @@ export function SignaturePad({
 		clearAttachmentNotReady(previous.entryKey, previous.slotKey);
 		renderGenerationRef.current += 1;
 		drawingRef.current = false;
+		pendingGeometryRef.current = undefined;
 		identityRef.current = { entryKey, slotKey: coordinationKey };
 		strokesRef.current = getSignatureDraft(entryKey, coordinationKey);
 		clearedRef.current = undefined;
@@ -307,8 +340,9 @@ export function SignaturePad({
 		setClearPending(false);
 		setSaveIntent("idle");
 		setEmpty(strokesRef.current.length === 0);
+		retryRevisionRef.current = retryRevision;
 		redraw();
-	}, [entryKey, coordinationKey, redraw]);
+	}, [entryKey, coordinationKey, redraw, retryRevision]);
 
 	useEffect(() => {
 		if (!hasAnswer) {
@@ -337,6 +371,7 @@ export function SignaturePad({
 			if (!canvas) return;
 			const generation = ++renderGenerationRef.current;
 			const scheduledIdentity = { entryKey, slotKey: coordinationKey };
+			pendingGeometryRef.current = canvasSizeRef.current;
 			setSaveIntent("queued");
 			void runAttachmentTask({
 				entryKey,
@@ -349,6 +384,11 @@ export function SignaturePad({
 						} else {
 							context.signal.throwIfAborted();
 						}
+						// Read CSS size, DPR, and backing dimensions at the actual
+						// encoding boundary. A DPR change can happen without a
+						// material CSS resize, including while the debounce waits.
+						redraw();
+						const encodedGeometry = canvasSizeRef.current;
 						const blob = await signatureBlob(canvas, context.signal);
 						if (
 							!context.isCurrent() ||
@@ -371,7 +411,16 @@ export function SignaturePad({
 							new File([blob], "signature.png", { type: "image/png" }),
 							context,
 						);
-						if (context.isCurrent()) {
+						if (
+							context.isCurrent() &&
+							generation === renderGenerationRef.current &&
+							encodedGeometry !== undefined
+						) {
+							rememberSignatureEncodedGeometry(
+								entryKey,
+								coordinationKey,
+								encodedGeometry,
+							);
 							clearAttachmentNotReady(entryKey, coordinationKey);
 						}
 					} catch (error) {
@@ -380,7 +429,10 @@ export function SignaturePad({
 							"The signature couldn't be saved. Clear it or draw it again before submitting.",
 						);
 					} finally {
-						if (context.isCurrent()) setSaveIntent("idle");
+						if (context.isCurrent()) {
+							pendingGeometryRef.current = undefined;
+							setSaveIntent("idle");
+						}
 					}
 				},
 			}).catch((error: unknown) => {
@@ -390,9 +442,27 @@ export function SignaturePad({
 				);
 			});
 		},
-		[entryKey, coordinationKey, onDrawn, onEncodingError],
+		[entryKey, coordinationKey, onDrawn, onEncodingError, redraw],
 	);
 	scheduleEmitRef.current = scheduleEmit;
+
+	useEffect(() => {
+		if (retryRevisionRef.current === retryRevision) return;
+		retryRevisionRef.current = retryRevision;
+		if (strokesRef.current.length === 0) {
+			onEncodingError?.(
+				"The signature couldn't be saved. Clear it or draw it again before submitting.",
+			);
+			return;
+		}
+		markAttachmentNotReady(
+			entryKey,
+			coordinationKey,
+			"The signature retry is still being saved.",
+		);
+		pendingGeometryRef.current = canvasSizeRef.current;
+		scheduleEmitRef.current(0);
+	}, [coordinationKey, entryKey, onEncodingError, retryRevision]);
 
 	const clear = useCallback(() => {
 		if (
@@ -409,6 +479,7 @@ export function SignaturePad({
 		cancelAttachmentTask(entryKey, coordinationKey);
 		clearAttachmentNotReady(entryKey, coordinationKey);
 		renderGenerationRef.current += 1;
+		pendingGeometryRef.current = undefined;
 		setSaveIntent("idle");
 		clearedRef.current =
 			strokesRef.current.length > 0 ? strokesRef.current : undefined;
@@ -460,9 +531,11 @@ export function SignaturePad({
 					? "Waiting to clear signature…"
 					: cleared
 						? "Signature cleared."
-						: hasAnswer
-							? "Signature saved."
-							: "Sign above.";
+						: needsAttention
+							? "Signature needs attention."
+							: hasAnswer
+								? "Signature saved."
+								: "Sign above.";
 
 	return (
 		<div className="space-y-2">
@@ -491,6 +564,7 @@ export function SignaturePad({
 					// No disabled check: the surface stays live even while an
 					// upload is in flight, so a worker can keep signing.
 					cancelAttachmentTask(entryKey, coordinationKey);
+					pendingGeometryRef.current = undefined;
 					setSaveIntent("idle");
 					markAttachmentNotReady(
 						entryKey,
@@ -572,7 +646,7 @@ export function SignaturePad({
 									? `${undoActionId} ${effectiveLabelledBy}`
 									: undefined
 							}
-							className="inline-flex min-h-12 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-nova-violet-bright transition-colors hover:text-nova-text"
+							className="inline-flex min-h-12 touch-manipulation items-center gap-1.5 rounded-md px-2 text-xs font-medium text-nova-violet-bright transition-colors not-disabled:hover:text-nova-text disabled:cursor-not-allowed disabled:opacity-40"
 						>
 							<Icon
 								icon={tablerArrowBackUp}
@@ -596,7 +670,7 @@ export function SignaturePad({
 							? `${clearActionId} ${effectiveLabelledBy}`
 							: undefined
 					}
-					className="inline-flex min-h-12 items-center gap-2 rounded-md border border-pv-input-border bg-pv-surface px-4 text-sm font-medium text-nova-text transition-colors not-disabled:hover:border-pv-input-focus disabled:opacity-40"
+					className="inline-flex min-h-12 touch-manipulation items-center gap-2 rounded-md border border-pv-input-border bg-pv-surface px-4 text-sm font-medium text-nova-text transition-colors not-disabled:hover:border-pv-input-focus disabled:cursor-not-allowed disabled:opacity-40"
 				>
 					<Icon icon={tablerX} width="16" height="16" aria-hidden="true" />
 					<span id={clearActionId}>Clear signature</span>

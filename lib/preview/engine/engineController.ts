@@ -55,6 +55,7 @@ import {
 	type CaseDataByType,
 	FormEngine,
 	type FormEngineInput,
+	type InvalidFieldTarget,
 } from "./formEngine";
 import { type ResolvedPreviewIdentity, samePreviewIdentity } from "./identity";
 import type { PreviewLookupData } from "./lookupEvaluation";
@@ -660,6 +661,11 @@ export class EngineController {
 		 * Sync all paths but only write those that actually changed. */
 		this.syncAllPathsSelectively();
 		return result;
+	}
+
+	/** First invalid runtime question plus the collapsed ancestors that hide it. */
+	firstInvalidFieldTarget(): InvalidFieldTarget | undefined {
+		return this.engine?.firstInvalidFieldTarget();
 	}
 
 	/** Submission-time disposition of one concrete capture path. */

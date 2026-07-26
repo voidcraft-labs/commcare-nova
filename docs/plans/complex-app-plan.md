@@ -773,6 +773,13 @@ move protocol blocks under the app lock whenever capture rows or submission
 intents exist, because no partial move may strand their rows or bytes in the
 source tenant.
 
+Initiate is also a lifecycle boundary: once POST has minted a pending row, a
+failed/aborted signed PUT or confirm schedules a bounded compensating DELETE.
+That cleanup, replacement cleanup, explicit removal, repeat deletion, and entry
+retirement are all detached from the entry's critical mutation queue. A slow or
+hung DELETE can therefore leave only an expiring orphan; it can never hold a
+confirmed replacement, answer clear, or Submit behind it.
+
 Nova diverges from the platform in exactly two places, both toward correctness:
 
 - **Only named attachments ride the submission.** The real runtime enumerates
@@ -808,25 +815,56 @@ ordinary upload path) rather than a confirm, per the contracts' preference
 for undo over confirm-then-destroy. The real protection on both is the
 ordering — answer first, bytes second — not a prompt.
 
-The preview control is device-faithful: a filename and a Clear button, no
-thumbnail, no playback, no way to reopen the file — what `entry_file.html`
-shows, and Formplayer declares no route serving a staged capture back. The
-preview could render a thumbnail, which is why it must not; an author laying out
-a form against a preview that confirms attachments would ship a form whose
-workers cannot. The filename lives in component state and dies with the page,
-the same lifetime `form_ui.js`'s in-memory `fileNameCache` gives it.
+The preview control is device-faithful: a filename and one visible removal
+action (Nova says **Remove**, where `entry_file.html` says **Clear**), no
+thumbnail, no playback, no way to reopen the file — and Formplayer declares no
+route serving a staged capture back. The preview could render a thumbnail,
+which is why it must not; an author laying out a form against a preview that
+confirms attachments would ship a form whose workers cannot. The filename lives
+in the entry's stable-slot registry, so
+relevance, collapse, repeat compaction, and Preview/Edit remounts do not erase it;
+it still dies with the page/entry, the same lifetime `form_ui.js`'s in-memory
+`fileNameCache` gives it. Action rows wrap at compact widths, arbitrary filenames
+break rather than overflow, and every Submit/Clear/Retry/Remove action retains at
+least a 44 CSS-pixel target.
 
 **The preview does not resume a partially-filled form** — nothing persists
 runtime answers and `deactivate` wipes the store — so the entry key is minted
 per `activateForm` and lives on the `EngineController`, not the engine. It
 survives cold identity/lookup/case-data rebuilds and rotates only for a genuine
 new activation or concrete worker. Capture mutations share one entry-wide
-serialized queue; Submit and Clear are barriers, same-path replacement is
-latest-wins, repeat instances keep stable render keys through index compaction,
-and signature `toBlob` callbacks are generation-fenced. That also means the runtime's
-blank-pad-over-live-signature behavior has no Nova counterpart to be faithful
-to; the comment on `EngineController.currentEntryKey` is where a future resume
-story will need to carry the key forward and leave the pad blank.
+serialized queue; same-slot replacement is latest-wins, but deletion is never
+queue-critical. Submit classifies every known/running capture **before** it joins
+the queue, then keeps reclassifying while it waits: signal-aware work for a
+dormant question is cancelled without losing its draft/diagnostic, removed work
+is retired, and only effectively visible `notReady` state can block. This
+preflight includes queued retarget maintenance, so a hidden or removed question
+cannot starve Submit behind a never-settling upload or PATCH.
+
+Repeat instances keep stable render keys through index compaction. A failed
+retarget is recoverable, not destructive: the confirmed row, answer, filename,
+signature ink, desired path, and a generation-tagged blocker remain owned by the
+slot. The control keeps the exact actionable error across ordinary remounts and
+offers Retry plus the kind-appropriate replacement gesture or Remove. Retry
+compare-and-sets the retained row in place; a newer replacement/drawing
+generation wins and clears only the older diagnostic. No failed retarget deletes
+the only recoverable row or silently submits it under the wrong path.
+
+Signature strokes and the last successfully encoded CSS dimensions, device pixel
+ratio, and backing-store dimensions live together in stable draft state. A
+material change — including DPR-only change or a remount at a different width —
+generation-fences stale `toBlob` callbacks, redraws normalized ink, and re-encodes
+before Submit. A failed encode/upload retains both ink and an actionable
+Retry/Remove error across remounts. Clear is an explicit newer intent even during
+an active upload: it cancels that generation and composes exactly one queued
+answer-clear transition. Invalid Submit expands every collapsed group/repeat
+ancestor, announces the validation failure, scrolls the first invalid question,
+and focuses its actual control (including the signature canvas).
+
+Those rules also mean the runtime's blank-pad-over-live-signature behavior has
+no Nova counterpart to be faithful to; the comment on
+`EngineController.currentEntryKey` is where a future resume story will need to
+carry the key forward and leave the pad blank.
 
 ### Export and HQ upload
 

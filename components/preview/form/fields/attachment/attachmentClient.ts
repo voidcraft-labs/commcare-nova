@@ -38,6 +38,7 @@ interface EntryQueue {
 	tail: Promise<void>;
 	pending: number;
 	readonly paths: Map<string, PathTask>;
+	readonly maintenance: Map<string, Set<AbortController>>;
 	readonly generations: Map<string, number>;
 	readonly notReady: Map<string, string>;
 }
@@ -46,6 +47,9 @@ const entryQueues = new Map<string, EntryQueue>();
 
 interface AttachmentSlot {
 	readonly appId: string;
+	/** Worker-visible capture family. Retarget recovery copy differs for the
+	 * one drawn kind because "attach a replacement" is not its gesture. */
+	readonly captureKind?: string;
 	/** Engine path the stable slot currently projects onto. */
 	desiredInstancePath: string;
 	/** Confirmed row plus the path its immutable server row currently holds. */
@@ -53,12 +57,16 @@ interface AttachmentSlot {
 		readonly attachment: StagedAttachment;
 		instancePath: string;
 	};
-	/**
-	 * A retarget failure asked the engine to clear this answer. Consuming the
-	 * marker lets the mounted control distinguish that coordinator clear from
-	 * a user/reset clear, so it does not abort a newer queued replacement.
-	 */
-	coordinatorAnswerClearGeneration?: number;
+	/** Recoverable, entry-local failure retained across ordinary remounts. */
+	issue?: AttachmentSlotIssue;
+	/** Generation that established `issue`; diagnostics from older work may
+	 * never clear a newer replacement/save. */
+	issueGeneration?: number;
+}
+
+export interface AttachmentSlotIssue {
+	readonly kind: "retarget" | "save";
+	readonly message: string;
 }
 
 /**
@@ -79,7 +87,32 @@ export interface SignaturePoint {
 	readonly y: number;
 }
 
-const signatureDrafts = new Map<string, Map<string, SignaturePoint[][]>>();
+export interface SignatureCanvasGeometry {
+	readonly cssWidth: number;
+	readonly cssHeight: number;
+	readonly devicePixelRatio: number;
+	readonly backingWidth: number;
+	readonly backingHeight: number;
+}
+
+interface SignatureDraftState {
+	strokes: SignaturePoint[][];
+	encodedGeometry?: SignatureCanvasGeometry;
+}
+
+const signatureDrafts = new Map<string, Map<string, SignatureDraftState>>();
+const attachmentIssueListeners = new Map<string, Set<() => void>>();
+
+const ATTACHMENT_CLEANUP_TIMEOUT_MS = 10_000;
+const BARRIER_RECLASSIFY_MS = 25;
+
+interface DetachedAttachmentCleanup {
+	readonly controller: AbortController;
+	readonly timeoutId: ReturnType<typeof setTimeout>;
+	completion: Promise<void>;
+}
+
+const detachedAttachmentCleanups = new Set<DetachedAttachmentCleanup>();
 
 function taskKey(args: {
 	readonly slotKey?: string;
@@ -101,6 +134,113 @@ function slotsFor(entryKey: string): Map<string, AttachmentSlot> {
 	return entry;
 }
 
+function notifyAttachmentIssues(entryKey: string): void {
+	for (const listener of attachmentIssueListeners.get(entryKey) ?? []) {
+		listener();
+	}
+}
+
+function retargetIssueFor(slot: AttachmentSlot): AttachmentSlotIssue {
+	return slot.captureKind === "signature"
+		? {
+				kind: "retarget",
+				message:
+					"This signature could not move with its repeat entry. Retry now, draw it again, or remove it.",
+			}
+		: {
+				kind: "retarget",
+				message:
+					"This attachment could not move with its repeat entry. Retry now, attach a replacement, or remove it.",
+			};
+}
+
+function setSlotIssue(
+	entryKey: string,
+	slotKey: string,
+	slot: AttachmentSlot,
+	issue: AttachmentSlotIssue,
+	generation: number,
+): void {
+	slot.issue = issue;
+	slot.issueGeneration = generation;
+	markAttachmentNotReady(entryKey, slotKey, issue.message);
+	notifyAttachmentIssues(entryKey);
+}
+
+function clearSlotIssue(
+	entryKey: string,
+	slotKey: string,
+	slot: AttachmentSlot,
+	options?: { kind?: AttachmentSlotIssue["kind"]; maximumGeneration?: number },
+): void {
+	if (slot.issue === undefined) return;
+	if (options?.kind !== undefined && slot.issue.kind !== options.kind) return;
+	if (
+		options?.maximumGeneration !== undefined &&
+		(slot.issueGeneration ?? 0) > options.maximumGeneration
+	) {
+		return;
+	}
+	slot.issue = undefined;
+	slot.issueGeneration = undefined;
+	clearAttachmentNotReady(entryKey, slotKey);
+	notifyAttachmentIssues(entryKey);
+}
+
+export function getAttachmentSlotIssue(args: {
+	appId: string;
+	entryKey: string;
+	slotKey: string;
+}): AttachmentSlotIssue | undefined {
+	const slot = attachmentSlots.get(args.entryKey)?.get(args.slotKey);
+	if (slot?.appId !== args.appId || slot.issue === undefined) return undefined;
+	return { ...slot.issue };
+}
+
+export function subscribeAttachmentSlotIssues(
+	entryKey: string,
+	listener: () => void,
+): () => void {
+	let listeners = attachmentIssueListeners.get(entryKey);
+	if (listeners === undefined) {
+		listeners = new Set();
+		attachmentIssueListeners.set(entryKey, listeners);
+	}
+	listeners.add(listener);
+	return () => {
+		listeners?.delete(listener);
+		if (listeners?.size === 0) attachmentIssueListeners.delete(entryKey);
+	};
+}
+
+export function setAttachmentSlotIssue(args: {
+	appId: string;
+	entryKey: string;
+	slotKey: string;
+	issue: AttachmentSlotIssue;
+}): void {
+	const slot = attachmentSlots.get(args.entryKey)?.get(args.slotKey);
+	if (slot?.appId !== args.appId) return;
+	const generation =
+		entryQueues.get(args.entryKey)?.generations.get(args.slotKey) ?? 0;
+	setSlotIssue(args.entryKey, args.slotKey, slot, args.issue, generation);
+}
+
+export function clearAttachmentSlotIssue(args: {
+	appId: string;
+	entryKey: string;
+	slotKey: string;
+	kind?: AttachmentSlotIssue["kind"];
+	maximumGeneration?: number;
+}): void {
+	const slot = attachmentSlots.get(args.entryKey)?.get(args.slotKey);
+	if (slot?.appId !== args.appId) return;
+	clearSlotIssue(args.entryKey, args.slotKey, slot, {
+		kind: args.kind,
+		maximumGeneration: args.maximumGeneration,
+	});
+}
+
 function queueFor(entryKey: string): EntryQueue {
 	let queue = entryQueues.get(entryKey);
 	if (queue === undefined) {
@@ -108,6 +248,7 @@ function queueFor(entryKey: string): EntryQueue {
 			tail: Promise.resolve(),
 			pending: 0,
 			paths: new Map(),
+			maintenance: new Map(),
 			generations: new Map(),
 			notReady: new Map(),
 		};
@@ -120,10 +261,34 @@ function releaseQueueIfIdle(entryKey: string, queue: EntryQueue): void {
 	if (
 		queue.pending === 0 &&
 		queue.paths.size === 0 &&
+		queue.maintenance.size === 0 &&
 		queue.notReady.size === 0
 	) {
 		entryQueues.delete(entryKey);
 	}
+}
+
+function enqueueSlotMaintenance<T>(
+	entryKey: string,
+	slotKey: string,
+	work: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+	const queue = queueFor(entryKey);
+	const controller = new AbortController();
+	let controllers = queue.maintenance.get(slotKey);
+	if (controllers === undefined) {
+		controllers = new Set();
+		queue.maintenance.set(slotKey, controllers);
+	}
+	controllers.add(controller);
+	return enqueue(entryKey, async () => {
+		controller.signal.throwIfAborted();
+		return work(controller.signal);
+	}).finally(() => {
+		controllers?.delete(controller);
+		if (controllers?.size === 0) queue.maintenance.delete(slotKey);
+		releaseQueueIfIdle(entryKey, queue);
+	});
 }
 
 function enqueue<T>(entryKey: string, work: () => Promise<T>): Promise<T> {
@@ -159,6 +324,11 @@ export function runAttachmentTask<T>(args: {
 	const key = taskKey(args);
 	const previous = queue.paths.get(key);
 	previous?.controller.abort();
+	// A worker's new slot intent also supersedes queued/running path
+	// maintenance. Otherwise an offline repeat-retarget PATCH could hold a
+	// confirmed replacement or new signature behind it indefinitely.
+	for (const controller of queue.maintenance.get(key) ?? []) controller.abort();
+	queue.maintenance.delete(key);
 	const generation = (queue.generations.get(key) ?? 0) + 1;
 	queue.generations.set(key, generation);
 	const current: PathTask = {
@@ -191,6 +361,10 @@ export function cancelAttachmentTask(entryKey: string, slotKey: string): void {
 	const current = queue?.paths.get(slotKey);
 	current?.controller.abort();
 	if (current !== undefined) queue?.paths.delete(slotKey);
+	for (const controller of queue?.maintenance.get(slotKey) ?? []) {
+		controller.abort();
+	}
+	queue?.maintenance.delete(slotKey);
 	if (queue !== undefined) releaseQueueIfIdle(entryKey, queue);
 }
 
@@ -199,7 +373,11 @@ export function cancelAttachmentEntry(entryKey: string): void {
 	const queue = entryQueues.get(entryKey);
 	if (queue === undefined) return;
 	for (const current of queue.paths.values()) current.controller.abort();
+	for (const controllers of queue.maintenance.values()) {
+		for (const controller of controllers) controller.abort();
+	}
 	queue.paths.clear();
+	queue.maintenance.clear();
 	queue.notReady.clear();
 	releaseQueueIfIdle(entryKey, queue);
 }
@@ -236,6 +414,36 @@ export interface FormAttachmentBarrierOptions {
 	}) => AttachmentSlotDisposition;
 }
 
+/**
+ * Cleanup is hygiene, never a correctness gate. Give the browser a bounded
+ * attempt and deliberately detach it from the entry queue; the row sweep and
+ * GCS lifecycle remain the durable backstop.
+ */
+export function scheduleAttachmentCleanup(args: {
+	appId: string;
+	attachmentId: string;
+}): void {
+	const controller = new AbortController();
+	const cleanup: DetachedAttachmentCleanup = {
+		controller,
+		timeoutId: setTimeout(
+			() => controller.abort(),
+			ATTACHMENT_CLEANUP_TIMEOUT_MS,
+		),
+		completion: Promise.resolve(),
+	};
+	cleanup.completion = discardAttachment({
+		...args,
+		signal: controller.signal,
+	})
+		.catch(() => undefined)
+		.finally(() => {
+			clearTimeout(cleanup.timeoutId);
+			detachedAttachmentCleanups.delete(cleanup);
+		});
+	detachedAttachmentCleanups.add(cleanup);
+}
+
 function retireAttachmentSlot(entryKey: string, slotKey: string): void {
 	const slots = attachmentSlots.get(entryKey);
 	const slot = slots?.get(slotKey);
@@ -244,12 +452,43 @@ function retireAttachmentSlot(entryKey: string, slotKey: string): void {
 	cancelAttachmentTask(entryKey, slotKey);
 	clearAttachmentNotReady(entryKey, slotKey);
 	clearSignatureDraft(entryKey, slotKey);
+	notifyAttachmentIssues(entryKey);
 	if (slot?.owned !== undefined) {
-		void discardAttachment({
+		scheduleAttachmentCleanup({
 			appId: slot.appId,
 			attachmentId: slot.owned.attachment.attachmentId,
-		}).catch(() => undefined);
+		});
 	}
+}
+
+function reconcileBarrierDispositions(
+	entryKey: string,
+	queue: EntryQueue,
+	options: FormAttachmentBarrierOptions | undefined,
+): ReadonlyMap<string, AttachmentSlotDisposition> {
+	const slots = attachmentSlots.get(entryKey);
+	const keys = new Set([
+		...(slots?.keys() ?? []),
+		...queue.paths.keys(),
+		...queue.maintenance.keys(),
+		...queue.notReady.keys(),
+	]);
+	const dispositions = new Map<string, AttachmentSlotDisposition>();
+	for (const slotKey of keys) {
+		const instancePath = slots?.get(slotKey)?.desiredInstancePath ?? slotKey;
+		const disposition =
+			options?.classifySlot({ slotKey, instancePath }) ?? "active";
+		dispositions.set(slotKey, disposition);
+		if (disposition === "removed") {
+			retireAttachmentSlot(entryKey, slotKey);
+		} else if (disposition === "dormant") {
+			// A dormant draft remains registered and not-ready. Only its
+			// signal-aware active work is cancelled so Submit cannot starve
+			// behind a question that no longer participates.
+			cancelAttachmentTask(entryKey, slotKey);
+		}
+	}
+	return dispositions;
 }
 
 /**
@@ -263,25 +502,26 @@ export function runFormAttachmentBarrier<T>(
 	options?: FormAttachmentBarrierOptions,
 ): Promise<T> {
 	const queue = queueFor(entryKey);
+	// Classification must happen before the barrier joins the tail: otherwise
+	// a signal-aware task for a now-hidden/removed slot can sit ahead of Submit
+	// forever and the code that would abort it is itself waiting behind it.
+	reconcileBarrierDispositions(entryKey, queue, options);
+	const monitor =
+		options === undefined
+			? undefined
+			: setInterval(() => {
+					reconcileBarrierDispositions(entryKey, queue, options);
+				}, BARRIER_RECLASSIFY_MS);
 	return enqueue(entryKey, async () => {
-		const slots = attachmentSlots.get(entryKey);
-		const keys = new Set([...(slots?.keys() ?? []), ...queue.notReady.keys()]);
-		const dispositions = new Map<string, AttachmentSlotDisposition>();
-		for (const slotKey of keys) {
-			const instancePath = slots?.get(slotKey)?.desiredInstancePath ?? slotKey;
-			const disposition =
-				options?.classifySlot({ slotKey, instancePath }) ?? "active";
-			dispositions.set(slotKey, disposition);
-			if (disposition === "removed") {
-				retireAttachmentSlot(entryKey, slotKey);
-			}
-		}
+		const dispositions = reconcileBarrierDispositions(entryKey, queue, options);
 		for (const [slotKey, message] of queue.notReady) {
 			if ((dispositions.get(slotKey) ?? "active") === "active") {
 				throw new AttachmentNotReadyError(message);
 			}
 		}
 		return task();
+	}).finally(() => {
+		if (monitor !== undefined) clearInterval(monitor);
 	});
 }
 
@@ -292,20 +532,24 @@ export function registerAttachmentSlotPath(args: {
 	entryKey: string;
 	slotKey: string;
 	instancePath: string;
+	captureKind?: string;
 }): void {
 	const slots = slotsFor(args.entryKey);
 	const current = slots.get(args.slotKey);
 	slots.set(args.slotKey, {
 		appId: args.appId,
+		captureKind:
+			current?.appId === args.appId
+				? (args.captureKind ?? current.captureKind)
+				: args.captureKind,
 		desiredInstancePath: args.instancePath,
 		...(current?.appId === args.appId && current.owned !== undefined
 			? { owned: current.owned }
 			: {}),
-		...(current?.appId === args.appId &&
-		current.coordinatorAnswerClearGeneration !== undefined
+		...(current?.appId === args.appId && current.issue !== undefined
 			? {
-					coordinatorAnswerClearGeneration:
-						current.coordinatorAnswerClearGeneration,
+					issue: current.issue,
+					issueGeneration: current.issueGeneration,
 				}
 			: {}),
 	});
@@ -334,6 +578,8 @@ export function rememberOwnedStagedAttachment(args: {
 	const current = slots.get(key);
 	slots.set(key, {
 		appId: args.appId,
+		captureKind:
+			current?.appId === args.appId ? current.captureKind : undefined,
 		desiredInstancePath:
 			current?.appId === args.appId
 				? current.desiredInstancePath
@@ -343,32 +589,8 @@ export function rememberOwnedStagedAttachment(args: {
 			instancePath: args.instancePath,
 		},
 	});
-}
-
-/**
- * Consume the one-shot marker paired with a retarget-failure answer clear.
- * The marker never crosses entry/app scope and a confirmed replacement
- * clears it before projecting its new answer.
- */
-export function consumeCoordinatorAttachmentAnswerClear(args: {
-	appId: string;
-	entryKey: string;
-	slotKey: string;
-}): { readonly preserveNewerTask: boolean } | undefined {
-	const slot = attachmentSlots.get(args.entryKey)?.get(args.slotKey);
-	if (
-		slot?.appId !== args.appId ||
-		slot.coordinatorAnswerClearGeneration === undefined
-	) {
-		return undefined;
-	}
-	const failedGeneration = slot.coordinatorAnswerClearGeneration;
-	slot.coordinatorAnswerClearGeneration = undefined;
-	return {
-		preserveNewerTask:
-			(entryQueues.get(args.entryKey)?.generations.get(args.slotKey) ?? 0) >
-			failedGeneration,
-	};
+	clearAttachmentNotReady(args.entryKey, key);
+	notifyAttachmentIssues(args.entryKey);
 }
 
 export function getOwnedStagedAttachment(args: {
@@ -388,9 +610,10 @@ export function forgetOwnedStagedAttachment(args: {
 	instancePath?: string;
 }): StagedAttachment | undefined {
 	const slot = attachmentSlots.get(args.entryKey)?.get(taskKey(args));
-	if (slot?.appId !== args.appId || slot.owned === undefined) return undefined;
-	const attachment = slot.owned.attachment;
+	if (slot?.appId !== args.appId) return undefined;
+	const attachment = slot.owned?.attachment;
 	slot.owned = undefined;
+	clearSlotIssue(args.entryKey, taskKey(args), slot);
 	return attachment;
 }
 
@@ -424,7 +647,6 @@ export async function reconcileAttachmentRepeatCompaction(args: {
 	appId: string;
 	entryKey: string;
 	compaction: AttachmentRepeatCompaction;
-	onRetargetFailure?: (failure: AttachmentRetargetFailure) => void;
 }): Promise<readonly AttachmentRetargetFailure[]> {
 	const slots = attachmentSlots.get(args.entryKey);
 	if (slots === undefined) return [];
@@ -434,22 +656,7 @@ export async function reconcileAttachmentRepeatCompaction(args: {
 		if (slot.appId !== args.appId) continue;
 		const currentPath = slot.desiredInstancePath;
 		if (descendantPath(currentPath, args.compaction.removedPrefix)) {
-			const owned = slot.owned?.attachment;
-			slots.delete(slotKey);
-			cancelAttachmentTask(args.entryKey, slotKey);
-			clearAttachmentNotReady(args.entryKey, slotKey);
-			clearSignatureDraft(args.entryKey, slotKey);
-			if (owned !== undefined) {
-				jobs.push(
-					enqueue(args.entryKey, async () => {
-						await discardAttachment({
-							appId: args.appId,
-							attachmentId: owned.attachmentId,
-						}).catch(() => undefined);
-						return undefined;
-					}),
-				);
-			}
+			retireAttachmentSlot(args.entryKey, slotKey);
 			continue;
 		}
 
@@ -460,10 +667,8 @@ export async function reconcileAttachmentRepeatCompaction(args: {
 		slot.desiredInstancePath = `${move.toPrefix}${currentPath.slice(
 			move.fromPrefix.length,
 		)}`;
-		const scheduledGeneration =
-			queueFor(args.entryKey).generations.get(slotKey) ?? 0;
 		jobs.push(
-			enqueue(args.entryKey, async () => {
+			enqueueSlotMaintenance(args.entryKey, slotKey, async (signal) => {
 				const live = attachmentSlots.get(args.entryKey)?.get(slotKey);
 				if (live?.appId !== args.appId || live.owned === undefined) {
 					return undefined;
@@ -478,30 +683,43 @@ export async function reconcileAttachmentRepeatCompaction(args: {
 						attachmentId: attachment.attachmentId,
 						expectedInstancePath: expected,
 						instancePath: target,
+						signal,
 					});
 					const latest = attachmentSlots
 						.get(args.entryKey)
 						?.get(slotKey)?.owned;
 					if (latest?.attachment.attachmentId === attachment.attachmentId) {
 						latest.instancePath = target;
+						const latestSlot = attachmentSlots.get(args.entryKey)?.get(slotKey);
+						if (latestSlot !== undefined) {
+							clearSlotIssue(args.entryKey, slotKey, latestSlot, {
+								kind: "retarget",
+							});
+						}
 					}
 					return undefined;
-				} catch {
+				} catch (error) {
+					if (isAttachmentTaskAbort(error)) throw error;
 					const latest = attachmentSlots.get(args.entryKey)?.get(slotKey);
 					if (
 						latest?.owned?.attachment.attachmentId === attachment.attachmentId
 					) {
-						latest.owned = undefined;
-						latest.coordinatorAnswerClearGeneration = scheduledGeneration;
+						const generation =
+							entryQueues.get(args.entryKey)?.generations.get(slotKey) ?? 0;
+						setSlotIssue(
+							args.entryKey,
+							slotKey,
+							latest,
+							retargetIssueFor(latest),
+							generation,
+						);
 					}
-					void discardAttachment({
-						appId: args.appId,
-						attachmentId: attachment.attachmentId,
-					}).catch(() => undefined);
 					const failure = { slotKey, instancePath: target };
-					args.onRetargetFailure?.(failure);
 					return failure;
 				}
+			}).catch((error: unknown) => {
+				if (isAttachmentTaskAbort(error)) return undefined;
+				throw error;
 			}),
 		);
 	}
@@ -509,6 +727,77 @@ export async function reconcileAttachmentRepeatCompaction(args: {
 	return (await Promise.all(jobs)).filter(
 		(failure): failure is AttachmentRetargetFailure => failure !== undefined,
 	);
+}
+
+/**
+ * Retry the exact retained row/path CAS after a recoverable compaction failure.
+ * The operation is a normal slot generation, so a replacement chosen afterward
+ * aborts/fences it and becomes the only owner.
+ */
+export async function retryAttachmentRetarget(args: {
+	appId: string;
+	entryKey: string;
+	slotKey: string;
+}): Promise<void> {
+	await runAttachmentTask({
+		entryKey: args.entryKey,
+		slotKey: args.slotKey,
+		task: async (context) => {
+			const slot = attachmentSlots.get(args.entryKey)?.get(args.slotKey);
+			if (slot?.appId !== args.appId || slot.owned === undefined) {
+				throw new AttachmentRejected(
+					"This attachment is no longer available. Attach a replacement or remove it.",
+				);
+			}
+			const attachmentId = slot.owned.attachment.attachmentId;
+			const expectedInstancePath = slot.owned.instancePath;
+			const instancePath = slot.desiredInstancePath;
+			if (expectedInstancePath === instancePath) {
+				clearSlotIssue(args.entryKey, args.slotKey, slot, {
+					kind: "retarget",
+					maximumGeneration: context.generation,
+				});
+				return;
+			}
+			try {
+				await retargetAttachment({
+					appId: args.appId,
+					attachmentId,
+					expectedInstancePath,
+					instancePath,
+					signal: context.signal,
+				});
+			} catch (error) {
+				if (isAttachmentTaskAbort(error) || !context.isCurrent()) throw error;
+				const latest = attachmentSlots.get(args.entryKey)?.get(args.slotKey);
+				if (
+					latest?.appId === args.appId &&
+					latest.owned?.attachment.attachmentId === attachmentId
+				) {
+					setSlotIssue(
+						args.entryKey,
+						args.slotKey,
+						latest,
+						retargetIssueFor(latest),
+						context.generation,
+					);
+				}
+				throw error;
+			}
+			if (!context.isCurrent()) return;
+			const latest = attachmentSlots.get(args.entryKey)?.get(args.slotKey);
+			if (
+				latest?.appId === args.appId &&
+				latest.owned?.attachment.attachmentId === attachmentId
+			) {
+				latest.owned.instancePath = instancePath;
+				clearSlotIssue(args.entryKey, args.slotKey, latest, {
+					kind: "retarget",
+					maximumGeneration: context.generation,
+				});
+			}
+		},
+	});
 }
 
 export function getSignatureDraft(
@@ -519,7 +808,7 @@ export function getSignatureDraft(
 		signatureDrafts
 			.get(entryKey)
 			?.get(instancePath)
-			?.map((stroke) => stroke.map((point) => ({ ...point }))) ?? []
+			?.strokes.map((stroke) => stroke.map((point) => ({ ...point }))) ?? []
 	);
 }
 
@@ -533,10 +822,42 @@ export function rememberSignatureDraft(
 		entry = new Map();
 		signatureDrafts.set(entryKey, entry);
 	}
-	entry.set(
-		instancePath,
-		strokes.map((stroke) => stroke.map((point) => ({ ...point }))),
-	);
+	const current = entry.get(instancePath);
+	entry.set(instancePath, {
+		strokes: strokes.map((stroke) => stroke.map((point) => ({ ...point }))),
+		...(current?.encodedGeometry === undefined
+			? {}
+			: { encodedGeometry: { ...current.encodedGeometry } }),
+	});
+}
+
+export function getSignatureEncodedGeometry(
+	entryKey: string,
+	instancePath: string,
+): SignatureCanvasGeometry | undefined {
+	const geometry = signatureDrafts
+		.get(entryKey)
+		?.get(instancePath)?.encodedGeometry;
+	return geometry === undefined ? undefined : { ...geometry };
+}
+
+export function rememberSignatureEncodedGeometry(
+	entryKey: string,
+	instancePath: string,
+	geometry: SignatureCanvasGeometry,
+): void {
+	let entry = signatureDrafts.get(entryKey);
+	if (entry === undefined) {
+		entry = new Map();
+		signatureDrafts.set(entryKey, entry);
+	}
+	const current = entry.get(instancePath);
+	entry.set(instancePath, {
+		strokes:
+			current?.strokes.map((stroke) => stroke.map((point) => ({ ...point }))) ??
+			[],
+		encodedGeometry: { ...geometry },
+	});
 }
 
 export function clearSignatureDraft(
@@ -558,6 +879,7 @@ function detachAttachmentEntry(args: {
 }): string[] {
 	cancelAttachmentEntry(args.entryKey);
 	signatureDrafts.delete(args.entryKey);
+	attachmentIssueListeners.delete(args.entryKey);
 	const entry = attachmentSlots.get(args.entryKey);
 	attachmentSlots.delete(args.entryKey);
 	if (entry === undefined) return [];
@@ -582,9 +904,7 @@ export function retireAttachmentEntry(args: {
 	entryKey: string;
 }): void {
 	for (const attachmentId of detachAttachmentEntry(args)) {
-		void discardAttachment({ appId: args.appId, attachmentId }).catch(
-			() => undefined,
-		);
+		scheduleAttachmentCleanup({ appId: args.appId, attachmentId });
 	}
 }
 
@@ -603,14 +923,25 @@ export async function discardAttachmentEntry(args: {
 	);
 }
 
-/** Test-only process-local cleanup; never performs network I/O. */
-export function __resetAttachmentCoordinatorForTests(): void {
+/** Test-only process-local cleanup; never initiates network I/O. */
+export async function __resetAttachmentCoordinatorForTests(): Promise<void> {
 	for (const queue of entryQueues.values()) {
 		for (const path of queue.paths.values()) path.controller.abort();
+		for (const controllers of queue.maintenance.values()) {
+			for (const controller of controllers) controller.abort();
+		}
 	}
+	const detachedCleanups = [...detachedAttachmentCleanups];
+	for (const cleanup of detachedCleanups) {
+		clearTimeout(cleanup.timeoutId);
+		cleanup.controller.abort();
+	}
+	await Promise.all(detachedCleanups.map((cleanup) => cleanup.completion));
+	detachedAttachmentCleanups.clear();
 	entryQueues.clear();
 	attachmentSlots.clear();
 	signatureDrafts.clear();
+	attachmentIssueListeners.clear();
 }
 
 export function isAttachmentTaskAbort(error: unknown): boolean {
@@ -680,45 +1011,56 @@ export async function stageAttachment(args: {
 		},
 		signal,
 	);
-	signal?.throwIfAborted();
+	try {
+		signal?.throwIfAborted();
 
-	const put = await fetch(initiate.uploadUrl, {
-		method: "PUT",
-		headers: {
-			"Content-Type": initiate.uploadContentType,
-			...initiate.uploadHeaders,
-		},
-		body: file,
-		signal,
-	});
-	// A create-only retry can receive 412 after the first PUT actually landed
-	// but its response was lost. Confirm is the authority on that immutable
-	// generation, so let it distinguish success from a missing/mismatched body.
-	if (!put.ok && put.status !== 412) {
-		throw new AttachmentRejected(
-			"The upload didn't finish. Check your connection and attach the file again.",
+		const put = await fetch(initiate.uploadUrl, {
+			method: "PUT",
+			headers: {
+				"Content-Type": initiate.uploadContentType,
+				...initiate.uploadHeaders,
+			},
+			body: file,
+			signal,
+		});
+		// A create-only retry can receive 412 after the first PUT actually landed
+		// but its response was lost. Confirm is the authority on that immutable
+		// generation, so let it distinguish success from a missing/mismatched body.
+		if (!put.ok && put.status !== 412) {
+			throw new AttachmentRejected(
+				"The upload didn't finish. Check your connection and attach the file again.",
+			);
+		}
+		signal?.throwIfAborted();
+
+		const confirmed = await postJson<{
+			attachmentId: string;
+			attachmentName: string;
+			originalFilename: string;
+			sizeBytes: number;
+		}>(
+			`/api/apps/${encodeURIComponent(appId)}/attachments/${encodeURIComponent(
+				initiate.attachmentId,
+			)}`,
+			undefined,
+			signal,
 		);
+		return {
+			attachmentId: confirmed.attachmentId,
+			attachmentName: confirmed.attachmentName,
+			originalFilename: confirmed.originalFilename,
+			sizeBytes: confirmed.sizeBytes,
+		};
+	} catch (error) {
+		// POST minted a row, but no confirmed owner exists. Compensate outside
+		// the entry queue and never wait on DELETE: a failed/hung cleanup is an
+		// expiring orphan, not a reason to freeze the worker's form.
+		scheduleAttachmentCleanup({
+			appId,
+			attachmentId: initiate.attachmentId,
+		});
+		throw error;
 	}
-	signal?.throwIfAborted();
-
-	const confirmed = await postJson<{
-		attachmentId: string;
-		attachmentName: string;
-		originalFilename: string;
-		sizeBytes: number;
-	}>(
-		`/api/apps/${encodeURIComponent(appId)}/attachments/${encodeURIComponent(
-			initiate.attachmentId,
-		)}`,
-		undefined,
-		signal,
-	);
-	return {
-		attachmentId: confirmed.attachmentId,
-		attachmentName: confirmed.attachmentName,
-		originalFilename: confirmed.originalFilename,
-		sizeBytes: confirmed.sizeBytes,
-	};
 }
 
 /**
