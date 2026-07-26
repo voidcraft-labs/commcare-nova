@@ -8,6 +8,7 @@
 // inverse of `xpathPrintContext`'s ancestor-chain print, which is what
 // holds the round-trip law over resolved references.
 
+import { ownRecordValue } from "../records";
 import type { XPathPrintableDoc } from "./print";
 
 /** Resolve a full id path from a form root to a field uuid, or
@@ -69,8 +70,10 @@ export function fieldPathResolver(
 		let parent = formUuid;
 		let resolved: string | undefined;
 		for (const segment of segments) {
-			const children = doc.fieldOrder[parent] ?? [];
-			const next = children.find((uuid) => doc.fields[uuid]?.id === segment);
+			const children = ownRecordValue(doc.fieldOrder, parent) ?? [];
+			const next = children.find(
+				(uuid) => ownRecordValue(doc.fields, uuid)?.id === segment,
+			);
 			if (next === undefined) return undefined;
 			resolved = next;
 			parent = next;

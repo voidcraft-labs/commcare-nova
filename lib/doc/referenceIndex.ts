@@ -82,12 +82,15 @@ import {
 	type Form,
 	fieldCasePropertyOn,
 	fieldReferenceSlotsFor,
+	isOwnRecord,
 	isXPathExpression,
 	MODULE_REFERENCE_SLOTS,
 	type Module,
+	ownRecordValue,
 	type ReferenceIndex,
 	readSlotStrings,
 	readSlotValues,
+	recordFromEntries,
 	USER_PROPERTY_TARGET_PREFIX,
 	type Uuid,
 	userPropertyTargetKey,
@@ -111,18 +114,23 @@ import { findContainingForm, walkFormFieldUuids } from "./mutations/helpers";
 // ── Index primitives ────────────────────────────────────────────────
 
 function emptyReferenceIndex(): ReferenceIndex {
-	return { in: {}, out: {}, decl: {}, local: {}, ctx: {} };
+	return {
+		in: recordFromEntries([]),
+		out: recordFromEntries([]),
+		decl: recordFromEntries([]),
+		local: recordFromEntries([]),
+		ctx: recordFromEntries([]),
+	};
 }
 
 function isEmptyRecord(record: object): boolean {
-	for (const _ in record) return false;
-	return true;
+	return Object.keys(record).length === 0;
 }
 
 type SetBucket = Record<string, Record<string, true>>;
 
 function addToBucket(bucket: SetBucket, key: string, member: string): void {
-	const members = bucket[key] ?? {};
+	const members = ownRecordValue(bucket, key) ?? recordFromEntries<true>([]);
 	members[member] = true;
 	bucket[key] = members;
 }
@@ -135,7 +143,7 @@ function removeFromBucket(
 	key: string,
 	member: string,
 ): void {
-	const inner = bucket[key];
+	const inner = ownRecordValue(bucket, key);
 	if (!inner) return;
 	delete inner[member];
 	if (isEmptyRecord(inner)) delete bucket[key];
@@ -171,7 +179,7 @@ interface CarrierContext {
  * maintained buckets in O(1).
  */
 function carrierContext(doc: BlueprintDoc, carrier: string): CarrierContext {
-	const mod = doc.modules[carrier];
+	const mod = ownRecordValue(doc.modules, carrier);
 	if (mod) {
 		return {
 			moduleUuid: carrier as Uuid,
@@ -179,14 +187,16 @@ function carrierContext(doc: BlueprintDoc, carrier: string): CarrierContext {
 		};
 	}
 	let formUuid: Uuid | undefined;
-	if (doc.forms[carrier]) formUuid = carrier as Uuid;
-	else if (doc.fields[carrier]) {
+	if (ownRecordValue(doc.forms, carrier)) formUuid = carrier as Uuid;
+	else if (ownRecordValue(doc.fields, carrier)) {
 		formUuid = findContainingForm(doc, carrier as Uuid);
 	} else return {};
 	if (formUuid === undefined) return {};
 	const moduleUuid = resolveFormModule(doc, formUuid);
 	const moduleCaseType =
-		moduleUuid !== undefined ? doc.modules[moduleUuid]?.caseType : undefined;
+		moduleUuid !== undefined
+			? ownRecordValue(doc.modules, moduleUuid)?.caseType
+			: undefined;
 	return {
 		formUuid,
 		...(moduleUuid !== undefined && { moduleUuid }),
@@ -211,10 +221,10 @@ function resolveFormModule(
  * via its `out` mirror entry.
  */
 function unindexCarrier(index: ReferenceIndex, carrier: string): void {
-	const entry = index.out[carrier];
+	const entry = ownRecordValue(index.out, carrier);
 	if (!entry) return;
 	for (const target of Object.keys(entry.edges)) {
-		const byCarrier = index.in[target];
+		const byCarrier = ownRecordValue(index.in, target);
 		if (!byCarrier) continue;
 		delete byCarrier[carrier];
 		if (isEmptyRecord(byCarrier)) delete index.in[target];
@@ -242,11 +252,13 @@ function registerFieldDeclarations(
 	doc: BlueprintDoc,
 	carrier: string,
 ): void {
-	const field = doc.fields[carrier];
+	const field = ownRecordValue(doc.fields, carrier);
 	if (!field || field.id.length === 0) return;
 	const caseType = fieldCasePropertyOn(field);
 	if (caseType === undefined) return;
-	const entry = index.out[carrier] ?? { edges: {} };
+	const entry = ownRecordValue(index.out, carrier) ?? {
+		edges: recordFromEntries([]),
+	};
 	index.out[carrier] = entry;
 	const key = casePropertyDeclKey(caseType, field.id);
 	entry.decl = key;
@@ -261,7 +273,7 @@ function registerFormDeclarations(
 	doc: BlueprintDoc,
 	carrier: string,
 ): void {
-	const form = doc.forms[carrier];
+	const form = ownRecordValue(doc.forms, carrier);
 	if (!form) return;
 	const declarations = new Set<string>();
 	for (const operation of form.caseOperations ?? []) {
@@ -273,7 +285,9 @@ function registerFormDeclarations(
 		}
 	}
 	if (declarations.size === 0) return;
-	const entry = index.out[carrier] ?? { edges: {} };
+	const entry = ownRecordValue(index.out, carrier) ?? {
+		edges: recordFromEntries([]),
+	};
 	index.out[carrier] = entry;
 	entry.decls = [...declarations];
 	for (const declaration of declarations) {
@@ -295,19 +309,24 @@ function makeSink(
 	ctx: CarrierContext,
 ): EdgeSink {
 	const entry = () => {
-		const existing = index.out[carrier] ?? { edges: {} };
+		const existing = ownRecordValue(index.out, carrier) ?? {
+			edges: recordFromEntries([]),
+		};
 		index.out[carrier] = existing;
 		return existing;
 	};
 	return {
 		edge(targetKey, slot) {
 			const e = entry();
-			const slots = e.edges[targetKey] ?? {};
+			const slots =
+				ownRecordValue(e.edges, targetKey) ?? recordFromEntries<true>([]);
 			slots[slot] = true;
 			e.edges[targetKey] = slots;
-			const byCarrier = index.in[targetKey] ?? {};
+			const byCarrier =
+				ownRecordValue(index.in, targetKey) ?? recordFromEntries([]);
 			index.in[targetKey] = byCarrier;
-			const inSlots = byCarrier[carrier] ?? {};
+			const inSlots =
+				ownRecordValue(byCarrier, carrier) ?? recordFromEntries<true>([]);
 			inSlots[slot] = true;
 			byCarrier[carrier] = inSlots;
 		},
@@ -336,17 +355,17 @@ function extractCarrierEdges(
 	carrier: string,
 	ctx: CarrierContext,
 ): void {
-	const mod = doc.modules[carrier];
+	const mod = ownRecordValue(doc.modules, carrier);
 	if (mod) {
 		extractModuleEdges(makeSink(index, carrier, ctx), mod);
 		return;
 	}
-	const form = doc.forms[carrier];
+	const form = ownRecordValue(doc.forms, carrier);
 	if (form) {
 		extractFormEdges(makeSink(index, carrier, ctx), form, ctx);
 		return;
 	}
-	const field = doc.fields[carrier];
+	const field = ownRecordValue(doc.fields, carrier);
 	if (field) extractFieldEdges(makeSink(index, carrier, ctx), doc, field, ctx);
 }
 
@@ -876,8 +895,10 @@ function resolveIdChain(
 	const resolved: Uuid[] = [];
 	let parent: Uuid = formUuid;
 	for (const segment of segments) {
-		const children = doc.fieldOrder[parent] ?? [];
-		const next = children.find((uuid) => doc.fields[uuid]?.id === segment);
+		const children = ownRecordValue(doc.fieldOrder, parent) ?? [];
+		const next = children.find(
+			(uuid) => ownRecordValue(doc.fields, uuid)?.id === segment,
+		);
 		if (next === undefined) break;
 		resolved.push(next);
 		parent = next;
@@ -917,10 +938,56 @@ export function buildReferenceIndex(doc: BlueprintDoc): ReferenceIndex {
 	return index;
 }
 
+function nestedSetBucketIsOwn(bucket: SetBucket): boolean {
+	if (!isOwnRecord(bucket)) return false;
+	return Object.values(bucket).every((members) => isOwnRecord(members));
+}
+
+function referenceIndexRootsAreOwn(index: ReferenceIndex): boolean {
+	return (
+		isOwnRecord(index.in) &&
+		isOwnRecord(index.out) &&
+		isOwnRecord(index.decl) &&
+		isOwnRecord(index.local) &&
+		isOwnRecord(index.ctx)
+	);
+}
+
+/**
+ * A reference index can survive HMR or be supplied by a test fixture even
+ * though it is never persisted. Reject an old ordinary-object shape at the
+ * accessor boundary so incremental writes never consult inherited carriers.
+ */
+function referenceIndexIsOwn(index: ReferenceIndex): boolean {
+	if (
+		!referenceIndexRootsAreOwn(index) ||
+		!nestedSetBucketIsOwn(index.decl) ||
+		!nestedSetBucketIsOwn(index.local) ||
+		!nestedSetBucketIsOwn(index.ctx)
+	) {
+		return false;
+	}
+	for (const byCarrier of Object.values(index.in)) {
+		if (!isOwnRecord(byCarrier)) return false;
+		for (const slots of Object.values(byCarrier)) {
+			if (!isOwnRecord(slots)) return false;
+		}
+	}
+	for (const entry of Object.values(index.out)) {
+		if (!isOwnRecord(entry.edges)) return false;
+		for (const slots of Object.values(entry.edges)) {
+			if (!isOwnRecord(slots)) return false;
+		}
+	}
+	return true;
+}
+
 /** Seed `doc.refIndex` when absent (every apply entry point and
  *  hydration site calls this); returns the live index. */
 export function ensureReferenceIndex(doc: BlueprintDoc): ReferenceIndex {
-	doc.refIndex ??= buildReferenceIndex(doc);
+	if (doc.refIndex === undefined || !referenceIndexIsOwn(doc.refIndex)) {
+		doc.refIndex = buildReferenceIndex(doc);
+	}
 	return doc.refIndex;
 }
 
@@ -931,7 +998,13 @@ export function ensureReferenceIndex(doc: BlueprintDoc): ReferenceIndex {
  * passed a hydration site (read-only widenings, test fixtures).
  */
 function getReferenceIndex(doc: BlueprintDoc): ReferenceIndex {
-	return doc.refIndex ?? buildReferenceIndex(doc);
+	// Queries enumerate nested buckets through Object.keys/entries and perform
+	// own reads at their roots, so the five root prototypes are the constant-time
+	// safety gate. `ensureReferenceIndex` performs the recursive validation once
+	// before any incremental mutation is allowed.
+	return doc.refIndex !== undefined && referenceIndexRootsAreOwn(doc.refIndex)
+		? doc.refIndex
+		: buildReferenceIndex(doc);
 }
 
 // ── Queries ─────────────────────────────────────────────────────────
@@ -941,7 +1014,9 @@ export function referencingCarrierUuids(
 	doc: BlueprintDoc,
 	targetKey: string,
 ): string[] {
-	return Object.keys(getReferenceIndex(doc).in[targetKey] ?? {});
+	return Object.keys(
+		ownRecordValue(getReferenceIndex(doc).in, targetKey) ?? {},
+	);
 }
 
 /**
@@ -956,7 +1031,7 @@ export function referencingSlotsOf(
 	doc: BlueprintDoc,
 	targetKey: string,
 ): ReadonlyMap<string, readonly string[]> {
-	const byCarrier = getReferenceIndex(doc).in[targetKey] ?? {};
+	const byCarrier = ownRecordValue(getReferenceIndex(doc).in, targetKey) ?? {};
 	const result = new Map<string, readonly string[]>();
 	for (const [carrier, slots] of Object.entries(byCarrier)) {
 		result.set(carrier, Object.keys(slots));
@@ -980,7 +1055,10 @@ export function declarersOf(
 	property: string,
 ): string[] {
 	return Object.keys(
-		getReferenceIndex(doc).decl[casePropertyDeclKey(caseType, property)] ?? {},
+		ownRecordValue(
+			getReferenceIndex(doc).decl,
+			casePropertyDeclKey(caseType, property),
+		) ?? {},
 	);
 }
 
@@ -1008,7 +1086,9 @@ export function planReferenceIndexMaintenance(
 	const carriers = new Set<string>();
 	const addLocalCarriers = (formUuid: string | undefined): void => {
 		if (formUuid === undefined) return;
-		for (const carrier of Object.keys(index.local[formUuid] ?? {})) {
+		for (const carrier of Object.keys(
+			ownRecordValue(index.local, formUuid) ?? {},
+		)) {
 			carriers.add(carrier);
 		}
 	};
@@ -1019,7 +1099,7 @@ export function planReferenceIndexMaintenance(
 		}
 	};
 	const containingFormOf = (uuid: Uuid): Uuid | undefined =>
-		doc.forms[uuid] ? uuid : findContainingForm(doc, uuid);
+		ownRecordValue(doc.forms, uuid) ? uuid : findContainingForm(doc, uuid);
 
 	switch (mut.kind) {
 		// App-level slots are never indexed (the case-type catalog is
@@ -1041,7 +1121,7 @@ export function planReferenceIndexMaintenance(
 			break;
 		case "removeModule":
 			carriers.add(mut.uuid);
-			for (const formUuid of doc.formOrder[mut.uuid] ?? []) {
+			for (const formUuid of ownRecordValue(doc.formOrder, mut.uuid) ?? []) {
 				carriers.add(formUuid);
 				for (const fieldUuid of walkFormFieldUuids(doc, formUuid)) {
 					carriers.add(fieldUuid);
@@ -1063,9 +1143,11 @@ export function planReferenceIndexMaintenance(
 			// A case-type change re-keys every context-dependent ref in the
 			// module's forms (`#case/…` extracts under the module's type).
 			if ("caseType" in mut.patch) {
-				const previous = doc.modules[mut.uuid]?.caseType;
+				const previous = ownRecordValue(doc.modules, mut.uuid)?.caseType;
 				if (mut.patch.caseType !== previous) {
-					for (const carrier of Object.keys(index.ctx[mut.uuid] ?? {})) {
+					for (const carrier of Object.keys(
+						ownRecordValue(index.ctx, mut.uuid) ?? {},
+					)) {
 						carriers.add(carrier);
 					}
 				}
@@ -1091,7 +1173,9 @@ export function planReferenceIndexMaintenance(
 					mut.uuid,
 					...walkFormFieldUuids(doc, mut.uuid),
 				]);
-				for (const carrier of Object.keys(index.ctx[oldModule] ?? {})) {
+				for (const carrier of Object.keys(
+					ownRecordValue(index.ctx, oldModule) ?? {},
+				)) {
 					if (subtree.has(carrier)) carriers.add(carrier);
 				}
 			} else if (oldModule === undefined) {
@@ -1124,7 +1208,7 @@ export function planReferenceIndexMaintenance(
 			addLocalCarriers(containingFormOf(mut.uuid));
 			break;
 		case "renameField": {
-			const field = doc.fields[mut.uuid];
+			const field = ownRecordValue(doc.fields, mut.uuid);
 			if (!field || field.id === mut.newId) break;
 			carriers.add(mut.uuid);
 			addLocalCarriers(containingFormOf(mut.uuid));
@@ -1133,11 +1217,13 @@ export function planReferenceIndexMaintenance(
 				// Peers rename in lockstep (their declarations re-key, and
 				// their forms' local namespaces change with them)…
 				const declKey = casePropertyDeclKey(caseType, field.id);
-				for (const peer of Object.keys(index.decl[declKey] ?? {})) {
+				for (const peer of Object.keys(
+					ownRecordValue(index.decl, declKey) ?? {},
+				)) {
 					if (peer === mut.uuid) continue;
 					carriers.add(peer);
 					addLocalCarriers(
-						doc.fields[peer]
+						ownRecordValue(doc.fields, peer)
 							? findContainingForm(doc, peer as Uuid)
 							: undefined,
 					);
@@ -1145,7 +1231,9 @@ export function planReferenceIndexMaintenance(
 				// …and every carrier reading the property re-keys from
 				// `c:<type>/<old>` to `c:<type>/<new>`.
 				const propertyKey = casePropertyTargetKey(caseType, field.id);
-				for (const carrier of Object.keys(index.in[propertyKey] ?? {})) {
+				for (const carrier of Object.keys(
+					ownRecordValue(index.in, propertyKey) ?? {},
+				)) {
 					carriers.add(carrier);
 				}
 			}
@@ -1162,7 +1250,7 @@ export function planReferenceIndexMaintenance(
 					carriers,
 					duplicated: {
 						parentUuid,
-						before: new Set(doc.fieldOrder[parentUuid] ?? []),
+						before: new Set(ownRecordValue(doc.fieldOrder, parentUuid) ?? []),
 					},
 				};
 			}
@@ -1205,7 +1293,7 @@ export function planReferenceIndexMaintenance(
 			// designed path, but replayed events are total) — an id change
 			// shifts the form's namespace like a rename does.
 			const patch = mut.patch as Record<string, unknown>;
-			const field = doc.fields[mut.uuid];
+			const field = ownRecordValue(doc.fields, mut.uuid);
 			if (field && typeof patch.id === "string" && patch.id !== field.id) {
 				addLocalCarriers(containingFormOf(mut.uuid));
 			}
@@ -1257,7 +1345,8 @@ export function applyReferenceIndexMaintenance(
 	if (!index) return;
 	const carriers = new Set(plan.carriers);
 	if (plan.duplicated) {
-		const after = doc.fieldOrder[plan.duplicated.parentUuid] ?? [];
+		const after =
+			ownRecordValue(doc.fieldOrder, plan.duplicated.parentUuid) ?? [];
 		for (const uuid of after) {
 			if (plan.duplicated.before.has(uuid)) continue;
 			carriers.add(uuid);

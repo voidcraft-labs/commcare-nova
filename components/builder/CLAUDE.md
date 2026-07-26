@@ -84,7 +84,9 @@ panel's focus/inert semantics. Persona removal remains
 disabled until the owner-wide retained-case count succeeds; the confirmation
 states that rows of current or retired case types remain stored under that
 persona and may still appear in unfiltered data views, without implying
-deletion or reassignment.
+deletion or reassignment. Preview identity and expression-source menus expose
+ordinary mutually exclusive choices as checked radio-menu items; color is only
+a secondary cue, not the selected-state contract.
 
 ## Preview mode
 
@@ -107,7 +109,7 @@ prosemirror-view hardcodes a `<br class="ProseMirror-trailingBreak">` per block.
 - Scroll-to-selection is a rAF loop, not native smooth — panel mount/unmount layout shifts make the browser abandon native `scrollTo` mid-flight. Cross-screen navigation scrolls `"instant"`.
 - Clicking empty space never deselects (it would constantly dismiss the inspector).
 - Selection is a URL replace; scroll is a separate pending-target request the selected field's wrapper consumes. Undo/redo scrolls directly — never through the pending mechanism.
-- The edit guard (XPath editor with unsaved invalid content) blocks navigation two-strike: first attempt warns, second lets through, any keystroke resets. While an XPath editor is mounted, an identity-backed peer rename rebases a clean draft or a non-overlapping local addition. If the local and remote edits replace the same text, the controlled CodeMirror value preserves the local draft and refuses save until Escape reloads the shared projection; an external value prop never blindly overwrites focused work.
+- The edit guard (XPath editor with unsaved invalid content) blocks navigation two-strike: first attempt warns, second lets through, any keystroke resets. While an XPath editor is mounted, an identity-backed peer rename rebases a clean draft or a non-overlapping local addition. If the local and remote edits replace the same text, the controlled CodeMirror value preserves the local draft and refuses save until Escape reloads the shared projection; later external projections update only the shared base and cannot clear that conflict. An external value prop never blindly overwrites focused work.
 - Field uuid is the stable UI identity (survives renames); the path is only for mutation calls.
 
 ## Drag-and-drop

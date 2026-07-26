@@ -67,6 +67,8 @@ import {
 	DropdownMenuPopup,
 	DropdownMenuPortal,
 	DropdownMenuPositioner,
+	DropdownMenuRadioGroup,
+	DropdownMenuRadioItem,
 	DropdownMenuSub,
 	DropdownMenuSubContent,
 	DropdownMenuSubTrigger,
@@ -1067,45 +1069,53 @@ function ModeMenu({
 					anchor={triggerRef}
 				>
 					<DropdownMenuPopup>
-						{items.map((item) => {
-							const isActive = item.mode === mode;
-							// The active source stays selectable even when the
-							// constraint no longer admits it (legacy-open backstop);
-							// every other inadmissible source is disabled with its
-							// reason rather than dimmed-but-clickable.
-							const verdict = admission[item.mode];
-							const admitted = isActive || verdict.admitted;
-							const hasReason = !admitted && verdict.reason !== undefined;
-							return (
-								<DropdownMenuItem
-									key={item.mode}
-									disabled={!admitted}
-									onClick={() => setMode(item.mode)}
-									className={
-										isActive ? "bg-nova-violet/10 text-nova-violet-bright" : ""
-									}
-								>
-									<Icon
-										icon={item.icon}
-										width="14"
-										height="14"
+						<DropdownMenuRadioGroup
+							value={mode}
+							onValueChange={(next) => setMode(next as TermMode)}
+						>
+							{items.map((item) => {
+								const isActive = item.mode === mode;
+								// The active source stays selectable even when the
+								// constraint no longer admits it (legacy-open backstop);
+								// every other inadmissible source is disabled with its
+								// reason rather than dimmed-but-clickable.
+								const verdict = admission[item.mode];
+								const admitted = isActive || verdict.admitted;
+								const hasReason = !admitted && verdict.reason !== undefined;
+								return (
+									<DropdownMenuRadioItem
+										key={item.mode}
+										value={item.mode}
+										disabled={!admitted}
+										closeOnClick
 										className={
 											isActive
-												? "text-nova-violet-bright"
-												: "text-nova-text-muted"
+												? "bg-nova-violet/10 text-nova-violet-bright"
+												: ""
 										}
-									/>
-									<span className="flex-1 text-left min-w-0">
-										<div className="break-words">{item.label}</div>
-										{hasReason && (
-											<div className="break-words text-xs text-nova-text-muted">
-												{verdict.reason}
-											</div>
-										)}
-									</span>
-								</DropdownMenuItem>
-							);
-						})}
+									>
+										<Icon
+											icon={item.icon}
+											width="14"
+											height="14"
+											className={
+												isActive
+													? "text-nova-violet-bright"
+													: "text-nova-text-muted"
+											}
+										/>
+										<span className="flex-1 text-left min-w-0">
+											<span className="block break-words">{item.label}</span>
+											{hasReason && (
+												<span className="block break-words text-xs text-nova-text-muted">
+													{verdict.reason}
+												</span>
+											)}
+										</span>
+									</DropdownMenuRadioItem>
+								);
+							})}
+						</DropdownMenuRadioGroup>
 						{literalShape !== undefined && (
 							<LiteralShapeSubmenu
 								shape={literalShape}
@@ -2213,25 +2223,33 @@ function UserPropertyMenu({
 					style={{ minWidth: "var(--anchor-width)" }}
 				>
 					<DropdownMenuPopup className="min-w-0">
-						{properties.map((property) => {
-							const isActive = property.uuid === value;
-							return (
-								<DropdownMenuItem
-									key={property.uuid}
-									onClick={() => onChange(property.uuid)}
-									className={
-										isActive ? "bg-nova-violet/10 text-nova-violet-bright" : ""
-									}
-								>
-									<span className="min-w-0 flex-1 break-words">
-										{property.label}
-									</span>
-									<span className="break-words font-mono text-xs text-nova-text-muted">
-										{property.slug}
-									</span>
-								</DropdownMenuItem>
-							);
-						})}
+						<DropdownMenuRadioGroup
+							value={value}
+							onValueChange={(next) => onChange(asUuid(next))}
+						>
+							{properties.map((property) => {
+								const isActive = property.uuid === value;
+								return (
+									<DropdownMenuRadioItem
+										key={property.uuid}
+										value={property.uuid}
+										closeOnClick
+										className={
+											isActive
+												? "bg-nova-violet/10 text-nova-violet-bright"
+												: ""
+										}
+									>
+										<span className="min-w-0 flex-1 break-words">
+											{property.label}
+										</span>
+										<span className="break-words font-mono text-xs text-nova-text-muted">
+											{property.slug}
+										</span>
+									</DropdownMenuRadioItem>
+								);
+							})}
+						</DropdownMenuRadioGroup>
 					</DropdownMenuPopup>
 				</DropdownMenuPositioner>
 			</DropdownMenuPortal>

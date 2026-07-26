@@ -351,4 +351,138 @@ describe("the user collections", () => {
 			/duplicate entity uuid/i,
 		);
 	});
+
+	it.each(["__proto__", "constructor"])(
+		"round-trips %s as the own identity of every entity kind",
+		(identity) => {
+			const uuid = asUuid(identity);
+			const parentModule = asUuid("parent-module");
+			const parentForm = asUuid("parent-form");
+			const cases: Array<{
+				kind: string;
+				doc: BlueprintDoc;
+				record: (doc: ReturnType<typeof roundTrip>) => object | undefined;
+			}> = [
+				{
+					kind: "module",
+					doc: {
+						...emptyDoc(`rt-${identity}-module`),
+						modules: Object.fromEntries([
+							[uuid, { uuid, id: "module", name: "Module" }],
+						]),
+						moduleOrder: [uuid],
+						formOrder: Object.fromEntries([[uuid, []]]),
+					},
+					record: (doc) => doc.modules,
+				},
+				{
+					kind: "form",
+					doc: {
+						...emptyDoc(`rt-${identity}-form`),
+						modules: {
+							[parentModule]: {
+								uuid: parentModule,
+								id: "module",
+								name: "Module",
+							},
+						},
+						forms: Object.fromEntries([
+							[
+								uuid,
+								{
+									uuid,
+									id: "form",
+									name: "Form",
+									type: "survey" as const,
+								},
+							],
+						]),
+						moduleOrder: [parentModule],
+						formOrder: { [parentModule]: [uuid] },
+						fieldOrder: Object.fromEntries([[uuid, []]]),
+					},
+					record: (doc) => doc.forms,
+				},
+				{
+					kind: "field",
+					doc: {
+						...emptyDoc(`rt-${identity}-field`),
+						modules: {
+							[parentModule]: {
+								uuid: parentModule,
+								id: "module",
+								name: "Module",
+							},
+						},
+						forms: {
+							[parentForm]: {
+								uuid: parentForm,
+								id: "form",
+								name: "Form",
+								type: "survey",
+							},
+						},
+						fields: Object.fromEntries([
+							[
+								uuid,
+								{
+									uuid,
+									id: "question",
+									kind: "text" as const,
+									label: "Question",
+								},
+							],
+						]),
+						moduleOrder: [parentModule],
+						formOrder: { [parentModule]: [parentForm] },
+						fieldOrder: { [parentForm]: [uuid] },
+					},
+					record: (doc) => doc.fields,
+				},
+				{
+					kind: "user property",
+					doc: {
+						...emptyDoc(`rt-${identity}-property`),
+						userProperties: Object.fromEntries([
+							[uuid, { uuid, slug: "region", label: "Region" }],
+						]),
+					},
+					record: (doc) => doc.userProperties,
+				},
+				{
+					kind: "user type",
+					doc: {
+						...emptyDoc(`rt-${identity}-type`),
+						userTypes: Object.fromEntries([[uuid, { uuid, name: "Worker" }]]),
+					},
+					record: (doc) => doc.userTypes,
+				},
+				{
+					kind: "persona",
+					doc: {
+						...emptyDoc(`rt-${identity}-persona`),
+						personas: Object.fromEntries([[uuid, { uuid, name: "Asha" }]]),
+					},
+					record: (doc) => doc.personas,
+				},
+			];
+
+			for (const candidate of cases) {
+				const assembled = roundTrip(candidate.doc);
+				const record = candidate.record(assembled);
+				expect(
+					Object.hasOwn(record ?? {}, uuid),
+					`${candidate.kind} must retain ${identity} as an own identity`,
+				).toBe(true);
+				expect(Object.getPrototypeOf(record as object)).toBeNull();
+				expect(
+					decomposeBlueprint(assembled).some(
+						(row) =>
+							row.kind.replaceAll("_", " ") === candidate.kind &&
+							row.uuid === uuid,
+					),
+				).toBe(true);
+			}
+		},
+	);
 });

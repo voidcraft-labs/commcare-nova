@@ -13,11 +13,19 @@ export function reconcileXPathDraft({
 	base,
 	draft,
 	incoming,
+	conflict = false,
 }: {
 	readonly base: string;
 	readonly draft: string;
 	readonly incoming: string;
+	/** A same-slot collision was already observed in this mounted edit. */
+	readonly conflict?: boolean;
 }): { base: string; draft: string; conflict: boolean } {
+	// A later peer projection cannot prove that the local same-slot edit is
+	// suddenly safe. Advance the shared base for diagnostics, but preserve both
+	// the draft and the refusal until the editor's explicit cancel/reload path
+	// unmounts this controller.
+	if (conflict) return { base: incoming, draft, conflict: true };
 	if (incoming === base) return { base, draft, conflict: false };
 	if (draft === base || draft === incoming) {
 		return { base: incoming, draft: incoming, conflict: false };

@@ -28,6 +28,7 @@ import {
 } from "@/lib/doc/referenceIndex";
 import type { BlueprintDoc, Mutation, MutationResult } from "@/lib/doc/types";
 import { assertNever } from "@/lib/utils/assertNever";
+import { normalizeBlueprintOwnRecords } from "../ownRecords";
 import { applyAppMutation } from "./app";
 import { applyFieldMutation } from "./fields";
 import { applyFormMutation } from "./forms";
@@ -147,8 +148,14 @@ export function applyMutation(
 	draft: Draft<BlueprintDoc>,
 	mut: Mutation,
 ): MutationResult {
+	normalizeBlueprintOwnRecords(draft as unknown as BlueprintDoc);
 	ensureReferenceIndex(draft as unknown as BlueprintDoc);
 	const result = applyOne(draft, mut);
+	// Mutation payloads are often schema-parsed (and therefore already use the
+	// own-record representation), but typed in-process callers may supply an
+	// ordinary JSON-shaped nested value bag. Re-establish the final invariant
+	// before any observer sees the result.
+	normalizeBlueprintOwnRecords(draft as unknown as BlueprintDoc);
 	rebuildFieldParent(draft as unknown as BlueprintDoc);
 	devAssertReferenceIndexParity(draft as unknown as BlueprintDoc);
 	return result;
@@ -173,11 +180,13 @@ export function applyMutations(
 	draft: Draft<BlueprintDoc>,
 	muts: readonly Mutation[],
 ): MutationResult[] {
+	normalizeBlueprintOwnRecords(draft as unknown as BlueprintDoc);
 	ensureReferenceIndex(draft as unknown as BlueprintDoc);
 	const results: MutationResult[] = [];
 	for (const mut of muts) {
 		results.push(applyOne(draft, mut));
 	}
+	normalizeBlueprintOwnRecords(draft as unknown as BlueprintDoc);
 	rebuildFieldParent(draft as unknown as BlueprintDoc);
 	devAssertReferenceIndexParity(draft as unknown as BlueprintDoc);
 	return results;

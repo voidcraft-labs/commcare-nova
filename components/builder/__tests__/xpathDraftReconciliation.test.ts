@@ -36,4 +36,30 @@ describe("reconcileXPathDraft", () => {
 			conflict: true,
 		});
 	});
+
+	it("keeps a same-slot conflict sticky across later peer projections", () => {
+		const base = "#user/region = 'north'";
+		const draft = "#user/local_region = 'north'";
+		const firstIncoming = "#user/district = 'north'";
+		const conflicted = reconcileXPathDraft({
+			base,
+			draft,
+			incoming: firstIncoming,
+		});
+		expect(conflicted.conflict).toBe(true);
+
+		const laterIncoming = "#user/service_area = 'north'";
+		expect(
+			reconcileXPathDraft({
+				base: conflicted.base,
+				draft: conflicted.draft,
+				incoming: laterIncoming,
+				conflict: conflicted.conflict,
+			}),
+		).toEqual({
+			base: laterIncoming,
+			draft,
+			conflict: true,
+		});
+	});
 });

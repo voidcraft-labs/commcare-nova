@@ -51,7 +51,9 @@ While an XPath editor is open, a teammate's saved-key rename appears live when
 your draft is clean. If you added different text, Nova carries the rename
 through that addition when it can do so safely. If both edits changed the same
 text, Nova keeps your draft and asks you to reload the shared version instead
-of overwriting either edit.
+of overwriting either edit. Later teammate updates do not dismiss that warning
+or make the draft saveable; press Escape to reload the latest shared expression
+before continuing.
 
 Nova will not remove worker information while a saved condition or calculation
 still reads it. The refusal names the settings to update. Once those references
@@ -96,8 +98,8 @@ blank value, which lets a persona override a role's nonblank default with
 nothing.
 
 Personas are for designing and testing. They are not accounts, they have no
-password, and creating one does not create anyone on CommCare — that happens
-when you deploy.
+password, and creating one does not create anyone on CommCare. Nova does not
+currently provision CommCare worker accounts from personas.
 
 ## Preview as a persona
 
@@ -127,9 +129,15 @@ data views.
 
 ## What travels to CommCare
 
-Worker information becomes your project's custom user data fields, and roles
-become the values a worker is created with. Nova generates the setup steps for
-this when you deploy; it does not change your CommCare project on its own.
+When Nova compiles the app, conditions and calculations that read custom worker
+information use each property's current saved key. The worker running the app
+must already carry data under those keys for the expressions to see it.
+
+Nova does not currently configure your CommCare project's custom user-data
+schema, create role templates, copy role or persona values to workers, or create
+worker accounts. Worker information, roles, and personas remain Nova authoring
+and Preview data until deployment provisioning for those resources is built.
+Exporting or uploading the app alone does not make those project-level changes.
 
 One thing worth knowing about the devices themselves: CommCare merges worker
 data into a device on each sync and never clears it. If you remove a piece of

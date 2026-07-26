@@ -230,6 +230,44 @@ describe("user finding identity and scoping", () => {
 		expect(identities(make(true))).toEqual(expected);
 	});
 
+	it("orders legacy missing-order duplicate findings by uuid", () => {
+		const properties = [
+			{
+				uuid: asUuid("property-c"),
+				slug: "REGION",
+				label: "Region C",
+			},
+			{
+				uuid: asUuid("property-a"),
+				slug: "Region",
+				label: "Region A",
+			},
+			{
+				uuid: asUuid("property-b"),
+				slug: "region",
+				label: "Region B",
+			},
+		] as const;
+		const make = (
+			values: readonly (typeof properties)[number][],
+		): BlueprintDoc => ({
+			...buildDoc(),
+			userProperties: Object.fromEntries(
+				values.map((property) => [property.uuid, property]),
+			),
+		});
+		const identities = (doc: BlueprintDoc) =>
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)
+				.filter((finding) => finding.code === "USER_PROPERTY_SLUG_DUPLICATE")
+				.map(errorIdentity);
+		const expected = ["property-a", "property-b", "property-c"].map(
+			(uuid) => `USER_PROPERTY_SLUG_DUPLICATE|userProperty=${uuid}`,
+		);
+
+		expect(identities(make(properties))).toEqual(expected);
+		expect(identities(make([...properties].reverse()))).toEqual(expected);
+	});
+
 	it("requires references to resolve through own record membership", () => {
 		const roleUuid = asUuid("role");
 		const personaUuid = asUuid("persona");

@@ -466,20 +466,25 @@ export function diffDocsToMutations(
 	for (const uuid of next.moduleOrder) {
 		if (!addedModuleSet.has(uuid)) continue;
 		const index = next.moduleOrder.indexOf(uuid);
-		adds.push(addModuleMutation(cloneEntity(next.modules[uuid]), index));
+		adds.push(
+			addModuleMutation(
+				cloneEntity(ownRecordValue(next.modules, uuid) as Module),
+				index,
+			),
+		);
 	}
 
 	// Forms: in next.formOrder order per module, so each lands at its
 	// target index relative to forms already present.
 	for (const moduleUuid of next.moduleOrder) {
-		const order = next.formOrder[moduleUuid] ?? [];
+		const order = ownRecordValue(next.formOrder, moduleUuid) ?? [];
 		for (let index = 0; index < order.length; index++) {
 			const formUuid = order[index];
 			if (!addedFormSet.has(formUuid)) continue;
 			adds.push({
 				kind: "addForm",
 				moduleUuid,
-				form: cloneEntity(next.forms[formUuid]),
+				form: cloneEntity(ownRecordValue(next.forms, formUuid) as Form),
 				index,
 			});
 		}
@@ -494,8 +499,10 @@ export function diffDocsToMutations(
 
 	// Modules.
 	for (const uuid of moduleDelta.common) {
-		const p = prev.modules[uuid] as unknown as Record<string, unknown>;
-		const n = next.modules[uuid] as unknown as Record<string, unknown>;
+		const prevModule = ownRecordValue(prev.modules, uuid) as Module;
+		const nextModule = ownRecordValue(next.modules, uuid) as Module;
+		const p = prevModule as unknown as Record<string, unknown>;
+		const n = nextModule as unknown as Record<string, unknown>;
 		if (p.name !== n.name) {
 			renames.push({ kind: "renameModule", uuid, newId: n.name as string });
 		}
@@ -520,15 +527,17 @@ export function diffDocsToMutations(
 		// `setCaseListMeta` kinds. A case-type flip never snapshots the config;
 		// only an explicit config removal uses `updateModule{caseListConfig:null}`.
 		collections.push(
-			...diffCaseListConfig(prev.modules[uuid], next.modules[uuid], uuid),
-			...diffCaseSearchConfig(prev.modules[uuid], next.modules[uuid], uuid),
+			...diffCaseListConfig(prevModule, nextModule, uuid),
+			...diffCaseSearchConfig(prevModule, nextModule, uuid),
 		);
 	}
 
 	// Forms.
 	for (const uuid of formDelta.common) {
-		const p = prev.forms[uuid] as unknown as Record<string, unknown>;
-		const n = next.forms[uuid] as unknown as Record<string, unknown>;
+		const prevForm = ownRecordValue(prev.forms, uuid) as Form;
+		const nextForm = ownRecordValue(next.forms, uuid) as Form;
+		const p = prevForm as unknown as Record<string, unknown>;
+		const n = nextForm as unknown as Record<string, unknown>;
 		if (p.name !== n.name) {
 			renames.push({ kind: "renameForm", uuid, newId: n.name as string });
 		}
@@ -540,9 +549,7 @@ export function diffDocsToMutations(
 				patch: patch as Partial<Form>,
 			});
 		}
-		updates.push(
-			...diffCaseOperations(prev.forms[uuid], next.forms[uuid], uuid),
-		);
+		updates.push(...diffCaseOperations(prevForm, nextForm, uuid));
 		if (menuMediaChanged(p, n)) {
 			media.push({
 				kind: "setFormMedia",
@@ -569,8 +576,8 @@ export function diffDocsToMutations(
 	// structural pass — overrides it to the exact `next.id`, which makes the
 	// move's dedup harmless rather than something to order around.
 	for (const uuid of fieldDelta.common) {
-		const pField = prev.fields[uuid];
-		const nField = next.fields[uuid];
+		const pField = ownRecordValue(prev.fields, uuid) as Field;
+		const nField = ownRecordValue(next.fields, uuid) as Field;
 		const p = pField as unknown as Record<string, unknown>;
 		const n = nField as unknown as Record<string, unknown>;
 
@@ -637,8 +644,11 @@ export function diffDocsToMutations(
 	// COMMON module (independent of `moduleOrder` array position); adds carry
 	// their own `order` on the entity.
 	for (const uuid of moduleDelta.common) {
-		const nOrder = next.modules[uuid].order;
-		if (nOrder !== undefined && prev.modules[uuid].order !== nOrder) {
+		const nOrder = ownRecordValue(next.modules, uuid)?.order;
+		if (
+			nOrder !== undefined &&
+			ownRecordValue(prev.modules, uuid)?.order !== nOrder
+		) {
 			orders.push({ kind: "moveModule", uuid, order: nOrder });
 		}
 	}
@@ -862,7 +872,10 @@ function fieldRemovedByAncestor(
 	if (parent === undefined) return false;
 	// Cascaded iff the parent does NOT survive — a removed form/container
 	// parent owns the cascade; a surviving parent does not.
-	return next.forms[parent] === undefined && next.fields[parent] === undefined;
+	return (
+		ownRecordValue(next.forms, parent) === undefined &&
+		ownRecordValue(next.fields, parent) === undefined
+	);
 }
 
 // ── Order reconciliation per module / parent ─────────────────────────
@@ -889,7 +902,7 @@ function reconcileFormOrders(
 		const nextModule = nextModuleOf.get(formUuid);
 		if (nextModule === undefined) continue; // unreachable in next (shouldn't happen)
 		const prevModule = prevModuleOf.get(formUuid);
-		const nextOrder = next.forms[formUuid].order;
+		const nextOrder = ownRecordValue(next.forms, formUuid)?.order;
 		if (prevModule !== nextModule) {
 			const move: Mutation = {
 				kind: "moveForm",
@@ -898,14 +911,17 @@ function reconcileFormOrders(
 				...(nextOrder !== undefined && { order: nextOrder }),
 			};
 			// A form leaving a REMOVED module evacuates before the cascade.
-			if (prevModule !== undefined && next.modules[prevModule] === undefined) {
+			if (
+				prevModule !== undefined &&
+				ownRecordValue(next.modules, prevModule) === undefined
+			) {
 				evacuations.push(move);
 			} else {
 				rest.push(move);
 			}
 		} else if (
 			nextOrder !== undefined &&
-			prev.forms[formUuid].order !== nextOrder
+			ownRecordValue(prev.forms, formUuid)?.order !== nextOrder
 		) {
 			rest.push({
 				kind: "moveForm",
@@ -966,15 +982,17 @@ function reconcileFieldTree(
 	// removed form or container field (covers parents under a removed module).
 	const isDoomed = (parentUuid: Uuid | undefined): boolean =>
 		parentUuid !== undefined &&
-		next.forms[parentUuid] === undefined &&
-		next.fields[parentUuid] === undefined;
+		ownRecordValue(next.forms, parentUuid) === undefined &&
+		ownRecordValue(next.fields, parentUuid) === undefined;
 
 	// Adds — parent-before-child (top-down parents, sorted children). Each
 	// added field carries its own `order`, so no `index` is needed.
 	for (const parentUuid of nextParentsTopDown(next)) {
 		for (const uuid of orderedFieldUuids(next, parentUuid)) {
 			if (!addedFieldSet.has(uuid)) continue;
-			const field = cloneEntity(next.fields[uuid]) as Field;
+			const field = cloneEntity(
+				ownRecordValue(next.fields, uuid) as Field,
+			) as Field;
 			const optionsSource =
 				"optionsSource" in field ? field.optionsSource : undefined;
 			if ("optionsSource" in field) {
@@ -994,7 +1012,7 @@ function reconcileFieldTree(
 		const nextParent = nextParentMap.get(uuid);
 		if (nextParent === undefined) continue; // unreachable in next (shouldn't happen)
 		const prevParent = prevParentMap.get(uuid);
-		const nextOrder = next.fields[uuid].order;
+		const nextOrder = ownRecordValue(next.fields, uuid)?.order;
 		if (prevParent !== nextParent) {
 			const move: Mutation = {
 				kind: "moveField",
@@ -1007,7 +1025,7 @@ function reconcileFieldTree(
 			else moves.push(move);
 		} else if (
 			nextOrder !== undefined &&
-			prev.fields[uuid].order !== nextOrder
+			ownRecordValue(prev.fields, uuid)?.order !== nextOrder
 		) {
 			moves.push({
 				kind: "moveField",
@@ -1066,7 +1084,7 @@ function nextParentsTopDown(next: BlueprintDoc): Uuid[] {
 		for (const formUuid of orderedFormUuids(next, moduleUuid)) {
 			parents.push(formUuid);
 			for (const { uuid } of walkFieldTree(next, formUuid)) {
-				const field = next.fields[uuid];
+				const field = ownRecordValue(next.fields, uuid);
 				if (field && (field.kind === "group" || field.kind === "repeat")) {
 					parents.push(uuid);
 				}

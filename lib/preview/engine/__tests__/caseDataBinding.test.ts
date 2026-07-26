@@ -4404,7 +4404,9 @@ describe("loadCasesAction", () => {
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_B },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
-		resolveAppScopeMock.mockRejectedValueOnce(new AppAccessError("not_member"));
+		resolveAuthorizedAppSnapshotMock.mockRejectedValueOnce(
+			new AppAccessError("not_member"),
+		);
 
 		const { loadCasesAction } = await import("../caseDataBinding");
 		const result = await loadCasesAction({

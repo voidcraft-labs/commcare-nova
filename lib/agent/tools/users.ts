@@ -9,7 +9,7 @@
  */
 
 import { z } from "zod";
-import { bySortKey } from "@/lib/doc/order/compare";
+import { byFlatEntitySortKey } from "@/lib/doc/order/compare";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	addPersonaMutations,
@@ -722,7 +722,8 @@ export const getUsersTool = {
 		}>
 	> {
 		const properties = userPropertiesOf(doc);
-		const workerInformation = Object.values(properties).sort(bySortKey);
+		const workerInformation =
+			Object.values(properties).sort(byFlatEntitySortKey);
 		const propertyOrder = new Map(
 			workerInformation.map((property, index) => [property.uuid, index]),
 		);
@@ -731,13 +732,13 @@ export const getUsersTool = {
 			data: {
 				workerInformation,
 				roles: Object.values(userTypesOf(doc))
-					.sort(bySortKey)
+					.sort(byFlatEntitySortKey)
 					.map(({ values, ...role }) => ({
 						...role,
 						values: valuesOutput(values, properties, propertyOrder),
 					})),
 				personas: Object.values(personasOf(doc))
-					.sort(bySortKey)
+					.sort(byFlatEntitySortKey)
 					.map(({ values, ...persona }) => ({
 						...persona,
 						values: valuesOutput(values, properties, propertyOrder),

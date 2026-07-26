@@ -140,7 +140,7 @@ describe("TermCard dormant lookup carrier boundary", () => {
 
 async function chooseSource(name: string) {
 	fireEvent.click(screen.getByRole("button", { name: /^Value source:/ }));
-	fireEvent.click(await screen.findByRole("menuitem", { name }));
+	fireEvent.click(await screen.findByRole("menuitemradio", { name }));
 	await settleBaseUiTransitions();
 }
 
@@ -248,6 +248,21 @@ describe("TermCard number literal recovery", () => {
 });
 
 describe("TermCard source transitions", () => {
+	it("exposes the current value source as a checked radio choice", async () => {
+		renderStatefulTerm(term(literal("saved")));
+
+		fireEvent.click(screen.getByRole("button", { name: /^Value source:/ }));
+		const literalSource = await screen.findByRole("menuitemradio", {
+			name: "A value",
+		});
+		const caseSource = screen.getByRole("menuitemradio", {
+			name: "Other case information",
+		});
+
+		expect(literalSource.getAttribute("aria-checked")).toBe("true");
+		expect(caseSource.getAttribute("aria-checked")).toBe("false");
+	});
+
 	it("keeps a missing saved search answer readable when no search fields remain", async () => {
 		render(
 			<ExpressionCardEditor
@@ -567,8 +582,15 @@ describe("TermCard source transitions", () => {
 				name: "Worker information: Assigned region, assigned_region",
 			}),
 		);
+		expect(
+			(
+				await screen.findByRole("menuitemradio", {
+					name: "Assigned region assigned_region",
+				})
+			).getAttribute("aria-checked"),
+		).toBe("true");
 		fireEvent.click(
-			await screen.findByRole("menuitem", {
+			await screen.findByRole("menuitemradio", {
 				name: "Cadre cadre-code",
 			}),
 		);

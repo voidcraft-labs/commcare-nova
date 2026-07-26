@@ -345,6 +345,7 @@ function InlineXPathEditor({
 			base: baseProjectionRef.current,
 			draft: draftRef.current,
 			incoming: projectedValue,
+			conflict: projectionConflictRef.current,
 		});
 		baseProjectionRef.current = reconciled.base;
 		draftRef.current = reconciled.draft;

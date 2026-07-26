@@ -335,6 +335,10 @@ distinction is load-bearing everywhere downstream (`lib/domain/users.ts`):
 A **deployed worker** — a real identity on a target HQ domain, with credentials
 and its own lifecycle — is deliberately absent. It is owned by a deployment,
 created *from* a type or persona, and is not a blueprint identity.
+The current app export/upload path does not configure HQ's project-level custom
+user-data schema, role templates, role/persona values, or worker accounts; these
+collections remain Nova authoring and Preview state until unit 12's explicit
+provisioning driver applies them.
 
 The builder, Solutions Architect, and MCP API author all three collections
 through the same granular mutations and commit gate. The builder's names and
@@ -358,24 +362,32 @@ to different properties merge instead of replacing one another. In the
 builder an absent persona value inherits its role, an explicit `""` overrides
 the role with blank, and a nonempty value overrides it with that value; control
 item identities are separate from authored strings, so no valid choice is
-reserved as a sentinel.
+reserved as a sentinel. Preview identity, expression source, and custom worker-
+information choices expose their selected state as checked radio-menu items;
+color is only a secondary cue.
 
-All three collections treat authored identities as own record keys, never
-through prototype lookup or the legacy `__proto__` assignment setter. Thus
-schema-valid keys such as `__proto__` and `constructor` survive persistence and
-projection without inherited properties masquerading as members. Accepted
-choices are unique by exact value at construction, and duplicate property
-slugs, user-type names, and persona names report every member of the duplicate
-group in deterministic `(order, uuid)` order, independent of insertion order.
-The document schema uses the shared `ownRecordSchema` rather than Zod's native
-record parser, which intentionally drops `__proto__`; persistence hydration
-rebuilds every normalized record through the same prototype-safe record
-helpers. All six normalized entity kinds — module, form, field, user property,
-user type, and persona — share one global UUID namespace because
-`blueprint_entities` keys them all by `(app_id, uuid)`. The commit validator
-reports every member of a collision, and `decomposeBlueprint` repeats both
-global uniqueness and record-key/embedded-UUID agreement as a persistence
-tripwire before any rows can collapse.
+All normalized identity-keyed records use own membership and a null prototype,
+never prototype lookup or the legacy `__proto__` assignment setter. That
+includes the six entity maps, structural membership and reverse maps, every
+reference-index root and nested bucket, and role/persona value bags. JSON and
+structured-clone hydration rebuilds that representation before any mutation,
+diff, query, or projection reads it. Thus schema-valid keys such as
+`__proto__` and `constructor` survive persistence and projection without
+inherited properties masquerading as members. Accepted choices are unique by
+exact value at construction, and duplicate property slugs, user-type names,
+and persona names report every member of the duplicate group in deterministic
+`(order, uuid)` order, independent of insertion order. Flat collections have
+no membership array to break a legacy missing-`order` tie, so two such entries
+sort by UUID rather than object insertion order. The document schema uses the
+shared `ownRecordSchema` rather than Zod's native record parser, which
+intentionally drops `__proto__`; persistence hydration rebuilds every
+normalized record through the same prototype-safe record helpers. All six
+normalized entity kinds — module, form, field, user property, user type, and
+persona — share one global UUID namespace because `blueprint_entities` keys
+them all by `(app_id, uuid)`. The commit validator reports every member of a
+collision, and `decomposeBlueprint` repeats both global uniqueness and
+record-key/embedded-UUID agreement as a persistence tripwire before any rows
+can collapse.
 
 Custom worker-information references follow the same stable identity as
 role/persona values. Predicate / ValueExpression stores
@@ -403,6 +415,9 @@ raw leaf. While an XPath editor is open, a clean draft adopts a peer's identity
 rename and a non-overlapping local addition rebases across it. When both edits
 replace the same text, CodeMirror preserves the local draft and refuses save
 until Escape reloads the shared projection instead of overwriting either edit.
+That conflict is sticky for the lifetime of the mounted draft: every later
+projection advances the shared base but neither clears the warning nor enables
+save.
 
 The reference index records both custom AST arms under one `p:<uuid>` target.
 Removing worker information therefore refuses while any condition,

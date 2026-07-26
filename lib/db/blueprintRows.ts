@@ -16,7 +16,11 @@
 // the same cost the old whole-blob serialize paid, and it is correct for any
 // reducer side effect by construction.
 
-import { type PersistableDoc, recordWithValue } from "@/lib/domain";
+import {
+	ownRecordValue,
+	type PersistableDoc,
+	recordWithValue,
+} from "@/lib/domain";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
 
 export interface EntityRow {
@@ -140,7 +144,7 @@ export function decomposeBlueprint(doc: PersistableDoc): EntityRow[] {
 		}
 	}
 	doc.moduleOrder.forEach((uuid, i) => {
-		const mod = doc.modules[uuid];
+		const mod = ownRecordValue(doc.modules, uuid);
 		if (mod) {
 			rows.push({
 				uuid,
@@ -153,7 +157,7 @@ export function decomposeBlueprint(doc: PersistableDoc): EntityRow[] {
 	});
 	for (const [moduleUuid, formUuids] of Object.entries(doc.formOrder)) {
 		formUuids.forEach((uuid, i) => {
-			const form = doc.forms[uuid];
+			const form = ownRecordValue(doc.forms, uuid);
 			if (form) {
 				rows.push({
 					uuid,
@@ -168,7 +172,7 @@ export function decomposeBlueprint(doc: PersistableDoc): EntityRow[] {
 	const placedFields = new Set<string>();
 	for (const [parentUuid, fieldUuids] of Object.entries(doc.fieldOrder)) {
 		fieldUuids.forEach((uuid, i) => {
-			const field = doc.fields[uuid];
+			const field = ownRecordValue(doc.fields, uuid);
 			if (field) {
 				placedFields.add(uuid);
 				rows.push({
