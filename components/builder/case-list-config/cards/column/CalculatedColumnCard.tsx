@@ -83,6 +83,7 @@ export function CalculatedColumnCard({
 					onChange={setExpression}
 					caseTypes={ctx.caseTypes}
 					currentCaseType={ctx.currentCaseType}
+					userProperties={ctx.userProperties}
 				/>
 			</div>
 		</div>

@@ -52,6 +52,18 @@ describe("term schema", () => {
 		});
 	});
 
+	it("parses a custom session-user property by stable identity", () => {
+		expect(
+			termSchema.parse({
+				kind: "session-user-property",
+				userPropertyUuid: "worker-property-region",
+			}),
+		).toEqual({
+			kind: "session-user-property",
+			userPropertyUuid: "worker-property-region",
+		});
+	});
+
 	it("rejects an unknown term kind", () => {
 		expect(() => termSchema.parse({ kind: "bogus" })).toThrow();
 	});

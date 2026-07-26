@@ -17,6 +17,7 @@ import { fieldSchema } from "./fields";
 import { formSchema } from "./forms";
 import { moduleSchema } from "./modules";
 import { assetIdSchema } from "./multimedia";
+import { ownRecordSchema } from "./records";
 import type { ReferenceIndex } from "./referenceIndex";
 import { personaSchema, userPropertySchema, userTypeSchema } from "./users";
 import { type Uuid, uuidSchema } from "./uuid";
@@ -92,13 +93,13 @@ export const blueprintDocSchema = z
 		connectType: z.enum(CONNECT_TYPES).nullable(),
 		caseTypes: z.array(caseTypeSchema).nullable(),
 
-		modules: z.record(z.string(), moduleSchema),
-		forms: z.record(z.string(), formSchema),
-		fields: z.record(z.string(), fieldSchema),
+		modules: ownRecordSchema(z.string(), moduleSchema),
+		forms: ownRecordSchema(z.string(), formSchema),
+		fields: ownRecordSchema(z.string(), fieldSchema),
 
 		moduleOrder: z.array(uuidSchema),
-		formOrder: z.record(z.string(), z.array(uuidSchema)),
-		fieldOrder: z.record(z.string(), z.array(uuidSchema)),
+		formOrder: ownRecordSchema(z.string(), z.array(uuidSchema)),
+		fieldOrder: ownRecordSchema(z.string(), z.array(uuidSchema)),
 
 		/**
 		 * App-level logo for the web-apps surface. A single image —
@@ -120,9 +121,9 @@ export const blueprintDocSchema = z
 		 * existed. Read them through `userPropertiesOf` / `userTypesOf` /
 		 * `personasOf` rather than defaulting at the call site.
 		 */
-		userProperties: z.record(z.string(), userPropertySchema).optional(),
-		userTypes: z.record(z.string(), userTypeSchema).optional(),
-		personas: z.record(z.string(), personaSchema).optional(),
+		userProperties: ownRecordSchema(z.string(), userPropertySchema).optional(),
+		userTypes: ownRecordSchema(z.string(), userTypeSchema).optional(),
+		personas: ownRecordSchema(z.string(), personaSchema).optional(),
 
 		// fieldParent is NOT persisted — derived from fieldOrder on load.
 	})

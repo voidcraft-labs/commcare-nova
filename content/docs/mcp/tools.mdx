@@ -41,16 +41,26 @@ inherit a role and override individual values. Read first to get stable UUIDs:
 role and persona values name a worker-information property by
 `userPropertyUuid`, so changing its saved name never retargets the value.
 
+Custom worker-information references use that same identity. In Predicate and
+ValueExpression inputs, use
+`{ "kind": "session-user-property", "userPropertyUuid": "..." }`. The
+name-based `{ "kind": "session-user", "field": "..." }` arm is for
+CommCare-provided or external worker fields that Nova does not own. Textual
+XPath uses the current `#user/<saved-name>` spelling; an exact custom-property
+match is stored by UUID and follows later renames automatically.
+
 On update tools, leaving a field out keeps it and passing `null` clears a
 clearable field. Every batch is checked as one change; if any entry would make
-the app invalid, none of it saves.
+the app invalid, none of it saves. A provided role/persona `values` array is a
+complete replacement: include every value that should remain. Omitting
+`values` keeps the complete set, while `null` clears it.
 
 | Tool | What it does |
 |---|---|
 | `get_users` | Read worker information, roles, and personas, including their stable UUIDs and UUID-linked values. |
 | `add_user_properties` | Add one or more worker-information properties. Returns their stable UUIDs. |
 | `update_user_property` | Change one property's label, saved name, required flag, or accepted values. |
-| `remove_user_property` | Remove one property and atomically clear its values from every role and persona. |
+| `remove_user_property` | Remove one property and atomically clear its values from every role and persona. Refuses while any saved condition or calculation references it, naming the settings to update first. |
 | `add_user_types` | Add one or more reusable roles and their default worker-information values. |
 | `update_user_type` | Change one role's name, description, or complete set of default values. |
 | `remove_user_type` | Remove one role. Refuses while a persona still uses it. |

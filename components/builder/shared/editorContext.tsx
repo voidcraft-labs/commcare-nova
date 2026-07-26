@@ -26,7 +26,7 @@ import {
 	useMemo,
 	useRef,
 } from "react";
-import type { CaseType } from "@/lib/domain";
+import type { CaseType, UserProperty } from "@/lib/domain";
 import {
 	type CheckError,
 	checkExpression,
@@ -83,6 +83,8 @@ interface PredicateEditContextValue {
 	readonly currentCaseType: string;
 	/** Declared search inputs in scope at the editor's mount site. */
 	readonly knownInputs: readonly EditorSearchInputDecl[];
+	/** Custom worker information available to identity-backed user terms. */
+	readonly userProperties: readonly UserProperty[];
 	/**
 	 * Whether this slot evaluates against a case row (`"per-case"`) or
 	 * once before any case is selected (`"global"`). Kind menus and
@@ -122,6 +124,7 @@ interface PredicateEditProviderProps {
 	readonly caseTypes: readonly CaseType[];
 	readonly currentCaseType: string;
 	readonly knownInputs: readonly EditorSearchInputDecl[];
+	readonly userProperties?: readonly UserProperty[];
 	/** Absent means the ordinary per-case scope. */
 	readonly caseDataScope?: CaseDataScope;
 	readonly allowsNeverMatch?: boolean;
@@ -148,6 +151,7 @@ export function PredicateEditProvider({
 	caseTypes,
 	currentCaseType,
 	knownInputs,
+	userProperties = [],
 	caseDataScope = "per-case",
 	allowsNeverMatch = true,
 	validityIndex,
@@ -175,6 +179,7 @@ export function PredicateEditProvider({
 			caseTypes,
 			currentCaseType,
 			knownInputs,
+			userProperties,
 			caseDataScope,
 			allowsNeverMatch,
 			validityIndex,
@@ -185,6 +190,7 @@ export function PredicateEditProvider({
 			caseTypes,
 			currentCaseType,
 			knownInputs,
+			userProperties,
 			caseDataScope,
 			allowsNeverMatch,
 			validityIndex,
@@ -329,7 +335,8 @@ export function usePredicateEditContext(): PredicateEditContextValue {
 export function useResolvedType(
 	expr: ValueExpression | undefined,
 ): ResolvedType | undefined {
-	const { caseTypes, currentCaseType, knownInputs } = usePredicateEditContext();
+	const { caseTypes, currentCaseType, knownInputs, userProperties } =
+		usePredicateEditContext();
 	return useMemo(() => {
 		if (expr === undefined) return undefined;
 		return checkExpression(
@@ -338,11 +345,14 @@ export function useResolvedType(
 				caseTypes: [...caseTypes],
 				knownInputs: [...knownInputs],
 				currentCaseType,
+				userPropertySlugs: new Map(
+					userProperties.map((property) => [property.uuid, property.slug]),
+				),
 			},
 			[],
 			[],
 		);
-	}, [expr, caseTypes, currentCaseType, knownInputs]);
+	}, [expr, caseTypes, currentCaseType, knownInputs, userProperties]);
 }
 
 /**

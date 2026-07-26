@@ -18,6 +18,27 @@ export type ResolveFieldPath = (
 	segments: readonly string[],
 ) => string | undefined;
 
+/** Resolve a custom worker-information saved name to its stable identity. */
+export type ResolveUserPropertySlug = (slug: string) => string | undefined;
+
+/** Build the parse-side custom worker-information resolver. */
+export function userPropertySlugResolver(
+	doc: Pick<XPathPrintableDoc, "userProperties">,
+): ResolveUserPropertySlug {
+	return (slug) => {
+		let resolved: string | undefined;
+		for (const [uuid, property] of Object.entries(doc.userProperties ?? {})) {
+			if (property?.slug !== slug) continue;
+			// Valid documents reject duplicate saved names. If an unvalidated
+			// migration/bypass hands us one anyway, keep the text raw instead of
+			// binding nondeterministically to whichever record enumerates first.
+			if (resolved !== undefined) return undefined;
+			resolved = uuid;
+		}
+		return resolved;
+	};
+}
+
 /**
  * Build a resolver scoped to one form. `formUuid` may name a form that
  * doesn't exist on `doc` yet (a form minted earlier in the same batch)

@@ -9,7 +9,9 @@
 //   - `input` — search-input ref (named picker over declared inputs).
 //   - `session-context` — closed-namespace session field (`userid` /
 //     `username` / `deviceid` / `appversion`).
-//   - `session-user` — open-namespace user-data field (free-text).
+//   - `session-user-property` — a custom worker-information property by
+//     stable UUID (its current slug is resolved only for display/wire output).
+//   - `session-user` — an explicit raw built-in/external user-data field.
 //   - `field` — stable form-field identity, preserved here but authored only
 //     by the future case-operation editor.
 //   - `literal` — primitive constant (string / number / boolean /
@@ -78,6 +80,7 @@ import {
 	type CasePropertyDataType,
 	canonicalCasePropertyName,
 	effectiveDataType,
+	type UserProperty,
 } from "@/lib/domain";
 import {
 	ANY_CONSTRAINT,
@@ -94,6 +97,7 @@ import {
 	type SlotConstraint,
 	sessionContext,
 	sessionUser,
+	sessionUserProperty,
 	type Term,
 	timeLiteral,
 	type ValueExpression,
@@ -244,6 +248,7 @@ function EditableTermCard({
 
 	const term = value.term;
 	const mode = termMode(term);
+	const userProperties = ctx.userProperties;
 	const sourceTriggerRef = useRef<HTMLButtonElement>(null);
 	const { register: registerExpressionFocusTarget } =
 		useExpressionFocusTarget(path);
@@ -327,9 +332,7 @@ function EditableTermCard({
 			const savedTarget = draftsByModeRef.current.get(next)?.value;
 			const userFieldDraft =
 				next === "session-user"
-					? savedTarget?.kind === "session-user"
-						? savedTarget.field
-						: ""
+					? userFieldForTerm(savedTarget, userProperties)
 					: undefined;
 			const needsUserField =
 				next === "session-user" &&
@@ -345,7 +348,7 @@ function EditableTermCard({
 			}
 			applyMode(next);
 		},
-		[applyMode, mode, term],
+		[applyMode, mode, term, userProperties],
 	);
 
 	const handleTermChange = useCallback(
@@ -487,6 +490,7 @@ function EditableTermCard({
 					<TermBodyInput
 						term={term}
 						onChange={handleBodyTermChange}
+						userProperties={userProperties}
 						constraint={constraint}
 						invalid={errors.length > 0 || descendantErrors.length > 0}
 						path={path}
@@ -577,7 +581,10 @@ function EditableTermCard({
 									pendingModeChange.userFieldDraft === undefined
 										? undefined
 										: userFieldIsValid(pendingModeChange.userFieldDraft)
-											? sessionUser(pendingModeChange.userFieldDraft)
+											? userFieldTerm(
+													pendingModeChange.userFieldDraft,
+													userProperties,
+												)
 											: null;
 								if (explicitTarget === null) return;
 								if (termsMatch(pendingModeChange.source, term)) {
@@ -645,6 +652,7 @@ function termMode(term: Term): TermMode {
 		case "session-context":
 			return "session-context";
 		case "session-user":
+		case "session-user-property":
 			return "session-user";
 		case "table-column":
 			throw dormantTableColumnAuthoringError();
@@ -680,6 +688,8 @@ export function termHasMeaningfulContent(value: Term): boolean {
 			return true;
 		case "session-user":
 			return value.field.length > 0;
+		case "session-user-property":
+			return true;
 		case "table-column":
 			throw dormantTableColumnAuthoringError();
 	}
@@ -752,6 +762,7 @@ function describeTermModeReplacement(
 					"This replaces the selected app information. You can undo this change.",
 			};
 		case "session-user":
+		case "session-user-property":
 			return {
 				title,
 				description:
@@ -1099,6 +1110,7 @@ function ModeMenu({
 interface TermBodyInputProps {
 	readonly term: Term;
 	readonly onChange: (next: Term) => void;
+	readonly userProperties: readonly UserProperty[];
 	readonly constraint: SlotConstraint;
 	readonly invalid: boolean;
 	readonly path: EditorPath;
@@ -1114,6 +1126,7 @@ interface TermBodyInputProps {
 function TermBodyInput({
 	term,
 	onChange,
+	userProperties,
 	constraint,
 	invalid,
 	path,
@@ -1191,10 +1204,38 @@ function TermBodyInput({
 			return (
 				<UserFieldInput
 					value={term.field}
-					onChange={(field) => onChange(sessionUser(field))}
+					onChange={(field) => onChange(userFieldTerm(field, userProperties))}
 					invalid={invalid}
 				/>
 			);
+		case "session-user-property": {
+			const property = userProperties.find(
+				(candidate) => candidate.uuid === term.userPropertyUuid,
+			);
+			if (property === undefined) {
+				return (
+					<div
+						role="alert"
+						className="rounded-lg border border-nova-rose/30 bg-nova-rose/[0.05] px-3 py-2.5"
+					>
+						<p className="text-sm font-medium text-nova-rose">
+							Worker information unavailable
+						</p>
+						<p className="mt-1 text-[13px] leading-5 text-nova-text-secondary">
+							This value refers to worker information that is no longer in the
+							app. Choose another value source.
+						</p>
+					</div>
+				);
+			}
+			return (
+				<UserFieldInput
+					value={property.slug}
+					onChange={(field) => onChange(userFieldTerm(field, userProperties))}
+					invalid={invalid}
+				/>
+			);
+		}
 		case "table-column":
 			throw dormantTableColumnAuthoringError();
 	}
@@ -2046,6 +2087,33 @@ function LiteralTypedDateInput({
 
 function userFieldIsValid(value: string): boolean {
 	return XML_ELEMENT_NAME_PATTERN.test(value);
+}
+
+function userFieldForTerm(
+	term: Term | undefined,
+	properties: readonly UserProperty[],
+): string {
+	if (term?.kind === "session-user") return term.field;
+	if (term?.kind !== "session-user-property") return "";
+	return (
+		properties.find((property) => property.uuid === term.userPropertyUuid)
+			?.slug ?? ""
+	);
+}
+
+/**
+ * Resolve an author-entered worker field at the edit boundary. A slug declared
+ * in Nova becomes an immutable UUID reference; names outside the catalog stay
+ * explicit raw references for CommCare built-ins and external worker data.
+ */
+function userFieldTerm(
+	field: string,
+	properties: readonly UserProperty[],
+): Term {
+	const property = properties.find((candidate) => candidate.slug === field);
+	return property === undefined
+		? sessionUser(field)
+		: sessionUserProperty(property.uuid);
 }
 
 function userFieldError(value: string): string {

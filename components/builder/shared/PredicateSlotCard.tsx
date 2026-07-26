@@ -22,7 +22,7 @@
 // reaching for this card.
 
 "use client";
-import type { CaseType } from "@/lib/domain";
+import type { CaseType, UserProperty } from "@/lib/domain";
 import { matchAll, type Predicate } from "@/lib/domain/predicate";
 import { OptionalSlotCard } from "./OptionalSlotCard";
 import { PredicateCardEditor } from "./PredicateCardEditor";
@@ -59,6 +59,7 @@ export interface PredicateSlotCardProps {
 	/** Search-input declarations from the parent screen. Threaded
 	 *  into the predicate editor so `input(...)` terms resolve. */
 	readonly knownInputs?: readonly EditorSearchInputDecl[];
+	readonly userProperties?: readonly UserProperty[];
 	/** Aggregated validity verdict. `true` when the slot is
 	 *  undefined OR the predicate type-checks; `false` when a
 	 *  defined predicate fails its type-check pass. */
@@ -84,6 +85,7 @@ export function PredicateSlotCard({
 	caseTypes,
 	currentCaseType,
 	knownInputs = [],
+	userProperties = [],
 	onValidityChange,
 }: PredicateSlotCardProps) {
 	return (
@@ -103,6 +105,7 @@ export function PredicateSlotCard({
 					caseTypes={caseTypes}
 					currentCaseType={currentCaseType}
 					knownInputs={knownInputs}
+					userProperties={userProperties}
 					onValidityChange={onValidityChangeInner}
 				/>
 			)}

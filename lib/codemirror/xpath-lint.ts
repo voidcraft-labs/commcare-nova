@@ -14,6 +14,7 @@ import {
 	type FieldKind,
 	type FormType,
 	type ReachableCaseTypeIndex,
+	type UserProperty,
 } from "@/lib/domain";
 
 /**
@@ -54,6 +55,9 @@ export interface XPathLintContext {
 		label: string;
 		kind: FieldKind;
 	}>;
+	/** Custom worker information available to XPath's identity-aware #user
+	 * surface. Prose references deliberately do not consume this catalog. */
+	userProperties?: ReadonlyArray<Pick<UserProperty, "uuid" | "slug" | "label">>;
 	/**
 	 * The owning form's type. Drives surfaces that change behavior with
 	 * form-creates-case semantics — most notably case-ref autocomplete and

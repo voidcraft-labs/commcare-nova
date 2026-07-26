@@ -50,8 +50,8 @@
 // `BUILT_IN_USER_PROPERTIES` carries only what the session block injects.
 
 import { z } from "zod";
-import { mergeOwnRecords, ownRecordValue } from "./records";
-import { uuidSchema } from "./uuid";
+import { mergeOwnRecords, ownRecordSchema, ownRecordValue } from "./records";
+import { type Uuid, uuidSchema } from "./uuid";
 
 // ── Slug legality ────────────────────────────────────────────────────
 //
@@ -344,7 +344,7 @@ export type UserProperty = z.infer<typeof userPropertySchema>;
  * self._schema_fields}` before layering authored values over it, while an
  * UNDECLARED key is genuinely absent from the session.
  */
-export const userDataValuesSchema = z.record(z.string(), z.string());
+export const userDataValuesSchema = ownRecordSchema(z.string(), z.string());
 export type UserDataValues = z.infer<typeof userDataValuesSchema>;
 
 /**
@@ -427,6 +427,18 @@ export function userTypesOf(doc: UserCollections): Record<string, UserType> {
 
 export function personasOf(doc: UserCollections): Record<string, Persona> {
 	return doc.personas ?? NO_PERSONAS;
+}
+
+/** Stable custom worker-information identity → current emitted slug. */
+export function userPropertySlugsByUuid(
+	doc: UserCollections,
+): ReadonlyMap<Uuid, string> {
+	return new Map(
+		Object.values(userPropertiesOf(doc)).map((property) => [
+			property.uuid,
+			property.slug,
+		]),
+	);
 }
 
 /**

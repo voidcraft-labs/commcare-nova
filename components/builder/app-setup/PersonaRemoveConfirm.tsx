@@ -92,17 +92,23 @@ function ConfirmPanel({
 			return;
 		}
 		let live = true;
-		void countCasesOwnedByAction({
-			appId,
-			personaUuid: persona.uuid,
-		}).then((result) => {
-			if (!live) return;
-			setOwned(
-				result.kind === "count"
-					? { state: "known", count: result.count }
-					: { state: "failed" },
-			);
-		});
+		const loadOwnedCount = async (): Promise<void> => {
+			try {
+				const result = await countCasesOwnedByAction({
+					appId,
+					personaUuid: persona.uuid,
+				});
+				if (!live) return;
+				setOwned(
+					result.kind === "count"
+						? { state: "known", count: result.count }
+						: { state: "failed" },
+				);
+			} catch {
+				if (live) setOwned({ state: "failed" });
+			}
+		};
+		void loadOwnedCount();
 		return () => {
 			live = false;
 		};

@@ -31,6 +31,7 @@ import {
 	type ReferenceSlot,
 	type ResolveFieldPath,
 	rewriteSlotValues,
+	userPropertySlugResolver,
 	xpathPrintContext,
 } from "@/lib/domain";
 
@@ -107,7 +108,11 @@ export function migrateDocExpressions(
 			result.skipped++;
 			return value;
 		}
-		const expr = parseXPathExpression(value, resolve);
+		const expr = parseXPathExpression(
+			value,
+			resolve,
+			userPropertySlugResolver(doc),
+		);
 		const printed = printXPath(expr, printCtx());
 		if (printed !== value) {
 			result.failures.push({ entityUuid, slot: slotId, text: value, printed });
@@ -221,7 +226,11 @@ export function migrateMutationExpressions(
 			result.skipped++;
 			return value;
 		}
-		const expr = parseXPathExpression(value, resolve);
+		const expr = parseXPathExpression(
+			value,
+			resolve,
+			userPropertySlugResolver(doc),
+		);
 		const printed = printXPath(expr, printCtx());
 		if (printed !== value) {
 			result.failures.push({ entityUuid, slot: slotId, text: value, printed });

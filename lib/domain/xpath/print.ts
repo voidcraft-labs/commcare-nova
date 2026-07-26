@@ -13,6 +13,7 @@
 // flags from the printed text. A throw here would take down emit and
 // validation for the whole doc over one corrupt leaf.
 
+import { ownRecordValue } from "../records";
 import type { XPathExpression } from "./ast";
 
 /**
@@ -27,6 +28,8 @@ export interface XPathPrintContext {
 	 * resolve to a field reachable from a form.
 	 */
 	fieldPathSegments(uuid: string): readonly string[] | undefined;
+	/** The custom worker-information property's current saved name. */
+	userPropertySlug(uuid: string): string | undefined;
 }
 
 /**
@@ -39,6 +42,7 @@ export interface XPathPrintableDoc {
 	fields: Record<string, { id: string } | undefined>;
 	forms: Record<string, unknown>;
 	fieldOrder: Record<string, readonly string[] | undefined>;
+	userProperties?: Record<string, { slug: string } | undefined>;
 	/** The maintained reverse index when present (in-memory docs);
 	 *  printing derives its own from `fieldOrder` when absent. */
 	fieldParent?: Record<string, string | null | undefined>;
@@ -94,6 +98,9 @@ export function xpathPrintContext(doc: XPathPrintableDoc): XPathPrintContext {
 			cache.set(uuid, result);
 			return result;
 		},
+		userPropertySlug(uuid) {
+			return ownRecordValue(doc.userProperties, uuid)?.slug;
+		},
 	};
 }
 
@@ -105,8 +112,8 @@ export function xpathPrintContext(doc: XPathPrintableDoc): XPathPrintContext {
  *   - `path-ref`  → its stored separator runs interleaved with
  *     `data` + the current path (separators pad with `/` when a move
  *     deepened the path, and surplus entries drop when it flattened)
- *   - `case-ref` / `user-ref` / `raw-ref` → their name spelling,
- *     which IS their identity
+ *   - `user-property-ref` → the target property's current saved name
+ *   - `case-ref` / `user-ref` / `raw-ref` → their name spelling
  */
 export function printXPath(
 	expr: XPathExpression,
@@ -136,6 +143,11 @@ export function printXPath(
 				break;
 			case "user-ref":
 				out += `#user/${part.property}`;
+				break;
+			case "user-property-ref":
+				out += `#user/${
+					ctx.userPropertySlug(part.userPropertyUuid) ?? part.userPropertyUuid
+				}`;
 				break;
 			case "raw-ref":
 				out += `#${part.namespace}/${part.segments.join("/")}`;

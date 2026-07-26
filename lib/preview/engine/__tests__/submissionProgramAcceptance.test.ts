@@ -47,6 +47,7 @@ const IDENTITY: ResolvedPreviewIdentity = {
 	session: {
 		context: { userid: ACTOR, username: "ada" },
 		user: { role: "supervisor" },
+		userPropertySlugs: {},
 	},
 	usercase: { role: "supervisor" },
 };

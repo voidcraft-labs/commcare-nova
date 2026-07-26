@@ -8,14 +8,17 @@
 // that every built-in slug is already unreachable through the slug rule.
 
 import { describe, expect, it } from "vitest";
+import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { userPropertySlugVerdict } from "@/lib/commcare/validator/userPropertySlug";
 import {
 	asUuid,
 	BUILT_IN_USER_PROPERTIES,
+	blueprintDocSchema,
 	personaUserData,
 	USER_DATA_SYSTEM_FIELDS,
 	USER_PROPERTY_SLUG_MAX_LENGTH,
 	type UserCollections,
+	userDataValuesSchema,
 	userPropertySchema,
 } from "@/lib/domain";
 
@@ -210,5 +213,74 @@ describe("user property accepted values", () => {
 				choices: ["north", "north"],
 			}).success,
 		).toBe(false);
+	});
+});
+
+describe("prototype-safe user record parsing", () => {
+	it("preserves every own hostile key in value bags", () => {
+		const values = Object.fromEntries([
+			["__proto__", "north"],
+			["constructor", "south"],
+		]);
+
+		const parsed = userDataValuesSchema.parse(values);
+		expect(Object.keys(parsed).sort()).toEqual(["__proto__", "constructor"]);
+		expect(Object.hasOwn(parsed, "__proto__")).toBe(true);
+		expect(Object.getOwnPropertyDescriptor(parsed, "__proto__")?.value).toBe(
+			"north",
+		);
+		expect(Object.hasOwn(parsed, "constructor")).toBe(true);
+		expect(parsed.constructor).toBe("south");
+	});
+
+	it("preserves hostile collection identities through the blueprint boundary", () => {
+		const propertyUuid = asUuid("__proto__");
+		const typeUuid = asUuid("constructor");
+		const personaUuid = asUuid("toString");
+		const { fieldParent: _derived, ...persistable } = buildDoc({
+			appName: "Hostile identities",
+			modules: [],
+		});
+		const wire = {
+			...persistable,
+			userProperties: Object.fromEntries([
+				[
+					propertyUuid,
+					{
+						uuid: propertyUuid,
+						slug: "region",
+						label: "Region",
+					},
+				],
+			]),
+			userTypes: Object.fromEntries([
+				[
+					typeUuid,
+					{
+						uuid: typeUuid,
+						name: "CHW",
+						values: Object.fromEntries([[propertyUuid, "north"]]),
+					},
+				],
+			]),
+			personas: Object.fromEntries([
+				[
+					personaUuid,
+					{
+						uuid: personaUuid,
+						name: "Asha",
+						userTypeUuid: typeUuid,
+					},
+				],
+			]),
+		};
+
+		const parsed = blueprintDocSchema.parse(wire);
+		expect(Object.hasOwn(parsed.userProperties ?? {}, propertyUuid)).toBe(true);
+		expect(Object.hasOwn(parsed.userTypes ?? {}, typeUuid)).toBe(true);
+		expect(Object.hasOwn(parsed.personas ?? {}, personaUuid)).toBe(true);
+		expect(
+			Object.hasOwn(parsed.userTypes?.[typeUuid]?.values ?? {}, propertyUuid),
+		).toBe(true);
 	});
 });

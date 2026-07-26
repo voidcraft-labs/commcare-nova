@@ -65,7 +65,14 @@ value (or means no authored value when there is no role value), `""` is an
 explicit blank override, and a nonempty string is explicit. Select controls use
 private numeric item identities so authored values such as `__none__` remain
 ordinary choices. Each value edit dispatches its own semantic mutation rather
-than replacing the whole role/persona value bag. Persona removal remains
+than replacing the whole role/persona value bag. XPath and predicate pickers
+bind custom worker information by UUID and display its current saved name; a
+rename updates chips and completions live without rewriting the AST. Built-in
+or external worker fields remain name-backed. Removing custom worker
+information first queries the shared reference index: while a condition or
+calculation reads it, the subsection lists the owning settings and offers no
+destructive action; once unreferenced, one gated batch clears its role/persona
+values and removes it. Persona removal remains
 disabled until the owner-wide retained-case count succeeds; the confirmation
 states that rows of current or retired case types remain stored under that
 persona and may still appear in unfiltered data views, without implying

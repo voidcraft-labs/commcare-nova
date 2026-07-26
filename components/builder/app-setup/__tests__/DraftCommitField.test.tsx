@@ -116,5 +116,10 @@ describe("DraftLinesField", () => {
 		expect(screen.getByRole("alert").textContent).toContain(
 			'Asha has Region set to "south"',
 		);
+		expect(
+			screen
+				.getByRole("button", { name: "Apply accepted values" })
+				.className.split(/\s+/),
+		).toContain("min-h-11");
 	});
 });

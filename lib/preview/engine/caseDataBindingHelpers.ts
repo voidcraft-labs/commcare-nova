@@ -1010,6 +1010,9 @@ export function buildCaseOperationProgramFromDoc(args: {
 				: {}),
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
 			sessionUser: new Map(Object.entries(args.identity.session.user)),
+			userPropertySlugs: new Map(
+				Object.entries(args.identity.session.userPropertySlugs),
+			),
 			sessionContext,
 			...(args.viewerTimeZone === undefined
 				? {}

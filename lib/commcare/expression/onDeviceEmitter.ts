@@ -164,6 +164,14 @@ export function emitOnDeviceExpression(
 	anchor: OnDeviceCaseAnchor = ROOT_ON_DEVICE_CASE_ANCHOR,
 	termContext: OnDeviceTermEmissionContext = {},
 ): string {
+	const resolvedTermContext =
+		termContext.userPropertySlugs === undefined &&
+		relationContext.userPropertySlugs !== undefined
+			? {
+					...termContext,
+					userPropertySlugs: relationContext.userPropertySlugs,
+				}
+			: termContext;
 	const compatibilityIssue = findOnDeviceScalarExpressionIssue(
 		expr,
 		relationContext,
@@ -202,14 +210,14 @@ export function emitOnDeviceExpression(
 				return emitTerm(
 					relation.via === value.via ? value : { ...value, via: relation.via },
 					root,
-					termContext,
+					resolvedTermContext,
 					anchor.kind === "root" ? "root" : "related",
 				);
 			}
 			return emitTerm(
 				value,
 				root,
-				termContext,
+				resolvedTermContext,
 				anchor.kind === "root" ? "root" : "related",
 			);
 		}

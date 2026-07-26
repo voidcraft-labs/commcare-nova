@@ -7,7 +7,13 @@ import {
 	focusElement,
 	settleBaseUiTransitions,
 } from "@/__tests__/helpers/baseUiInteractions";
-import type { CaseType, LookupColumnId, LookupTableId } from "@/lib/domain";
+import {
+	asUuid,
+	type CaseType,
+	type LookupColumnId,
+	type LookupTableId,
+	type UserProperty,
+} from "@/lib/domain";
 import {
 	ancestorPath,
 	dateLiteral,
@@ -17,6 +23,7 @@ import {
 	relationStep,
 	sessionContext,
 	sessionUser,
+	sessionUserProperty,
 	tableColumn,
 	term,
 	timeLiteral,
@@ -46,6 +53,12 @@ const PATIENT_WITH_INFORMATION: CaseType = {
 const TRANSITION_CASE_TYPES = [HOUSEHOLD, PATIENT_WITH_INFORMATION] as const;
 const LOOKUP_TABLE = "018f3e8a-7b2c-7def-8abc-1234567890ab" as LookupTableId;
 const LOOKUP_COLUMN = "018f3e8a-7b2c-7def-8abc-1234567890ac" as LookupColumnId;
+const WORKER_PROPERTY_UUID = asUuid("worker-property-region");
+const WORKER_PROPERTY: UserProperty = {
+	uuid: WORKER_PROPERTY_UUID,
+	slug: "assigned_region",
+	label: "Assigned region",
+};
 
 const REQUIRED_TERM = {
 	accepts: "any" as const,
@@ -485,6 +498,90 @@ describe("TermCard source transitions", () => {
 		expect(screen.queryByRole("alert")).toBeNull();
 		expect(onChange).toHaveBeenCalledTimes(1);
 		expect(onChange).toHaveBeenCalledWith(term(sessionUser("service_area")));
+	});
+
+	it("commits an exact custom worker slug as an identity-backed term", () => {
+		const onChange = vi.fn();
+		render(
+			<ExpressionCardEditor
+				value={term(sessionUser("external_region"))}
+				onChange={onChange}
+				caseTypes={[PATIENT]}
+				currentCaseType="patient"
+				userProperties={[WORKER_PROPERTY]}
+			/>,
+		);
+		const field = screen.getByRole("textbox", {
+			name: "User information field",
+		});
+
+		focusElement(field as HTMLInputElement);
+		fireEvent.change(field, { target: { value: "assigned_region" } });
+		fireEvent.blur(field);
+
+		expect(onChange).toHaveBeenCalledWith(
+			term(sessionUserProperty(WORKER_PROPERTY_UUID)),
+		);
+	});
+
+	it("renders a custom worker identity through its current label and slug after rename", async () => {
+		const onChange = vi.fn();
+		const value = term(sessionUserProperty(WORKER_PROPERTY_UUID));
+		const { rerender } = render(
+			<ExpressionCardEditor
+				value={value}
+				onChange={onChange}
+				caseTypes={[PATIENT]}
+				currentCaseType="patient"
+				userProperties={[WORKER_PROPERTY]}
+			/>,
+		);
+		const field = screen.getByRole("textbox", {
+			name: "User information field",
+		}) as HTMLInputElement;
+		expect(field.value).toBe("assigned_region");
+
+		rerender(
+			<ExpressionCardEditor
+				value={value}
+				onChange={onChange}
+				caseTypes={[PATIENT]}
+				currentCaseType="patient"
+				userProperties={[
+					{
+						...WORKER_PROPERTY,
+						slug: "supervision_area",
+						label: "Supervision area",
+					},
+				]}
+			/>,
+		);
+
+		await waitFor(() => expect(field.value).toBe("supervision_area"));
+		expect(onChange).not.toHaveBeenCalled();
+	});
+
+	it("shows a clear recovery path instead of exposing a missing identity", () => {
+		const onValidityChange = vi.fn();
+		render(
+			<ExpressionCardEditor
+				value={term(sessionUserProperty(WORKER_PROPERTY_UUID))}
+				onChange={vi.fn()}
+				caseTypes={[PATIENT]}
+				currentCaseType="patient"
+				userProperties={[]}
+				onValidityChange={onValidityChange}
+			/>,
+		);
+
+		const unavailable = screen.getByRole("alert");
+		expect(unavailable.textContent).toContain("Worker information unavailable");
+		expect(unavailable.textContent).toContain("Choose another value source");
+		expect(unavailable.textContent).not.toContain(WORKER_PROPERTY_UUID);
+		expect(
+			screen.queryByRole("textbox", { name: "User information field" }),
+		).toBeNull();
+		expect(onValidityChange).toHaveBeenCalledWith(false);
 	});
 });
 

@@ -361,6 +361,37 @@ projection without inherited properties masquerading as members. Accepted
 choices are unique by exact value at construction, and duplicate property
 slugs, user-type names, and persona names report every member of the duplicate
 group in deterministic `(order, uuid)` order, independent of insertion order.
+The document schema uses the shared `ownRecordSchema` rather than Zod's native
+record parser, which intentionally drops `__proto__`; persistence hydration
+rebuilds every normalized record through the same prototype-safe record
+helpers. All six normalized entity kinds — module, form, field, user property,
+user type, and persona — share one global UUID namespace because
+`blueprint_entities` keys them all by `(app_id, uuid)`. The commit validator
+reports every member of a collision, and `decomposeBlueprint` repeats both
+global uniqueness and record-key/embedded-UUID agreement as a persistence
+tripwire before any rows can collapse.
+
+Custom worker-information references follow the same stable identity as
+role/persona values. Predicate / ValueExpression stores
+`session-user-property { userPropertyUuid }`; XPath stores
+`user-property-ref { userPropertyUuid }`. Every Preview, Postgres, local-wire,
+and HQ-wire target resolves the property's current saved slug only when it
+projects the AST, so a rename rewrites nothing and takes effect everywhere
+immediately. The parallel name-backed `session-user { field }` and XPath
+`user-ref { property }` arms are the final vocabulary for
+CommCare-provided or external fields that have no Nova entity — they are not
+compatibility spellings of the identity arm. Textual XPath parsing converts an
+exact unique custom `#user/<slug>` match to identity; a built-in, missing,
+external, or duplicate-slug spelling remains name-backed for the ordinary
+validator/repair flow.
+
+The reference index records both custom AST arms under one `p:<uuid>` target.
+Removing worker information therefore refuses while any condition,
+calculation, default, case-list rule, or navigation rule still reads it and
+names the owning settings to update. It never silently deletes those
+expressions or degrades their identity to mutable text. Once no reference
+remains, the same gated batch clears every role/persona value for the property
+and removes it.
 
 The wire facts the shape rests on:
 
@@ -414,6 +445,14 @@ The wire facts the shape rests on:
   (`commcare-core .../UserXmlParser.java::parse`) — and merges into a retrieved
   user without clearing, so a key deleted on HQ lingers until a full resync.
   Nova documents that staleness rather than simulating it.
+- The emitted session lookup is pinned byte-for-byte to
+  `commcare-hq/corehq/apps/app_manager/tests/test_suite_remote_request.py::test_required`:
+  `instance('commcaresession')/session/user/data/<slug>`. The emitted usercase
+  lookup is pinned to
+  `corehq/apps/app_manager/tests/data/suite/suite-case-detail-tabs-with-nodesets.xml`:
+  `instance('casedb')/casedb/case[@case_type='commcare-user'][hq_user_id=instance('commcaresession')/session/context/userid]/<slug>`.
+  HQ JSON, local suite/XForm, and HQ-upload XForm tests assert the exact
+  corresponding bytes, including after a slug rename against an unchanged AST.
 - `CustomDataFieldsProfile` sits behind the paid `APP_USER_PROFILES` privilege
   and is deliberately not the provisioning model; a user type compiles to plain
   per-user `user_data` values.
@@ -456,7 +495,12 @@ two. `session` is `instance('commcaresession')/session/…`, built by
 `::addUserProperties`. `usercase` is the `commcare-user` case `#user/<prop>`
 reads, built independently by `callcenter/sync_usercase.py::_get_user_case_fields`
 — same authored data, different built-in keys (`first_name` there,
-`commcare_first_name` in the session block).
+`commcare_first_name` in the session block). The serializable session
+projection additionally carries a custom-property UUID→current-slug binding
+map for Predicate/SQL/wire emission; it is projection metadata, not worker
+data. Both projections and every evaluator perform own-key reads, so a valid
+property named `__proto__` or `constructor` behaves as authored data rather
+than inherited prototype state.
 
 **The three location keys diverge between the two projections**, and the
 asymmetry is easy to state backwards: `get_user_session_data` writes all three

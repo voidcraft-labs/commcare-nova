@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { asUuid, type BlueprintDoc } from "@/lib/domain";
+import { eq, literal, sessionUserProperty } from "@/lib/domain/predicate";
 import type { ValidationError, ValidationErrorCode } from "../errors";
 import { errorIdentity } from "../gate";
 import { errorWithinScope, runValidation } from "../runner";
@@ -255,6 +256,82 @@ describe("user finding identity and scoping", () => {
 		);
 		expect(findings.map(errorIdentity)).toEqual([
 			`USER_PROPERTY_CHOICES_DUPLICATE|userProperty=${propertyUuid}`,
+		]);
+	});
+
+	it("does not read an inherited prototype member as a persona choice value", () => {
+		const propertyUuid = asUuid("constructor");
+		const personaUuid = asUuid("persona");
+		const doc: BlueprintDoc = {
+			...buildDoc(),
+			userProperties: Object.fromEntries([
+				[
+					propertyUuid,
+					{
+						uuid: propertyUuid,
+						slug: "region",
+						label: "Region",
+						choices: ["north"],
+					},
+				],
+			]),
+			personas: {
+				[personaUuid]: {
+					uuid: personaUuid,
+					name: "Asha",
+				},
+			},
+		};
+
+		expect(() => runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).not.toThrow();
+		expect(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+				(finding) => finding.code === "USER_DATA_INVALID_CHOICE",
+			),
+		).toEqual([]);
+	});
+
+	it("reports every entity participating in one app-global uuid collision", () => {
+		const doc = buildDoc({ modules: [{ name: "Patients" }] });
+		const moduleUuid = doc.moduleOrder[0];
+		doc.userProperties = {
+			[moduleUuid]: {
+				uuid: moduleUuid,
+				slug: "region",
+				label: "Region",
+			},
+		};
+
+		const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(finding) => finding.code === "BLUEPRINT_ENTITY_UUID_DUPLICATE",
+		);
+		expect(findings.map(errorIdentity).sort()).toEqual(
+			[
+				`BLUEPRINT_ENTITY_UUID_DUPLICATE|entity=${moduleUuid}|entityKind=module`,
+				`BLUEPRINT_ENTITY_UUID_DUPLICATE|entity=${moduleUuid}|entityKind=userProperty`,
+			].sort(),
+		);
+	});
+
+	it("rejects a dangling custom worker-property identity", () => {
+		const propertyUuid = asUuid("missing-worker-property");
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "Patients",
+					displayCondition: eq(
+						sessionUserProperty(propertyUuid),
+						literal("north"),
+					),
+				},
+			],
+		});
+
+		const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(finding) => finding.code === "USER_PROPERTY_REFERENCE_UNKNOWN",
+		);
+		expect(findings.map(errorIdentity)).toEqual([
+			`USER_PROPERTY_REFERENCE_UNKNOWN|userProperty=${propertyUuid}`,
 		]);
 	});
 });

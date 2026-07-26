@@ -18,6 +18,7 @@ import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
 import {
 	fieldPathResolver,
 	printXPath,
+	userPropertySlugResolver,
 	type XPathExpression,
 	xpathPrintContext,
 } from "@/lib/domain";
@@ -34,7 +35,11 @@ export function parseXPathForField(
 	text: string,
 ): XPathExpression {
 	const formUuid = findContainingForm(doc, fieldUuid);
-	return parseXPathExpression(text, fieldPathResolver(doc, formUuid));
+	return parseXPathExpression(
+		text,
+		fieldPathResolver(doc, formUuid),
+		userPropertySlugResolver(doc),
+	);
 }
 
 /**
@@ -46,7 +51,11 @@ export function parseXPathForForm(
 	formUuid: Uuid | undefined,
 	text: string,
 ): XPathExpression {
-	return parseXPathExpression(text, fieldPathResolver(doc, formUuid));
+	return parseXPathExpression(
+		text,
+		fieldPathResolver(doc, formUuid),
+		userPropertySlugResolver(doc),
+	);
 }
 
 /** Print an expression against a doc — the read-side convenience for

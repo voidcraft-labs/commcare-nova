@@ -86,6 +86,7 @@ import {
 	prop,
 	sessionContext,
 	sessionUser,
+	sessionUserProperty,
 	term,
 	today,
 	whenInput,
@@ -3869,6 +3870,57 @@ describe("loadCasesAction", () => {
 		).toBeLessThan(loadAppMock.mock.invocationCallOrder[0]);
 	});
 
+	it("binds custom worker identities through the committed catalog for self preview", async () => {
+		const propertyUuid = asUuid("worker-property-region");
+		const { getSession } = await import("@/lib/auth-utils");
+		const { withProjectContext } = await import("@/lib/case-store");
+		vi.mocked(getSession).mockResolvedValueOnce({
+			user: { id: OWNER_A, name: "Member" },
+		} as unknown as Awaited<ReturnType<typeof getSession>>);
+		const doc = buildDoc({ appName: "Worker catalog", modules: [] });
+		doc.userProperties = {
+			[propertyUuid]: {
+				uuid: propertyUuid,
+				slug: "supervision_area",
+				label: "Supervision area",
+			},
+		};
+		loadAppMock.mockResolvedValueOnce({ blueprint: doc });
+		const store = actionStore({ query: vi.fn().mockResolvedValueOnce([]) });
+		vi.mocked(withProjectContext).mockResolvedValueOnce(store);
+		const columnUuid = asUuid("worker-column");
+
+		const { loadCasesAction } = await import("../caseDataBinding");
+		await loadCasesAction({
+			appId: APP_ID,
+			caseType: "patient",
+			caseListConfig: {
+				columns: [
+					calculatedColumn(
+						columnUuid,
+						"Supervision area",
+						term(sessionUserProperty(propertyUuid)),
+					),
+				],
+				searchInputs: [],
+			},
+			caseTypes: [PATIENT_CASE_TYPE],
+		});
+
+		const bindings = vi.mocked(store.query).mock.calls[0]?.[0].bindings;
+		expect(bindings?.userPropertySlugs?.get(propertyUuid)).toBe(
+			"supervision_area",
+		);
+		// A signed-in Nova member has no authored worker value, but a declared
+		// field is present-empty exactly as it is on a CommCare restore.
+		expect(bindings?.sessionUser?.get("supervision_area")).toBe("");
+		expect(resolveAuthorizedAppSnapshotMock).toHaveBeenCalledWith(
+			APP_ID,
+			OWNER_A,
+			"view",
+		);
+	});
+
 	it("returns an honest typed refusal when a selected persona disappeared", async () => {
 		const { getSession } = await import("@/lib/auth-utils");
 		const { withProjectContext } = await import("@/lib/case-store");
@@ -4807,6 +4859,64 @@ describe("loadCaseDataAction session projection", () => {
 			personaUuid,
 		);
 	});
+
+	it("binds a persona's custom worker value by UUID through its current slug", async () => {
+		const propertyUuid = asUuid("worker-property-region");
+		const personaUuid = asUuid("persona-details-worker");
+		const { getSession } = await import("@/lib/auth-utils");
+		const { withProjectContext } = await import("@/lib/case-store");
+		vi.mocked(getSession).mockResolvedValueOnce({
+			user: { id: OWNER_A, name: "Member" },
+		} as unknown as Awaited<ReturnType<typeof getSession>>);
+		const doc = buildDoc({ appName: "Persona worker catalog", modules: [] });
+		doc.userProperties = {
+			[propertyUuid]: {
+				uuid: propertyUuid,
+				slug: "supervision_area",
+				label: "Supervision area",
+			},
+		};
+		doc.personas = {
+			[personaUuid]: {
+				uuid: personaUuid,
+				name: "Asha",
+				values: { [propertyUuid]: "north" },
+			},
+		};
+		loadAppMock.mockResolvedValueOnce({ blueprint: doc });
+		const store = actionStore({ query: vi.fn().mockResolvedValueOnce([]) });
+		vi.mocked(withProjectContext).mockResolvedValueOnce(store);
+		const columnUuid = asUuid("worker-detail-column");
+
+		const { loadCaseDataAction } = await import("../caseDataBinding");
+		await loadCaseDataAction(
+			APP_ID,
+			"patient",
+			ALICE_CASE_ID,
+			0,
+			{
+				columns: [
+					calculatedColumn(
+						columnUuid,
+						"Supervision area",
+						term(sessionUserProperty(propertyUuid)),
+						{ visibleInDetail: true },
+					),
+				],
+				searchInputs: [],
+			},
+			[PATIENT_CASE_TYPE],
+			undefined,
+			undefined,
+			personaUuid,
+		);
+
+		const bindings = vi.mocked(store.query).mock.calls[0]?.[0].bindings;
+		expect(bindings?.userPropertySlugs?.get(propertyUuid)).toBe(
+			"supervision_area",
+		);
+		expect(bindings?.sessionUser?.get("supervision_area")).toBe("north");
+	});
 });
 
 // ---------------------------------------------------------------
@@ -5279,6 +5389,53 @@ describe("loadFilterPreviewAction", () => {
 		expect(queryArg?.bindings).toBe(countArg?.bindings);
 		expect(queryArg?.bindings?.sessionContext?.get("userid")).toBe(OWNER_A);
 		expect(queryArg?.bindings?.sessionUserFallback).toBe("");
+	});
+
+	it("binds UUID worker refs through the parsed candidate catalog", async () => {
+		const propertyUuid = asUuid("worker-property-region");
+		const { getSession } = await import("@/lib/auth-utils");
+		const { withProjectContext } = await import("@/lib/case-store");
+		vi.mocked(getSession).mockResolvedValueOnce({
+			user: { id: OWNER_A, name: "Member" },
+		} as unknown as Awaited<ReturnType<typeof getSession>>);
+		const candidate = buildBlueprint([PATIENT_CASE_TYPE]);
+		candidate.userProperties = {
+			[propertyUuid]: {
+				uuid: propertyUuid,
+				slug: "candidate_area",
+				label: "Candidate area",
+			},
+		};
+		const store = actionStore({
+			query: vi.fn().mockResolvedValueOnce([]),
+			count: vi.fn().mockResolvedValueOnce(0),
+		});
+		vi.mocked(withProjectContext).mockResolvedValueOnce(store);
+
+		const { loadFilterPreviewAction } = await import("../caseDataBinding");
+		await loadFilterPreviewAction({
+			appId: APP_ID,
+			caseType: "patient",
+			blueprint: candidate,
+			caseListConfig: {
+				columns: [
+					calculatedColumn(
+						asUuid("candidate-worker-column"),
+						"Candidate area",
+						term(sessionUserProperty(propertyUuid)),
+					),
+				],
+				searchInputs: [],
+			},
+		});
+
+		const bindings = vi.mocked(store.query).mock.calls[0]?.[0].bindings;
+		expect(bindings?.userPropertySlugs?.get(propertyUuid)).toBe(
+			"candidate_area",
+		);
+		// The candidate catalog is presentation/compiler state only; the
+		// authenticated member still owns the actual session values.
+		expect(bindings?.sessionUser?.get("candidate_area")).toBeUndefined();
 	});
 
 	it("returns the invalid-blueprint arm (not a thrown error) for a null blueprint over the wire", async () => {

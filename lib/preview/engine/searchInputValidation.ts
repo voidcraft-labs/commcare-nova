@@ -6,7 +6,7 @@ import {
 	type ComposedXPathQuery,
 	composeXPathQueryEmission,
 } from "@/lib/commcare/suite/case-search/xpathQuery";
-import type { CaseListConfig } from "@/lib/domain";
+import { type CaseListConfig, ownRecordValue } from "@/lib/domain";
 import type { TypeContext } from "@/lib/domain/predicate";
 import { toBoolean } from "@/lib/preview/xpath/coerce";
 import { evaluate } from "@/lib/preview/xpath/evaluator";
@@ -20,6 +20,7 @@ import {
 const EMPTY_SEARCH_SESSION: PreviewSearchSessionValues = {
 	context: {},
 	user: {},
+	userPropertySlugs: {},
 };
 
 interface RuntimeValidationOptions {
@@ -272,7 +273,10 @@ function bindRuntimeRejectionCondition(
 	bound = bound.replace(
 		/instance\('commcaresession'\)\/session\/user\/data\/([A-Za-z_][A-Za-z0-9_.-]*)/g,
 		(_match, field: string) =>
-			quoteLiteral(session.user[field] ?? "", "case-list-filter"),
+			quoteLiteral(
+				ownRecordValue(session.user, field) ?? "",
+				"case-list-filter",
+			),
 	);
 	return bound;
 }

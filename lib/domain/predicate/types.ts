@@ -555,6 +555,19 @@ export const sessionUserSchema = z
 export type SessionUserRef = z.infer<typeof sessionUserSchema>;
 
 /**
+ * A Nova-authored worker-information property on the current session user.
+ * The stable UUID is stored; wire and preview targets resolve its CURRENT
+ * slug at projection time, so renaming worker information rewrites no AST.
+ */
+export const sessionUserPropertySchema = z
+	.object({
+		kind: z.literal("session-user-property"),
+		userPropertyUuid: uuidSchema,
+	})
+	.strict();
+export type SessionUserPropertyRef = z.infer<typeof sessionUserPropertySchema>;
+
+/**
  * Reference to a closed-namespace framework-controlled context field on
  * the current session (e.g. the active user's `userid`, the current
  * `appversion`).
@@ -639,6 +652,7 @@ export const termSchema = z.discriminatedUnion("kind", [
 	propertyRefSchema,
 	searchInputRefSchema,
 	sessionUserSchema,
+	sessionUserPropertySchema,
 	sessionContextSchema,
 	formFieldRefSchema,
 	tableColumnTermSchema,
@@ -2222,6 +2236,7 @@ export const carrierBlindTermSchema: z.ZodType<CarrierBlindTerm> =
 		propertyRefSchema,
 		searchInputRefSchema,
 		sessionUserSchema,
+		sessionUserPropertySchema,
 		sessionContextSchema,
 		formFieldRefSchema,
 		literalSchema,
@@ -2711,6 +2726,9 @@ z.globalRegistry.add(relationPathSchema, { id: "RelationPath" });
 z.globalRegistry.add(propertyRefSchema, { id: "PropertyRef" });
 z.globalRegistry.add(searchInputRefSchema, { id: "SearchInputRef" });
 z.globalRegistry.add(sessionUserSchema, { id: "SessionUser" });
+z.globalRegistry.add(sessionUserPropertySchema, {
+	id: "SessionUserProperty",
+});
 z.globalRegistry.add(sessionContextSchema, { id: "SessionContext" });
 z.globalRegistry.add(formFieldRefSchema, { id: "FormFieldRef" });
 z.globalRegistry.add(tableColumnTermSchema, { id: "TableColumnTerm" });

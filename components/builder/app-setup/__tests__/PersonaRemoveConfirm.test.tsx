@@ -102,6 +102,23 @@ describe("PersonaRemoveConfirm", () => {
 		).toBe(false);
 	});
 
+	it("turns a rejected count promise into the retry state", async () => {
+		countCasesOwnedByAction
+			.mockRejectedValueOnce(new Error("network failed"))
+			.mockResolvedValueOnce({ kind: "count", count: 1 });
+		renderConfirm();
+		fireEvent.click(screen.getByRole("button", { name: "Remove persona" }));
+
+		const retry = await screen.findByRole("button", { name: "Try again" });
+		expect(
+			screen.getByRole("button", { name: "Remove" }).hasAttribute("disabled"),
+		).toBe(true);
+		fireEvent.click(retry);
+
+		await screen.findByText(/1 retained case row/i);
+		expect(countCasesOwnedByAction).toHaveBeenCalledTimes(2);
+	});
+
 	it("removes only after a known zero count", async () => {
 		countCasesOwnedByAction.mockResolvedValueOnce({
 			kind: "count",

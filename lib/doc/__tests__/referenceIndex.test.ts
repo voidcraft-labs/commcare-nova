@@ -27,14 +27,22 @@ import {
 } from "@/lib/doc/referenceIndex";
 import type { Mutation } from "@/lib/doc/types";
 import {
+	asUuid,
 	type BlueprintDoc,
 	casePropertyTargetKey,
 	caseTypeTargetKey,
 	entityTargetKey,
 	expressionSource,
 	type Uuid,
+	userPropertyTargetKey,
 } from "@/lib/domain";
-import { eq, literal, prop, subcasePath } from "@/lib/domain/predicate";
+import {
+	eq,
+	literal,
+	prop,
+	sessionUserProperty,
+	subcasePath,
+} from "@/lib/domain/predicate";
 
 function uuidByFieldId(doc: BlueprintDoc, id: string): Uuid {
 	const found = Object.values(doc.fields).find((field) => field.id === id);
@@ -141,6 +149,47 @@ function richDoc(): BlueprintDoc {
 }
 
 describe("buildReferenceIndex — identity-keyed edges", () => {
+	it("indexes custom worker references by user-property identity across both AST families", () => {
+		const propertyUuid = asUuid("worker-property-region");
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "Patients",
+					displayCondition: eq(
+						sessionUserProperty(propertyUuid),
+						literal("north"),
+					),
+					forms: [
+						{
+							name: "Visit",
+							type: "survey",
+							fields: [f({ kind: "text", id: "name", label: "Name" })],
+						},
+					],
+				},
+			],
+		});
+		doc.userProperties = {
+			[propertyUuid]: {
+				uuid: propertyUuid,
+				slug: "region",
+				label: "Region",
+			},
+		};
+		const moduleUuid = doc.moduleOrder[0];
+		const formUuid = doc.formOrder[moduleUuid][0];
+		const fieldUuid = doc.fieldOrder[formUuid][0];
+		doc.fields[fieldUuid].relevant = parseXPathForForm(
+			doc,
+			formUuid,
+			"#user/region = 'north'",
+		);
+
+		const slots = slotsFor(doc, userPropertyTargetKey(propertyUuid));
+		expect(slots[moduleUuid]).toEqual({ module_display_condition: true });
+		expect(slots[fieldUuid]).toEqual({ relevant: true });
+	});
+
 	it("indexes module and form display-condition Predicate leaves", () => {
 		const doc = buildDoc({
 			caseTypes: [

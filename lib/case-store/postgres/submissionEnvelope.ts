@@ -612,6 +612,9 @@ async function resolveOperationProgram(
 			...(program.sessionUser === undefined
 				? {}
 				: { sessionUser: program.sessionUser }),
+			...(program.userPropertySlugs === undefined
+				? {}
+				: { userPropertySlugs: program.userPropertySlugs }),
 			sessionUserFallback: "",
 			...(program.sessionContext === undefined
 				? {}

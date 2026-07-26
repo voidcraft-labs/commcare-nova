@@ -16,6 +16,7 @@
  * checked when the worker account is created, and both are knowable here.
  */
 
+import { referencedUserPropertyUuids } from "@/lib/doc/referenceIndex";
 import {
 	type BlueprintDoc,
 	ownRecordValue,
@@ -178,6 +179,25 @@ function unknownUserDataProperties(doc: BlueprintDoc): ValidationError[] {
 	return errors;
 }
 
+/** Identity-backed custom worker references must keep a live catalog target. */
+function unknownUserPropertyReferences(doc: BlueprintDoc): ValidationError[] {
+	const properties = userPropertiesOf(doc);
+	const errors: ValidationError[] = [];
+	for (const propertyUuid of referencedUserPropertyUuids(doc).sort()) {
+		if (ownRecordValue(properties, propertyUuid) !== undefined) continue;
+		errors.push(
+			validationError(
+				"USER_PROPERTY_REFERENCE_UNKNOWN",
+				"app",
+				"A condition or calculation uses worker information that no longer exists. Choose a current worker-information property, or add the referenced property back.",
+				{},
+				{ userPropertyUuid: propertyUuid },
+			),
+		);
+	}
+	return errors;
+}
+
 /**
  * A value outside a property's choice list, checked on the persona's
  * EFFECTIVE data — the role's defaults with the persona's overrides on top
@@ -200,7 +220,7 @@ function personaUserDataValues(doc: BlueprintDoc): ValidationError[] {
 	for (const persona of Object.values(personasOf(doc))) {
 		const data = personaUserData(persona, doc);
 		for (const property of Object.values(properties)) {
-			const value = data[property.uuid];
+			const value = ownRecordValue(data, property.uuid);
 			const blank = value === undefined || value.trim() === "";
 			if (blank || property.choices === undefined) continue;
 			if (property.choices.includes(value)) continue;
@@ -283,6 +303,7 @@ export const USER_RULES = [
 	duplicatePersonaNames,
 	unknownPersonaUserType,
 	unknownUserDataProperties,
+	unknownUserPropertyReferences,
 	userTypeUserDataValues,
 	personaUserDataValues,
 ];

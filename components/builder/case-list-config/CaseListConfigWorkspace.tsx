@@ -72,6 +72,7 @@ import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useEffectiveCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useCaseWorkspaceBoundaryVerdicts } from "@/lib/doc/hooks/useCaseWorkspaceVerdicts";
 import { useModule } from "@/lib/doc/hooks/useEntity";
+import { useUserProperties } from "@/lib/doc/hooks/useUserCollections";
 import { appendOrderKey } from "@/lib/doc/order/append";
 import {
 	type ColumnSurface,
@@ -389,6 +390,7 @@ function useController(
 	/* The EFFECTIVE view — the same property admission set + types the
 	 * commit gate validates against (see the hook doc). */
 	const caseTypes = useEffectiveCaseTypes();
+	const userProperties = useUserProperties();
 	const navigate = useNavigate();
 	const { moveColumnOnSurface, moveSearchInputToIndex, commitMany, inline } =
 		useBlueprintMutations();
@@ -1381,6 +1383,7 @@ function useController(
 			config,
 			searchConfig,
 			caseTypes,
+			userProperties,
 			caseType,
 			onSearchConfigChange: updateSearchConfig,
 			replaceColumn,
@@ -1444,6 +1447,7 @@ function useController(
 									: returnToInputRemovalReview
 							}
 							caseTypes={caseTypes}
+							userProperties={userProperties}
 							currentCaseType={caseType}
 							knownInputs={searchInputDecls(config.searchInputs)}
 							dependencyReview={dependencyReview}
@@ -1466,6 +1470,7 @@ function useController(
 							returnFromSearchCondition({ type: "search-panel" });
 						}}
 						caseTypes={caseTypes}
+						userProperties={userProperties}
 						currentCaseType={caseType}
 						focusRequest={searchButtonConditionFocusRequest}
 					/>
@@ -1506,6 +1511,7 @@ function useController(
 		searchConfig,
 		effectiveSearchConfig,
 		caseTypes,
+		userProperties,
 		caseType: caseType ?? "",
 		ct,
 		sel,
@@ -1681,6 +1687,7 @@ export function CaseListWorkspaceCanvas() {
 		searchConfig,
 		effectiveSearchConfig,
 		caseTypes,
+		userProperties,
 		caseType,
 		ct,
 		sel,
@@ -1791,6 +1798,7 @@ export function CaseListWorkspaceCanvas() {
 							config={config}
 							caseType={ct}
 							caseTypes={caseTypes}
+							userProperties={userProperties}
 							brokenColumns={brokenColumns}
 							selection={sel}
 							onSelect={setSel}
@@ -1862,6 +1870,7 @@ interface ResolveInspectorArgs {
 	readonly config: CaseListConfig;
 	readonly searchConfig: CaseSearchConfig | undefined;
 	readonly caseTypes: ReturnType<typeof useEffectiveCaseTypes>;
+	readonly userProperties: ReturnType<typeof useUserProperties>;
 	readonly caseType: string;
 	readonly onSearchConfigChange: (next: CaseSearchConfig) => void;
 	readonly replaceColumn: (uuid: string, next: Column) => void;
@@ -1936,6 +1945,7 @@ function resolveInspector(args: ResolveInspectorArgs): {
 							}
 							listVisibleCount={projection.listVisible.length}
 							caseTypes={args.caseTypes}
+							userProperties={args.userProperties}
 							currentCaseType={args.caseType}
 							repairMessages={sel.reveal?.messages}
 							tileOn={args.tileOn}
@@ -1973,6 +1983,7 @@ function resolveInspector(args: ResolveInspectorArgs): {
 						index={index}
 						siblings={sortedInputs}
 						caseTypes={args.caseTypes}
+						userProperties={args.userProperties}
 						currentCaseType={args.caseType}
 						onChange={(next) => args.replaceInput(input.uuid, next)}
 						onEditCondition={() => args.onEditInputCondition(input.uuid)}
@@ -2057,6 +2068,7 @@ function ColumnInspectorBody({
 	visibleCount,
 	listVisibleCount,
 	caseTypes,
+	userProperties,
 	currentCaseType,
 	repairMessages,
 	tileOn,
@@ -2076,6 +2088,7 @@ function ColumnInspectorBody({
 	readonly visibleCount: number;
 	readonly listVisibleCount: number;
 	readonly caseTypes: ReturnType<typeof useEffectiveCaseTypes>;
+	readonly userProperties: ReturnType<typeof useUserProperties>;
 	readonly currentCaseType: string;
 	/** Defined (including an empty array) while this off-screen definition is
 	 * being repaired in response to an Add information request. */
@@ -2138,6 +2151,7 @@ function ColumnInspectorBody({
 				value={column}
 				onChange={onChange}
 				caseTypes={caseTypes}
+				userProperties={userProperties}
 				currentCaseType={currentCaseType}
 			/>
 			{/* Not gated on `repairing`: a refused reveal is often a PLACEMENT
@@ -2224,6 +2238,7 @@ function SearchInputInspectorBody({
 	index,
 	siblings,
 	caseTypes,
+	userProperties,
 	currentCaseType,
 	onChange,
 	onEditCondition,
@@ -2243,6 +2258,7 @@ function SearchInputInspectorBody({
 	readonly index: number;
 	readonly siblings: readonly SearchInputDef[];
 	readonly caseTypes: ReturnType<typeof useEffectiveCaseTypes>;
+	readonly userProperties: ReturnType<typeof useUserProperties>;
 	readonly currentCaseType: string;
 	readonly onChange: (next: SearchInputDef) => void;
 	readonly onEditCondition: () => void;
@@ -2328,6 +2344,7 @@ function SearchInputInspectorBody({
 				index={index}
 				siblings={siblings}
 				caseTypes={caseTypes}
+				userProperties={userProperties}
 				currentCaseType={currentCaseType}
 				onChange={onChange}
 				onEditCondition={onEditCondition}

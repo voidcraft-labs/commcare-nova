@@ -109,6 +109,13 @@ export interface TermBindings {
 	sessionUser?: ReadonlyMap<string, TermBindingValue>;
 
 	/**
+	 * Current wire slug for each custom worker-information property identity.
+	 * Custom references resolve here only at the execution boundary so a rename
+	 * never rewrites authored expressions.
+	 */
+	userPropertySlugs?: ReadonlyMap<string, string>;
+
+	/**
 	 * Device-compatible fallback for an absent open-namespace user-data field.
 	 * Preview supplies the empty string because CommCare exposes a missing
 	 * worker-data field as blank; compiler callers that omit this keep the
@@ -227,6 +234,20 @@ export function compileTerm(
 				`session user field '${term.field}'`,
 				ctx.bindings.sessionUserFallback,
 			);
+		case "session-user-property": {
+			const slug = ctx.bindings.userPropertySlugs?.get(term.userPropertyUuid);
+			if (slug === undefined) {
+				throw new Error(
+					`Unknown user property identity '${term.userPropertyUuid}' while compiling a session-user term`,
+				);
+			}
+			return compileBoundRef(
+				slug,
+				ctx.bindings.sessionUser,
+				`session user field '${slug}'`,
+				ctx.bindings.sessionUserFallback,
+			);
+		}
 		case "session-context":
 			return compileBoundRef(
 				term.field,
@@ -253,6 +274,7 @@ export function compileTerm(
 						"literal",
 						"input",
 						"session-user",
+						"session-user-property",
 						"session-context",
 						"field",
 						"table-column",

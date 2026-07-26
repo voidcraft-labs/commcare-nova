@@ -87,8 +87,9 @@ import {
 	addPersonaMutations,
 	addUserPropertyMutations,
 	addUserTypeMutations,
+	type RemoveUserPropertyPlan,
 	removePersonaMutations,
-	removeUserPropertyMutations,
+	removeUserPropertyPlan,
 	removeUserTypePlan,
 	updatePersonaMutations,
 	updatePersonaValueMutations,
@@ -396,8 +397,11 @@ export interface BlueprintMutations {
 		patch: UserEntityPatch<UserProperty>,
 	) => CommitOutcome;
 	/** Remove a piece of worker information and every value recorded
-	 *  against it, as one batch. */
+	 *  against it, as one batch. Refused while a condition/calculation
+	 *  references its stable identity. */
 	removeUserProperty: (uuid: Uuid) => CommitOutcome;
+	/** Read the same live preflight the removal dispatch enforces. */
+	inspectUserPropertyRemoval: (uuid: Uuid) => RemoveUserPropertyPlan;
 
 	/** Add a role. */
 	addUserType: (userType: Omit<UserType, "uuid" | "order">) => AddCommitOutcome;
@@ -1218,9 +1222,16 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 						warnUnresolved("removeUserProperty", { uuid });
 						return NOOP_REJECTION;
 					}
-					return toOutcome(
-						guardedApply(removeUserPropertyMutations(doc, uuid)),
-					);
+					const plan = removeUserPropertyPlan(doc, uuid);
+					if (!plan.ok) {
+						if (announce) notifyRejectedCommit([plan.userMessage]);
+						return { ok: false, messages: [plan.userMessage] };
+					}
+					return toOutcome(guardedApply(plan.mutations));
+				},
+
+				inspectUserPropertyRemoval(uuid) {
+					return removeUserPropertyPlan(get(), uuid);
 				},
 
 				addUserType(userType) {

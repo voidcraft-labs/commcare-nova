@@ -31,6 +31,7 @@
 // collapsing them would make one of the two lie.
 
 import {
+	asUuid,
 	BUILT_IN_USER_PROPERTIES,
 	COMMCARE_MOBILE_WORKER_USER_TYPE,
 	COMMCARE_STANDARD_USER_TYPE,
@@ -40,6 +41,7 @@ import {
 	personaUserData,
 	recordFromEntries,
 	type UserCollections,
+	type Uuid,
 	userPropertiesOf,
 } from "@/lib/domain";
 import type { SessionContextField } from "@/lib/domain/predicate";
@@ -56,6 +58,8 @@ import type { SessionContextField } from "@/lib/domain/predicate";
 export interface PreviewSearchSessionValues {
 	readonly context: Readonly<Partial<Record<SessionContextField, string>>>;
 	readonly user: Readonly<Record<string, string>>;
+	/** Stable custom-property identity → current worker-data wire slug. */
+	readonly userPropertySlugs: Readonly<Record<string, string>>;
 }
 
 /** Narrow user shape shared by Better Auth's client and server session. */
@@ -93,6 +97,7 @@ const ANONYMOUS_SESSION_VALUES: PreviewSearchSessionValues = {
 		appversion: "preview",
 	},
 	user: {},
+	userPropertySlugs: {},
 };
 
 /** Split a display name the way an HQ profile's first/last name divides. */
@@ -252,6 +257,11 @@ function projections(
 				values,
 				frameworkSessionKeys(worker.personName),
 			),
+			userPropertySlugs: recordFromEntries(
+				Object.values(userPropertiesOf(doc)).map(
+					(property) => [property.uuid, property.slug] as const,
+				),
+			),
 		},
 		usercase: mergeOwnRecords(declared, values, usercaseBuiltIns(worker)),
 	};
@@ -342,6 +352,18 @@ export function previewSessionValues(
 	return identity?.session ?? ANONYMOUS_SESSION_VALUES;
 }
 
+/** Project the serializable identity record into emitter/compiler bindings. */
+export function previewUserPropertySlugMap(
+	session: PreviewSearchSessionValues,
+): ReadonlyMap<Uuid, string> {
+	return new Map(
+		Object.entries(session.userPropertySlugs).map(([uuid, slug]) => [
+			asUuid(uuid),
+			slug,
+		]),
+	);
+}
+
 /**
  * The built-in properties Nova cannot honestly supply while the app has
  * only been previewed — the ones an authoring surface should label rather
@@ -371,6 +393,10 @@ export function samePreviewIdentity(
 		a.personaUuid === b.personaUuid &&
 		sameStringRecord(a.session.context, b.session.context) &&
 		sameStringRecord(a.session.user, b.session.user) &&
+		sameStringRecord(
+			a.session.userPropertySlugs,
+			b.session.userPropertySlugs,
+		) &&
 		sameStringRecord(a.usercase, b.usercase)
 	);
 }

@@ -26,6 +26,7 @@ import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useUserProperties } from "@/lib/doc/hooks/useUserCollections";
 import { userPropertySlugVerdict } from "@/lib/doc/identifierVerdicts";
 import type { Uuid } from "@/lib/doc/types";
+import type { RemoveUserPropertyPlan } from "@/lib/doc/userMutations";
 import { BUILT_IN_USER_PROPERTIES, type UserProperty } from "@/lib/domain";
 import { useCanEdit } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
@@ -125,7 +126,11 @@ function PropertyRow({
 	const requiredId = useId();
 	const choicesId = useId();
 	const labelRef = useRef<HTMLInputElement>(null);
-	const [confirmingRemove, setConfirmingRemove] = useState(false);
+	const [removalPlan, setRemovalPlan] = useState<RemoveUserPropertyPlan | null>(
+		null,
+	);
+	const [removalError, setRemovalError] = useState<string | undefined>();
+	const confirmingRemove = removalPlan !== null;
 	const { triggerRef, panelRef } = useInlineConfirmFocus(confirmingRemove);
 
 	useEffect(() => {
@@ -255,38 +260,82 @@ function PropertyRow({
 				</div>
 
 				{canEdit &&
-					(confirmingRemove ? (
+					(removalPlan !== null ? (
 						<div
 							ref={panelRef}
 							tabIndex={-1}
 							className="flex flex-col gap-2 rounded-lg border border-nova-rose/40 bg-nova-rose/[0.06] p-3 outline-none"
 						>
-							<p className="text-[13px] leading-relaxed text-nova-text">
-								Remove {property.label}? Every value roles and personas recorded
-								for it is removed with it.
-							</p>
+							{removalPlan.ok ? (
+								<p className="text-[13px] leading-relaxed text-nova-text">
+									Remove {property.label}? Every value roles and personas
+									recorded for it is removed with it.
+								</p>
+							) : (
+								<div className="space-y-2">
+									<p className="text-[13px] font-medium text-nova-text">
+										Can’t remove {property.label} yet
+									</p>
+									<p className="text-[13px] leading-relaxed text-nova-text-secondary">
+										{removalPlan.referenceCount} saved{" "}
+										{removalPlan.referenceCount === 1
+											? "setting uses"
+											: "settings use"}{" "}
+										this worker information:
+									</p>
+									<ul className="list-disc space-y-1 pl-5 text-[13px] leading-relaxed text-nova-text-secondary">
+										{removalPlan.references.map((reference) => (
+											<li key={reference}>{reference}</li>
+										))}
+									</ul>
+									<p className="text-[13px] leading-relaxed text-nova-text-secondary">
+										Update or remove those references first.
+									</p>
+								</div>
+							)}
+							{removalError !== undefined ? (
+								<p className="text-[13px] leading-relaxed text-nova-rose">
+									{removalError}
+								</p>
+							) : null}
 							<div className="flex items-center gap-2">
-								<Button
-									type="button"
-									variant="destructive"
-									size="lg"
-									className="h-11"
-									onClick={() => {
-										if (!sessionApi.getState().canEdit) return;
-										returnFocusRef.current?.focus();
-										mutations.removeUserProperty(property.uuid as Uuid);
-									}}
-								>
-									Remove
-								</Button>
+								{removalPlan.ok ? (
+									<Button
+										type="button"
+										variant="destructive"
+										size="lg"
+										className="h-11"
+										onClick={() => {
+											if (!sessionApi.getState().canEdit) return;
+											const outcome = mutations.inline.removeUserProperty(
+												property.uuid as Uuid,
+											);
+											if (!outcome.ok) {
+												setRemovalPlan(
+													mutations.inspectUserPropertyRemoval(
+														property.uuid as Uuid,
+													),
+												);
+												setRemovalError(outcome.messages.join(" "));
+												return;
+											}
+											returnFocusRef.current?.focus();
+										}}
+									>
+										Remove
+									</Button>
+								) : null}
 								<Button
 									type="button"
 									variant="ghost"
 									size="lg"
 									className="h-11"
-									onClick={() => setConfirmingRemove(false)}
+									onClick={() => {
+										setRemovalPlan(null);
+										setRemovalError(undefined);
+									}}
 								>
-									Cancel
+									{removalPlan.ok ? "Cancel" : "Close"}
 								</Button>
 							</div>
 						</div>
@@ -296,7 +345,12 @@ function PropertyRow({
 							type="button"
 							variant="ghost"
 							size="lg"
-							onClick={() => setConfirmingRemove(true)}
+							onClick={() => {
+								setRemovalError(undefined);
+								setRemovalPlan(
+									mutations.inspectUserPropertyRemoval(property.uuid as Uuid),
+								);
+							}}
 							className="h-11 self-start px-2.5 text-[13px] text-nova-rose hover:bg-nova-rose/[0.1] hover:text-nova-rose"
 						>
 							Remove worker information

@@ -90,7 +90,11 @@ String literals must be wrapped in quotes.
 In any XPath Expression or label-type field, use the correct hashtag reference with its full path to output a node's or property's value:
 1. \`#form/<group>/.../<field_id>\` — a form field, addressed by its path through the form's structure
 2. \`#<case_type>/<property>\` — a property of a loaded case, qualified by the case type that owns it (there is no bare \`#case/…\` — always name the type). \`<case_type>\` is the form's OWN module case type, or an ANCESTOR reached up the \`parent_type\` chain. Example — on a \`pregnancy\` form whose parent type is \`mother\`: \`#pregnancy/edd\` reads the pregnancy case's own \`edd\`; \`#mother/household_code\` reads the parent mother case's \`household_code\`. \`#<case_type>/case_id\` (the case's id) is always available for any reachable type. A form reads its own type and ancestors only — never a child case type, which is created fresh and never loaded.
-3. \`#user/user_property\` — a property of the logged-in mobile worker.
+3. \`#user/user_property\` — a property of the logged-in mobile worker. When
+   the name matches custom worker information declared on this app, Nova stores
+   the reference by that property's stable uuid and prints its current saved
+   name, so renaming it does not break the expression. CommCare-provided or
+   external names stay literal.
 
 Which case references resolve narrows by form type: a **registration** form creates its case (it doesn't exist at form-init), so only \`#<own_case_type>/case_id\` is valid — to read a value the form itself captures, use \`#form/<question_id>\`. A **survey** form loads no case, so no case references are valid. **Followup** and **close** forms load the case and read its full property set (own type + ancestors).
 
@@ -342,7 +346,18 @@ Worker information, roles, and personas are three different things:
 - A role is a reusable template of worker-information defaults, not a person. Create roles with \`addUserTypes\`.
 - A persona is a named Preview worker with a stable identity. It may hold one role and override some of that role's values. Create personas with \`addPersonas\`. A persona never authorizes access and is not a deployed CommCare account.
 
-Use \`getUsers\` (or the current app summary) to recover stable uuids before an edit. The singular update/remove tools target those uuids: \`updateUserProperty\` / \`removeUserProperty\`, \`updateUserType\` / \`removeUserType\`, and \`updatePersona\` / \`removePersona\`. Value entries name \`userPropertyUuid\`; never key them by a mutable saved name. On updates, omission keeps a slot and null clears it. Removing worker information clears its values everywhere atomically. Removing a role is refused while a persona still holds it. Removing a persona preserves the cases it already owns.
+Use \`getUsers\` (or the current app summary) to recover stable uuids before an edit. The singular update/remove tools target those uuids: \`updateUserProperty\` / \`removeUserProperty\`, \`updateUserType\` / \`removeUserType\`, and \`updatePersona\` / \`removePersona\`. Value entries name \`userPropertyUuid\`; never key them by a mutable saved name. For role/persona updates, a provided \`values\` array is the complete replacement: read the current values and include every entry that must remain. Omitting \`values\` keeps the whole set; null clears it. Removing worker information clears its values everywhere atomically. Removing a role is refused while a persona still holds it. Removing a persona preserves the cases it already owns.
+
+In Predicate / ValueExpression inputs, custom worker information uses
+\`{ kind: "session-user-property", userPropertyUuid }\`; the uuid is the
+identity and the current saved name is resolved only when Preview or CommCare
+needs it. Use \`{ kind: "session-user", field }\` only for
+CommCare-provided or external worker fields that have no Nova identity. In
+textual XPath, author the current \`#user/<saved_name>\`; Nova resolves an exact
+declared match to the same stable identity. A custom-property rename therefore
+rewrites no Predicate or XPath AST. Removing referenced worker information is
+refused with the saved settings that must be updated first; once no reference
+remains, removal clears its role/persona values atomically.
 
 ### Logical Grouping
 

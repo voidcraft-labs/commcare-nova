@@ -33,6 +33,18 @@ immediately if a key won't work, rather than finding out when you deploy.
 You can also give a piece of information a fixed list of accepted values. Once
 you do, any role or persona value you set has to come from that list.
 
+Conditions and calculations can read custom worker information. In an XPath,
+write its current saved key as `#user/<saved-key>`. In the condition builder,
+choose the worker information by name. Nova stores both kinds of reference
+against the property's stable identity, so changing its saved key updates what
+Preview and CommCare read without breaking the condition or calculation.
+CommCare-provided information has no Nova identity and keeps its literal name.
+
+Nova will not remove worker information while a saved condition or calculation
+still reads it. The refusal names the settings to update. Once those references
+are gone, removal also clears the property's values from every role and persona
+in the same change.
+
 Nova also shows the information **CommCare provides on its own** — the project
 the worker signed into, their name, their locations. You cannot change these,
 but you can write conditions against them, and each one says plainly whether
@@ -108,6 +120,7 @@ this when you deploy; it does not change your CommCare project on its own.
 
 One thing worth knowing about the devices themselves: CommCare merges worker
 data into a device on each sync and never clears it. If you remove a piece of
-worker information, it stays on a device that has already downloaded it until
-that device does a full resync. Nova does not simulate that in preview — it is
-a property of the platform, not of your app.
+worker information after clearing every app reference to it, it stays on a
+device that has already downloaded it until that device does a full resync.
+Nova does not simulate that in preview — it is a property of the platform, not
+of your app.

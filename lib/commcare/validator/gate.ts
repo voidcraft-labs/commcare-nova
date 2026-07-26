@@ -107,6 +107,7 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	MISSING_CHILD_CASE_MODULE: "completeness",
 	RESERVED_CASE_TYPE_NAME: "soundness",
 	CONNECT_NO_PARTICIPATING_FORMS: "completeness",
+	BLUEPRINT_ENTITY_UUID_DUPLICATE: "soundness",
 	// Who runs the app. Every one is soundness: an illegal or duplicated
 	// slug is an identity CommCare refuses, a duplicated role or persona
 	// name is indistinguishable in every picker, a dangling role or
@@ -120,6 +121,7 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	PERSONA_USER_TYPE_UNKNOWN: "soundness",
 	USER_DATA_UNKNOWN_PROPERTY: "soundness",
 	USER_DATA_INVALID_CHOICE: "soundness",
+	USER_PROPERTY_REFERENCE_UNKNOWN: "soundness",
 	// ── Module-level ─────────────────────────────────────────────────
 	NO_CASE_TYPE: "soundness",
 	CASE_LIST_ONLY_HAS_FORMS: "soundness",
@@ -510,6 +512,12 @@ export function errorIdentity(err: ValidationError): string {
 		case "CONNECT_ID_DUPLICATE":
 			parts.push(part("connectId", det?.connectId));
 			break;
+		case "BLUEPRINT_ENTITY_UUID_DUPLICATE":
+			parts.push(
+				part("entity", det?.entityUuid),
+				part("entityKind", det?.entityKind),
+			);
+			break;
 		case "FORM_LINK_CIRCULAR":
 			// Code only: the cycle's membership exists solely in prose. Two
 			// simultaneous distinct cycles collapse to one identity —
@@ -541,6 +549,9 @@ export function errorIdentity(err: ValidationError): string {
 				part("persona", det?.personaUuid),
 				part("userProperty", det?.userPropertyUuid),
 			);
+			break;
+		case "USER_PROPERTY_REFERENCE_UNKNOWN":
+			parts.push(part("userProperty", det?.userPropertyUuid));
 			break;
 
 		// Module-scope: stable sub-entity uuid from details.

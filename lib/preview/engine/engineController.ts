@@ -92,7 +92,10 @@ export const DEFAULT_RUNTIME_STATE: RuntimeState = Object.freeze({
  * throughout.
  */
 function buildEngineInput(
-	state: Pick<BlueprintDocState, "forms" | "fields" | "fieldOrder">,
+	state: Pick<
+		BlueprintDocState,
+		"forms" | "fields" | "fieldOrder" | "userProperties"
+	>,
 	formUuid: Uuid,
 ): FormEngineInput | undefined {
 	const form = state.forms[formUuid];
@@ -102,6 +105,7 @@ function buildEngineInput(
 		formUuid,
 		fields: state.fields as unknown as Record<string, Field>,
 		fieldOrder: state.fieldOrder as unknown as Record<string, Uuid[]>,
+		userProperties: state.userProperties,
 	};
 }
 
@@ -449,6 +453,7 @@ export class EngineController {
 		this.setupPerFieldSubscriptions(uuids);
 		this.setupStructuralSubscription(formUuid);
 		this.setupMetadataSubscription();
+		this.setupUserPropertySubscription();
 	}
 
 	/** Clean up all subscriptions and reset state. */
@@ -740,6 +745,21 @@ export class EngineController {
 			() => this.onMetadataChanged(),
 		);
 
+		this.unsubscribers.push(unsub);
+	}
+
+	/**
+	 * A custom worker-property rename changes the printed `#user/<slug>` bytes
+	 * without changing the field AST that holds its UUID. Rebuild the active
+	 * engine's printable document whenever that catalog changes so an open form
+	 * immediately evaluates the identity through its current slug.
+	 */
+	private setupUserPropertySubscription(): void {
+		if (!this.docStore) return;
+		const unsub = this.docStore.subscribe(
+			(s) => s.userProperties,
+			() => this.onUserPropertiesChanged(),
+		);
 		this.unsubscribers.push(unsub);
 	}
 
@@ -1111,6 +1131,23 @@ export class EngineController {
 		);
 
 		/* Sync any paths that changed from the case data refresh */
+		this.syncAllPathsSelectively();
+	}
+
+	/** Refresh UUID-backed worker XPath printing while preserving touched form
+	 * answers. `updateSchema` snapshots/restores touched values and rebuilds the
+	 * printable document + DAG as one operation. */
+	private onUserPropertiesChanged(): void {
+		if (!this.engine || !this.docStore) return;
+		const input = this.currentEngineInput();
+		if (!input) return;
+		const state = this.docStore.getState();
+		const moduleUuid = this.activeFormUuid
+			? findModuleForForm(state, this.activeFormUuid)
+			: undefined;
+		const mod = moduleUuid ? state.modules[moduleUuid] : undefined;
+
+		this.engine.updateSchema(input, mod?.caseType, this.activeCaseData);
 		this.syncAllPathsSelectively();
 	}
 

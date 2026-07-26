@@ -158,6 +158,8 @@ export interface CaseOperationProgram {
 	/** Open-namespace worker data for `sessionUser` terms; absent keys
 	 * resolve blank, the device's missing-worker-data semantic. */
 	readonly sessionUser?: ReadonlyMap<string, string>;
+	/** Stable custom worker-information UUID → current wire slug. */
+	readonly userPropertySlugs?: ReadonlyMap<string, string>;
 	/** Closed-namespace context fields for `sessionContext` terms. */
 	readonly sessionContext?: ReadonlyMap<string, string>;
 	/** Viewer IANA timezone for `format-date` rendering parity. */

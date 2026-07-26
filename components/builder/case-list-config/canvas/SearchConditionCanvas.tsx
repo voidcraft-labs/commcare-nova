@@ -13,7 +13,7 @@ import { PredicateWorkbench } from "@/components/builder/shared/PredicateWorkben
 import type { EditorPath } from "@/components/builder/shared/path";
 import type { EditorSearchInputDecl } from "@/components/builder/shared/searchInputPresentation";
 import { Button } from "@/components/shadcn/button";
-import type { CaseType } from "@/lib/domain";
+import type { CaseType, UserProperty } from "@/lib/domain";
 import type { Predicate } from "@/lib/domain/predicate";
 
 export interface SearchConditionCanvasProps {
@@ -26,6 +26,7 @@ export interface SearchConditionCanvasProps {
 	readonly caseTypes: readonly CaseType[];
 	readonly currentCaseType: string;
 	readonly knownInputs?: readonly EditorSearchInputDecl[];
+	readonly userProperties?: readonly UserProperty[];
 	readonly dependencyReview?: {
 		readonly token: number;
 		readonly path: EditorPath;
@@ -48,6 +49,7 @@ export function SearchConditionCanvas({
 	caseTypes,
 	currentCaseType,
 	knownInputs = [],
+	userProperties = [],
 	dependencyReview,
 	focusRequest,
 }: SearchConditionCanvasProps) {
@@ -123,6 +125,7 @@ export function SearchConditionCanvas({
 					caseTypes={caseTypes}
 					currentCaseType={currentCaseType}
 					knownInputs={knownInputs}
+					userProperties={userProperties}
 					evaluationTarget={inputCondition ? "case-search" : "on-device"}
 					caseDataScope={inputCondition ? "per-case" : "global"}
 					focusRequest={dependencyReview ?? focusRequest}

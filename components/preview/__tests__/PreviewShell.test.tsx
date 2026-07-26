@@ -402,7 +402,9 @@ describe("PreviewShell — removed selected persona", () => {
 		});
 		const view = renderShell();
 
-		fireEvent.click(view.getByRole("button", { name: "Preview as me" }));
+		const recovery = view.getByRole("button", { name: "Preview as me" });
+		expect(recovery.className.split(/\s+/)).toContain("min-h-11");
+		fireEvent.click(recovery);
 
 		expect(setPreviewPersonaUuidMock).toHaveBeenCalledWith(undefined);
 	});

@@ -8,6 +8,8 @@
  * data. Keep those two hazards behind this small boundary.
  */
 
+import { z } from "zod";
+
 /** True only when `key` is an own data property of `record`. */
 export function hasOwnRecordKey(
 	record: object | undefined,
@@ -32,6 +34,48 @@ export function recordFromEntries<T>(
 	entries: Iterable<readonly [string, T]>,
 ): Record<string, T> {
 	return Object.fromEntries(entries);
+}
+
+/**
+ * Zod's native record parser intentionally drops `__proto__`. That is a sound
+ * default for ordinary JavaScript dictionaries, but Nova permits any non-empty
+ * stable identity, including prototype-looking strings. Parse only enumerable
+ * OWN entries, validate both halves, and rebuild through Object.fromEntries so
+ * every accepted key remains ordinary data without invoking a prototype setter.
+ */
+export function ownRecordSchema<
+	TKeySchema extends z.ZodType<string>,
+	TValueSchema extends z.ZodType,
+>(keySchema: TKeySchema, valueSchema: TValueSchema) {
+	return z.unknown().transform((input, ctx) => {
+		if (input === null || typeof input !== "object" || Array.isArray(input)) {
+			ctx.addIssue({
+				code: "custom",
+				message: "Expected a record object.",
+			});
+			return z.NEVER;
+		}
+
+		const entries: Array<[string, z.output<TValueSchema>]> = [];
+		for (const [key, value] of Object.entries(input)) {
+			const parsedKey = keySchema.safeParse(key);
+			if (!parsedKey.success) {
+				for (const issue of parsedKey.error.issues) {
+					ctx.addIssue({ ...issue, path: [key, ...issue.path] });
+				}
+				continue;
+			}
+			const parsedValue = valueSchema.safeParse(value);
+			if (!parsedValue.success) {
+				for (const issue of parsedValue.error.issues) {
+					ctx.addIssue({ ...issue, path: [key, ...issue.path] });
+				}
+				continue;
+			}
+			entries.push([parsedKey.data, parsedValue.data]);
+		}
+		return recordFromEntries(entries);
+	});
 }
 
 /** Return the current record with one own member set or replaced. */

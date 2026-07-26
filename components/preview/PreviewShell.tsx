@@ -375,6 +375,7 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 						<Button
 							type="button"
 							onClick={() => setPreviewPersonaUuid(undefined)}
+							className="min-h-11"
 						>
 							Preview as me
 						</Button>

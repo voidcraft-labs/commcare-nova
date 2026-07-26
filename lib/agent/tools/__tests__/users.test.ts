@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import type { Mutation } from "@/lib/doc/types";
 import { asUuid, type BlueprintDoc } from "@/lib/domain";
+import { eq, literal, sessionUserProperty } from "@/lib/domain/predicate";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import {
 	addPersonasTool,
@@ -44,6 +46,28 @@ function emptyDoc(): BlueprintDoc {
 }
 
 describe("user authoring tools", () => {
+	it("states that update values replace the complete saved set", () => {
+		for (const schema of [
+			updateUserTypeInputSchema,
+			updatePersonaInputSchema,
+		]) {
+			const json = z.toJSONSchema(schema, {
+				target: "draft-7",
+				io: "input",
+			}) as {
+				properties?: { values?: { description?: string } };
+			};
+			expect(json.properties?.values?.description).toContain(
+				"COMPLETE replacement",
+			);
+			expect(json.properties?.values?.description).toContain(
+				"include every value",
+			);
+		}
+		expect(updateUserTypeTool.description).toContain("COMPLETE replacement");
+		expect(updatePersonaTool.description).toContain("COMPLETE replacement");
+	});
+
 	it("bridges returned property uuids into role and persona value records", async () => {
 		const { ctx } = makeCtx();
 		const propertyResult = await addUserPropertiesTool.execute(
@@ -303,6 +327,44 @@ describe("user authoring tools", () => {
 		});
 	});
 
+	it("refuses to remove referenced worker information without committing", async () => {
+		const propertyUuid = asUuid("worker-region");
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "Patients",
+					displayCondition: eq(
+						sessionUserProperty(propertyUuid),
+						literal("north"),
+					),
+				},
+			],
+		});
+		doc.userProperties = {
+			[propertyUuid]: {
+				uuid: propertyUuid,
+				slug: "region",
+				label: "Region",
+			},
+		};
+		const { ctx, recordMutations } = makeCtx();
+
+		const result = await removeUserPropertyTool.execute(
+			{ uuid: propertyUuid },
+			ctx,
+			doc,
+		);
+
+		expect(result.newDoc).toBe(doc);
+		expect(result.mutations).toEqual([]);
+		expect(result.result).toEqual({
+			error: expect.stringContaining(
+				"Update or remove that reference before removing",
+			),
+		});
+		expect(recordMutations).not.toHaveBeenCalled();
+	});
+
 	it("updates and removes a persona by UUID, then allows its unreferenced role to be removed", async () => {
 		const { ctx } = makeCtx();
 		const role = await addUserTypesTool.execute(
@@ -424,6 +486,59 @@ describe("user authoring tools", () => {
 				{ userPropertyUuid: regionUuid, value: "south" },
 			].sort((a, b) => a.userPropertyUuid.localeCompare(b.userPropertyUuid)),
 		);
+	});
+
+	it("treats a provided values array as the complete replacement", async () => {
+		const { ctx } = makeCtx();
+		const properties = await addUserPropertiesTool.execute(
+			{
+				properties: [
+					{ slug: "region", label: "Region" },
+					{ slug: "cadre", label: "Cadre" },
+				],
+			},
+			ctx,
+			emptyDoc(),
+		);
+		if (!("uuids" in properties.result)) throw new Error("setup failed");
+		const [regionUuid, cadreUuid] = properties.result.uuids;
+		const role = await addUserTypesTool.execute(
+			{
+				userTypes: [
+					{
+						name: "CHW",
+						values: [
+							{ userPropertyUuid: regionUuid, value: "north" },
+							{ userPropertyUuid: cadreUuid, value: "community" },
+						],
+					},
+				],
+			},
+			ctx,
+			properties.newDoc,
+		);
+		if (!("uuids" in role.result)) throw new Error("setup failed");
+
+		const updated = await updateUserTypeTool.execute(
+			{
+				uuid: role.result.uuids[0],
+				values: [{ userPropertyUuid: regionUuid, value: "south" }],
+			},
+			ctx,
+			role.newDoc,
+		);
+
+		expect(updated.newDoc.userTypes?.[role.result.uuids[0]]?.values).toEqual({
+			[regionUuid]: "south",
+		});
+		expect(
+			updated.mutations.some(
+				(mutation) =>
+					"valuePatch" in mutation &&
+					mutation.valuePatch?.userPropertyUuid === cadreUuid &&
+					mutation.valuePatch.value === null,
+			),
+		).toBe(true);
 	});
 
 	it.each([

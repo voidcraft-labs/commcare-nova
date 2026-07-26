@@ -34,6 +34,7 @@ import type {
 	CaseSearchConfig,
 	CaseType,
 	CommitOutcome,
+	UserProperty,
 } from "@/lib/domain";
 import {
 	effectiveFilterForEmission,
@@ -76,6 +77,7 @@ export interface CaseAvailabilityComposerProps {
 		next: ValueExpression | undefined,
 	) => void;
 	readonly caseTypes: readonly CaseType[];
+	readonly userProperties?: readonly UserProperty[];
 	readonly currentCaseType: string;
 	readonly appId: string;
 	readonly dependencyReview?:
@@ -103,6 +105,7 @@ export function CaseAvailabilityComposer({
 	caseSearchEnabled,
 	onExcludedOwnerIdsChange,
 	caseTypes,
+	userProperties = [],
 	currentCaseType,
 	appId,
 	dependencyReview,
@@ -235,6 +238,7 @@ export function CaseAvailabilityComposer({
 							caseTypes={caseTypes}
 							currentCaseType={currentCaseType}
 							knownInputs={inputDecls}
+							userProperties={userProperties}
 							evaluationTarget={caseSearchEnabled ? "case-search" : "on-device"}
 							focusRequest={
 								dependencyReview?.kind === "cases-available"

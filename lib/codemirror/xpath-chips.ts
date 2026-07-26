@@ -77,7 +77,7 @@ function buildChipPlugin(
 		regexp: globalPattern,
 		decoration: (match, _view, _pos) => {
 			const raw = match[0];
-			const ref = provider.resolve(raw, getFormUuid());
+			const ref = provider.resolve(raw, getFormUuid(), "xpath");
 			/* Only decorate references that actually exist in the blueprint.
          Unknown refs (e.g. after backspace-to-revert removes the last char)
          stay as raw text so the user can see and edit them. */

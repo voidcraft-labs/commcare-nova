@@ -121,6 +121,8 @@ const USER_MESSAGE_BY_CODE: Partial<
 		`The Connect ID ${q(det(e, "connectId", ""))} is already used by another form. Give this one a different ID, or change the other form's first.`,
 	CONNECT_NO_PARTICIPATING_FORMS: () =>
 		"You've turned Connect on for the app, but no form is using it yet. Set up Connect on at least one form, or turn it off for the app.",
+	BLUEPRINT_ENTITY_UUID_DUPLICATE: () =>
+		"Two parts of this app share the same internal identity. Retry the change so Nova can keep them distinct.",
 
 	// ── Worker information, roles, personas ──────────────────────────
 	// The rule's own message already carries the specific reason (an illegal
@@ -156,6 +158,8 @@ const USER_MESSAGE_BY_CODE: Partial<
 		"A role or persona carries a value for a piece of worker information that no longer exists. Remove the value, or add that information back.",
 	USER_DATA_INVALID_CHOICE: () =>
 		"A role or persona has a value that isn't one of the accepted options. Pick one from the list, or add it to the list first.",
+	USER_PROPERTY_REFERENCE_UNKNOWN: () =>
+		"A condition or calculation uses worker information that no longer exists. Choose current worker information or add it back first.",
 
 	// ── Module-level ─────────────────────────────────────────────────
 	NO_CASE_TYPE: (e) =>

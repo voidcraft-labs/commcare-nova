@@ -39,7 +39,9 @@ import type {
 } from "@/lib/domain";
 import {
 	caseListConfigSchema,
+	recordFromEntries,
 	SEARCH_INPUT_RUNTIME_VALUE_TYPES,
+	userPropertySlugsByUuid,
 } from "@/lib/domain";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
 import type { ValueExpression } from "@/lib/domain/predicate";
@@ -146,6 +148,7 @@ function previewCaseStoreBindings(
 		searchInputs: boundInputs,
 		sessionContext,
 		sessionUser: new Map(Object.entries(session.user)),
+		userPropertySlugs: new Map(Object.entries(session.userPropertySlugs)),
 		sessionUserFallback: "",
 		...(viewerTimeZone === undefined ? {} : { viewerTimeZone }),
 	};
@@ -276,6 +279,7 @@ export async function loadCasesAction(args: {
 			appId: args.appId,
 			personaUuid: args.personaUuid,
 			required: "view",
+			loadBlueprint: true,
 		});
 		if (context.kind !== "ready") return context;
 		const { identity, store, scope } = context;
@@ -566,6 +570,7 @@ export async function loadCaseDataAction(
 			appId,
 			personaUuid,
 			required: "view",
+			loadBlueprint: true,
 		});
 		if (context.kind !== "ready") return context;
 		const { identity, store, scope } = context;
@@ -941,7 +946,15 @@ export async function loadFilterPreviewAction(args: {
 			scope,
 			args.excludedOwnerIdsExpression,
 		);
-		const searchSession = identity.session;
+		const searchSession: PreviewSearchSessionValues = {
+			...identity.session,
+			// This action intentionally previews the parsed candidate document,
+			// so immutable worker references must resolve through that candidate's
+			// catalog. Authorization still belongs to the server-resolved member.
+			userPropertySlugs: recordFromEntries(
+				userPropertySlugsByUuid(parsedBlueprint.data),
+			),
+		};
 		const excludedOwnerIds =
 			args.excludedOwnerIdsExpression === undefined
 				? undefined

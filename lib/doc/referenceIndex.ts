@@ -88,7 +88,9 @@ import {
 	type ReferenceIndex,
 	readSlotStrings,
 	readSlotValues,
+	USER_PROPERTY_TARGET_PREFIX,
 	type Uuid,
+	userPropertyTargetKey,
 	type XPathExpression,
 } from "@/lib/domain";
 import {
@@ -636,6 +638,10 @@ function termEdges(sink: EdgeSink, slot: string, term: Term): void {
 		sink.edge(entityTargetKey(term.uuid), slot);
 		return;
 	}
+	if (term.kind === "session-user-property") {
+		sink.edge(userPropertyTargetKey(term.userPropertyUuid), slot);
+		return;
+	}
 	if (term.kind !== "prop") return;
 	if (typeof term.caseType === "string" && term.caseType.length > 0) {
 		sink.edge(caseTypeTargetKey(term.caseType), slot);
@@ -764,6 +770,9 @@ function extractAstRefs(
 				sink.edge(casePropertyTargetKey(part.caseType, part.property), slot);
 				break;
 			case "user-ref":
+				break;
+			case "user-property-ref":
+				sink.edge(userPropertyTargetKey(part.userPropertyUuid), slot);
 				break;
 			case "raw-ref":
 				if (part.namespace === "case") {
@@ -953,6 +962,13 @@ export function referencingSlotsOf(
 		result.set(carrier, Object.keys(slots));
 	}
 	return result;
+}
+
+/** Every custom worker-information UUID referenced by any indexed AST slot. */
+export function referencedUserPropertyUuids(doc: BlueprintDoc): string[] {
+	return Object.keys(getReferenceIndex(doc).in)
+		.filter((key) => key.startsWith(USER_PROPERTY_TARGET_PREFIX))
+		.map((key) => key.slice(USER_PROPERTY_TARGET_PREFIX.length));
 }
 
 /** Carrier uuids declaring the `(caseType, property)` pair — fields and

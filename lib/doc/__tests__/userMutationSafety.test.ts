@@ -1,11 +1,13 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
-import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
+import { parseXPathForForm } from "@/lib/doc/expressionText";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
-import { removeUserPropertyMutations } from "@/lib/doc/userMutations";
+import { removeUserPropertyPlan } from "@/lib/doc/userMutations";
 import { asUuid, type BlueprintDoc } from "@/lib/domain";
+import { eq, literal, sessionUserProperty } from "@/lib/domain/predicate";
 
 const PROPERTY_A = asUuid("__proto__");
 const PROPERTY_B = asUuid("constructor");
@@ -175,7 +177,10 @@ describe("user collection mutations", () => {
 
 	it("cleans a removed property with per-key mutations without clobbering a peer value", () => {
 		const base = userDoc();
-		const removal = removeUserPropertyMutations(base, PROPERTY_A);
+		const plan = removeUserPropertyPlan(base, PROPERTY_A);
+		expect(plan.ok).toBe(true);
+		if (!plan.ok) throw new Error(plan.userMessage);
+		const removal = plan.mutations;
 		const cleanupEvents = removal.filter(
 			(mutation) =>
 				mutation.kind === "updateUserType" || mutation.kind === "updatePersona",
@@ -206,6 +211,69 @@ describe("user collection mutations", () => {
 			ownRecord([[PROPERTY_B, "peer edit"]]),
 		);
 		expect(peerThenRemoval).toEqual(removalThenPeer);
+	});
+
+	it("refuses removal before cleanup when XPath or Predicate ASTs keep the identity", () => {
+		const propertyUuid = asUuid("worker-region");
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "Patients",
+					displayCondition: eq(
+						sessionUserProperty(propertyUuid),
+						literal("north"),
+					),
+					forms: [
+						{
+							name: "Visit",
+							type: "survey",
+							fields: [
+								f({
+									kind: "text",
+									id: "notes",
+									label: "Notes",
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		doc.userProperties = {
+			[propertyUuid]: {
+				uuid: propertyUuid,
+				slug: "region",
+				label: "Region",
+			},
+		};
+		const moduleUuid = doc.moduleOrder[0];
+		const formUuid = doc.formOrder[moduleUuid][0];
+		const fieldUuid = doc.fieldOrder[formUuid][0];
+		doc.fields[fieldUuid].relevant = parseXPathForForm(
+			doc,
+			formUuid,
+			"#user/region = 'north'",
+		);
+		doc.userTypes = {
+			[TYPE]: {
+				uuid: TYPE,
+				name: "CHW",
+				values: { [propertyUuid]: "north" },
+			},
+		};
+
+		const plan = removeUserPropertyPlan(doc, propertyUuid);
+
+		expect(plan).toEqual({
+			ok: false,
+			referenceCount: 2,
+			references: ["condition in module “Patients”", "condition on “notes”"],
+			userMessage: expect.stringContaining(
+				"Update or remove those references before removing",
+			),
+		});
+		// Refusal happens before value-cleanup mutations are constructed.
+		expect(plan).not.toHaveProperty("mutations");
 	});
 });
 

@@ -16,7 +16,7 @@ import {
 	addUserPropertyMutations,
 	addUserTypeMutations,
 	removePersonaMutations,
-	removeUserPropertyMutations,
+	removeUserPropertyPlan,
 	removeUserTypePlan,
 	updatePersonaMutations,
 	updateUserTypeMutations,
@@ -75,9 +75,19 @@ const valuesInputSchema = z
 			}
 			seen.add(entry.userPropertyUuid);
 		}
-	});
+	})
+	.describe(
+		"On update, this array is the COMPLETE replacement for the saved values: include every value to retain. Omit the field to keep all current values, or pass null to clear them all.",
+	);
 
 type ValuesInput = z.infer<typeof valuesInputSchema>;
+
+const updateValuesInputSchema = valuesInputSchema
+	.nullable()
+	.optional()
+	.describe(
+		"COMPLETE replacement for the saved values: include every value to retain. Omit this field to keep all current values, or pass null to clear them all.",
+	);
 
 function valuesRecord(
 	entries: ValuesInput | undefined,
@@ -178,7 +188,7 @@ export const updateUserTypeInputSchema = z
 		uuid: uuidSchema,
 		name: z.string().min(1).optional(),
 		description: z.string().min(1).nullable().optional(),
-		values: valuesInputSchema.nullable().optional(),
+		values: updateValuesInputSchema,
 	})
 	.strict();
 
@@ -196,7 +206,7 @@ export const updatePersonaInputSchema = z
 		name: z.string().min(1).optional(),
 		description: z.string().min(1).nullable().optional(),
 		userTypeUuid: uuidSchema.nullable().optional(),
-		values: valuesInputSchema.nullable().optional(),
+		values: updateValuesInputSchema,
 	})
 	.strict();
 
@@ -336,7 +346,7 @@ export const updateUserPropertyTool = {
 
 export const removeUserPropertyTool = {
 	description:
-		"Remove worker information by stable uuid, atomically clearing its values from every role and persona.",
+		"Remove worker information by stable uuid, atomically clearing its values from every role and persona. Refuses while any XPath, condition, or calculation references the property; update those references first.",
 	inputSchema: removeUserPropertyInputSchema,
 	async execute(
 		input: z.infer<typeof removeUserPropertyInputSchema>,
@@ -353,10 +363,19 @@ export const removeUserPropertyTool = {
 					result: missing("Worker-information property", input.uuid),
 				};
 			}
+			const plan = removeUserPropertyPlan(doc, input.uuid);
+			if (!plan.ok) {
+				return {
+					kind: "mutate",
+					mutations: [],
+					newDoc: doc,
+					result: { error: plan.userMessage },
+				};
+			}
 			return await commit(
 				ctx,
 				doc,
-				removeUserPropertyMutations(doc, input.uuid),
+				plan.mutations,
 				"users:workerInformation:remove",
 				`Removed worker information "${current.label}" and its recorded role/persona values.`,
 				{ subject: current.label },
@@ -425,7 +444,7 @@ export const addUserTypesTool = {
 
 export const updateUserTypeTool = {
 	description:
-		"Update one role by stable uuid. Omit to keep; null clears description or all default values.",
+		"Update one role by stable uuid. A provided values array is the COMPLETE replacement, so include every value to retain; omit to keep all values, and null clears them.",
 	inputSchema: updateUserTypeInputSchema,
 	async execute(
 		input: z.infer<typeof updateUserTypeInputSchema>,
@@ -576,7 +595,7 @@ export const addPersonasTool = {
 
 export const updatePersonaTool = {
 	description:
-		"Update one Preview persona by stable uuid. Omit to keep; null clears description, role, or all overrides.",
+		"Update one Preview persona by stable uuid. A provided values array is the COMPLETE replacement, so include every override to retain; omit to keep all overrides, and null clears them.",
 	inputSchema: updatePersonaInputSchema,
 	async execute(
 		input: z.infer<typeof updatePersonaInputSchema>,

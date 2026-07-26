@@ -316,4 +316,39 @@ describe("the user collections", () => {
 		expect(Object.hasOwn(assembled, "userTypes")).toBe(false);
 		expect(Object.hasOwn(assembled, "personas")).toBe(false);
 	});
+
+	it("refuses a row-key collision even if persistence is called past the gate", () => {
+		const doc = emptyDoc("rt-users-collision");
+		applyMutations(doc, surveyModuleMutations(doc).mutations);
+		const moduleUuid = doc.moduleOrder[0];
+		doc.userProperties = {
+			[moduleUuid]: {
+				uuid: moduleUuid,
+				slug: "region",
+				label: "Region",
+			},
+		};
+
+		expect(() => decomposeBlueprint(toPersistableDoc(doc))).toThrow(
+			/duplicate entity uuid/i,
+		);
+	});
+
+	it("refuses an entity-identity collision hidden behind a different record key", () => {
+		const doc = emptyDoc("rt-users-identity-collision");
+		applyMutations(doc, surveyModuleMutations(doc).mutations);
+		const moduleUuid = doc.moduleOrder[0];
+		const aliasKey = asUuid("aliased-property-row-key");
+		doc.userProperties = {
+			[aliasKey]: {
+				uuid: moduleUuid,
+				slug: "region",
+				label: "Region",
+			},
+		};
+
+		expect(() => decomposeBlueprint(toPersistableDoc(doc))).toThrow(
+			/duplicate entity uuid/i,
+		);
+	});
 });

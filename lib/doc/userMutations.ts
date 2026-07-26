@@ -35,8 +35,10 @@ import {
 	type UserType,
 	type Uuid,
 	userPropertiesOf,
+	userPropertyTargetKey,
 	userTypesOf,
 } from "@/lib/domain";
+import { referencingSlotsOf } from "./referenceIndex";
 
 type UserEntityPatch<T> = {
 	[K in Exclude<keyof T, "uuid" | "order">]?: T[K] | null;
@@ -216,17 +218,90 @@ export function updatePersonaValueMutations(
 	return userDataValueMutations("updatePersona", uuid, current.values, next);
 }
 
+function describeUserPropertyReference(
+	doc: BlueprintDoc,
+	carrierUuid: string,
+	slot: string,
+): string {
+	const field = ownRecordValue(doc.fields, carrierUuid);
+	if (field !== undefined) {
+		const setting =
+			slot === "calculate"
+				? "calculation"
+				: slot === "default_value"
+					? "default value"
+					: "condition";
+		return `${setting} on “${field.id}”`;
+	}
+	const form = ownRecordValue(doc.forms, carrierUuid);
+	if (form !== undefined) {
+		return `condition on form “${form.name}”`;
+	}
+	const module = ownRecordValue(doc.modules, carrierUuid);
+	if (module !== undefined) {
+		const setting =
+			slot === "case_list_column_expression"
+				? "calculated value"
+				: slot === "search_input_default"
+					? "search field starting value"
+					: slot === "case_list_filter"
+						? "Cases available condition"
+						: slot === "search_input_predicate"
+							? "search field condition"
+							: slot === "search_button_display_condition"
+								? "Search button condition"
+								: slot === "excluded_owner_ids"
+									? "Assigned cases setting"
+									: "condition";
+		return `${setting} in module “${module.name}”`;
+	}
+	return `saved ${slot.replaceAll("_", " ")}`;
+}
+
+export type RemoveUserPropertyPlan =
+	| { ok: true; mutations: Mutation[] }
+	| {
+			ok: false;
+			referenceCount: number;
+			references: readonly string[];
+			userMessage: string;
+	  };
+
 /**
- * Remove a property and every value recorded against it.
- *
- * Each cleanup travels as one semantic value-key clear. The mutation also
- * carries a cumulative whole-bag fallback so a receiver from before the
- * fine-grained extension replays the same final document.
+ * Plan property removal. Identity-backed XPath and Predicate references are
+ * never cascaded or converted back to mutable text: the author must update
+ * those conditions/calculations first. Only an unreferenced property reaches
+ * value cleanup construction.
  */
-export function removeUserPropertyMutations(
+export function removeUserPropertyPlan(
 	doc: BlueprintDoc,
 	uuid: Uuid,
-): Mutation[] {
+): RemoveUserPropertyPlan {
+	const references = new Set<string>();
+	for (const [carrierUuid, slots] of referencingSlotsOf(
+		doc,
+		userPropertyTargetKey(uuid),
+	)) {
+		for (const slot of slots) {
+			references.add(describeUserPropertyReference(doc, carrierUuid, slot));
+		}
+	}
+	if (references.size > 0) {
+		const property = ownRecordValue(userPropertiesOf(doc), uuid);
+		const name = property?.label ?? "This worker information";
+		const locations = [...references].sort();
+		return {
+			ok: false,
+			referenceCount: locations.length,
+			references: locations,
+			userMessage: `${name} is used by ${locations.length} saved ${
+				locations.length === 1 ? "setting" : "settings"
+			}: ${locations.join("; ")}. Update or remove ${
+				locations.length === 1 ? "that reference" : "those references"
+			} before removing the worker information.`,
+		};
+	}
+
 	const mutations: Mutation[] = [];
 	for (const type of Object.values(userTypesOf(doc))) {
 		if (!hasOwnRecordKey(type.values, uuid)) continue;
@@ -241,7 +316,7 @@ export function removeUserPropertyMutations(
 		);
 	}
 	mutations.push({ kind: "removeUserProperty", uuid });
-	return mutations;
+	return { ok: true, mutations };
 }
 
 /** Whether a role can be removed, and what to say when it cannot. */

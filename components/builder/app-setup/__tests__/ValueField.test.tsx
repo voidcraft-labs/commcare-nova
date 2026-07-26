@@ -97,5 +97,10 @@ describe("ValueField override semantics", () => {
 		);
 		fireEvent.click(screen.getByRole("button", { name: "Use role value" }));
 		expect(onChange).toHaveBeenLastCalledWith(undefined);
+		expect(
+			screen
+				.getByRole("button", { name: "Use role value" })
+				.className.split(/\s+/),
+		).toContain("min-h-11");
 	});
 });
