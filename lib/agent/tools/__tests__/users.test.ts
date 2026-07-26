@@ -46,6 +46,28 @@ function emptyDoc(): BlueprintDoc {
 }
 
 describe("user authoring tools", () => {
+	it("uses the same XML-safe worker-property grammar on the SA and MCP schema", () => {
+		for (const slug of ["2fa_region", "-area"]) {
+			expect(
+				addUserPropertiesInputSchema.safeParse({
+					properties: [{ slug, label: "Invalid" }],
+				}).success,
+				slug,
+			).toBe(false);
+		}
+		expect(
+			addUserPropertiesInputSchema.safeParse({
+				properties: [{ slug: "district-code", label: "District code" }],
+			}).success,
+		).toBe(true);
+	});
+
+	it("states the initial-build ordering contract at the tool boundary", () => {
+		expect(addUserPropertiesTool.description).toContain("immediately after");
+		expect(addUserPropertiesTool.description).toContain("before");
+		expect(addUserPropertiesTool.description).toContain("createModule");
+	});
+
 	it("states that update values replace the complete saved set", () => {
 		for (const schema of [
 			updateUserTypeInputSchema,

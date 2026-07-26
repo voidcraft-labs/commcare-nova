@@ -16,6 +16,7 @@
  * checked when the worker account is created, and both are knowable here.
  */
 
+import { bySortKey } from "@/lib/doc/order/compare";
 import { referencedUserPropertyUuids } from "@/lib/doc/referenceIndex";
 import {
 	type BlueprintDoc,
@@ -35,7 +36,7 @@ function nameKey(name: string): string {
 
 function userPropertySlugs(doc: BlueprintDoc): ValidationError[] {
 	const errors: ValidationError[] = [];
-	const properties = Object.values(userPropertiesOf(doc));
+	const properties = Object.values(userPropertiesOf(doc)).sort(bySortKey);
 	const duplicateCounts = new Map<string, number>();
 	for (const property of properties) {
 		const key = property.slug.trim().toLowerCase();
@@ -73,7 +74,7 @@ function userPropertySlugs(doc: BlueprintDoc): ValidationError[] {
 
 function duplicateUserTypeNames(doc: BlueprintDoc): ValidationError[] {
 	const errors: ValidationError[] = [];
-	const types = Object.values(userTypesOf(doc));
+	const types = Object.values(userTypesOf(doc)).sort(bySortKey);
 	const counts = new Map<string, number>();
 	for (const type of types) {
 		const key = nameKey(type.name);
@@ -96,7 +97,7 @@ function duplicateUserTypeNames(doc: BlueprintDoc): ValidationError[] {
 
 function duplicatePersonaNames(doc: BlueprintDoc): ValidationError[] {
 	const errors: ValidationError[] = [];
-	const personas = Object.values(personasOf(doc));
+	const personas = Object.values(personasOf(doc)).sort(bySortKey);
 	const counts = new Map<string, number>();
 	for (const persona of personas) {
 		const key = nameKey(persona.name);
@@ -280,7 +281,7 @@ function userTypeUserDataValues(doc: BlueprintDoc): ValidationError[] {
  */
 function duplicateUserPropertyChoices(doc: BlueprintDoc): ValidationError[] {
 	const errors: ValidationError[] = [];
-	for (const property of Object.values(userPropertiesOf(doc))) {
+	for (const property of Object.values(userPropertiesOf(doc)).sort(bySortKey)) {
 		if (property.choices === undefined) continue;
 		if (new Set(property.choices).size === property.choices.length) continue;
 		errors.push(

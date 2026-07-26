@@ -20,7 +20,10 @@
 // no second slot list to maintain.
 
 import { parseXPathExpression } from "@/lib/commcare/xpath";
-import { resolveCloseFieldRef } from "@/lib/doc/expressionText";
+import {
+	resolvableUserPropertySlug,
+	resolveCloseFieldRef,
+} from "@/lib/doc/expressionText";
 import { findContainingForm } from "@/lib/doc/mutations/helpers";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
 import {
@@ -31,7 +34,6 @@ import {
 	type ReferenceSlot,
 	type ResolveFieldPath,
 	rewriteSlotValues,
-	userPropertySlugResolver,
 	xpathPrintContext,
 } from "@/lib/domain";
 
@@ -111,7 +113,7 @@ export function migrateDocExpressions(
 		const expr = parseXPathExpression(
 			value,
 			resolve,
-			userPropertySlugResolver(doc),
+			resolvableUserPropertySlug(doc),
 		);
 		const printed = printXPath(expr, printCtx());
 		if (printed !== value) {
@@ -229,7 +231,7 @@ export function migrateMutationExpressions(
 		const expr = parseXPathExpression(
 			value,
 			resolve,
-			userPropertySlugResolver(doc),
+			resolvableUserPropertySlug(doc),
 		);
 		const printed = printXPath(expr, printCtx());
 		if (printed !== value) {

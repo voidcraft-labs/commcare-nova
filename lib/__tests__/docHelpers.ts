@@ -13,7 +13,10 @@
  */
 
 import { parseXPathExpression } from "@/lib/commcare/xpath";
-import { resolveCloseFieldRef } from "@/lib/doc/expressionText";
+import {
+	resolvableUserPropertySlug,
+	resolveCloseFieldRef,
+} from "@/lib/doc/expressionText";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import {
 	asUuid,
@@ -30,7 +33,6 @@ import {
 	plainColumn,
 	rewriteSlotValues,
 	type Uuid,
-	userPropertySlugResolver,
 	type XPathExpression,
 } from "@/lib/domain";
 
@@ -59,7 +61,7 @@ export function xpIn(
 	return parseXPathExpression(
 		text,
 		fieldPathResolver(doc, formUuid),
-		userPropertySlugResolver(doc),
+		resolvableUserPropertySlug(doc),
 	);
 }
 
@@ -290,7 +292,7 @@ export function resolveDocExpressions(doc: BlueprintDoc): BlueprintDoc {
 	for (const [formUuid, fieldUuids] of Object.entries(doc.fieldOrder)) {
 		if (doc.forms[formUuid] === undefined) continue;
 		const resolve = fieldPathResolver(doc, formUuid);
-		const resolveUserProperty = userPropertySlugResolver(doc);
+		const resolveUserProperty = resolvableUserPropertySlug(doc);
 		const stack = [...fieldUuids];
 		while (stack.length > 0) {
 			const uuid = stack.pop();
@@ -322,7 +324,7 @@ export function resolveDocExpressions(doc: BlueprintDoc): BlueprintDoc {
 	}
 	for (const [formUuid, form] of Object.entries(doc.forms)) {
 		const resolve = fieldPathResolver(doc, formUuid);
-		const resolveUserProperty = userPropertySlugResolver(doc);
+		const resolveUserProperty = resolvableUserPropertySlug(doc);
 		for (const entry of FORM_REFERENCE_SLOTS) {
 			if ((entry.kind as string) !== "xpath-ast") continue;
 			rewriteSlotValues(form, entry.path, (value) =>

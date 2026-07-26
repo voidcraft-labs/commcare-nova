@@ -26,7 +26,14 @@ These are the tools the Nova MCP server exposes. You don't call them directly �
 
 ## Building a new app from a description
 
-A new app is designed first, then built module by module: `update_app` names it (and, on a Connect build, sets the Connect type before any module lands), `generate_schema` commits the data model, and each `create_module` call lands one complete module — every call checked as it lands.
+A new app is designed first, then built module by module: `update_app` names it
+(and, on a Connect build, sets the Connect type before any module lands). When
+the design uses custom worker information, `add_user_properties` declares it
+next, before `generate_schema`, modules, forms, conditions, or calculations can
+refer to it. `generate_schema` then commits the data model, and each
+`create_module` call lands one complete module — every call checked as it
+lands. Roles and personas can follow the app structure; the referenced worker
+information cannot.
 
 | Tool | What it does |
 |---|---|
@@ -46,8 +53,10 @@ ValueExpression inputs, use
 `{ "kind": "session-user-property", "userPropertyUuid": "..." }`. The
 name-based `{ "kind": "session-user", "field": "..." }` arm is for
 CommCare-provided or external worker fields that Nova does not own. Textual
-XPath uses the current `#user/<saved-name>` spelling; an exact custom-property
-match is stored by UUID and follows later renames automatically.
+XPath uses the current `#user/<saved-name>` spelling. Nova binds it to a UUID
+only when exactly one valid custom property matches that exact capitalization;
+a built-in, external, invalid legacy, or case-insensitively ambiguous name stays
+literal and therefore does not follow a custom-property rename.
 
 On update tools, leaving a field out keeps it and passing `null` clears a
 clearable field. Every batch is checked as one change; if any entry would make
@@ -95,11 +104,11 @@ A module's case list is the screen that lists existing cases and the search bar 
 
 ## Working on case search
 
-Case search is the search experience that surrounds the case list — the screen title, helper text, and button labels the user sees, plus a few niche search-side filters most authors never reach for. These tools set those slots; the search inputs themselves live on the case list above. Each setting is independent — pass `null` on any slot to clear it.
+Case search is the search experience that surrounds the case list — the screen title, helper text, and search button label the user sees, plus a few niche search-side filters most authors never reach for. These tools set those slots; the search inputs themselves live on the case list above. Each setting is independent — pass `null` on any slot to clear it.
 
 | Tool | What it does |
 |---|---|
-| `set_case_search_display` | Set the search-screen labels: title, subtitle, empty-list text, search and search-again button labels, and the predicate that decides when to show the search button. |
+| `set_case_search_display` | Set the search-screen title, subtitle, search button label, and the predicate that decides when to show the search button. |
 | `set_case_search_advanced` | Set the advanced cluster: an expression naming owner ids whose cases are excluded from search results. |
 
 ## Working on forms

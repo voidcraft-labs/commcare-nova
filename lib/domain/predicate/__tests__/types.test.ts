@@ -18,6 +18,7 @@ import {
 	CASE_TYPE_REGEX,
 	XML_ELEMENT_NAME_REGEX,
 } from "@/lib/commcare/constants";
+import { USER_PROPERTY_SLUG_PATTERN } from "../../users";
 import {
 	ARITH_OPS,
 	CASE_PROPERTY_PATTERN,
@@ -30,6 +31,7 @@ import {
 	predicateSchema,
 	relationPathSchema,
 	SESSION_CONTEXT_FIELDS,
+	SESSION_USER_FIELD_PATTERN,
 	termSchema,
 	valueExpressionSchema,
 	XML_ELEMENT_NAME_PATTERN,
@@ -922,6 +924,27 @@ describe("predicate schema", () => {
 				}),
 			}),
 		).toThrow();
+	});
+
+	it("accepts a hyphenated session-user field after an XML-safe first character", () => {
+		expect(
+			predicateSchema.parse({
+				kind: "eq",
+				left: asValueExpr({
+					kind: "prop",
+					caseType: "patient",
+					property: "name",
+				}),
+				right: asValueExpr({
+					kind: "session-user",
+					field: "district-code",
+				}),
+			}),
+		).toMatchObject({
+			right: {
+				term: { kind: "session-user", field: "district-code" },
+			},
+		});
 	});
 
 	it("rejects prop with an empty property name", () => {
@@ -1946,6 +1969,12 @@ describe("inlined identifier patterns match lib/commcare/constants source-of-tru
 
 	it("XML_ELEMENT_NAME_PATTERN matches XML_ELEMENT_NAME_REGEX", () => {
 		expect(XML_ELEMENT_NAME_PATTERN.source).toBe(XML_ELEMENT_NAME_REGEX.source);
+	});
+
+	it("raw and custom worker fields share the XML-safe slug grammar", () => {
+		expect(SESSION_USER_FIELD_PATTERN.source).toBe(
+			USER_PROPERTY_SLUG_PATTERN.source,
+		);
 	});
 });
 // ---------- ValueExpression schema tests ----------

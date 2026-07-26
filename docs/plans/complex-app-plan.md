@@ -341,11 +341,17 @@ through the same granular mutations and commit gate. The builder's names and
 saved property keys draft locally and commit on blur or Enter; accepted-value
 lists commit on blur, Apply, or Command/Ctrl+Enter. Each passes its inline
 verdict first, so ordinary typing never saves an invalid intermediate or loses
-refused text. The shared agent tools expose
+refused text. Each entry disclosure stays mounted while collapsed, so an
+invalid or refused name, saved key, or accepted-value draft and its explanation
+survive both collapse and switching between entries; Base UI still owns hidden
+panel focus and inertness. The shared agent tools expose
 `getUsers` plus add/update/remove operations for each collection (snake_case on
 MCP); values cross those JSON tool boundaries as
 `{ userPropertyUuid, value }[]` and bridge to the UUID-keyed document record at
-one boundary. Update omission keeps a slot and explicit `null` clears one. Each
+one boundary. On an initial build, custom properties land immediately after the
+app name and before the data model, modules, forms, conditions, or calculations
+can reference them; roles and personas may follow the reference-bearing app
+structure. Update omission keeps a slot and explicit `null` clears one. Each
 changed role/persona value persists as its own semantic mutation, with the
 cumulative record only as an origin-compatible fallback, so concurrent edits
 to different properties merge instead of replacing one another. In the
@@ -380,15 +386,30 @@ projects the AST, so a rename rewrites nothing and takes effect everywhere
 immediately. The parallel name-backed `session-user { field }` and XPath
 `user-ref { property }` arms are the final vocabulary for
 CommCare-provided or external fields that have no Nova entity — they are not
-compatibility spellings of the identity arm. Textual XPath parsing converts an
-exact unique custom `#user/<slug>` match to identity; a built-in, missing,
-external, or duplicate-slug spelling remains name-backed for the ordinary
-validator/repair flow.
+compatibility spellings of the identity arm. The builder exposes those as two
+explicit sources: **Worker information** selects only from the UUID catalog,
+while **Other user field** authors only the raw name-backed arm, admits
+hyphens after an XML-safe first character, and never infers identity from its
+text. An unavailable custom UUID stays visible as a recovery state rather than
+falling back to text or exposing the UUID.
+
+Textual XPath parsing converts a custom `#user/<slug>` match to identity only
+when the authored capitalization matches exactly, the case-insensitive catalog
+has exactly one match, and the slug passes the same reserved-name/format
+verdict as construction. A built-in, reserved/invalid legacy custom,
+case-insensitive duplicate, case-only match, missing, or external spelling
+remains name-backed permanently; a later catalog rename cannot retarget that
+raw leaf. While an XPath editor is open, a clean draft adopts a peer's identity
+rename and a non-overlapping local addition rebases across it. When both edits
+replace the same text, CodeMirror preserves the local draft and refuses save
+until Escape reloads the shared projection instead of overwriting either edit.
 
 The reference index records both custom AST arms under one `p:<uuid>` target.
 Removing worker information therefore refuses while any condition,
 calculation, default, case-list rule, or navigation rule still reads it and
-names the owning settings to update. It never silently deletes those
+names every exact `(carrier, slot)` occurrence to update. Relevant and required
+conditions on the same field remain two settings; friendly descriptions never
+deduplicate distinct slots. It never silently deletes those
 expressions or degrades their identity to mutable text. Once no reference
 remains, the same gated batch clears every role/persona value for the property
 and removes it.
@@ -402,9 +423,14 @@ The wire facts the shape rests on:
   per-field `required_for`. So one app's catalog compiles to that one
   definition.
 - Slug legality is enforced at construction so a push can never fail on identity
-  grounds: the Django slug charset
-  (`custom_data_fields/edit_model.py::XmlSlugField` lists `validate_slug`), at
-  least one non-digit (its `RegexValidator(r'\D', '')`), `SYSTEM_FIELDS` and the
+  grounds. HQ's Django slug validator
+  (`custom_data_fields/edit_model.py::XmlSlugField` lists `validate_slug`) admits
+  a leading digit or hyphen, but Nova emits the slug as an XML element in both
+  the session and usercase projections. Nova therefore requires a leading
+  letter or underscore and admits letters, digits, underscores, and hyphens
+  afterward — the intersection that keeps every emitted path representable. The
+  remaining clauses are at least one non-digit (its
+  `RegexValidator(r'\D', '')`), `SYSTEM_FIELDS` and the
   `commcare` / `xml` prefixes (`models.py::validate_reserved_words`), the
   case-reserved words and case-insensitive uniqueness
   (`edit_model.py::CustomDataFieldsForm.verify_no_reserved_words` /
@@ -452,7 +478,8 @@ The wire facts the shape rests on:
   `corehq/apps/app_manager/tests/data/suite/suite-case-detail-tabs-with-nodesets.xml`:
   `instance('casedb')/casedb/case[@case_type='commcare-user'][hq_user_id=instance('commcaresession')/session/context/userid]/<slug>`.
   HQ JSON, local suite/XForm, and HQ-upload XForm tests assert the exact
-  corresponding bytes, including after a slug rename against an unchanged AST.
+  corresponding bytes, including a hyphenated slug and a slug rename against an
+  unchanged AST.
 - `CustomDataFieldsProfile` sits behind the paid `APP_USER_PROFILES` privilege
   and is deliberately not the provisioning model; a user type compiles to plain
   per-user `user_data` values.

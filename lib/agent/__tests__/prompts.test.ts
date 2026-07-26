@@ -127,6 +127,27 @@ describe("buildSolutionsArchitectPrompt", () => {
 			expect(sp).not.toContain("Editing Mode");
 		}
 	});
+
+	it("declares custom worker information before every reference-bearing build step", () => {
+		const prompt = buildSolutionsArchitectPrompt(fixtureEmptyDoc());
+		const nameApp = prompt.indexOf("**Name the app");
+		const workerInformation = prompt.indexOf(
+			"**Declare custom worker information",
+		);
+		const dataModel = prompt.indexOf("**Record the data model");
+		const modules = prompt.indexOf("**Execute the design");
+
+		expect(nameApp).toBeGreaterThan(-1);
+		expect(workerInformation).toBeGreaterThan(nameApp);
+		expect(dataModel).toBeGreaterThan(workerInformation);
+		expect(modules).toBeGreaterThan(workerInformation);
+		expect(prompt.slice(workerInformation, dataModel)).toContain(
+			"addUserProperties",
+		);
+		expect(prompt.slice(workerInformation, dataModel)).toContain(
+			"before any condition, calculation, module, or form",
+		);
+	});
 });
 
 describe("buildAppStateMessage", () => {

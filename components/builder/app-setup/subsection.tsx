@@ -117,7 +117,10 @@ export function EntryRow({
 					</span>
 				)}
 			</CollapsibleTrigger>
-			<CollapsibleContent className="border-t border-nova-border px-3 py-3">
+			<CollapsibleContent
+				keepMounted
+				className="border-t border-nova-border px-3 py-3"
+			>
 				{children}
 			</CollapsibleContent>
 		</Collapsible>

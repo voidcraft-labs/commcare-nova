@@ -1,8 +1,10 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import { parseXPathForForm } from "@/lib/doc/expressionText";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
 import { removeUserPropertyPlan } from "@/lib/doc/userMutations";
@@ -79,6 +81,33 @@ function valueUpdate(
 }
 
 describe("user collection mutations", () => {
+	it.each(["2fa_region", "-area"])(
+		"refuses the XML-unsafe slug %s at the shared commit gate",
+		(slug) => {
+			const propertyUuid = asUuid(`property-${slug}`);
+			const verdict = mutationCommitVerdict(
+				buildDoc(),
+				[
+					{
+						kind: "addUserProperty",
+						property: {
+							uuid: propertyUuid,
+							slug,
+							label: "Invalid worker information",
+						},
+					},
+				],
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			);
+
+			expect(verdict.ok).toBe(false);
+			if (verdict.ok) throw new Error("invalid slug unexpectedly passed");
+			expect(verdict.introduced.map((finding) => finding.code)).toContain(
+				"USER_PROPERTY_SLUG_INVALID",
+			);
+		},
+	);
+
 	it("adds, updates, and removes hostile schema-valid record keys as own data", () => {
 		const empty = buildDoc();
 		const added = fold(empty, [
@@ -267,13 +296,69 @@ describe("user collection mutations", () => {
 		expect(plan).toEqual({
 			ok: false,
 			referenceCount: 2,
-			references: ["condition in module “Patients”", "condition on “notes”"],
+			references: [
+				"condition in module “Patients”",
+				"relevant condition on “notes”",
+			],
 			userMessage: expect.stringContaining(
 				"Update or remove those references before removing",
 			),
 		});
 		// Refusal happens before value-cleanup mutations are constructed.
 		expect(plan).not.toHaveProperty("mutations");
+	});
+
+	it("reports distinct relevant and required slots on the same field", () => {
+		const propertyUuid = asUuid("worker-region");
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "Patients",
+					forms: [
+						{
+							name: "Visit",
+							type: "survey",
+							fields: [
+								f({
+									kind: "text",
+									id: "notes",
+									label: "Notes",
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		doc.userProperties = {
+			[propertyUuid]: {
+				uuid: propertyUuid,
+				slug: "region",
+				label: "Region",
+			},
+		};
+		const moduleUuid = doc.moduleOrder[0];
+		const formUuid = doc.formOrder[moduleUuid][0];
+		const fieldUuid = doc.fieldOrder[formUuid][0];
+		const reference = parseXPathForForm(
+			doc,
+			formUuid,
+			"#user/region = 'north'",
+		);
+		doc.fields[fieldUuid].relevant = reference;
+		if (doc.fields[fieldUuid].kind !== "text") {
+			throw new Error("fixture field must be text");
+		}
+		doc.fields[fieldUuid].required = reference;
+
+		expect(removeUserPropertyPlan(doc, propertyUuid)).toMatchObject({
+			ok: false,
+			referenceCount: 2,
+			references: [
+				"relevant condition on “notes”",
+				"required condition on “notes”",
+			],
+		});
 	});
 });
 

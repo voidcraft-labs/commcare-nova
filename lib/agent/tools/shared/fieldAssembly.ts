@@ -27,6 +27,7 @@
 import { parseXPathExpression } from "@/lib/commcare/xpath";
 import {
 	type FieldRefResolvableDoc,
+	resolvableUserPropertySlug,
 	resolveCloseFieldRef,
 } from "@/lib/doc/expressionText";
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
@@ -51,7 +52,6 @@ import {
 	isContainer,
 	opaqueXPathExpression,
 	type SelectOption,
-	userPropertySlugResolver,
 } from "@/lib/domain";
 import { resolveFieldInForm } from "../../blueprintHelpers";
 import {
@@ -337,7 +337,7 @@ export function assembleFieldMutations(
 	if (rejected.length > 0) return { ok: false, rejected };
 	const overlay = buildBatchOverlay(doc, formUuid, mutations);
 	const resolve = fieldPathResolver(overlay, formUuid);
-	const resolveUserProperty = userPropertySlugResolver(overlay);
+	const resolveUserProperty = resolvableUserPropertySlug(overlay);
 	resolveBatchExpressions(resolve, resolveUserProperty, landed);
 	// Mint an `order` key for every born field. An ANCHORED batch (a top-level
 	// block placed at `beforeFieldId` / `afterFieldId`) keys its fields BETWEEN

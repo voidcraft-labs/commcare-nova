@@ -55,10 +55,21 @@ describe("slug legality follows CommCare's rule clause by clause", () => {
 			"Region",
 			"team_lead",
 			"sub-district",
+			"district-code",
 			"a1",
 		]) {
 			expect(userPropertySlugVerdict(slug, NONE).ok, slug).toBe(true);
 		}
+	});
+
+	it("requires an XML element-name-safe first character", () => {
+		for (const slug of ["2fa_region", "-area"]) {
+			expect(userPropertySlugVerdict(slug, NONE), slug).toMatchObject({
+				ok: false,
+				code: "illegal_format",
+			});
+		}
+		expect(userPropertySlugVerdict("_2fa-region", NONE).ok).toBe(true);
 	});
 
 	it("refuses characters outside that charset", () => {

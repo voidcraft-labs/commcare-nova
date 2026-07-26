@@ -17,7 +17,10 @@ Predicate operators carry `ValueExpression` operands, and `ValueExpression`'s `i
   SQL, or CommCare emission. The separate `session-user { field }` arm remains
   intentionally name-backed for CommCare-provided or external worker fields
   that have no Nova entity. Neither arm is a compatibility spelling of the
-  other.
+  other, and authoring never infers one from the other's text. The open raw
+  field grammar begins with a letter or underscore and also admits hyphens
+  afterward; it is intentionally separate from the narrower shared
+  `XML_ELEMENT_NAME_PATTERN` used by search inputs and relation identifiers.
 - A `via` of kind `self` collapses to the inner where (no identity join).
 - `any-relation` is direction-agnostic: for the canonical `parent` index its possible destination types are the origin's parent UNION its direct children (deduplicated for recursive case types), and an omitted `ofCaseType` is valid only when that union has one member. When the selected destination is exclusively the parent or exclusively a child, shared normalization materializes that proven direction; this avoids emitting an impossible CSQL arm that can make an otherwise valid nested filter unrepresentable. Recursive, custom-index, and otherwise ambiguous paths stay direction-agnostic. CCHQ's grammars are direction-specific, so those remaining paths expand to `(<ancestor-form> or <subcase-form>)`; Postgres compiles their two single-hop variants as a `unionAll`.
 - `parent` is the only relation identifier the `CaseType.parent_type` graph can infer. Every custom saved index name needs an explicit `throughCaseType` / `ofCaseType`; that destination may be any declared case type because Nova has no metadata proving the custom index's direction. Never pretend a custom index follows the `parent_type` graph.

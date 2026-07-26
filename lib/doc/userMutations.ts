@@ -225,17 +225,36 @@ function describeUserPropertyReference(
 ): string {
 	const field = ownRecordValue(doc.fields, carrierUuid);
 	if (field !== undefined) {
-		const setting =
-			slot === "calculate"
-				? "calculation"
-				: slot === "default_value"
-					? "default value"
-					: "condition";
-		return `${setting} on “${field.id}”`;
+		const setting: Readonly<Record<string, string>> = {
+			relevant: "relevant condition",
+			validate: "validation condition",
+			calculate: "calculation",
+			default_value: "default value",
+			required: "required condition",
+			repeat_count: "repeat count",
+			ids_query: "lookup row query",
+			lookup_options_source: "lookup choice filter",
+		};
+		return `${setting[slot] ?? `saved ${slot.replaceAll("_", " ")}`} on “${field.id}”`;
 	}
 	const form = ownRecordValue(doc.forms, carrierUuid);
 	if (form !== undefined) {
-		return `condition on form “${form.name}”`;
+		const setting: Readonly<Record<string, string>> = {
+			form_display_condition: "display condition",
+			form_link_condition: "form link condition",
+			form_link_datum_xpath: "form link value",
+			assessment_user_score: "assessment score",
+			deliver_entity_id: "delivery entity ID",
+			deliver_entity_name: "delivery entity name",
+			case_operation_target_expression: "case target calculation",
+			case_operation_condition: "case operation condition",
+			case_operation_name: "case name calculation",
+			case_operation_owner: "case owner calculation",
+			case_operation_write_value: "case property calculation",
+			case_operation_write_condition: "case property condition",
+			case_operation_link_target_expression: "linked-case target calculation",
+		};
+		return `${setting[slot] ?? `saved ${slot.replaceAll("_", " ")}`} on form “${form.name}”`;
 	}
 	const module = ownRecordValue(doc.modules, carrierUuid);
 	if (module !== undefined) {
@@ -277,19 +296,39 @@ export function removeUserPropertyPlan(
 	doc: BlueprintDoc,
 	uuid: Uuid,
 ): RemoveUserPropertyPlan {
-	const references = new Set<string>();
+	const references: Array<{
+		carrierUuid: string;
+		slot: string;
+		description: string;
+	}> = [];
 	for (const [carrierUuid, slots] of referencingSlotsOf(
 		doc,
 		userPropertyTargetKey(uuid),
 	)) {
 		for (const slot of slots) {
-			references.add(describeUserPropertyReference(doc, carrierUuid, slot));
+			references.push({
+				carrierUuid,
+				slot,
+				description: describeUserPropertyReference(doc, carrierUuid, slot),
+			});
 		}
 	}
-	if (references.size > 0) {
+	if (references.length > 0) {
 		const property = ownRecordValue(userPropertiesOf(doc), uuid);
 		const name = property?.label ?? "This worker information";
-		const locations = [...references].sort();
+		const locations = references
+			.sort((a, b) => {
+				for (const [left, right] of [
+					[a.description, b.description],
+					[a.carrierUuid, b.carrierUuid],
+					[a.slot, b.slot],
+				] as const) {
+					if (left < right) return -1;
+					if (left > right) return 1;
+				}
+				return 0;
+			})
+			.map(({ description }) => description);
 		return {
 			ok: false,
 			referenceCount: locations.length,

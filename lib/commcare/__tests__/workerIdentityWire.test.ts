@@ -90,6 +90,43 @@ function workerReferenceDoc() {
 }
 
 describe("custom worker reference wire", () => {
+	it("emits a hyphenated XML-safe slug byte-exact on every worker path", () => {
+		const { doc } = workerReferenceDoc();
+		doc.userProperties = {
+			[PROPERTY_UUID]: {
+				uuid: PROPERTY_UUID,
+				slug: "district-code",
+				label: "District code",
+			},
+		};
+		const hq = expandDoc(doc);
+		const hqXform = Object.values(hq._attachments)[0];
+		if (hqXform === undefined) {
+			throw new Error("expandDoc emitted no XForm attachment");
+		}
+		expect(hq.modules[0].module_filter).toBe(
+			"instance('commcaresession')/session/user/data/district-code = 'n'",
+		);
+		expect(
+			attributeWhere(
+				hqXform,
+				"bind",
+				"relevant",
+				(attributes) => attributes.nodeset === "/data/supervisor_note",
+			),
+		).toBe(`${USERCASE}/district-code = 'n'`);
+
+		const zip = new AdmZip(compileCcz(hq, doc.appName, doc));
+		expect(
+			attributeWhere(
+				zip.readAsText("suite.xml"),
+				"menu",
+				"relevant",
+				(attributes) => attributes.id === "m0",
+			),
+		).toBe("instance('commcaresession')/session/user/data/district-code = 'n'");
+	});
+
 	it("emits the named CCHQ session and usercase XPath shapes through HQ JSON, suite.xml, and XForm", () => {
 		const { doc, moduleUuid, fieldUuid } = workerReferenceDoc();
 		const hq = expandDoc(doc);

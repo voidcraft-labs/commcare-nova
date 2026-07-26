@@ -94,6 +94,7 @@ import {
 	prop,
 	type ResolvedType,
 	reasonFor,
+	SESSION_USER_FIELD_PATTERN,
 	type SlotConstraint,
 	sessionContext,
 	sessionUser,
@@ -102,7 +103,6 @@ import {
 	timeLiteral,
 	type ValueExpression,
 	term as wrapTerm,
-	XML_ELEMENT_NAME_PATTERN,
 } from "@/lib/domain/predicate";
 import {
 	type AdmitExpressionChange,
@@ -136,7 +136,8 @@ type TermMode =
 	| "field"
 	| "input"
 	| "session-context"
-	| "session-user";
+	| "session-user"
+	| "session-user-property";
 
 interface TermDraft {
 	readonly value: Term;
@@ -331,9 +332,7 @@ function EditableTermCard({
 			const replacesAuthoredSource = authored && termHasMeaningfulContent(term);
 			const savedTarget = draftsByModeRef.current.get(next)?.value;
 			const userFieldDraft =
-				next === "session-user"
-					? userFieldForTerm(savedTarget, userProperties)
-					: undefined;
+				next === "session-user" ? userFieldForTerm(savedTarget) : undefined;
 			const needsUserField =
 				next === "session-user" &&
 				(userFieldDraft === undefined || !userFieldIsValid(userFieldDraft));
@@ -348,7 +347,7 @@ function EditableTermCard({
 			}
 			applyMode(next);
 		},
-		[applyMode, mode, term, userProperties],
+		[applyMode, mode, term],
 	);
 
 	const handleTermChange = useCallback(
@@ -581,10 +580,7 @@ function EditableTermCard({
 									pendingModeChange.userFieldDraft === undefined
 										? undefined
 										: userFieldIsValid(pendingModeChange.userFieldDraft)
-											? userFieldTerm(
-													pendingModeChange.userFieldDraft,
-													userProperties,
-												)
+											? userFieldTerm(pendingModeChange.userFieldDraft)
 											: null;
 								if (explicitTarget === null) return;
 								if (termsMatch(pendingModeChange.source, term)) {
@@ -652,8 +648,9 @@ function termMode(term: Term): TermMode {
 		case "session-context":
 			return "session-context";
 		case "session-user":
-		case "session-user-property":
 			return "session-user";
+		case "session-user-property":
+			return "session-user-property";
 		case "table-column":
 			throw dormantTableColumnAuthoringError();
 	}
@@ -713,7 +710,9 @@ function termModeLabel(
 		case "session-context":
 			return "App information";
 		case "session-user":
-			return "User information";
+			return "Other user field";
+		case "session-user-property":
+			return "Worker information";
 	}
 }
 
@@ -798,6 +797,7 @@ type ModeAdmission = Record<TermMode, { admitted: boolean; reason?: string }>;
 
 interface TermAdmissionContext extends ExpressionEditContext {
 	readonly admitExpressionChange?: AdmitExpressionChange;
+	readonly userProperties: readonly UserProperty[];
 }
 
 /**
@@ -810,7 +810,7 @@ interface TermAdmissionContext extends ExpressionEditContext {
  *     exists on the current case type.
  *   - `input` — admitted when a declared search input of an accepted
  *     type is in scope.
- *   - `session-context` / `session-user` — resolve to `text`, so
+ *   - `session-context` / both user sources — resolve to `text`, so
  *     admitted only when the slot accepts text.
  */
 function computeModeAdmission(
@@ -853,6 +853,16 @@ function computeModeAdmission(
 		"session-user": textAdmitted
 			? { admitted: true }
 			: { admitted: false, reason },
+		"session-user-property":
+			textAdmitted && ctx.userProperties.length > 0
+				? { admitted: true }
+				: {
+						admitted: false,
+						reason:
+							ctx.userProperties.length === 0
+								? "Add worker information in App setup first"
+								: reason,
+					},
 	};
 	if (ctx.admitExpressionChange === undefined) return typeAdmission;
 
@@ -874,7 +884,7 @@ function computeModeAdmission(
  * semantic default, so this probe must never become authored data. */
 function buildTermAdmissionProbe(
 	mode: TermMode,
-	ctx: ExpressionEditContext,
+	ctx: TermAdmissionContext,
 	constraint: SlotConstraint,
 ): Term {
 	return mode === "session-user"
@@ -888,7 +898,7 @@ function buildTermAdmissionProbe(
  * meaning; `requestMode` collects that field before this draft may commit. */
 function buildTermDefault(
 	mode: TermMode,
-	ctx: ExpressionEditContext,
+	ctx: TermAdmissionContext,
 	constraint: SlotConstraint,
 ): Term {
 	switch (mode) {
@@ -931,6 +941,15 @@ function buildTermDefault(
 			// The card surfaces a per-slot error until the author types
 			// a real field name.
 			return sessionUser("");
+		case "session-user-property": {
+			const property = ctx.userProperties[0];
+			if (property === undefined) {
+				throw new Error(
+					"Worker information cannot be selected without a catalog property.",
+				);
+			}
+			return sessionUserProperty(property.uuid);
+		}
 	}
 }
 
@@ -997,9 +1016,14 @@ function ModeMenu({
 			icon: tablerUser,
 		});
 		base.push({
+			mode: "session-user-property",
+			label: termModeLabel("session-user-property", sourceContext),
+			icon: tablerSparkles,
+		});
+		base.push({
 			mode: "session-user",
 			label: termModeLabel("session-user", sourceContext),
-			icon: tablerSparkles,
+			icon: tablerUser,
 		});
 		return base;
 	}, [ctx.knownInputs, mode, sourceContext]);
@@ -1204,7 +1228,7 @@ function TermBodyInput({
 			return (
 				<UserFieldInput
 					value={term.field}
-					onChange={(field) => onChange(userFieldTerm(field, userProperties))}
+					onChange={(field) => onChange(userFieldTerm(field))}
 					invalid={invalid}
 				/>
 			);
@@ -1229,9 +1253,10 @@ function TermBodyInput({
 				);
 			}
 			return (
-				<UserFieldInput
-					value={property.slug}
-					onChange={(field) => onChange(userFieldTerm(field, userProperties))}
+				<UserPropertyMenu
+					value={property.uuid}
+					properties={userProperties}
+					onChange={(uuid) => onChange(sessionUserProperty(uuid))}
 					invalid={invalid}
 				/>
 			);
@@ -2086,40 +2111,28 @@ function LiteralTypedDateInput({
 }
 
 function userFieldIsValid(value: string): boolean {
-	return XML_ELEMENT_NAME_PATTERN.test(value);
+	return SESSION_USER_FIELD_PATTERN.test(value);
 }
 
-function userFieldForTerm(
-	term: Term | undefined,
-	properties: readonly UserProperty[],
-): string {
+function userFieldForTerm(term: Term | undefined): string {
 	if (term?.kind === "session-user") return term.field;
-	if (term?.kind !== "session-user-property") return "";
-	return (
-		properties.find((property) => property.uuid === term.userPropertyUuid)
-			?.slug ?? ""
-	);
+	return "";
 }
 
 /**
- * Resolve an author-entered worker field at the edit boundary. A slug declared
- * in Nova becomes an immutable UUID reference; names outside the catalog stay
- * explicit raw references for CommCare built-ins and external worker data.
+ * The raw source is an explicit promise to preserve the authored name. Custom
+ * worker information is selected through `UserPropertyMenu` and never inferred
+ * from text, so a raw field remains raw even when its spelling happens to equal
+ * a current custom slug.
  */
-function userFieldTerm(
-	field: string,
-	properties: readonly UserProperty[],
-): Term {
-	const property = properties.find((candidate) => candidate.slug === field);
-	return property === undefined
-		? sessionUser(field)
-		: sessionUserProperty(property.uuid);
+function userFieldTerm(field: string): Term {
+	return sessionUser(field);
 }
 
 function userFieldError(value: string): string {
 	return value.length === 0
 		? "Enter a user field name"
-		: "Start with a letter or underscore, then use only letters, numbers, and underscores";
+		: "Start with a letter or underscore, then use only letters, numbers, underscores, and hyphens";
 }
 
 function userFieldInputClass(invalid: boolean): string {
@@ -2129,6 +2142,101 @@ function userFieldInputClass(invalid: boolean): string {
 			? "border-nova-rose/40 focus-visible:border-nova-rose/60 focus-visible:ring-nova-rose/30"
 			: "border-white/[0.06] focus-visible:border-nova-violet/40 focus-visible:ring-nova-violet/30",
 	].join(" ");
+}
+
+/**
+ * Identity-backed custom worker-information picker. The control submits only
+ * the stable UUID; label and slug are live catalog projections, so a peer
+ * rename updates this row without rewriting the expression.
+ */
+function UserPropertyMenu({
+	value,
+	properties,
+	onChange,
+	invalid,
+}: {
+	readonly value: UserProperty["uuid"];
+	readonly properties: readonly UserProperty[];
+	readonly onChange: (uuid: UserProperty["uuid"]) => void;
+	readonly invalid: boolean;
+}) {
+	const triggerRef = useRef<HTMLButtonElement>(null);
+	const current = properties.find((property) => property.uuid === value);
+	if (current === undefined) {
+		throw new Error(
+			"UserPropertyMenu requires the selected worker-information identity.",
+		);
+	}
+	const triggerClass = [
+		"group h-auto min-h-11 w-full justify-between rounded-lg border bg-nova-deep/50 px-3 py-2 text-sm text-nova-text whitespace-normal dark:bg-nova-deep/50 dark:not-disabled:hover:bg-nova-deep/50",
+		invalid
+			? "border-nova-rose/40"
+			: "border-white/[0.06] not-disabled:hover:border-nova-violet/30",
+	].join(" ");
+
+	return (
+		<DropdownMenu>
+			<DropdownMenuTrigger
+				ref={triggerRef}
+				aria-label={`Worker information: ${current.label}, ${current.slug}`}
+				aria-invalid={invalid || undefined}
+				render={
+					<Button
+						type="button"
+						variant="outline"
+						size="xl"
+						className={triggerClass}
+					/>
+				}
+			>
+				<span className="min-w-0 flex-1 text-left">
+					<span className="block break-words text-nova-violet-bright">
+						{current.label}
+					</span>
+					<span className="block break-words font-mono text-xs font-normal text-nova-text-muted">
+						{current.slug}
+					</span>
+				</span>
+				<Icon
+					icon={tablerChevronDown}
+					width="14"
+					height="14"
+					className="shrink-0 text-nova-text-muted transition-transform group-data-[popup-open]:rotate-180"
+				/>
+			</DropdownMenuTrigger>
+			<DropdownMenuPortal>
+				<DropdownMenuPositioner
+					side="bottom"
+					align="start"
+					sideOffset={4}
+					anchor={triggerRef}
+					style={{ minWidth: "var(--anchor-width)" }}
+				>
+					<DropdownMenuPopup className="min-w-0">
+						{properties.map((property) => {
+							const isActive = property.uuid === value;
+							return (
+								<DropdownMenuItem
+									key={property.uuid}
+									onClick={() => onChange(property.uuid)}
+									className={
+										isActive ? "bg-nova-violet/10 text-nova-violet-bright" : ""
+									}
+								>
+									<span className="min-w-0 flex-1 break-words">
+										{property.label}
+									</span>
+									<span className="break-words font-mono text-xs text-nova-text-muted">
+										{property.slug}
+									</span>
+								</DropdownMenuItem>
+							);
+						})}
+					</DropdownMenuPopup>
+				</DropdownMenuPositioner>
+			</DropdownMenuPortal>
+		</DropdownMenu>
+	);
 }
 
 /** Open-namespace user-data field input. The namespace is open, but the wire

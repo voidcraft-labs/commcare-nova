@@ -25,20 +25,33 @@ the person, travels with them into every form, and is the same on every screen
 they open.
 
 Give each one a name people will recognize and a short key the app uses to
-refer to it. The key has to be something CommCare will accept, so Nova checks it
-as you type: letters, numbers, underscores, and hyphens only, at least one
-non-digit character, and not a name CommCare has already claimed. You will be told
-immediately if a key won't work, rather than finding out when you deploy.
+refer to it. The key has to begin with a letter or underscore; after that it may
+use letters, numbers, underscores, and hyphens. Nova also refuses names
+CommCare has already claimed. The first-character rule matters because this
+key becomes part of the worker-data XML path that CommCare imports. Nova tells
+you immediately if a key will not work, rather than waiting until deployment.
+
+If you collapse a worker-information row or look at another row while an edit
+is unfinished or refused, Nova keeps that draft and its explanation in place.
+Reopen the row to correct it; switching context never silently resets what you
+typed.
 
 You can also give a piece of information a fixed list of accepted values. Once
 you do, any role or persona value you set has to come from that list.
 
 Conditions and calculations can read custom worker information. In an XPath,
 write its current saved key as `#user/<saved-key>`. In the condition builder,
-choose the worker information by name. Nova stores both kinds of reference
-against the property's stable identity, so changing its saved key updates what
-Preview and CommCare read without breaking the condition or calculation.
-CommCare-provided information has no Nova identity and keeps its literal name.
+choose **Worker information** and select it by name; this stores the stable
+identity, so changing the saved key updates what Preview and CommCare read
+without breaking the condition or calculation. **Other user field** is a
+separate choice for CommCare-provided or external names and always stays
+literal, even when its text happens to match a custom key.
+
+While an XPath editor is open, a teammate's saved-key rename appears live when
+your draft is clean. If you added different text, Nova carries the rename
+through that addition when it can do so safely. If both edits changed the same
+text, Nova keeps your draft and asks you to reload the shared version instead
+of overwriting either edit.
 
 Nova will not remove worker information while a saved condition or calculation
 still reads it. The refusal names the settings to update. Once those references

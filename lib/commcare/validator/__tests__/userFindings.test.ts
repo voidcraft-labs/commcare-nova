@@ -80,6 +80,29 @@ function userDoc(): BlueprintDoc {
 }
 
 describe("user finding identity and scoping", () => {
+	it.each(["2fa_region", "-area"])(
+		"rejects the XML-unsafe worker-property slug %s",
+		(slug) => {
+			const propertyUuid = asUuid(`property-${slug}`);
+			const doc: BlueprintDoc = {
+				...buildDoc(),
+				userProperties: {
+					[propertyUuid]: {
+						uuid: propertyUuid,
+						slug,
+						label: "Invalid worker information",
+					},
+				},
+			};
+
+			expect(
+				runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)
+					.filter((finding) => finding.code === "USER_PROPERTY_SLUG_INVALID")
+					.map(errorIdentity),
+			).toEqual([`USER_PROPERTY_SLUG_INVALID|userProperty=${propertyUuid}`]);
+		},
+	);
+
 	it("keeps independent invalid user entities distinct", () => {
 		const findings = runValidation(
 			userDoc(),
@@ -133,29 +156,32 @@ describe("user finding identity and scoping", () => {
 		const properties = [
 			{
 				uuid: asUuid("property-a"),
+				order: "c",
 				slug: "Region",
 				label: "Region A",
 			},
 			{
 				uuid: asUuid("property-b"),
+				order: "a",
 				slug: "region",
 				label: "Region B",
 			},
 			{
 				uuid: asUuid("property-c"),
+				order: "b",
 				slug: "REGION",
 				label: "Region C",
 			},
 		] as const;
 		const roles = [
-			{ uuid: asUuid("role-a"), name: "Nurse" },
-			{ uuid: asUuid("role-b"), name: " nurse " },
-			{ uuid: asUuid("role-c"), name: "NURSE" },
+			{ uuid: asUuid("role-a"), order: "c", name: "Nurse" },
+			{ uuid: asUuid("role-b"), order: "a", name: " nurse " },
+			{ uuid: asUuid("role-c"), order: "b", name: "NURSE" },
 		] as const;
 		const personas = [
-			{ uuid: asUuid("persona-a"), name: "Amina" },
-			{ uuid: asUuid("persona-b"), name: " amina " },
-			{ uuid: asUuid("persona-c"), name: "AMINA" },
+			{ uuid: asUuid("persona-a"), order: "c", name: "Amina" },
+			{ uuid: asUuid("persona-b"), order: "a", name: " amina " },
+			{ uuid: asUuid("persona-c"), order: "b", name: "AMINA" },
 		] as const;
 		const make = (reverse: boolean): BlueprintDoc => ({
 			...buildDoc(),
@@ -187,16 +213,19 @@ describe("user finding identity and scoping", () => {
 						"PERSONA_NAME_DUPLICATE",
 					].includes(finding.code),
 				)
-				.map(errorIdentity)
-				.sort();
+				.map(errorIdentity);
 
 		const expected = [
-			...properties.map(
-				({ uuid }) => `USER_PROPERTY_SLUG_DUPLICATE|userProperty=${uuid}`,
-			),
-			...roles.map(({ uuid }) => `USER_TYPE_NAME_DUPLICATE|userType=${uuid}`),
-			...personas.map(({ uuid }) => `PERSONA_NAME_DUPLICATE|persona=${uuid}`),
-		].sort();
+			`USER_PROPERTY_SLUG_DUPLICATE|userProperty=${properties[1].uuid}`,
+			`USER_PROPERTY_SLUG_DUPLICATE|userProperty=${properties[2].uuid}`,
+			`USER_PROPERTY_SLUG_DUPLICATE|userProperty=${properties[0].uuid}`,
+			`USER_TYPE_NAME_DUPLICATE|userType=${roles[1].uuid}`,
+			`USER_TYPE_NAME_DUPLICATE|userType=${roles[2].uuid}`,
+			`USER_TYPE_NAME_DUPLICATE|userType=${roles[0].uuid}`,
+			`PERSONA_NAME_DUPLICATE|persona=${personas[1].uuid}`,
+			`PERSONA_NAME_DUPLICATE|persona=${personas[2].uuid}`,
+			`PERSONA_NAME_DUPLICATE|persona=${personas[0].uuid}`,
+		];
 		expect(identities(make(false))).toEqual(expected);
 		expect(identities(make(true))).toEqual(expected);
 	});

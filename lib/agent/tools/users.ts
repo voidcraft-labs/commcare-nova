@@ -130,7 +130,7 @@ const userPropertyCreateSchema = z
 			.max(USER_PROPERTY_SLUG_MAX_LENGTH)
 			.regex(USER_PROPERTY_SLUG_PATTERN)
 			.describe(
-				"Saved name expressions read. The commit gate checks reserved names.",
+				"Saved name expressions read. Start with a letter or underscore; then use letters, digits, underscores, or hyphens. The commit gate also checks reserved names.",
 			),
 		label: z
 			.string()
@@ -251,7 +251,7 @@ async function commit(
 
 export const addUserPropertiesTool = {
 	description:
-		"Add one or more worker-information properties. Returns stable uuids for role and persona values.",
+		"Add one or more worker-information properties. Returns stable uuids for role and persona values. During an initial build, call this immediately after updateApp and before generateSchema, createModule, or any other call that authors a condition, calculation, module, or form which may reference custom worker information.",
 	inputSchema: addUserPropertiesInputSchema,
 	async execute(
 		input: z.infer<typeof addUserPropertiesInputSchema>,

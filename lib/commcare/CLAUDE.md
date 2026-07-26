@@ -22,7 +22,12 @@ current UUID→slug map and throws if an identity has no binding — the commit
 validator should have caught the dangling reference, and silently emitting a
 UUID or stale name would corrupt behavior. The separate name-backed
 `session-user { field }` and XPath `user-ref { property }` arms are exclusively
-for CommCare-provided or external fields with no Nova entity.
+for CommCare-provided or external fields with no Nova entity. Worker-property
+slugs begin with a letter or underscore and admit hyphens only after that first
+character: both session and usercase emit the slug as an XML element, so this
+XML-safe intersection is stricter than HQ's Django slug validator. The HQ JSON,
+local XForm, and local suite fixtures pin a hyphenated slug to exact emitted
+bytes.
 
 The emitted paths are pinned to named CommCare authorities:
 `test_suite_remote_request.py::test_required` for

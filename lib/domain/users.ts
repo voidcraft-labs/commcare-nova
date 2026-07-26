@@ -68,12 +68,14 @@ export const USER_PROPERTY_SLUG_MAX_LENGTH = 127;
 export const USER_PROPERTY_LABEL_MAX_LENGTH = 255;
 
 /**
- * Django's slug charset, from `django/core/validators.py::slug_re`
- * (`^[-a-zA-Z0-9_]+\Z`). `custom_data_fields/edit_model.py::XmlSlugField`
- * lists `validate_slug` among its `default_validators`, so this is the
- * exact character class HQ accepts.
+ * Intersection of HQ's Django slug charset and the XML element-name shape
+ * required by every emitted worker-data path. Django admits a leading digit or
+ * hyphen, but those cannot begin the element Nova emits under
+ * `session/user/data` and the usercase. The first character is therefore a
+ * letter or underscore; subsequent characters retain Django's letters,
+ * digits, underscores, and hyphens.
  */
-export const USER_PROPERTY_SLUG_PATTERN = /^[-a-zA-Z0-9_]+$/;
+export const USER_PROPERTY_SLUG_PATTERN = /^[a-zA-Z_][-a-zA-Z0-9_]*$/;
 
 /**
  * Slugs predating HQ's `commcare` prefix convention, exempt from it and

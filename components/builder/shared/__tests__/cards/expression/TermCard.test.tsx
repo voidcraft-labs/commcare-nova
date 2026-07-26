@@ -59,6 +59,12 @@ const WORKER_PROPERTY: UserProperty = {
 	slug: "assigned_region",
 	label: "Assigned region",
 };
+const WORKER_CADRE_UUID = asUuid("worker-property-cadre");
+const WORKER_CADRE: UserProperty = {
+	uuid: WORKER_CADRE_UUID,
+	slug: "cadre-code",
+	label: "Cadre",
+};
 
 const REQUIRED_TERM = {
 	accepts: "any" as const,
@@ -376,10 +382,10 @@ describe("TermCard source transitions", () => {
 		).toBeDefined();
 		expect(screen.queryByText("client_name")).toBeNull();
 
-		await chooseSource("User information");
+		await chooseSource("Other user field");
 		expect(
 			screen.getByRole("alertdialog", {
-				name: "Use user information instead?",
+				name: "Use other user field instead?",
 			}),
 		).toBeDefined();
 		const field = screen.getByRole("textbox", { name: "User field name" });
@@ -406,13 +412,13 @@ describe("TermCard source transitions", () => {
 			initial: term(sessionUser("assigned_region")),
 			target: "App information",
 			title: "Use app information instead?",
-			back: "User information",
+			back: "Other user field",
 		},
 		{
 			name: "app information",
 			initial: term(sessionContext("deviceid")),
-			target: "User information",
-			title: "Use user information instead?",
+			target: "Other user field",
+			title: "Use other user field instead?",
 			back: "App information",
 		},
 	])(
@@ -421,7 +427,7 @@ describe("TermCard source transitions", () => {
 			const onChange = renderStatefulTerm(initial);
 			await chooseSource(target);
 			expect(screen.getByRole("alertdialog", { name: title })).toBeDefined();
-			if (target === "User information") {
+			if (target === "Other user field") {
 				fireEvent.change(
 					screen.getByRole("textbox", { name: "User field name" }),
 					{ target: { value: "assigned_region" } },
@@ -431,7 +437,7 @@ describe("TermCard source transitions", () => {
 			await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
 
 			await chooseSource(back);
-			if (target === "User information") {
+			if (target === "Other user field") {
 				fireEvent.click(screen.getByRole("button", { name: "Replace" }));
 				await waitFor(() =>
 					expect(screen.queryByRole("alertdialog")).toBeNull(),
@@ -446,7 +452,7 @@ describe("TermCard source transitions", () => {
 	it("collects a valid user field before leaving an empty generated value", async () => {
 		const onChange = renderStatefulTerm(term(literal("")));
 
-		await chooseSource("User information");
+		await chooseSource("Other user field");
 		const dialog = screen.getByRole("alertdialog", {
 			name: "Which user information?",
 		});
@@ -500,7 +506,7 @@ describe("TermCard source transitions", () => {
 		expect(onChange).toHaveBeenCalledWith(term(sessionUser("service_area")));
 	});
 
-	it("commits an exact custom worker slug as an identity-backed term", () => {
+	it("keeps a raw external field raw even when it exactly matches a custom slug", () => {
 		const onChange = vi.fn();
 		render(
 			<ExpressionCardEditor
@@ -519,9 +525,61 @@ describe("TermCard source transitions", () => {
 		fireEvent.change(field, { target: { value: "assigned_region" } });
 		fireEvent.blur(field);
 
-		expect(onChange).toHaveBeenCalledWith(
-			term(sessionUserProperty(WORKER_PROPERTY_UUID)),
+		expect(onChange).toHaveBeenCalledWith(term(sessionUser("assigned_region")));
+	});
+
+	it("accepts hyphens in an explicit raw external field", () => {
+		const onChange = vi.fn();
+		render(
+			<ExpressionCardEditor
+				value={term(sessionUser("external_region"))}
+				onChange={onChange}
+				caseTypes={[PATIENT]}
+				currentCaseType="patient"
+				userProperties={[WORKER_PROPERTY]}
+			/>,
 		);
+		const field = screen.getByRole("textbox", {
+			name: "User information field",
+		});
+
+		focusElement(field as HTMLInputElement);
+		fireEvent.change(field, { target: { value: "district-code" } });
+		fireEvent.blur(field);
+
+		expect(onChange).toHaveBeenCalledWith(term(sessionUser("district-code")));
+	});
+
+	it("selects custom worker information only through its UUID catalog", async () => {
+		const onChange = vi.fn();
+		render(
+			<ExpressionCardEditor
+				value={term(sessionUserProperty(WORKER_PROPERTY_UUID))}
+				onChange={onChange}
+				caseTypes={[PATIENT]}
+				currentCaseType="patient"
+				userProperties={[WORKER_PROPERTY, WORKER_CADRE]}
+			/>,
+		);
+
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "Worker information: Assigned region, assigned_region",
+			}),
+		);
+		fireEvent.click(
+			await screen.findByRole("menuitem", {
+				name: "Cadre cadre-code",
+			}),
+		);
+		await settleBaseUiTransitions();
+
+		expect(onChange).toHaveBeenCalledWith(
+			term(sessionUserProperty(WORKER_CADRE_UUID)),
+		);
+		expect(
+			screen.queryByRole("textbox", { name: "User information field" }),
+		).toBeNull();
 	});
 
 	it("renders a custom worker identity through its current label and slug after rename", async () => {
@@ -536,10 +594,11 @@ describe("TermCard source transitions", () => {
 				userProperties={[WORKER_PROPERTY]}
 			/>,
 		);
-		const field = screen.getByRole("textbox", {
-			name: "User information field",
-		}) as HTMLInputElement;
-		expect(field.value).toBe("assigned_region");
+		expect(
+			screen.getByRole("button", {
+				name: "Worker information: Assigned region, assigned_region",
+			}),
+		).toBeDefined();
 
 		rerender(
 			<ExpressionCardEditor
@@ -557,8 +616,50 @@ describe("TermCard source transitions", () => {
 			/>,
 		);
 
-		await waitFor(() => expect(field.value).toBe("supervision_area"));
+		await waitFor(() =>
+			expect(
+				screen.getByRole("button", {
+					name: "Worker information: Supervision area, supervision_area",
+				}),
+			).toBeDefined(),
+		);
 		expect(onChange).not.toHaveBeenCalled();
+	});
+
+	it("seeds the explicit custom source from the UUID catalog without a text fallback", async () => {
+		const onChange = vi.fn();
+		function Harness() {
+			const [current, setCurrent] = useState<ValueExpression>(
+				term(literal("")),
+			);
+			return (
+				<ExpressionCardEditor
+					value={current}
+					onChange={(next) => {
+						onChange(next);
+						setCurrent(next);
+					}}
+					caseTypes={[PATIENT]}
+					currentCaseType="patient"
+					userProperties={[WORKER_PROPERTY]}
+				/>
+			);
+		}
+		render(<Harness />);
+
+		await chooseSource("Worker information");
+
+		expect(onChange).toHaveBeenLastCalledWith(
+			term(sessionUserProperty(WORKER_PROPERTY_UUID)),
+		);
+		expect(
+			screen.getByRole("button", {
+				name: "Worker information: Assigned region, assigned_region",
+			}),
+		).toBeDefined();
+		expect(
+			screen.queryByRole("textbox", { name: "User information field" }),
+		).toBeNull();
 	});
 
 	it("shows a clear recovery path instead of exposing a missing identity", () => {

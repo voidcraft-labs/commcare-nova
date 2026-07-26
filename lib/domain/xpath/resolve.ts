@@ -21,21 +21,36 @@ export type ResolveFieldPath = (
 /** Resolve a custom worker-information saved name to its stable identity. */
 export type ResolveUserPropertySlug = (slug: string) => string | undefined;
 
-/** Build the parse-side custom worker-information resolver. */
+/** Decide whether a textual slug is eligible to bind to a custom identity. */
+export type IsBindableUserPropertySlug = (slug: string) => boolean;
+
+/**
+ * Build the parse-side custom worker-information resolver.
+ *
+ * Resolution is deliberately stricter than an exact record lookup. HQ treats
+ * custom worker-property slugs case-insensitively for uniqueness, so a
+ * historical `Region` / `region` collision is ambiguous even when the source
+ * text exactly matches one member. The source spelling must also exactly match
+ * the one unambiguous property so parsing never changes authored bytes merely
+ * by normalizing case. Finally, the caller supplies the CommCare-validity gate:
+ * a built-in or otherwise reserved historical custom declaration must stay the
+ * explicit raw `user-ref` arm.
+ */
 export function userPropertySlugResolver(
 	doc: Pick<XPathPrintableDoc, "userProperties">,
+	isBindableSlug: IsBindableUserPropertySlug,
 ): ResolveUserPropertySlug {
 	return (slug) => {
-		let resolved: string | undefined;
+		if (!isBindableSlug(slug)) return undefined;
+		const matches: Array<readonly [string, string]> = [];
+		const key = slug.toLowerCase();
 		for (const [uuid, property] of Object.entries(doc.userProperties ?? {})) {
-			if (property?.slug !== slug) continue;
-			// Valid documents reject duplicate saved names. If an unvalidated
-			// migration/bypass hands us one anyway, keep the text raw instead of
-			// binding nondeterministically to whichever record enumerates first.
-			if (resolved !== undefined) return undefined;
-			resolved = uuid;
+			if (property?.slug.toLowerCase() !== key) continue;
+			matches.push([uuid, property.slug]);
 		}
-		return resolved;
+		if (matches.length !== 1) return undefined;
+		const [uuid, exactSlug] = matches[0];
+		return exactSlug === slug ? uuid : undefined;
 	};
 }
 

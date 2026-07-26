@@ -5,11 +5,11 @@
  * case-property leaf rename matches the long-standing rewriter rules.
  */
 import { describe, expect, it } from "vitest";
+import { resolvableUserPropertySlug } from "@/lib/doc/expressionText";
 import {
 	fieldPathResolver,
 	printXPath,
 	renameCasePropertyInXPath,
-	userPropertySlugResolver,
 	type XPathExpression,
 	type XPathPrintableDoc,
 	xpathPrintContext,
@@ -40,7 +40,7 @@ function parse(source: string, doc: XPathPrintableDoc): XPathExpression {
 	return parseXPathExpression(
 		source,
 		fieldPathResolver(doc, FORM),
-		userPropertySlugResolver(doc),
+		resolvableUserPropertySlug(doc),
 	);
 }
 
@@ -198,6 +198,56 @@ describe("resolve at print", () => {
 		expect(parse("#user/region", doc).parts).toEqual([
 			{ kind: "user-ref", property: "region" },
 		]);
+	});
+
+	it("keeps built-in names raw even when an invalid legacy custom property collides", () => {
+		const doc = makeDoc();
+		doc.userProperties = {
+			legacy: { slug: "user_type" },
+		};
+		expect(parse("#user/user_type", doc).parts).toEqual([
+			{ kind: "user-ref", property: "user_type" },
+		]);
+	});
+
+	it("keeps reserved legacy custom-property names raw", () => {
+		const doc = makeDoc();
+		doc.userProperties = {
+			legacy: { slug: "case_id" },
+		};
+		expect(parse("#user/case_id", doc).parts).toEqual([
+			{ kind: "user-ref", property: "case_id" },
+		]);
+	});
+
+	it("keeps a case-insensitive duplicate raw even when one spelling matches exactly", () => {
+		const doc = makeDoc();
+		doc.userProperties = {
+			upper: { slug: "Region" },
+			lower: { slug: "region" },
+		};
+		const expr = parse("#user/region", doc);
+		expect(expr.parts).toEqual([{ kind: "user-ref", property: "region" }]);
+
+		doc.userProperties = {
+			upper: { slug: "Region" },
+			lower: { slug: "district" },
+		};
+		expect(printXPath(expr, xpathPrintContext(doc))).toBe("#user/region");
+	});
+
+	it("requires exact capitalization even for one unambiguous custom identity", () => {
+		const doc = makeDoc();
+		doc.userProperties = {
+			upper: { slug: "Region" },
+		};
+		const expr = parse("#user/region", doc);
+		expect(expr.parts).toEqual([{ kind: "user-ref", property: "region" }]);
+
+		doc.userProperties = {
+			upper: { slug: "District" },
+		};
+		expect(printXPath(expr, xpathPrintContext(doc))).toBe("#user/region");
 	});
 });
 
