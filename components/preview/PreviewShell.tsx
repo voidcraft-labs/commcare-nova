@@ -45,6 +45,7 @@ import {
 import { DisplayConditionCanvas } from "@/components/builder/conditions/DisplayConditionCanvas";
 import type { DisplayConditionTarget } from "@/components/builder/conditions/useDisplayConditionCarrier";
 import { DataReviewScreen } from "@/components/builder/data-review/DataReviewScreen";
+import { EndOfFormNavigationCanvas } from "@/components/builder/navigation/EndOfFormNavigationCanvas";
 import { useAppStructure } from "@/lib/doc/hooks/useAppStructure";
 import type { Uuid } from "@/lib/doc/types";
 import { type PreviewScreen, screenKey } from "@/lib/preview/engine/types";
@@ -154,6 +155,7 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 		const screen = locationToScreen(loc, moduleOrder, formOrder);
 		const atCondition =
 			loc.kind === "module-condition" || loc.kind === "form-condition";
+		const atNavigation = loc.kind === "form-navigation";
 		/* Graft the bound case onto the form ONLY when the target binds THIS
 		 * form — `previewCaseTargetBindsLocation` is the same predicate the
 		 * breadcrumb gates its case crumb on, so the loaded case and the named
@@ -167,9 +169,10 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 			return {
 				screen: { ...screen, caseId: previewCaseTarget.caseId },
 				atCondition,
+				atNavigation,
 			};
 		}
-		return { screen, atCondition };
+		return { screen, atCondition, atNavigation };
 	}, [loc, moduleOrder, formOrder, previewCaseTarget]);
 	const zustandScreen: PreviewScreen = zustandView.screen;
 
@@ -270,6 +273,20 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 			formUuid: loc.formUuid,
 		};
 	}
+	/** The end-of-form navigation editor's identity — the same visited-ref
+	 *  shape, gated on `loc` for the same reason: `/navigation` runs the
+	 *  form it routes FROM, so the URL is what separates authoring the
+	 *  routing from running the form. */
+	const formNavigationRef = useRef<{
+		moduleUuid: Uuid;
+		formUuid: Uuid;
+	}>(undefined);
+	if (loc.kind === "form-navigation") {
+		formNavigationRef.current = {
+			moduleUuid: loc.moduleUuid,
+			formUuid: loc.formUuid,
+		};
+	}
 	/** The App setup workspace's identity — uuid-free, since it names no
 	 *  blueprint entity. Same visited-ref shape as the two refs above so the
 	 *  boundary survives navigating away and back. */
@@ -280,6 +297,11 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 	/* `mode` stays immediate — the Preview toggle must never lag — while
 	 * the location half rides the deferred pair above. */
 	const editingDisplayCondition = mode === "edit" && view.atCondition;
+	const editingFormNavigation = mode === "edit" && view.atNavigation;
+	/** Any centre-canvas configuration screen that sits in front of the
+	 *  running surface it configures. Every running Activity gates on this
+	 *  so exactly one surface is visible. */
+	const editingConfiguration = editingDisplayCondition || editingFormNavigation;
 	/** Whether the home screen has been visited at least once. Home carries
 	 *  no per-screen identity, so a boolean flag suffices. */
 	const homeVisitedRef = useRef(false);
@@ -369,7 +391,7 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 				{homeVisitedRef.current && (
 					<Activity
 						mode={
-							screen.type === "home" && !editingDisplayCondition
+							screen.type === "home" && !editingConfiguration
 								? "visible"
 								: "hidden"
 						}
@@ -381,7 +403,7 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 				{moduleScreenRef.current && (
 					<Activity
 						mode={
-							screen.type === "module" && !editingDisplayCondition
+							screen.type === "module" && !editingConfiguration
 								? "visible"
 								: "hidden"
 						}
@@ -423,7 +445,7 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 								screen.type === "detailConfig") &&
 							mode === "edit" &&
 							!atCaseRecord &&
-							!editingDisplayCondition
+							!editingConfiguration
 								? "visible"
 								: "hidden"
 						}
@@ -437,7 +459,7 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 						mode={
 							screen.type === "dataReview" &&
 							mode === "edit" &&
-							!editingDisplayCondition
+							!editingConfiguration
 								? "visible"
 								: "hidden"
 						}
@@ -477,13 +499,29 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 				{formScreenRef.current && (
 					<Activity
 						mode={
-							screen.type === "form" && !editingDisplayCondition
+							screen.type === "form" && !editingConfiguration
 								? "visible"
 								: "hidden"
 						}
 						name="FormScreen"
 					>
 						<FormScreen screen={formScreenRef.current} onBack={handleBack} />
+					</Activity>
+				)}
+				{formNavigationRef.current && (
+					<Activity
+						mode={editingFormNavigation ? "visible" : "hidden"}
+						name="EndOfFormNavigationCanvas"
+					>
+						{/* Keyed by the form: the destination list, the guards, and
+						 *  the fallback all belong to one form, so moving to another
+						 *  re-announces the heading and drops the previous form's
+						 *  open pickers. */}
+						<EndOfFormNavigationCanvas
+							key={formNavigationRef.current.formUuid}
+							moduleUuid={formNavigationRef.current.moduleUuid}
+							formUuid={formNavigationRef.current.formUuid}
+						/>
 					</Activity>
 				)}
 				{displayConditionRef.current && (

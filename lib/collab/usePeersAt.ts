@@ -42,7 +42,8 @@ export interface PeerTarget {
  *    `cases` `caseId` are case DATA, not a blueprint entity, so they all
  *    collapse to the module marker, as does the module's own condition
  *    screen.
- *  - `form-condition` → the FORM, whose condition it edits.
+ *  - `form-condition` / `form-navigation` → the FORM, whose configuration
+ *    they edit.
  *  - `form` → the selected FIELD when one is selected, else the FORM. A field
  *    is more specific than its form, so a peer editing a field marks the field
  *    row (and lights its "editing this" ring), not the whole form.
@@ -60,6 +61,7 @@ export function peerTarget(location: Location): PeerTarget | null {
 		case "module-condition":
 			return { kind: "module", uuid: location.moduleUuid };
 		case "form-condition":
+		case "form-navigation":
 			return { kind: "form", uuid: location.formUuid };
 		case "form":
 			return location.selectedUuid !== undefined

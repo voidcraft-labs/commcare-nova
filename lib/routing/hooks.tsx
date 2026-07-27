@@ -146,6 +146,7 @@ export interface NavigateActions {
 	openDataReview: (moduleUuid: Uuid) => void;
 	openModuleCondition: (moduleUuid: Uuid) => void;
 	openFormCondition: (moduleUuid: Uuid, formUuid: Uuid) => void;
+	openFormNavigation: (moduleUuid: Uuid, formUuid: Uuid) => void;
 	/**
 	 * Open the App setup workspace. Routes to
 	 * `/build/{appId}/setup/{section}`, defaulting to its first section.
@@ -181,6 +182,7 @@ export function useIsModuleSelected(uuid: Uuid): boolean {
 			loc.kind === "data-review" ||
 			loc.kind === "module-condition" ||
 			loc.kind === "form-condition" ||
+			loc.kind === "form-navigation" ||
 			loc.kind === "form") &&
 		loc.moduleUuid === uuid
 	);
@@ -208,7 +210,9 @@ export function useIsCaseListSelected(uuid: Uuid): boolean {
 export function useIsFormSelected(uuid: Uuid): boolean {
 	const loc = useLocation();
 	return (
-		(loc.kind === "form" || loc.kind === "form-condition") &&
+		(loc.kind === "form" ||
+			loc.kind === "form-condition" ||
+			loc.kind === "form-navigation") &&
 		loc.formUuid === uuid
 	);
 }
@@ -250,11 +254,14 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
 		loc.kind === "data-review" ||
 		loc.kind === "module-condition" ||
 		loc.kind === "form-condition" ||
+		loc.kind === "form-navigation" ||
 		loc.kind === "form"
 			? loc.moduleUuid
 			: undefined;
 	const formUuid =
-		loc.kind === "form" || loc.kind === "form-condition"
+		loc.kind === "form" ||
+		loc.kind === "form-condition" ||
+		loc.kind === "form-navigation"
 			? loc.formUuid
 			: undefined;
 
@@ -346,7 +353,9 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
 			});
 		}
 		if (
-			(loc.kind === "form" || loc.kind === "form-condition") &&
+			(loc.kind === "form" ||
+				loc.kind === "form-condition" ||
+				loc.kind === "form-navigation") &&
 			formUuid &&
 			moduleUuid
 		) {
@@ -370,6 +379,13 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
 				key: `form-condition:${formUuid}`,
 				label: "When it appears",
 				location: { kind: "form-condition", moduleUuid, formUuid },
+			});
+		}
+		if (loc.kind === "form-navigation" && moduleUuid && formUuid) {
+			items.push({
+				key: `form-navigation:${formUuid}`,
+				label: "After submitting",
+				location: { kind: "form-navigation", moduleUuid, formUuid },
 			});
 		}
 		return items;
@@ -435,6 +451,8 @@ export function useNavigate(): NavigateActions {
 				push({ kind: "module-condition", moduleUuid }),
 			openFormCondition: (moduleUuid: Uuid, formUuid: Uuid) =>
 				push({ kind: "form-condition", moduleUuid, formUuid }),
+			openFormNavigation: (moduleUuid: Uuid, formUuid: Uuid) =>
+				push({ kind: "form-navigation", moduleUuid, formUuid }),
 			openAppSetup: (section: AppSetupSection = DEFAULT_APP_SETUP_SECTION) =>
 				push({ kind: "app-setup", section }),
 			openForm: (moduleUuid: Uuid, formUuid: Uuid, selectedUuid?: Uuid) =>
@@ -476,6 +494,7 @@ export function parentLocation(loc: Location): Location | undefined {
 		case "module-condition":
 			return { kind: "module", moduleUuid: loc.moduleUuid };
 		case "form-condition":
+		case "form-navigation":
 			return {
 				kind: "form",
 				moduleUuid: loc.moduleUuid,

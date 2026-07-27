@@ -89,6 +89,8 @@ export function serializePath(loc: Location): string[] {
 			 * shape a selected field uses, so the parser resolves the owner
 			 * by a doc lookup rather than a positional convention. */
 			return [loc.formUuid, "condition"];
+		case "form-navigation":
+			return [loc.formUuid, "navigation"];
 		case "form":
 			/* A selected field is serialized as a single UUID — the parser
 			 * resolves it to its parent form via findFormForField. This
@@ -123,6 +125,23 @@ function decodePathSegment(segment: string): string {
 export function buildUrl(basePath: string, loc: Location): string {
 	const segments = serializePath(loc);
 	return segments.length > 0 ? `${basePath}/${segments.join("/")}` : basePath;
+}
+
+/**
+ * The module a form belongs to, or `undefined` when the uuid names no
+ * form in the document. Every form-anchored URL resolves its owner this
+ * way rather than carrying the module in the path — one uuid in the
+ * segment, one lookup here.
+ */
+function moduleOwningForm(
+	doc: LocationParseDoc,
+	formUuid: Uuid,
+): Uuid | undefined {
+	if (doc.forms[formUuid] === undefined) return undefined;
+	for (const [moduleUuid, formUuids] of Object.entries(doc.formOrder)) {
+		if (formUuids.includes(formUuid)) return moduleUuid as Uuid;
+	}
+	return undefined;
 }
 
 /**
@@ -302,18 +321,17 @@ export function parsePathToLocation(
 		if (doc.modules[first] !== undefined) {
 			return { kind: "module-condition", moduleUuid: first };
 		}
-		if (doc.forms[first] !== undefined) {
-			for (const [moduleUuid, formUuids] of Object.entries(doc.formOrder)) {
-				if (formUuids.includes(first)) {
-					return {
-						kind: "form-condition",
-						moduleUuid: moduleUuid as Uuid,
-						formUuid: first,
-					};
-				}
-			}
-		}
-		return { kind: "home" };
+		const moduleUuid = moduleOwningForm(doc, first);
+		if (moduleUuid === undefined) return { kind: "home" };
+		return { kind: "form-condition", moduleUuid, formUuid: first };
+	}
+
+	if (second === "navigation") {
+		/* End-of-form navigation belongs to a form alone: a module has no
+		 * submission to route from. */
+		const moduleUuid = moduleOwningForm(doc, first);
+		if (moduleUuid === undefined) return { kind: "home" };
+		return { kind: "form-navigation", moduleUuid, formUuid: first };
 	}
 
 	/* Two-segment path: /build/{id}/{formUuid}/{fieldUuid} */
@@ -372,6 +390,7 @@ export function isValidLocation(loc: Location, doc: LocationDoc): boolean {
 			// reference shape as `cases`; only that uuid needs to resolve.
 			return doc.modules[loc.moduleUuid] !== undefined;
 		case "form-condition":
+		case "form-navigation":
 			return (
 				doc.modules[loc.moduleUuid] !== undefined &&
 				doc.forms[loc.formUuid] !== undefined
@@ -422,9 +441,9 @@ export function recoverLocation(loc: Location, doc: LocationDoc): Location {
 	/* A module's display condition needs only its module. */
 	if (loc.kind === "module-condition") return loc;
 
-	/* A form's display condition degrades to the module when the form is
-	 * gone — the same inward walk the form screen does. */
-	if (loc.kind === "form-condition") {
+	/* A form's own configuration screens degrade to the module when the
+	 * form is gone — the same inward walk the form screen does. */
+	if (loc.kind === "form-condition" || loc.kind === "form-navigation") {
 		return doc.forms[loc.formUuid] === undefined
 			? { kind: "module", moduleUuid: loc.moduleUuid }
 			: loc;

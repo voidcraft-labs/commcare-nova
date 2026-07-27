@@ -135,6 +135,13 @@ export const locationSchema = z.discriminatedUnion("kind", [
 		.strict(),
 	z
 		.object({
+			kind: z.literal("form-navigation"),
+			moduleUuid: uuidSchema,
+			formUuid: uuidSchema,
+		})
+		.strict(),
+	z
+		.object({
 			kind: z.literal("form"),
 			moduleUuid: uuidSchema,
 			formUuid: uuidSchema,

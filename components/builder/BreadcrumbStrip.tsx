@@ -112,6 +112,7 @@ export function BreadcrumbStrip() {
 		loc.kind === "data-review" ||
 		loc.kind === "module-condition" ||
 		loc.kind === "form-condition" ||
+		loc.kind === "form-navigation" ||
 		loc.kind === "form"
 			? loc.moduleUuid
 			: undefined;

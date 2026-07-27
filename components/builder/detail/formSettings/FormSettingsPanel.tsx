@@ -2,7 +2,7 @@
 import { Icon } from "@iconify/react/offline";
 import tablerX from "@iconify-icons/tabler/x";
 import { DisplayConditionSection } from "@/components/builder/conditions/DisplayConditionSection";
-import { AfterSubmitSection } from "./AfterSubmitSection";
+import { EndOfFormNavigationSection } from "@/components/builder/navigation/EndOfFormNavigationSection";
 import { CloseConditionSection } from "./CloseConditionSection";
 import { ConnectSection } from "./ConnectSection";
 import { FormAppearanceSection } from "./FormAppearanceSection";
@@ -18,10 +18,9 @@ interface FormSettingsPanelProps extends FormSettingsSectionProps {
 /**
  * Form-settings drawer body rendered inside the Popover popup. Pure
  * chrome — a labeled header with a dismiss button and a scrollable
- * content region that composes the three feature sections in a fixed
- * vertical order. Each section decides whether it renders (close forms
- * only for `CloseConditionSection`, non-null `connectType` for
- * `ConnectSection`, always for `AfterSubmitSection`).
+ * content region that composes the feature sections in a fixed vertical
+ * order. Each section decides whether it renders (close forms only for
+ * `CloseConditionSection`, non-null `connectType` for `ConnectSection`).
  */
 export function FormSettingsPanel({
 	moduleUuid,
@@ -48,7 +47,11 @@ export function FormSettingsPanel({
 			<div className="px-3.5 py-3 space-y-3 overflow-y-auto max-h-[480px]">
 				<CloseConditionSection moduleUuid={moduleUuid} formUuid={formUuid} />
 
-				<AfterSubmitSection moduleUuid={moduleUuid} formUuid={formUuid} />
+				<EndOfFormNavigationSection
+					moduleUuid={moduleUuid}
+					formUuid={formUuid}
+					onNavigateAway={onClose}
+				/>
 
 				<ConnectSection moduleUuid={moduleUuid} formUuid={formUuid} />
 
