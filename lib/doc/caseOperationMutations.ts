@@ -617,7 +617,7 @@ export function caseOperationEditVerdict(
 	formUuid: Uuid,
 	operation: CaseOperation,
 ): CaseOperationEditVerdict {
-	const cacheKey = `${formUuid} ${JSON.stringify(operation)}`;
+	const cacheKey = `${formUuid}\u0000${JSON.stringify(operation)}`;
 	let perCandidate = EDIT_VERDICT_CACHE.get(doc);
 	if (perCandidate === undefined) {
 		perCandidate = new Map();

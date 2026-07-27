@@ -203,7 +203,7 @@ export function useCases(args: {
 	 * beside the result so the render that precedes the refetch effect can never
 	 * project old rows through the new module's columns or row actions. */
 	const requestIdentity = ready
-		? `${runtimeScopeId}\u0000${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${requestScopeKey}\u0000${replacementRevision}\u0000${pageOffset ?? "default"}\u0000${pageLimit ?? "default"} ${personaUuid ?? "me"}`
+		? `${runtimeScopeId}\u0000${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${requestScopeKey}\u0000${replacementRevision}\u0000${pageOffset ?? "default"}\u0000${pageLimit ?? "default"}\u0000${personaUuid ?? "me"}`
 		: "";
 	const reloadToken = useMemo(
 		() => [
@@ -383,7 +383,7 @@ function usePerCaseTypeResource<T extends { kind: string }>(args: {
 							kind: "per-case-type" as const,
 							key: requestIdentity,
 							value: await dedupedPerCaseTypeCall(
-								`${settledKind} ${variant ?? ""} ${requestIdentity} ${caseDataRevision}`,
+								`${settledKind}\u0000${variant ?? ""}\u0000${requestIdentity}\u0000${caseDataRevision}`,
 								() => fetcher({ appId, caseType }),
 							),
 						}),
