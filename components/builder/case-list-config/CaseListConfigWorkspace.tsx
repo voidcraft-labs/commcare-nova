@@ -1715,6 +1715,43 @@ export function CaseListWorkspaceCanvas() {
 		},
 		[moduleUuid],
 	);
+	const visibleTab = ws?.tab;
+	/*
+	 * Activity intentionally keeps each workbench mounted and may therefore
+	 * preserve its ref across a hide/reveal. The ref bridge alone cannot observe
+	 * that transition, so the URL-owned tab change performs the same
+	 * layout-ready correction explicitly.
+	 */
+	useLayoutEffect(() => {
+		if (moduleUuid === undefined || visibleTab === undefined) return;
+		const remembered = scrollPositions.current.get(
+			`${moduleUuid}:${visibleTab}`,
+		);
+		if (remembered === undefined) return;
+		let frame: number | null = null;
+		const restoreAfterReveal = () => {
+			const node = document.querySelector<HTMLElement>(
+				`[data-case-workspace-scroll-body="${visibleTab}"]`,
+			);
+			if (node === null || !node.isConnected) {
+				frame = null;
+				return;
+			}
+			if (getComputedStyle(node).display === "none") {
+				frame = requestAnimationFrame(restoreAfterReveal);
+				return;
+			}
+			node.scrollTop = remembered;
+			frame = requestAnimationFrame(() => {
+				node.scrollTop = remembered;
+				frame = null;
+			});
+		};
+		frame = requestAnimationFrame(restoreAfterReveal);
+		return () => {
+			if (frame !== null) cancelAnimationFrame(frame);
+		};
+	}, [moduleUuid, visibleTab]);
 
 	// Guard the deletion-in-flight window: a peer cleared the case type on the
 	// module this URL points at (dropping caseListConfig with it), before
