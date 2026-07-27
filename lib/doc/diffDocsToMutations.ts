@@ -121,7 +121,6 @@ import {
 	caseSearchConfigAfterFinalInputRemoval,
 	caseSearchConfigHasAuthoredSettings,
 	hasOwnRecordKey,
-	orderedCaseOperations,
 	ownRecordValue,
 } from "@/lib/domain";
 import { effectiveFilterForEmission } from "@/lib/domain/predicate";
@@ -729,12 +728,19 @@ function diffCaseOperations(
 	next: Form,
 	formUuid: Uuid,
 ): Mutation[] {
-	const nextRanks = new Map(
-		orderedCaseOperations(next).map((operation, index) => [
-			operation.uuid,
-			index,
-		]),
-	);
+	// No rank is asserted from a document diff, deliberately.
+	//
+	// A requested rank is an optimistic fence, and `commitGuard.ts` only
+	// admits ONE per authored move: a ranked move re-keys tied siblings
+	// to open its gap, and fencing a position the author never chose
+	// means any unrelated peer insert above the run shifts it and
+	// rejects the batch as a conflict it is not. Two docs cannot say
+	// which operation the author dragged — every re-keyed sibling looks
+	// identical to the mover here — so this path asserts nothing and
+	// lets the move commit unfenced. The builder's own gesture keeps its
+	// fence: `useCaseOperations` dispatches the semantic move directly
+	// with the rank it actually requested.
+	const nextRanks = new Map<Uuid, number>();
 	const before = new Map(
 		(prev.caseOperations ?? []).map((operation) => [operation.uuid, operation]),
 	);

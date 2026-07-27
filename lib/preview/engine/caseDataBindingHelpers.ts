@@ -1194,6 +1194,15 @@ function operationFormFieldRefs(
 	};
 	for (const operation of operations) {
 		if (operation.forEach?.repeat !== repeatUuid) continue;
+		// A create's `idFrom` is a field reference like any other, and the
+		// builder's own `referencedFieldUuids` counts it. Missing it here
+		// meant the staleness guard passed and `allocateCreateIdentities`
+		// then read an absent answer as the empty key — rejecting the
+		// whole submission with a blank-identity error about a question
+		// the worker was never shown, instead of asking them to reload.
+		if (operation.target.kind === "new" && operation.target.idFrom) {
+			refs.add(operation.target.idFrom);
+		}
 		for (const expression of [
 			operation.name,
 			operation.owner,

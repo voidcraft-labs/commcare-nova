@@ -119,6 +119,44 @@ function compareOperationUuids(left: Uuid, right: Uuid): number {
  * on a document where a peer changed another therefore composes instead of
  * replacing the peer's whole operation.
  */
+/** The order-slot half of an operation diff, shared by the ordinary
+ *  per-slot path and the whole-replacement fallback a reorder takes. */
+function orderChanges(
+	formUuid: Uuid,
+	before: CaseOperation,
+	after: CaseOperation,
+	moveIndex?: number,
+): Mutation[] {
+	if (deepEqual(before.order, after.order)) return [];
+	if (after.order === undefined) {
+		// The deployed move grammar cannot clear an order key. Keep the
+		// established full-operation fallback for this legacy repair-only
+		// shape; ordinary interactive moves always carry a concrete key.
+		return [
+			operationMutation(
+				formUuid,
+				{ operation: "move", uuid: before.uuid, order: null },
+				after,
+			),
+		];
+	}
+	return [moveOperationMutation(formUuid, before.uuid, after.order, moveIndex)];
+}
+
+/** Whether two keyed sequences hold the same keys in a different order.
+ *  Membership changes are handled by the add/remove paths; this asks
+ *  only about ORDER, which key-wise pairing cannot see. */
+function sequenceChanged<T>(
+	before: readonly T[] | undefined,
+	after: readonly T[] | undefined,
+	keyOf: (item: T) => string,
+): boolean {
+	const a = (before ?? []).map(keyOf);
+	const b = (after ?? []).map(keyOf);
+	if (a.length !== b.length) return false;
+	return a.some((key, index) => key !== b[index]);
+}
+
 export function caseOperationChangesForUpdate(
 	formUuid: Uuid,
 	before: CaseOperation,
@@ -126,6 +164,39 @@ export function caseOperationChangesForUpdate(
 	moveIndex?: number,
 ): Mutation[] {
 	if (before.uuid !== after.uuid) return [];
+
+	// Writes and links pair by their logical key — a write's destination
+	// property, a link's identifier — which is what lets two peers edit
+	// different writes without clobbering each other. A pure REORDER
+	// changes no key and no content, so key-wise pairing sees nothing
+	// and the author's edit would be silently discarded. Sequence is
+	// authored data here (it is the order the wire executes them in), so
+	// a changed sequence falls back to replacing the whole operation,
+	// which is exactly what the full-value change expresses.
+	if (
+		sequenceChanged(before.writes, after.writes, (write) => write.property) ||
+		sequenceChanged(before.links, after.links, (link) => link.identifier)
+	) {
+		// A whole-operation replacement, with NO granular intent beside
+		// it: there is no per-slot spelling for "these writes now run in
+		// this order", and the established full-value change says it
+		// exactly. The order slot is still diffed below the guard, so a
+		// reorder combined with a move keeps both.
+		return [
+			{
+				kind: "updateForm",
+				uuid: formUuid,
+				patch: {},
+				caseOperationChange: {
+					operation: "update",
+					uuid: before.uuid,
+					value: structuredClone(after),
+				},
+			},
+			...orderChanges(formUuid, before, after, moveIndex),
+		];
+	}
+
 	const mutations: Mutation[] = [];
 
 	const patch: OperationPatch = {};
@@ -269,28 +340,7 @@ export function caseOperationChangesForUpdate(
 		}
 	}
 
-	if (!deepEqual(before.order, after.order)) {
-		if (after.order === undefined) {
-			// The deployed move grammar cannot clear an order key. Keep the
-			// established full-operation fallback for this legacy repair-only
-			// shape; ordinary interactive moves always carry a concrete key.
-			mutations.push(
-				operationMutation(
-					formUuid,
-					{
-						operation: "move",
-						uuid: before.uuid,
-						order: null,
-					},
-					after,
-				),
-			);
-		} else {
-			mutations.push(
-				moveOperationMutation(formUuid, before.uuid, after.order, moveIndex),
-			);
-		}
-	}
+	mutations.push(...orderChanges(formUuid, before, after, moveIndex));
 
 	return mutations;
 }
