@@ -41,7 +41,8 @@ policy identity applies that policy with a metageneration fence, disables soft
 delete, versioning, and default event holds, and refuses to remove an operator
 retention policy. Capture object names are accepted only when every prefix
 segment is non-empty; the IAM condition and its domain mirror enforce the same
-shape.
+shape. The condition uses only Cloud Storage's supported `resource.name`
+surface: `startsWith`, `endsWith`, `extract`, and equality.
 
 Every non-local database process declares one final workload:
 

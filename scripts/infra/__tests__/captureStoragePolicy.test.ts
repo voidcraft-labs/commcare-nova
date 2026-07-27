@@ -51,22 +51,17 @@ describe("capture cleanup storage IAM policy", () => {
 		const condition = captureCleanupIamCondition("nova-multimedia-prod");
 		expect(condition).toBe(
 			"resource.type == 'storage.googleapis.com/Object' && " +
-				"( ( resource.name.startsWith('projects/_/buckets/nova-multimedia-prod/objects/captures-staged/') && " +
-				"resource.name != 'projects/_/buckets/nova-multimedia-prod/objects/captures-staged/' && " +
-				"!resource.name.contains('//') ) || " +
+				"!resource.name.endsWith('/') && " +
+				"resource.name.extract('//{afterDoubleSlash}') == '' && " +
+				"( resource.name.startsWith('projects/_/buckets/nova-multimedia-prod/objects/captures-staged/') || " +
 				"( resource.name.startsWith('projects/_/buckets/nova-multimedia-prod/objects/projects/') && " +
 				"resource.name.extract('projects/_/buckets/nova-multimedia-prod/objects/projects/{project}/captures/') != '' && " +
-				"resource.name.extract('projects/_/buckets/nova-multimedia-prod/objects/projects/{project}/captures/') == resource.name.extract('projects/_/buckets/nova-multimedia-prod/objects/projects/{project}/') && " +
-				"resource.name != 'projects/_/buckets/nova-multimedia-prod/objects/projects/' + resource.name.extract('projects/_/buckets/nova-multimedia-prod/objects/projects/{project}/') + '/captures/' && " +
-				"!resource.name.contains('//') ) )",
+				"resource.name.extract('projects/_/buckets/nova-multimedia-prod/objects/projects/{project}/captures/') == resource.name.extract('projects/_/buckets/nova-multimedia-prod/objects/projects/{project}/') ) )",
 		);
 		expect(condition).toContain("resource.name.startsWith");
+		expect(condition).toContain("resource.name.endsWith");
 		expect(condition).toContain("resource.name.extract");
-		expect(condition).toContain("resource.name.contains");
-		expect(condition).toContain(
-			"resource.name != 'projects/_/buckets/nova-multimedia-prod/objects/projects/' + resource.name.extract('projects/_/buckets/nova-multimedia-prod/objects/projects/{project}/') + '/captures/'",
-		);
-		expect(condition).not.toMatch(/matches|regex|pending\//i);
+		expect(condition).not.toMatch(/contains|matches|regex|pending\/|\+/i);
 	});
 
 	it("atomically removes stale conditions and broad grants before adding one exact binding", () => {
