@@ -2,6 +2,7 @@ import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { batchTargetsMissing } from "@/lib/db/commitGuard";
 import {
 	addCaseOperationMutations,
 	caseOperationEditVerdict,
@@ -593,6 +594,109 @@ describe("case-operation mutation planning", () => {
 			updatePatient,
 		];
 		expect(moveCaseOperationMutation(doc, formUuid, CREATE, 1).ok).toBe(true);
+	});
+});
+
+// A move asserts a RANK to the authoritative writer, so the key it mints has to
+// land the operation at exactly the index the author asked for. Sequence is
+// `(order, uuid)`, so a run of siblings sharing one key is separated only by
+// their immutable uuids — a destination inside such a run is unreachable by any
+// single key, and the writer's fence turns the near miss into a false "this app
+// changed while you were editing" rather than a silently wrong position.
+describe("case-operation move lands at the rank it asserts", () => {
+	const RANKED = [
+		asUuid("aaaaaaaa-0000-4000-8000-000000000001"),
+		asUuid("aaaaaaaa-0000-4000-8000-000000000002"),
+		asUuid("aaaaaaaa-0000-4000-8000-000000000003"),
+		asUuid("aaaaaaaa-0000-4000-8000-000000000004"),
+	];
+
+	/** An independent session update — nothing here constrains execution order. */
+	function ranked(index: number, order?: string): CaseOperation {
+		return {
+			uuid: RANKED[index],
+			id: `update_patient_${index}`,
+			action: "update",
+			caseType: "patient",
+			target: { kind: "session" },
+			...(order === undefined ? {} : { order }),
+		};
+	}
+
+	function docWith(orders: (string | undefined)[]) {
+		const { doc, formUuid } = fixture();
+		(doc.forms[formUuid] as Form).caseOperations = orders.map((order, index) =>
+			ranked(index, order),
+		);
+		return { doc, formUuid };
+	}
+
+	function landedIndex(
+		doc: BlueprintDoc,
+		formUuid: ReturnType<typeof asUuid>,
+		uuid: ReturnType<typeof asUuid>,
+		mutations: readonly Mutation[],
+	): number {
+		return orderedCaseOperations(
+			apply(doc, mutations).forms[formUuid],
+		).findIndex((operation) => operation.uuid === uuid);
+	}
+
+	it("lands a move out of a tied run at the requested index, and the fence agrees", () => {
+		// Sequence "V", "a", "a", "b": the first operation is dragged to the slot
+		// between the two tied siblings, which no single key can address.
+		const { doc, formUuid } = docWith(["V", "a", "a", "b"]);
+		const plan = moveCaseOperationMutation(doc, formUuid, RANKED[0], 1);
+		expect(plan.ok).toBe(true);
+		if (!plan.ok) return;
+		expect(landedIndex(doc, formUuid, RANKED[0], plan.mutations)).toBe(1);
+		expect(batchTargetsMissing(doc, [...plan.mutations])).toBe(false);
+	});
+
+	it("moves an operation that has no order key at all", () => {
+		// A legacy form whose operations predate the order slot: every sibling
+		// sorts by uuid, so a keyed mover would jump to the front instead.
+		const { doc, formUuid } = docWith([undefined, undefined, undefined]);
+		const plan = moveCaseOperationMutation(doc, formUuid, RANKED[2], 1);
+		expect(plan.ok).toBe(true);
+		if (!plan.ok) return;
+		expect(landedIndex(doc, formUuid, RANKED[2], plan.mutations)).toBe(1);
+		expect(batchTargetsMissing(doc, [...plan.mutations])).toBe(false);
+	});
+
+	it("lifts the last operation one place across a tied run (keyboard reorder)", () => {
+		const { doc, formUuid } = docWith(["V", "a", "a", "b"]);
+		const plan = moveCaseOperationMutation(doc, formUuid, RANKED[3], 2);
+		expect(plan.ok).toBe(true);
+		if (!plan.ok) return;
+		expect(landedIndex(doc, formUuid, RANKED[3], plan.mutations)).toBe(2);
+		expect(batchTargetsMissing(doc, [...plan.mutations])).toBe(false);
+	});
+
+	it("lands at EVERY destination of a wholly tied form", () => {
+		const { doc, formUuid } = docWith(["a", "a", "a", "a"]);
+		const ordered = orderedCaseOperations(doc.forms[formUuid]);
+		const currentIndex = ordered.findIndex(
+			(operation) => operation.uuid === RANKED[1],
+		);
+		for (let index = 0; index < ordered.length; index++) {
+			const plan = moveCaseOperationMutation(doc, formUuid, RANKED[1], index);
+			expect(plan.ok).toBe(true);
+			if (!plan.ok) return;
+			if (index === currentIndex) {
+				// Already there: no key rewrite, no authoritative event, no undo entry.
+				expect(plan.mutations).toEqual([]);
+			}
+			expect(landedIndex(doc, formUuid, RANKED[1], plan.mutations)).toBe(index);
+			expect(batchTargetsMissing(doc, [...plan.mutations])).toBe(false);
+		}
+	});
+
+	it("adds an operation at a tied index", () => {
+		const { doc, formUuid } = docWith(["a", "a", "a"]);
+		const mutations = addCaseOperationMutations(doc, formUuid, ranked(3), 1);
+		expect(landedIndex(doc, formUuid, RANKED[3], mutations)).toBe(1);
+		expect(batchTargetsMissing(doc, [...mutations])).toBe(false);
 	});
 });
 

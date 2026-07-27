@@ -525,6 +525,14 @@ export function batchTargetsMissing(
 				assertNever(m, "batchTargetsMissing");
 		}
 	}
+	// One rank per AUTHORED move, never one per re-keyed sibling. A ranked move
+	// through a run of tied siblings re-keys the shorter side of the destination
+	// to open a gap (`lib/doc/order/rankedMove.ts`); those companion moves ride
+	// deliberately index-less. Asserting a rank for each of them would fence a
+	// position the author never chose, so an unrelated peer insert anywhere above
+	// the run would shift it and reject the batch as a conflict it is not. The
+	// author chose ONE rank, so exactly one rank is fenced — and fencing it is
+	// enough, because the mover's own landing is what the whole plan is for.
 	for (const expectation of caseOperationMoveExpectations.values()) {
 		const order = caseOperationOrders.get(
 			caseOperationKey(expectation.formUuid, expectation.uuid),
