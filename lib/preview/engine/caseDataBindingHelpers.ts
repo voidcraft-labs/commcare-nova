@@ -64,6 +64,7 @@ import { byListColumnOrder } from "@/lib/doc/order/compare";
 import {
 	type BlueprintDoc,
 	type CaseListConfig,
+	type CaseOperation,
 	type CaseType,
 	type Column,
 	caseListColumnHasRuntimeRole,
@@ -82,8 +83,13 @@ import {
 } from "@/lib/domain/captureFormats";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
 import { asWalkableDoc } from "@/lib/domain/mediaRefs";
-import type { Predicate, ValueExpression } from "@/lib/domain/predicate";
-import { mapExpressionAst, mapPredicateAst } from "@/lib/domain/predicate";
+import type { Predicate, Term, ValueExpression } from "@/lib/domain/predicate";
+import {
+	mapExpressionAst,
+	mapPredicateAst,
+	walkExpressionTerms,
+	walkTerms,
+} from "@/lib/domain/predicate";
 import {
 	ancestorPath,
 	eq,
@@ -1169,6 +1175,52 @@ export function caseOperationProgramLookupTableIds(
 }
 
 /**
+ * Every form field the operations bound to ONE multiplicity scope read.
+ *
+ * Scope binding is the operation's own `forEach.repeat` — an operation with
+ * none runs once against the root bag. Only these references compile for that
+ * scope, which is what keeps the completeness check from demanding an answer
+ * the submission will never read.
+ */
+function operationFormFieldRefs(
+	operations: readonly CaseOperation[],
+	repeatUuid: Uuid | undefined,
+): ReadonlySet<Uuid> {
+	const refs = new Set<Uuid>();
+	/* `field` is a TERM kind, not a ValueExpression kind — walking expression
+	 * nodes only ever sees the `{ kind: "term" }` wrapper around it. */
+	const note = (term: Term) => {
+		if (term.kind === "field") refs.add(term.uuid);
+	};
+	for (const operation of operations) {
+		if (operation.forEach?.repeat !== repeatUuid) continue;
+		for (const expression of [
+			operation.name,
+			operation.owner,
+			operation.rename,
+			...(operation.target.kind === "expression"
+				? [operation.target.expr]
+				: []),
+			...(operation.links ?? []).flatMap((link) =>
+				link.target?.kind === "expression" ? [link.target.expr] : [],
+			),
+			...(operation.writes ?? []).map((write) => write.value),
+		]) {
+			if (expression !== undefined) walkExpressionTerms(expression, note);
+		}
+		for (const predicate of [
+			operation.condition,
+			...(operation.writes ?? []).flatMap((write) =>
+				write.condition === undefined ? [] : [write.condition],
+			),
+		]) {
+			if (predicate !== undefined) walkTerms(predicate, note);
+		}
+	}
+	return refs;
+}
+
+/**
  * The pure half: derive the program from ONE committed blueprint. The
  * I/O wrapper above owns the doc load; acceptance tests drive this
  * directly against the storage executor.
@@ -1271,6 +1323,34 @@ export function buildCaseOperationProgramFromDoc(args: {
 			})),
 		};
 	});
+
+	/* The same staleness one level finer. A peer can add a FIELD an operation
+	 * reads without adding a repeat, so the scope arrives and its iterations
+	 * simply lack that answer. That reference reaches `compileBoundRef`, which
+	 * has no fallback for a form field — deliberately, since a blank would
+	 * change a predicate's truth value — and throws a developer-voiced
+	 * invariant naming `ctx.bindings`. With no arm in `mapSubmitFormError`
+	 * that text becomes the WORKER's submission error and fires a Sentry
+	 * alert, for what is an ordinary multiplayer race.
+	 *
+	 * Checked per scope against the iterations that will actually compile: a
+	 * field inside a repeat the worker left empty is never read, so requiring
+	 * it would reject an honest submission. */
+	const missingFieldScopes = scopes.filter((scope) => {
+		if (scope.iterations.length === 0) return false;
+		const referenced = operationFormFieldRefs(
+			envelopeOperations.map(({ operation }) => operation),
+			"repeat" in scope ? scope.repeat : undefined,
+		);
+		return scope.iterations.some((iteration) =>
+			[...referenced].some((fieldUuid) => !iteration.formFields.has(fieldUuid)),
+		);
+	});
+	if (missingFieldScopes.length > 0) {
+		throw new CaptureSubmissionRejectedError(
+			"The submitted form is missing an answer its committed case operations read. Reload the form and submit again.",
+		);
+	}
 
 	const sessionContext = new Map<string, string>();
 	for (const [field, value] of Object.entries(args.identity.session.context)) {

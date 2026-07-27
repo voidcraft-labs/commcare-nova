@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { adjudicateSubmissionReceipt } from "@/lib/case-store";
 import { asUuid, type CaseOperation } from "@/lib/domain";
-import { literal, term } from "@/lib/domain/predicate";
+import { formField, literal, term } from "@/lib/domain/predicate";
 import { buildDoc, f } from "../../../__tests__/docHelpers";
 import type { SubmissionMutation } from "../caseDataBindingTypes";
 import type { ResolvedPreviewIdentity } from "../identity";
@@ -72,7 +72,7 @@ const REPEAT_FIELD_UUID = asUuid("55555555-5555-4555-8555-555555555555");
 const OPERATION_UUID = asUuid("66666666-6666-4666-8666-666666666666");
 
 /** A form whose one case operation runs once per `visits` iteration. */
-function repeatScopedOperationDoc() {
+function repeatScopedOperationDoc(opts: { readsVisitNote?: boolean } = {}) {
 	const doc = buildDoc({
 		appName: "Repeat-scoped operation",
 		caseTypes: [{ name: "visit", properties: [] }],
@@ -121,7 +121,9 @@ function repeatScopedOperationDoc() {
 						caseType: "visit",
 						target: { kind: "new" },
 						forEach: { repeat: REPEAT_UUID },
-						name: term(literal("Visit")),
+						name: opts.readsVisitNote
+							? term(formField(REPEAT_FIELD_UUID))
+							: term(literal("Visit")),
 					},
 				] satisfies CaseOperation[],
 			},
@@ -292,6 +294,70 @@ describe("capture submission intent", () => {
 			entryKey: ENTRY_KEY,
 			attachmentRefs: [],
 			// The current client: the repeat is present, with zero iterations.
+			operationAnswers: {
+				root: [],
+				repeats: [{ repeat: REPEAT_UUID as string, iterations: [] }],
+			},
+		};
+
+		const built = await buildSubmissionOperationProgram({
+			appId: APP_ID,
+			committedApp,
+			identity: IDENTITY,
+			lookupScope: LOOKUP_SCOPE,
+			mutation,
+			projection: validateCaptureSubmissionProjection(mutation),
+			viewerTimeZone: "UTC",
+		});
+		expect(built.program).toBeDefined();
+	});
+
+	/* One level finer than the repeat guard: a peer can add a FIELD an
+	 * operation reads without adding a repeat. Left alone, that reference
+	 * reaches compileBoundRef, which has no fallback for a form field, and
+	 * its developer-voiced invariant becomes the worker's error text plus a
+	 * Sentry alert for an ordinary multiplayer race. */
+	it("rejects a payload missing an answer its committed operations read", async () => {
+		const committedApp = {
+			blueprint: repeatScopedOperationDoc({ readsVisitNote: true }),
+			mutation_seq: 5,
+		};
+		const mutation: SubmissionMutation = {
+			kind: "survey",
+			formUuid: FORM_UUID,
+			entryKey: ENTRY_KEY,
+			attachmentRefs: [],
+			// The repeat is known, but this client never saw `visit_note`.
+			operationAnswers: {
+				root: [],
+				repeats: [{ repeat: REPEAT_UUID as string, iterations: [[]] }],
+			},
+		};
+
+		await expect(
+			buildSubmissionOperationProgram({
+				appId: APP_ID,
+				committedApp,
+				identity: IDENTITY,
+				lookupScope: LOOKUP_SCOPE,
+				mutation,
+				projection: validateCaptureSubmissionProjection(mutation),
+				viewerTimeZone: "UTC",
+			}),
+		).rejects.toThrow(/missing an answer/i);
+	});
+
+	it("does not demand an answer inside a repeat the worker left empty", async () => {
+		const committedApp = {
+			blueprint: repeatScopedOperationDoc({ readsVisitNote: true }),
+			mutation_seq: 5,
+		};
+		const mutation: SubmissionMutation = {
+			kind: "survey",
+			formUuid: FORM_UUID,
+			entryKey: ENTRY_KEY,
+			attachmentRefs: [],
+			// Zero iterations: nothing compiles, so nothing is missing.
 			operationAnswers: {
 				root: [],
 				repeats: [{ repeat: REPEAT_UUID as string, iterations: [] }],
