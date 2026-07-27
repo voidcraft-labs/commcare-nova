@@ -114,11 +114,29 @@ export function ExistsCard({ value, onChange, path }: ExistsCardProps) {
 						caseTypes: ctx.caseTypes,
 						currentCaseType: destinationCaseType,
 						knownInputs: ctx.knownInputs,
+						// Only the CASE TYPE and the scope change inside a
+						// relation walk. The other axes still describe what this
+						// surface offers, and a narrowed context resolves a form
+						// answer to nothing — which widens the dependent slot's
+						// accept-set, skips the reseed, and commits the
+						// type-incorrect pair the gate then refuses.
+						userProperties: ctx.userProperties,
+						formFields: ctx.formFields,
+						operationScope: ctx.operationScope,
+						evaluationTarget: ctx.evaluationTarget,
 						// A relation walk's `where` always runs against the
 						// destination case row, whatever the outer slot's scope.
 						caseDataScope: "per-case",
 					}),
-		[destinationCaseType, ctx.caseTypes, ctx.knownInputs],
+		[
+			destinationCaseType,
+			ctx.caseTypes,
+			ctx.knownInputs,
+			ctx.userProperties,
+			ctx.formFields,
+			ctx.operationScope,
+			ctx.evaluationTarget,
+		],
 	);
 	const addWhere = () => {
 		if (whereSeed === undefined) return;

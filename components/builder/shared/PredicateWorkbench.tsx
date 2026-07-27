@@ -634,6 +634,7 @@ export function PredicateWorkbench({
 			operationScope={operationScope}
 			caseDataScope={caseDataScope}
 			allowsNeverMatch={allowsNeverMatch}
+			evaluationTarget={evaluationTarget}
 			validityIndex={validityIndex}
 			admitExpressionChange={
 				evaluationTarget === "case-search"

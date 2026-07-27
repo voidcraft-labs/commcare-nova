@@ -35,7 +35,11 @@ import {
 	type ValueExpression,
 } from "@/lib/domain/predicate";
 import { presentCheckErrorForEditor } from "./checkErrorPresentation";
-import { type CaseDataScope, caseDataScopeAdmission } from "./editorSchemas";
+import {
+	type CaseDataScope,
+	caseDataScopeAdmission,
+	type EvaluationTarget,
+} from "./editorSchemas";
 import {
 	buildEditorTypeContext,
 	EMPTY_FORM_FIELDS,
@@ -117,6 +121,12 @@ interface PredicateEditContextValue {
 	/** See `PredicateEditContext.allowsNeverMatch`. Carried on the React
 	 *  context because nested cards rebuild their edit context from it. */
 	readonly allowsNeverMatch: boolean;
+	/** See `PredicateEditContext.evaluationTarget`. Carried on the React
+	 *  context for the same reason: the verb menu builds its edit context
+	 *  from here, so a surface's runtime has to survive the trip or every
+	 *  card would fall back to the strict default and a case-search slot
+	 *  would lose capabilities it legitimately has. */
+	readonly evaluationTarget: EvaluationTarget;
 	/**
 	 * Errors keyed by serialized path. Cards look up their own path
 	 * via `useEditorErrorsAt` to render inline diagnostics; the
@@ -152,6 +162,7 @@ interface PredicateEditProviderProps {
 	/** Absent means the ordinary per-case scope. */
 	readonly caseDataScope?: CaseDataScope;
 	readonly allowsNeverMatch?: boolean;
+	readonly evaluationTarget?: EvaluationTarget;
 	readonly validityIndex: ValidityIndex;
 	readonly admitExpressionChange?: AdmitExpressionChange | undefined;
 	readonly children: ReactNode;
@@ -180,6 +191,7 @@ export function PredicateEditProvider({
 	operationScope,
 	caseDataScope = "per-case",
 	allowsNeverMatch = true,
+	evaluationTarget = "on-device",
 	validityIndex,
 	admitExpressionChange,
 	children,
@@ -203,6 +215,7 @@ export function PredicateEditProvider({
 			operationScope,
 			caseDataScope,
 			allowsNeverMatch,
+			evaluationTarget,
 			validityIndex,
 			admitExpressionChange: effectiveAdmit,
 			expressionFocusTargets,
@@ -216,6 +229,7 @@ export function PredicateEditProvider({
 			operationScope,
 			caseDataScope,
 			allowsNeverMatch,
+			evaluationTarget,
 			validityIndex,
 			effectiveAdmit,
 			expressionFocusTargets,
