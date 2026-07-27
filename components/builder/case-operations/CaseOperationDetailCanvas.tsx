@@ -64,6 +64,7 @@ import { useNavigate } from "@/lib/routing/hooks";
 import { useCanEdit } from "@/lib/session/hooks";
 import { CaseOperationLinks } from "./CaseOperationLinks";
 import {
+	caseOperationTextConstraint,
 	operationCaseDataScope,
 	RUNTIME_TARGET_OPERATION_SCOPE,
 } from "./editorScope";
@@ -368,7 +369,7 @@ export function CaseOperationDetailCanvas({
 							onChange={(name: ValueExpression) =>
 								commit({ ...operation, name })
 							}
-							constraint={storageAssignmentConstraint(["text"])}
+							constraint={caseOperationTextConstraint()}
 							{...editorScope}
 						/>
 					</Section>
@@ -386,7 +387,7 @@ export function CaseOperationDetailCanvas({
 						canEdit={operationCanEdit}
 						seed={() => seedRenameValue(destination, formFields)}
 						onChange={(rename) => commit({ ...operation, rename })}
-						constraint={storageAssignmentConstraint(["text"])}
+						constraint={caseOperationTextConstraint()}
 						editorScope={editorScope}
 					/>
 				)}
@@ -403,7 +404,7 @@ export function CaseOperationDetailCanvas({
 						canEdit={operationCanEdit}
 						seed={() => actingUser()}
 						onChange={(owner) => commit({ ...operation, owner })}
-						constraint={storageAssignmentConstraint(["text"])}
+						constraint={caseOperationTextConstraint()}
 						editorScope={editorScope}
 					/>
 				)}

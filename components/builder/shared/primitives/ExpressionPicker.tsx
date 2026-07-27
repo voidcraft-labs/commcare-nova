@@ -73,6 +73,7 @@ import {
 	coalesce,
 	dateAdd,
 	dateAddOperandConstraint,
+	formField,
 	ifExpr,
 	input,
 	literal,
@@ -475,6 +476,30 @@ function termSeedForSlot(
 	constraint: SlotConstraint,
 	presentation: "value" | "subject",
 ): ValueExpression {
+	// A `nonEmpty` slot DECLARES that an empty string is invalid in it —
+	// a case name, a rename, an explicit owner, all of which CommCare
+	// refuses blank. Seeding `literal("")` there offers a choice the
+	// commit gate refuses the instant it is picked, so seed something
+	// non-blank by construction instead.
+	//
+	// Deliberately not the property-first cascade below: a case read is
+	// refused outright in a `global` slot (an operation on a form whose
+	// module selects no case), and this seed has no way to see that
+	// scope. A form answer and a session value are in scope wherever the
+	// surface offered them at all.
+	if (constraint.nonEmpty === true) {
+		const answer = ctx.formFields?.find(
+			(candidate) =>
+				constraint.accepts === "any" ||
+				acceptsType(constraint, candidate.dataType ?? "text"),
+		);
+		if (answer !== undefined) return term(formField(answer.uuid));
+
+		if (constraint.accepts === "any" || acceptsType(constraint, "text")) {
+			return term(sessionContext("userid"));
+		}
+	}
+
 	if (presentation === "subject" || constraint.forbidDirectLiteral === true) {
 		const caseType = ctx.caseTypes.find(
 			(candidate) => candidate.name === ctx.currentCaseType,

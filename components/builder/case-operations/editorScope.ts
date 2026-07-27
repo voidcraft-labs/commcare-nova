@@ -10,6 +10,10 @@
 
 import type { CaseDataScope } from "@/components/builder/shared/editorSchemas";
 import type { OperationValueScope } from "@/components/builder/shared/expressionEditorSchemas";
+import {
+	type SlotConstraint,
+	storageAssignmentConstraint,
+} from "@/lib/domain/predicate";
 
 /**
  * What an operation slot may read against a case row.
@@ -28,6 +32,26 @@ import type { OperationValueScope } from "@/components/builder/shared/expression
  */
 export function operationCaseDataScope(caseFirst: boolean): CaseDataScope {
 	return caseFirst ? "per-case" : "global";
+}
+
+/**
+ * The constraint the three TEXT FACET slots mount with — an operation's
+ * case name, its rename, and its explicit owner.
+ *
+ * `nonEmpty` is the load-bearing part. `rules/caseOperations.ts::validateTextExpression`
+ * refuses a blank literal in each of these ("has a blank rename"),
+ * because CommCare needs a real value: a case cannot be created
+ * nameless and a blank owner is not the same statement as no owner.
+ * Without the flag the value picker's "A value" choice seeds
+ * `literal("")` and the gate refuses it the instant it is picked.
+ *
+ * The operation's own runtime target and a link's deliberately do NOT
+ * use this: `validateTextExpression` is not applied to them, and a
+ * blank case id there is a submission-time fact the running form
+ * refuses inline, not an authoring error.
+ */
+export function caseOperationTextConstraint(): SlotConstraint {
+	return { ...storageAssignmentConstraint(["text"]), nonEmpty: true };
 }
 
 /**

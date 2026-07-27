@@ -87,6 +87,7 @@ import {
 	type ValueExpression,
 } from "@/lib/domain/predicate";
 import {
+	caseOperationTextConstraint,
 	operationCaseDataScope,
 	RUNTIME_TARGET_OPERATION_SCOPE,
 } from "../editorScope";
@@ -317,19 +318,7 @@ interface ExpressionSlot {
 	 * (a literal directly in the slot), so nothing about scope or `id-of`
 	 * can hide behind it.
 	 */
-	readonly blankLiteralIsUnfinished?: boolean;
 	readonly place: (candidate: ValueExpression) => CaseOperation;
-}
-
-/** The validator's own blank test, structurally: a bare string literal
- *  with nothing left after boundary whitespace. */
-function isBlankTextLiteral(candidate: ValueExpression): boolean {
-	return (
-		candidate.kind === "term" &&
-		candidate.term.kind === "literal" &&
-		typeof candidate.term.value === "string" &&
-		candidate.term.value.trim() === ""
-	);
 }
 
 const PREDICATE_SLOTS: readonly PredicateSlot[] = [
@@ -347,6 +336,9 @@ const PREDICATE_SLOTS: readonly PredicateSlot[] = [
 ];
 
 const TEXT_STORAGE = storageAssignmentConstraint(["text"]);
+/** What the three text facets actually mount with — the blank-refusing
+ *  constraint, so this drives the real offered set. */
+const TEXT_FACET = caseOperationTextConstraint();
 
 const EXPRESSION_SLOTS: readonly ExpressionSlot[] = [
 	{
@@ -372,17 +364,27 @@ const EXPRESSION_SLOTS: readonly ExpressionSlot[] = [
 			}),
 	},
 	{
-		name: "give the case a new name",
-		constraint: TEXT_STORAGE,
+		name: "the case's name",
+		constraint: TEXT_FACET,
 		runtimeTarget: false,
-		blankLiteralIsUnfinished: true,
+		place: (name) =>
+			subjectOperation({
+				action: "create",
+				caseType: "visit",
+				target: { kind: "new" },
+				name,
+			}),
+	},
+	{
+		name: "give the case a new name",
+		constraint: TEXT_FACET,
+		runtimeTarget: false,
 		place: (rename) => subjectOperation({ rename }),
 	},
 	{
 		name: "who owns the case",
-		constraint: TEXT_STORAGE,
+		constraint: TEXT_FACET,
 		runtimeTarget: false,
-		blankLiteralIsUnfinished: true,
 		place: (owner) => subjectOperation({ owner }),
 	},
 	{
@@ -533,12 +535,6 @@ describe("every value the editor offers is admitted by the commit gate", () => {
 					continue;
 				}
 				if (unfinished(candidate, slotTypeCtx, false)) continue;
-				if (
-					slot.blankLiteralIsUnfinished === true &&
-					isBlankTextLiteral(candidate)
-				) {
-					continue;
-				}
 				expect(
 					gateFindings(shape, slot.place(candidate)),
 					`${slot.name}: value kind "${schema.kind}"`,
