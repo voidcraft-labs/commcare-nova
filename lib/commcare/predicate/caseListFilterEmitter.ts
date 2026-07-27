@@ -51,11 +51,12 @@
 //     standalone comparison; both-bound forms wrap in parens.
 //   - `multi-select-contains`: per-value `selected(prop, 'v')` calls
 //     composed via OR / AND per the `quantifier` discriminator.
-//   - `match`: each mode emits the named CCHQ wire function call.
-//     `starts-with(prop, 'v')` is XPath 1.0 standard; `fuzzy-match`,
-//     `phonetic-match`, and `fuzzy-date` are CCHQ extensions
-//     registered on CSQL's query-function table at
-//     `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_QUERY_FUNCTIONS`.
+//   - `match`: only `starts-with(prop, 'v')`, XPath 1.0 standard and
+//     the sole mode CommCare Core registers. `fuzzy`, `phonetic`, and
+//     `fuzzy-date` THROW here — they are case-search functions with no
+//     on-device implementation, so lowering them yields XPath that
+//     installs cleanly and fails when the screen opens. See
+//     `./matchModes.ts`, and `../csqlEmitter.ts` for their real home.
 //   - `within-distance`: emit
 //     `within-distance(prop, '<lat,lon>', <distance>, '<unit>')`
 //     per the CCHQ wire signature at
@@ -104,6 +105,7 @@ import {
 	normalizeOnDeviceGeopoint,
 	validOnDeviceGeopointCenter,
 } from "./geopoint";
+import { matchModeRunsOnDevice } from "./matchModes";
 import {
 	descendOnDeviceCaseAnchor,
 	emitImmediateRelationPresence,
@@ -512,19 +514,20 @@ function emitMatch(
 function matchModeToWireFunction(
 	mode: Extract<Predicate, { kind: "match" }>["mode"],
 ): string {
+	if (!matchModeRunsOnDevice(mode)) {
+		throw new Error(
+			`caseListFilterEmitter: the '${mode}' match mode is a case-search function that CommCare Core's on-device XPath evaluator does not register, so it would install cleanly and then fail when the screen is opened. Validation should reject it before wire emission.`,
+		);
+	}
 	switch (mode) {
 		case "starts-with":
 			return "starts-with";
-		case "fuzzy":
-		case "phonetic":
-		case "fuzzy-date":
-			throw new Error(
-				`caseListFilterEmitter: the '${mode}' match mode is a case-search function that CommCare Core's on-device XPath evaluator does not register, so it would install cleanly and then fail when the screen is opened. Only 'starts-with' runs on device. Validation should reject it before wire emission.`,
-			);
 		default: {
-			const _exhaustive: never = mode;
+			// Unreachable while `ON_DEVICE_MATCH_MODES` holds only
+			// `starts-with`; adding a mode there without a wire name here
+			// is a compile error rather than a silent fall-through.
 			throw new Error(
-				`caseListFilterEmitter: unhandled match mode ${String(_exhaustive)}`,
+				`caseListFilterEmitter: '${String(mode)}' is on-device but has no wire function name.`,
 			);
 		}
 	}

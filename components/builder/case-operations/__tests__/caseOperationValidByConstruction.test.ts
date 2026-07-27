@@ -17,11 +17,18 @@
 //
 // So the oracle here is the validator rule itself, driven over BOTH module
 // shapes (case-first and not) and EVERY slot the detail canvas mounts. The
-// editor's own admission functions choose the candidates: the registry
-// seeds, the verb menu's builds, the expression kind menu's seeds, and the
-// canvas's own committed seeds. Nothing is re-derived — a candidate the
-// editor would not offer is skipped by the editor's own predicate, so the
-// test can only fail on a genuine offer-then-reject.
+// editor's own admission functions choose the candidates: the Add-condition
+// menu's own items, the verb menu's builds, the expression kind menu's
+// seeds, and the canvas's own committed seeds. Nothing is re-derived — a
+// candidate the editor would not offer is skipped by the editor's own
+// predicate, so the test can only fail on a genuine offer-then-reject.
+//
+// Candidates are what the menus OFFER, not what the schema registry can
+// build. Driving every authorable schema's seed looked stricter and was
+// merely wrong: `match` and `within-distance` have no Add-condition item —
+// they are verb switches on an existing condition — and their registry
+// seeds are deliberately incomplete, so asserting them tested a path no
+// author can take.
 
 import { describe, expect, it } from "vitest";
 import { firstComparisonDefault } from "@/components/builder/shared/cards/comparisonSeed";
@@ -34,7 +41,7 @@ import {
 import {
 	caseDataScopeAdmission,
 	type PredicateEditContext,
-	predicateCardSchemaList,
+	predicateCardSchemas,
 } from "@/components/builder/shared/editorSchemas";
 import { buildEditorTypeContext } from "@/components/builder/shared/editorTypeContext";
 import {
@@ -42,6 +49,10 @@ import {
 	expressionCardSchemaList,
 	isAuthorableExpressionKind,
 } from "@/components/builder/shared/expressionEditorSchemas";
+import {
+	buildStructure,
+	STRUCTURE_KINDS,
+} from "@/components/builder/shared/PredicateWorkbench";
 import { defaultExpressionForSlot } from "@/components/builder/shared/primitives/ExpressionPicker";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { validateCaseOperations } from "@/lib/commcare/validator/rules/caseOperations";
@@ -254,18 +265,22 @@ function gateFindings(
 }
 
 /**
- * The two COMPLETENESS states the shared editor deliberately leaves for
- * the author to fill ("pick a property", "type a value"). They are the
- * same pair `verbMenuBuildFuzz.test.ts` tolerates, and they are decided
- * against the EDITOR's own type context — so a candidate is skipped only
- * when the editor itself knows it is unfinished, never because the gate
- * happened to disagree.
+ * The one COMPLETENESS state the shared editor deliberately leaves for
+ * the author to fill: an unpicked property. It is decided against the
+ * EDITOR's own type context, so a candidate is skipped only when the
+ * editor itself knows it is unfinished, never because the gate happened
+ * to disagree.
+ *
+ * `match-value-empty` used to be tolerated here too, and that tolerance
+ * is exactly why the test built to catch offer-then-refuse missed an
+ * empty match value on its own surface. Nothing unfinished may be
+ * committed — the gate has no tolerant class, `gate.ts` gates
+ * completeness like soundness — so the editor must not OFFER a gesture
+ * that lands one. The verb menu now disables a switch to `match` until
+ * something carryable exists, which is what makes dropping this safe.
  */
 function isCompletenessOnly(errors: readonly CheckError[]): boolean {
-	return errors.every(
-		(error) =>
-			error.code === "match-value-empty" || error.code === "unknown-property",
-	);
+	return errors.every((error) => error.code === "unknown-property");
 }
 
 function unfinished(
@@ -431,15 +446,23 @@ describe("every condition the editor offers is admitted by the commit gate", () 
 			eq(term({ kind: "field", uuid: WHEN }), term(dateLiteral("2024-01-01"))),
 		];
 
-		const candidates: { readonly why: string; readonly value: Predicate }[] =
-			[];
-		for (const schema of predicateCardSchemaList) {
-			if (schema.authoring !== "authorable" || !schema.applicable(editCtx)) {
-				continue;
-			}
+		// Exactly what "Add condition" offers: one comparison leaf plus the
+		// structural shapes. Driving the whole schema registry instead
+		// asserted a path the menu has no item for — `match` and
+		// `within-distance` are reachable only as VERB switches on an
+		// existing condition, and their registry seeds are deliberately
+		// incomplete (a match against an empty value matches nothing).
+		const candidates: { readonly why: string; readonly value: Predicate }[] = [
+			{
+				why: "Add condition → Compare case information",
+				value: firstComparisonDefault(editCtx),
+			},
+		];
+		for (const kind of STRUCTURE_KINDS) {
+			if (!predicateCardSchemas[kind].applicable(editCtx)) continue;
 			candidates.push({
-				why: `Add condition → ${schema.kind}`,
-				value: schema.defaultValue(editCtx),
+				why: `Add condition → ${kind}`,
+				value: buildStructure(kind, editCtx),
 			});
 		}
 		for (const current of currents) {

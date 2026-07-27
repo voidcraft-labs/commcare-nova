@@ -177,7 +177,32 @@ export interface PredicateEditContext {
 	 *  true. Ignored in per-case slots, whose seeds are friendly content
 	 *  rather than neutral placeholders. */
 	readonly globalPlaceholderHolds?: boolean;
+	/**
+	 * WHICH RUNTIME evaluates this rule — the axis that decides whether a
+	 * case-search-only capability is authorable here.
+	 *
+	 * Absent means `"on-device"`, and that default is deliberately the
+	 * STRICT value, not the permissive one. `caseDataScope` defaults the
+	 * other way and is the cautionary tale: a surface that forgets it
+	 * silently offers reads its gate refuses. Here a surface that forgets
+	 * this offers strictly less, which is visible and repairable rather
+	 * than a commit-time bounce. Only a slot that genuinely resolves as a
+	 * remote case-search query — an advanced search input's predicate —
+	 * passes `"case-search"`.
+	 *
+	 * The case-list filter is the one carrier this two-value axis cannot
+	 * yet state: it emits to the ordinary on-device nodeset AND to the
+	 * remote query, so it needs BOTH oracles. It keeps its existing
+	 * `"case-search"` while search is on, which is why a CSQL-only match
+	 * there is still offered and still refused; that is pre-existing and
+	 * is a follow-up, not something this axis regressed.
+	 */
+	readonly evaluationTarget?: EvaluationTarget;
 }
+
+/** The runtime a rule is evaluated by. See
+ *  `PredicateEditContext.evaluationTarget`. */
+export type EvaluationTarget = "on-device" | "case-search";
 
 /** Whether case-property / relationship reads are meaningful in this
  *  editor scope. */

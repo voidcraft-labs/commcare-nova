@@ -25,8 +25,10 @@
  */
 
 import { walkCsqlOnDeviceNodes } from "@/lib/commcare/predicate";
+import { matchModeRunsOnDevice } from "@/lib/commcare/predicate/matchModes";
 import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
 import {
+	type MatchMode,
 	type Predicate,
 	type ValueExpression,
 	walkExpressionPredicateNodes,
@@ -39,16 +41,9 @@ import {
 } from "./moduleWireSlots";
 
 type MatchPredicate = Extract<Predicate, { kind: "match" }>;
-type DisallowedMode = "fuzzy" | "phonetic" | "fuzzy-date";
 
-const CSQL_ONLY_MODES: readonly DisallowedMode[] = [
-	"fuzzy",
-	"phonetic",
-	"fuzzy-date",
-];
-
-function isCsqlOnlyMode(mode: string): mode is DisallowedMode {
-	return (CSQL_ONLY_MODES as readonly string[]).includes(mode);
+function isCsqlOnlyMode(mode: MatchMode): boolean {
+	return !matchModeRunsOnDevice(mode);
 }
 
 export function matchModeOnDeviceCompatibility(

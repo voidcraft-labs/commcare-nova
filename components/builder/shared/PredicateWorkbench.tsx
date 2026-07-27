@@ -94,7 +94,12 @@ import {
 	useStableListIdentity,
 } from "./useStableListIdentity";
 
-const STRUCTURE_KINDS = [
+/** The structural shapes the Add-condition menu offers, beside its one
+ *  comparison leaf. Exported so the per-carrier invariant tests can
+ *  drive exactly what the menu offers rather than a superset — a seed
+ *  the menu cannot reach is not an offer, and asserting one claims a
+ *  path that does not exist. */
+export const STRUCTURE_KINDS = [
 	"and",
 	"or",
 	"not",
@@ -208,7 +213,8 @@ const STRUCTURE_ACTION_LABELS: Record<StructureKind, string> = {
 	missing: "Require no related case",
 };
 
-function buildStructure(
+/** Build one structural seed exactly as the Add-condition menu does. */
+export function buildStructure(
 	kind: StructureKind,
 	ctx: PredicateEditContext,
 ): StructuralPredicate {
@@ -443,6 +449,11 @@ export function PredicateWorkbench({
 		[validity],
 	);
 
+	// Every axis the pickers offer travels together. `userProperties` in
+	// particular is not optional in practice: the sibling `typeContext`
+	// above already carries it, so omitting it here made the validity
+	// index and the verb menu resolve a saved worker-information read
+	// against two different vocabularies — the menu's the narrower one.
 	const editContext = useMemo<PredicateEditContext>(
 		() => ({
 			caseTypes,
@@ -452,6 +463,8 @@ export function PredicateWorkbench({
 			operationScope,
 			caseDataScope,
 			allowsNeverMatch,
+			userProperties,
+			evaluationTarget,
 		}),
 		[
 			caseTypes,
@@ -461,6 +474,8 @@ export function PredicateWorkbench({
 			operationScope,
 			caseDataScope,
 			allowsNeverMatch,
+			userProperties,
+			evaluationTarget,
 		],
 	);
 	const admitCaseSearchExpression = useCallback(

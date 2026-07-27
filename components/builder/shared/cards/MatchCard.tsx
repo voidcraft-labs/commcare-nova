@@ -61,7 +61,11 @@ export function matchDefault(
 	const ct = ctx.caseTypes.find((c) => c.name === ctx.currentCaseType);
 	const property = ct?.properties.find(isTextShaped);
 	const propName = canonicalCasePropertyName(property?.name ?? "");
-	return match(prop(ctx.currentCaseType, propName), literal(""), "fuzzy");
+	// `starts-with` is the only mode CommCare's own evaluator implements,
+	// so it is the only one valid on every carrier. Defaulting to `fuzzy`
+	// made this seed unusable anywhere a rule runs on the device — which
+	// is everywhere except an advanced search input.
+	return match(prop(ctx.currentCaseType, propName), literal(""), "starts-with");
 }
 
 interface MatchCardProps {

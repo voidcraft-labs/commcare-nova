@@ -58,6 +58,7 @@ import {
 	DropdownMenuPositioner,
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
+import { matchModeAvailableOnDevice } from "@/lib/doc/commitVerdicts";
 import {
 	acceptsType,
 	and,
@@ -135,6 +136,27 @@ export interface VerbEntry {
 	) => boolean;
 	/** Reason shown when the subject-type gate disables the verb. */
 	readonly disabledReason?: string;
+	/**
+	 * Runtime gate — whether the CARRIER can evaluate this verb at all,
+	 * independent of the subject. Distinct from `subjectGate` because the
+	 * author cannot repair it by changing the subject: no subject makes a
+	 * case-search-only match mode runnable on a device. When it fails the
+	 * verb is disabled with `contextDisabledReason`.
+	 */
+	readonly contextGate?: (ctx: PredicateEditContext) => boolean;
+	/** Reason shown when the runtime gate disables the verb. */
+	readonly contextDisabledReason?: string;
+	/**
+	 * Carry gate — whether the CURRENT condition holds something this
+	 * verb can build a complete value from. A `match` whose value is the
+	 * empty string matches nothing on every mode, so the commit gate
+	 * refuses it; building one from a condition with no carryable value
+	 * would land exactly that. Disabling says so at the gesture instead,
+	 * and the verb enables the moment the author types a value.
+	 */
+	readonly carryGate?: (value: Predicate, ctx: PredicateEditContext) => boolean;
+	/** Reason shown when the carry gate disables the verb. */
+	readonly carryDisabledReason?: string;
 }
 
 // ── Subject / object extraction ───────────────────────────────────
@@ -442,6 +464,30 @@ export function buildMatch(
 	return { ...fallback, mode, property, value: matchValue };
 }
 
+/**
+ * Whether switching to `mode` would land a match with something to
+ * match against.
+ *
+ * It asks the builder itself rather than re-deriving the carry rules:
+ * the seed, the mode's allow-list, and `reseedMatchValue`'s "no
+ * admissible carry" answer all feed the same decision, and a second
+ * copy of that reasoning is how the menu and the commit gate drift.
+ */
+function matchCarriesAValue(
+	value: Predicate,
+	mode: MatchMode,
+	ctx: PredicateEditContext,
+): boolean {
+	const built = buildMatch(mode, value, ctx);
+	if (built.kind !== "match") return true;
+	const carried = built.value;
+	return !(
+		carried.kind === "term" &&
+		carried.term.kind === "literal" &&
+		carried.term.value === ""
+	);
+}
+
 /** A match value valid for the mode's allow-list — carries a still-
  *  admissible term, reseeds an incompatible one, and leaves an
  *  unresolved (empty / placeholder) term as the completeness state. */
@@ -646,6 +692,22 @@ function buildVerbEntries(): readonly VerbEntry[] {
 				m.mode === "fuzzy-date"
 					? "Choose date or text information to use flexible date matching"
 					: "Choose text information to use text matching",
+			// Three of the four modes only exist in CommCare's server-side
+			// case search. On a device the app installs and then fails when
+			// the screen opens, so they are withheld wherever the rule runs
+			// on the device rather than reported after a bounced commit.
+			...(matchModeAvailableOnDevice(m.mode)
+				? {}
+				: {
+						contextGate: (ctx: PredicateEditContext) =>
+							ctx.evaluationTarget === "case-search",
+						contextDisabledReason:
+							"Only available when searching, which runs on the server. Use “starts with” here.",
+					}),
+			carryGate: (value: Predicate, ctx: PredicateEditContext) =>
+				matchCarriesAValue(value, m.mode, ctx),
+			carryDisabledReason:
+				"Type the text to match first — matching against an empty value never finds anything.",
 		});
 	}
 	entries.push(
@@ -917,7 +979,11 @@ export function verbEntryAdmitted(
 		predicateCardSchemas[entry.schemaKind].applicable(editCtx);
 	const subjectAdmitted =
 		entry.subjectGate === undefined || entry.subjectGate(subjectType, subject);
-	return applicable && subjectAdmitted;
+	const runtimeAdmitted =
+		entry.contextGate === undefined || entry.contextGate(editCtx);
+	const carryAdmitted =
+		entry.carryGate === undefined || entry.carryGate(value, editCtx);
+	return applicable && subjectAdmitted && runtimeAdmitted && carryAdmitted;
 }
 
 interface PredicateVerbMenuProps {
@@ -1035,11 +1101,22 @@ export function PredicateVerbMenu({
 		const applicable =
 			(VERB_ENTRIES.includes(entry) && subject !== undefined) ||
 			predicateCardSchemas[entry.schemaKind].applicable(editCtx);
-		const reason = !subjectAdmitted
-			? entry.disabledReason
-			: !applicable
-				? predicateUnavailableReason(entry.schemaKind, editCtx)
-				: undefined;
+		// The runtime gate is stated FIRST: it is the one an author cannot
+		// repair from here, so leading with "choose text information"
+		// would send them to change a subject that was never the problem.
+		const runtimeAdmitted =
+			entry.contextGate === undefined || entry.contextGate(editCtx);
+		const carryAdmitted =
+			entry.carryGate === undefined || entry.carryGate(value, editCtx);
+		const reason = !runtimeAdmitted
+			? entry.contextDisabledReason
+			: !subjectAdmitted
+				? entry.disabledReason
+				: !carryAdmitted
+					? entry.carryDisabledReason
+					: !applicable
+						? predicateUnavailableReason(entry.schemaKind, editCtx)
+						: undefined;
 		return (
 			<DropdownMenuItem
 				key={entry.id}
