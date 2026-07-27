@@ -567,7 +567,13 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 						 *  the previous change's open pickers when the author walks
 						 *  Previous / Next through a long sequence. */}
 						{caseOperationsRef.current.operationUuid === undefined ? (
+							// Keyed by the owning form for the same reason the detail
+							// is keyed by its operation: the list holds a refusal
+							// alert in local state, and without a key React reuses the
+							// instance across forms, rendering one form's refusal over
+							// another form's changes.
 							<CaseOperationsCanvas
+								key={caseOperationsRef.current.formUuid}
 								moduleUuid={caseOperationsRef.current.moduleUuid}
 								formUuid={caseOperationsRef.current.formUuid}
 							/>

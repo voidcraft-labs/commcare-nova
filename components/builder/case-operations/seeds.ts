@@ -56,7 +56,13 @@ export function nextOperationId(
 	taken: ReadonlySet<string>,
 ): string {
 	const slug = base
-		.toLocaleLowerCase()
+		// `toLowerCase`, never `toLocaleLowerCase`: this produces a wire
+		// identifier, and a Turkish or Azerbaijani locale maps capital I
+		// to the dotless ı, which the ASCII filter below then strips —
+		// so the same case type would yield a different operation id
+		// depending on the author's browser. `slugifyId` uses the same
+		// locale-independent lowercase for the same reason.
+		.toLowerCase()
 		// Case types may legally contain hyphens; operation ids may not.
 		.replace(/[^a-z0-9_]+/g, "_")
 		.replace(/^[^a-z_]+/, "")

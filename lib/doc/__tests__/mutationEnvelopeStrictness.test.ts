@@ -294,6 +294,56 @@ describe("mutation envelope strictness", () => {
 		}
 	});
 
+	/* Clearing a connection's target is the one slot where a patch `null`
+	 * is an ASSIGNED value rather than a deletion — a link's `target` is
+	 * required and nullable, so the fallback carries a literal `null`
+	 * where a cleared optional slot would simply be absent. Treating the
+	 * two the same made this envelope reject itself, and the write 400'd
+	 * instead of unlinking. */
+	it("accepts an unlink, whose fallback carries a real null target", () => {
+		const payload = {
+			kind: "updateForm",
+			uuid: FORM,
+			patch: {},
+			caseOperationChange: {
+				operation: "update",
+				uuid: OPERATION,
+				value: {
+					uuid: OPERATION,
+					id: "update_visit",
+					order: "b",
+					action: "update",
+					caseType: "visit",
+					target: { kind: "session" },
+					links: [
+						{
+							identifier: "parent",
+							targetType: "patient",
+							relationship: "child",
+							target: null,
+						},
+					],
+				},
+			},
+			caseOperationPatch: {
+				operation: "update-link",
+				uuid: OPERATION,
+				identifier: "parent",
+				patch: { target: null },
+			},
+		};
+
+		for (const schema of [mutationSchema, canonicalMutationSchema]) {
+			const result = schema.safeParse(payload);
+			expect(
+				result.success,
+				result.success
+					? ""
+					: JSON.stringify(result.error.issues.map((i) => i.message)),
+			).toBe(true);
+		}
+	});
+
 	it("does not reintroduce raw unknown content into parsed output", () => {
 		const payload = {
 			kind: "setAppName",

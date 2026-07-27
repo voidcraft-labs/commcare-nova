@@ -800,13 +800,32 @@ function reportCaseOperationPatchIntegrity(
 		path: readonly (string | number)[],
 		message = "The case-operation fallback must agree with the granular edit.",
 	): void => issue(path, message);
+	// A patch `null` means one of two different things depending on the
+	// slot it addresses, and the fallback spells each differently:
+	//
+	//   - a CLEARABLE OPTIONAL slot (a scalar facet, an order key) —
+	//     `null` deletes it, so the fallback simply omits the key and
+	//     reads back `undefined`;
+	//   - a REQUIRED NULLABLE slot — a link's `target` is the one today
+	//     — where `null` is the assigned value meaning "no target", so
+	//     the fallback carries a literal `null`.
+	//
+	// Normalizing to `undefined` alone made the second case disagree
+	// with itself: clearing a connection's target emitted a granular
+	// `update-link` whose own fallback it then rejected, so
+	// `mutationSchema` refused the mutation and the write 400'd rather
+	// than persisting. Accepting either spelling keeps the clear case
+	// exact while letting an assigned `null` match.
 	const matchesPatch = (
 		target: Record<string, unknown>,
 		patch: Record<string, unknown>,
 	): boolean =>
-		Object.entries(patch).every(([key, value]) =>
-			deepEqual(target[key], value === null ? undefined : value),
-		);
+		Object.entries(patch).every(([key, value]) => {
+			if (value === null) {
+				return target[key] === undefined || target[key] === null;
+			}
+			return deepEqual(target[key], value);
+		});
 
 	switch (semantic.operation) {
 		case "update": {

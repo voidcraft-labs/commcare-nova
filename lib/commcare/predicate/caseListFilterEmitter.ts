@@ -522,12 +522,20 @@ function matchModeToWireFunction(
 	switch (mode) {
 		case "starts-with":
 			return "starts-with";
-		default: {
-			// Unreachable while `ON_DEVICE_MATCH_MODES` holds only
-			// `starts-with`; adding a mode there without a wire name here
-			// is a compile error rather than a silent fall-through.
+		case "fuzzy":
+		case "phonetic":
+		case "fuzzy-date":
+			// Unreachable — the guard above already threw for these. The
+			// arms exist so the `never` below still covers the WHOLE union:
+			// without them, widening `MatchMode` would type-check here and
+			// surface only at runtime.
 			throw new Error(
-				`caseListFilterEmitter: '${String(mode)}' is on-device but has no wire function name.`,
+				`caseListFilterEmitter: '${mode}' is not an on-device match mode.`,
+			);
+		default: {
+			const _exhaustive: never = mode;
+			throw new Error(
+				`caseListFilterEmitter: unhandled match mode ${String(_exhaustive)}`,
 			);
 		}
 	}
