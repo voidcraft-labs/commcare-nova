@@ -1676,36 +1676,39 @@ export function CaseListWorkspaceCanvas() {
 	/*
 	 * React Activity keeps each tab body mounted, but showing a previously
 	 * hidden overflow element can let the browser adjust its scroll position
-	 * after the commit (observed as a one-line, 20px drift at the bottom).
-	 * Capture the authored position synchronously, then reapply it after the
-	 * tab-change effects have replaced any shorter nested canvas. The resulting
-	 * scroll event writes the same value back to the map.
+	 * after the commit (observed as a one-line drift at the bottom). Activity
+	 * may reveal its host after this parent's first post-commit frames when React
+	 * is under load, so frame counts are not a readiness signal. Wait until the
+	 * body itself is laid out, then restore across the reveal's first settled
+	 * frame. The resulting scroll event writes the same value back to the map.
 	 */
 	useLayoutEffect(() => {
 		if (moduleUuid === undefined || visibleTab === undefined) return;
 		const kind = visibleTab;
 		const remembered = scrollPositions.current.get(`${moduleUuid}:${kind}`);
 		if (remembered === undefined) return;
-		let settledFrame: number | null = null;
-		const restore = () => {
+		let frame: number | null = null;
+		const restoreAfterReveal = () => {
 			const node = document.querySelector<HTMLElement>(
 				`[data-case-workspace-scroll-body="${kind}"]`,
 			);
-			if (node === null) return;
+			if (node === null) {
+				frame = null;
+				return;
+			}
+			if (getComputedStyle(node).display === "none") {
+				frame = requestAnimationFrame(restoreAfterReveal);
+				return;
+			}
 			node.scrollTop = remembered;
+			frame = requestAnimationFrame(() => {
+				node.scrollTop = remembered;
+				frame = null;
+			});
 		};
-		const frame = requestAnimationFrame(() => {
-			restore();
-			/*
-			 * Activity completes its hidden-to-visible browser bookkeeping after
-			 * the first paint. Reassert once on the following frame so that
-			 * bookkeeping cannot win over the author-owned position.
-			 */
-			settledFrame = requestAnimationFrame(restore);
-		});
+		frame = requestAnimationFrame(restoreAfterReveal);
 		return () => {
-			cancelAnimationFrame(frame);
-			if (settledFrame !== null) cancelAnimationFrame(settledFrame);
+			if (frame !== null) cancelAnimationFrame(frame);
 		};
 	}, [moduleUuid, visibleTab]);
 
