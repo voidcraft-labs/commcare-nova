@@ -39,6 +39,7 @@ import {
 	type CaseDataScope,
 	caseDataScopeAdmission,
 	type EvaluationTarget,
+	type PredicateEditContext as PredicateEditContextShape,
 } from "./editorSchemas";
 import {
 	buildEditorTypeContext,
@@ -345,6 +346,33 @@ export function WithCurrentCaseType({
  * authoring bug rather than a runtime branch the editor can recover
  * from.
  */
+/**
+ * Project the React context onto the plain `PredicateEditContext` the
+ * schemas, seeds, and verb builds consume.
+ *
+ * Every card that opens a menu needs this, and each used to spell it as
+ * its own object literal — four literals, four independent chances to
+ * omit an axis, and omitting one is silent: the narrower context still
+ * type-checks, still renders, and only shows up as a menu offering
+ * something the gate refuses or withholding something it admits. One
+ * projection means a new axis reaches every menu by construction.
+ */
+export function predicateEditContextFrom(
+	ctx: PredicateEditContextValue,
+): PredicateEditContextShape {
+	return {
+		caseTypes: ctx.caseTypes,
+		currentCaseType: ctx.currentCaseType,
+		knownInputs: ctx.knownInputs,
+		userProperties: ctx.userProperties,
+		formFields: ctx.formFields,
+		operationScope: ctx.operationScope,
+		caseDataScope: ctx.caseDataScope,
+		allowsNeverMatch: ctx.allowsNeverMatch,
+		evaluationTarget: ctx.evaluationTarget,
+	};
+}
+
 export function usePredicateEditContext(): PredicateEditContextValue {
 	const ctx = useContext(PredicateEditContext);
 	if (ctx === null) {

@@ -82,7 +82,11 @@ import {
 	term,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
-import { usePredicateEditContext, useResolvedType } from "../editorContext";
+import {
+	predicateEditContextFrom,
+	usePredicateEditContext,
+	useResolvedType,
+} from "../editorContext";
 import {
 	isAuthorablePredicateKind,
 	type PredicateEditContext,
@@ -1011,16 +1015,7 @@ export function PredicateVerbMenu({
 	// vocabulary narrower than the one on screen would resolve a form
 	// answer or a worker-information read to nothing and skip the reseed
 	// that keeps the new verb's object type-correct.
-	const editCtx: PredicateEditContext = {
-		caseTypes: ctx.caseTypes,
-		currentCaseType: ctx.currentCaseType,
-		knownInputs: ctx.knownInputs,
-		userProperties: ctx.userProperties,
-		formFields: ctx.formFields,
-		operationScope: ctx.operationScope,
-		caseDataScope: ctx.caseDataScope,
-		allowsNeverMatch: ctx.allowsNeverMatch,
-	};
+	const editCtx: PredicateEditContext = predicateEditContextFrom(ctx);
 	// The subject (left operand) drives which verbs are offerable — the
 	// same checker `checkComparison` / `checkMatch` validate against, so
 	// a verb the subject can't take is never selectable into an error.
