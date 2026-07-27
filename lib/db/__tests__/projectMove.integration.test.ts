@@ -177,6 +177,7 @@ function makeSystemSchemaStore(
 	return new PostgresCaseStore({
 		projectId: null,
 		actorUserId: null,
+		ownerId: null,
 		db,
 		sampleGenerator: new HeuristicCaseGenerator(),
 		authorizeSchemaMutation: async (tx, args) => {
@@ -190,6 +191,7 @@ function makeActorCaseStore(db: Kysely<Database>): PostgresCaseStore {
 	return new PostgresCaseStore({
 		projectId: SOURCE,
 		actorUserId: ACTOR,
+		ownerId: ACTOR,
 		db,
 		sampleGenerator: new HeuristicCaseGenerator(),
 		authorizeMutation: authorizeCaseMutationInTransaction,

@@ -121,6 +121,8 @@ const USER_MESSAGE_BY_CODE: Partial<
 		`The Connect ID ${q(det(e, "connectId", ""))} is already used by another form. Give this one a different ID, or change the other form's first.`,
 	CONNECT_NO_PARTICIPATING_FORMS: () =>
 		"You've turned Connect on for the app, but no form is using it yet. Set up Connect on at least one form, or turn it off for the app.",
+	BLUEPRINT_ENTITY_UUID_DUPLICATE: () =>
+		"Two parts of this app share the same internal identity. Retry the change so Nova can keep them distinct.",
 
 	// ── Worker information, roles, personas ──────────────────────────
 	// The rule's own message already carries the specific reason (an illegal
@@ -137,6 +139,12 @@ const USER_MESSAGE_BY_CODE: Partial<
 		return slug
 			? `Two pieces of worker information both save under ${q(slug)}. CommCare treats names as the same whatever their capitalization, so give one of them a different name.`
 			: "Two pieces of worker information save under the same name. Give one of them a different name.";
+	},
+	USER_PROPERTY_CHOICES_DUPLICATE: (e) => {
+		const slug = det(e, "slug", "");
+		return slug
+			? `Worker information saved as ${q(slug)} lists the same accepted option more than once. Remove the repeated option so every accepted value appears once.`
+			: "One piece of worker information lists the same accepted option more than once. Remove the repeated option so every accepted value appears once.";
 	},
 	USER_TYPE_NAME_DUPLICATE: (e) => {
 		const name = det(e, "name", "");
@@ -156,6 +164,8 @@ const USER_MESSAGE_BY_CODE: Partial<
 		"A role or persona carries a value for a piece of worker information that no longer exists. Remove the value, or add that information back.",
 	USER_DATA_INVALID_CHOICE: () =>
 		"A role or persona has a value that isn't one of the accepted options. Pick one from the list, or add it to the list first.",
+	USER_PROPERTY_REFERENCE_UNKNOWN: () =>
+		"A condition or calculation uses worker information that no longer exists. Choose current worker information or add it back first.",
 
 	// ── Module-level ─────────────────────────────────────────────────
 	NO_CASE_TYPE: (e) =>

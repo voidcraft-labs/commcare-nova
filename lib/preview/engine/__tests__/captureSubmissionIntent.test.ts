@@ -28,7 +28,7 @@ const FIELD_UUID = asUuid("33333333-3333-4333-8333-333333333333");
 const IDENTITY: ResolvedPreviewIdentity = {
 	actorUserId: ACTOR_ID,
 	ownerId: ACTOR_ID,
-	session: { context: {}, user: {} },
+	session: { context: {}, user: {}, userPropertySlugs: {} },
 	usercase: {},
 };
 

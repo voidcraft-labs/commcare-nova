@@ -1267,7 +1267,9 @@ describe("ExpressionPicker — exhaustive left-subject editing", () => {
 				name: "Condition source: Case information",
 			}),
 		);
-		const literal = await screen.findByRole("menuitem", { name: /^A value/i });
+		const literal = await screen.findByRole("menuitemradio", {
+			name: /^A value/i,
+		});
 		expect(literal.getAttribute("aria-disabled")).toBe("true");
 		fireEvent.click(await screen.findByRole("menuitem", { name: /^Math/i }));
 		expect(

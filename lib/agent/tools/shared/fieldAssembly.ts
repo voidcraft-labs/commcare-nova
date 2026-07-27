@@ -27,6 +27,7 @@
 import { parseXPathExpression } from "@/lib/commcare/xpath";
 import {
 	type FieldRefResolvableDoc,
+	resolvableUserPropertySlug,
 	resolveCloseFieldRef,
 } from "@/lib/doc/expressionText";
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
@@ -39,6 +40,7 @@ import type {
 	BlueprintDoc,
 	Field,
 	ResolveFieldPath,
+	ResolveUserPropertySlug,
 	Uuid,
 	XPathExpression,
 	XPathPrintableDoc,
@@ -335,7 +337,8 @@ export function assembleFieldMutations(
 	if (rejected.length > 0) return { ok: false, rejected };
 	const overlay = buildBatchOverlay(doc, formUuid, mutations);
 	const resolve = fieldPathResolver(overlay, formUuid);
-	resolveBatchExpressions(resolve, landed);
+	const resolveUserProperty = resolvableUserPropertySlug(overlay);
+	resolveBatchExpressions(resolve, resolveUserProperty, landed);
 	// Mint an `order` key for every born field. An ANCHORED batch (a top-level
 	// block placed at `beforeFieldId` / `afterFieldId`) keys its fields BETWEEN
 	// the anchor's DISPLAY neighbors — the same neighbor bounds the builder's
@@ -402,7 +405,8 @@ export function assembleFieldMutations(
 		ok: true,
 		mutations: [...declarations, ...mutations],
 		skipped,
-		parseExpression: (text) => parseXPathExpression(text, resolve),
+		parseExpression: (text) =>
+			parseXPathExpression(text, resolve, resolveUserProperty),
 		resolveFieldRef: (ref) => resolveCloseFieldRef(overlay, formUuid, ref),
 	};
 }
@@ -442,7 +446,12 @@ function buildBatchOverlay(
 			fieldOrder[mut.field.uuid] ??= [];
 		}
 	}
-	return { forms, fields, fieldOrder };
+	return {
+		forms,
+		fields,
+		fieldOrder,
+		userProperties: doc.userProperties,
+	};
 }
 
 /**
@@ -453,6 +462,7 @@ function buildBatchOverlay(
  */
 function resolveBatchExpressions(
 	resolve: ResolveFieldPath,
+	resolveUserProperty: ResolveUserPropertySlug,
 	landed: ReadonlyArray<{ field: Field; processed: Partial<FlatField> }>,
 ): void {
 	for (const { field, processed } of landed) {
@@ -465,7 +475,11 @@ function resolveBatchExpressions(
 		] as const) {
 			const text = processed[slot];
 			if (typeof text === "string" && text.length > 0 && slot in carrier) {
-				carrier[slot] = parseXPathExpression(text, resolve);
+				carrier[slot] = parseXPathExpression(
+					text,
+					resolve,
+					resolveUserProperty,
+				);
 			}
 		}
 		const validateExpr = processed.validate?.expr;
@@ -477,6 +491,7 @@ function resolveBatchExpressions(
 			carrier.validate = parseXPathExpression(
 				unescapeXPath(validateExpr),
 				resolve,
+				resolveUserProperty,
 			);
 		}
 		const repeatConfig = processed.repeat;
@@ -490,6 +505,7 @@ function resolveBatchExpressions(
 			carrier.repeat_count = parseXPathExpression(
 				unescapeXPath(repeatCount),
 				resolve,
+				resolveUserProperty,
 			);
 		}
 		const idsQuery =
@@ -505,6 +521,7 @@ function resolveBatchExpressions(
 			dataSource.ids_query = parseXPathExpression(
 				unescapeXPath(idsQuery),
 				resolve,
+				resolveUserProperty,
 			);
 		}
 	}

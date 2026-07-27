@@ -48,7 +48,7 @@ export const VELLUM_HASHTAG_TRANSFORMS = {
 		// output by construction.
 		"#case/": `${caseById(CURRENT_CASE_ID)}/`,
 		"#user/":
-			"instance('casedb')/casedb/case[@case_type = 'commcare-user'][hq_user_id = instance('commcaresession')/session/context/userid]/",
+			"instance('casedb')/casedb/case[@case_type='commcare-user'][hq_user_id=instance('commcaresession')/session/context/userid]/",
 	},
 } as const;
 

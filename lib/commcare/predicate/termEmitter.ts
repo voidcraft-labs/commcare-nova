@@ -147,6 +147,8 @@ export interface OnDeviceTermEmissionContext
 	extends OnDeviceExpressionBindings {
 	readonly emitSelfProperty?: (property: PropertyRef) => string;
 	readonly lookup?: OnDeviceLookupEmissionContext;
+	/** Current saved names for identity-backed custom worker information. */
+	readonly userPropertySlugs?: ReadonlyMap<Uuid, string>;
 }
 
 /** Drop the fixture-row scope when emission leaves the fixture predicate. */
@@ -359,6 +361,15 @@ export function emitTerm(
 			// the schema layer (no quoting / escaping required for valid
 			// values; invalid values reject at parse time).
 			return `instance('commcaresession')/session/user/data/${term.field}`;
+		case "session-user-property": {
+			const slug = context.userPropertySlugs?.get(term.userPropertyUuid);
+			if (slug === undefined) {
+				throw new Error(
+					`emitTerm: worker-information property '${term.userPropertyUuid}' has no current saved-name binding.`,
+				);
+			}
+			return `instance('commcaresession')/session/user/data/${slug}`;
+		}
 		case "session-context":
 			// `field` is one of the four `SESSION_CONTEXT_FIELDS`
 			// members validated at the schema layer; direct
@@ -536,7 +547,12 @@ export type RuntimeCsqlQuoteStyle = "single" | "double";
  * refs, session refs, synthetic hoist refs sharing the search-input
  * wire shape) emit as `runtime`.
  */
-export function emitTermSegment(t: Term): TermEmission {
+export function emitTermSegment(
+	t: Term,
+	context: {
+		readonly userPropertySlugs?: ReadonlyMap<Uuid, string>;
+	} = {},
+): TermEmission {
 	switch (t.kind) {
 		case "prop":
 			return { kind: "constant", text: emitCsqlPropertyRefText(t) };
@@ -548,6 +564,18 @@ export function emitTermSegment(t: Term): TermEmission {
 			};
 		case "session-user":
 			return { kind: "runtime", xpath: emitSessionUserXPath(t) };
+		case "session-user-property": {
+			const slug = context.userPropertySlugs?.get(t.userPropertyUuid);
+			if (slug === undefined) {
+				throw new Error(
+					`emitTermSegment: worker-information property '${t.userPropertyUuid}' has no current saved-name binding.`,
+				);
+			}
+			return {
+				kind: "runtime",
+				xpath: emitSessionUserXPath({ kind: "session-user", field: slug }),
+			};
+		}
 		case "session-context":
 			return { kind: "runtime", xpath: emitSessionContextXPath(t) };
 		case "field":

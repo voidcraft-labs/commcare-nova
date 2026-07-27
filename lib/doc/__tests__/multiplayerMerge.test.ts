@@ -48,6 +48,7 @@ import {
 } from "@/lib/doc/scaffolds";
 import { searchInputUpdateMutation } from "@/lib/doc/searchInputMutations";
 import type { Mutation, Uuid } from "@/lib/doc/types";
+import { updateUserTypeValueMutations } from "@/lib/doc/userMutations";
 import {
 	asUuid,
 	type BlueprintDoc,
@@ -2647,5 +2648,55 @@ describe("diff — evacuation into a same-diff-added container", () => {
 		expect(replayed.fields[xUuid]).toBeDefined();
 		expect(replayed.fields[hUuid]).toBeUndefined();
 		expect(replayed.fieldParent[xUuid]).toBe(G);
+	});
+});
+
+describe("user-data value multiplayer convergence", () => {
+	it("merges peers editing different role values in either commit order", () => {
+		const propertyA = asUuid("property-a");
+		const propertyB = asUuid("property-b");
+		const roleUuid = asUuid("role");
+		const base: BlueprintDoc = {
+			...buildDoc(),
+			userProperties: {
+				[propertyA]: {
+					uuid: propertyA,
+					slug: "region",
+					label: "Region",
+				},
+				[propertyB]: {
+					uuid: propertyB,
+					slug: "cadre",
+					label: "Cadre",
+				},
+			},
+			userTypes: {
+				[roleUuid]: {
+					uuid: roleUuid,
+					name: "CHW",
+					values: { [propertyA]: "north", [propertyB]: "community" },
+				},
+			},
+		};
+		const left = apply(
+			base,
+			updateUserTypeValueMutations(base, roleUuid, propertyA, "south"),
+		);
+		const right = apply(
+			base,
+			updateUserTypeValueMutations(base, roleUuid, propertyB, "supervisor"),
+		);
+		const leftBatch = diffDocsToMutations(base, left);
+		const rightBatch = diffDocsToMutations(base, right);
+
+		expect(batchTargetsMissing(apply(base, leftBatch), rightBatch)).toBe(false);
+		expect(batchTargetsMissing(apply(base, rightBatch), leftBatch)).toBe(false);
+		const leftThenRight = apply(base, leftBatch, rightBatch);
+		const rightThenLeft = apply(base, rightBatch, leftBatch);
+		expect(leftThenRight.userTypes?.[roleUuid]?.values).toEqual({
+			[propertyA]: "south",
+			[propertyB]: "supervisor",
+		});
+		expect(rightThenLeft.userTypes).toEqual(leftThenRight.userTypes);
 	});
 });

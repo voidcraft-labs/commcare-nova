@@ -94,6 +94,7 @@ export function buildLintContext(
 		validPaths,
 		reachableCaseTypes: reachable,
 		formEntries: formEntries.filter((e) => VALUE_PRODUCING_TYPES.has(e.kind)),
+		userProperties: Object.values(state.userProperties ?? {}),
 		formType: form.type,
 	};
 }

@@ -27,7 +27,7 @@ import tablerPhone from "@iconify-icons/tabler/phone";
 import tablerPhoto from "@iconify-icons/tabler/photo";
 import tablerTextSize from "@iconify-icons/tabler/text-size";
 import type { ComponentType } from "react";
-import type { CaseProperty, CaseType } from "@/lib/domain";
+import type { CaseProperty, CaseType, UserProperty } from "@/lib/domain";
 import {
 	authorableCaseProperties,
 	type Column,
@@ -71,6 +71,7 @@ export interface ColumnEditContext {
 	readonly caseTypes: readonly CaseType[];
 	/** The case-type the column reads against. */
 	readonly currentCaseType: string;
+	readonly userProperties?: readonly UserProperty[];
 }
 
 /**

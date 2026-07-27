@@ -37,7 +37,7 @@ import {
 	useState,
 } from "react";
 import { BlueprintDocContext } from "@/lib/doc/provider";
-import { useSelectedPreviewIdentity } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
+import { useSelectedPreviewIdentityState } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
 import { useOptionalBuilderSessionApi } from "@/lib/session/provider";
 import { EngineController } from "./engineController";
 
@@ -76,12 +76,17 @@ export function BuilderFormEngineProvider({
 	 * initializer runs during render, before any descendant mounts, so
 	 * both are in place before anyone needs them (`previewAsMe` is pure,
 	 * and Better Auth resolves a warm client session synchronously). */
-	const identity = useSelectedPreviewIdentity();
+	const identityState = useSelectedPreviewIdentityState({
+		useCachedSessionImmediately: true,
+	});
 
 	const [controller] = useState(() => {
 		const c = new EngineController();
 		if (docStore) c.setDocStore(docStore);
-		c.setPreviewIdentity(identity);
+		c.setPreviewIdentityBlocked(identityState.kind === "persona-unavailable");
+		if (identityState.kind === "ready") {
+			c.setPreviewIdentity(identityState.identity);
+		}
 		return c;
 	});
 
@@ -103,11 +108,17 @@ export function BuilderFormEngineProvider({
 	 * session resolving after mount, a sign-out broadcast from another
 	 * tab. The controller's setter treats a materially-identical identity
 	 * as a no-op, so session refetches minting new user references don't
-	 * rebuild an active engine; rendered markup never depends on the
-	 * session, so SSR/hydration stay identity-free. */
+	 * rebuild an active engine. The provider's warm-session opt-in changes
+	 * only this non-rendered controller; visual consumers retain the
+	 * identity-free hydration render. */
 	useEffect(() => {
-		controller.setPreviewIdentity(identity);
-	}, [controller, identity]);
+		if (identityState.kind === "persona-unavailable") {
+			controller.setPreviewIdentityBlocked(true);
+			return;
+		}
+		controller.setPreviewIdentityBlocked(false);
+		controller.setPreviewIdentity(identityState.identity);
+	}, [controller, identityState]);
 
 	/* The reset signal starts before the authoritative GET knows whether the
 	 * app actually changed Projects, so it cannot retire form state. Observe

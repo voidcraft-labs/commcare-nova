@@ -220,11 +220,24 @@ export function hashtagSource(
 				type: "variable",
 			}));
 		} else if (namespace === "user") {
-			options = USER_PROPERTIES.map((p) => ({
-				label: `#user/${p.name}`,
-				detail: p.label,
-				type: "property",
-			}));
+			const custom = lintCtx?.userProperties ?? [];
+			const customSlugs = new Set(custom.map((property) => property.slug));
+			options = [
+				...custom.map((property) => ({
+					label: `#user/${property.slug}`,
+					displayLabel: property.label,
+					detail: property.slug,
+					type: "property",
+					boost: 2,
+				})),
+				...USER_PROPERTIES.filter(
+					(property) => !customSlugs.has(property.name),
+				).map((p) => ({
+					label: `#user/${p.name}`,
+					detail: p.label,
+					type: "property",
+				})),
+			];
 		} else if (accept?.has(namespace)) {
 			// A readable case type — offer exactly its accepted properties.
 			// `case_id` is seeded into every type's index (label "case id"), so

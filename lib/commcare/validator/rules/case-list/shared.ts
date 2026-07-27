@@ -72,6 +72,7 @@ import {
 	LEGACY_STANDARD_CASE_PROPERTY_ALIASES,
 	type Module,
 	SEARCH_INPUT_RUNTIME_VALUE_TYPES,
+	userPropertiesOf,
 } from "@/lib/domain";
 import {
 	type CasePropertyDataType,
@@ -200,6 +201,12 @@ export function moduleTypeContext(
 		// themselves) stay shared by reference.
 		caseTypes: [...augmentedCaseTypes],
 		knownInputs,
+		userPropertySlugs: new Map(
+			Object.values(userPropertiesOf(doc)).map((property) => [
+				property.uuid,
+				property.slug,
+			]),
+		),
 		...(moduleCaseType !== undefined && { currentCaseType: moduleCaseType }),
 		...(lookupTables !== undefined && { lookupTables }),
 	};

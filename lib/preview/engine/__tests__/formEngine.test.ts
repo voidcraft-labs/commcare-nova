@@ -1258,6 +1258,28 @@ describe("FormEngine", () => {
 
 			expect(engine.getState("/data/who").value).toBe("");
 		});
+
+		it("does not resolve #user through an inherited prototype key", () => {
+			if (identity === null) throw new Error("identity setup failed");
+			const inheritedIdentity = {
+				...identity,
+				usercase: Object.create({ constructor: "poison" }) as Record<
+					string,
+					string
+				>,
+			};
+			const input = dTree([
+				{ id: "who", kind: "hidden", calculate: "#user/constructor" },
+			]);
+			const engine = new FormEngine(
+				input,
+				undefined,
+				undefined,
+				inheritedIdentity,
+			);
+
+			expect(engine.getState("/data/who").value).toBe("");
+		});
 	});
 
 	// computeSubmissionMutation walks the engine's template tree, fans

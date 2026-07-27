@@ -70,10 +70,10 @@ export async function loadLookupFixtureDataAction(
 		 * path would pay on every Project lookup edit. */
 		const { projectId, role } = await resolveAppScope(
 			parsed.data.appId,
-			identity.ownerId,
+			identity.actorUserId,
 			"view",
 		);
-		const scope = { projectId, actorId: identity.ownerId, role };
+		const scope = { projectId, actorId: identity.actorUserId, role };
 		/* Bound the MATERIALIZED bytes, not just the id count: per-table
 		 * caps allow 8 MiB of rows each, so an id list alone doesn't bound
 		 * the response. Any exportable doc fits the 16 MiB CCZ fixture

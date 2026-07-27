@@ -200,9 +200,14 @@ function instanceRootFor(target: DetailTarget): InstanceRoot {
 function lookupTermContext(
 	ctx: CaseListEmitContext,
 ): OnDeviceTermEmissionContext {
-	return ctx.lookupNaming === undefined
-		? {}
-		: { lookup: { naming: ctx.lookupNaming } };
+	return {
+		...(ctx.lookupNaming === undefined
+			? {}
+			: { lookup: { naming: ctx.lookupNaming } }),
+		...(ctx.userPropertySlugs === undefined
+			? {}
+			: { userPropertySlugs: ctx.userPropertySlugs }),
+	};
 }
 
 function relationContextFor(ctx: CaseListEmitContext) {
@@ -211,6 +216,9 @@ function relationContextFor(ctx: CaseListEmitContext) {
 		...(ctx.currentCaseType === undefined
 			? {}
 			: { currentCaseType: ctx.currentCaseType }),
+		...(ctx.userPropertySlugs === undefined
+			? {}
+			: { userPropertySlugs: ctx.userPropertySlugs }),
 	};
 }
 

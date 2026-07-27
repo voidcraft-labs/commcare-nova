@@ -166,6 +166,7 @@ function termSourceLabel(value: Extract<ValueExpression, { kind: "term" }>) {
 		case "session-context":
 			return "app information";
 		case "session-user":
+		case "session-user-property":
 			return "user information";
 		case "field":
 			return "form answer";

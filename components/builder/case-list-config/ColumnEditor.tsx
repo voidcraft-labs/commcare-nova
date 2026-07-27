@@ -38,7 +38,7 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
-import type { CaseType, Column, ColumnKind } from "@/lib/domain";
+import type { CaseType, Column, ColumnKind, UserProperty } from "@/lib/domain";
 import {
 	calculatedColumn,
 	dateColumn,
@@ -86,6 +86,7 @@ interface ColumnEditorProps {
 	 * the originating scope only.
 	 */
 	readonly currentCaseType: string;
+	readonly userProperties?: readonly UserProperty[];
 	/**
 	 * Surfaces the boolean validity verdict to the parent on
 	 * every onChange. The parent gates its save affordance on
@@ -103,11 +104,12 @@ export function ColumnEditor({
 	onChange,
 	caseTypes,
 	currentCaseType,
+	userProperties = [],
 	onValidityChange,
 }: ColumnEditorProps) {
 	const ctx = useMemo<ColumnEditContext>(
-		() => ({ caseTypes, currentCaseType }),
-		[caseTypes, currentCaseType],
+		() => ({ caseTypes, currentCaseType, userProperties }),
+		[caseTypes, currentCaseType, userProperties],
 	);
 
 	// Per-kind applicability check. Calculated columns have no
@@ -164,6 +166,7 @@ export function ColumnEditor({
 			caseTypes={caseTypes}
 			currentCaseType={currentCaseType}
 			knownInputs={NO_SEARCH_INPUTS}
+			userProperties={userProperties}
 			validityIndex={EMPTY_VALIDITY_INDEX}
 		>
 			<InspectorSection label="Display as">

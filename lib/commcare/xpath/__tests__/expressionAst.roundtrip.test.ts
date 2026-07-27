@@ -46,7 +46,10 @@ const resolve = fieldPathResolver(doc, FORM);
 const printCtx = () => xpathPrintContext(doc);
 
 function roundTrip(source: string): string {
-	return printXPath(parseXPathExpression(source, resolve), printCtx());
+	return printXPath(
+		parseXPathExpression(source, resolve, () => undefined),
+		printCtx(),
+	);
 }
 
 const CORPUS: string[] = [

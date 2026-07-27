@@ -24,7 +24,8 @@
 //   - `#<type>/<prop>` (one segment, explicit namespace) → `case-ref`.
 //     Case properties are name-keyed; the name pair IS the identity,
 //     so no doc lookup gates this.
-//   - `#user/<prop>` → `user-ref`.
+//   - `#user/<prop>` → `user-property-ref` when it names Nova-authored
+//     worker information, otherwise the final raw `user-ref` form.
 //   - `#case/...` (contextual — follows the module's CURRENT type
 //     rather than naming one), multi-segment non-form shapes, and
 //     unknown namespaces → `raw-ref`, verbatim.
@@ -41,12 +42,13 @@ import {
 	asUuid,
 	opaqueXPathExpression,
 	type ResolveFieldPath,
+	type ResolveUserPropertySlug,
 	type XPathExpression,
 	type XPathPart,
 } from "@/lib/domain";
 import { parser } from "./parser";
 
-export type { ResolveFieldPath };
+export type { ResolveFieldPath, ResolveUserPropertySlug };
 
 // Pre-resolved node types. The grammar emits TWO distinct `Child` /
 // `Descendant` node types (root-step rule vs expression rule), so
@@ -85,6 +87,7 @@ interface LeafSpan {
 export function parseXPathExpression(
 	source: string,
 	resolveFieldPath: ResolveFieldPath,
+	resolveUserPropertySlug: ResolveUserPropertySlug,
 ): XPathExpression {
 	if (source.length === 0) return { parts: [] };
 	const tree = parser.parse(source);
@@ -102,7 +105,13 @@ export function parseXPathExpression(
 	if (hasError) return opaqueXPathExpression(source);
 
 	const spans: LeafSpan[] = [];
-	collectLeafSpans(tree.topNode, source, resolveFieldPath, spans);
+	collectLeafSpans(
+		tree.topNode,
+		source,
+		resolveFieldPath,
+		resolveUserPropertySlug,
+		spans,
+	);
 	spans.sort((a, b) => a.from - b.from);
 
 	const parts: XPathPart[] = [];
@@ -129,10 +138,16 @@ function collectLeafSpans(
 	node: SyntaxNode,
 	source: string,
 	resolveFieldPath: ResolveFieldPath,
+	resolveUserPropertySlug: ResolveUserPropertySlug,
 	spans: LeafSpan[],
 ): void {
 	if (node.type === T.HashtagRef) {
-		const part = classifyHashtag(node, source, resolveFieldPath);
+		const part = classifyHashtag(
+			node,
+			source,
+			resolveFieldPath,
+			resolveUserPropertySlug,
+		);
 		if (part !== undefined) {
 			spans.push({ from: node.from, to: node.to, part });
 		}
@@ -151,7 +166,13 @@ function collectLeafSpans(
 		// bodies can hold further paths/hashtags. Keep recursing.
 	}
 	for (let child = node.firstChild; child; child = child.nextSibling) {
-		collectLeafSpans(child, source, resolveFieldPath, spans);
+		collectLeafSpans(
+			child,
+			source,
+			resolveFieldPath,
+			resolveUserPropertySlug,
+			spans,
+		);
 	}
 }
 
@@ -159,6 +180,7 @@ function classifyHashtag(
 	node: SyntaxNode,
 	source: string,
 	resolveFieldPath: ResolveFieldPath,
+	resolveUserPropertySlug: ResolveUserPropertySlug,
 ): XPathPart | undefined {
 	const nsNode = node.getChild(T.HashtagType.name);
 	if (!nsNode) return undefined;
@@ -175,7 +197,13 @@ function classifyHashtag(
 	}
 	if (namespace === "user") {
 		if (segments.length === 1) {
-			return { kind: "user-ref", property: segments[0] };
+			const uuid = resolveUserPropertySlug(segments[0]);
+			return uuid === undefined
+				? { kind: "user-ref", property: segments[0] }
+				: {
+						kind: "user-property-ref",
+						userPropertyUuid: asUuid(uuid),
+					};
 		}
 		return { kind: "raw-ref", namespace, segments };
 	}

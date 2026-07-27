@@ -13,7 +13,7 @@
 import { CompletionContext } from "@codemirror/autocomplete";
 import { EditorState } from "@codemirror/state";
 import { describe, expect, it } from "vitest";
-import type { ReachableCaseTypeIndex } from "@/lib/domain";
+import { asUuid, type ReachableCaseTypeIndex } from "@/lib/domain";
 import { hashtagSource } from "../xpath-autocomplete";
 import { xpath } from "../xpath-language";
 import type { XPathLintContext } from "../xpath-lint";
@@ -101,5 +101,54 @@ describe("hashtagSource — survey forms offer no case properties", () => {
 		const source = hashtagSource(() => makeLintContext("survey"));
 		const result = source(ctxFor("#patient/"));
 		expect(result).toBeNull();
+	});
+});
+
+describe("hashtagSource — worker information", () => {
+	it("offers custom worker labels while inserting their current slugs", () => {
+		const source = hashtagSource(() => ({
+			...makeLintContext("followup"),
+			userProperties: [
+				{
+					uuid: asUuid("property-1"),
+					slug: "supervisor_area",
+					label: "Supervisor area",
+				},
+			],
+		}));
+
+		const result = source(ctxFor("#user/"));
+		const custom = result?.options.find(
+			(option) => option.label === "#user/supervisor_area",
+		);
+		expect(custom).toMatchObject({
+			displayLabel: "Supervisor area",
+			detail: "supervisor_area",
+			type: "property",
+			boost: 2,
+		});
+	});
+
+	it("does not also offer a built-in when a custom property owns its slug", () => {
+		const source = hashtagSource(() => ({
+			...makeLintContext("followup"),
+			userProperties: [
+				{
+					uuid: asUuid("property-1"),
+					slug: "username",
+					label: "Program username",
+				},
+			],
+		}));
+
+		const usernameOptions =
+			source(ctxFor("#user/"))?.options.filter(
+				(option) => option.label === "#user/username",
+			) ?? [];
+		expect(usernameOptions).toHaveLength(1);
+		expect(usernameOptions[0]).toMatchObject({
+			displayLabel: "Program username",
+			detail: "username",
+		});
 	});
 });

@@ -29,6 +29,7 @@ import { ClearConditionButton } from "@/components/builder/shared/ClearCondition
 import { firstComparisonDefault } from "@/components/builder/shared/cards/comparisonSeed";
 import { PredicateWorkbench } from "@/components/builder/shared/PredicateWorkbench";
 import { Button } from "@/components/shadcn/button";
+import { useUserProperties } from "@/lib/doc/hooks/useUserCollections";
 import type { Predicate } from "@/lib/domain/predicate";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useCanEdit } from "@/lib/session/hooks";
@@ -44,6 +45,7 @@ export function DisplayConditionCanvas({
 	readonly target: DisplayConditionTarget;
 }) {
 	const resolved = useDisplayConditionCarrier(target);
+	const userProperties = useUserProperties();
 	const navigate = useNavigate();
 	const canEdit = useCanEdit();
 	const headingRef = useRef<HTMLHeadingElement>(null);
@@ -219,6 +221,7 @@ export function DisplayConditionCanvas({
 						rootLabel={copy.ruleRootLabel}
 						caseTypes={caseTypes}
 						currentCaseType={currentCaseType}
+						userProperties={userProperties}
 						evaluationTarget="on-device"
 						caseDataScope={copy.caseDataScope}
 						/* An item nobody could ever open is refused by the commit

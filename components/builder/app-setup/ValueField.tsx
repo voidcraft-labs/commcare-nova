@@ -20,23 +20,21 @@ import {
 } from "@/components/shadcn/select";
 import type { UserProperty } from "@/lib/domain";
 
-/** The chooser's "no value" entry — a real absence, not an empty string. */
-const NO_VALUE = "__nova_no_value";
-
 export function ValueField({
 	property,
 	value,
 	disabled,
 	onChange,
-	placeholder,
+	inheritedValue,
 	describedBy,
 }: {
 	property: UserProperty;
-	value: string;
+	/** `undefined` inherits/has no authored value; `""` is an explicit blank. */
+	value: string | undefined;
 	disabled: boolean;
-	onChange: (value: string) => void;
-	/** Shown in an empty input — an inherited value, for instance. */
-	placeholder?: string;
+	onChange: (value: string | undefined) => void;
+	/** Role default shown while a persona has no own override. */
+	inheritedValue?: string;
 	describedBy?: string;
 }) {
 	const inputId = useId();
@@ -55,29 +53,49 @@ export function ValueField({
 	);
 
 	if (property.choices !== undefined && property.choices.length > 0) {
+		const choiceIndex =
+			value === undefined || value === ""
+				? -1
+				: property.choices.indexOf(value);
+		const selectedValue =
+			value === undefined ? -1 : value === "" ? 0 : choiceIndex + 1;
+		const selectedLabel =
+			value === undefined
+				? inheritedValue === undefined
+					? "No value"
+					: `Use role value: ${inheritedValue}`
+				: value === ""
+					? "Blank"
+					: value;
 		return (
 			<div className="flex flex-col gap-1.5">
 				{label}
 				<Select
-					value={value === "" ? NO_VALUE : value}
+					value={selectedValue}
 					disabled={disabled}
-					onValueChange={(next) =>
-						onChange(next === NO_VALUE ? "" : String(next))
-					}
+					onValueChange={(next) => {
+						const index = Number(next);
+						if (index === -1) onChange(undefined);
+						else if (index === 0) onChange("");
+						else onChange(property.choices?.[index - 1]);
+					}}
 				>
 					<SelectTrigger
 						aria-label={property.label}
 						aria-describedby={describedBy}
 						className="min-h-11 w-full"
 					>
-						<SelectValue />
+						<SelectValue>{selectedLabel}</SelectValue>
 					</SelectTrigger>
 					<SelectContent>
-						<SelectItem value={NO_VALUE}>
-							{placeholder ?? "No value"}
+						<SelectItem value={-1}>
+							{inheritedValue === undefined
+								? "No value"
+								: `Use role value: ${inheritedValue}`}
 						</SelectItem>
-						{property.choices.map((choice) => (
-							<SelectItem key={choice} value={choice}>
+						<SelectItem value={0}>Blank</SelectItem>
+						{property.choices.map((choice, index) => (
+							<SelectItem key={choice} value={index + 1}>
 								{choice}
 							</SelectItem>
 						))}
@@ -102,15 +120,25 @@ export function ValueField({
 			</label>
 			<Input
 				id={inputId}
-				value={value}
+				value={value ?? ""}
 				disabled={disabled}
 				autoComplete="off"
 				data-1p-ignore
-				placeholder={placeholder}
+				placeholder={inheritedValue}
 				aria-describedby={describedBy}
 				onChange={(e) => onChange(e.target.value)}
 				className="min-h-11"
 			/>
+			{value !== undefined && (
+				<button
+					type="button"
+					disabled={disabled}
+					onClick={() => onChange(undefined)}
+					className="min-h-11 self-start text-[12px] font-medium text-nova-accent hover:underline disabled:cursor-not-allowed disabled:opacity-40"
+				>
+					{inheritedValue === undefined ? "Remove value" : "Use role value"}
+				</button>
+			)}
 		</div>
 	);
 }

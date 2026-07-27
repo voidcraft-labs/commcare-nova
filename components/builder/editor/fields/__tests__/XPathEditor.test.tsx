@@ -76,7 +76,10 @@ vi.mock("@/lib/doc/hooks/useXPathSlots", () => ({
 	useXPathText: (expr: XPathExpression | undefined) =>
 		expr === undefined
 			? ""
-			: printXPath(expr, { fieldPathSegments: () => undefined }),
+			: printXPath(expr, {
+					fieldPathSegments: () => undefined,
+					userPropertySlug: () => undefined,
+				}),
 	useParseXPathForField: () => (text: string) => ({
 		parts: text.length === 0 ? [] : [{ kind: "text", text }],
 	}),

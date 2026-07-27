@@ -15,6 +15,7 @@
 // authoring repair before a compiler reaches this defense.
 
 import type { CaseType } from "../blueprint";
+import type { Uuid } from "../uuid";
 import { relationPropertyDestinationCaseType } from "./normalizeRelationReads";
 import type {
 	ComparisonKind,
@@ -43,6 +44,8 @@ export interface RelationEvaluationScopeContext {
 	readonly caseTypes?: ReadonlyArray<CaseType>;
 	/** Case type of the row against which this predicate/expression runs. */
 	readonly currentCaseType?: string;
+	/** Current wire names for identity-backed custom worker information. */
+	readonly userPropertySlugs?: ReadonlyMap<Uuid, string>;
 }
 
 /** Normalize every predicate leaf reachable through structural boolean slots. */

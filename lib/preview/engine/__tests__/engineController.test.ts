@@ -14,7 +14,7 @@ import type { CaseType, Field, Uuid } from "@/lib/domain";
 import { asUuid } from "@/lib/domain";
 import type { PersistableDoc } from "@/lib/domain/blueprint";
 import { DEFAULT_RUNTIME_STATE, EngineController } from "../engineController";
-import { previewAsMe } from "../identity";
+import { previewAsMe, type ResolvedPreviewIdentity } from "../identity";
 
 // ── Fixtures ───────────────────────────────────────────────────────────
 
@@ -1600,6 +1600,7 @@ describe("EngineController", () => {
 
 	describe("setPreviewIdentity", () => {
 		const WHO_UUID = asUuid("aaaaaaaa-0009-0009-0009-000000000009");
+		const REGION_UUID = asUuid("aaaaaaaa-0010-0010-0010-000000000010");
 		const ME = { id: "worker-1", email: "amina@example.org" };
 
 		/** Standard two-field doc plus a hidden `#user/username` calculate. */
@@ -1699,6 +1700,79 @@ describe("EngineController", () => {
 
 			expect(ctrl.store.getState()[WHO_UUID].value).toBe("");
 			expect(ctrl.store.getState()[Q1_UUID].value).toBe("");
+		});
+
+		it("a custom worker-property rename reprints the same AST identity in an open form", () => {
+			const doc = makeDoc(
+				{
+					[Q1_UUID]: { uuid: Q1_UUID, id: "name", kind: "text", label: "Name" },
+					[WHO_UUID]: {
+						uuid: WHO_UUID,
+						id: "region",
+						kind: "hidden",
+						calculate: {
+							parts: [
+								{
+									kind: "user-property-ref",
+									userPropertyUuid: REGION_UUID,
+								},
+							],
+						},
+					} as Field,
+				},
+				{ [FORM_UUID]: [Q1_UUID, WHO_UUID] },
+			);
+			doc.userProperties = {
+				[REGION_UUID]: {
+					uuid: REGION_UUID,
+					slug: "assigned_region",
+					label: "Assigned region",
+				},
+			};
+			const identity: ResolvedPreviewIdentity = {
+				actorUserId: ME.id,
+				ownerId: ME.id,
+				session: {
+					context: { userid: ME.id },
+					user: {
+						assigned_region: "north",
+						supervision_area: "south",
+					},
+					userPropertySlugs: {
+						[REGION_UUID]: "assigned_region",
+					},
+				},
+				usercase: {
+					assigned_region: "north",
+					supervision_area: "south",
+				},
+			};
+			const store = createLoadedStore(doc);
+			const ctrl = new EngineController();
+			ctrl.setDocStore(store);
+			ctrl.setPreviewIdentity(identity);
+			ctrl.activateForm(FORM_UUID);
+			const storedField = store.getState().fields[WHO_UUID];
+			if (storedField.kind !== "hidden") {
+				throw new Error("test fixture must remain a hidden field");
+			}
+			const storedAst = storedField.calculate;
+			expect(ctrl.store.getState()[WHO_UUID].value).toBe("north");
+
+			store.getState().applyMany([
+				{
+					kind: "updateUserProperty",
+					uuid: REGION_UUID,
+					patch: { slug: "supervision_area", label: "Supervision area" },
+				},
+			]);
+
+			const renamedField = store.getState().fields[WHO_UUID];
+			if (renamedField.kind !== "hidden") {
+				throw new Error("worker-property rename must not retype the field");
+			}
+			expect(renamedField.calculate).toBe(storedAst);
+			expect(ctrl.store.getState()[WHO_UUID].value).toBe("south");
 		});
 	});
 });

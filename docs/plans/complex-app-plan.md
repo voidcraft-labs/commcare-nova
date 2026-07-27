@@ -341,6 +341,107 @@ distinction is load-bearing everywhere downstream (`lib/domain/users.ts`):
 A **deployed worker** — a real identity on a target HQ domain, with credentials
 and its own lifecycle — is deliberately absent. It is owned by a deployment,
 created *from* a type or persona, and is not a blueprint identity.
+The current app export/upload path does not configure HQ's project-level custom
+user-data schema, role templates, role/persona values, or worker accounts; these
+collections remain Nova authoring and Preview state until unit 12's explicit
+provisioning driver applies them.
+
+The builder, Solutions Architect, and MCP API author all three collections
+through the same granular mutations and commit gate. The builder's names and
+saved property keys draft locally and commit on blur or Enter; accepted-value
+lists commit on blur, Apply, or Command/Ctrl+Enter. Each passes its inline
+verdict first, so ordinary typing never saves an invalid intermediate or loses
+refused text. Each entry disclosure stays mounted while collapsed, so an
+invalid or refused name, saved key, or accepted-value draft and its explanation
+survive both collapse and switching between entries; Base UI still owns hidden
+panel focus and inertness. The shared agent tools expose
+`getUsers` plus add/update/remove operations for each collection (snake_case on
+MCP); values cross those JSON tool boundaries as
+`{ userPropertyUuid, value }[]` and bridge to the UUID-keyed document record at
+one boundary. On an initial build, custom properties land immediately after the
+app name and before the data model, modules, forms, conditions, or calculations
+can reference them; roles and personas may follow the reference-bearing app
+structure. Update omission keeps a slot and explicit `null` clears one. Each
+changed role/persona value persists as its own semantic mutation, with the
+cumulative record only as an origin-compatible fallback, so concurrent edits
+to different properties merge instead of replacing one another. In the
+builder an absent persona value inherits its role, an explicit `""` overrides
+the role with blank, and a nonempty value overrides it with that value; control
+item identities are separate from authored strings, so no valid choice is
+reserved as a sentinel. Preview identity, expression source, and custom worker-
+information choices expose their selected state as checked radio-menu items;
+color is only a secondary cue.
+
+All normalized identity-keyed records use own membership and a null prototype,
+never prototype lookup or the legacy `__proto__` assignment setter. That
+includes the six entity maps, structural membership and reverse maps, every
+reference-index root and nested bucket, and role/persona value bags. JSON and
+structured-clone hydration rebuilds that representation before any mutation,
+diff, query, or projection reads it. Thus schema-valid keys such as
+`__proto__` and `constructor` survive persistence and projection without
+inherited properties masquerading as members. Accepted choices are unique by
+exact value at construction, and duplicate property slugs, user-type names,
+and persona names report every member of the duplicate group in deterministic
+`(order, uuid)` order, independent of insertion order. Flat collections have
+no membership array to break a legacy missing-`order` tie, so two such entries
+sort by UUID rather than object insertion order. The document schema uses the
+shared `ownRecordSchema` rather than Zod's native record parser, which
+intentionally drops `__proto__`; persistence hydration rebuilds every
+normalized record through the same prototype-safe record helpers. All six
+normalized entity kinds — module, form, field, user property, user type, and
+persona — share one global UUID namespace because `blueprint_entities` keys
+them all by `(app_id, uuid)`. The commit validator reports every member of a
+collision, and `decomposeBlueprint` repeats both global uniqueness and
+record-key/embedded-UUID agreement as a persistence tripwire before any rows
+can collapse.
+
+Custom worker-information references follow the same stable identity as
+role/persona values. Predicate / ValueExpression stores
+`session-user-property { userPropertyUuid }`; XPath stores
+`user-property-ref { userPropertyUuid }`. Every Preview, Postgres, local-wire,
+and HQ-wire target resolves the property's current saved slug only when it
+projects the AST, so a rename rewrites nothing and takes effect everywhere
+immediately. The parallel name-backed `session-user { field }` and XPath
+`user-ref { property }` arms are the final vocabulary for
+CommCare-provided or external fields that have no Nova entity — they are not
+compatibility spellings of the identity arm. The builder exposes those as two
+explicit sources: **Worker information** selects only from the UUID catalog,
+while **Other user field** authors only the raw name-backed arm, admits
+hyphens after an XML-safe first character, and never infers identity from its
+text. An unavailable custom UUID stays visible as a recovery state rather than
+falling back to text or exposing the UUID.
+
+Textual XPath parsing converts a custom `#user/<slug>` match to identity only
+when the authored capitalization matches exactly, the case-insensitive catalog
+has exactly one match, and the slug passes the same reserved-name/format
+verdict as construction. A built-in, reserved/invalid legacy custom,
+case-insensitive duplicate, case-only match, missing, or external spelling
+remains name-backed permanently; a later catalog rename cannot retarget that
+raw leaf. While an XPath editor is open, a clean draft adopts a peer's identity
+rename. A dirty draft rebases only when the peer projection changes exactly one
+complete `#user/<slug>` token and no other byte, that rename is the catalog's
+only identity change, the before/after entries prove the same unique
+custom-property UUID, and the cleanly parsed local and base texts each contain
+the complete old token exactly once. The editor subscribes to the custom-worker
+catalog independently of printed text; a catalog-only change that could alter a
+dirty token's identity interpretation therefore fails closed immediately.
+Namespace matches, bare-slug guesses, parser recovery, token extensions,
+deletions, repetitions, and broader peer edits fail closed too. When both edits
+replace the same text, CodeMirror preserves the local draft and refuses save
+until Escape reloads the shared projection instead of overwriting either edit.
+That conflict is sticky for the lifetime of the mounted draft: every later
+projection advances the shared base but neither clears the warning nor enables
+save.
+
+The reference index records both custom AST arms under one `p:<uuid>` target.
+Removing worker information therefore refuses while any condition,
+calculation, default, case-list rule, or navigation rule still reads it and
+names every exact `(carrier, slot)` occurrence to update. Relevant and required
+conditions on the same field remain two settings; friendly descriptions never
+deduplicate distinct slots. It never silently deletes those
+expressions or degrades their identity to mutable text. Once no reference
+remains, the same gated batch clears every role/persona value for the property
+and removes it.
 
 The wire facts the shape rests on:
 
@@ -351,9 +452,14 @@ The wire facts the shape rests on:
   per-field `required_for`. So one app's catalog compiles to that one
   definition.
 - Slug legality is enforced at construction so a push can never fail on identity
-  grounds: the Django slug charset
-  (`custom_data_fields/edit_model.py::XmlSlugField` lists `validate_slug`), at
-  least one non-digit (its `RegexValidator(r'\D', '')`), `SYSTEM_FIELDS` and the
+  grounds. HQ's Django slug validator
+  (`custom_data_fields/edit_model.py::XmlSlugField` lists `validate_slug`) admits
+  a leading digit or hyphen, but Nova emits the slug as an XML element in both
+  the session and usercase projections. Nova therefore requires a leading
+  letter or underscore and admits letters, digits, underscores, and hyphens
+  afterward — the intersection that keeps every emitted path representable. The
+  remaining clauses are at least one non-digit (its
+  `RegexValidator(r'\D', '')`), `SYSTEM_FIELDS` and the
   `commcare` / `xml` prefixes (`models.py::validate_reserved_words`), the
   case-reserved words and case-insensitive uniqueness
   (`edit_model.py::CustomDataFieldsForm.verify_no_reserved_words` /
@@ -394,6 +500,15 @@ The wire facts the shape rests on:
   (`commcare-core .../UserXmlParser.java::parse`) — and merges into a retrieved
   user without clearing, so a key deleted on HQ lingers until a full resync.
   Nova documents that staleness rather than simulating it.
+- The emitted session lookup is pinned byte-for-byte to
+  `commcare-hq/corehq/apps/app_manager/tests/test_suite_remote_request.py::test_required`:
+  `instance('commcaresession')/session/user/data/<slug>`. The emitted usercase
+  lookup is pinned to
+  `corehq/apps/app_manager/tests/data/suite/suite-case-detail-tabs-with-nodesets.xml`:
+  `instance('casedb')/casedb/case[@case_type='commcare-user'][hq_user_id=instance('commcaresession')/session/context/userid]/<slug>`.
+  HQ JSON, local suite/XForm, and HQ-upload XForm tests assert the exact
+  corresponding bytes, including a hyphenated slug and a slug rename against an
+  unchanged AST.
 - `CustomDataFieldsProfile` sits behind the paid `APP_USER_PROFILES` privilege
   and is deliberately not the provisioning model; a user type compiles to plain
   per-user `user_data` values.
@@ -436,7 +551,12 @@ two. `session` is `instance('commcaresession')/session/…`, built by
 `::addUserProperties`. `usercase` is the `commcare-user` case `#user/<prop>`
 reads, built independently by `callcenter/sync_usercase.py::_get_user_case_fields`
 — same authored data, different built-in keys (`first_name` there,
-`commcare_first_name` in the session block).
+`commcare_first_name` in the session block). The serializable session
+projection additionally carries a custom-property UUID→current-slug binding
+map for Predicate/SQL/wire emission; it is projection metadata, not worker
+data. Both projections and every evaluator perform own-key reads, so a valid
+property named `__proto__` or `constructor` behaves as authored data rather
+than inherited prototype state.
 
 **The three location keys diverge between the two projections**, and the
 asymmetry is easy to state backwards: `get_user_session_data` writes all three
@@ -446,9 +566,13 @@ three, so the usercase always carries them. `commcare_profile` likewise appears
 on both.
 
 Preview values are otherwise honest. `commcare_project` is **absent** until a
-deployment target supplies a domain, and `commcare_phone_number` is absent
-because Nova has no HQ account to read it from. `commcare_user_type` is
-`'commcare'` (`users/models.py::COMMCARE_USER` — not the same-named
+deployment target supplies a domain. The session's
+`commcare_first_name`/`commcare_last_name`/`commcare_phone_number` keys and the
+usercase's `first_name`/`last_name`/`phone_number`/`email` keys are always
+present because HQ writes them unconditionally; Nova derives values it knows
+and preserves the rest as empty rather than changing the node shape.
+`commcare_user_type` is `'commcare'`
+(`users/models.py::COMMCARE_USER` — not the same-named
 `UserFieldsView.COMMCARE_USER`, which is `'commcare_user'`, nor
 `change_feed/topics.py::COMMCARE_USER`, which is `'commcare-user'`),
 `commcare_profile` is empty, and `user_type` is `"standard"`, because all three
@@ -457,9 +581,35 @@ present-and-empty, matching `users/user_data.py::UserData.to_dict`'s
 `{field: '' for field in self._schema_fields}` seed, while an undeclared key is
 genuinely absent — the split a `= ''` comparison depends on.
 
+Every persona-aware case-data action authorizes `actorUserId` against the app
+before it exposes the committed blueprint, resolves the selected persona once
+from the blueprint loaded under the same app-row and membership locks, and
+binds the resulting
+`(actorUserId, ownerId)` pair explicitly. A stale or missing persona returns a
+typed refusal; it never changes the write to the signed-in member. The selector
+rides Results/Details reads, sample populate/reset, and form submission, while
+Project lookup reads continue to authorize as the member. Thus sample rows and
+submitted cases are owned by the selected worker, but membership and lookup
+access can never be asserted by authored persona identity. The case-store
+constructor rejects every blank or undefined supplied Project, actor, or owner
+identifier before a query can exist, so a malformed selector cannot degrade
+into an ownerless write.
+
+The selected-but-missing state is explicit on the client too: the running shell
+replaces every Preview surface with a blocked explanation and **Preview as me**
+recovery, and the engine controller refuses activation behind it. It never
+renders an anonymous or one-frame member fallback. Leaving Preview clears the
+persona selection before edit-only sample/data surfaces become active, so the
+next run starts as the signed-in member unless the author chooses a persona
+again.
+
 Deleting a persona never deletes case data: rows it owns keep naming it, and the
-confirmation states how many rows that is rather than offering to reassign or
-remove them. **This is Nova's own rule, not HQ parity** — HQ has two different
+confirmation must successfully count every retained row for that owner across
+current and retired case types before enabling Remove. Held rows are included;
+the result is the exact population that stays stored and may remain visible in
+unfiltered data views. A failed count offers retry rather than allowing an
+unknown-impact removal, and the dialog offers neither reassignment nor row
+removal. **This is Nova's own rule, not HQ parity** — HQ has two different
 answers and neither is a template for it. Deactivating a worker, or removing
 them from the domain, closes their usercase and leaves their cases alone
 (`sync_usercase.py::_get_sync_usercase_helper` computes
@@ -492,7 +642,9 @@ The running preview executes the blueprint in a client-side engine
 - The AST→Kysely compiler (`lib/case-store/sql`) carries `table-lookup` and
   `table-column` arms, so a lookup-bearing case-list filter compiles to SQL.
 - Preview runs as the signed-in member or as a named persona, and the two modes
-  never blend: the running app always states which identity it is showing.
+  never blend: the running app always states which identity it is showing, and
+  an unavailable selected persona blocks execution until the author explicitly
+  switches back.
 
 ### Case lists, search, and the case workspace
 

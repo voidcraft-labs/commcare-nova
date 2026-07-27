@@ -84,6 +84,7 @@ import {
 	type BlueprintDoc,
 	effectiveCaseTypes,
 	type Module,
+	userPropertySlugsByUuid,
 } from "@/lib/domain";
 import { simplifyForEmission } from "@/lib/domain/predicate";
 import type { Predicate } from "@/lib/domain/predicate/types";
@@ -178,6 +179,7 @@ export function buildShortDetail(args: {
 	const relationContext = {
 		caseTypes: effectiveCaseTypes(doc),
 		...(mod.caseType === undefined ? {} : { currentCaseType: mod.caseType }),
+		userPropertySlugs: userPropertySlugsByUuid(doc),
 	};
 	// `<action>` lives only on the case-target detail per the
 	// canonical fixture. A `searchAction` arg passed alongside
@@ -217,6 +219,7 @@ export function buildShortDetail(args: {
 		caseProperties,
 		caseTypes: relationContext.caseTypes,
 		currentCaseType: mod.caseType,
+		userPropertySlugs: userPropertySlugsByUuid(doc),
 		...(config.tile !== undefined && { tileLayout: config.tile }),
 		...(args.assets && { assets: args.assets }),
 		...(args.lookupNaming && { lookupNaming: args.lookupNaming }),
@@ -298,6 +301,7 @@ function buildDetailShell(
 	relationContext: {
 		readonly caseTypes: ReturnType<typeof effectiveCaseTypes>;
 		readonly currentCaseType?: string;
+		readonly userPropertySlugs: ReturnType<typeof userPropertySlugsByUuid>;
 	},
 	lookupNaming?: LookupWireNaming,
 ): Element {
@@ -352,6 +356,7 @@ function buildSearchActionBlock(
 	relationContext: {
 		readonly caseTypes: ReturnType<typeof effectiveCaseTypes>;
 		readonly currentCaseType?: string;
+		readonly userPropertySlugs: ReturnType<typeof userPropertySlugsByUuid>;
 	},
 	lookupNaming?: LookupWireNaming,
 ): Element {

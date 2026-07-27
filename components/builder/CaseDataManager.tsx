@@ -65,6 +65,7 @@ function sampleCaseError(
 	if (result.kind === "unauthenticated") {
 		return "You're signed out. Reload the page to sign in again, then try again.";
 	}
+	if (result.kind === "persona-unavailable") return result.message;
 	if (result.kind === "missing-case-type") {
 		return "These cases are no longer part of the app. Refresh the page, then try again.";
 	}

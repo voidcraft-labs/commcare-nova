@@ -51,6 +51,7 @@ import {
 	isXPathExpression,
 	printXPath,
 	type Uuid,
+	userPropertySlugsByUuid,
 	xpathPrintContext,
 } from "@/lib/domain";
 import { buildConnectSlugMap } from "./connectSlugs";
@@ -163,6 +164,7 @@ export function expandDoc(
 ): HqApplication {
 	const attachments: Record<string, string> = {};
 	const assets = opts.assets;
+	const userPropertySlugs = userPropertySlugsByUuid(doc);
 
 	// Child case type map: child_case_type → parent module index. Derived
 	// from `case_types[].parent_type` + matching module case types. The
@@ -276,6 +278,7 @@ export function expandDoc(
 					form.displayCondition,
 					mod.caseType,
 					opts.lookupNaming,
+					userPropertySlugs,
 				) ?? null;
 
 			// Stamp the form's menu-command media (icon + audio label) onto
@@ -324,6 +327,7 @@ export function expandDoc(
 				mod.displayCondition,
 				mod.caseType,
 				opts.lookupNaming,
+				userPropertySlugs,
 			) ?? null;
 
 		// Stamp the module's home-tile media (icon + audio label) and the

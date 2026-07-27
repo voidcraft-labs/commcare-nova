@@ -13,25 +13,25 @@
 
 import { Icon } from "@iconify/react/offline";
 import tablerBolt from "@iconify-icons/tabler/bolt";
-import { useId, useState } from "react";
+import { type RefObject, useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/shadcn/button";
 import {
 	Collapsible,
 	CollapsibleContent,
 	CollapsibleTrigger,
 } from "@/components/shadcn/collapsible";
-import { Input } from "@/components/shadcn/input";
 import { Switch } from "@/components/shadcn/switch";
-import { Textarea } from "@/components/shadcn/textarea";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useUserProperties } from "@/lib/doc/hooks/useUserCollections";
 import { userPropertySlugVerdict } from "@/lib/doc/identifierVerdicts";
 import type { Uuid } from "@/lib/doc/types";
+import type { RemoveUserPropertyPlan } from "@/lib/doc/userMutations";
 import { BUILT_IN_USER_PROPERTIES, type UserProperty } from "@/lib/domain";
 import { useCanEdit } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import { useInlineConfirmFocus } from "@/lib/ui/hooks/useInlineConfirmFocus";
+import { DraftCommitInput, DraftLinesField } from "./DraftCommitField";
 import { EntryRow, Subsection, SubsectionEmpty } from "./subsection";
 
 export function WorkerInformationSubsection() {
@@ -40,6 +40,8 @@ export function WorkerInformationSubsection() {
 	const sessionApi = useBuilderSessionApi();
 	const mutations = useBlueprintMutations();
 	const [openUuid, setOpenUuid] = useState<string | undefined>(undefined);
+	const [focusUuid, setFocusUuid] = useState<string | undefined>(undefined);
+	const addButtonRef = useRef<HTMLButtonElement>(null);
 
 	const add = () => {
 		if (!sessionApi.getState().canEdit) return;
@@ -47,7 +49,10 @@ export function WorkerInformationSubsection() {
 			slug: uniqueSlug(properties),
 			label: "New information",
 		});
-		if (result.ok) setOpenUuid(result.uuid);
+		if (result.ok) {
+			setOpenUuid(result.uuid);
+			setFocusUuid(result.uuid);
+		}
 	};
 
 	return (
@@ -58,6 +63,7 @@ export function WorkerInformationSubsection() {
 			addLabel="Add worker information"
 			onAdd={add}
 			canEdit={canEdit}
+			addButtonRef={addButtonRef}
 		>
 			{properties.length === 0 ? (
 				<SubsectionEmpty>
@@ -74,6 +80,9 @@ export function WorkerInformationSubsection() {
 						onOpenChange={(next) =>
 							setOpenUuid(next ? property.uuid : undefined)
 						}
+						focusOnMount={focusUuid === property.uuid}
+						onFocused={() => setFocusUuid(undefined)}
+						returnFocusRef={addButtonRef}
 					/>
 				))
 			)}
@@ -97,11 +106,17 @@ function PropertyRow({
 	peers,
 	open,
 	onOpenChange,
+	focusOnMount,
+	onFocused,
+	returnFocusRef,
 }: {
 	property: UserProperty;
 	peers: readonly UserProperty[];
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
+	focusOnMount: boolean;
+	onFocused: () => void;
+	returnFocusRef: RefObject<HTMLButtonElement | null>;
 }) {
 	const canEdit = useCanEdit();
 	const sessionApi = useBuilderSessionApi();
@@ -110,26 +125,38 @@ function PropertyRow({
 	const slugId = useId();
 	const requiredId = useId();
 	const choicesId = useId();
-	const [slugDraft, setSlugDraft] = useState(property.slug);
-	const [confirmingRemove, setConfirmingRemove] = useState(false);
+	const labelRef = useRef<HTMLInputElement>(null);
+	const [removalPlan, setRemovalPlan] = useState<RemoveUserPropertyPlan | null>(
+		null,
+	);
+	const [removalError, setRemovalError] = useState<string | undefined>();
+	const confirmingRemove = removalPlan !== null;
 	const { triggerRef, panelRef } = useInlineConfirmFocus(confirmingRemove);
+
+	useEffect(() => {
+		if (!focusOnMount) return;
+		labelRef.current?.focus();
+		onFocused();
+	}, [focusOnMount, onFocused]);
 
 	/* The peers a name must be unique against exclude this entry itself,
 	 * so re-committing an unchanged name is never a duplicate. */
 	const otherSlugs = new Set(
 		peers.filter((p) => p.uuid !== property.uuid).map((p) => p.slug),
 	);
-	const verdict = userPropertySlugVerdict(slugDraft, otherSlugs);
-
 	const write = (patch: Parameters<typeof mutations.updateUserProperty>[1]) => {
-		if (!sessionApi.getState().canEdit) return;
-		mutations.updateUserProperty(property.uuid as Uuid, patch);
+		if (!sessionApi.getState().canEdit) {
+			return {
+				ok: false as const,
+				messages: ["You no longer have edit access."],
+			};
+		}
+		return mutations.inline.updateUserProperty(property.uuid as Uuid, patch);
 	};
 
-	const commitSlug = () => {
-		if (!verdict.ok) return;
-		if (slugDraft === property.slug) return;
-		write({ slug: slugDraft });
+	const validateSlug = (slug: string) => {
+		const verdict = userPropertySlugVerdict(slug, otherSlugs);
+		return verdict.ok ? undefined : verdict.userMessage;
 	};
 
 	return (
@@ -156,13 +183,15 @@ function PropertyRow({
 					>
 						Name people see
 					</label>
-					<Input
+					<DraftCommitInput
+						inputRef={labelRef}
 						id={labelId}
 						value={property.label}
 						disabled={!canEdit}
-						autoComplete="off"
-						data-1p-ignore
-						onChange={(e) => write({ label: e.target.value })}
+						validate={(value) =>
+							value === "" ? "Enter a name people can see." : undefined
+						}
+						onCommit={(label) => write({ label })}
 						className="min-h-11"
 					/>
 				</div>
@@ -174,44 +203,31 @@ function PropertyRow({
 					>
 						Name it saves under
 					</label>
-					<Input
+					<DraftCommitInput
 						id={slugId}
-						value={slugDraft}
+						value={property.slug}
 						disabled={!canEdit}
-						autoComplete="off"
-						data-1p-ignore
-						spellCheck={false}
-						aria-invalid={verdict.ok ? undefined : true}
-						aria-describedby={
-							verdict.ok ? undefined : `${property.uuid}-slug-problem`
-						}
-						onChange={(e) => setSlugDraft(e.target.value)}
-						onBlur={commitSlug}
-						onKeyDown={(e) => {
-							if (e.key === "Enter") {
-								e.preventDefault();
-								commitSlug();
-							}
-							if (e.key === "Escape") setSlugDraft(property.slug);
-						}}
+						validate={validateSlug}
+						validateAsYouType
+						onCommit={(slug) => write({ slug })}
 						className="min-h-11 font-mono text-[13px]"
 					/>
-					{verdict.ok ? (
-						<span className="text-[12px] text-nova-text-muted">
-							Conditions read this as{" "}
-							<span className="font-mono">{property.slug}</span>.
-						</span>
-					) : (
-						<span
-							id={`${property.uuid}-slug-problem`}
-							className="text-[12px] text-nova-rose"
-						>
-							{verdict.userMessage}
-						</span>
-					)}
+					<span className="text-[12px] text-nova-text-muted">
+						Conditions read this as{" "}
+						<span className="font-mono">{property.slug}</span>.
+					</span>
 				</div>
 
-				<div className="flex items-start gap-3">
+				<label
+					htmlFor={requiredId}
+					className="flex min-h-11 w-full cursor-pointer items-center gap-3 rounded-lg border border-white/[0.04] bg-nova-deep/30 px-3 py-2.5 transition-colors hover:border-white/[0.08]"
+				>
+					<span className="flex min-w-0 flex-1 flex-col gap-0.5">
+						<span className="text-[13px] text-nova-text">Required</span>
+						<span className="text-[12px] leading-relaxed text-nova-text-secondary">
+							CommCare asks for a value whenever a worker account is created.
+						</span>
+					</span>
 					<Switch
 						id={requiredId}
 						checked={property.required === true}
@@ -219,17 +235,9 @@ function PropertyRow({
 						onCheckedChange={(checked) =>
 							write({ required: checked ? true : null })
 						}
-						className="mt-0.5 shrink-0"
+						className="shrink-0"
 					/>
-					<span className="flex flex-col gap-0.5">
-						<label htmlFor={requiredId} className="text-[13px] text-nova-text">
-							Required
-						</label>
-						<span className="text-[12px] leading-relaxed text-nova-text-secondary">
-							CommCare asks for a value whenever a worker account is created.
-						</span>
-					</span>
-				</div>
+				</label>
 
 				<div className="flex flex-col gap-1.5">
 					<label
@@ -238,22 +246,13 @@ function PropertyRow({
 					>
 						Accepted values
 					</label>
-					<Textarea
+					<DraftLinesField
 						id={choicesId}
-						value={(property.choices ?? []).join("\n")}
+						value={property.choices ?? []}
 						disabled={!canEdit}
-						autoComplete="off"
-						data-1p-ignore
-						rows={3}
-						placeholder="One per line. Leave empty to accept any text."
-						onChange={(e) => {
-							const lines = e.target.value
-								.split("\n")
-								.map((line) => line.trim())
-								.filter(Boolean);
-							write({ choices: lines.length > 0 ? lines : null });
-						}}
-						className="text-[13px]"
+						onCommit={(choices) =>
+							write({ choices: choices === null ? null : [...choices] })
+						}
 					/>
 					<span className="text-[12px] text-nova-text-muted">
 						CommCare rejects a worker whose value is not on this list.
@@ -261,37 +260,82 @@ function PropertyRow({
 				</div>
 
 				{canEdit &&
-					(confirmingRemove ? (
+					(removalPlan !== null ? (
 						<div
 							ref={panelRef}
 							tabIndex={-1}
 							className="flex flex-col gap-2 rounded-lg border border-nova-rose/40 bg-nova-rose/[0.06] p-3 outline-none"
 						>
-							<p className="text-[13px] leading-relaxed text-nova-text">
-								Remove {property.label}? Every value roles and personas recorded
-								for it is removed with it.
-							</p>
+							{removalPlan.ok ? (
+								<p className="text-[13px] leading-relaxed text-nova-text">
+									Remove {property.label}? Every value roles and personas
+									recorded for it is removed with it.
+								</p>
+							) : (
+								<div className="space-y-2">
+									<p className="text-[13px] font-medium text-nova-text">
+										Can’t remove {property.label} yet
+									</p>
+									<p className="text-[13px] leading-relaxed text-nova-text-secondary">
+										{removalPlan.referenceCount} saved{" "}
+										{removalPlan.referenceCount === 1
+											? "setting uses"
+											: "settings use"}{" "}
+										this worker information:
+									</p>
+									<ul className="list-disc space-y-1 pl-5 text-[13px] leading-relaxed text-nova-text-secondary">
+										{removalPlan.references.map((reference) => (
+											<li key={reference}>{reference}</li>
+										))}
+									</ul>
+									<p className="text-[13px] leading-relaxed text-nova-text-secondary">
+										Update or remove those references first.
+									</p>
+								</div>
+							)}
+							{removalError !== undefined ? (
+								<p className="text-[13px] leading-relaxed text-nova-rose">
+									{removalError}
+								</p>
+							) : null}
 							<div className="flex items-center gap-2">
-								<Button
-									type="button"
-									variant="destructive"
-									size="lg"
-									className="h-11"
-									onClick={() => {
-										if (!sessionApi.getState().canEdit) return;
-										mutations.removeUserProperty(property.uuid as Uuid);
-									}}
-								>
-									Remove
-								</Button>
+								{removalPlan.ok ? (
+									<Button
+										type="button"
+										variant="destructive"
+										size="lg"
+										className="h-11"
+										onClick={() => {
+											if (!sessionApi.getState().canEdit) return;
+											const outcome = mutations.inline.removeUserProperty(
+												property.uuid as Uuid,
+											);
+											if (!outcome.ok) {
+												setRemovalPlan(
+													mutations.inspectUserPropertyRemoval(
+														property.uuid as Uuid,
+													),
+												);
+												setRemovalError(outcome.messages.join(" "));
+												return;
+											}
+											returnFocusRef.current?.focus();
+										}}
+									>
+										Remove
+									</Button>
+								) : null}
 								<Button
 									type="button"
 									variant="ghost"
 									size="lg"
 									className="h-11"
-									onClick={() => setConfirmingRemove(false)}
+									onClick={() => {
+										setRemovalPlan(null);
+										setRemovalError(undefined);
+									}}
 								>
-									Cancel
+									{removalPlan.ok ? "Cancel" : "Close"}
 								</Button>
 							</div>
 						</div>
@@ -301,7 +345,12 @@ function PropertyRow({
 							type="button"
 							variant="ghost"
 							size="lg"
-							onClick={() => setConfirmingRemove(true)}
+							onClick={() => {
+								setRemovalError(undefined);
+								setRemovalPlan(
+									mutations.inspectUserPropertyRemoval(property.uuid as Uuid),
+								);
+							}}
 							className="h-11 self-start px-2.5 text-[13px] text-nova-rose hover:bg-nova-rose/[0.1] hover:text-nova-rose"
 						>
 							Remove worker information

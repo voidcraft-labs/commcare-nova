@@ -53,6 +53,7 @@ import {
 import { applyMutations } from "@/lib/doc/mutations";
 import { buildReferenceIndex } from "@/lib/doc/referenceIndex";
 import type { BlueprintDoc, Mutation, MutationResult } from "@/lib/doc/types";
+import { recordFromEntries } from "@/lib/domain";
 import type { PersistableDoc } from "@/lib/domain/blueprint";
 
 export { rebuildFieldParent };
@@ -163,22 +164,21 @@ export type BlueprintDocState = BlueprintDoc & {
  * (`connectType`, `caseTypes`) start as `null` to match the blueprint
  * schema (surveys and empty apps may omit them entirely).
  *
- * `fieldParent` starts as an empty object — `rebuildFieldParent` is a
- * no-op on an empty doc but ensures the field is always defined on the
- * store shape.
+ * Identity-keyed records start with null prototypes, matching the post-hydrate
+ * and post-mutation invariant before the first write has happened.
  */
 const EMPTY_DOC: BlueprintDoc = {
 	appId: "",
 	appName: "",
 	connectType: null,
 	caseTypes: null,
-	modules: {},
-	forms: {},
-	fields: {},
+	modules: recordFromEntries([]),
+	forms: recordFromEntries([]),
+	fields: recordFromEntries([]),
 	moduleOrder: [],
-	formOrder: {},
-	fieldOrder: {},
-	fieldParent: {},
+	formOrder: recordFromEntries([]),
+	fieldOrder: recordFromEntries([]),
+	fieldParent: recordFromEntries([]),
 };
 
 /**

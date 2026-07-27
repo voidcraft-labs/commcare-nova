@@ -98,6 +98,16 @@ describe("buildSolutionsArchitectPrompt", () => {
 		expect(sp).not.toContain("Patients");
 	});
 
+	it("teaches the user-identity bridge and explicit-clear contract", () => {
+		const sp = buildSolutionsArchitectPrompt(
+			fixtureDoc("Vaccine Tracker", "Patients"),
+		);
+		expect(sp).toContain("addUserProperties");
+		expect(sp).toContain("userPropertyUuid");
+		expect(sp).toContain("omission keeps a slot and null clears it");
+		expect(sp).toContain("Removing a persona preserves");
+	});
+
 	it("edit prompt is byte-identical across different apps", () => {
 		const a = buildSolutionsArchitectPrompt(
 			fixtureDoc("Vaccine Tracker", "Patients"),
@@ -116,6 +126,27 @@ describe("buildSolutionsArchitectPrompt", () => {
 			expect(sp).toContain("Initial Build");
 			expect(sp).not.toContain("Editing Mode");
 		}
+	});
+
+	it("declares custom worker information before every reference-bearing build step", () => {
+		const prompt = buildSolutionsArchitectPrompt(fixtureEmptyDoc());
+		const nameApp = prompt.indexOf("**Name the app");
+		const workerInformation = prompt.indexOf(
+			"**Declare custom worker information",
+		);
+		const dataModel = prompt.indexOf("**Record the data model");
+		const modules = prompt.indexOf("**Execute the design");
+
+		expect(nameApp).toBeGreaterThan(-1);
+		expect(workerInformation).toBeGreaterThan(nameApp);
+		expect(dataModel).toBeGreaterThan(workerInformation);
+		expect(modules).toBeGreaterThan(workerInformation);
+		expect(prompt.slice(workerInformation, dataModel)).toContain(
+			"addUserProperties",
+		);
+		expect(prompt.slice(workerInformation, dataModel)).toContain(
+			"before any condition, calculation, module, or form",
+		);
 	});
 });
 

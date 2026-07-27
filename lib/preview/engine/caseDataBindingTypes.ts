@@ -108,8 +108,18 @@ export type LoadCasesResult =
 			 * Search/session expression itself needs an editor. */
 			repair: "inputs" | "settings";
 	  }
+	| PreviewPersonaUnavailableResult
 	| { kind: "unauthenticated" }
 	| { kind: "error"; message: string };
+
+/** A selected persona was removed (or the selection is otherwise stale).
+ * Never silently falls back to the signed-in member: that would render one
+ * worker while the chrome still names another, and writes could land under
+ * the wrong owner. */
+export type PreviewPersonaUnavailableResult = {
+	kind: "persona-unavailable";
+	message: string;
+};
 
 /**
  * Unfiltered case count for the builder-owned case-data manager. This is
@@ -121,6 +131,10 @@ export type LoadCaseCountResult =
 	| { kind: "count"; count: number }
 	| { kind: "unauthenticated" }
 	| { kind: "error"; message: string };
+
+export type LoadPersonaOwnedCaseCountResult =
+	| LoadCaseCountResult
+	| PreviewPersonaUnavailableResult;
 
 /**
  * Result of `conversionImpactAction` — the consent preview for a
@@ -268,6 +282,7 @@ export type LoadCaseDataResult =
 			ancestors: ReadonlyArray<CaseRow>;
 	  }
 	| { kind: "missing" }
+	| PreviewPersonaUnavailableResult
 	| { kind: "unauthenticated" }
 	| { kind: "error"; message: string };
 
@@ -296,6 +311,7 @@ export type PopulateSampleCasesResult =
 			caseType: string;
 			failures: ReadonlyArray<CasePropertyFailure>;
 	  }
+	| PreviewPersonaUnavailableResult
 	| { kind: "unauthenticated" }
 	| { kind: "error"; message: string };
 
@@ -453,6 +469,7 @@ export type SubmissionResult =
 	| { kind: "followup"; caseId: string; childCaseIds: ReadonlyArray<string> }
 	| { kind: "close"; caseId: string; childCaseIds: ReadonlyArray<string> }
 	| { kind: "survey" }
+	| PreviewPersonaUnavailableResult
 	| { kind: "unauthenticated" }
 	| { kind: "case-not-found"; caseId: string }
 	| {

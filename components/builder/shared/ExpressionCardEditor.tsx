@@ -42,7 +42,7 @@
 "use client";
 import { useMemo } from "react";
 import { useValidityPropagator } from "@/components/builder/shared/useInnerValidityShadow";
-import type { CaseType } from "@/lib/domain";
+import type { CaseType, UserProperty } from "@/lib/domain";
 import {
 	ANY_CONSTRAINT,
 	acceptsType,
@@ -77,6 +77,8 @@ interface ExpressionCardEditorProps {
 	readonly currentCaseType: string;
 	/** Search inputs declared on the parent surface. */
 	readonly knownInputs?: readonly EditorSearchInputDecl[];
+	/** Current custom worker-information catalog for immutable user refs. */
+	readonly userProperties?: readonly UserProperty[];
 	/** When the slot evaluates relative to a case row. `"global"` slots
 	 *  (a search input's starting value) resolve once, before any case
 	 *  is selected — the provider-derived admission oracle drops every
@@ -118,6 +120,7 @@ export function ExpressionCardEditor({
 	caseTypes,
 	currentCaseType,
 	knownInputs = [],
+	userProperties = [],
 	caseDataScope = "per-case",
 	constraint = ANY_CONSTRAINT,
 	onValidityChange,
@@ -131,8 +134,11 @@ export function ExpressionCardEditor({
 			caseTypes: [...caseTypes],
 			knownInputs: [...knownInputs],
 			currentCaseType,
+			userPropertySlugs: new Map(
+				userProperties.map((property) => [property.uuid, property.slug]),
+			),
 		}),
-		[caseTypes, knownInputs, currentCaseType],
+		[caseTypes, knownInputs, currentCaseType, userProperties],
 	);
 
 	// Run the type checker on every value change (pure — running
@@ -172,6 +178,7 @@ export function ExpressionCardEditor({
 			caseTypes={caseTypes}
 			currentCaseType={currentCaseType}
 			knownInputs={knownInputs}
+			userProperties={userProperties}
 			caseDataScope={caseDataScope}
 			validityIndex={validityIndex}
 		>

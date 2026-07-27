@@ -656,7 +656,7 @@ function emitOperandSegments(
 		return inlineAsRuntimeOperand(expr, typeContext);
 	}
 	if (expr.kind === "term") {
-		return wrapTermAsSegmentList(emitTermSegment(expr.term));
+		return wrapTermAsSegmentList(emitTermSegment(expr.term, typeContext));
 	}
 	if (isNativeCsqlValueExpression(expr)) {
 		// Whitelist arms (`today`, `now`, `date-coerce`,
@@ -754,7 +754,9 @@ function emitInSegments(
 					kind: "term",
 					term: { kind: "literal", value },
 				})
-			: wrapTermAsSegmentList(emitTermSegment({ kind: "literal", value }));
+			: wrapTermAsSegmentList(
+					emitTermSegment({ kind: "literal", value }, typeContext),
+				);
 	if (p.values.length === 1) {
 		const right = emitRight(p.values[0].value);
 		return [...left, { kind: "constant", text: " = " }, ...right];
@@ -1065,10 +1067,13 @@ function emitGeopointCenterSegments(
 			);
 		}
 		return wrapTermAsSegmentList(
-			emitTermSegment({
-				...center.term,
-				value: normalizeStaticGeopoint(center.term.value),
-			}),
+			emitTermSegment(
+				{
+					...center.term,
+					value: normalizeStaticGeopoint(center.term.value),
+				},
+				typeContext,
+			),
 		);
 	}
 	const rawCenter = emitOnDeviceExpression(

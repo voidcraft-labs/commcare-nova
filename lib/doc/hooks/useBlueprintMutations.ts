@@ -87,9 +87,14 @@ import {
 	addPersonaMutations,
 	addUserPropertyMutations,
 	addUserTypeMutations,
+	type RemoveUserPropertyPlan,
 	removePersonaMutations,
-	removeUserPropertyMutations,
+	removeUserPropertyPlan,
 	removeUserTypePlan,
+	updatePersonaMutations,
+	updatePersonaValueMutations,
+	updateUserTypeMutations,
+	updateUserTypeValueMutations,
 } from "@/lib/doc/userMutations";
 import {
 	type AssetId,
@@ -108,6 +113,7 @@ import {
 	fieldRegistry,
 	HIDDEN_INERT_DEFAULT_VALUE,
 	type Module,
+	ownRecordValue,
 	type Persona,
 	type SelectOption,
 	type UserProperty,
@@ -391,8 +397,11 @@ export interface BlueprintMutations {
 		patch: UserEntityPatch<UserProperty>,
 	) => CommitOutcome;
 	/** Remove a piece of worker information and every value recorded
-	 *  against it, as one batch. */
+	 *  against it, as one batch. Refused while a condition/calculation
+	 *  references its stable identity. */
 	removeUserProperty: (uuid: Uuid) => CommitOutcome;
+	/** Read the same live preflight the removal dispatch enforces. */
+	inspectUserPropertyRemoval: (uuid: Uuid) => RemoveUserPropertyPlan;
 
 	/** Add a role. */
 	addUserType: (userType: Omit<UserType, "uuid" | "order">) => AddCommitOutcome;
@@ -400,6 +409,12 @@ export interface BlueprintMutations {
 	updateUserType: (
 		uuid: Uuid,
 		patch: UserEntityPatch<UserType>,
+	) => CommitOutcome;
+	/** Set or remove one role default without replacing its sibling values. */
+	updateUserTypeValue: (
+		uuid: Uuid,
+		userPropertyUuid: Uuid,
+		value: string | undefined,
 	) => CommitOutcome;
 	/** Remove a role. Refused, with the personas named, while any persona
 	 *  still holds it. */
@@ -409,6 +424,12 @@ export interface BlueprintMutations {
 	addPersona: (persona: Omit<Persona, "uuid" | "order">) => AddCommitOutcome;
 	/** Change a persona's name, role, or value overrides. */
 	updatePersona: (uuid: Uuid, patch: UserEntityPatch<Persona>) => CommitOutcome;
+	/** Set or remove one persona override without replacing its siblings. */
+	updatePersonaValue: (
+		uuid: Uuid,
+		userPropertyUuid: Uuid,
+		value: string | undefined,
+	) => CommitOutcome;
 	/** Remove a persona. Case rows it owns are deliberately left alone. */
 	removePersona: (uuid: Uuid) => CommitOutcome;
 
@@ -1186,7 +1207,7 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 				},
 
 				updateUserProperty(uuid, patch) {
-					if (get().userProperties?.[uuid] === undefined) {
+					if (ownRecordValue(get().userProperties, uuid) === undefined) {
 						warnUnresolved("updateUserProperty", { uuid });
 						return NOOP_REJECTION;
 					}
@@ -1197,13 +1218,20 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 
 				removeUserProperty(uuid) {
 					const doc = get();
-					if (doc.userProperties?.[uuid] === undefined) {
+					if (ownRecordValue(doc.userProperties, uuid) === undefined) {
 						warnUnresolved("removeUserProperty", { uuid });
 						return NOOP_REJECTION;
 					}
-					return toOutcome(
-						guardedApply(removeUserPropertyMutations(doc, uuid)),
-					);
+					const plan = removeUserPropertyPlan(doc, uuid);
+					if (!plan.ok) {
+						if (announce) notifyRejectedCommit([plan.userMessage]);
+						return { ok: false, messages: [plan.userMessage] };
+					}
+					return toOutcome(guardedApply(plan.mutations));
+				},
+
+				inspectUserPropertyRemoval(uuid) {
+					return removeUserPropertyPlan(get(), uuid);
 				},
 
 				addUserType(userType) {
@@ -1216,18 +1244,35 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 				},
 
 				updateUserType(uuid, patch) {
-					if (get().userTypes?.[uuid] === undefined) {
+					const doc = get();
+					if (ownRecordValue(doc.userTypes, uuid) === undefined) {
 						warnUnresolved("updateUserType", { uuid });
 						return NOOP_REJECTION;
 					}
-					return toOutcome(
-						guardedApply([{ kind: "updateUserType", uuid, patch }]),
+					const planned = updateUserTypeMutations(doc, uuid, patch);
+					if (planned.length === 0) return COMMITTED;
+					return toOutcome(guardedApply(planned));
+				},
+
+				updateUserTypeValue(uuid, userPropertyUuid, value) {
+					const doc = get();
+					if (ownRecordValue(doc.userTypes, uuid) === undefined) {
+						warnUnresolved("updateUserTypeValue", { uuid });
+						return NOOP_REJECTION;
+					}
+					const planned = updateUserTypeValueMutations(
+						doc,
+						uuid,
+						userPropertyUuid,
+						value,
 					);
+					if (planned.length === 0) return COMMITTED;
+					return toOutcome(guardedApply(planned));
 				},
 
 				removeUserType(uuid) {
 					const doc = get();
-					if (doc.userTypes?.[uuid] === undefined) {
+					if (ownRecordValue(doc.userTypes, uuid) === undefined) {
 						warnUnresolved("removeUserType", { uuid });
 						return NOOP_REJECTION;
 					}
@@ -1252,17 +1297,34 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 				},
 
 				updatePersona(uuid, patch) {
-					if (get().personas?.[uuid] === undefined) {
+					const doc = get();
+					if (ownRecordValue(doc.personas, uuid) === undefined) {
 						warnUnresolved("updatePersona", { uuid });
 						return NOOP_REJECTION;
 					}
-					return toOutcome(
-						guardedApply([{ kind: "updatePersona", uuid, patch }]),
+					const planned = updatePersonaMutations(doc, uuid, patch);
+					if (planned.length === 0) return COMMITTED;
+					return toOutcome(guardedApply(planned));
+				},
+
+				updatePersonaValue(uuid, userPropertyUuid, value) {
+					const doc = get();
+					if (ownRecordValue(doc.personas, uuid) === undefined) {
+						warnUnresolved("updatePersonaValue", { uuid });
+						return NOOP_REJECTION;
+					}
+					const planned = updatePersonaValueMutations(
+						doc,
+						uuid,
+						userPropertyUuid,
+						value,
 					);
+					if (planned.length === 0) return COMMITTED;
+					return toOutcome(guardedApply(planned));
 				},
 
 				removePersona(uuid) {
-					if (get().personas?.[uuid] === undefined) {
+					if (ownRecordValue(get().personas, uuid) === undefined) {
 						warnUnresolved("removePersona", { uuid });
 						return NOOP_REJECTION;
 					}

@@ -1439,6 +1439,16 @@ function ResultsBody({
 		);
 	}
 
+	if (state.kind === "persona-unavailable") {
+		return (
+			<CaseListEmptyNotice
+				title="Choose who Preview runs as"
+				description={state.message}
+				tone="warning"
+			/>
+		);
+	}
+
 	if (state.kind === "unauthenticated") {
 		return (
 			<SessionEndedNotice

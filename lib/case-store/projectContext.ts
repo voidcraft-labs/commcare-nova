@@ -3,11 +3,11 @@
 // The production constructor paths for `CaseStore` / `SchemaCaseStore`
 // instances. Two factories split by what the caller needs:
 //
-//   - `withProjectContext(projectId, actorUserId)` — the tenant-bound
-//     read/write store the 7 case-data Server Actions use. Every
+//   - `withProjectContext(projectId, actorUserId, ownerId)` — the
+//     tenant-bound read/write store case-data Server Actions use. Every
 //     underlying SELECT / UPDATE / DELETE carries
 //     `WHERE project_id = <bound>`, and every insert stamps the new
-//     case's `owner_id = <actor>` (the CommCare case-owner — the
+//     case's `owner_id = <owner>` (the CommCare case-owner — the
 //     reserved axis future location-based access carves on, distinct
 //     from the Project tenant filter); `compileRelationPath` adds the
 //     JOIN-side `project_id` filter on every joined `cases` row.
@@ -46,7 +46,7 @@ import type { CaseStore, TransactionalSchemaCaseStore } from "./store";
 /**
  * Construct a tenant-bound `CaseStore` scoped to `projectId`, stamping
  * `ownerId` as the `owner_id` (CommCare case-owner) of every row it
- * inserts, defaulting to `actorUserId` when the acting member IS the
+ * inserts. Callers pass the same id twice when the acting member IS the
  * worker. The two are separate on purpose: `actorUserId` is the Nova
  * member every authorization fence keys on, while `ownerId` is the
  * CommCare worker — a preview persona, for instance — and must never
@@ -57,7 +57,7 @@ import type { CaseStore, TransactionalSchemaCaseStore } from "./store";
 export async function withProjectContext(
 	projectId: string,
 	actorUserId: string,
-	ownerId: string = actorUserId,
+	ownerId: string,
 ): Promise<CaseStore> {
 	const db = await getCaseStoreDatabase();
 	return new PostgresCaseStore({
@@ -85,6 +85,7 @@ export async function withSchemaContext(): Promise<TransactionalSchemaCaseStore>
 	return new PostgresCaseStore({
 		projectId: null,
 		actorUserId: null,
+		ownerId: null,
 		db,
 		sampleGenerator: new HeuristicCaseGenerator(),
 		authorizeSchemaMutation: async (tx, args) => {

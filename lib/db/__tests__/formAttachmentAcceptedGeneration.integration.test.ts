@@ -229,6 +229,7 @@ describe("accepted capture generation storage race", () => {
 		const store = new PostgresCaseStore({
 			projectId: PROJECT_ID,
 			actorUserId: ACTOR_ID,
+			ownerId: ACTOR_ID,
 			db: h.db() as unknown as Kysely<Database>,
 			sampleGenerator: new HeuristicCaseGenerator(),
 		});

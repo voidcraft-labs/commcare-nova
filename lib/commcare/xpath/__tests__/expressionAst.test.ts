@@ -5,6 +5,7 @@
  * case-property leaf rename matches the long-standing rewriter rules.
  */
 import { describe, expect, it } from "vitest";
+import { resolvableUserPropertySlug } from "@/lib/doc/expressionText";
 import {
 	fieldPathResolver,
 	printXPath,
@@ -29,11 +30,18 @@ function makeDoc(): XPathPrintableDoc {
 			[FORM]: ["f-age", "f-grp"],
 			"f-grp": ["f-inner"],
 		},
+		userProperties: {
+			"property-region": { slug: "region" },
+		},
 	};
 }
 
 function parse(source: string, doc: XPathPrintableDoc): XPathExpression {
-	return parseXPathExpression(source, fieldPathResolver(doc, FORM));
+	return parseXPathExpression(
+		source,
+		fieldPathResolver(doc, FORM),
+		resolvableUserPropertySlug(doc),
+	);
 }
 
 describe("leaf classification", () => {
@@ -148,6 +156,98 @@ describe("resolve at print", () => {
 		const expr = parse("#form/age", doc);
 		delete (doc.fields as Record<string, unknown>)["f-age"];
 		expect(printXPath(expr, xpathPrintContext(doc))).toBe("#form/f-age");
+	});
+
+	it("prints a custom user property through its current slug without rewriting", () => {
+		const doc = makeDoc();
+		const expr = parse("#user/region + #user/commcare_project", doc);
+		expect(expr.parts).toEqual([
+			{
+				kind: "user-property-ref",
+				userPropertyUuid: "property-region",
+			},
+			{ kind: "text", text: " + " },
+			{ kind: "user-ref", property: "commcare_project" },
+		]);
+
+		doc.userProperties = {
+			"property-region": { slug: "district" },
+		};
+		expect(printXPath(expr, xpathPrintContext(doc))).toBe(
+			"#user/district + #user/commcare_project",
+		);
+	});
+
+	it("keeps the already-shipped raw user-ref final and name-based", () => {
+		const doc = makeDoc();
+		const expr: XPathExpression = {
+			parts: [{ kind: "user-ref", property: "region" }],
+		};
+		doc.userProperties = {
+			"property-region": { slug: "district" },
+		};
+		expect(printXPath(expr, xpathPrintContext(doc))).toBe("#user/region");
+	});
+
+	it("does not bind a malformed duplicate slug to an arbitrary uuid", () => {
+		const doc = makeDoc();
+		doc.userProperties = {
+			first: { slug: "region" },
+			second: { slug: "region" },
+		};
+		expect(parse("#user/region", doc).parts).toEqual([
+			{ kind: "user-ref", property: "region" },
+		]);
+	});
+
+	it("keeps built-in names raw even when an invalid legacy custom property collides", () => {
+		const doc = makeDoc();
+		doc.userProperties = {
+			legacy: { slug: "user_type" },
+		};
+		expect(parse("#user/user_type", doc).parts).toEqual([
+			{ kind: "user-ref", property: "user_type" },
+		]);
+	});
+
+	it("keeps reserved legacy custom-property names raw", () => {
+		const doc = makeDoc();
+		doc.userProperties = {
+			legacy: { slug: "case_id" },
+		};
+		expect(parse("#user/case_id", doc).parts).toEqual([
+			{ kind: "user-ref", property: "case_id" },
+		]);
+	});
+
+	it("keeps a case-insensitive duplicate raw even when one spelling matches exactly", () => {
+		const doc = makeDoc();
+		doc.userProperties = {
+			upper: { slug: "Region" },
+			lower: { slug: "region" },
+		};
+		const expr = parse("#user/region", doc);
+		expect(expr.parts).toEqual([{ kind: "user-ref", property: "region" }]);
+
+		doc.userProperties = {
+			upper: { slug: "Region" },
+			lower: { slug: "district" },
+		};
+		expect(printXPath(expr, xpathPrintContext(doc))).toBe("#user/region");
+	});
+
+	it("requires exact capitalization even for one unambiguous custom identity", () => {
+		const doc = makeDoc();
+		doc.userProperties = {
+			upper: { slug: "Region" },
+		};
+		const expr = parse("#user/region", doc);
+		expect(expr.parts).toEqual([{ kind: "user-ref", property: "region" }]);
+
+		doc.userProperties = {
+			upper: { slug: "District" },
+		};
+		expect(printXPath(expr, xpathPrintContext(doc))).toBe("#user/region");
 	});
 });
 

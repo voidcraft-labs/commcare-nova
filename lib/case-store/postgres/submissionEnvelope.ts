@@ -92,7 +92,8 @@ import type {
  */
 export interface SubmissionEnvelopeHost {
 	readonly projectId: string;
-	readonly actorUserId: string;
+	/** CommCare worker the submission runs as; authorization happened earlier. */
+	readonly actingUserId: string;
 	/** Throws `CasePropertiesValidationError` / `SchemaNotSyncedError`. */
 	validateProperties(
 		trx: Transaction<Database>,
@@ -607,10 +608,13 @@ async function resolveOperationProgram(
 		return {
 			formFields: instance.formFields,
 			operationIds: operationIdsFor(instances, allocations, index),
-			actingUserId: host.actorUserId,
+			actingUserId: host.actingUserId,
 			...(program.sessionUser === undefined
 				? {}
 				: { sessionUser: program.sessionUser }),
+			...(program.userPropertySlugs === undefined
+				? {}
+				: { userPropertySlugs: program.userPropertySlugs }),
 			sessionUserFallback: "",
 			...(program.sessionContext === undefined
 				? {}
@@ -1068,7 +1072,7 @@ async function resolveOperationProgram(
 			preparedOwner = prepareText(
 				"owner",
 				operation.owner === undefined
-					? host.actorUserId
+					? host.actingUserId
 					: evaluatedText(bag?.owner),
 			);
 		} else if (operation.action === "update" && operation.owner !== undefined) {

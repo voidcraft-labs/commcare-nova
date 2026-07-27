@@ -336,6 +336,7 @@ function buildStore(): CaseStore {
 	return new PostgresCaseStore({
 		projectId: OWNER_ID,
 		actorUserId: OWNER_ID,
+		ownerId: OWNER_ID,
 		db: dbHandle.db as unknown as Kysely<Database>,
 		sampleGenerator: new HeuristicCaseGenerator(),
 	});

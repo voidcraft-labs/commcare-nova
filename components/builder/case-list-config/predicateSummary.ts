@@ -16,6 +16,7 @@ import {
 	type CaseProperty,
 	type CaseType,
 	canonicalCasePropertyName,
+	type UserProperty,
 } from "@/lib/domain";
 import type {
 	Literal,
@@ -42,6 +43,10 @@ export interface PredicateSummaryContext {
 	readonly caseTypes?: readonly CaseType[];
 	readonly currentCaseType?: string;
 	readonly knownInputs?: readonly EditorSearchInputDecl[];
+	readonly userProperties?: readonly Pick<
+		UserProperty,
+		"uuid" | "slug" | "label"
+	>[];
 }
 
 /**
@@ -357,6 +362,15 @@ function operand(
 					return literalText(t.value);
 				case "session-user":
 					return humanizeName(t.field);
+				case "session-user-property": {
+					const property = context.userProperties?.find(
+						(candidate) => candidate.uuid === t.userPropertyUuid,
+					);
+					return (
+						property?.label ??
+						humanizeName(property?.slug ?? "user information")
+					);
+				}
 				case "session-context":
 					return humanizeName(t.field);
 				case "field":

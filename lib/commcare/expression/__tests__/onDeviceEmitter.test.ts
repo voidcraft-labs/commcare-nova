@@ -24,6 +24,7 @@
 //      emitter.
 
 import { describe, expect, it } from "vitest";
+import { asUuid } from "@/lib/domain";
 import {
 	ancestorPath,
 	and,
@@ -51,6 +52,7 @@ import {
 	selfPath,
 	sessionContext,
 	sessionUser,
+	sessionUserProperty,
 	subcasePath,
 	switchCase,
 	switchExpr,
@@ -548,6 +550,30 @@ describe("emitOnDeviceExpression — term arm structural lifter", () => {
 	it("emits a session-user ref via the term arm", () => {
 		expect(emitOnDeviceExpression(term(sessionUser("clinic_id")))).toBe(
 			`instance('commcaresession')/session/user/data/clinic_id`,
+		);
+	});
+
+	it("resolves a custom session-user property identity to its current slug", () => {
+		const propertyUuid = asUuid("worker-property-region");
+		expect(
+			emitOnDeviceExpression(
+				term(sessionUserProperty(propertyUuid)),
+				"casedb",
+				{},
+				undefined,
+				{
+					userPropertySlugs: new Map([[propertyUuid, "current_region"]]),
+				},
+			),
+		).toBe(`instance('commcaresession')/session/user/data/current_region`);
+	});
+
+	it("refuses a custom worker identity without a current slug binding", () => {
+		const propertyUuid = asUuid("missing-worker-property");
+		expect(() =>
+			emitOnDeviceExpression(term(sessionUserProperty(propertyUuid))),
+		).toThrow(
+			`worker-information property '${propertyUuid}' has no current saved-name binding`,
 		);
 	});
 

@@ -1,5 +1,10 @@
 import type { Draft } from "immer";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
+import {
+	ownRecordValue,
+	recordWithoutKey,
+	recordWithValue,
+} from "@/lib/domain";
 import { assertNever } from "@/lib/utils/assertNever";
 
 /**
@@ -47,37 +52,94 @@ export function applyUserMutation(
 ): void {
 	switch (mut.kind) {
 		case "addUserProperty":
-			draft.userProperties ??= {};
-			draft.userProperties[mut.property.uuid] = mut.property;
+			draft.userProperties = recordWithValue(
+				draft.userProperties,
+				mut.property.uuid,
+				mut.property,
+			);
 			return;
 		case "updateUserProperty":
-			applyPatch(draft.userProperties?.[mut.uuid], mut.patch);
+			applyPatch(ownRecordValue(draft.userProperties, mut.uuid), mut.patch);
 			return;
 		case "removeUserProperty":
 			dropEntry(draft, "userProperties", mut.uuid);
 			return;
 		case "addUserType":
-			draft.userTypes ??= {};
-			draft.userTypes[mut.userType.uuid] = mut.userType;
+			draft.userTypes = recordWithValue(
+				draft.userTypes,
+				mut.userType.uuid,
+				mut.userType,
+			);
 			return;
 		case "updateUserType":
-			applyPatch(draft.userTypes?.[mut.uuid], mut.patch);
+			applyUserDataPatch(
+				ownRecordValue(draft.userTypes, mut.uuid),
+				mut.patch,
+				mut.valuePatch,
+			);
 			return;
 		case "removeUserType":
 			dropEntry(draft, "userTypes", mut.uuid);
 			return;
 		case "addPersona":
-			draft.personas ??= {};
-			draft.personas[mut.persona.uuid] = mut.persona;
+			draft.personas = recordWithValue(
+				draft.personas,
+				mut.persona.uuid,
+				mut.persona,
+			);
 			return;
 		case "updatePersona":
-			applyPatch(draft.personas?.[mut.uuid], mut.patch);
+			applyUserDataPatch(
+				ownRecordValue(draft.personas, mut.uuid),
+				mut.patch,
+				mut.valuePatch,
+			);
 			return;
 		case "removePersona":
 			dropEntry(draft, "personas", mut.uuid);
 			return;
 		default:
 			assertNever(mut, "applyUserMutation");
+	}
+}
+
+/**
+ * Apply an entity patch carrying the rolling-compatible representation of one
+ * value edit. A current receiver ignores the whole-bag fallback and changes
+ * only `valuePatch.userPropertyUuid`; an older receiver strips `valuePatch`
+ * while parsing and applies the cumulative `patch.values` snapshot.
+ */
+function applyUserDataPatch(
+	entity:
+		| Draft<{
+				values?: Record<string, string>;
+		  }>
+		| undefined,
+	patch: Record<string, unknown>,
+	valuePatch: { userPropertyUuid: string; value: string | null } | undefined,
+): void {
+	if (entity === undefined) return;
+	if (valuePatch === undefined) {
+		applyPatch(entity as Record<string, unknown>, patch);
+		return;
+	}
+
+	const metadataPatch = Object.fromEntries(
+		Object.entries(patch).filter(([key]) => key !== "values"),
+	);
+	applyPatch(entity as Record<string, unknown>, metadataPatch);
+	const nextValues =
+		valuePatch.value === null
+			? recordWithoutKey(entity.values, valuePatch.userPropertyUuid)
+			: recordWithValue(
+					entity.values,
+					valuePatch.userPropertyUuid,
+					valuePatch.value,
+				);
+	if (Object.keys(nextValues).length === 0) {
+		delete entity.values;
+	} else {
+		entity.values = nextValues;
 	}
 }
 
@@ -116,12 +178,21 @@ function dropEntry(
 	slot: "userProperties" | "userTypes" | "personas",
 	uuid: string,
 ): void {
-	const collection = draft[slot];
+	const collections = draft as unknown as Record<
+		typeof slot,
+		Record<string, unknown> | undefined
+	>;
+	const collection = collections[slot];
 	if (collection === undefined) return;
-	delete collection[uuid];
+	if (ownRecordValue(collection, uuid) === undefined) return;
+	const remaining = recordWithoutKey(collection, uuid);
 	// `delete`, not `= undefined`: an explicitly-undefined key still shows up
 	// in `Object.keys`, so the in-memory doc would carry a slot that every
 	// reader treats as absent and every serializer drops — a difference with
 	// no meaning that a future equality check would nonetheless see.
-	if (Object.keys(collection).length === 0) delete draft[slot];
+	if (Object.keys(remaining).length === 0) {
+		delete collections[slot];
+	} else {
+		collections[slot] = remaining;
+	}
 }

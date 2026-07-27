@@ -12,15 +12,34 @@
 // findings it always used, so there is no parse-failure channel here.
 
 import { parseXPathExpression } from "@/lib/commcare/xpath";
+import { userPropertySlugVerdict } from "@/lib/doc/identifierVerdicts";
 import { findContainingForm } from "@/lib/doc/mutations/helpers";
 import { bySortKey } from "@/lib/doc/order/compare";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
 import {
 	fieldPathResolver,
 	printXPath,
+	type ResolveUserPropertySlug,
+	userPropertySlugResolver,
 	type XPathExpression,
+	type XPathPrintableDoc,
 	xpathPrintContext,
 } from "@/lib/domain";
+
+const NO_CLAIMED_USER_PROPERTY_SLUGS: ReadonlySet<string> = new Set();
+
+/**
+ * Resolve only one exact, case-insensitively unambiguous, CommCare-valid
+ * custom worker-property slug. Everything else remains a raw user reference.
+ */
+export function resolvableUserPropertySlug(
+	doc: Pick<XPathPrintableDoc, "userProperties">,
+): ResolveUserPropertySlug {
+	return userPropertySlugResolver(
+		doc,
+		(slug) => userPropertySlugVerdict(slug, NO_CLAIMED_USER_PROPERTY_SLUGS).ok,
+	);
+}
 
 /**
  * Parse expression text authored for `fieldUuid`'s slot, resolving
@@ -34,7 +53,11 @@ export function parseXPathForField(
 	text: string,
 ): XPathExpression {
 	const formUuid = findContainingForm(doc, fieldUuid);
-	return parseXPathExpression(text, fieldPathResolver(doc, formUuid));
+	return parseXPathExpression(
+		text,
+		fieldPathResolver(doc, formUuid),
+		resolvableUserPropertySlug(doc),
+	);
 }
 
 /**
@@ -46,7 +69,11 @@ export function parseXPathForForm(
 	formUuid: Uuid | undefined,
 	text: string,
 ): XPathExpression {
-	return parseXPathExpression(text, fieldPathResolver(doc, formUuid));
+	return parseXPathExpression(
+		text,
+		fieldPathResolver(doc, formUuid),
+		resolvableUserPropertySlug(doc),
+	);
 }
 
 /** Print an expression against a doc — the read-side convenience for

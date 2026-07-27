@@ -55,6 +55,10 @@ export const USER_PROPERTIES: ReadonlyArray<{ name: string; label: string }> = [
 	{ name: "phone_number", label: "Phone Number" },
 ];
 
+/** Mutable custom worker identities are offered only by XPath, whose AST stores
+ * UUIDs. Prose keeps raw strings and must remain built-ins-only. */
+export type ReferenceSurface = "prose" | "xpath";
+
 /** A namespace is exactly one hashtag segment — same vocabulary as the
  *  shared matcher source, anchored to the whole token. */
 const NAMESPACE_RE = new RegExp(`^${HASHTAG_SEGMENT_SOURCE}$`);
@@ -108,20 +112,44 @@ export class ReferenceProvider {
 	 * results are narrowed by the same `accept` map the validator uses, so the
 	 * autocomplete never offers a ref the validator would reject.
 	 */
-	search(namespace: string, query: string, formUuid?: string): Reference[] {
+	search(
+		namespace: string,
+		query: string,
+		formUuid?: string,
+		surface: ReferenceSurface = "prose",
+	): Reference[] {
 		const lowerQuery = query.toLowerCase();
 
 		if (namespace === "user") {
-			return USER_PROPERTIES.filter(
+			const custom =
+				surface === "xpath" && formUuid !== undefined
+					? (this.getContextForForm(formUuid)?.userProperties ?? [])
+					: [];
+			const customSlugs = new Set(custom.map((property) => property.slug));
+			const customResults: Reference[] = custom
+				.filter(
+					(property) =>
+						property.slug.toLowerCase().includes(lowerQuery) ||
+						property.label.toLowerCase().includes(lowerQuery),
+				)
+				.map((property) => ({
+					type: "user",
+					path: property.slug,
+					label: `${property.label} (${property.slug})`,
+					raw: `#user/${property.slug}`,
+				}));
+			const builtInResults: Reference[] = USER_PROPERTIES.filter(
 				(p) =>
-					p.name.includes(lowerQuery) ||
-					p.label.toLowerCase().includes(lowerQuery),
+					!customSlugs.has(p.name) &&
+					(p.name.includes(lowerQuery) ||
+						p.label.toLowerCase().includes(lowerQuery)),
 			).map((p) => ({
 				type: "user",
 				path: p.name,
 				label: p.label,
 				raw: `#user/${p.name}`,
 			}));
+			return [...customResults, ...builtInResults];
 		}
 
 		if (!formUuid) return [];
@@ -177,11 +205,32 @@ export class ReferenceProvider {
 	 * refs go through the same `accept` map the validator uses, so a chip
 	 * renders only for refs the validator would also accept.
 	 */
-	resolve(raw: string, formUuid?: string): Reference | null {
+	resolve(
+		raw: string,
+		formUuid?: string,
+		surface: ReferenceSurface = "prose",
+	): Reference | null {
 		const parsed = ReferenceProvider.parse(raw);
 		if (!parsed) return null;
 
 		if (parsed.type === "user") {
+			if (surface === "xpath" && formUuid !== undefined) {
+				// Custom worker properties are mutable identities. Resolve them
+				// from the live context rather than the cached form index so a
+				// rename updates chips immediately without rewriting the XPath
+				// AST or waiting for an editor remount.
+				const custom = this.getContextForForm(formUuid)?.userProperties?.find(
+					(property) => property.slug === parsed.path,
+				);
+				if (custom !== undefined) {
+					return {
+						type: "user",
+						path: custom.slug,
+						label: `${custom.label} (${custom.slug})`,
+						raw,
+					};
+				}
+			}
 			const prop = USER_PROPERTIES.find((p) => p.name === parsed.path);
 			if (!prop) return null;
 			return { type: "user", path: parsed.path, label: prop.label, raw };

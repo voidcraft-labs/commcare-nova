@@ -12,6 +12,11 @@ one of them instead of only as yourself.
 There are three things on that screen, and they answer three different
 questions.
 
+You can make the same changes by chatting with Nova's Solutions Architect. A
+connected MCP agent can also read and edit worker information, roles, and
+personas; all three paths use the same checks, so an invalid intermediate never
+saves.
+
 ## Worker information
 
 **Worker information** is the data every worker carries with them — their
@@ -20,21 +25,51 @@ the person, travels with them into every form, and is the same on every screen
 they open.
 
 Give each one a name people will recognize and a short key the app uses to
-refer to it. The key has to be something CommCare will accept, so Nova checks it
-as you type: letters, numbers, underscores, and hyphens only, at least one
-letter, and not a name CommCare has already claimed. You will be told
-immediately if a key won't work, rather than finding out when you deploy.
+refer to it. The key has to begin with a letter or underscore; after that it may
+use letters, numbers, underscores, and hyphens. Nova also refuses names
+CommCare has already claimed. The first-character rule matters because this
+key becomes part of the worker-data XML path that CommCare imports. Nova tells
+you immediately if a key will not work, rather than waiting until deployment.
+
+If you collapse a worker-information row or look at another row while an edit
+is unfinished or refused, Nova keeps that draft and its explanation in place.
+Reopen the row to correct it; switching context never silently resets what you
+typed.
 
 You can also give a piece of information a fixed list of accepted values. Once
-you do, every role and persona has to pick from that list.
+you do, any role or persona value you set has to come from that list.
+
+Conditions and calculations can read custom worker information. In an XPath,
+write its current saved key as `#user/<saved-key>`. In the condition builder,
+choose **Worker information** and select it by name; this stores the stable
+identity, so changing the saved key updates what Preview and CommCare read
+without breaking the condition or calculation. **Other user field** is a
+separate choice for CommCare-provided or external names and always stays
+literal, even when its text happens to match a custom key.
+
+While an XPath editor is open, a teammate's saved-key rename appears live when
+your draft is clean. If you added different text, Nova carries the rename
+through that addition when it can do so safely. If both edits changed the same
+text, Nova keeps your draft and asks you to reload the shared version instead
+of overwriting either edit. Later teammate updates do not dismiss that warning
+or make the draft saveable; press Escape to reload the latest shared expression
+before continuing.
+
+Nova will not remove worker information while a saved condition or calculation
+still reads it. The refusal names the settings to update. Once those references
+are gone, removal also clears the property's values from every role and persona
+in the same change.
 
 Nova also shows the information **CommCare provides on its own** — the project
 the worker signed into, their name, their locations. You cannot change these,
 but you can write conditions against them, and each one says plainly whether
 Nova can show you a real value while you are only previewing. A few cannot be
-known until your app has somewhere to deploy to, and Nova leaves them empty
-rather than inventing a value that would make a condition pass in preview and
-fail on a real device.
+known yet. Keys that CommCare always supplies — including first name, last name,
+phone number, and the user case's email — remain present with an empty value
+when Nova has no honest value for them. Target-dependent keys, such as the
+CommCare project space, remain absent until a deployment supplies one. Nova
+never invents a value that would make a condition pass in Preview and fail on a
+real device.
 
 Three of them actually change how CommCare behaves; the rest are simply
 carried along for your app to read. The screen says which is which.
@@ -56,9 +91,15 @@ district. Give them a name, pick their role, and change any information that
 differs from the role's defaults. Inherited values are shown alongside the ones
 you changed, so it stays obvious which is which.
 
+For each value, **Use role value** removes the override and returns to
+inheritance. **Remove value** does the same when there is no role value to
+inherit. Clearing the input itself is different: it saves an intentionally
+blank value, which lets a persona override a role's nonblank default with
+nothing.
+
 Personas are for designing and testing. They are not accounts, they have no
-password, and creating one does not create anyone on CommCare — that happens
-when you deploy.
+password, and creating one does not create anyone on CommCare. Nova does not
+currently provision CommCare worker accounts from personas.
 
 ## Preview as a persona
 
@@ -72,22 +113,35 @@ This is the whole point of describing them. Previewing as Asha means:
 - any case the form creates is owned by *her*.
 
 Preview always says whose session you are looking at, so the two never blur
-together.
+together. Returning to edit mode also returns the next Preview to **Preview as
+me**. If another editor removes the persona you are currently previewing as,
+Nova stops the running app and asks you to switch back to yourself; it never
+quietly continues as your account.
 
 Because a persona really owns the cases it creates, removing a persona leaves
 those cases where they are — owned by someone who no longer exists in your app.
-That is exactly what CommCare does when a worker leaves a project, so Nova does
-the same rather than quietly deleting or reassigning real data. The confirmation
-tells you how many cases are affected before you decide.
+This is Nova's policy for design and test actors, not a claim that every
+CommCare worker-removal path behaves the same way. It avoids quietly deleting
+or reassigning your real test data. The confirmation counts every retained case
+the persona owns, including data from case types you have since removed from the
+app, before it enables removal. Those cases remain available in unfiltered case
+data views.
 
 ## What travels to CommCare
 
-Worker information becomes your project's custom user data fields, and roles
-become the values a worker is created with. Nova generates the setup steps for
-this when you deploy; it does not change your CommCare project on its own.
+When Nova compiles the app, conditions and calculations that read custom worker
+information use each property's current saved key. The worker running the app
+must already carry data under those keys for the expressions to see it.
+
+Nova does not currently configure your CommCare project's custom user-data
+schema, create role templates, copy role or persona values to workers, or create
+worker accounts. Worker information, roles, and personas remain Nova authoring
+and Preview data until deployment provisioning for those resources is built.
+Exporting or uploading the app alone does not make those project-level changes.
 
 One thing worth knowing about the devices themselves: CommCare merges worker
 data into a device on each sync and never clears it. If you remove a piece of
-worker information, it stays on a device that has already downloaded it until
-that device does a full resync. Nova does not simulate that in preview — it is
-a property of the platform, not of your app.
+worker information after clearing every app reference to it, it stays on a
+device that has already downloaded it until that device does a full resync.
+Nova does not simulate that in preview — it is a property of the platform, not
+of your app.

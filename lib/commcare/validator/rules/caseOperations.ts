@@ -31,6 +31,7 @@ import {
 	planCaseRetype,
 	prepareCaseOperationTextValue,
 	type Uuid,
+	userPropertySlugsByUuid,
 } from "@/lib/domain";
 import {
 	checkPredicate,
@@ -1047,6 +1048,7 @@ function expressionContext(
 		caseTypes: [...ctx.caseTypes],
 		knownInputs: [],
 		currentCaseType: ctx.module.caseType,
+		userPropertySlugs: userPropertySlugsByUuid(ctx.doc),
 		formFields: new Map(
 			[...ctx.fields]
 				.filter(

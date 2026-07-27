@@ -34,6 +34,7 @@ import type {
 	CaseSearchConfig,
 	CaseType,
 	CommitOutcome,
+	UserProperty,
 } from "@/lib/domain";
 import {
 	effectiveFilterForEmission,
@@ -76,6 +77,7 @@ export interface CaseAvailabilityComposerProps {
 		next: ValueExpression | undefined,
 	) => void;
 	readonly caseTypes: readonly CaseType[];
+	readonly userProperties?: readonly UserProperty[];
 	readonly currentCaseType: string;
 	readonly appId: string;
 	readonly dependencyReview?:
@@ -103,6 +105,7 @@ export function CaseAvailabilityComposer({
 	caseSearchEnabled,
 	onExcludedOwnerIdsChange,
 	caseTypes,
+	userProperties = [],
 	currentCaseType,
 	appId,
 	dependencyReview,
@@ -235,6 +238,7 @@ export function CaseAvailabilityComposer({
 							caseTypes={caseTypes}
 							currentCaseType={currentCaseType}
 							knownInputs={inputDecls}
+							userProperties={userProperties}
 							evaluationTarget={caseSearchEnabled ? "case-search" : "on-device"}
 							focusRequest={
 								dependencyReview?.kind === "cases-available"
@@ -528,8 +532,8 @@ function MatchCount({
 			tabIndex={-1}
 			className={
 				unavailable
-					? "flex min-h-14 flex-wrap items-center gap-2 border-t border-white/[0.07] px-4 py-2.5"
-					: "flex items-center gap-2.5 border-t border-white/[0.07] px-4 py-3 text-[13px] text-nova-text-muted"
+					? "flex min-h-[65px] flex-wrap items-center gap-2 border-t border-white/[0.07] px-4 py-2.5"
+					: "flex min-h-[65px] items-center gap-2.5 border-t border-white/[0.07] px-4 py-3 text-[13px] text-nova-text-muted"
 			}
 		>
 			{unavailable ? (

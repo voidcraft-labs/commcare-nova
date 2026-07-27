@@ -153,7 +153,10 @@ export const DEFAULT_RUNTIME_STATE: RuntimeState = Object.freeze({
  * throughout.
  */
 function buildEngineInput(
-	state: Pick<BlueprintDocState, "forms" | "fields" | "fieldOrder">,
+	state: Pick<
+		BlueprintDocState,
+		"forms" | "fields" | "fieldOrder" | "userProperties"
+	>,
 	formUuid: Uuid,
 ): FormEngineInput | undefined {
 	const form = state.forms[formUuid];
@@ -163,6 +166,7 @@ function buildEngineInput(
 		formUuid,
 		fields: state.fields as unknown as Record<string, Field>,
 		fieldOrder: state.fieldOrder as unknown as Record<string, Uuid[]>,
+		userProperties: state.userProperties,
 	};
 }
 
@@ -411,6 +415,9 @@ export class EngineController {
 	 *  the client auth session and deliberately NOT cleared by
 	 *  `deactivate()`, which is a per-form lifecycle. */
 	private previewIdentity: ResolvedPreviewIdentity | null = null;
+	/** A selected persona disappeared. Never fall through to anonymous form
+	 * execution while the user is deciding which identity to use instead. */
+	private previewIdentityBlocked = false;
 
 	/** The builder session's lookup fixture snapshot. Session-scoped like
 	 *  the identity — engines CAPTURE it at activation (per-form-session
@@ -517,6 +524,13 @@ export class EngineController {
 		}
 	}
 
+	/** Suspend form execution while a selected persona cannot be resolved. */
+	setPreviewIdentityBlocked(blocked: boolean): void {
+		if (this.previewIdentityBlocked === blocked) return;
+		this.previewIdentityBlocked = blocked;
+		if (blocked) this.deactivate();
+	}
+
 	/**
 	 * Install the builder session's lookup fixture snapshot. See the
 	 * field's contract: capture-at-activation, first-arrival rebuild
@@ -549,6 +563,10 @@ export class EngineController {
 	 * thread positional indices through React state.
 	 */
 	activateForm(formUuid: Uuid, caseData?: CaseDataByType): void {
+		if (this.previewIdentityBlocked) {
+			this.deactivate();
+			return;
+		}
 		this.mountForm(formUuid, caseData, crypto.randomUUID());
 	}
 
@@ -584,7 +602,7 @@ export class EngineController {
 		entryKey: string,
 	): void {
 		this.clearActiveForm();
-		if (!this.docStore) {
+		if (this.previewIdentityBlocked || !this.docStore) {
 			this.publishEntryState();
 			return;
 		}
@@ -648,6 +666,7 @@ export class EngineController {
 		this.setupPerFieldSubscriptions(uuids);
 		this.setupStructuralSubscription(formUuid);
 		this.setupMetadataSubscription();
+		this.setupUserPropertySubscription();
 		this.publishEntryState();
 	}
 
@@ -1185,6 +1204,21 @@ export class EngineController {
 		this.unsubscribers.push(unsub);
 	}
 
+	/**
+	 * A custom worker-property rename changes the printed `#user/<slug>` bytes
+	 * without changing the field AST that holds its UUID. Rebuild the active
+	 * engine's printable document whenever that catalog changes so an open form
+	 * immediately evaluates the identity through its current slug.
+	 */
+	private setupUserPropertySubscription(): void {
+		if (!this.docStore) return;
+		const unsub = this.docStore.subscribe(
+			(s) => s.userProperties,
+			() => this.onUserPropertiesChanged(),
+		);
+		this.unsubscribers.push(unsub);
+	}
+
 	// ── Targeted change handlers ─────────────────────────────────────
 
 	/** Helper: resolve the active form's FormEngineInput from the current
@@ -1479,6 +1513,23 @@ export class EngineController {
 		);
 
 		/* Sync any paths that changed from the case data refresh */
+		this.syncAllPathsSelectively();
+	}
+
+	/** Refresh UUID-backed worker XPath printing while preserving touched form
+	 * answers. `updateSchema` snapshots/restores touched values and rebuilds the
+	 * printable document + DAG as one operation. */
+	private onUserPropertiesChanged(): void {
+		if (!this.engine || !this.docStore) return;
+		const input = this.currentEngineInput();
+		if (!input) return;
+		const state = this.docStore.getState();
+		const moduleUuid = this.activeFormUuid
+			? findModuleForForm(state, this.activeFormUuid)
+			: undefined;
+		const mod = moduleUuid ? state.modules[moduleUuid] : undefined;
+
+		this.engine.updateSchema(input, mod?.caseType, this.activeCaseData);
 		this.syncAllPathsSelectively();
 	}
 

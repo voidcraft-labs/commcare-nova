@@ -8,9 +8,8 @@
  */
 "use client";
 
-import { useId, useState } from "react";
+import { type RefObject, useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/shadcn/button";
-import { Input } from "@/components/shadcn/input";
 import { Textarea } from "@/components/shadcn/textarea";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import {
@@ -19,10 +18,11 @@ import {
 	useUserTypes,
 } from "@/lib/doc/hooks/useUserCollections";
 import type { Uuid } from "@/lib/doc/types";
-import type { UserDataValues, UserType } from "@/lib/domain";
+import { ownRecordValue, type UserType } from "@/lib/domain";
 import { useCanEdit } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import { useInlineConfirmFocus } from "@/lib/ui/hooks/useInlineConfirmFocus";
+import { DraftCommitInput } from "./DraftCommitField";
 import { EntryRow, Subsection, SubsectionEmpty } from "./subsection";
 import { ValueField } from "./ValueField";
 
@@ -34,11 +34,16 @@ export function RolesSubsection() {
 	const sessionApi = useBuilderSessionApi();
 	const mutations = useBlueprintMutations();
 	const [openUuid, setOpenUuid] = useState<string | undefined>(undefined);
+	const [focusUuid, setFocusUuid] = useState<string | undefined>(undefined);
+	const addButtonRef = useRef<HTMLButtonElement>(null);
 
 	const add = () => {
 		if (!sessionApi.getState().canEdit) return;
 		const result = mutations.addUserType({ name: uniqueName(roles) });
-		if (result.ok) setOpenUuid(result.uuid);
+		if (result.ok) {
+			setOpenUuid(result.uuid);
+			setFocusUuid(result.uuid);
+		}
 	};
 
 	return (
@@ -49,6 +54,7 @@ export function RolesSubsection() {
 			addLabel="Add role"
 			onAdd={add}
 			canEdit={canEdit}
+			addButtonRef={addButtonRef}
 		>
 			{roles.length === 0 ? (
 				<SubsectionEmpty>
@@ -65,6 +71,9 @@ export function RolesSubsection() {
 						}
 						open={openUuid === role.uuid}
 						onOpenChange={(next) => setOpenUuid(next ? role.uuid : undefined)}
+						focusOnMount={focusUuid === role.uuid}
+						onFocused={() => setFocusUuid(undefined)}
+						returnFocusRef={addButtonRef}
 					/>
 				))
 			)}
@@ -87,12 +96,18 @@ function RoleRow({
 	holderCount,
 	open,
 	onOpenChange,
+	focusOnMount,
+	onFocused,
+	returnFocusRef,
 }: {
 	role: UserType;
 	properties: ReturnType<typeof useUserProperties>;
 	holderCount: number;
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
+	focusOnMount: boolean;
+	onFocused: () => void;
+	returnFocusRef: RefObject<HTMLButtonElement | null>;
 }) {
 	const canEdit = useCanEdit();
 	const sessionApi = useBuilderSessionApi();
@@ -101,18 +116,27 @@ function RoleRow({
 	const descriptionId = useId();
 	const [confirmingRemove, setConfirmingRemove] = useState(false);
 	const [refusal, setRefusal] = useState<string | undefined>(undefined);
+	const nameRef = useRef<HTMLInputElement>(null);
 	const { triggerRef, panelRef } = useInlineConfirmFocus(confirmingRemove);
+
+	useEffect(() => {
+		if (!focusOnMount) return;
+		nameRef.current?.focus();
+		onFocused();
+	}, [focusOnMount, onFocused]);
 
 	const write = (patch: Parameters<typeof mutations.updateUserType>[1]) => {
 		if (!sessionApi.getState().canEdit) return;
 		mutations.updateUserType(role.uuid as Uuid, patch);
 	};
 
-	const setValue = (propertyUuid: string, value: string) => {
-		const next: UserDataValues = { ...(role.values ?? {}) };
-		if (value === "") delete next[propertyUuid];
-		else next[propertyUuid] = value;
-		write({ values: Object.keys(next).length > 0 ? next : null });
+	const setValue = (propertyUuid: string, value: string | undefined) => {
+		if (!sessionApi.getState().canEdit) return;
+		mutations.updateUserTypeValue(
+			role.uuid as Uuid,
+			propertyUuid as Uuid,
+			value,
+		);
 	};
 
 	return (
@@ -138,13 +162,25 @@ function RoleRow({
 					>
 						Name
 					</label>
-					<Input
+					<DraftCommitInput
+						inputRef={nameRef}
 						id={nameId}
 						value={role.name}
 						disabled={!canEdit}
-						autoComplete="off"
-						data-1p-ignore
-						onChange={(e) => write({ name: e.target.value })}
+						validate={(value) =>
+							value === "" ? "Enter a name for this role." : undefined
+						}
+						onCommit={(name) => {
+							if (!sessionApi.getState().canEdit) {
+								return {
+									ok: false,
+									messages: ["You no longer have edit access."],
+								};
+							}
+							return mutations.inline.updateUserType(role.uuid as Uuid, {
+								name,
+							});
+						}}
 						className="min-h-11"
 					/>
 				</div>
@@ -187,7 +223,7 @@ function RoleRow({
 							<ValueField
 								key={property.uuid}
 								property={property}
-								value={role.values?.[property.uuid] ?? ""}
+								value={ownRecordValue(role.values, property.uuid)}
 								disabled={!canEdit}
 								onChange={(next) => setValue(property.uuid, next)}
 							/>
@@ -229,6 +265,7 @@ function RoleRow({
 											role.uuid as Uuid,
 										);
 										if (!outcome.ok) setRefusal(outcome.messages[0]);
+										else returnFocusRef.current?.focus();
 									}}
 								>
 									Remove
