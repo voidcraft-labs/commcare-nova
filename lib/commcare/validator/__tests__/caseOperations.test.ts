@@ -22,6 +22,8 @@ import {
 	formField,
 	idOf,
 	ifExpr,
+	isBlank,
+	isNull,
 	literal,
 	match,
 	prop,
@@ -360,6 +362,23 @@ describe("case-operation on-device portability", () => {
 				],
 			}),
 		]);
+	});
+
+	// Unlike the match modes, the emitter cannot catch this one: it emits
+	// `<term> = ''` for `is-null` and `is-blank` alike, so the dry-run
+	// succeeds and the wire quietly answers a different question.
+	it("rejects a strict missing-value check the wire cannot express", () => {
+		expectCode("CASE_OPERATION_EXPRESSION_TYPE", [
+			update({ condition: isNull(term(prop("patient", "nickname"))) }),
+		]);
+	});
+
+	it("keeps the blank check, which is the portable answer", () => {
+		expect(
+			codesFor([
+				update({ condition: isBlank(term(prop("patient", "nickname"))) }),
+			]),
+		).toEqual([]);
 	});
 
 	it("keeps starts-with, the one mode CommCare Core registers", () => {

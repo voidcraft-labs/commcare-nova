@@ -693,6 +693,17 @@ function validateExpressionSlot(
 		);
 	} else if (result.ok) {
 		validateOnDeviceExpression(ctx, operation, expression, typeContext, errors);
+		let strictNull = false;
+		walkExpressionPredicateNodes(expression, (node) => {
+			if (node.kind === "is-null") strictNull = true;
+		});
+		validateStrictNullPortability(
+			ctx,
+			operation,
+			"expression",
+			strictNull,
+			errors,
+		);
 	}
 	validateCaseSnapshotUse(
 		ctx,
@@ -764,6 +775,17 @@ function validatePredicateSlot(
 		);
 	} else if (result.ok) {
 		validateOnDevicePredicate(ctx, operation, predicate, typeContext, errors);
+		let strictNull = false;
+		walkPredicateNodes(predicate, (node) => {
+			if (node.kind === "is-null") strictNull = true;
+		});
+		validateStrictNullPortability(
+			ctx,
+			operation,
+			"condition",
+			strictNull,
+			errors,
+		);
 	}
 	validateCaseSnapshotUse(
 		ctx,
@@ -837,6 +859,36 @@ function validateOnDevicePredicate(
 			),
 		);
 	}
+}
+
+/**
+ * Strict `is-null` has no portable spelling in an operation's lowered
+ * XPath, and unlike the unrunnable match modes the emitter cannot catch
+ * it: `caseListFilterEmitter` emits `<term> = ''` for `is-null` and
+ * `is-blank` ALIKE, so the dry-run succeeds and the wire quietly answers
+ * a different question from the one the author asked.
+ *
+ * Preview and Postgres can tell an absent property from a stored blank;
+ * CommCare's emitted dialects collapse both. `strictNullPortability`
+ * states the same rule for every module wire slot — case operations are
+ * a form-carried slot, so they need their own walk, not a wider one.
+ */
+function validateStrictNullPortability(
+	ctx: OperationRuleContext,
+	operation: CaseOperation,
+	facet: "condition" | "expression",
+	found: boolean,
+	errors: ValidationError[],
+): void {
+	if (!found) return;
+	errors.push(
+		opError(
+			ctx,
+			operation,
+			"CASE_OPERATION_EXPRESSION_TYPE",
+			`A ${facet} in case operation "${operation.id}" checks whether a value is missing, but on a device CommCare cannot tell a missing value from one saved as blank — both read as empty. Use the blank check instead, which is true for either.`,
+		),
+	);
 }
 
 function identityBindings(values: Iterable<Uuid>): ReadonlyMap<Uuid, string> {
