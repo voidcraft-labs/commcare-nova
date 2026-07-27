@@ -49,6 +49,7 @@ interface SeedManifest {
 			details: string;
 			condition: string;
 			tileResults: string;
+			tileForm: string;
 		};
 	};
 	caseChanges: {
@@ -1338,6 +1339,40 @@ test.describe("authenticated builder", () => {
 				`\u201c${CASE_WORKSPACE_SEED.moduleName}\u201d always appears.`,
 			),
 		).toBeVisible();
+	});
+
+	/**
+	 * The form editor is the most-used screen in the product, and until this
+	 * test nothing asserted it draws anything at all.
+	 *
+	 * It fails silently by construction: the canvas is a virtualized list
+	 * that renders only the rows fitting its scroll viewport, so an upstream
+	 * layout change that leaves that element without a resolvable height
+	 * renders ZERO rows — no console error, no failed request, no empty
+	 * state, just a blank canvas under a correct header with a correct
+	 * structure tree beside it. Assert the viewport AND a row: the height
+	 * alone can be right while nothing draws, and a row assertion alone can
+	 * pass on a taller sibling.
+	 */
+	test("the form edit canvas gives its virtualized list a real viewport and draws the fields", async ({
+		page,
+	}) => {
+		await page.goto(seed.caseWorkspace.routes.tileForm);
+		await expect(page.locator("[data-form-header]")).toBeVisible({
+			timeout: 20_000,
+		});
+
+		// The INNER scroller — `builder/CLAUDE.md` names it the edit-mode one,
+		// and it is the surface the flipbook restores its offset and row
+		// measurements through. PreviewShell's <main> carries the same
+		// attribute, so scope to a descendant of it rather than `.first()`.
+		const canvas = page.locator("main [data-preview-scroll-container]");
+		await expect(canvas).toBeVisible({ timeout: 20_000 });
+		expect(await canvas.evaluate((el) => el.clientHeight)).toBeGreaterThan(0);
+
+		// One row per authored field — the fixture's form holds exactly one.
+		await expect(canvas.locator("[data-field-uuid]")).toHaveCount(1);
+		await expect(canvas.getByText("Visit note")).toBeVisible();
 	});
 
 	/**
