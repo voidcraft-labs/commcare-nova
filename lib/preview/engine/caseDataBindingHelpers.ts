@@ -1232,22 +1232,45 @@ export function buildCaseOperationProgramFromDoc(args: {
 		new Map(
 			(entries ?? []).map((entry) => [entry.fieldUuid as Uuid, entry.value]),
 		);
-	const scopes = caseOperationMultiplicityScopes(doc, formUuid).map(
-		(repeatUuid) => {
-			if (repeatUuid === undefined) {
-				return { iterations: [{ formFields: answerMap(answers?.root) }] };
-			}
-			const clientScope = answers?.repeats.find(
-				(scope) => scope.repeat === (repeatUuid as string),
-			);
-			return {
-				repeat: repeatUuid,
-				iterations: (clientScope?.iterations ?? []).map((bag) => ({
-					formFields: answerMap(bag),
-				})),
-			};
-		},
+	/* A repeat the COMMITTED doc scopes an operation over, with no scope in
+	 * the payload, is provable staleness rather than an empty repeat.
+	 * `FormEngine.computeOperationAnswers` registers a scope for every repeat
+	 * in the client's OWN doc before counting its instances, so a worker who
+	 * simply added no rows still sends that repeat with an empty iteration
+	 * list. Absent means the client never knew the repeat existed — a
+	 * co-editor added it, and this snapshot predates the commit.
+	 *
+	 * Distinguishing the two is the whole point: `?? []` reads an absent
+	 * scope as zero iterations, so the operation runs zero times and the
+	 * submission reports success while committed case effects never
+	 * happened. That is the same silent skip the guard above refuses, one
+	 * level deeper. */
+	const requiredScopes = caseOperationMultiplicityScopes(doc, formUuid);
+	const suppliedRepeats = new Set(answers.repeats.map((scope) => scope.repeat));
+	const missingRepeats = requiredScopes.filter(
+		(repeatUuid): repeatUuid is Uuid =>
+			repeatUuid !== undefined && !suppliedRepeats.has(repeatUuid as string),
 	);
+	if (missingRepeats.length > 0) {
+		throw new CaptureSubmissionRejectedError(
+			"The submitted form is missing answers for a repeat its committed case operations run over. Reload the form and submit again.",
+		);
+	}
+
+	const scopes = requiredScopes.map((repeatUuid) => {
+		if (repeatUuid === undefined) {
+			return { iterations: [{ formFields: answerMap(answers.root) }] };
+		}
+		const clientScope = answers.repeats.find(
+			(scope) => scope.repeat === (repeatUuid as string),
+		);
+		return {
+			repeat: repeatUuid,
+			iterations: (clientScope?.iterations ?? []).map((bag) => ({
+				formFields: answerMap(bag),
+			})),
+		};
+	});
 
 	const sessionContext = new Map<string, string>();
 	for (const [field, value] of Object.entries(args.identity.session.context)) {

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { adjudicateSubmissionReceipt } from "@/lib/case-store";
 import { asUuid } from "@/lib/domain";
+import { literal, term } from "@/lib/domain/predicate";
 import { buildDoc, f } from "../../../__tests__/docHelpers";
 import type { SubmissionMutation } from "../caseDataBindingTypes";
 import type { ResolvedPreviewIdentity } from "../identity";
@@ -64,6 +65,68 @@ function surveyDoc(fieldKind: "image" | "text") {
 			},
 		],
 	});
+}
+
+const REPEAT_UUID = asUuid("44444444-4444-4444-8444-444444444444");
+const REPEAT_FIELD_UUID = asUuid("55555555-5555-4555-8555-555555555555");
+const OPERATION_UUID = asUuid("66666666-6666-4666-8666-666666666666");
+
+/** A form whose one case operation runs once per `visits` iteration. */
+function repeatScopedOperationDoc() {
+	const doc = buildDoc({
+		appName: "Repeat-scoped operation",
+		caseTypes: [{ name: "visit", properties: [] }],
+		modules: [
+			{
+				name: "Module",
+				forms: [
+					{
+						uuid: FORM_UUID,
+						name: "Survey",
+						type: "survey",
+						fields: [
+							f({
+								uuid: REPEAT_UUID,
+								kind: "repeat",
+								id: "visits",
+								label: "Visits",
+								repeat_mode: "user_controlled",
+								children: [
+									f({
+										uuid: REPEAT_FIELD_UUID,
+										kind: "text",
+										id: "visit_note",
+										label: "Visit note",
+									}),
+								],
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	return {
+		...doc,
+		forms: {
+			...doc.forms,
+			[FORM_UUID]: {
+				...doc.forms[FORM_UUID],
+				caseOperations: [
+					{
+						uuid: OPERATION_UUID,
+						id: "log_visit",
+						order: "a",
+						action: "create",
+						caseType: "visit",
+						target: { kind: "new" },
+						forEach: { repeat: REPEAT_UUID },
+						name: term(literal("Visit")),
+					},
+				],
+			},
+		},
+	};
 }
 
 function emptyCaptureMutation(): SubmissionMutation {
@@ -183,5 +246,67 @@ describe("capture submission intent", () => {
 		expect(adjudicateSubmissionReceipt(changed, prior)).toEqual({
 			kind: "mismatch",
 		});
+	});
+
+	/* A repeat scope the committed doc requires, absent from the payload, is
+	 * STALENESS, not an empty repeat: the client registers a scope for every
+	 * repeat it knows about before counting instances, so a worker who added
+	 * no rows still sends the repeat with an empty iteration list. Reading the
+	 * absent scope as zero iterations would run the operation zero times and
+	 * report success. */
+	it("rejects a payload missing a repeat scope its committed operations run over", async () => {
+		const committedApp = {
+			blueprint: repeatScopedOperationDoc(),
+			mutation_seq: 4,
+		};
+		const mutation: SubmissionMutation = {
+			kind: "survey",
+			formUuid: FORM_UUID,
+			entryKey: ENTRY_KEY,
+			attachmentRefs: [],
+			// A stale client that never saw the `visits` repeat.
+			operationAnswers: { root: [], repeats: [] },
+		};
+
+		await expect(
+			buildSubmissionOperationProgram({
+				appId: APP_ID,
+				committedApp,
+				identity: IDENTITY,
+				lookupScope: LOOKUP_SCOPE,
+				mutation,
+				projection: validateCaptureSubmissionProjection(mutation),
+				viewerTimeZone: "UTC",
+			}),
+		).rejects.toThrow(/missing answers for a repeat/i);
+	});
+
+	it("accepts the same form when the worker simply added no rows", async () => {
+		const committedApp = {
+			blueprint: repeatScopedOperationDoc(),
+			mutation_seq: 4,
+		};
+		const mutation: SubmissionMutation = {
+			kind: "survey",
+			formUuid: FORM_UUID,
+			entryKey: ENTRY_KEY,
+			attachmentRefs: [],
+			// The current client: the repeat is present, with zero iterations.
+			operationAnswers: {
+				root: [],
+				repeats: [{ repeat: REPEAT_UUID as string, iterations: [] }],
+			},
+		};
+
+		const built = await buildSubmissionOperationProgram({
+			appId: APP_ID,
+			committedApp,
+			identity: IDENTITY,
+			lookupScope: LOOKUP_SCOPE,
+			mutation,
+			projection: validateCaptureSubmissionProjection(mutation),
+			viewerTimeZone: "UTC",
+		});
+		expect(built.program).toBeDefined();
 	});
 });
