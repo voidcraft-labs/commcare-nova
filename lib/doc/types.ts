@@ -594,6 +594,48 @@ function reportMisplacedOptionsSource(
 }
 
 /**
+ * Reports a case-operation update that also tries to set the operation's
+ * `uuid`.
+ *
+ * `clearablePartialPatch` already omits `uuid`, so `.strict()` refuses this
+ * shape on its own — the refusal is structural and this function does not
+ * create it. What it creates is the SENTENCE. Strict parsing would otherwise
+ * answer "Unrecognized key" for a caller (the SA, an MCP client) whose actual
+ * mistake is believing an update can move an operation's identity, and that
+ * caller has to be able to act on the message. Running as a preprocess means
+ * this lands before the structural refusal rather than beside it.
+ */
+function reportImmutableCaseOperationIdentity(
+	value: unknown,
+	ctx: z.RefinementCtx,
+): void {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+		return;
+	}
+	if (!("kind" in value) || value.kind !== "updateForm") return;
+	if (!("caseOperationPatch" in value)) return;
+	const change = value.caseOperationPatch;
+	if (
+		typeof change !== "object" ||
+		change === null ||
+		!("operation" in change) ||
+		change.operation !== "update" ||
+		!("patch" in change) ||
+		typeof change.patch !== "object" ||
+		change.patch === null ||
+		!Object.hasOwn(change.patch, "uuid")
+	) {
+		return;
+	}
+	ctx.addIssue({
+		code: "custom",
+		path: ["caseOperationPatch", "patch", "uuid"],
+		message:
+			"This update also sets the case operation's uuid. An operation's identity is fixed when it is created, so an update can change what the operation does but never which operation it is — address the operation by its existing uuid and leave that slot out of the patch.",
+	});
+}
+
+/**
  * Run a raw-input check before `schema` without changing its public I/O types.
  *
  * Zod 4's `preprocess` declaration always exposes `unknown` as the wrapper's
@@ -614,6 +656,7 @@ function prevalidateRawMutationInput<Schema extends z.ZodType>(
 	const guarded = z.preprocess<z.input<Schema>, Schema, z.input<Schema>>(
 		(value, ctx) => {
 			reportMisplacedOptionsSource(value, ctx);
+			reportImmutableCaseOperationIdentity(value, ctx);
 			return value;
 		},
 		schema,
