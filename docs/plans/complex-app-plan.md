@@ -243,7 +243,23 @@ and the keyboard asks the same map before committing. Neither gesture can commit
 what the other would refuse, and `view.move` re-plans from the invocation-time
 document so a peer edit mid-gesture cannot slip one through. The move mutation
 carries both its fractional key and requested final rank; the authoritative
-commit rejects it if a peer insertion makes that key land elsewhere. Successful
+commit rejects it if a peer insertion makes that key land elsewhere.
+
+**A fractional key alone cannot name a destination inside a run of tied
+siblings**, and the sequence is `(order, uuid)`: a key above the run sorts after
+all of it, below sorts before all of it, and equal leaves the mover's immutable
+uuid to decide. `lib/doc/order/rankedMove.ts::planRankedMove` therefore returns
+the mover's key plus the minimum sibling re-keys that open a real gap — the
+shorter side of the run, empty in the common case, and only the upper side where
+the lower bound is numerically zero, below which nothing sorts. Re-keys preserve
+sibling relative order, so only the mover changes rank and the dependency and
+wire-order analyses stay about the same graph; they ride index-less, so exactly
+one rank is fenced — the one the author chose — while a genuine peer shift is
+still rejected. Its comparator is a required parameter because the repo has two
+tie-breaks, and a default matching one silently mis-plans for the other.
+`backfillOrderKeys` covers `caseOperations`, so an absent key is a
+directly-constructed-document case rather than a live path; the primitive stays
+total for it regardless. Successful
 pointer, keyboard, SA, and MCP outcomes all report the rank in the committed
 document, never the stale requested rank. Moving to the rank the operation
 already occupies is a true no-op: it reports that rank without rewriting the
@@ -256,7 +272,15 @@ go to `role="alert"` (the screen is otherwise unchanged, so the press would read
 as a no-op) and the polite region carries only outcomes that did something.
 `dependent-reference` and `execution-order` stay distinct: the second is a
 property of the submitted form, not the author's mistake, and never says
-otherwise.
+otherwise. A dependency refusal additionally carries WHICH kind it is —
+`reference` for an `id-of` edge, `target-type` for a dependent left acting on a
+type the move or removal would stop establishing. The planner's refusal arm is a
+discriminated split rather than an optional field, so a dependency refusal with
+no cause is un-constructible: the copy layer reads the cause instead of
+re-deriving it by walking `id-of` edges, which is how a target-type refusal used
+to name an unrelated create the operation was already after. A target-type
+sentence claims no direction, because a retype moved either way can leave a
+neighbour mistyped.
 
 The rail owns the discrete choices — name, action, case type, target, identity
 key, multiplicity, retype, removal — and the centre canvas owns every recursive
@@ -416,7 +440,21 @@ The membership gate precedes the program build, closing a one-bit cross-tenant
 survey oracle. If a freshly authorized committed form has operations but the
 submission lacks its answer bags, the entire request rejects as stale/skewed:
 empty bindings would blank-write and an ordinary-only fallback would silently
-skip committed semantics. That same authorized boundary projects canonical
+skip committed semantics.
+
+Two finer skews reject for the same reason. **A repeat scope the committed
+document requires, absent from the payload, is provable staleness rather than an
+empty repeat** — `computeOperationAnswers` registers a scope for every repeat in
+the client's own document *before* counting instances, so a worker who added no
+rows still sends it carrying an empty iteration list. Only a client that never
+knew the repeat omits it, and reading that as zero iterations would run the
+operation zero times and report success. **A missing form answer rejects too**,
+checked per scope against the iterations that will actually compile: a field
+inside a repeat the worker left empty is never read, so demanding it would refuse
+an honest submission. Without that check the reference reaches `compileBoundRef`,
+which deliberately has no fallback for a form field — a blank would change a
+predicate's truth value — and its developer-voiced invariant became the worker's
+error text plus an alert, for an ordinary multiplayer race. That same authorized boundary projects canonical
 lookup-reference occurrences onto the committed form's operation UUIDs and
 threads one exact rows-free definition snapshot through the immutable envelope;
 carrier-free programs perform no lookup-definition read, while lookup rows
