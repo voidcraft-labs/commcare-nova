@@ -7,12 +7,18 @@
 // stay a projection — a refusal's wording may never imply a rule the
 // planner does not enforce, because the author will act on the wording.
 //
-// The two reasons say genuinely different things, and collapsing them
-// into one "can't move that" would waste the distinction the analysis
-// worked to make:
+// The reasons say genuinely different things, and collapsing them into
+// one "can't move that" would waste the distinction the analysis worked
+// to make:
 //
-//   - `dependent-reference` — something else USES this operation's
-//     result, so order between them is not free.
+//   - `dependent-reference` + `reference` — something else USES this
+//     operation's result, so order between them is not free.
+//   - `dependent-reference` + `target-type` — an earlier change SETS the
+//     kind of case something later acts on, so the order the types were
+//     established in is not free either. Nothing here is made or used;
+//     saying it the reference way ("uses the case X makes") names a
+//     change that is not the blocker and describes an edge that does not
+//     exist, which is exactly why the planner reports which kind it was.
 //   - `execution-order` — the SUBMITTED FORM could not represent the
 //     order. `caseOperationOrder.ts` refuses a move backwards across a
 //     repeat boundary, an authored-key create after other work, and a
@@ -67,7 +73,7 @@ export function moveRefusal(
  * caller inside the refused branch does not have to fall back on copy
  * that could never be right.
  *
- * A dependency refusal comes in two shapes, and saying them the same way
+ * A REFERENCE refusal comes in two shapes, and saying them the same way
  * would misdescribe one of them. The planner answers with the operations
  * whose REFERENCES would break, so:
  *
@@ -77,7 +83,11 @@ export function moveRefusal(
  *     sentence names what it depends on instead.
  *
  * `moved` and `dependsOn` are what let the copy tell those apart without
- * deciding anything: both come from the model.
+ * deciding anything: both come from the model. A TARGET-TYPE refusal is
+ * not about a reference at all, so it never reads `dependsOn` — the
+ * blockers the planner named are the whole answer, and the sentence
+ * claims no direction, because a retype moved either way can leave a
+ * neighbour acting on the wrong kind of case.
  */
 export function moveRefusalReason(
 	verdict: Extract<CaseOperationMoveVerdict, { ok: false }>,
@@ -90,21 +100,33 @@ export function moveRefusalReason(
 	},
 ): string {
 	if (verdict.reason === "dependent-reference") {
-		const consumers = verdict.blockingUuids.filter(
+		const others = verdict.blockingUuids.filter(
 			(uuid) => uuid !== context.moved,
 		);
+		if (verdict.dependencyKind === "target-type") {
+			const names = quotedNames(others, nameOf);
+			return names.length === 0
+				? "This order would change which kind of case this change acts on."
+				: `This order would change which kind of case ${names} acts on.`;
+		}
 		if (verdict.blockingUuids.includes(context.moved)) {
 			const targets = quotedNames(context.dependsOn, nameOf);
 			return targets.length === 0
 				? "This change uses a case an earlier change makes, so it cannot move ahead of it."
 				: `This change uses the case ${targets} makes, so it has to stay after it.`;
 		}
-		const names = quotedNames(consumers, nameOf);
+		const names = quotedNames(others, nameOf);
 		return names.length === 0
 			? "Something else here uses this change's result, so it has to stay earlier."
 			: `${names} uses this change's result, so this has to stay before it.`;
 	}
-	const names = quotedNames(verdict.blockingUuids, nameOf);
+	/* The moved change is on both sides of a wire-order refusal — it is the
+	 * one that would land wrong. Naming it here would put it on the wrong
+	 * side of itself. */
+	const names = quotedNames(
+		verdict.blockingUuids.filter((uuid) => uuid !== context.moved),
+		nameOf,
+	);
 	return names.length === 0
 		? "The submitted form cannot carry the changes in this order."
 		: `The submitted form cannot carry this order: it would put this change on the wrong side of ${names}.`;
@@ -137,15 +159,20 @@ export function referenceSlotPhrase(slot: CaseOperationReferenceSlot): string {
 }
 
 /**
- * The removal review's per-consumer line: which operation, and every
- * slot of it that would be left pointing at nothing.
+ * The removal review's per-blocker line: which operation, and every slot
+ * of it that would be left pointing at nothing.
+ *
+ * No slots means the blocker holds no reference at all — it depends on
+ * the kind of case this change establishes. There is nothing to point
+ * at, so the line names the operation and stops rather than inventing a
+ * slot the author would go looking for.
  */
 export function dependencyLine(
-	consumerName: string | undefined,
+	blockerName: string | undefined,
 	slots: readonly CaseOperationReferenceSlot[],
 ): string {
-	const where = listNames(slots.map(referenceSlotPhrase));
-	const who =
-		consumerName === undefined ? "Another change" : `“${consumerName}”`;
-	return `${who} uses it in ${where}.`;
+	const who = blockerName === undefined ? "Another change" : `“${blockerName}”`;
+	return slots.length === 0
+		? `${who} depends on this change.`
+		: `${who} uses it in ${listNames(slots.map(referenceSlotPhrase))}.`;
 }

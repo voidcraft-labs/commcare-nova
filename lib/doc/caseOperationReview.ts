@@ -5,7 +5,7 @@
 // order analysis in `caseOperationOrder.ts`. Nothing here decides
 // legality — it only asks, and then names what the answer was about.
 //
-// Two projections:
+// Three projections:
 //
 //   - `caseOperationMoveVerdicts` asks the move planner about EVERY
 //     candidate position at once. Keyboard reorder is adjacent and could
@@ -15,6 +15,14 @@
 //     inversion, so a drag can land on a refused position while both
 //     of its neighbours are fine. One map answers both gestures, which
 //     is what keeps them from disagreeing.
+//
+//   - `caseOperationRemovalBlockers` asks the REMOVE planner what stops
+//     a removal, and only then enriches each blocker with its slots.
+//     The order matters: the planner refuses on `id-of` edges AND on
+//     target-type transitions, so a surface that listed the `id-of`
+//     walk instead would render an empty list under a heading saying
+//     removal is blocked. A blocker with no slots is a type blocker,
+//     and says so by carrying none rather than by being absent.
 //
 //   - `caseOperationDependencyOccurrences` names the SLOT through which
 //     a consumer holds its reference. `caseOperationDependencyUuids`
@@ -38,8 +46,9 @@ import {
 	walkPredicateExpressionNodes,
 } from "@/lib/domain/predicate";
 import {
-	type CaseOperationMutationPlan,
+	type CaseOperationDependencyKind,
 	moveCaseOperationMutation,
+	removeCaseOperationMutation,
 } from "./caseOperationMutations";
 import { caseOperationDependencyUuids } from "./caseOperationOrder";
 
@@ -195,10 +204,16 @@ export type CaseOperationMoveVerdict =
 	| { readonly ok: true }
 	| {
 			readonly ok: false;
-			readonly reason: Extract<
-				CaseOperationMutationPlan,
-				{ ok: false }
-			>["reason"];
+			readonly reason: "dependent-reference";
+			/** Which constraint refused — the copy for the two is different,
+			 *  and neither sentence is true of the other. */
+			readonly dependencyKind: CaseOperationDependencyKind;
+			/** The operations the refusal is about, in execution order. */
+			readonly blockingUuids: readonly Uuid[];
+	  }
+	| {
+			readonly ok: false;
+			readonly reason: "operation-not-found" | "execution-order";
 			/** The operations the refusal is about, in execution order. */
 			readonly blockingUuids: readonly Uuid[];
 	  };
@@ -230,18 +245,64 @@ export function caseOperationMoveVerdicts(
 			continue;
 		}
 		const plan = moveCaseOperationMutation(doc, formUuid, uuid, index);
+		const blockingUuids = plan.ok
+			? []
+			: inExecutionOrder(ordered, plan.dependentUuids);
 		verdicts.set(
 			index,
 			plan.ok
 				? { ok: true }
-				: {
-						ok: false,
-						reason: plan.reason,
-						blockingUuids: inExecutionOrder(ordered, plan.dependentUuids),
-					},
+				: plan.reason === "dependent-reference"
+					? {
+							ok: false,
+							reason: plan.reason,
+							dependencyKind: plan.dependencyKind,
+							blockingUuids,
+						}
+					: { ok: false, reason: plan.reason, blockingUuids },
 		);
 	}
 	return verdicts;
+}
+
+/**
+ * What stops this operation being removed, straight from the remove
+ * planner, with each blocker's `id-of` slots when it has any.
+ *
+ * Asking the planner rather than walking `id-of` edges is the whole
+ * point. Removal is refused by two different constraints — a consumer
+ * holding a reference, and a later operation whose target type this
+ * operation establishes — and only the first has slots to name. Walking
+ * references would silently drop every blocker of the second kind, which
+ * on a surface that has already decided removal is blocked means a
+ * heading with nothing under it.
+ *
+ * An empty slot list is therefore meaningful, not missing data: it says
+ * this operation blocks for a type reason, and the copy names it without
+ * inventing a slot.
+ */
+export function caseOperationRemovalBlockers(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	uuid: Uuid,
+): readonly CaseOperationDependency[] {
+	const form = doc.forms[formUuid];
+	if (form === undefined) return [];
+	const plan = removeCaseOperationMutation(doc, formUuid, uuid);
+	if (plan.ok) return [];
+	const slotsByUuid = new Map(
+		caseOperationDependencyOccurrences(form, uuid).map((dependency) => [
+			dependency.operationUuid,
+			dependency.slots,
+		]),
+	);
+	const ordered = orderedCaseOperations(form);
+	return inExecutionOrder(ordered, plan.dependentUuids).map(
+		(operationUuid) => ({
+			operationUuid,
+			slots: slotsByUuid.get(operationUuid) ?? [],
+		}),
+	);
 }
 
 function inExecutionOrder(

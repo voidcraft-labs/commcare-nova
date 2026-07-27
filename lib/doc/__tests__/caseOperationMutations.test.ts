@@ -404,19 +404,24 @@ describe("case-operation mutation planning", () => {
 			consumerOperation(),
 		];
 
+		// An `id-of` edge, so the refusal reports itself as a reference one and
+		// the review layer has slots to name.
 		expect(removeCaseOperationMutation(doc, formUuid, CREATE)).toEqual({
 			ok: false,
 			reason: "dependent-reference",
+			dependencyKind: "reference",
 			dependentUuids: [CONSUMER],
 		});
 		expect(moveCaseOperationMutation(doc, formUuid, CREATE, 1)).toEqual({
 			ok: false,
 			reason: "dependent-reference",
+			dependencyKind: "reference",
 			dependentUuids: [CONSUMER],
 		});
 		expect(moveCaseOperationMutation(doc, formUuid, CONSUMER, 0)).toEqual({
 			ok: false,
 			reason: "dependent-reference",
+			dependencyKind: "reference",
 			dependentUuids: [CONSUMER],
 		});
 	});
@@ -446,14 +451,19 @@ describe("case-operation mutation planning", () => {
 			later,
 		];
 
+		// Nothing holds an `id-of` edge to the retype — what `later` depends on
+		// is the TYPE it leaves behind, and the refusal has to say so or the
+		// review layer has nothing it can find.
 		expect(removeCaseOperationMutation(doc, formUuid, CONSUMER)).toEqual({
 			ok: false,
 			reason: "dependent-reference",
+			dependencyKind: "target-type",
 			dependentUuids: [OTHER],
 		});
 		expect(moveCaseOperationMutation(doc, formUuid, CONSUMER, 2)).toEqual({
 			ok: false,
 			reason: "dependent-reference",
+			dependencyKind: "target-type",
 			dependentUuids: [OTHER],
 		});
 	});
@@ -483,6 +493,7 @@ describe("case-operation mutation planning", () => {
 		expect(moveCaseOperationMutation(doc, formUuid, OTHER, 0)).toEqual({
 			ok: false,
 			reason: "dependent-reference",
+			dependencyKind: "target-type",
 			dependentUuids: [CONSUMER],
 		});
 	});
@@ -692,15 +703,20 @@ describe("case-operation builder choice verdict", () => {
 		expect(caseOperationEditVerdict(doc, formUuid, generated)).toEqual({
 			ok: true,
 		});
-		expect(
-			caseOperationEditVerdict(doc, formUuid, {
-				...generated,
-				target: { kind: "new", idFrom: NAME },
-			}),
-		).toMatchObject({
-			ok: false,
-			reason: expect.stringContaining("follows a non-create effect"),
+		const verdict = caseOperationEditVerdict(doc, formUuid, {
+			...generated,
+			target: { kind: "new", idFrom: NAME },
 		});
+		expect(verdict.ok).toBe(false);
+		if (verdict.ok) return;
+		// The reason lands in a menu item's reason span, so it is one line in
+		// the builder's voice — not the commit-rejection report, which speaks
+		// in the past tense about an attempt nobody made and carries newlines
+		// the span collapses into the middle of a sentence.
+		expect(verdict.reason).not.toContain("\n");
+		expect(verdict.reason).not.toContain("wasn't applied");
+		expect(verdict.reason).not.toContain("Nothing was changed");
+		expect(verdict.reason).not.toContain("try again");
 	});
 
 	it("rejects repeating a create when a later root operation consumes it", () => {

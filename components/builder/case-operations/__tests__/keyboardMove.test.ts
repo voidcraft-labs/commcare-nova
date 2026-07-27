@@ -85,7 +85,15 @@ describe("planKeyboardMove", () => {
 
 	it("names the consumer when moving a producer would break it", () => {
 		const verdicts = new Map<number, CaseOperationMoveVerdict>([
-			[0, { ok: false, reason: "dependent-reference", blockingUuids: [B] }],
+			[
+				0,
+				{
+					ok: false,
+					reason: "dependent-reference",
+					dependencyKind: "reference",
+					blockingUuids: [B],
+				},
+			],
 			[1, { ok: true }],
 		]);
 		const outcome = planKeyboardMove({
@@ -111,7 +119,15 @@ describe("planKeyboardMove", () => {
 		// to the author would read as "this change uses itself", so the
 		// sentence names its dependency instead.
 		const verdicts = new Map<number, CaseOperationMoveVerdict>([
-			[0, { ok: false, reason: "dependent-reference", blockingUuids: [C] }],
+			[
+				0,
+				{
+					ok: false,
+					reason: "dependent-reference",
+					dependencyKind: "reference",
+					blockingUuids: [C],
+				},
+			],
 			[1, { ok: true }],
 		]);
 		const outcome = planKeyboardMove({
@@ -124,6 +140,69 @@ describe("planKeyboardMove", () => {
 		});
 		expect(outcome?.announcement).toBe(
 			"close_visit did not move earlier. This change uses the case “create_referral” makes, so it has to stay after it.",
+		);
+	});
+
+	// The bug this arm exists to stop: a type refusal used to borrow the
+	// reference wording and name whatever `dependsOn` happened to hold —
+	// a change that is not the blocker, described through an edge that
+	// does not exist.
+	it("says a target-type refusal in its own words, and never the reference ones", () => {
+		const verdicts = new Map<number, CaseOperationMoveVerdict>([
+			[
+				0,
+				{
+					ok: false,
+					reason: "dependent-reference",
+					dependencyKind: "target-type",
+					blockingUuids: [B],
+				},
+			],
+			[1, { ok: true }],
+		]);
+		const outcome = planKeyboardMove({
+			order: [C, A],
+			index: 1,
+			key: "ArrowUp",
+			// An unrelated create the moved change happens to consume. The
+			// reference arm would have named it; the type arm must not.
+			verdicts,
+			nameOf,
+			dependsOn: [C],
+		});
+		expect(outcome?.kind).toBe("refused");
+		expect(outcome?.announcement).toBe(
+			"create_referral did not move earlier. This order would change which kind of case “update_client” acts on.",
+		);
+		expect(outcome?.announcement).not.toContain("makes");
+		expect(outcome?.announcement).not.toContain("uses");
+	});
+
+	it("names nothing rather than the wrong thing when the moved change is the only type blocker", () => {
+		const verdicts = new Map<number, CaseOperationMoveVerdict>([
+			[
+				0,
+				{
+					ok: false,
+					reason: "dependent-reference",
+					dependencyKind: "target-type",
+					blockingUuids: [A],
+				},
+			],
+			[1, { ok: true }],
+		]);
+		const outcome = planKeyboardMove({
+			order: [C, A],
+			index: 1,
+			key: "ArrowUp",
+			verdicts,
+			nameOf,
+			dependsOn: [C],
+		});
+		// The earlier change RETYPED a case rather than making one, so the
+		// old "uses a case an earlier change makes" fallback was false here.
+		expect(outcome?.announcement).toBe(
+			"create_referral did not move earlier. This order would change which kind of case this change acts on.",
 		);
 	});
 
@@ -148,6 +227,44 @@ describe("planKeyboardMove", () => {
 		expect(outcome?.announcement).not.toContain("uses this change's result");
 	});
 
+	// A wire-order refusal names the operation that would land wrong, and
+	// that is often the moved one. Putting it "on the wrong side of" itself
+	// is not a sentence about anything.
+	it("never names the moved change back to itself in an execution-order refusal", () => {
+		const verdicts = new Map<number, CaseOperationMoveVerdict>([
+			[0, { ok: false, reason: "execution-order", blockingUuids: [A] }],
+			[1, { ok: true }],
+		]);
+		const outcome = planKeyboardMove({
+			order: [C, A],
+			index: 1,
+			key: "ArrowUp",
+			verdicts,
+			nameOf,
+			dependsOn: [],
+		});
+		expect(outcome?.announcement).toBe(
+			"create_referral did not move earlier. The submitted form cannot carry the changes in this order.",
+		);
+	});
+
+	it("still names the other changes when a wire-order refusal includes the moved one", () => {
+		const verdicts = new Map<number, CaseOperationMoveVerdict>([
+			[0, { ok: false, reason: "execution-order", blockingUuids: [A, C] }],
+			[1, { ok: true }],
+		]);
+		const outcome = planKeyboardMove({
+			order: [C, A],
+			index: 1,
+			key: "ArrowUp",
+			verdicts,
+			nameOf,
+			dependsOn: [],
+		});
+		expect(outcome?.announcement).toContain("“close_visit”");
+		expect(outcome?.announcement).not.toContain("“create_referral”");
+	});
+
 	it("still reads as a sentence when a blocking change has no name", () => {
 		const verdicts = new Map<number, CaseOperationMoveVerdict>([
 			[
@@ -155,6 +272,7 @@ describe("planKeyboardMove", () => {
 				{
 					ok: false,
 					reason: "dependent-reference",
+					dependencyKind: "reference",
 					blockingUuids: ["gone" as Uuid],
 				},
 			],

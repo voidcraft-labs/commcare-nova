@@ -12,16 +12,14 @@ import {
 	caseOperationTargetTypeOrderViolations,
 	caseOperationWireOrderViolations,
 } from "./caseOperationOrder";
-import {
-	describeIntroducedErrors,
-	mutationCommitVerdict,
-} from "./commitVerdicts";
+import { mutationCommitVerdict } from "./commitVerdicts";
 import { deepEqual } from "./deepEqual";
 import { caseOperationContainsDormantLookupCarrier } from "./dormantLookupCarriers";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "./lookupReferences";
 import { plannedMoveSlotKey } from "./order/keys";
 import { caseOperationCatalogMutations } from "./scaffolds";
 import type { Mutation } from "./types";
+import { offeredChoiceRefusal } from "./userFacingErrors";
 
 type UpdateFormMutation = Extract<Mutation, { kind: "updateForm" }>;
 type CaseOperationPatch = NonNullable<UpdateFormMutation["caseOperationPatch"]>;
@@ -287,14 +285,30 @@ export function caseOperationChangesForUpdate(
 	return mutations;
 }
 
+/**
+ * Which fact a `dependent-reference` refusal is about.
+ *
+ * Two different constraints refuse under that one reason, and a sentence
+ * that is true of one is false of the other: a `reference` blocker holds
+ * an `id-of` edge to this operation, while a `target-type` blocker would
+ * be left acting on a case of a type an earlier change no longer
+ * establishes. Only the planner can tell them apart — the `id-of` walk a
+ * surface can do for itself cannot see the second kind at all — so the
+ * cause travels with the refusal instead of being guessed downstream.
+ */
+export type CaseOperationDependencyKind = "reference" | "target-type";
+
 export type CaseOperationMutationPlan =
 	| { readonly ok: true; readonly mutations: readonly Mutation[] }
 	| {
 			readonly ok: false;
-			readonly reason:
-				| "operation-not-found"
-				| "dependent-reference"
-				| "execution-order";
+			readonly reason: "dependent-reference";
+			readonly dependencyKind: CaseOperationDependencyKind;
+			readonly dependentUuids: readonly Uuid[];
+	  }
+	| {
+			readonly ok: false;
+			readonly reason: "operation-not-found" | "execution-order";
 			readonly dependentUuids: readonly Uuid[];
 	  };
 
@@ -546,7 +560,7 @@ export function caseOperationEditVerdict(
 		? { ok: true }
 		: {
 				ok: false,
-				reason: describeIntroducedErrors(verdict.introduced),
+				reason: offeredChoiceRefusal(verdict.introduced),
 			};
 }
 
@@ -591,7 +605,7 @@ export function caseOperationAddVerdict(
 		? { ok: true }
 		: {
 				ok: false,
-				reason: describeIntroducedErrors(verdict.introduced),
+				reason: offeredChoiceRefusal(verdict.introduced),
 			};
 }
 
@@ -657,7 +671,12 @@ export function removeCaseOperationMutation(
 	}
 	const dependentUuids = caseOperationDependents(form, uuid);
 	if (dependentUuids.length > 0) {
-		return { ok: false, reason: "dependent-reference", dependentUuids };
+		return {
+			ok: false,
+			reason: "dependent-reference",
+			dependencyKind: "reference",
+			dependentUuids,
+		};
 	}
 	const prospective: Form = {
 		...form,
@@ -675,6 +694,7 @@ export function removeCaseOperationMutation(
 		return {
 			ok: false,
 			reason: "dependent-reference",
+			dependencyKind: "target-type",
 			dependentUuids: typeDependents,
 		};
 	}
@@ -733,6 +753,7 @@ export function moveCaseOperationMutation(
 		return {
 			ok: false,
 			reason: "dependent-reference",
+			dependencyKind: "reference",
 			dependentUuids: broken,
 		};
 	}
@@ -746,6 +767,7 @@ export function moveCaseOperationMutation(
 		return {
 			ok: false,
 			reason: "dependent-reference",
+			dependencyKind: "target-type",
 			dependentUuids: typeDependents,
 		};
 	}

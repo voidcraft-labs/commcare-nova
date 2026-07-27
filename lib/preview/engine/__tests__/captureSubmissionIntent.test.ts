@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { adjudicateSubmissionReceipt } from "@/lib/case-store";
-import { asUuid } from "@/lib/domain";
+import { asUuid, type CaseOperation } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/predicate";
 import { buildDoc, f } from "../../../__tests__/docHelpers";
 import type { SubmissionMutation } from "../caseDataBindingTypes";
@@ -123,7 +123,7 @@ function repeatScopedOperationDoc() {
 						forEach: { repeat: REPEAT_UUID },
 						name: term(literal("Visit")),
 					},
-				],
+				] satisfies CaseOperation[],
 			},
 		},
 	};

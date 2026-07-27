@@ -38,9 +38,9 @@ import { caseOperationConditionalGuardUuids } from "../caseOperationOrder";
 import {
 	type CaseOperationDependency,
 	type CaseOperationMoveVerdict,
-	caseOperationDependencyOccurrences,
 	caseOperationDependencyTargets,
 	caseOperationMoveVerdicts,
+	caseOperationRemovalBlockers,
 } from "../caseOperationReview";
 import type { Uuid } from "../types";
 import { useBlueprintDoc, useBlueprintDocApi } from "./useBlueprintDoc";
@@ -56,8 +56,9 @@ export interface CaseOperationsView {
 	readonly inheritedGuards: ReadonlyMap<Uuid, readonly Uuid[]>;
 	/** Human name for a row, for a sentence or a refusal. */
 	readonly nameOf: (uuid: Uuid) => string | undefined;
-	/** Who consumes this operation, and through which slots. */
-	readonly dependentsOf: (uuid: Uuid) => readonly CaseOperationDependency[];
+	/** What blocks removing this operation, and through which slots — the
+	 *  remove planner's own answer, so a type blocker is listed too. */
+	readonly removalBlockers: (uuid: Uuid) => readonly CaseOperationDependency[];
 	/** The creates this operation consumes, in execution order. */
 	readonly dependenciesOf: (uuid: Uuid) => readonly Uuid[];
 	/** The move planner's answer for every candidate position. */
@@ -129,13 +130,8 @@ export function useCaseOperations(formUuid: Uuid): CaseOperationsView {
 		[operations],
 	);
 
-	const dependentsOf = useCallback(
-		(uuid: Uuid) => {
-			const form = doc.forms[formUuid];
-			return form === undefined
-				? []
-				: caseOperationDependencyOccurrences(form, uuid);
-		},
+	const removalBlockers = useCallback(
+		(uuid: Uuid) => caseOperationRemovalBlockers(doc, formUuid, uuid),
 		[doc, formUuid],
 	);
 
@@ -284,7 +280,7 @@ export function useCaseOperations(formUuid: Uuid): CaseOperationsView {
 		operations,
 		inheritedGuards,
 		nameOf,
-		dependentsOf,
+		removalBlockers,
 		dependenciesOf,
 		moveVerdicts,
 		removalPlan,

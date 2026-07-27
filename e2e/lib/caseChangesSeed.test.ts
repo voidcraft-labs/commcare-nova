@@ -105,6 +105,7 @@ describe("the case-changes smoke fixture", () => {
 		expect(verdict).toEqual({
 			ok: false,
 			reason: "dependent-reference",
+			dependencyKind: "reference",
 			// The moved operation is the one whose reference would break, which
 			// is why the copy names what it DEPENDS on rather than naming it back.
 			blockingUuids: [operations.file],

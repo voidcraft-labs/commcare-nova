@@ -297,7 +297,15 @@ Moving to the current rank is a real no-op: no fractional-key churn, store
 dispatch, or undo entry.
 `dependent-reference` and `execution-order` stay distinct — the second is a
 property of the submitted form, never the author's mistake, and the copy never
-implies otherwise.
+implies otherwise. **Three refusals, three sentences, and none of them is a
+paraphrase of another** (`refusalCopy.ts`): a `reference` dependency names what
+uses this change (or, when the moved change is the one that would break, what it
+depends on); a `target-type` dependency names whose KIND OF CASE would change and
+never says "makes" or "uses", because nothing is made or used and the reference
+wording would name an unrelated change; `execution-order` speaks about the
+submitted form. The copy layer never re-derives which of the two dependency
+constraints refused — the planner carries it — and no sentence names the moved
+change back to itself.
 
 **AST in the canvas, choice in the rail.** The detail canvas owns the condition,
 the name / rename / owner expressions, the writes with their per-write
@@ -305,12 +313,17 @@ conditions, and the links; the rail (`useActiveInspector`'s third source) owns
 the discrete settings and removal. Adding is chooser-first and lands a complete
 operation the gate already accepts (`seeds.ts`, proved through
 `mutationCommitVerdict`); removal asks `removalPlan` first and, when something
-depends on it, names each consumer and the exact slot rather than offering a
-delete that would bounce. Inline confirmations use `useInlineConfirmFocus`.
+depends on it, names each blocker and the exact slot rather than offering a
+delete that would bounce. That list is `view.removalBlockers` — the REMOVE
+planner's own answer, not a reference walk, so a blocker that depends on the
+case TYPE is listed with no slot instead of vanishing and leaving the heading
+over an empty list. Inline confirmations use `useInlineConfirmFocus`.
 Every candidate in the action, case-type, target, identity-key, multiplicity,
 retype, and link-type menus asks `view.editVerdict`; a stranded downstream
 consumer therefore disables the exact choice with the planner's reason instead
-of allowing a commit-gate bounce. Choosing a different known target is one
+of allowing a commit-gate bounce. That reason is one present-tense line in the
+builder's voice (`offeredChoiceRefusal`), never the commit-rejection report — a
+menu item's reason span collapses newlines, and nothing was attempted to report. Choosing a different known target is one
 `retargetCaseOperation` transformation: target identity and the type established
 by all earlier creates/retypes change in the same gated operation patch, while
 every other facet stays intact for the verdict to adjudicate. Update/close adds

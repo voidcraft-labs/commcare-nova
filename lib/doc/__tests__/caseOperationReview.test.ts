@@ -12,14 +12,23 @@
 //   2. The move-verdict map says exactly what the move planner says, for
 //      every candidate position. Both gestures read this one map, so a
 //      keyboard reorder and a drag can never disagree about legality.
+//
+//   3. The removal review lists what the REMOVE planner refuses on —
+//      references and target types alike. The `id-of` walk cannot see
+//      the second kind, so a review built from it renders an empty list
+//      under a heading that says removal is blocked.
 
 import { describe, expect, it } from "vitest";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
-import { moveCaseOperationMutation } from "@/lib/doc/caseOperationMutations";
+import {
+	moveCaseOperationMutation,
+	removeCaseOperationMutation,
+} from "@/lib/doc/caseOperationMutations";
 import { caseOperationDependencyUuids } from "@/lib/doc/caseOperationOrder";
 import {
 	caseOperationDependencyOccurrences,
 	caseOperationMoveVerdicts,
+	caseOperationRemovalBlockers,
 } from "@/lib/doc/caseOperationReview";
 import { asUuid } from "@/lib/doc/types";
 import type { BlueprintDoc, CaseOperation, Form, Uuid } from "@/lib/domain";
@@ -29,6 +38,8 @@ import { eq, idOf, literal, term } from "@/lib/domain/predicate";
 const CREATE = asUuid("11111111-1111-4111-8111-111111111111");
 const SECOND = asUuid("22222222-2222-4222-8222-222222222222");
 const CONSUMER = asUuid("33333333-3333-4333-8333-333333333333");
+const RETYPE = asUuid("55555555-5555-4555-8555-555555555555");
+const LATER = asUuid("66666666-6666-4666-8666-666666666666");
 
 function form(operations: readonly CaseOperation[]): Form {
 	return {
@@ -228,6 +239,58 @@ function docWithOperations(operations: readonly CaseOperation[]): {
 	};
 }
 
+/**
+ * Two changes joined by a case TYPE and nothing else: the first retypes
+ * the case the form opened, the second acts on it as the new type. There
+ * is no `id-of` edge anywhere in this shape, which is exactly what makes
+ * it the fixture for a refusal a reference walk cannot explain.
+ */
+function retypeChain(): { doc: BlueprintDoc; formUuid: Uuid } {
+	const doc = buildDoc({
+		caseTypes: [
+			{ name: "visit", properties: [] },
+			{ name: "referral", properties: [] },
+		],
+		modules: [
+			{
+				name: "Visits",
+				caseType: "visit",
+				forms: [{ name: "Visit", type: "followup" }],
+			},
+		],
+	});
+	const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
+	const operations: CaseOperation[] = [
+		{
+			uuid: RETYPE,
+			id: "make_referral",
+			order: "a",
+			action: "update",
+			caseType: "visit",
+			target: { kind: "session" },
+			retype: "referral",
+		},
+		{
+			uuid: LATER,
+			id: "update_referral",
+			order: "b",
+			action: "update",
+			caseType: "referral",
+			target: { kind: "session" },
+		},
+	];
+	return {
+		doc: {
+			...doc,
+			forms: {
+				...doc.forms,
+				[formUuid]: { ...doc.forms[formUuid], caseOperations: operations },
+			},
+		},
+		formUuid,
+	};
+}
+
 describe("caseOperationMoveVerdicts", () => {
 	it("answers for every candidate position, and never disagrees with the planner", () => {
 		const operations = [
@@ -287,5 +350,100 @@ describe("caseOperationMoveVerdicts", () => {
 			caseOperationMoveVerdicts(doc, asUuid("no-such-form" as string), CREATE)
 				.size,
 		).toBe(0);
+	});
+
+	it("carries which kind of dependency refused, so the copy need not guess", () => {
+		const { doc, formUuid } = docWithOperations([
+			create(CREATE, "a", "create_visit"),
+			{ ...everySlotConsumer(), order: "b" },
+		]);
+		const verdict = caseOperationMoveVerdicts(doc, formUuid, CREATE).get(1);
+		expect(verdict).toEqual({
+			ok: false,
+			reason: "dependent-reference",
+			dependencyKind: "reference",
+			blockingUuids: [CONSUMER],
+		});
+	});
+
+	// The bug: a type refusal carried no cause, so the copy layer re-derived
+	// one by walking `id-of` edges — which this shape has none of — and named
+	// whatever it found instead of the change that actually blocks.
+	it("names the operation whose case type would change, as a target-type refusal", () => {
+		const { doc, formUuid } = retypeChain();
+		const verdict = caseOperationMoveVerdicts(doc, formUuid, RETYPE).get(1);
+		expect(verdict).toEqual({
+			ok: false,
+			reason: "dependent-reference",
+			dependencyKind: "target-type",
+			blockingUuids: [LATER],
+		});
+	});
+
+	it("reports the same target-type cause when the moved change is the one left mistyped", () => {
+		const { doc, formUuid } = retypeChain();
+		const verdict = caseOperationMoveVerdicts(doc, formUuid, LATER).get(0);
+		expect(verdict).toEqual({
+			ok: false,
+			reason: "dependent-reference",
+			dependencyKind: "target-type",
+			blockingUuids: [LATER],
+		});
+	});
+});
+
+describe("caseOperationRemovalBlockers", () => {
+	it("names each consumer with the slots holding its reference", () => {
+		const { doc, formUuid } = docWithOperations([
+			create(CREATE, "a", "create_visit"),
+			{ ...everySlotConsumer(), order: "b" },
+		]);
+		const blockers = caseOperationRemovalBlockers(doc, formUuid, CREATE);
+		expect(blockers).toHaveLength(1);
+		expect(blockers[0].operationUuid).toBe(CONSUMER);
+		expect(blockers[0].slots.length).toBeGreaterThan(0);
+	});
+
+	// The `id-of` walk this used to be built from sees nothing here, so the
+	// rail rendered its "cannot be removed" heading over an empty list, with
+	// no Remove button and no operation named.
+	it("lists a blocker that depends on the case type rather than a reference", () => {
+		const { doc, formUuid } = retypeChain();
+		expect(removeCaseOperationMutation(doc, formUuid, RETYPE).ok).toBe(false);
+		expect(caseOperationRemovalBlockers(doc, formUuid, RETYPE)).toEqual([
+			{ operationUuid: LATER, slots: [] },
+		]);
+	});
+
+	it("is never empty while the planner refuses", () => {
+		const references = docWithOperations([
+			create(CREATE, "a", "create_visit"),
+			{ ...everySlotConsumer(), order: "b" },
+		]);
+		const types = retypeChain();
+		for (const [{ doc, formUuid }, uuid] of [
+			[references, CREATE],
+			[types, RETYPE],
+		] as const) {
+			const plan = removeCaseOperationMutation(doc, formUuid, uuid);
+			expect(plan.ok).toBe(false);
+			expect(
+				caseOperationRemovalBlockers(doc, formUuid, uuid).length,
+			).toBeGreaterThan(0);
+		}
+	});
+
+	it("reports nothing when removal is allowed, and for an unknown form", () => {
+		const { doc, formUuid } = docWithOperations([
+			create(CREATE, "a", "create_visit"),
+		]);
+		expect(caseOperationRemovalBlockers(doc, formUuid, CREATE)).toEqual([]);
+		expect(
+			caseOperationRemovalBlockers(
+				doc,
+				asUuid("no-such-form" as string),
+				CREATE,
+			),
+		).toEqual([]);
 	});
 });

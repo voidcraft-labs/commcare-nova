@@ -33,6 +33,8 @@
  *     verbose `ValidationError.message` (unchanged).
  *   - The builder commit gate, the Connect mode switch, and the
  *     export/upload failure surfaces → `userFacingError` here.
+ *   - A picker or menu withholding a CHOICE → `offeredChoiceRefusal`,
+ *     the same voice narrowed to the one line an item has room for.
  *
  * Same finding, two voices. Deepen an explanation in the validator's
  * `message`, never here.
@@ -639,6 +641,30 @@ export function userFacingError(err: ValidationError): string {
 /** Render a list of findings to their user lines, in order. */
 export function userFacingErrors(errors: readonly ValidationError[]): string[] {
 	return errors.map(userFacingError);
+}
+
+/**
+ * The line a picker or menu shows beside a choice it will not offer.
+ *
+ * Not `describeIntroducedErrors`: that is the commit-REJECTION report,
+ * past tense about an attempt, framed with "nothing was changed", and
+ * multi-line. A withheld choice was never attempted — the question is
+ * asked while the item is still being drawn — so that frame describes
+ * something that did not happen, in a span that collapses its newlines
+ * into the middle of a sentence. And not the whole list either: an item
+ * has room for one line, and the author fixes one thing at a time.
+ *
+ * The first finding in the builder's own voice, which is also what
+ * `useBlueprintMutations` says when a dispatch really is refused — so a
+ * disabled choice and the refusal it spares the author agree.
+ */
+export function offeredChoiceRefusal(
+	introduced: readonly ValidationError[],
+): string {
+	const first = introduced[0];
+	return first === undefined
+		? "This choice isn't available here."
+		: userFacingError(first);
 }
 
 /** Exposed for the exhaustiveness test only. */

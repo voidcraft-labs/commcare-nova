@@ -872,9 +872,14 @@ function MultiplicityMenu({
  *
  * `removalPlan` is asked BEFORE the button does anything, so a change
  * something else depends on never offers a delete that would bounce.
- * The review names each consumer and the exact slot holding the
+ * The review names each blocker and the exact slot holding the
  * reference — on a twenty-change form, "Update client uses it" is not
  * actionable while "in the value it saves to status" is.
+ *
+ * Both come from the planner, and that is what keeps the two halves
+ * agreeing. The planner refuses on references AND on target types; a
+ * list built by walking references instead would leave a type blocker
+ * out, and the author would be told removal is blocked by nothing.
  */
 function RemoveOperationRow({
 	operation,
@@ -895,8 +900,8 @@ function RemoveOperationRow({
 		() => view.removalPlan(operation.uuid),
 		[view, operation.uuid],
 	);
-	const dependents = useMemo(
-		() => view.dependentsOf(operation.uuid),
+	const blockers = useMemo(
+		() => view.removalBlockers(operation.uuid),
 		[view, operation.uuid],
 	);
 
@@ -908,17 +913,25 @@ function RemoveOperationRow({
 				</h3>
 				<div className="space-y-2 rounded-xl border border-white/[0.07] bg-nova-deep/30 p-3">
 					<p className="text-[13px] leading-relaxed text-nova-text-secondary">
-						This change cannot be removed while other changes use it:
+						This change cannot be removed while other changes depend on it:
 					</p>
 					<ul className="list-none space-y-1 p-0 text-[13px] leading-relaxed text-nova-text-muted">
-						{dependents.map((dependent) => (
-							<li key={dependent.operationUuid}>
-								{dependencyLine(
-									view.nameOf(dependent.operationUuid),
-									dependent.slots,
-								)}
-							</li>
-						))}
+						{blockers.length === 0 ? (
+							/* The planner refused, so something in this form does depend on
+							 * this change even when it could not name it. Saying that is
+							 * the floor: a heading about blockers over an empty list reads
+							 * as a bug in the screen. */
+							<li>Something else in this form depends on this change.</li>
+						) : (
+							blockers.map((blocker) => (
+								<li key={blocker.operationUuid}>
+									{dependencyLine(
+										view.nameOf(blocker.operationUuid),
+										blocker.slots,
+									)}
+								</li>
+							))
+						)}
 					</ul>
 				</div>
 			</section>
