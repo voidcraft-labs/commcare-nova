@@ -209,7 +209,10 @@ export function GeopointPicker({
 	return (
 		<fieldset
 			aria-labelledby={labelledBy}
-			className="m-0 space-y-2 border-none p-0"
+			// `min-w-0`: a fieldset's UA default is `min-width: min-content`,
+			// so without it this refuses to shrink below the address input and
+			// the lat/lon row, and a narrow preview column overflows sideways.
+			className="m-0 min-w-0 space-y-2 border-none p-0"
 		>
 			{configured ? (
 				<>

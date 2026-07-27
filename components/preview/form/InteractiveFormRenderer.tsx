@@ -245,7 +245,13 @@ const InteractiveField = memo(function InteractiveField({
 	// the accessible name on the same resolved/fallback path as LabelContent
 	// without maintaining a second copy. A blank authored label stays blank,
 	// and the sr-only fallback below carries the position instead.
-	const labelId = field.label ? questionLabelId : undefined;
+	// Always the question node's id, never gated on the label being
+	// authored: that node exists either way — it holds the visible label
+	// when there is one and the sr-only "Question N." fallback when
+	// there is not. Gating it left a blank-labelled question's control
+	// with no accessible name at all, which is strictly worse than the
+	// position the fallback already provides.
+	const labelId = questionLabelId;
 	// The capture control names itself with the FULL context — its recovery
 	// messages are read out of the question's flow, so they need the ancestor
 	// trail. An ordinary control points at the visible question alone, so a
