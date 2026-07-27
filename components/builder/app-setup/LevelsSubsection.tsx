@@ -238,7 +238,12 @@ function LevelRow({
 						}}
 					>
 						<SelectTrigger id={parentId} className="w-full">
-							<SelectValue />
+							<SelectValue>
+								{level.parentLevelUuid === undefined
+									? "Nothing — this is a top level"
+									: (peers.find((p) => p.uuid === level.parentLevelUuid)
+											?.name ?? "A level that no longer exists")}
+							</SelectValue>
 						</SelectTrigger>
 						<SelectContent>
 							<SelectItem value={TOP_LEVEL}>
@@ -380,7 +385,9 @@ function CaseFlowGroup({
 							}}
 						>
 							<SelectTrigger id={descendantId} className="w-full">
-								<SelectValue />
+								<SelectValue>
+									{descendantLabel(flow.descendantCases, peers)}
+								</SelectValue>
 							</SelectTrigger>
 							<SelectContent>
 								<SelectItem value="none">No — only their own place</SelectItem>
@@ -407,6 +414,27 @@ function CaseFlowGroup({
 			</div>
 		</fieldset>
 	);
+}
+
+/** The trigger's text for each address-book reach. */
+const REACH_LABELS: Readonly<Record<LevelAddressBook["reach"], string>> = {
+	"own-branch": "Their own place, everything under it, and the chain above",
+	"own-branch-limited": "Their own place, but only certain levels",
+	"shared-branch": "Everything under a level further up",
+	"whole-organization": "The whole organization",
+};
+
+/** The trigger's text for a descendant-cases scope. */
+function descendantLabel(
+	scope: DescendantCaseScope,
+	levels: readonly OrganizationLevel[],
+): string {
+	if (scope.kind === "all") return "Yes — everything below";
+	if (scope.kind === "none") return "No — only their own place";
+	const named = levels.find((level) => level.uuid === scope.levelUuid);
+	return named === undefined
+		? "Down to a level that no longer exists"
+		: `Down to ${named.name}`;
 }
 
 function scopeValue(scope: DescendantCaseScope): string {
@@ -509,7 +537,7 @@ function AddressBookGroup({
 					}}
 				>
 					<SelectTrigger id={reachId} className="w-full">
-						<SelectValue />
+						<SelectValue>{REACH_LABELS[book.reach]}</SelectValue>
 					</SelectTrigger>
 					<SelectContent>
 						<SelectItem value="own-branch">
@@ -546,7 +574,10 @@ function AddressBookGroup({
 							}}
 						>
 							<SelectTrigger id={fromId} className="w-full">
-								<SelectValue />
+								<SelectValue>
+									{above.find((a) => a.uuid === book.fromLevelUuid)?.name ??
+										"A level that no longer exists"}
+								</SelectValue>
 							</SelectTrigger>
 							<SelectContent>
 								{above.map((ancestor) => (

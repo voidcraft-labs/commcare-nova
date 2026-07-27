@@ -1717,6 +1717,75 @@ test.describe("authenticated builder", () => {
 		expect(body?.user?.email).toBe(seed.userEmail);
 	});
 
+	test("an author adds a level, puts a place in it, and sees it listed", async ({
+		page,
+	}) => {
+		// The organization's PRIMARY GESTURE, and it shipped broken: a level is a
+		// blueprint mutation riding the debounced autosave, while a place is an
+		// immediate Server Action validating against the COMMITTED document. Doing
+		// the two in sequence — the first thing any author does — refused, because
+		// the server had genuinely never seen the level. No unit or integration
+		// test caught it: every one of them seeds the blueprint through
+		// `commitGuardedBatch` first, constructing exactly the committed state the
+		// browser cannot guarantee. This test inhabits the browser's world instead.
+		// The fixture exposes routes rather than the id; every route is built from
+		// `/build/{appId}`, so the id is the second path segment. Parsing it here
+		// beats widening a fixture other suites share.
+		const appId = seed.caseWorkspace.routes.results.split("/")[2].split("?")[0];
+		await page.goto(`/build/${appId}/setup/organization`);
+
+		const levels = page.getByRole("region", { name: "Levels" });
+		await expect(
+			levels.getByRole("heading", { name: "Levels", level: 3 }),
+		).toBeVisible({ timeout: 20_000 });
+
+		await levels.getByRole("button", { name: "Add level" }).click();
+
+		// The level's own editor opens with both axes stated in the author's
+		// words. Asserting the summary pins that the two-axis default survives —
+		// a level nobody can be assigned to would read differently here.
+		await expect(
+			levels.getByText("People work here, owns its cases"),
+		).toBeVisible();
+
+		// A select shows the option's NAME, never its stored value. Base UI's
+		// Value renders the raw value when given no children, which put a bare
+		// UUID and a `__top__` sentinel in front of the author on every control
+		// in this workspace.
+		await expect(
+			levels.getByRole("combobox", { name: "Sits under" }),
+		).toHaveText("Nothing — this is a top level");
+
+		const places = page.getByRole("region", { name: "Places" });
+		await places.getByRole("button", { name: "Add place" }).click();
+
+		const placeName = `Riverside ${Date.now()}`;
+		await places.getByRole("textbox", { name: "Name" }).fill(placeName);
+		// The level picker names the level just added — proving the same
+		// label-resolution fix on the second surface, and that a level the author
+		// cannot yet see committed is still offered.
+		await expect(places.getByRole("combobox", { name: "Level" })).toHaveText(
+			"New level",
+		);
+
+		await places
+			.getByRole("button", { name: "Add place", exact: true })
+			.click();
+
+		// The gesture completes WITHOUT a reload. Reaching this line means the
+		// pending blueprint was flushed before the location write, because the
+		// place cannot exist until the server has committed its level.
+		await expect(places.getByText(placeName)).toBeVisible({ timeout: 20_000 });
+
+		// And it is durable rather than optimistic: the hook holds no local
+		// mutation of the snapshot, so a visible row has been read back from
+		// Postgres.
+		await page.reload();
+		await expect(
+			page.getByRole("region", { name: "Places" }).getByText(placeName),
+		).toBeVisible({ timeout: 20_000 });
+	});
+
 	test("delete an app through the UI moves it out of the active list", async ({
 		page,
 	}) => {

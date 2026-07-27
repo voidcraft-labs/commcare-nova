@@ -521,7 +521,10 @@ function AddPlaceForm({
 					}}
 				>
 					<SelectTrigger id={levelId} className="w-full">
-						<SelectValue />
+						<SelectValue>
+							{levels.find((level) => level.uuid === levelUuid)?.name ??
+								"Choose a level"}
+						</SelectValue>
 					</SelectTrigger>
 					<SelectContent>
 						{levels.map((level) => (
@@ -547,7 +550,12 @@ function AddPlaceForm({
 						}}
 					>
 						<SelectTrigger id={parentId} className="w-full">
-							<SelectValue placeholder="Choose a place" />
+							<SelectValue>
+								{parent === ""
+									? "Choose a place"
+									: (parentOptions.find((c) => c.id === parent)?.name ??
+										"Choose a place")}
+							</SelectValue>
 						</SelectTrigger>
 						<SelectContent>
 							{parentOptions.map((candidate) => (

@@ -16,6 +16,15 @@ export type OrganizationErrorCode =
 	| "invalid"
 	/** A structural rule about the tree, named in the message. */
 	| "rejected"
+	/**
+	 * The blueprint this write depends on has not been committed yet.
+	 *
+	 * Its own code rather than a `rejected` with a distinguishing message,
+	 * because the caller acts on it: it flushes the pending blueprint and
+	 * retries once. Matching on message text to decide that would break the
+	 * moment someone rewords the sentence.
+	 */
+	| "not-committed"
 	/** The app already holds as many places as Nova stores. */
 	| "limit";
 

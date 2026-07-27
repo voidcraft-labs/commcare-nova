@@ -293,9 +293,15 @@ function assertPlacement(
 	const levels = organizationLevelsOf(doc);
 	const level = levels[levelUuid];
 	if (level === undefined) {
+		// Deliberately does NOT claim the level was removed. This document is the
+		// COMMITTED one, and a level the author added moments ago may simply not
+		// have been saved yet — the two states are indistinguishable from here,
+		// so asserting either one would send the author looking for a co-editor
+		// who may not exist. The caller flushes and retries once; reaching this
+		// message twice means the save itself is failing, which is what it says.
 		throw new OrganizationError(
-			"rejected",
-			"That level isn't part of this app's organization any more. Reload to get the latest levels, then try again.",
+			"not-committed",
+			"Nova hasn't finished saving that level, so a place can't be added to it yet. If this keeps happening, check your connection — your work is still here.",
 		);
 	}
 	const above = ancestorLevels(level, levels);

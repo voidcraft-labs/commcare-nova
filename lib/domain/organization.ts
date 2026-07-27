@@ -302,11 +302,28 @@ export const locationPropertySchema = z
 		order: z.string().optional(),
 		slug: z.string().min(1),
 		label: z.string().min(1),
-		/** Whether CommCare requires a value when a place is created. */
+		/**
+		 * Whether a place must carry a value for this before it can be saved.
+		 *
+		 * Enforced by `lib/organization/service.ts::assertValuesSatisfyCatalog`,
+		 * on create and on any update that touches values or the level. The
+		 * citation is not decoration: this field shipped once as a declaration
+		 * with no enforcement anywhere, and **a schema field that promises a
+		 * constraint it does not impose is worse than no field at all** — a
+		 * missing feature gets discovered, a phantom one gets inherited by
+		 * everyone who reads the schema and reasonably assumes the guarantee
+		 * holds. Any constraint added beside these three names where it is
+		 * enforced, or it is not a constraint.
+		 */
 		required: z.boolean().optional(),
-		/** A closed set of accepted values. Absent means free text. */
+		/** A closed set of accepted values; absent means free text. Enforced in
+		 *  `assertValuesSatisfyCatalog`, which lets empty text through because
+		 *  CommCare's fixture emits an empty element for an unset field. */
 		choices: z.array(z.string().min(1)).optional(),
-		/** Which levels carry this field. Absent means every level. */
+		/** Which levels carry this field; absent means every level. Enforced in
+		 *  `assertValuesSatisfyCatalog`, against the level a place will HAVE, so
+		 *  retyping a place into a level its information does not apply to is
+		 *  refused rather than silently leaving values nothing will emit. */
 		levelUuids: z.array(uuidSchema).min(1).optional(),
 	})
 	.strict();

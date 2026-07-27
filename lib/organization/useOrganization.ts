@@ -102,6 +102,45 @@ export function useOrganization(
 	}, [collab, reload]);
 
 	/**
+	 * Commit any unsaved blueprint edits, and wait for them to land.
+	 *
+	 * **Why every location write needs this.** A level is a blueprint mutation
+	 * and rides the debounced autosave; a place is an immediate Server Action
+	 * whose `assertPlacement` validates against the COMMITTED document. Add a
+	 * level and put a place in it inside the autosave window — the first thing
+	 * any author does — and the server has genuinely never seen that level, so
+	 * it refuses. The two stores are only visible together here, which is why
+	 * the reconciliation belongs at this seam and not in the store: validating
+	 * against the committed document is correct, and relaxing it to paper over
+	 * a timing problem would trade a visible failure for an invisible one.
+	 *
+	 * `dispatchHumanBatch` returns the minted batch id, or `undefined` when the
+	 * delta is empty — which does NOT mean "committed", because autosave may
+	 * already have a batch in flight. So the caller retries once on the typed
+	 * `not-committed` rejection rather than trusting an empty delta.
+	 */
+	const flushBlueprint = useCallback(async (): Promise<void> => {
+		const reconciler = collab?.reconciler;
+		if (reconciler === undefined) return;
+		await new Promise<void>((resolve) => {
+			let settled = false;
+			const done = () => {
+				if (settled) return;
+				settled = true;
+				resolve();
+			};
+			const batchId = reconciler.dispatchHumanBatch((signal) => {
+				// Any terminal signal releases the wait. A failure resolves rather
+				// than rejects: the write that follows will report the real
+				// problem in the author's own terms, and autosave keeps retrying
+				// the batch on its own schedule regardless.
+				if (signal.kind !== "saving") done();
+			});
+			if (batchId === undefined) done();
+		});
+	}, [collab]);
+
+	/**
 	 * Adopt the revision a write returned, then re-read.
 	 *
 	 * Adopting it SYNCHRONOUSLY is the load-bearing half. The re-read is async,
@@ -126,6 +165,28 @@ export function useOrganization(
 		[reload],
 	);
 
+	/**
+	 * Flush, run the write, and retry ONCE on `not-committed`.
+	 *
+	 * The retry is what makes the natural gesture work: an empty delta does not
+	 * prove the blueprint landed, because autosave may already have a batch in
+	 * flight, so the server's own typed answer is the only reliable signal. A
+	 * second failure is reported — it means saving itself is broken, and saying
+	 * so beats retrying forever.
+	 */
+	const write = useCallback(
+		async <T extends { success: boolean; message?: string; code?: string }>(
+			run: () => Promise<T>,
+		): Promise<T> => {
+			await flushBlueprint();
+			const first = await run();
+			if (first.success || first.code !== "not-committed") return first;
+			await flushBlueprint();
+			return run();
+		},
+		[flushBlueprint],
+	);
+
 	return {
 		locations,
 		revision,
@@ -134,23 +195,33 @@ export function useOrganization(
 		reload,
 		create: useCallback(
 			async (input) => {
-				const result = await createLocationAction(appId, input, revision);
+				const result = await write(() =>
+					createLocationAction(appId, input, revision),
+				);
 				const outcome = after(result);
 				return result.success
 					? { ...outcome, id: result.data.location.id }
 					: outcome;
 			},
-			[appId, revision, after],
+			[appId, revision, after, write],
 		),
 		update: useCallback(
 			async (locationId, patch) =>
-				after(await updateLocationAction(appId, locationId, patch, revision)),
-			[appId, revision, after],
+				after(
+					await write(() =>
+						updateLocationAction(appId, locationId, patch, revision),
+					),
+				),
+			[appId, revision, after, write],
 		),
 		move: useCallback(
 			async (locationId, target) =>
-				after(await moveLocationAction(appId, locationId, target, revision)),
-			[appId, revision, after],
+				after(
+					await write(() =>
+						moveLocationAction(appId, locationId, target, revision),
+					),
+				),
+			[appId, revision, after, write],
 		),
 		describeArchive: useCallback(
 			async (locationId) => {
@@ -161,11 +232,8 @@ export function useOrganization(
 		),
 		setArchived: useCallback(
 			async (locationId, archived) => {
-				const result = await setLocationArchivedAction(
-					appId,
-					locationId,
-					archived,
-					revision,
+				const result = await write(() =>
+					setLocationArchivedAction(appId, locationId, archived, revision),
 				);
 				const outcome = after(result);
 				return result.success
@@ -175,7 +243,7 @@ export function useOrganization(
 						}
 					: outcome;
 			},
-			[appId, revision, after],
+			[appId, revision, after, write],
 		),
 	};
 }
