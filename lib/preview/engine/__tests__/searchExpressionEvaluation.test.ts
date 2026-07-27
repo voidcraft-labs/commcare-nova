@@ -20,6 +20,7 @@ import {
 	evaluatePreviewSearchPredicate,
 	parseExcludedOwnerIds,
 	resolveSearchInputDefaults,
+	sessionInstancePathValue,
 } from "../searchExpressionEvaluation";
 
 const SESSION = previewSessionValues(
@@ -65,6 +66,20 @@ describe("preview case-search expression evaluation", () => {
 				values,
 			),
 		).toBe("owner-Kolda");
+	});
+
+	it("does not resolve session user data through an inherited prototype key", () => {
+		const user = Object.create({ constructor: "poison" }) as Record<
+			string,
+			string
+		>;
+		expect(
+			sessionInstancePathValue("/session/user/data/constructor", {
+				context: {},
+				user,
+				userPropertySlugs: {},
+			}),
+		).toBeUndefined();
 	});
 
 	it("keeps a date widget typed while evaluating dependent date arithmetic", () => {

@@ -24,15 +24,25 @@ import { appendOrderKey } from "@/lib/doc/order/append";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	type BlueprintDoc,
+	hasOwnRecordKey,
+	ownRecordValue,
 	type Persona,
 	personasOf,
+	recordWithoutKey,
+	recordWithValue,
 	type UserDataValues,
 	type UserProperty,
 	type UserType,
 	type Uuid,
 	userPropertiesOf,
+	userPropertyTargetKey,
 	userTypesOf,
 } from "@/lib/domain";
+import { referencingSlotsOf } from "./referenceIndex";
+
+type UserEntityPatch<T> = {
+	[K in Exclude<keyof T, "uuid" | "order">]?: T[K] | null;
+};
 
 /** Sort-key order for an entity appended to one of the flat collections. */
 function nextOrderKey(collection: Record<string, { order?: string }>): string {
@@ -85,53 +95,267 @@ export function addPersonaMutations(
 	];
 }
 
-/** A value bag with one key dropped, or `undefined` when nothing changes. */
-function withoutKey(
+function fallbackValues(
 	values: UserDataValues | undefined,
-	propertyUuid: Uuid,
-): UserDataValues | undefined {
-	if (values === undefined || values[propertyUuid] === undefined) {
-		return undefined;
-	}
-	const next = { ...values };
-	delete next[propertyUuid];
-	return next;
+): UserDataValues | null {
+	return values !== undefined && Object.keys(values).length > 0 ? values : null;
 }
 
-/**
- * Remove a property and every value recorded against it.
- *
- * The rewritten bags travel as whole `values` objects rather than per-key
- * clears: a concrete object survives JSON intact, so omitting a key from
- * the rebuilt bag IS the clear, with no `null` sentinel needed. An
- * emptied bag is sent as `null`, which the patch reducer treats as a
- * delete — the shape a bag-less role or persona already has.
- */
-export function removeUserPropertyMutations(
-	doc: BlueprintDoc,
+function userDataValueMutations(
+	kind: "updateUserType" | "updatePersona",
 	uuid: Uuid,
+	before: UserDataValues | undefined,
+	after: UserDataValues | undefined,
 ): Mutation[] {
 	const mutations: Mutation[] = [];
-	for (const type of Object.values(userTypesOf(doc))) {
-		const next = withoutKey(type.values, uuid);
-		if (next === undefined) continue;
+	let cursor = before;
+	const keys = [
+		...new Set([...Object.keys(before ?? {}), ...Object.keys(after ?? {})]),
+	].sort();
+	for (const propertyUuid of keys) {
+		const beforeHas = hasOwnRecordKey(before, propertyUuid);
+		const afterHas = hasOwnRecordKey(after, propertyUuid);
+		const beforeValue = ownRecordValue(before, propertyUuid);
+		const afterValue = ownRecordValue(after, propertyUuid);
+		if (beforeHas === afterHas && beforeValue === afterValue) continue;
+		cursor = afterHas
+			? recordWithValue(cursor, propertyUuid, afterValue as string)
+			: recordWithoutKey(cursor, propertyUuid);
 		mutations.push({
-			kind: "updateUserType",
-			uuid: type.uuid,
-			patch: { values: Object.keys(next).length > 0 ? next : null },
+			kind,
+			uuid,
+			patch: { values: fallbackValues(cursor) },
+			valuePatch: {
+				userPropertyUuid: propertyUuid as Uuid,
+				value: afterHas ? (afterValue as string) : null,
+			},
 		});
+	}
+	return mutations;
+}
+
+/** Plan a role update, splitting each value-key edit into its own mutation. */
+export function updateUserTypeMutations(
+	doc: BlueprintDoc,
+	uuid: Uuid,
+	patch: UserEntityPatch<UserType>,
+): Mutation[] {
+	const current = ownRecordValue(userTypesOf(doc), uuid);
+	if (current === undefined) return [];
+	const { values, ...metadata } = patch;
+	const mutations: Mutation[] =
+		Object.keys(metadata).length === 0
+			? []
+			: [{ kind: "updateUserType", uuid, patch: metadata }];
+	if (values !== undefined) {
+		mutations.push(
+			...userDataValueMutations(
+				"updateUserType",
+				uuid,
+				current.values,
+				values === null ? undefined : values,
+			),
+		);
+	}
+	return mutations;
+}
+
+/** Plan a persona update, splitting each override-key edit into its own event. */
+export function updatePersonaMutations(
+	doc: BlueprintDoc,
+	uuid: Uuid,
+	patch: UserEntityPatch<Persona>,
+): Mutation[] {
+	const current = ownRecordValue(personasOf(doc), uuid);
+	if (current === undefined) return [];
+	const { values, ...metadata } = patch;
+	const mutations: Mutation[] =
+		Object.keys(metadata).length === 0
+			? []
+			: [{ kind: "updatePersona", uuid, patch: metadata }];
+	if (values !== undefined) {
+		mutations.push(
+			...userDataValueMutations(
+				"updatePersona",
+				uuid,
+				current.values,
+				values === null ? undefined : values,
+			),
+		);
+	}
+	return mutations;
+}
+
+/** Plan one role default edit without constructing a stale whole value bag. */
+export function updateUserTypeValueMutations(
+	doc: BlueprintDoc,
+	uuid: Uuid,
+	propertyUuid: Uuid,
+	value: string | undefined,
+): Mutation[] {
+	const current = ownRecordValue(userTypesOf(doc), uuid);
+	if (current === undefined) return [];
+	const next =
+		value === undefined
+			? recordWithoutKey(current.values, propertyUuid)
+			: recordWithValue(current.values, propertyUuid, value);
+	return userDataValueMutations("updateUserType", uuid, current.values, next);
+}
+
+/** Plan one persona override edit without constructing a stale whole bag. */
+export function updatePersonaValueMutations(
+	doc: BlueprintDoc,
+	uuid: Uuid,
+	propertyUuid: Uuid,
+	value: string | undefined,
+): Mutation[] {
+	const current = ownRecordValue(personasOf(doc), uuid);
+	if (current === undefined) return [];
+	const next =
+		value === undefined
+			? recordWithoutKey(current.values, propertyUuid)
+			: recordWithValue(current.values, propertyUuid, value);
+	return userDataValueMutations("updatePersona", uuid, current.values, next);
+}
+
+function describeUserPropertyReference(
+	doc: BlueprintDoc,
+	carrierUuid: string,
+	slot: string,
+): string {
+	const field = ownRecordValue(doc.fields, carrierUuid);
+	if (field !== undefined) {
+		const setting: Readonly<Record<string, string>> = {
+			relevant: "relevant condition",
+			validate: "validation condition",
+			calculate: "calculation",
+			default_value: "default value",
+			required: "required condition",
+			repeat_count: "repeat count",
+			ids_query: "lookup row query",
+			lookup_options_source: "lookup choice filter",
+		};
+		return `${setting[slot] ?? `saved ${slot.replaceAll("_", " ")}`} on “${field.id}”`;
+	}
+	const form = ownRecordValue(doc.forms, carrierUuid);
+	if (form !== undefined) {
+		const setting: Readonly<Record<string, string>> = {
+			form_display_condition: "display condition",
+			form_link_condition: "form link condition",
+			form_link_datum_xpath: "form link value",
+			assessment_user_score: "assessment score",
+			deliver_entity_id: "delivery entity ID",
+			deliver_entity_name: "delivery entity name",
+			case_operation_target_expression: "case target calculation",
+			case_operation_condition: "case operation condition",
+			case_operation_name: "case name calculation",
+			case_operation_owner: "case owner calculation",
+			case_operation_write_value: "case property calculation",
+			case_operation_write_condition: "case property condition",
+			case_operation_link_target_expression: "linked-case target calculation",
+		};
+		return `${setting[slot] ?? `saved ${slot.replaceAll("_", " ")}`} on form “${form.name}”`;
+	}
+	const module = ownRecordValue(doc.modules, carrierUuid);
+	if (module !== undefined) {
+		const setting =
+			slot === "case_list_column_expression"
+				? "calculated value"
+				: slot === "search_input_default"
+					? "search field starting value"
+					: slot === "case_list_filter"
+						? "Cases available condition"
+						: slot === "search_input_predicate"
+							? "search field condition"
+							: slot === "search_button_display_condition"
+								? "Search button condition"
+								: slot === "excluded_owner_ids"
+									? "Assigned cases setting"
+									: "condition";
+		return `${setting} in module “${module.name}”`;
+	}
+	return `saved ${slot.replaceAll("_", " ")}`;
+}
+
+export type RemoveUserPropertyPlan =
+	| { ok: true; mutations: Mutation[] }
+	| {
+			ok: false;
+			referenceCount: number;
+			references: readonly string[];
+			userMessage: string;
+	  };
+
+/**
+ * Plan property removal. Identity-backed XPath and Predicate references are
+ * never cascaded or converted back to mutable text: the author must update
+ * those conditions/calculations first. Only an unreferenced property reaches
+ * value cleanup construction.
+ */
+export function removeUserPropertyPlan(
+	doc: BlueprintDoc,
+	uuid: Uuid,
+): RemoveUserPropertyPlan {
+	const references: Array<{
+		carrierUuid: string;
+		slot: string;
+		description: string;
+	}> = [];
+	for (const [carrierUuid, slots] of referencingSlotsOf(
+		doc,
+		userPropertyTargetKey(uuid),
+	)) {
+		for (const slot of slots) {
+			references.push({
+				carrierUuid,
+				slot,
+				description: describeUserPropertyReference(doc, carrierUuid, slot),
+			});
+		}
+	}
+	if (references.length > 0) {
+		const property = ownRecordValue(userPropertiesOf(doc), uuid);
+		const name = property?.label ?? "This worker information";
+		const locations = references
+			.sort((a, b) => {
+				for (const [left, right] of [
+					[a.description, b.description],
+					[a.carrierUuid, b.carrierUuid],
+					[a.slot, b.slot],
+				] as const) {
+					if (left < right) return -1;
+					if (left > right) return 1;
+				}
+				return 0;
+			})
+			.map(({ description }) => description);
+		return {
+			ok: false,
+			referenceCount: locations.length,
+			references: locations,
+			userMessage: `${name} is used by ${locations.length} saved ${
+				locations.length === 1 ? "setting" : "settings"
+			}: ${locations.join("; ")}. Update or remove ${
+				locations.length === 1 ? "that reference" : "those references"
+			} before removing the worker information.`,
+		};
+	}
+
+	const mutations: Mutation[] = [];
+	for (const type of Object.values(userTypesOf(doc))) {
+		if (!hasOwnRecordKey(type.values, uuid)) continue;
+		mutations.push(
+			...updateUserTypeValueMutations(doc, type.uuid, uuid, undefined),
+		);
 	}
 	for (const persona of Object.values(personasOf(doc))) {
-		const next = withoutKey(persona.values, uuid);
-		if (next === undefined) continue;
-		mutations.push({
-			kind: "updatePersona",
-			uuid: persona.uuid,
-			patch: { values: Object.keys(next).length > 0 ? next : null },
-		});
+		if (!hasOwnRecordKey(persona.values, uuid)) continue;
+		mutations.push(
+			...updatePersonaValueMutations(doc, persona.uuid, uuid, undefined),
+		);
 	}
 	mutations.push({ kind: "removeUserProperty", uuid });
-	return mutations;
+	return { ok: true, mutations };
 }
 
 /** Whether a role can be removed, and what to say when it cannot. */

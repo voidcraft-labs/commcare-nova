@@ -310,6 +310,13 @@ const carrierBlindCaseSearchConfigPatchSchema = caseSearchConfigPatchSchemaFor(
 const userPropertyUpdatePatchSchema = clearablePartialPatch(userPropertySchema);
 const userTypeUpdatePatchSchema = clearablePartialPatch(userTypeSchema);
 const personaUpdatePatchSchema = clearablePartialPatch(personaSchema);
+const userDataValuePatchSchema = z
+	.object({
+		userPropertyUuid: uuidSchema,
+		/** `null` is the JSON-stable spelling of removing one authored value. */
+		value: z.string().nullable(),
+	})
+	.strict();
 
 const canonicalModuleUpdatePatchSchema = clearablePartialPatch(moduleSchema);
 const canonicalFormUpdatePatchSchema = clearablePartialPatch(formSchema).omit({
@@ -1207,6 +1214,12 @@ function createMutationSchema({
 			kind: z.literal("updateUserType"),
 			uuid: uuidSchema,
 			patch: userTypeUpdatePatchSchema.default(() => ({})),
+			/**
+			 * Current receivers apply this one semantic key and ignore the
+			 * whole-bag `patch.values` fallback. Older receivers strip this
+			 * extension and apply that cumulative fallback instead.
+			 */
+			valuePatch: userDataValuePatchSchema.optional(),
 		}),
 		z.object({ kind: z.literal("removeUserType"), uuid: uuidSchema }),
 		z.object({ kind: z.literal("addPersona"), persona: personaSchema }),
@@ -1214,6 +1227,7 @@ function createMutationSchema({
 			kind: z.literal("updatePersona"),
 			uuid: uuidSchema,
 			patch: personaUpdatePatchSchema.default(() => ({})),
+			valuePatch: userDataValuePatchSchema.optional(),
 		}),
 		z.object({ kind: z.literal("removePersona"), uuid: uuidSchema }),
 		// ─── Granular case-list collections ──────────────────────────────────

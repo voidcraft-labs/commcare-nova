@@ -40,7 +40,10 @@ import {
 	CasePropertiesValidationError,
 	SchemaNotSyncedError,
 } from "@/lib/case-store/errors";
-import { resolveAppScope } from "@/lib/db/appAccess";
+import {
+	resolveAppScope,
+	resolveAuthorizedAppSnapshot,
+} from "@/lib/db/appAccess";
 import { loadApp } from "@/lib/db/apps";
 import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
 import {
@@ -56,6 +59,7 @@ import {
 	type Column,
 	caseListColumnHasRuntimeRole,
 	orderedCaseOperations,
+	ownRecordValue,
 	type PersistableDoc,
 	personasOf,
 	type UserCollections,
@@ -894,8 +898,8 @@ export async function resetSampleCases(
  * The optional `built` half attaches the server-derived operation
  * program and the ordinary action's module case type (the rolling
  * proof's final implicit step) — both produced by
- * `buildSubmissionOperationProgram` from the COMMITTED doc, never
- * client structure.
+ * `buildCaseOperationProgramFromDoc` from the same authorized committed
+ * doc the action used to resolve its persona, never client structure.
  */
 /** The server-derived halves `submissionEnvelopeArgs` attaches. */
 export interface BuiltSubmissionOperations {
@@ -904,47 +908,22 @@ export interface BuiltSubmissionOperations {
 }
 
 /**
- * Build the storage executor's `CaseOperationProgram` from the
- * COMMITTED doc — the server is the structural authority, consuming
- * only the client's answer values and iteration counts. Returns an
- * empty result (the `operations` arm stays absent) when the mutation
- * carries no form identity, the doc's form holds no operations, or the
- * client collected no answer bags for an operation-bearing form
- * (doc-snapshot skew — the pure half's guard).
+ * Build the storage executor's `CaseOperationProgram` from ONE authorized,
+ * committed blueprint. The caller owns the single blueprint load so persona
+ * resolution and program derivation cannot observe different snapshots.
  *
- * Everything structural derives from the S04 analyses over the
- * committed doc: canonical `(order, uuid)` operation sequence,
- * root-then-post-order multiplicity scopes (every scope present even
- * with zero client iterations — the executor requires the entry),
- * transitive producer guards resolved to their condition ASTs, and
- * the immutable expression snapshot types. Identity rides
- * server-resolved: `sessionUser`/`sessionContext` from the
- * authenticated preview identity, never the client.
- */
-export async function buildSubmissionOperationProgram(args: {
-	readonly appId: string;
-	readonly identity: ResolvedPreviewIdentity;
-	readonly mutation: SubmissionMutation;
-	readonly viewerTimeZone?: string;
-}): Promise<BuiltSubmissionOperations> {
-	if (args.mutation.formUuid === undefined) return {};
-
-	const app = await loadApp(args.appId);
-	if (!app?.blueprint) return {};
-	return buildCaseOperationProgramFromDoc({
-		blueprint: app.blueprint,
-		mutation: args.mutation,
-		identity: args.identity,
-		...(args.viewerTimeZone !== undefined && {
-			viewerTimeZone: args.viewerTimeZone,
-		}),
-	});
-}
-
-/**
- * The pure half: derive the program from ONE committed blueprint. The
- * I/O wrapper above owns the doc load; acceptance tests drive this
- * directly against the storage executor.
+ * The server is the structural authority, consuming only the client's answer
+ * values and iteration counts. Returns an empty result (the `operations` arm
+ * stays absent) when the mutation carries no form identity, the doc's form
+ * holds no operations, or the client collected no answer bags for an
+ * operation-bearing form (doc-snapshot skew).
+ *
+ * Everything structural derives from the S04 analyses over the committed doc:
+ * canonical `(order, uuid)` operation sequence, root-then-post-order
+ * multiplicity scopes, transitive producer guards, and immutable expression
+ * snapshot types. Identity is server-resolved: `sessionUser` /
+ * `sessionContext` come from the authenticated preview identity, never the
+ * client.
  */
 export function buildCaseOperationProgramFromDoc(args: {
 	readonly blueprint: PersistableDoc;
@@ -1031,6 +1010,9 @@ export function buildCaseOperationProgramFromDoc(args: {
 				: {}),
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
 			sessionUser: new Map(Object.entries(args.identity.session.user)),
+			userPropertySlugs: new Map(
+				Object.entries(args.identity.session.userPropertySlugs),
+			),
 			sessionContext,
 			...(args.viewerTimeZone === undefined
 				? {}
@@ -1207,38 +1189,11 @@ export async function withSchemaHeal<T>(
 }
 
 /**
- * The single construction path for a tenant-bound case store inside a
- * case-data Server Action. It does two load-bearing things in one place so no
- * action can forget either:
- *
- *   1. **The IDOR gate.** `resolveAppScope` resolves the app's Project AND
- *      verifies the actor holds `required` on it. The `appId` a Server Action
- *      receives is client-supplied and otherwise unchecked — under owner-scoping
- *      the store's own `owner_id` filter made a foreign `appId` harmless, but the
- *      Project-scoped store trusts its bound `projectId`, so THIS membership
- *      check is what now stops a crafted request from reaching another Project's
- *      case data. A denial throws `AppAccessError`; the caller collapses it to
- *      its typed not-found/`error` arm (never alerted — denial is expected).
- *   2. **The Project binding + schema heal.** Binds `withProjectContext` to the
- *      resolved Project (stamping the actor as `owner_id` on writes) and wraps it
- *      in the per-call schema heal.
- *
- * Read actions pass `"view"`; write actions (sample populate/reset, form submit)
- * pass `"edit"`.
- *
- * The actor is a `ResolvedPreviewIdentity`, never a bare user id: the
- * action boundary resolves the identity once via
- * {@link resolvePreviewIdentity} and this signature makes an unresolved
- * actor unrepresentable downstream. `identity.ownerId` is both the
- * membership actor and the create-time `owner_id` stamp.
- */
-/**
- * Resolve the acting preview identity from the authenticated session at
- * the Server Action boundary — the ONE server-side derivation every
- * case-data action shares. `null` means no authenticated worker (no
- * session, or the sole provider refused the session's user); callers
- * collapse it to their typed `unauthenticated` arm. The client never
- * supplies an identity to an action.
+ * Resolve a member identity, or project a persona from a document the caller
+ * already owns. Member-only case-data actions use this low-level helper;
+ * app-facing persona selectors use `resolveAuthorizedPreviewContext` so access
+ * is proven before the document is loaded. `null` means no authenticated
+ * worker. The client never supplies an identity to an action.
  */
 export async function resolvePreviewIdentity(
 	doc?: UserCollections,
@@ -1249,34 +1204,106 @@ export async function resolvePreviewIdentity(
 	if (doc === undefined || personaUuid === undefined) {
 		return previewAsMe(session.user, doc);
 	}
-	// A client may SELECT a persona; it may never assert one. The persona is
-	// resolved from the document the caller was authorized to read, and an
-	// id naming nothing falls back to previewing as the member rather than
-	// fabricating a worker.
-	const persona = personasOf(doc)[personaUuid];
+	// This low-level projection is used only when the caller already owns the
+	// document. App-facing selectors use `resolveAuthorizedPreviewContext`,
+	// whose stale-persona arm refuses rather than changing worker identities.
+	const persona = ownRecordValue(personasOf(doc), personaUuid);
 	if (persona === undefined) return previewAsMe(session.user, doc);
 	return previewAsPersona(session.user, persona, doc);
 }
 
 /**
- * Resolve the acting identity for one app, honoring a persona SELECTION.
- *
- * The client may name which persona Preview is running as; it may never
- * assert an identity. The uuid resolves against the COMMITTED blueprint
- * here, and a uuid naming nothing falls back to previewing as the member —
- * a persona a peer removed mid-session must not strand the running app.
- *
- * The blueprint read happens only when a persona is actually selected, so
- * ordinary "Preview as me" traffic pays nothing for the capability.
+ * One authorized action context. Membership is proven before any blueprint
+ * read, the selected persona resolves only from that authorized snapshot,
+ * and the store keeps the Nova actor separate from the CommCare owner.
  */
-export async function resolvePreviewIdentityForApp(
-	appId: string,
-	personaUuid: string | undefined,
-): Promise<ResolvedPreviewIdentity | null> {
-	if (personaUuid === undefined) return resolvePreviewIdentity();
-	const app = await loadApp(appId);
-	if (!app?.blueprint) return resolvePreviewIdentity();
-	return resolvePreviewIdentity(app.blueprint, personaUuid);
+export type AuthorizedPreviewContext =
+	| { kind: "unauthenticated" }
+	| { kind: "persona-unavailable"; message: string }
+	| {
+			kind: "ready";
+			identity: ResolvedPreviewIdentity;
+			store: CaseStore;
+			scope: LookupScope;
+			blueprint?: PersistableDoc;
+	  };
+
+const PERSONA_UNAVAILABLE_MESSAGE =
+	"The selected preview persona is no longer available. Choose another worker and try again.";
+
+export async function resolveAuthorizedPreviewContext(args: {
+	readonly appId: string;
+	readonly personaUuid?: string;
+	readonly required: AppCapability;
+	/** Submission program derivation needs the committed blueprint even while
+	 * previewing as the signed-in member. Persona selection implies a load. */
+	readonly loadBlueprint?: boolean;
+}): Promise<AuthorizedPreviewContext> {
+	const session = await getSession();
+	const memberIdentity = previewAsMe(session?.user);
+	if (memberIdentity === null) return { kind: "unauthenticated" };
+
+	// The app id is client input. Blueprint-needed paths use the locked
+	// authorization snapshot so membership, Project, cursor, and document
+	// cannot straddle a concurrent app move or commit. Member-only paths avoid
+	// the full document through the lightweight scope resolver.
+	const needsBlueprint =
+		args.loadBlueprint === true || args.personaUuid !== undefined;
+	const snapshot = needsBlueprint
+		? await resolveAuthorizedAppSnapshot(
+				args.appId,
+				memberIdentity.actorUserId,
+				args.required,
+			)
+		: undefined;
+	const access =
+		snapshot ??
+		(await resolveAppScope(
+			args.appId,
+			memberIdentity.actorUserId,
+			args.required,
+		));
+	const blueprint = snapshot?.app.blueprint;
+	if (needsBlueprint && blueprint === undefined) {
+		throw new Error("The app changed while Preview was loading it.");
+	}
+
+	let identity = memberIdentity;
+	if (blueprint !== undefined) {
+		if (args.personaUuid === undefined) {
+			identity = previewAsMe(session?.user, blueprint) ?? memberIdentity;
+		} else {
+			const persona = ownRecordValue(personasOf(blueprint), args.personaUuid);
+			if (persona === undefined) {
+				return {
+					kind: "persona-unavailable",
+					message: PERSONA_UNAVAILABLE_MESSAGE,
+				};
+			}
+			const resolved = previewAsPersona(session?.user, persona, blueprint);
+			if (resolved === null) return { kind: "unauthenticated" };
+			identity = resolved;
+		}
+	}
+
+	return {
+		kind: "ready",
+		identity,
+		store: schemaHealingCaseStore(
+			await withProjectContext(
+				access.projectId,
+				identity.actorUserId,
+				identity.ownerId,
+			),
+			{ appId: args.appId },
+		),
+		scope: {
+			projectId: access.projectId,
+			actorId: identity.actorUserId,
+			role: access.role,
+		},
+		...(blueprint !== undefined && { blueprint }),
+	};
 }
 
 export async function gatedCaseStore(

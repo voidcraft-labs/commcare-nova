@@ -14,7 +14,7 @@
 import { emitOnDeviceExpression } from "@/lib/commcare/expression/onDeviceEmitter";
 import { emitCaseListFilter } from "@/lib/commcare/predicate";
 import { bySortKey } from "@/lib/doc/order/compare";
-import type { SearchInputDef } from "@/lib/domain";
+import { ownRecordValue, type SearchInputDef } from "@/lib/domain";
 import type {
 	Predicate,
 	SessionContextField,
@@ -23,7 +23,10 @@ import type {
 import { toBoolean, xpathToString } from "@/lib/preview/xpath/coerce";
 import { evaluate } from "@/lib/preview/xpath/evaluator";
 import type { EvalContext } from "@/lib/preview/xpath/types";
-import type { PreviewSearchSessionValues } from "./identity";
+import {
+	type PreviewSearchSessionValues,
+	previewUserPropertySlugMap,
+} from "./identity";
 import {
 	expressionLookupsCovered,
 	foldTableLookupsInExpression,
@@ -66,9 +69,15 @@ export function evaluatePreviewSearchExpression(
 			? bound
 			: foldTableLookupsInExpression(bound, lookupData, {
 					outer: searchSessionEvalContext(session),
+					userPropertySlugs: previewUserPropertySlugMap(session),
 				});
 	return xpathToString(
-		evaluatePreviewSearchXPath(emitOnDeviceExpression(folded), session),
+		evaluatePreviewSearchXPath(
+			emitOnDeviceExpression(folded, "casedb", {
+				userPropertySlugs: previewUserPropertySlugMap(session),
+			}),
+			session,
+		),
 	);
 }
 
@@ -102,9 +111,15 @@ export function evaluatePreviewSearchPredicate(
 			? bound
 			: foldTableLookupsInPredicate(bound, lookupData, {
 					outer: searchSessionEvalContext(session),
+					userPropertySlugs: previewUserPropertySlugMap(session),
 				});
 	return toBoolean(
-		evaluatePreviewSearchXPath(emitCaseListFilter(folded), session),
+		evaluatePreviewSearchXPath(
+			emitCaseListFilter(folded, "casedb", {
+				userPropertySlugs: previewUserPropertySlugMap(session),
+			}),
+			session,
+		),
 	);
 }
 
@@ -151,7 +166,7 @@ export function sessionInstancePathValue(
 
 	const userPrefix = "/session/user/data/";
 	if (path.startsWith(userPrefix)) {
-		return session.user[path.slice(userPrefix.length)];
+		return ownRecordValue(session.user, path.slice(userPrefix.length));
 	}
 
 	return undefined;

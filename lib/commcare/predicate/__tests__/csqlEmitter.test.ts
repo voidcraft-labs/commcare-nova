@@ -41,6 +41,7 @@
 //      the inline shape is the only wire-correct option.
 
 import { describe, expect, it } from "vitest";
+import { asUuid } from "@/lib/domain";
 import {
 	ancestorPath,
 	and,
@@ -81,6 +82,7 @@ import {
 	selfPath,
 	sessionContext,
 	sessionUser,
+	sessionUserProperty,
 	subcasePath,
 	term,
 	today,
@@ -129,6 +131,33 @@ function expectRuntimeGuarded(
 // ---------- Backward-compat port from xpathEmitter.test.ts ----------
 
 describe("emitCsql — comparison operators", () => {
+	it("resolves a custom session-user property identity to its current slug", () => {
+		const propertyUuid = asUuid("worker-property-region");
+		const result = emitCsql(
+			eq(prop("patient", "region"), sessionUserProperty(propertyUuid)),
+			{
+				caseTypes: [],
+				knownInputs: [],
+				userPropertySlugs: new Map([[propertyUuid, "current_region"]]),
+			},
+		);
+		expect(result.wrapper).toContain(
+			`instance('commcaresession')/session/user/data/current_region`,
+		);
+	});
+
+	it("refuses a custom worker identity without a current slug binding", () => {
+		const propertyUuid = asUuid("missing-worker-property");
+		expect(() =>
+			emitCsql(
+				eq(prop("patient", "region"), sessionUserProperty(propertyUuid)),
+				{ caseTypes: [], knownInputs: [] },
+			),
+		).toThrow(
+			`worker-information property '${propertyUuid}' has no current saved-name binding`,
+		);
+	});
+
 	it("emits eq with a string literal wrapped in concat()", () => {
 		const result = emitCsql(eq(prop("patient", "full_name"), literal("Alice")));
 		expect(result.wrapper).toBe(`concat("full_name = 'Alice'")`);

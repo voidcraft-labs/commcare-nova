@@ -10,7 +10,7 @@
 import type { Draft } from "immer";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
 import { asUuid } from "@/lib/doc/types";
-import type { Field } from "@/lib/domain";
+import { type Field, ownRecordValue } from "@/lib/domain";
 
 /**
  * Remove a field and all of its descendants from the doc. Called by
@@ -22,7 +22,7 @@ export function cascadeDeleteField(
 	draft: Draft<BlueprintDoc>,
 	uuid: Uuid,
 ): void {
-	const children = draft.fieldOrder[uuid];
+	const children = ownRecordValue(draft.fieldOrder, uuid);
 	if (children) {
 		// Snapshot the children list; recursive deletes mutate fieldOrder.
 		for (const childUuid of [...children]) {
@@ -43,7 +43,7 @@ export function cascadeDeleteForm(
 	draft: Draft<BlueprintDoc>,
 	uuid: Uuid,
 ): void {
-	const topLevelFields = draft.fieldOrder[uuid] ?? [];
+	const topLevelFields = ownRecordValue(draft.fieldOrder, uuid) ?? [];
 	for (const fUuid of [...topLevelFields]) {
 		cascadeDeleteField(draft, fUuid);
 	}
@@ -93,7 +93,7 @@ export function findContainingForm(
 		visited.add(cursor);
 		const parent = findFieldParent(doc, cursor);
 		if (!parent) return undefined;
-		if (doc.forms[parent.parentUuid] !== undefined) {
+		if (ownRecordValue(doc.forms, parent.parentUuid) !== undefined) {
 			return parent.parentUuid;
 		}
 		cursor = parent.parentUuid;
@@ -111,7 +111,7 @@ export function walkFormFieldUuids(doc: BlueprintDoc, formUuid: Uuid): Uuid[] {
 	const stack: Uuid[] = [formUuid];
 	while (stack.length > 0) {
 		const parent = stack.pop() as Uuid;
-		const order = doc.fieldOrder[parent] ?? [];
+		const order = ownRecordValue(doc.fieldOrder, parent) ?? [];
 		for (const childUuid of order) {
 			result.push(childUuid);
 			// Push onto the stack so children of groups/repeats are visited too.
@@ -137,11 +137,11 @@ export function dedupeSiblingId(
 	desired: string,
 	excludeUuid: Uuid | undefined,
 ): string {
-	const siblings = draft.fieldOrder[parentUuid] ?? [];
+	const siblings = ownRecordValue(draft.fieldOrder, parentUuid) ?? [];
 	const takenIds = new Set<string>();
 	for (const sibUuid of siblings) {
 		if (sibUuid === excludeUuid) continue;
-		const sibId = draft.fields[sibUuid]?.id;
+		const sibId = ownRecordValue(draft.fields, sibUuid)?.id;
 		if (sibId) takenIds.add(sibId);
 	}
 	if (!takenIds.has(desired)) return desired;
@@ -179,11 +179,11 @@ export function computeFieldPath(
 	while (cursor !== undefined) {
 		if (visited.has(cursor)) return undefined;
 		visited.add(cursor);
-		if (doc.forms[cursor] !== undefined) {
+		if (ownRecordValue(doc.forms, cursor) !== undefined) {
 			// Reached the form — path is complete.
 			return segments.reverse().join("/");
 		}
-		const field = doc.fields[cursor];
+		const field = ownRecordValue(doc.fields, cursor);
 		if (!field) return undefined;
 		segments.push(field.id);
 		const parent = findFieldParent(doc, cursor);
@@ -225,13 +225,13 @@ export function cloneFieldSubtree(
 	// an Immer reducer. Callers (`duplicateField`) already guard on the
 	// source field existing before calling, so hitting this path means
 	// the doc is already in an inconsistent state.
-	if (doc.fields[srcUuid] === undefined) return undefined;
+	if (ownRecordValue(doc.fields, srcUuid) === undefined) return undefined;
 
 	const clonedFields: Record<Uuid, Field> = {};
 	const clonedOrder: Record<Uuid, Uuid[]> = {};
 
 	function cloneOne(uuid: Uuid): Uuid | undefined {
-		const src = doc.fields[uuid];
+		const src = ownRecordValue(doc.fields, uuid);
 		if (!src) {
 			// A missing descendant means `fieldOrder` references a uuid that
 			// isn't in `fields` — corrupt state we shouldn't crash over.
@@ -244,7 +244,7 @@ export function cloneFieldSubtree(
 		}
 		const newUuid = asUuid(crypto.randomUUID());
 		clonedFields[newUuid] = { ...src, uuid: newUuid };
-		const childOrder = doc.fieldOrder[uuid];
+		const childOrder = ownRecordValue(doc.fieldOrder, uuid);
 		if (childOrder !== undefined) {
 			// Recursively clone each child and record the new child order under
 			// the new parent UUID. `filter` drops any children that hit the

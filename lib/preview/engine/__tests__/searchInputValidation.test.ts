@@ -187,7 +187,11 @@ describe("searchInputRuntimeQuoteErrors", () => {
 			config,
 			"patient",
 			new Map([["query", "O'Brien"]]),
-			{ context: {}, user: { nickname: 'The "Boss"' } },
+			{
+				context: {},
+				user: { nickname: 'The "Boss"' },
+				userPropertySlugs: {},
+			},
 		);
 		expect([...errors.keys()]).toEqual(["query"]);
 	});
@@ -379,12 +383,25 @@ describe("searchInputRuntimeQuoteErrors", () => {
 			searchInputRuntimeGlobalError(config, "patient", new Map(), {
 				context: {},
 				user: { search_label: `O'Brien "Clinic"` },
+				userPropertySlugs: {},
 			}),
 		).toContain("quotation marks");
 		expect(
 			searchInputRuntimeGlobalError(config, "patient", new Map(), {
 				context: {},
 				user: { search_label: "O'Brien Clinic" },
+				userPropertySlugs: {},
+			}),
+		).toBeUndefined();
+
+		const inherited = Object.create({
+			search_label: `O'Brien "Clinic"`,
+		}) as Record<string, string>;
+		expect(
+			searchInputRuntimeGlobalError(config, "patient", new Map(), {
+				context: {},
+				user: inherited,
+				userPropertySlugs: {},
 			}),
 		).toBeUndefined();
 	});
@@ -405,12 +422,14 @@ describe("searchInputRuntimeQuoteErrors", () => {
 			searchInputRuntimeGlobalError(config, "patient", new Map(), {
 				context: {},
 				user: { default_location: "not a location" },
+				userPropertySlugs: {},
 			}),
 		).toContain("latitude and longitude");
 		expect(
 			searchInputRuntimeGlobalError(config, "patient", new Map(), {
 				context: {},
 				user: { default_location: "42.3601 -71.0589" },
+				userPropertySlugs: {},
 			}),
 		).toBeUndefined();
 	});

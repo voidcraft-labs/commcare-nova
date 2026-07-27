@@ -74,6 +74,8 @@ function describeSubmitError(result: SubmissionFailure): string {
 	switch (result.kind) {
 		case "unauthenticated":
 			return "Sign in to submit this form.";
+		case "persona-unavailable":
+			return result.message;
 		case "case-not-found":
 			return "The case you were editing no longer exists. Refresh and try again.";
 		case "case-properties-validation": {
@@ -574,6 +576,20 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 
 	/** A NAV-bound case-loading form (followup / close) hitting `unauthenticated` / `error` must surface the failure — the no-preload fallback would hide session expiry and transport failures behind a defaults-rendered form. The guard is scoped to the nav-provided `caseId`: on the auto-select path the form is already usable off the auto-row's bridge preload, and a failed by-id load only means the OPTIONAL ancestor enrichment didn't arrive — blanking a working form for that would be a downgrade. `idle` / `loading` / `missing` fall through (the form renders against defaults during the load window; `missing` shares the "no row" semantic with the next guard). The form-type set comes from `CASE_LOADING_FORM_TYPES` so adding a third case-loading form type in `lib/domain/forms.ts` would extend this guard automatically. */
 	if (mode === "preview" && CASE_LOADING_FORM_TYPES.has(form.type) && caseId) {
+		if (caseDataState.kind === "persona-unavailable") {
+			return (
+				<div className="flex h-full flex-col items-center justify-center gap-4 px-6">
+					<div className="max-w-xs space-y-2 text-center">
+						<h3 className="text-sm font-medium text-nova-text">
+							Choose who Preview runs as
+						</h3>
+						<p className="text-sm text-nova-text-muted">
+							{caseDataState.message}
+						</p>
+					</div>
+				</div>
+			);
+		}
 		if (caseDataState.kind === "unauthenticated") {
 			return (
 				<div className="flex flex-col items-center justify-center h-full gap-4 px-6">

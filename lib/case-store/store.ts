@@ -9,10 +9,10 @@
 // `SchemaCaseStore` is the actor-free schema-change slice (app-scoped
 // `applySchemaChange` / `dropSchema`); `CaseStore extends
 // SchemaCaseStore` adds the tenant-bound read/write surface.
-// `withProjectContext(projectId, actorUserId)` binds the Project at
+// `withProjectContext(projectId, actorUserId, ownerId)` binds the Project at
 // construction so every read/write inherits the
 // `WHERE project_id = <bound>` filter automatically and every insert
-// stamps the new case's `owner_id = <actor>` (the CommCare case-owner —
+// stamps the new case's `owner_id = <owner>` (the CommCare case-owner —
 // the reserved axis future location-based access carves on, distinct
 // from the Project tenant filter); `withSchemaContext()` binds no Project at
 // construction, but every schema write dynamically fences the app's current
@@ -81,7 +81,7 @@ export type CaseRow = Omit<Selectable<CasesTable>, "project_id">;
  * it lets Postgres's `DEFAULT uuidv7()` fire). `app_id`, `project_id`,
  * and `owner_id` are omitted — `PostgresCaseStore` fills `app_id` from
  * the top-level argument, `project_id` from the bound Project, and
- * `owner_id` (the CommCare case-owner) from the bound actor; callers
+ * `owner_id` (the CommCare case-owner) from the bound owner; callers
  * cannot override the tenant key or the case-owner.
  *
  * `properties` widens to `JsonObject | string`. The implementation
@@ -194,8 +194,10 @@ export interface QueryArgs {
 /**
  * Arguments for `CaseStore.count`. Subset of `QueryArgs` — `count`
  * never sorts, never paginates, and never projects calculated
- * columns; it returns a single integer for the row population the
- * `(appId, caseType, predicate?)` triple resolves to.
+ * columns. The case-type arm returns the population the
+ * `(appId, caseType, predicate?)` triple resolves to. The owner arm
+ * returns every retained row for `(appId, ownerId)` across current and
+ * retired case types without requiring a materialized schema.
  *
  * `caseTypeSchemas` is required when `predicate` reads a case
  * property (same data-type-resolution contract as `QueryArgs`).
@@ -204,19 +206,37 @@ export interface QueryArgs {
  * collapses to a sequential / index scan over the case-type
  * partition.
  */
-export interface CountArgs {
-	appId: string;
-	caseType: string;
-	caseTypeSchemas?: ReadonlyMap<string, CaseType>;
-	/** Same contract as `QueryArgs.lookupTableSchemas`. */
-	lookupTableSchemas?: LookupTableSchemas;
-	/** Runtime values for input/session terms used by the predicate. */
-	bindings?: TermBindings;
-	predicate?: Predicate;
-	/** Same hold contract as `QueryArgs.includeHeld` — a count must
-	 * agree with the row list its caller pairs it with. */
-	includeHeld?: boolean;
-}
+export type CountArgs =
+	| {
+			appId: string;
+			caseType: string;
+			ownerId?: never;
+			caseTypeSchemas?: ReadonlyMap<string, CaseType>;
+			/** Same contract as `QueryArgs.lookupTableSchemas`. */
+			lookupTableSchemas?: LookupTableSchemas;
+			/** Runtime values for input/session terms used by the predicate. */
+			bindings?: TermBindings;
+			predicate?: Predicate;
+			/** Same hold contract as `QueryArgs.includeHeld` — a count must
+			 * agree with the row list its caller pairs it with. */
+			includeHeld?: boolean;
+	  }
+	| {
+			/**
+			 * Count every retained case owned by one CommCare worker, across
+			 * current and retired case types. This is deliberately not a
+			 * predicate arm: it needs no materialized schema to inspect the
+			 * reserved scalar `owner_id`.
+			 */
+			appId: string;
+			ownerId: string;
+			caseType?: never;
+			caseTypeSchemas?: never;
+			lookupTableSchemas?: never;
+			bindings?: never;
+			predicate?: never;
+			includeHeld?: boolean;
+	  };
 
 /**
  * Wire-shape of a single calculated-column value as pg-driver hands
@@ -642,9 +662,9 @@ export interface TransactionalSchemaCaseStore extends SchemaCaseStore {
  * The full storage contract every consumer of case DATA binds
  * against — the tenant-bound read/write surface plus the schema
  * operations it inherits from {@link SchemaCaseStore}. Construction
- * is via the `withProjectContext(projectId, actorUserId)` factory,
- * which binds the Project the reads/writes scope to and the actor
- * stamped as each new row's `owner_id`.
+ * is via the `withProjectContext(projectId, actorUserId, ownerId)` factory,
+ * which binds the Project the reads/writes scope to, the member who
+ * authorizes, and the worker stamped as each new row's `owner_id`.
  */
 export interface CaseStore extends SchemaCaseStore {
 	/**
@@ -671,18 +691,23 @@ export interface CaseStore extends SchemaCaseStore {
 	query(args: QueryArgs): Promise<CaseRowWithCalculated[]>;
 
 	/**
-	 * Predicate-driven `COUNT(*)`. Returns the row population the
-	 * `(appId, caseType, predicate?)` triple resolves to, scoped to
-	 * the bound Project. The case-list authoring surface's Filters
+	 * Predicate- or owner-driven `COUNT(*)`, always scoped to the bound
+	 * Project. The case-type arm returns the row population the
+	 * `(appId, caseType, predicate?)` triple resolves to. The case-list
+	 * authoring surface's Filters
 	 * section uses this to render a "N cases pass this filter"
 	 * counter without paying for a full `query` round-trip — the
 	 * predicate compiles through the same `compilePredicate` stack
 	 * as `query`, so the WHERE clause is identical to the predicate-
 	 * narrowed `query` it pairs with.
 	 *
-	 * Predicate-free callers (the "no filter applied" preview state)
+	 * Predicate-free case-type callers (the "no filter applied" preview state)
 	 * pass `predicate: undefined`; the underlying SELECT collapses
 	 * to a tenant-scoped count over the case-type partition.
+	 *
+	 * The owner arm counts every retained row for `(appId, ownerId)`
+	 * across current and retired case types. It is the exact population
+	 * persona removal reports and requires no case-type schema.
 	 */
 	count(args: CountArgs): Promise<number>;
 

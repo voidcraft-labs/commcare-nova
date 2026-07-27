@@ -3509,7 +3509,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 
 		it("insert lands in the bound Project — Project B cannot see Project A's freshly inserted row", async () => {
 			// `insert` stamps `project_id = bound Project` (tenant) and
-			// `owner_id = bound actor` (case-owner) at the write
+			// `owner_id = bound owner` (case-owner) at the write
 			// boundary (see `PostgresCaseStore.insert`'s row
 			// composition). Pin the contract: owner-A inserts, owner-B
 			// queries, the row is invisible. Implicit before; explicit
@@ -3698,7 +3698,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				caseType: "patient",
 			});
 			expect(rows).toHaveLength(5);
-			// Every row carries the bound actor (`owner_id`) + the requested
+			// Every row carries the bound owner (`owner_id`) + the requested
 			// case-type — pins that the generator's output flows
 			// through `insert`'s tenant-scoping path.
 			for (const row of rows) {
@@ -4486,6 +4486,47 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				caseType: "patient",
 			});
 			expect(total).toBe(2);
+		});
+
+		it("owner count includes rows whose case type is no longer materialized", async () => {
+			const store = await options.factory(TENANT_A);
+			const blueprint = buildBlueprint([
+				PATIENT_CASE_TYPE,
+				HOUSEHOLD_CASE_TYPE,
+			]);
+			await seedSchema(store, blueprint, "patient");
+			await seedSchema(store, blueprint, "household");
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: PATIENT_ALICE_ID,
+					case_type: "patient",
+					case_name: "Alice",
+					status: "open",
+					properties: makeProperties({ name: "Alice", age: 30 }),
+				},
+			});
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: HOUSEHOLD_ID,
+					case_type: "household",
+					case_name: "Retired household",
+					status: "open",
+					properties: makeProperties({ region: "North" }),
+				},
+			});
+			// A retired/non-materializable type has no current schema row, but
+			// its retained cases still count toward persona-removal consequences.
+			await store.dropSchema({ appId: APP_ID, caseType: "household" });
+
+			expect(
+				await store.count({
+					appId: APP_ID,
+					ownerId: USER_A,
+					includeHeld: true,
+				}),
+			).toBe(2);
 		});
 
 		it("count narrows to the predicate-matching subset", async () => {

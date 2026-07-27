@@ -38,6 +38,7 @@ import {
 	casePropertyDataTypes,
 	expressionSource,
 	orderedCaseOperations,
+	ownRecordValue,
 	type XPathPrintableDoc,
 } from "@/lib/domain";
 import {
@@ -54,7 +55,11 @@ import type {
 } from "./caseDataBindingTypes";
 import { DataInstance } from "./dataInstance";
 import { buildFieldTree, type FieldTreeNode } from "./fieldTree";
-import { previewSessionValues, type ResolvedPreviewIdentity } from "./identity";
+import {
+	previewSessionValues,
+	previewUserPropertySlugMap,
+	type ResolvedPreviewIdentity,
+} from "./identity";
 import {
 	rebaseOntoContext,
 	remapInstancePath,
@@ -113,6 +118,8 @@ export interface FormEngineInput {
 	fields: Record<string, Field>;
 	/** Adjacency list from parent uuid → ordered child uuids (`doc.fieldOrder`). */
 	fieldOrder: Record<string, Uuid[]>;
+	/** Custom worker-information identities used to print `#user/*` refs. */
+	userProperties?: XPathPrintableDoc["userProperties"];
 }
 
 /** The print surface for the engine's input slice: its one form plus
@@ -123,6 +130,7 @@ function printableDocOf(input: FormEngineInput): XPathPrintableDoc {
 		forms: { [input.formUuid]: input.form },
 		fields: input.fields,
 		fieldOrder: input.fieldOrder,
+		userProperties: input.userProperties,
 	};
 }
 
@@ -1733,7 +1741,7 @@ export class FormEngine {
 				 * node. */
 				if (ref.startsWith("#user/")) {
 					const prop = ref.slice(6);
-					return this.previewIdentity?.usercase[prop] ?? "";
+					return ownRecordValue(this.previewIdentity?.usercase, prop) ?? "";
 				}
 				// Case references. The authoring vocabulary is per-case-type —
 				// `#<case_type>/<prop>` (printXPath's `case-ref` spelling) —
@@ -1841,6 +1849,9 @@ export class FormEngine {
 		return evaluateLookupChoices(source, data, {
 			outer: this.lookupOuterContext(ctx),
 			formFields: this.fieldPathsByUuid(),
+			userPropertySlugs: previewUserPropertySlugMap(
+				previewSessionValues(this.previewIdentity),
+			),
 		});
 	}
 

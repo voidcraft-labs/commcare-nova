@@ -83,6 +83,7 @@ vi.mock("@/lib/session/hooks", async () => {
 		useSetPreviewing: () => setPreviewingMock,
 		usePreviewCaseTarget: () => undefined,
 		useSetPreviewCaseTarget: () => vi.fn(),
+		useSetPreviewPersonaUuid: () => vi.fn(),
 	};
 });
 

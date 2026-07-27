@@ -33,7 +33,7 @@
 "use client";
 import { useMemo } from "react";
 import { useValidityPropagator } from "@/components/builder/shared/useInnerValidityShadow";
-import type { CaseType } from "@/lib/domain";
+import type { CaseType, UserProperty } from "@/lib/domain";
 import {
 	type CheckError,
 	checkPredicate,
@@ -62,6 +62,8 @@ interface PredicateCardEditorProps {
 	readonly currentCaseType: string;
 	/** Search inputs declared on the parent surface. */
 	readonly knownInputs?: readonly EditorSearchInputDecl[];
+	/** Current custom worker-information catalog for immutable user refs. */
+	readonly userProperties?: readonly UserProperty[];
 	/**
 	 * Surfaces the boolean validity verdict to the parent on every
 	 * onChange. The editor authors valid by construction — no sequence
@@ -94,6 +96,7 @@ export function PredicateCardEditor({
 	caseTypes,
 	currentCaseType,
 	knownInputs = [],
+	userProperties = [],
 	onValidityChange,
 	onRemove,
 }: PredicateCardEditorProps) {
@@ -106,8 +109,11 @@ export function PredicateCardEditor({
 			caseTypes: [...caseTypes],
 			knownInputs: [...knownInputs],
 			currentCaseType,
+			userPropertySlugs: new Map(
+				userProperties.map((property) => [property.uuid, property.slug]),
+			),
 		}),
-		[caseTypes, knownInputs, currentCaseType],
+		[caseTypes, knownInputs, currentCaseType, userProperties],
 	);
 
 	// Run the type checker on every value change. The checker is
@@ -140,6 +146,7 @@ export function PredicateCardEditor({
 			caseTypes={caseTypes}
 			currentCaseType={currentCaseType}
 			knownInputs={knownInputs}
+			userProperties={userProperties}
 			validityIndex={validityIndex}
 		>
 			<ChildPredicateEditor

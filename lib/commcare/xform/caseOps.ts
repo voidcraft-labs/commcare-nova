@@ -47,6 +47,7 @@ import {
 	MAX_CASE_OPERATION_TEXT_LENGTH,
 	orderedCaseOperations,
 	type Uuid,
+	userPropertySlugsByUuid,
 } from "@/lib/domain";
 import type {
 	Predicate,
@@ -183,6 +184,7 @@ export function buildCaseOperations(
 		formUuid,
 		operations,
 	);
+	const userPropertySlugs = userPropertySlugsByUuid(doc);
 
 	for (const location of locations) {
 		const { operation, wrapperPath, casePath, repeat } = location;
@@ -195,6 +197,7 @@ export function buildCaseOperations(
 			operationIds: bindOperationPaths(priorCreates, repeat, targetPath),
 			rootCaseId: SESSION_CASE_ID,
 			caseProperty: formCasePropertyResolver(moduleCaseType),
+			userPropertySlugs,
 			...(lookupNaming !== undefined && {
 				lookup: { naming: lookupNaming },
 			}),

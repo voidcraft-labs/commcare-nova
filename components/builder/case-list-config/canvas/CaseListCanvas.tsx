@@ -21,6 +21,7 @@ import type {
 	Column,
 	CommitOutcome,
 	TileCell,
+	UserProperty,
 	Uuid,
 } from "@/lib/domain";
 import type { Predicate, ValueExpression } from "@/lib/domain/predicate";
@@ -52,6 +53,7 @@ export interface CaseListCanvasProps {
 	readonly config: CaseListConfig;
 	readonly caseType: CaseType | undefined;
 	readonly caseTypes?: readonly CaseType[];
+	readonly userProperties?: readonly UserProperty[];
 	readonly brokenColumns: ReadonlySet<string>;
 	readonly selection: WorkspaceSelection | null;
 	readonly onSelect: (next: WorkspaceSelection) => void;
@@ -91,6 +93,7 @@ export function CaseListCanvas({
 	config,
 	caseType,
 	caseTypes,
+	userProperties = [],
 	brokenColumns,
 	selection,
 	onSelect,
@@ -256,6 +259,7 @@ export function CaseListCanvas({
 							caseSearchEnabled={caseSearchEnabled}
 							onExcludedOwnerIdsChange={onExcludedOwnerIdsChange}
 							caseTypes={caseTypes ?? []}
+							userProperties={userProperties}
 							currentCaseType={caseType?.name ?? ""}
 							appId={appId}
 							dependencyReview={dependencyReview}

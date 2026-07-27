@@ -230,10 +230,9 @@ export interface BuilderSessionState {
 	/** Which persona Preview runs as, by uuid — `undefined` means the
 	 *  signed-in member ("Preview as me"). Ephemeral like every other
 	 *  preview field: a persona is a design actor, so which one you are
-	 *  trying is a property of this session, not of the app. It deliberately
-	 *  SURVIVES a preview toggle, unlike the case target: leaving preview to
-	 *  edit a form and coming back should return you to the same worker's
-	 *  session, not silently switch identities. */
+	 *  trying is a property of the running Preview session, not of the app.
+	 *  Leaving Preview clears it before edit-mode case tools return, so a
+	 *  hidden running identity can never influence authoring data surfaces. */
 	previewPersonaUuid: string | undefined;
 
 	// ── Chrome ───────────────────────────────────────────────────────────
@@ -1062,6 +1061,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					const structureStashed = s.sidebars.structure.stashed;
 					set({
 						previewing: false,
+						previewPersonaUuid: undefined,
 						previewCaseTarget: undefined,
 						previewSelectedCase: undefined,
 						sidebars: {

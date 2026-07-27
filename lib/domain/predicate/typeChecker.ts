@@ -139,6 +139,8 @@ export type TypeContext = {
 	operationIds?: ReadonlySet<Uuid>;
 	/** Submission-local owner sentinels admitted only by case-operation slots. */
 	caseOperationValues?: boolean;
+	/** Current saved names for identity-backed custom worker information. */
+	userPropertySlugs?: ReadonlyMap<Uuid, string>;
 	/** Rows-free lookup definition types available to table-lookup nodes. */
 	lookupTables?: ReadonlyMap<
 		LookupTableId,
@@ -202,6 +204,7 @@ export type CheckErrorCode =
 	| "unknown-property"
 	| "unknown-search-input"
 	| "unknown-form-field"
+	| "unknown-user-property"
 	| "unknown-lookup-table"
 	| "unknown-lookup-column"
 	| "lookup-table-scope"
@@ -1726,6 +1729,19 @@ export function resolveTermType(
 			// upstream of the predicate at the form-write boundary or via
 			// a calculated column.
 			return "text";
+		case "session-user-property":
+			if (
+				ctx.userPropertySlugs !== undefined &&
+				!ctx.userPropertySlugs.has(term.userPropertyUuid)
+			) {
+				errors.push({
+					path,
+					code: "unknown-user-property",
+					message: `Worker information '${term.userPropertyUuid}' is not available in this expression context.`,
+				});
+				return undefined;
+			}
+			return "text";
 		case "session-context":
 			// Closed-namespace framework-controlled context fields also
 			// resolve to text for v1's four-field set. The wire path
@@ -1811,8 +1827,10 @@ export function resolveTermType(
 						"literal",
 						"input",
 						"session-user",
+						"session-user-property",
 						"session-context",
 						"field",
+						"table-column",
 					],
 				}),
 			);

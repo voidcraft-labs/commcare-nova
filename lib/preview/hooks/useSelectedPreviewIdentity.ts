@@ -9,18 +9,18 @@
  * other preview field); the identity itself is built here from the
  * committed document.
  *
- * Better Auth resolves a cached session synchronously on the browser's
- * first paint while SSR has none, so the first render is deliberately
- * identity-free — the shared hydration rule every preview screen already
- * follows. A persona uuid naming nothing (a persona a peer removed while
- * this tab was previewing) falls back to previewing as the member rather
- * than freezing on a worker that no longer exists.
+ * Visual consumers stay identity-free for the server/client hydration render:
+ * Better Auth may expose a warm cached session synchronously only in the
+ * browser. The engine provider opts into that warm value because the identity
+ * changes only its non-rendered controller initializer; this prevents a form
+ * engine from activating once without a worker and immediately rebuilding.
  */
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/lib/auth/hooks/useAuth";
 import { useUserCollections } from "@/lib/doc/hooks/useUserCollections";
+import { ownRecordValue } from "@/lib/domain";
 import {
 	previewAsMe,
 	previewAsPersona,
@@ -28,19 +28,60 @@ import {
 } from "@/lib/preview/engine/identity";
 import { usePreviewPersonaUuid } from "@/lib/session/hooks";
 
-export function useSelectedPreviewIdentity(): ResolvedPreviewIdentity | null {
+export type SelectedPreviewIdentityState =
+	| {
+			readonly kind: "ready";
+			readonly identity: ResolvedPreviewIdentity | null;
+	  }
+	| { readonly kind: "persona-unavailable"; readonly personaUuid: string };
+
+/**
+ * Preserve the difference between an identity that has not hydrated yet and
+ * a selected persona that no longer exists. Collapsing both to `null` lets
+ * the latter run as an anonymous worker.
+ */
+export function useSelectedPreviewIdentityState(
+	options: { readonly useCachedSessionImmediately?: boolean } = {},
+): SelectedPreviewIdentityState {
 	const { user } = useAuth();
 	const personaUuid = usePreviewPersonaUuid();
 	const collections = useUserCollections();
-
 	const [authMounted, setAuthMounted] = useState(false);
-	useEffect(() => setAuthMounted(true), []);
+
+	useEffect(() => {
+		if (options.useCachedSessionImmediately !== true) setAuthMounted(true);
+	}, [options.useCachedSessionImmediately]);
 
 	return useMemo(() => {
-		const sessionUser = authMounted ? user : null;
+		const sessionUser =
+			options.useCachedSessionImmediately === true || authMounted ? user : null;
 		const persona =
-			personaUuid === undefined ? undefined : collections.personas[personaUuid];
-		if (persona === undefined) return previewAsMe(sessionUser, collections);
-		return previewAsPersona(sessionUser, persona, collections);
-	}, [authMounted, user, personaUuid, collections]);
+			personaUuid === undefined
+				? undefined
+				: ownRecordValue(collections.personas, personaUuid);
+		if (personaUuid !== undefined && persona === undefined) {
+			return { kind: "persona-unavailable", personaUuid };
+		}
+		return {
+			kind: "ready",
+			identity:
+				persona === undefined
+					? previewAsMe(sessionUser, collections)
+					: previewAsPersona(sessionUser, persona, collections),
+		};
+	}, [
+		authMounted,
+		collections,
+		options.useCachedSessionImmediately,
+		personaUuid,
+		user,
+	]);
+}
+
+/** Compatibility projection for consumers where unavailable means no identity. */
+export function useSelectedPreviewIdentity(
+	options: { readonly useCachedSessionImmediately?: boolean } = {},
+): ResolvedPreviewIdentity | null {
+	const state = useSelectedPreviewIdentityState(options);
+	return state.kind === "ready" ? state.identity : null;
 }

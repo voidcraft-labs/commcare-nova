@@ -91,6 +91,17 @@ describe("BuilderSession store", () => {
 		expect(s.sidebars.structure).toEqual({ open: true, stashed: undefined });
 	});
 
+	it("leaving Preview clears the acting persona before edit-mode data tools return", () => {
+		const store = createBuilderSessionStore();
+		store.getState().setPreviewing(true);
+		store.getState().setPreviewPersonaUuid("persona-a");
+		expect(store.getState().previewPersonaUuid).toBe("persona-a");
+
+		store.getState().setPreviewing(false);
+
+		expect(store.getState().previewPersonaUuid).toBeUndefined();
+	});
+
 	it("4. setPreviewing(true) with chat already closed: restores chat-closed state exactly", () => {
 		const store = createBuilderSessionStore();
 

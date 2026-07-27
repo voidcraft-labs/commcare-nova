@@ -24,20 +24,28 @@ import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import { asUuid } from "@/lib/domain";
 import type { PersistableDoc } from "@/lib/domain/blueprint";
-import { BuilderSessionProvider } from "@/lib/session/provider";
+import {
+	BuilderSessionContext,
+	BuilderSessionProvider,
+	type BuilderSessionStoreApi,
+} from "@/lib/session/provider";
+import { createBuilderSessionStore } from "@/lib/session/store";
 import { EngineController } from "../engineController";
 import { BuilderFormEngineProvider, useBuilderFormEngine } from "../provider";
 
-/* The provider resolves "Preview as me" from `useAuth()`. Mock it so the
+/* The provider resolves "Preview as me" from `useAuth()`. Mock a warm session so
+ * the synchronous controller-initialization contract is observable, and so the
  * test doesn't subscribe Better Auth's client session atom — its nanostores
  * `onMount` schedules a `setTimeout(0) → fetchSession()` real fetch that the
- * async-leak detector pins. A static unauthenticated result is enough here:
- * the identity effect installs `null` and the engine reads user slices as
- * absent. */
+ * async-leak detector pins. */
 vi.mock("@/lib/auth/hooks/useAuth", () => ({
 	useAuth: () => ({
-		user: null,
-		isAuthenticated: false,
+		user: {
+			id: "warm-member",
+			name: "Warm Member",
+			email: "warm@example.com",
+		},
+		isAuthenticated: true,
 		isAdmin: false,
 		isImpersonating: false,
 		isPending: false,
@@ -187,6 +195,66 @@ describe("BuilderFormEngineProvider", () => {
 		expect(captured).not.toBeNull();
 		const runtime = (captured as unknown as EngineController).store.getState();
 		expect(Object.keys(runtime).length).toBeGreaterThan(0);
+	});
+
+	it("binds a warm preview identity before child effects run", () => {
+		const docStore = createBlueprintDocStore();
+		docStore.getState().load(DOC);
+		docStore.temporal.getState().resume();
+		const setIdentity = vi.spyOn(
+			EngineController.prototype,
+			"setPreviewIdentity",
+		);
+		let callsSeenByChild = -1;
+
+		function TestHarness() {
+			useBuilderFormEngine();
+			useEffect(() => {
+				callsSeenByChild = setIdentity.mock.calls.length;
+			}, []);
+			return null;
+		}
+
+		render(
+			<BuilderSessionProvider>
+				<BlueprintDocContext value={docStore}>
+					<BuilderFormEngineProvider>
+						<TestHarness />
+					</BuilderFormEngineProvider>
+				</BlueprintDocContext>
+			</BuilderSessionProvider>,
+		);
+
+		expect(setIdentity.mock.calls[0]?.[0]).toMatchObject({
+			actorUserId: "warm-member",
+			ownerId: "warm-member",
+		});
+		// The initializer call is visible to the child; the provider's follow-up
+		// effect runs after the child's effect and may make the second call.
+		expect(callsSeenByChild).toBe(1);
+		setIdentity.mockRestore();
+	});
+
+	it("refuses to activate a form while the selected persona is unavailable", () => {
+		const docStore = createBlueprintDocStore();
+		docStore.getState().load(DOC);
+		docStore.temporal.getState().resume();
+		const sessionStore: BuilderSessionStoreApi = createBuilderSessionStore();
+		sessionStore.getState().setPreviewPersonaUuid("removed-persona");
+		const Wrapper = ({ children }: { children: ReactNode }) => (
+			<BuilderSessionContext value={sessionStore}>
+				<BlueprintDocContext value={docStore}>
+					<BuilderFormEngineProvider>{children}</BuilderFormEngineProvider>
+				</BlueprintDocContext>
+			</BuilderSessionContext>
+		);
+		const { result } = renderHook(() => useBuilderFormEngine(), {
+			wrapper: Wrapper,
+		});
+
+		act(() => result.current.activateForm(FORM_UUID));
+
+		expect(result.current.store.getState()).toEqual({});
 	});
 
 	it("drops runtime form and case values synchronously on a Project-scope reset", () => {

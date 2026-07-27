@@ -46,6 +46,7 @@ import {
 	loadThread,
 } from "@/lib/db/threads";
 import type { AppDoc } from "@/lib/db/types";
+import { toRscSerializableDoc } from "@/lib/doc/ownRecords";
 import { log } from "@/lib/logger";
 
 export default async function BuilderPage({
@@ -178,10 +179,12 @@ export default async function BuilderPage({
 		app.status === "error" && initialThread?.resume_interrupted === true;
 	if (app.status === "error" && !buildInterrupted) redirect("/");
 
+	const initialDoc = toRscSerializableDoc(app.blueprint);
+
 	return (
 		<BuilderProvider
 			buildId={id}
-			initialDoc={app.blueprint}
+			initialDoc={initialDoc}
 			initialAccess={initialAccess}
 			userId={session.user.id}
 		>

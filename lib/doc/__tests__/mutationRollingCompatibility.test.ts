@@ -1452,7 +1452,12 @@ describe("user collections — the new-discriminator contract", () => {
 			uuid: PROPERTY,
 			patch: { label: "District" },
 		},
-		{ kind: "updateUserType", uuid: TYPE, patch: { values: null } },
+		{
+			kind: "updateUserType",
+			uuid: TYPE,
+			patch: { values: null },
+			valuePatch: { userPropertyUuid: PROPERTY, value: null },
+		},
 		{ kind: "updatePersona", uuid: PERSONA, patch: { userTypeUuid: null } },
 		{ kind: "removePersona", uuid: PERSONA },
 		{ kind: "removeUserType", uuid: TYPE },

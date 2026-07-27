@@ -31,12 +31,17 @@
 // collapsing them would make one of the two lie.
 
 import {
+	asUuid,
 	BUILT_IN_USER_PROPERTIES,
 	COMMCARE_MOBILE_WORKER_USER_TYPE,
 	COMMCARE_STANDARD_USER_TYPE,
+	mergeOwnRecords,
+	ownRecordValue,
 	type Persona,
 	personaUserData,
+	recordFromEntries,
 	type UserCollections,
+	type Uuid,
 	userPropertiesOf,
 } from "@/lib/domain";
 import type { SessionContextField } from "@/lib/domain/predicate";
@@ -53,6 +58,8 @@ import type { SessionContextField } from "@/lib/domain/predicate";
 export interface PreviewSearchSessionValues {
 	readonly context: Readonly<Partial<Record<SessionContextField, string>>>;
 	readonly user: Readonly<Record<string, string>>;
+	/** Stable custom-property identity → current worker-data wire slug. */
+	readonly userPropertySlugs: Readonly<Record<string, string>>;
 }
 
 /** Narrow user shape shared by Better Auth's client and server session. */
@@ -90,19 +97,13 @@ const ANONYMOUS_SESSION_VALUES: PreviewSearchSessionValues = {
 		appversion: "preview",
 	},
 	user: {},
+	userPropertySlugs: {},
 };
 
 /** Split a display name the way an HQ profile's first/last name divides. */
 function splitName(name: string): { first: string; last: string } {
 	const parts = name.trim().split(/\s+/).filter(Boolean);
 	return { first: parts[0] ?? "", last: parts.slice(1).join(" ") };
-}
-
-/** Drop empty values so an absent key stays absent rather than blank. */
-function nonEmpty(
-	entries: readonly (readonly [string, string])[],
-): Record<string, string> {
-	return Object.fromEntries(entries.filter(([, value]) => value !== ""));
 }
 
 /**
@@ -113,8 +114,9 @@ function nonEmpty(
  * Only the ones Nova can honestly know are emitted. `commcare_project` is
  * the HQ domain and stays ABSENT until a deployment target supplies one —
  * inventing a slug to make a condition pass is exactly the dishonesty the
- * preview contract forbids. `commcare_phone_number` comes from the HQ
- * account and is likewise absent. The location keys are absent while
+ * preview contract forbids. First name, last name, and phone number are
+ * different: HQ writes all three keys unconditionally, so Preview preserves
+ * their present-empty shape when Nova has no value. The location keys are absent while
  * nobody is assigned anywhere, which is what HQ does too:
  * `get_user_session_data` writes all three or none.
  *
@@ -135,10 +137,9 @@ function nonEmpty(
 function frameworkSessionKeys(displayName: string): Record<string, string> {
 	const { first, last } = splitName(displayName);
 	return {
-		...nonEmpty([
-			["commcare_first_name", first],
-			["commcare_last_name", last],
-		]),
+		commcare_first_name: first,
+		commcare_last_name: last,
+		commcare_phone_number: "",
 		commcare_user_type: COMMCARE_MOBILE_WORKER_USER_TYPE,
 		commcare_profile: "",
 		user_type: COMMCARE_STANDARD_USER_TYPE,
@@ -174,13 +175,11 @@ function usercaseBuiltIns(worker: {
 }): Record<string, string> {
 	const { first, last } = splitName(worker.personName);
 	return {
-		...nonEmpty([
-			["name", worker.personName],
-			["username", worker.username],
-			["email", worker.email],
-			["first_name", first],
-			["last_name", last],
-		]),
+		name: worker.personName,
+		username: worker.username,
+		email: worker.email,
+		first_name: first,
+		last_name: last,
 		hq_user_id: worker.id,
 		language: "",
 		phone_number: "",
@@ -203,11 +202,11 @@ function usercaseBuiltIns(worker: {
  * comparison behave the same in Preview as on a device.
  */
 function declaredPropertySlots(doc: UserCollections): Record<string, string> {
-	const slots: Record<string, string> = {};
-	for (const property of Object.values(userPropertiesOf(doc))) {
-		slots[property.slug] = "";
-	}
-	return slots;
+	return recordFromEntries(
+		Object.values(userPropertiesOf(doc)).map(
+			(property) => [property.slug, ""] as const,
+		),
+	);
 }
 
 /** Authored values keyed by slug rather than by property UUID. */
@@ -216,12 +215,12 @@ function authoredBySlug(
 	doc: UserCollections,
 ): Record<string, string> {
 	const properties = userPropertiesOf(doc);
-	const bySlug: Record<string, string> = {};
+	const entries: Array<readonly [string, string]> = [];
 	for (const [propertyUuid, value] of Object.entries(values)) {
-		const property = properties[propertyUuid];
-		if (property !== undefined) bySlug[property.slug] = value;
+		const property = ownRecordValue(properties, propertyUuid);
+		if (property !== undefined) entries.push([property.slug, value]);
 	}
-	return bySlug;
+	return recordFromEntries(entries);
 }
 
 /**
@@ -253,17 +252,18 @@ function projections(
 				deviceid: "nova-preview",
 				appversion: "preview",
 			},
-			user: {
-				...declared,
-				...values,
-				...frameworkSessionKeys(worker.personName),
-			},
+			user: mergeOwnRecords(
+				declared,
+				values,
+				frameworkSessionKeys(worker.personName),
+			),
+			userPropertySlugs: recordFromEntries(
+				Object.values(userPropertiesOf(doc)).map(
+					(property) => [property.uuid, property.slug] as const,
+				),
+			),
 		},
-		usercase: {
-			...declared,
-			...values,
-			...usercaseBuiltIns(worker),
-		},
+		usercase: mergeOwnRecords(declared, values, usercaseBuiltIns(worker)),
 	};
 }
 
@@ -352,6 +352,18 @@ export function previewSessionValues(
 	return identity?.session ?? ANONYMOUS_SESSION_VALUES;
 }
 
+/** Project the serializable identity record into emitter/compiler bindings. */
+export function previewUserPropertySlugMap(
+	session: PreviewSearchSessionValues,
+): ReadonlyMap<Uuid, string> {
+	return new Map(
+		Object.entries(session.userPropertySlugs).map(([uuid, slug]) => [
+			asUuid(uuid),
+			slug,
+		]),
+	);
+}
+
 /**
  * The built-in properties Nova cannot honestly supply while the app has
  * only been previewed — the ones an authoring surface should label rather
@@ -381,6 +393,10 @@ export function samePreviewIdentity(
 		a.personaUuid === b.personaUuid &&
 		sameStringRecord(a.session.context, b.session.context) &&
 		sameStringRecord(a.session.user, b.session.user) &&
+		sameStringRecord(
+			a.session.userPropertySlugs,
+			b.session.userPropertySlugs,
+		) &&
 		sameStringRecord(a.usercase, b.usercase)
 	);
 }

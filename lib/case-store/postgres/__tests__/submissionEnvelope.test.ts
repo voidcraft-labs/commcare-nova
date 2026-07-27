@@ -115,10 +115,15 @@ const NARROW: CaseType = {
 const ALL_TYPES = [PATIENT, PATIENT_V2, VISIT, NARROW];
 const SCHEMAS = buildCaseTypeMap(buildSimpleBlueprint(ALL_TYPES, APP_ID));
 
-function makeStore(projectId = PROJECT_A, actorUserId = ACTOR) {
+function makeStore(
+	projectId = PROJECT_A,
+	actorUserId = ACTOR,
+	ownerId = actorUserId,
+) {
 	return new PostgresCaseStore({
 		projectId,
 		actorUserId,
+		ownerId,
 		db: dbHandle.db as unknown as Kysely<Database>,
 		sampleGenerator: new HeuristicCaseGenerator(),
 	});
@@ -1524,8 +1529,9 @@ describe("owner stamping", () => {
 		expect(patients[0]?.owner_id).toBe("-");
 	});
 
-	it("writes an explicit update owner and resolves acting-user in write values", async () => {
-		const store = makeStore();
+	it("writes an explicit update owner and resolves acting-user as the worker, not the authorizing member", async () => {
+		const workerId = "persona-asha";
+		const store = makeStore(PROJECT_A, ACTOR, workerId);
 		await seedSchemas(store);
 		await seedSessionPatient(store);
 
@@ -1548,7 +1554,7 @@ describe("owner stamping", () => {
 
 		const row = await patientRow(store, SESSION_CASE_ID);
 		expect(row?.owner_id).toBe("supervisor-9");
-		expect(row?.properties).toMatchObject({ notes: ACTOR });
+		expect(row?.properties).toMatchObject({ notes: workerId });
 	});
 });
 

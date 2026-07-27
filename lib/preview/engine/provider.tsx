@@ -37,7 +37,7 @@ import {
 } from "react";
 import { useReconcilerContext } from "@/lib/collab/context";
 import { BlueprintDocContext } from "@/lib/doc/provider";
-import { useSelectedPreviewIdentity } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
+import { useSelectedPreviewIdentityState } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
 import { EngineController } from "./engineController";
 
 // ── Context ─────────────────────────────────────────────────────────────
@@ -75,12 +75,17 @@ export function BuilderFormEngineProvider({
 	 * initializer runs during render, before any descendant mounts, so
 	 * both are in place before anyone needs them (`previewAsMe` is pure,
 	 * and Better Auth resolves a warm client session synchronously). */
-	const identity = useSelectedPreviewIdentity();
+	const identityState = useSelectedPreviewIdentityState({
+		useCachedSessionImmediately: true,
+	});
 
 	const [controller] = useState(() => {
 		const c = new EngineController();
 		if (docStore) c.setDocStore(docStore);
-		c.setPreviewIdentity(identity);
+		c.setPreviewIdentityBlocked(identityState.kind === "persona-unavailable");
+		if (identityState.kind === "ready") {
+			c.setPreviewIdentity(identityState.identity);
+		}
 		return c;
 	});
 
@@ -102,11 +107,17 @@ export function BuilderFormEngineProvider({
 	 * session resolving after mount, a sign-out broadcast from another
 	 * tab. The controller's setter treats a materially-identical identity
 	 * as a no-op, so session refetches minting new user references don't
-	 * rebuild an active engine; rendered markup never depends on the
-	 * session, so SSR/hydration stay identity-free. */
+	 * rebuild an active engine. The provider's warm-session opt-in changes
+	 * only this non-rendered controller; visual consumers retain the
+	 * identity-free hydration render. */
 	useEffect(() => {
-		controller.setPreviewIdentity(identity);
-	}, [controller, identity]);
+		if (identityState.kind === "persona-unavailable") {
+			controller.setPreviewIdentityBlocked(true);
+			return;
+		}
+		controller.setPreviewIdentityBlocked(false);
+		controller.setPreviewIdentity(identityState.identity);
+	}, [controller, identityState]);
 
 	/* A same-app Project move does not remount this long-lived controller.
 	 * Deactivate synchronously at the reconciler's scope boundary so neither

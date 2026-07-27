@@ -89,6 +89,7 @@ import {
 	type Media,
 	type SelectOption,
 	type Uuid,
+	userPropertySlugsByUuid,
 } from "@/lib/domain";
 import type { LookupOptionsSource } from "@/lib/domain/lookupCarriers";
 import { isMatchAll, simplifyForEmission } from "@/lib/domain/predicate";
@@ -1117,6 +1118,7 @@ function buildFieldParts(
  */
 interface LookupSelectEmissionKit {
 	readonly naming: LookupWireNaming;
+	readonly userPropertySlugs: ReadonlyMap<Uuid, string>;
 	readonly filterFieldPaths: (
 		questionPath: FormPath,
 	) => ReadonlyMap<Uuid, string>;
@@ -1133,6 +1135,7 @@ function deriveLookupSelectKit(
 	let fieldLocations: ReadonlyMap<Uuid, FieldLocation> | undefined;
 	return {
 		naming,
+		userPropertySlugs: userPropertySlugsByUuid(doc),
 		filterFieldPaths: (questionPath) => {
 			fieldLocations ??= collectFieldLocations(doc, formUuid);
 			return bindLookupFilterFieldPaths(fieldLocations, questionPath);
@@ -1174,6 +1177,7 @@ function buildLookupItemset(
 				{ kind: "unaddressable" },
 				{
 					formFields: lookupSelects.filterFieldPaths(nodePath),
+					userPropertySlugs: lookupSelects.userPropertySlugs,
 					lookup: {
 						naming: lookupSelects.naming,
 						rowScope: {

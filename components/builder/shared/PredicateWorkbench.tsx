@@ -33,7 +33,7 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
 import { caseSearchPredicateEditVerdict } from "@/lib/doc/hooks/predicateVerdicts";
-import type { CaseType } from "@/lib/domain";
+import type { CaseType, UserProperty } from "@/lib/domain";
 import {
 	checkPredicate,
 	exists,
@@ -336,6 +336,8 @@ export interface PredicateWorkbenchProps {
 	readonly caseTypes: readonly CaseType[];
 	readonly currentCaseType: string;
 	readonly knownInputs?: readonly EditorSearchInputDecl[];
+	/** Current custom worker-information catalog for immutable user refs. */
+	readonly userProperties?: readonly UserProperty[];
 	/** Runtime that evaluates this rule. Search-backed rules consult the
 	 *  boundary verdict before offering a guaranteed-invalid value source. */
 	readonly evaluationTarget?: "on-device" | "case-search";
@@ -370,6 +372,7 @@ export function PredicateWorkbench({
 	caseTypes,
 	currentCaseType,
 	knownInputs = [],
+	userProperties = [],
 	evaluationTarget = "on-device",
 	caseDataScope = "per-case",
 	rootLabel = DEFAULT_RULE_ROOT_LABEL,
@@ -406,8 +409,11 @@ export function PredicateWorkbench({
 			caseTypes: [...caseTypes],
 			knownInputs: [...knownInputs],
 			currentCaseType,
+			userPropertySlugs: new Map(
+				userProperties.map((property) => [property.uuid, property.slug]),
+			),
 		}),
-		[caseTypes, currentCaseType, knownInputs],
+		[caseTypes, currentCaseType, knownInputs, userProperties],
 	);
 	const validity = useMemo(
 		() => checkPredicate(value, typeContext),
@@ -579,6 +585,7 @@ export function PredicateWorkbench({
 			caseTypes={caseTypes}
 			currentCaseType={focusedCaseType}
 			knownInputs={knownInputs}
+			userProperties={userProperties}
 			caseDataScope={caseDataScope}
 			allowsNeverMatch={allowsNeverMatch}
 			validityIndex={validityIndex}

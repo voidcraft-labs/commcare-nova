@@ -47,6 +47,7 @@ const IDENTITY: ResolvedPreviewIdentity = {
 	session: {
 		context: { userid: ACTOR, username: "ada" },
 		user: { role: "supervisor" },
+		userPropertySlugs: {},
 	},
 	usercase: { role: "supervisor" },
 };
@@ -55,6 +56,7 @@ function makeStore(): CaseStore {
 	return new PostgresCaseStore({
 		projectId: PROJECT,
 		actorUserId: ACTOR,
+		ownerId: ACTOR,
 		db: dbHandle.db as unknown as Kysely<Database>,
 		sampleGenerator: new HeuristicCaseGenerator(),
 	});
