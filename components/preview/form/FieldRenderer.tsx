@@ -1,7 +1,8 @@
 "use client";
-import type { Field } from "@/lib/domain";
+import { type Field, isCaptureField } from "@/lib/domain";
 import type { FieldState } from "@/lib/preview/engine/types";
 import { assertNever } from "@/lib/utils/assertNever";
+import { AttachmentField } from "./fields/attachment/AttachmentField";
 import { DateField } from "./fields/DateField";
 import { GeopointField } from "./fields/geopoint/GeopointField";
 import { LabelField } from "./fields/LabelField";
@@ -15,8 +16,32 @@ interface FieldRendererProps {
 	/** Domain field entity — discriminated union narrowed by `kind` below. */
 	field: Field;
 	state: FieldState;
+	/**
+	 * Concrete engine path — carries the repeat index, so a capture
+	 * question's replace targets exactly one instance.
+	 *
+	 * Optional because the EDIT-mode row renderer passes none: edit-mode
+	 * rows have no instance dimension, and a capture there renders the
+	 * static authoring card rather than a live control. An interactive row
+	 * always supplies it, and a capture control with no path treats itself
+	 * as not-yet-ready rather than guessing one.
+	 */
+	path?: string;
+	/** App the attachment lane writes to; absent outside a loaded app. */
+	appId?: string | undefined;
+	/** This form entry's attachment scope (see `EngineController.entryKey`). */
+	entryKey?: string | undefined;
+	/** Stable capture identity, independent of positional repeat indices. */
+	attachmentSlotKey?: string | undefined;
+	/** Prompt association for capture accessibility. */
+	questionLabelId?: string | undefined;
+	questionLabelledBy?: string | undefined;
+	questionDescriptionIds?: string | undefined;
+	questionLabel?: string | undefined;
 	onChange: (value: string) => void;
 	onBlur: () => void;
+	onChangeAt?: ((path: string, value: string) => void) | undefined;
+	onBlurAt?: ((path: string) => void) | undefined;
 }
 
 /**
@@ -34,9 +59,40 @@ interface FieldRendererProps {
 export function FieldRenderer({
 	field,
 	state,
+	path,
+	appId,
+	entryKey,
+	attachmentSlotKey,
+	questionLabelId,
+	questionLabelledBy,
+	questionDescriptionIds,
+	questionLabel,
 	onChange,
 	onBlur,
+	onChangeAt,
+	onBlurAt,
 }: FieldRendererProps) {
+	// Capture kinds route to the real attachment control. Narrowed through
+	// the domain predicate rather than a case list so the two cannot drift:
+	// a new capture kind is a capture here the moment it is one there.
+	if (isCaptureField(field)) {
+		return (
+			<AttachmentField
+				field={field}
+				state={state}
+				path={path}
+				appId={appId}
+				entryKey={entryKey}
+				attachmentSlotKey={attachmentSlotKey}
+				questionLabelId={questionLabelId}
+				questionLabelledBy={questionLabelledBy}
+				questionDescriptionIds={questionDescriptionIds}
+				questionLabel={questionLabel}
+				onChangeAt={onChangeAt}
+				onBlurAt={onBlurAt}
+			/>
+		);
+	}
 	switch (field.kind) {
 		case "text":
 		case "secret":
@@ -100,15 +156,11 @@ export function FieldRenderer({
 					onBlur={onBlur}
 				/>
 			);
-		// Capture kinds plus barcode. All dispatch to the same placeholder
-		// card; the icon + label come from the field registry, so adding
-		// another capture kind doesn't need a new case here but DOES need
-		// the kind listed explicitly.
-		case "image":
-		case "audio":
-		case "video":
-		case "file":
-		case "signature":
+		// Barcode is NOT a capture — its answer is the scanned text, not an
+		// attachment — and it has no preview affordance yet, so it keeps the
+		// placeholder card. The capture kinds are absent from this switch
+		// because the narrowing above already took them; TypeScript proves
+		// that, so a new capture kind needs no change here at all.
 		case "barcode":
 			return <MediaField field={field} />;
 		// Structural + authoring-only kinds — caller renders them directly

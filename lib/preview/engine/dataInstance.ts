@@ -148,15 +148,33 @@ export class DataInstance {
 	 *  The old key is deleted so index-free reads can't resurrect the
 	 *  pre-rename value. */
 	rename(from: string, to: string): void {
-		if (this.data.has(from)) {
-			const value = this.data.get(from) ?? "";
+		this.renameMany([{ from, to }]);
+	}
+
+	/**
+	 * Atomically move a batch of value/count keys.
+	 *
+	 * Every source is snapshotted and removed before any destination is
+	 * written. That ordering preserves swaps and chains (`a→b`, `b→c`) from
+	 * the same authored mutation batch; sequential `rename` calls would let
+	 * the first write overwrite the second move's source.
+	 */
+	renameMany(moves: ReadonlyArray<{ from: string; to: string | null }>): void {
+		const snapshots = moves.map(({ from, to }) => ({
+			from,
+			to,
+			hasData: this.data.has(from),
+			value: this.data.get(from) ?? "",
+			count: this.counts.get(from),
+		}));
+		for (const { from } of snapshots) {
 			this.data.delete(from);
-			this.set(to, value);
-		}
-		const count = this.counts.get(from);
-		if (count !== undefined) {
 			this.counts.delete(from);
-			this.counts.set(to, count);
+		}
+		for (const { to, hasData, value, count } of snapshots) {
+			if (to === null) continue;
+			if (hasData) this.set(to, value);
+			if (count !== undefined) this.counts.set(to, count);
 		}
 	}
 

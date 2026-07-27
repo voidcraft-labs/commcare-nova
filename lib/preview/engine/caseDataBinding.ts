@@ -20,15 +20,24 @@
 
 "use server";
 
+import { getSession } from "@/lib/auth-utils";
 import {
 	buildCaseTypeMap,
+	CaptureSubmissionRejectedError,
 	CaseNotFoundError,
 	CasePropertiesValidationError,
+	type CaseStore,
 	type JsonValue,
 	ParkedValueNotFoundError,
 	type TermBindings,
 } from "@/lib/case-store";
+import { prepareCaptureSubmissionBytes } from "@/lib/case-store/postgres/submissionAttachments";
+import { adjudicateSubmissionReceipt } from "@/lib/case-store/submission";
 import { AppAccessError } from "@/lib/db/appAccess";
+import {
+	FormAttachmentWriteRejectedError,
+	loadAuthorizedFormSubmissionSnapshot,
+} from "@/lib/db/formAttachments";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type {
 	BlueprintDoc,
@@ -39,6 +48,8 @@ import type {
 } from "@/lib/domain";
 import {
 	caseListConfigSchema,
+	ownRecordValue,
+	personasOf,
 	recordFromEntries,
 	SEARCH_INPUT_RUNTIME_VALUE_TYPES,
 	userPropertySlugsByUuid,
@@ -46,18 +57,21 @@ import {
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
 import type { ValueExpression } from "@/lib/domain/predicate";
 import { unhandledKindMessage } from "@/lib/domain/predicate/errors";
+import { validateCaptureSubmissionProjection } from "./captureSubmissionValidation";
 import {
 	mapFilterPreviewError,
 	mapPopulateSampleCasesError,
 	mapSubmitFormError,
 } from "./caseDataBindingClient";
 import {
-	buildCaseOperationProgramFromDoc,
+	buildSubmissionOperationProgram,
+	buildSubmissionReceiptIdentity,
 	collectConfigLookupTableIds,
 	gatedCaseStore,
 	gatedCaseStoreWithScope,
 	loadExpressionLookupData,
 	loadLookupTableSchemas,
+	PERSONA_UNAVAILABLE_MESSAGE,
 	readCaseData,
 	readCases,
 	readFilterPreview,
@@ -85,6 +99,11 @@ import type {
 } from "./caseDataBindingTypes";
 import { SearchInputValuesError } from "./dateRangeInputValidation";
 import type { PreviewSearchSessionValues } from "./identity";
+import {
+	previewAsMe,
+	previewAsPersona,
+	type ResolvedPreviewIdentity,
+} from "./identity";
 import {
 	type SearchInputValues,
 	type SearchInputValuesWire,
@@ -1008,7 +1027,10 @@ export async function loadFilterPreviewAction(args: {
  * primary write, every child insert, and close's lifecycle transition
  * — in ONE Postgres transaction; partial success is unobservable and
  * the running-app view re-queries one settled state on resolve.
- * Survey carries no case effect and short-circuits.
+ * An authorized, committed operation- and attachment-free survey still crosses
+ * the atomic envelope so a receipt committed after the action snapshot is
+ * adjudicated before it returns. An attachment-bearing survey uses that same
+ * envelope so its durable capture intent commits with the submission receipt.
  *
  * Caller-supplied `appId` is passed through verbatim, matching the
  * shape the other Server Actions in this file use. The bound
@@ -1026,31 +1048,94 @@ export async function submitFormAction(
 	personaUuid?: string,
 ): Promise<SubmissionResult> {
 	try {
-		const context = await resolveAuthorizedPreviewContext({
+		/* This runtime boundary is mandatory even though the TypeScript surface
+		 * is required: Server Action payloads are untrusted JSON. Consume the
+		 * normalized projection below so missing/stale clients cannot bypass
+		 * receipt, capture-intent, or committed-operation derivation. */
+		const projection = validateCaptureSubmissionProjection(mutation);
+		const session = await getSession();
+		if (!session) return { kind: "unauthenticated" };
+		const authorized = await loadAuthorizedFormSubmissionSnapshot({
 			appId,
-			personaUuid,
-			required: "edit",
-			loadBlueprint: true,
+			actorUserId: session.user.id,
+			entryKey: projection.entryKey,
 		});
-		if (context.kind !== "ready") return context;
-		const { identity, store, blueprint } = context;
-		if (blueprint === undefined) {
-			throw new Error("The app changed while Preview was loading it.");
+		if (authorized.kind === "replay") {
+			/* Receipt identity deliberately does not consult today's topology.
+			 * Try the selected persona identity first, then the only fallback a
+			 * prior submission could have used when that selection named
+			 * nothing. This preserves an exact replay after either the persona or
+			 * the capture question is removed without accepting changed input. */
+			const previewAsMember = previewAsMe(session.user);
+			if (previewAsMember === null) return { kind: "unauthenticated" };
+			const replayIdentities =
+				personaUuid === undefined
+					? [previewAsMember]
+					: [
+							{
+								...previewAsMember,
+								ownerId: personaUuid,
+								personaUuid,
+							},
+							previewAsMember,
+						];
+			for (const replayIdentity of replayIdentities) {
+				const receipt = buildSubmissionReceiptIdentity({
+					appId,
+					identity: replayIdentity,
+					mutation,
+					projection,
+					viewerTimeZone,
+				});
+				const verdict = adjudicateSubmissionReceipt(
+					receipt,
+					authorized.receipt,
+				);
+				if (verdict.kind === "replay") {
+					return submissionResultFromEnvelope(mutation, verdict.result);
+				}
+			}
+			throw new CaptureSubmissionRejectedError(
+				"This form entry was already submitted with different answers. Start a new form entry before submitting again.",
+			);
 		}
-		/* A survey with NO collected operation answers is the historical
-		 * no-op. Authorization has already happened, so a foreign app cannot
-		 * use this arm as an existence oracle. */
-		if (mutation.kind === "survey" && mutation.operationAnswers === undefined) {
-			return { kind: "survey" };
+		let identity: ResolvedPreviewIdentity | null;
+		if (personaUuid === undefined) {
+			identity = previewAsMe(session.user, authorized.app.blueprint);
+		} else {
+			const persona = ownRecordValue(
+				personasOf(authorized.app.blueprint),
+				personaUuid,
+			);
+			if (persona === undefined) {
+				return {
+					kind: "persona-unavailable",
+					message: PERSONA_UNAVAILABLE_MESSAGE,
+				};
+			}
+			identity = previewAsPersona(
+				session.user,
+				persona,
+				authorized.app.blueprint,
+			);
 		}
-		const built = buildCaseOperationProgramFromDoc({
-			blueprint,
+		if (!identity) return { kind: "unauthenticated" };
+		const { store } = await gatedCaseStoreWithScope(appId, identity, "edit");
+		const built = await buildSubmissionOperationProgram({
+			appId,
+			committedApp: authorized.app,
 			identity,
 			mutation,
-			...(viewerTimeZone !== undefined && { viewerTimeZone }),
+			projection,
+			viewerTimeZone,
 		});
-		if (mutation.kind === "survey" && built.program === undefined) {
-			return { kind: "survey" };
+		if (built.captureIntent !== undefined) {
+			await prepareCaptureSubmissionBytes({
+				appId,
+				projectId: authorized.projectId,
+				actorUserId: identity.actorUserId,
+				intent: built.captureIntent,
+			});
 		}
 		// The schema heal wraps `applySubmission` at the envelope
 		// boundary: the whole submission is one transaction, so a heal
@@ -1058,27 +1143,16 @@ export async function submitFormAction(
 		const result = await store.applySubmission(
 			submissionEnvelopeArgs(mutation, appId, built),
 		);
-		if (mutation.kind === "survey") return { kind: "survey" };
-		if (result.primaryCaseId === undefined) {
-			throw new Error(
-				unhandledKindMessage({
-					where: "preview.caseDataBinding.submitFormAction",
-					family: "SubmissionEnvelopeResult",
-					received: "no primaryCaseId on a case-bearing submission",
-					knownKinds: ["registration", "followup", "close"],
-				}),
-			);
-		}
-		return {
-			kind: mutation.kind,
-			caseId: result.primaryCaseId,
-			childCaseIds: result.childCaseIds,
-		};
+
+		return submissionResultFromEnvelope(mutation, result);
 	} catch (err) {
 		// A Project-membership denial (`resolveAppScope` → `AppAccessError`)
 		// is expected, not a fault: collapse it to the IDOR-safe not-found
 		// `error` arm WITHOUT alerting (`reportUnexpectedActionError`).
-		if (err instanceof AppAccessError)
+		if (
+			err instanceof AppAccessError ||
+			err instanceof FormAttachmentWriteRejectedError
+		)
 			return { kind: "error", message: "App not found." };
 		// Form submit: `CasePropertiesValidationError` is ordinary
 		// user error (the submitted values failed the schema), so it
@@ -1086,4 +1160,26 @@ export async function submitFormAction(
 		reportUnexpectedActionError("submitForm", err, { appId });
 		return mapSubmitFormError(err);
 	}
+}
+
+function submissionResultFromEnvelope(
+	mutation: SubmissionMutation,
+	result: Awaited<ReturnType<CaseStore["applySubmission"]>>,
+): SubmissionResult {
+	if (mutation.kind === "survey") return { kind: "survey" };
+	if (result.primaryCaseId === undefined) {
+		throw new Error(
+			unhandledKindMessage({
+				where: "preview.caseDataBinding.submitFormAction",
+				family: "SubmissionEnvelopeResult",
+				received: "no primaryCaseId on a case-bearing submission",
+				knownKinds: ["registration", "followup", "close"],
+			}),
+		);
+	}
+	return {
+		kind: mutation.kind,
+		caseId: result.primaryCaseId,
+		childCaseIds: result.childCaseIds,
+	};
 }

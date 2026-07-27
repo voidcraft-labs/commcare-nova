@@ -68,27 +68,39 @@ import type { Database } from "../sql/database.js";
 
 export type { Database } from "../sql/database.js";
 
-// Pool-sizing invariant — named constants, not magic numbers. Each Cloud Run
-// instance opens the shared `pg.Pool` (up to `POOL_MAX_PER_INSTANCE`) PLUS one
-// dedicated LISTEN connection for the realtime relay
-// (`LISTENER_CONNECTIONS_PER_INSTANCE`), so the deployment numbers below compose
-// into the budget guarantee:
-// `CLOUD_RUN_MAX_INSTANCES * (POOL_MAX_PER_INSTANCE + LISTENER_CONNECTIONS_PER_INSTANCE)` ≤
-// `CLOUD_SQL_MAX_CONNECTIONS - CLOUD_SQL_RESERVED_CONNECTIONS`.
-// `enforceConnectionBudget` (below) fails loudly if the math drifts.
+// Production connection-budget invariant — named constants, not magic
+// numbers. The service, migration Job, and capture-cleanup Job share one Cloud
+// SQL instance and can overlap during a deploy. The cleanup role admits its
+// active lock/work pair plus one graceful advisory-lock probe; further
+// contenders fail at connection admission. The deployment numbers below
+// therefore compose into one global guarantee:
+//
+//   service revisions + migration + active cleanup + losing cleanup probe
+//   <= Cloud SQL max_connections - ordinary/system headroom
+//
+// `enforceConnectionBudget` (below) fails loudly if any constant drifts.
 
 /** Cloud SQL `db-f1-micro` `max_connections`. */
 export const CLOUD_SQL_MAX_CONNECTIONS = 25;
 
-/** Connections held back for `postgres` superuser, admin tooling, replication. */
-export const CLOUD_SQL_RESERVED_CONNECTIONS = 5;
+/** Cloud SQL/PostgreSQL settings audited before every database Job. */
+export const CLOUD_SQL_SUPERUSER_RESERVED_CONNECTIONS = 3;
+export const CLOUD_SQL_RESERVED_CONNECTIONS = 0;
+
+/** Ordinary-login room left outside Nova's three capped application roles. */
+export const CLOUD_SQL_ORDINARY_LOGIN_HEADROOM_CONNECTIONS = 2;
+
+/** Two ordinary slots plus PostgreSQL's three true-superuser-only slots. */
+export const CLOUD_SQL_CAPACITY_HEADROOM_CONNECTIONS =
+	CLOUD_SQL_ORDINARY_LOGIN_HEADROOM_CONNECTIONS +
+	CLOUD_SQL_SUPERUSER_RESERVED_CONNECTIONS;
 
 /** Cloud Run `--max-instances` for `commcare-nova`. */
-export const CLOUD_RUN_MAX_INSTANCES = 5;
+export const CLOUD_RUN_MAX_INSTANCES = 4;
 
 /**
- * Per-Cloud-Run-instance `pg.Pool` `max`. For the current shape, including the
- * dedicated relay LISTEN connection: `5 * (3 + 1) = 20 = 25 - 5`. Fits exactly.
+ * Per-serving-instance `pg.Pool` `max`. For the current shape, including the
+ * dedicated relay LISTEN connection: `4 * (3 + 1) = 16`.
  *
  * Capacity note: these 3 pooled connections now carry the WHOLE app-state
  * workload (apps/blueprint/credits/events/threads/media reads and writes, the
@@ -101,6 +113,42 @@ export const CLOUD_RUN_MAX_INSTANCES = 5;
  * BEFORE raising `CLOUD_RUN_MAX_INSTANCES` or the pool size.
  */
 export const POOL_MAX_PER_INSTANCE = 3;
+
+/** The migration Job is sequential and may hold at most one DB connection. */
+export const MIGRATION_POOL_MAX_PER_EXECUTION = 1;
+
+/**
+ * The active cleanup execution holds one advisory-lock session plus at most
+ * one pooled work connection.
+ */
+export const CAPTURE_CLEANUP_POOL_MAX_PER_EXECUTION = 2;
+
+/**
+ * A concurrently dispatched cleanup execution checks the advisory lock using
+ * one connection, observes the active owner, and exits without doing work.
+ * During initial election the same three-slot peak can instead be one owner
+ * probe plus two losing probes; the owner prewarms its work connection only
+ * after those losers destroy their sessions.
+ */
+export const CAPTURE_CLEANUP_LOCK_CONTENDER_CONNECTIONS = 1;
+
+/**
+ * Hard PostgreSQL per-login-role limits. Unlike Cloud Run's scaling maximum,
+ * these are enforced at connection admission and apply cluster-wide. Role
+ * attributes are not inherited: migration's runtime membership does not change
+ * its cap, and the isolated cleanup login likewise counts against its own role
+ * and limit.
+ */
+export const RUNTIME_DB_ROLE_CONNECTION_LIMIT = 16;
+export const MIGRATION_DB_ROLE_CONNECTION_LIMIT = 1;
+export const CAPTURE_CLEANUP_DB_ROLE_CONNECTION_LIMIT = 3;
+
+/**
+ * A one-off `scripts/* --prod` process consumes one of the two residual
+ * ordinary-login slots, never a serving-workload allocation. PostgreSQL's
+ * other three headroom slots are true-superuser-only.
+ */
+export const OPERATOR_POOL_MAX_PER_PROCESS = 1;
 
 /**
  * Dedicated LISTEN connections per Cloud Run instance. The realtime relay
@@ -137,20 +185,33 @@ export const DATABASE_CONNECTION_OPTIONS = `-c search_path=${DATABASE_SEARCH_PAT
 export const POOL_CONNECTION_TIMEOUT_MS = 10_000;
 
 /**
- * Connection-budget invariant. Throws when the four constants drift
- * into a configuration that would let Cloud Run instances overrun
- * Cloud SQL's cap. Fires once per process on the first
- * `getCaseStoreDatabase()` call — first-call rather than module-load
+ * Connection-budget invariant. Throws when the service or either maintenance
+ * workload can collectively overrun Cloud SQL's cap. Fires once per process on
+ * the first `getCaseStoreDatabase()` call — first-call rather than module-load
  * so a non-runtime import (Next.js build, type-only test import)
  * doesn't trigger the throw. Exported so the unit test calls this
  * exact function rather than re-deriving the formula.
  */
 export function enforceConnectionBudget(): void {
 	const applicationBudget =
-		CLOUD_SQL_MAX_CONNECTIONS - CLOUD_SQL_RESERVED_CONNECTIONS;
+		CLOUD_SQL_MAX_CONNECTIONS - CLOUD_SQL_CAPACITY_HEADROOM_CONNECTIONS;
 	const perInstance = POOL_MAX_PER_INSTANCE + LISTENER_CONNECTIONS_PER_INSTANCE;
-	const peakDemand = CLOUD_RUN_MAX_INSTANCES * perInstance;
-	if (peakDemand > applicationBudget) {
+	const servicePeak = CLOUD_RUN_MAX_INSTANCES * perInstance;
+	const cleanupPeak =
+		CAPTURE_CLEANUP_POOL_MAX_PER_EXECUTION +
+		CAPTURE_CLEANUP_LOCK_CONTENDER_CONNECTIONS;
+	const hardLoginPeak =
+		RUNTIME_DB_ROLE_CONNECTION_LIMIT +
+		MIGRATION_DB_ROLE_CONNECTION_LIMIT +
+		CAPTURE_CLEANUP_DB_ROLE_CONNECTION_LIMIT;
+	if (
+		servicePeak > RUNTIME_DB_ROLE_CONNECTION_LIMIT ||
+		MIGRATION_POOL_MAX_PER_EXECUTION > MIGRATION_DB_ROLE_CONNECTION_LIMIT ||
+		cleanupPeak > CAPTURE_CLEANUP_DB_ROLE_CONNECTION_LIMIT ||
+		hardLoginPeak > applicationBudget ||
+		OPERATOR_POOL_MAX_PER_PROCESS >
+			CLOUD_SQL_ORDINARY_LOGIN_HEADROOM_CONNECTIONS
+	) {
 		// Inline Elm-style throw — header / indented diagnostic / narrative /
 		// Hint. Configuration violations don't fit `compilerBugMessage`
 		// (this is operator misconfiguration, not an internal invariant)
@@ -160,27 +221,110 @@ export function enforceConnectionBudget(): void {
 			[
 				"Cloud SQL connection budget exceeded.",
 				"",
-				`    peak demand:        ${CLOUD_RUN_MAX_INSTANCES} (instances) * (${POOL_MAX_PER_INSTANCE} (pool max) + ${LISTENER_CONNECTIONS_PER_INSTANCE} (listener)) = ${peakDemand}`,
-				`    available budget:   ${CLOUD_SQL_MAX_CONNECTIONS} - ${CLOUD_SQL_RESERVED_CONNECTIONS} = ${applicationBudget}`,
+				`    service demand:     ${CLOUD_RUN_MAX_INSTANCES} (instances) * (${POOL_MAX_PER_INSTANCE} (pool max) + ${LISTENER_CONNECTIONS_PER_INSTANCE} (listener)) = ${servicePeak}`,
+				`    runtime role limit: ${RUNTIME_DB_ROLE_CONNECTION_LIMIT}`,
+				`    migration demand / role limit: ${MIGRATION_POOL_MAX_PER_EXECUTION} / ${MIGRATION_DB_ROLE_CONNECTION_LIMIT}`,
+				`    cleanup demand / role limit:   ${cleanupPeak} / ${CAPTURE_CLEANUP_DB_ROLE_CONNECTION_LIMIT}`,
+				`    hard login peak:    ${RUNTIME_DB_ROLE_CONNECTION_LIMIT} + ${MIGRATION_DB_ROLE_CONNECTION_LIMIT} + ${CAPTURE_CLEANUP_DB_ROLE_CONNECTION_LIMIT} = ${hardLoginPeak}`,
+				`    available budget:   ${CLOUD_SQL_MAX_CONNECTIONS} - ${CLOUD_SQL_CAPACITY_HEADROOM_CONNECTIONS} = ${applicationBudget}`,
+				`    residual headroom:  ${CLOUD_SQL_ORDINARY_LOGIN_HEADROOM_CONNECTIONS} ordinary + ${CLOUD_SQL_SUPERUSER_RESERVED_CONNECTIONS} true-superuser-only`,
 				"",
-				"Each Cloud Run instance opens the shared `pg.Pool` (`max`) PLUS one",
-				"dedicated LISTEN connection for the realtime relay; that per-instance",
-				"sum × Cloud Run `--max-instances` must stay at or below Cloud SQL",
-				"`max_connections` minus the reserved-for-postgres slot count.",
+				"Cloud Run's service/revision maxima are soft outer controls. The",
+				"hard ceiling is PostgreSQL CONNECTION LIMIT on each direct login",
+				"role: runtime includes pooled + LISTEN sessions; migration gets one;",
+				"cleanup gets its active lock/work pair plus one losing probe.",
+				"Those non-inherited login-role limits must leave the two ordinary",
+				"operator slots and three true-superuser-reserved slots untouched.",
 				"Crossing the budget can stall every Cloud Run instance against the",
 				"shared connection cap.",
 				"",
 				"Hint: tier up Cloud SQL (raises `CLOUD_SQL_MAX_CONNECTIONS`), reduce",
-				"`CLOUD_RUN_MAX_INSTANCES`, or reduce `POOL_MAX_PER_INSTANCE` so the",
-				"constants in `lib/case-store/postgres/connection.ts` stay consistent.",
+				"`CLOUD_RUN_MAX_INSTANCES`, a workload pool maximum, or its audited",
+				"login-role CONNECTION LIMIT so every layer stays consistent.",
 			].join("\n"),
 		);
 	}
 }
 
+// Workload selection is a production deployment contract, not an optimization.
+// A missing or misspelled value must not let a Job silently inherit the
+// serving pool's larger maximum.
+
+export const CASE_STORE_WORKLOADS = [
+	"service",
+	"migration",
+	"capture-cleanup",
+	"operator",
+] as const;
+
+export type CaseStoreWorkload = (typeof CASE_STORE_WORKLOADS)[number];
+
+export const NOVA_DB_WORKLOAD_ENV = "NOVA_DB_WORKLOAD";
+
+/**
+ * Resolve the process's database workload. Local development may omit the
+ * variable and receives the serving default; every Cloud SQL process must
+ * declare its workload explicitly.
+ */
+export function readCaseStoreWorkload(
+	env: Readonly<Partial<Record<string, string>>> = process.env,
+): CaseStoreWorkload {
+	const raw = env[NOVA_DB_WORKLOAD_ENV];
+	if (raw === undefined || raw.length === 0) {
+		const localUrl = env.NOVA_DB_LOCAL_URL;
+		if (localUrl !== undefined && localUrl.length > 0) {
+			return "service";
+		}
+		throw new Error(
+			[
+				"Cloud SQL case store is missing its workload declaration.",
+				"",
+				`    ${NOVA_DB_WORKLOAD_ENV}: ${JSON.stringify(raw)}`,
+				"",
+				"Serving, migration, capture-cleanup, and operator processes have",
+				"different",
+				"pool maxima that participate in the production connection budget.",
+				"A non-local process must identify itself explicitly; silently using",
+				"the serving pool could exhaust Cloud SQL during overlapping work.",
+				"",
+				`Hint: set ${NOVA_DB_WORKLOAD_ENV} to exactly one of: ${CASE_STORE_WORKLOADS.join(
+					", ",
+				)}.`,
+			].join("\n"),
+		);
+	}
+	if ((CASE_STORE_WORKLOADS as readonly string[]).includes(raw)) {
+		return raw as CaseStoreWorkload;
+	}
+	throw new Error(
+		[
+			"Cloud SQL case store got an unrecognized workload declaration.",
+			"",
+			`    ${NOVA_DB_WORKLOAD_ENV}: ${JSON.stringify(raw)}`,
+			"",
+			`Only these exact values are accepted: ${CASE_STORE_WORKLOADS.join(", ")}.`,
+		].join("\n"),
+	);
+}
+
+/** Return the pool maximum owned by one declared workload execution. */
+export function poolMaxForWorkload(workload: CaseStoreWorkload): number {
+	switch (workload) {
+		case "service":
+			return POOL_MAX_PER_INSTANCE;
+		case "migration":
+			return MIGRATION_POOL_MAX_PER_EXECUTION;
+		case "capture-cleanup":
+			return CAPTURE_CLEANUP_POOL_MAX_PER_EXECUTION;
+		case "operator":
+			return OPERATOR_POOL_MAX_PER_PROCESS;
+	}
+}
+
 // Environment variable contract.
 //
-// Cloud Run wires three required env vars at deploy time:
+// Every non-local process wires its `NOVA_DB_WORKLOAD` declaration plus three
+// required connector env vars:
 // `NOVA_DB_NAME` (the database name), `NOVA_DB_USER` (the IAM
 // database user identity for the Cloud Run runtime SA, in Cloud
 // SQL's truncated form without `.gserviceaccount.com`), and
@@ -300,8 +444,8 @@ export interface ConnectorClientOptions {
 }
 
 /**
- * Compose a `pg.PoolConfig` from the connector's stream factory
- * and the validated env block. Pure helper — tests exercise it
+ * Compose a `pg.PoolConfig` from the connector's stream factory,
+ * validated env block, and declared workload. Pure helper — tests exercise it
  * directly with hand-rolled inputs.
  *
  * `password` is omitted intentionally: IAM authentication uses the
@@ -312,13 +456,14 @@ export interface ConnectorClientOptions {
 export function buildPoolConfig(
 	clientOpts: ConnectorClientOptions,
 	env: CaseStoreEnvConfig,
+	workload: CaseStoreWorkload,
 ): PoolConfig {
 	return {
 		stream: clientOpts.stream,
 		user: env.NOVA_DB_USER,
 		database: env.NOVA_DB_NAME,
 		options: DATABASE_CONNECTION_OPTIONS,
-		max: POOL_MAX_PER_INSTANCE,
+		max: poolMaxForWorkload(workload),
 		connectionTimeoutMillis: POOL_CONNECTION_TIMEOUT_MS,
 	};
 }
@@ -349,13 +494,14 @@ let initInFlight: Promise<CaseStoreHandles> | null = null;
 
 /**
  * Build the singleton handles. The connection-budget invariant
- * fires here BEFORE env validation and connector construction, so
+ * fires here BEFORE workload/env validation and connector construction, so
  * a budget misconfiguration surfaces with the dedicated diagnostic
  * rather than as a downstream connector failure. Placement inside
  * `initialize` reuses the lazy singleton's once-only mutex.
  */
 async function initialize(): Promise<CaseStoreHandles> {
 	enforceConnectionBudget();
+	const workload = readCaseStoreWorkload();
 
 	// Local-dev path (explicit opt-in). When `NOVA_DB_LOCAL_URL` is set,
 	// connect to a plain Postgres at that URL — the docker-compose container
@@ -370,7 +516,7 @@ async function initialize(): Promise<CaseStoreHandles> {
 		const pool = new Pool({
 			connectionString: localUrl,
 			options: DATABASE_CONNECTION_OPTIONS,
-			max: POOL_MAX_PER_INSTANCE,
+			max: poolMaxForWorkload(workload),
 			connectionTimeoutMillis: POOL_CONNECTION_TIMEOUT_MS,
 		});
 		const dialect = new PostgresDialect({
@@ -386,7 +532,7 @@ async function initialize(): Promise<CaseStoreHandles> {
 		ipType: readCaseStoreIpType(),
 		authType: AuthTypes.IAM,
 	});
-	const pool = new Pool(buildPoolConfig(clientOpts, env));
+	const pool = new Pool(buildPoolConfig(clientOpts, env, workload));
 	// Kysely's `PostgresPool` is a subset of pg.Pool; the cast is
 	// the standard Kysely pattern.
 	const dialect = new PostgresDialect({
@@ -450,6 +596,12 @@ export async function getCaseStorePool(): Promise<Pool> {
  * the budget via `LISTENER_CONNECTIONS_PER_INSTANCE`.
  */
 export async function buildDedicatedClientConfig(): Promise<ClientConfig> {
+	const workload = readCaseStoreWorkload();
+	if (workload !== "service") {
+		throw new Error(
+			"buildDedicatedClientConfig: dedicated realtime LISTEN connections belong only to the service workload.",
+		);
+	}
 	const localUrl = process.env.NOVA_DB_LOCAL_URL;
 	if (localUrl !== undefined && localUrl.length > 0) {
 		return {

@@ -249,10 +249,17 @@ describe("BuilderSession store", () => {
 		expect(store.getState().previewSelectedCase).toBeUndefined();
 	});
 
-	it("Project-scope reset clears preview case identity without leaving preview", () => {
-		const store = createBuilderSessionStore();
+	it("defers preview worker/case retirement until a snapshot confirms a Project change", () => {
+		const store = createBuilderSessionStore({
+			projectId: "project-source",
+			role: "editor",
+			canEdit: true,
+		});
 		const formUuid = asUuid("form-1");
 		store.getState().setPreviewing(true);
+		store
+			.getState()
+			.setPreviewPersonaUuid("11111111-1111-4111-8111-111111111111");
 		store.getState().setPreviewCaseTarget({
 			formUuid,
 			caseId: "case-from-source-project",
@@ -265,8 +272,36 @@ describe("BuilderSession store", () => {
 		store.getState().resetProjectScope();
 
 		expect(store.getState().previewing).toBe(true);
+		expect(store.getState().previewCaseTarget?.caseId).toBe(
+			"case-from-source-project",
+		);
+		expect(store.getState().previewSelectedCase?.caseId).toBe(
+			"case-from-source-project",
+		);
+		expect(store.getState().previewPersonaUuid).toBe(
+			"11111111-1111-4111-8111-111111111111",
+		);
+
+		store.getState().applyAccessSnapshot({
+			projectId: "project-source",
+			role: "editor",
+			canEdit: true,
+		});
+		expect(store.getState().previewCaseTarget?.caseId).toBe(
+			"case-from-source-project",
+		);
+		expect(store.getState().previewPersonaUuid).toBe(
+			"11111111-1111-4111-8111-111111111111",
+		);
+
+		store.getState().applyAccessSnapshot({
+			projectId: "project-destination",
+			role: "editor",
+			canEdit: true,
+		});
 		expect(store.getState().previewCaseTarget).toBeUndefined();
 		expect(store.getState().previewSelectedCase).toBeUndefined();
+		expect(store.getState().previewPersonaUuid).toBeUndefined();
 	});
 
 	it("Project-scope reset retires attachment/tool run payloads and phase state", () => {

@@ -33,11 +33,12 @@ import {
 	type ReactNode,
 	useContext,
 	useEffect,
+	useRef,
 	useState,
 } from "react";
-import { useReconcilerContext } from "@/lib/collab/context";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { useSelectedPreviewIdentityState } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
+import { useOptionalBuilderSessionApi } from "@/lib/session/provider";
 import { EngineController } from "./engineController";
 
 // ── Context ─────────────────────────────────────────────────────────────
@@ -62,7 +63,7 @@ export function BuilderFormEngineProvider({
 	children: ReactNode;
 }) {
 	const docStore = useContext(BlueprintDocContext);
-	const reconcilerContext = useReconcilerContext();
+	const session = useOptionalBuilderSessionApi();
 
 	/* Create the controller AND bind the doc store + preview identity
 	 * synchronously on first render. Child effects (e.g.
@@ -119,17 +120,37 @@ export function BuilderFormEngineProvider({
 		controller.setPreviewIdentity(identityState.identity);
 	}, [controller, identityState]);
 
-	/* A same-app Project move does not remount this long-lived controller.
-	 * Deactivate synchronously at the reconciler's scope boundary so neither
-	 * preloaded case rows nor entered form values can survive until React's
-	 * epoch-driven reactivation. */
-	useEffect(
-		() =>
-			reconcilerContext?.subscribeProjectScopeReset(() => {
+	/* The reset signal starts before the authoritative GET knows whether the
+	 * app actually changed Projects, so it cannot retire form state. Observe
+	 * confirmed authorized identities instead: a same-Project refresh keeps
+	 * the entry, while an app/Project change synchronously drops source-tenant
+	 * answers and case preloads. */
+	const confirmedScopeRef = useRef<
+		{ appId: string; projectId: string | undefined } | undefined
+	>(undefined);
+	useEffect(() => {
+		if (session === null) return;
+		const observe = () => {
+			const current = session.getState();
+			if (current.accessPhase !== "authorized" || current.appId === undefined) {
+				return;
+			}
+			const previous = confirmedScopeRef.current;
+			const next = {
+				appId: current.appId,
+				projectId: current.projectId,
+			};
+			confirmedScopeRef.current = next;
+			if (
+				previous !== undefined &&
+				(previous.appId !== next.appId || previous.projectId !== next.projectId)
+			) {
 				controller.deactivate();
-			}),
-		[controller, reconcilerContext],
-	);
+			}
+		};
+		observe();
+		return session.subscribe(observe);
+	}, [controller, session]);
 
 	return (
 		<BuilderFormEngineContext value={controller}>

@@ -384,6 +384,14 @@ export function useAccessPhase(): AccessPhase {
 	return useStore(store, (s) => s.accessPhase);
 }
 
+/** The last authoritative Project identity for this builder session. It stays
+ * stable while access refreshes and changes only when the snapshot confirms a
+ * tenant move. */
+export function useProjectId(): string | undefined {
+	const store = useContext(BuilderSessionContext) ?? FALLBACK_SESSION_STORE;
+	return useStore(store, (s) => s.projectId);
+}
+
 /** Monotonic Project-scope generation. Consumers should normally subscribe to
  *  the reconciler reset registry instead; this hook is for status/debug UI. */
 export function useProjectScopeEpoch(): number {

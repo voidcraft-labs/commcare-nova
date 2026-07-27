@@ -1984,6 +1984,12 @@ describe("PostgresCaseStore — creation stamps", () => {
 
 		await store.applySubmission({
 			appId: APP_ID,
+			submissionReceipt: {
+				entryKey: "store-creation-stamp-entry",
+				formUuid: "66666666-6666-4666-8666-666666666666",
+				expectedAppMutationSeq: 0,
+				requestDigest: "store-creation-stamp-request",
+			},
 			ordinary: {
 				kind: "registration",
 				primary: { caseType: "patient", caseName: "Mary", properties: {} },

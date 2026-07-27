@@ -31,7 +31,16 @@ import { Pool } from "pg";
 import { describe, expect, it } from "vitest";
 import {
 	buildPoolConfig,
+	CAPTURE_CLEANUP_DB_ROLE_CONNECTION_LIMIT,
+	CAPTURE_CLEANUP_LOCK_CONTENDER_CONNECTIONS,
+	CAPTURE_CLEANUP_POOL_MAX_PER_EXECUTION,
 	type CaseStoreEnvConfig,
+	CLOUD_RUN_MAX_INSTANCES,
+	CLOUD_SQL_CAPACITY_HEADROOM_CONNECTIONS,
+	CLOUD_SQL_MAX_CONNECTIONS,
+	CLOUD_SQL_ORDINARY_LOGIN_HEADROOM_CONNECTIONS,
+	CLOUD_SQL_RESERVED_CONNECTIONS,
+	CLOUD_SQL_SUPERUSER_RESERVED_CONNECTIONS,
 	type ConnectorClientOptions,
 	closeCaseStoreDatabase,
 	DATABASE_CONNECTION_OPTIONS,
@@ -40,10 +49,16 @@ import {
 	enforceConnectionBudget,
 	getCaseStoreDatabase,
 	LISTENER_CONNECTIONS_PER_INSTANCE,
+	MIGRATION_DB_ROLE_CONNECTION_LIMIT,
+	MIGRATION_POOL_MAX_PER_EXECUTION,
+	OPERATOR_POOL_MAX_PER_PROCESS,
 	POOL_MAX_PER_INSTANCE,
+	poolMaxForWorkload,
 	REQUIRED_ENV_VARS,
+	RUNTIME_DB_ROLE_CONNECTION_LIMIT,
 	readCaseStoreEnvConfig,
 	readCaseStoreIpType,
+	readCaseStoreWorkload,
 } from "../connection";
 
 // ---------------------------------------------------------------
@@ -174,6 +189,47 @@ describe("readCaseStoreIpType", () => {
 	});
 });
 
+describe("readCaseStoreWorkload", () => {
+	it.each([
+		["service", 3],
+		["migration", 1],
+		["capture-cleanup", 2],
+		["operator", 1],
+	] as const)("maps %s to its exact pool maximum", (workload, poolMax) => {
+		expect(readCaseStoreWorkload({ NOVA_DB_WORKLOAD: workload })).toBe(
+			workload,
+		);
+		expect(poolMaxForWorkload(workload)).toBe(poolMax);
+	});
+
+	it("keeps one-off operator tooling inside one residual ordinary connection", () => {
+		expect(OPERATOR_POOL_MAX_PER_PROCESS).toBe(1);
+	});
+
+	it("fails loudly when a production process omits the workload", () => {
+		expect(() => readCaseStoreWorkload({})).toThrowError(
+			/missing its workload declaration/,
+		);
+		expect(() => readCaseStoreWorkload({ NOVA_DB_WORKLOAD: "" })).toThrowError(
+			/missing its workload declaration/,
+		);
+	});
+
+	it("fails loudly for an unrecognized workload", () => {
+		expect(() =>
+			readCaseStoreWorkload({ NOVA_DB_WORKLOAD: "cleanup" }),
+		).toThrowError(/unrecognized workload declaration/);
+	});
+
+	it("allows local development to omit the workload and uses the service pool", () => {
+		expect(
+			readCaseStoreWorkload({
+				NOVA_DB_LOCAL_URL: "postgres://nova@localhost/nova_cases",
+			}),
+		).toBe("service");
+	});
+});
+
 // ---------------------------------------------------------------
 // Pool-config invariant
 // ---------------------------------------------------------------
@@ -202,7 +258,7 @@ describe("buildPoolConfig", () => {
 		// The runtime invariant: `max` is `POOL_MAX_PER_INSTANCE`,
 		// never anything else. A regression here breaks the
 		// connection-budget math.
-		const config = buildPoolConfig(stubClientOpts, env);
+		const config = buildPoolConfig(stubClientOpts, env, "service");
 		expect(config.max).toBe(POOL_MAX_PER_INSTANCE);
 		// Rebalanced from 4 → 3 to leave room for the relay's dedicated LISTEN
 		// connection (`LISTENER_CONNECTIONS_PER_INSTANCE`); the two sum to the
@@ -210,22 +266,30 @@ describe("buildPoolConfig", () => {
 		expect(config.max).toBe(3);
 	});
 
+	it.each([
+		["migration", 1],
+		["capture-cleanup", 2],
+		["operator", 1],
+	] as const)("applies the %s workload pool maximum", (workload, poolMax) => {
+		expect(buildPoolConfig(stubClientOpts, env, workload).max).toBe(poolMax);
+	});
+
 	it("forwards the connector's stream factory unchanged", () => {
 		// `buildPoolConfig` must not wrap or transform the stream —
 		// the connector owns the TLS-handshake logic, and any wrapper
 		// here would risk double-buffering or eat error events.
-		const config = buildPoolConfig(stubClientOpts, env);
+		const config = buildPoolConfig(stubClientOpts, env, "service");
 		expect(config.stream).toBe(stubStream);
 	});
 
 	it("fills user and database from the env config", () => {
-		const config = buildPoolConfig(stubClientOpts, env);
+		const config = buildPoolConfig(stubClientOpts, env, "service");
 		expect(config.user).toBe(env.NOVA_DB_USER);
 		expect(config.database).toBe(env.NOVA_DB_NAME);
 	});
 
 	it("resolves fixed public objects before the isolated runtime case schema", () => {
-		const config = buildPoolConfig(stubClientOpts, env);
+		const config = buildPoolConfig(stubClientOpts, env, "service");
 		expect(DATABASE_SEARCH_PATH).toBe("public,nova_case_runtime");
 		expect(config.options).toBe(DATABASE_CONNECTION_OPTIONS);
 	});
@@ -235,7 +299,7 @@ describe("buildPoolConfig", () => {
 		// `password` must be absent so a future `pg.Pool` upgrade
 		// doesn't quietly start interpreting an undefined value as
 		// "use empty password" against a non-IAM database user.
-		const config = buildPoolConfig(stubClientOpts, env);
+		const config = buildPoolConfig(stubClientOpts, env, "service");
 		expect("password" in config).toBe(false);
 	});
 
@@ -248,7 +312,7 @@ describe("buildPoolConfig", () => {
 		// handle accounting clean; no checked-out clients exist
 		// since the constructor doesn't connect, so end() resolves
 		// instantly.
-		const config = buildPoolConfig(stubClientOpts, env);
+		const config = buildPoolConfig(stubClientOpts, env, "service");
 		const pool = new Pool(config);
 		await pool.end();
 	});
@@ -280,6 +344,47 @@ describe("enforceConnectionBudget", () => {
 		expect(() => enforceConnectionBudget()).not.toThrow();
 	});
 
+	it("reserves capacity for live service, migration, cleanup, and one rejected overlap", () => {
+		const servicePeak =
+			CLOUD_RUN_MAX_INSTANCES *
+			(POOL_MAX_PER_INSTANCE + LISTENER_CONNECTIONS_PER_INSTANCE);
+		const cleanupPeak =
+			CAPTURE_CLEANUP_POOL_MAX_PER_EXECUTION +
+			CAPTURE_CLEANUP_LOCK_CONTENDER_CONNECTIONS;
+		const productionPeak =
+			RUNTIME_DB_ROLE_CONNECTION_LIMIT +
+			MIGRATION_DB_ROLE_CONNECTION_LIMIT +
+			CAPTURE_CLEANUP_DB_ROLE_CONNECTION_LIMIT;
+		const applicationBudget =
+			CLOUD_SQL_MAX_CONNECTIONS - CLOUD_SQL_CAPACITY_HEADROOM_CONNECTIONS;
+
+		expect({
+			servicePeak,
+			runtimeRoleLimit: RUNTIME_DB_ROLE_CONNECTION_LIMIT,
+			migrationPeak: MIGRATION_POOL_MAX_PER_EXECUTION,
+			migrationRoleLimit: MIGRATION_DB_ROLE_CONNECTION_LIMIT,
+			cleanupPeak,
+			cleanupRoleLimit: CAPTURE_CLEANUP_DB_ROLE_CONNECTION_LIMIT,
+			productionPeak,
+			applicationBudget,
+			ordinaryHeadroom: CLOUD_SQL_ORDINARY_LOGIN_HEADROOM_CONNECTIONS,
+			superuserReserved: CLOUD_SQL_SUPERUSER_RESERVED_CONNECTIONS,
+			reservedConnectionsSetting: CLOUD_SQL_RESERVED_CONNECTIONS,
+		}).toEqual({
+			servicePeak: 16,
+			runtimeRoleLimit: 16,
+			migrationPeak: 1,
+			migrationRoleLimit: 1,
+			cleanupPeak: 3,
+			cleanupRoleLimit: 3,
+			productionPeak: 20,
+			applicationBudget: 20,
+			ordinaryHeadroom: 2,
+			superuserReserved: 3,
+			reservedConnectionsSetting: 0,
+		});
+	});
+
 	it("does not run on module import — the first-call path inside `initialize` owns the check", async () => {
 		// The check fires from inside `initialize` (the body that runs
 		// on the first `getCaseStoreDatabase()` call), NOT at module
@@ -287,7 +392,7 @@ describe("enforceConnectionBudget", () => {
 		// no-side-effect operation: every test in this suite imports
 		// the module via the file-level `import` block above without
 		// triggering the budget throw, even when a contributor
-		// experimentally edits one of the four constants out of range.
+		// experimentally edits one of the workload constants out of range.
 		//
 		// The pin uses dynamic `import()` so a static `import` the
 		// linter could move out of an `expect()` doesn't smuggle
@@ -299,12 +404,12 @@ describe("enforceConnectionBudget", () => {
 
 	it("runs on the first `getCaseStoreDatabase()` call", async () => {
 		// `initialize` calls `enforceConnectionBudget` BEFORE
-		// `readCaseStoreEnvConfig`. The unit-test environment has no
+		// workload/env validation. The unit-test environment has no
 		// `NOVA_DB_*` set, so a passing budget check transitions
-		// control to env validation — which throws naming the missing
-		// variables. A failing budget check would surface a different
-		// error first. Catching the env error pins the ordering: the
-		// budget check fired (and passed) before env validation
+		// control to the workload validator — which rejects the absent
+		// declaration. A failing budget check would surface a different
+		// error first. Catching the workload error pins the ordering: the
+		// budget check fired (and passed) before workload validation
 		// reached its throw site.
 		//
 		// Pinning by the env error message is the only behavioural
@@ -313,7 +418,7 @@ describe("enforceConnectionBudget", () => {
 		// observe the call because production code references the
 		// local binding, not the module-namespace export.
 		await expect(getCaseStoreDatabase()).rejects.toThrow(
-			/missing required environment variables/,
+			/missing its workload declaration/,
 		);
 	});
 });

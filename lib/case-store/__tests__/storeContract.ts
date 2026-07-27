@@ -137,6 +137,17 @@ export interface RunStoreContractOptions {
 // keep failing-test traces readable.
 
 const APP_ID = "app-contract";
+let submissionReceiptSequence = 0;
+
+function submissionReceipt() {
+	submissionReceiptSequence += 1;
+	return {
+		entryKey: `store-contract-entry-${submissionReceiptSequence}`,
+		formUuid: "66666666-6666-4666-8666-666666666666",
+		expectedAppMutationSeq: 0,
+		requestDigest: `store-contract-request-${submissionReceiptSequence}`,
+	};
+}
 const PROJECT_A = "project-a";
 const PROJECT_B = "project-b";
 const USER_A = "user-a";
@@ -609,6 +620,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// generated id.
 			const result = await store.applySubmission({
 				appId: APP_ID,
+				submissionReceipt: submissionReceipt(),
 				ordinary: {
 					kind: "registration",
 					primary: {
@@ -685,6 +697,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			await expect(
 				store.applySubmission({
 					appId: APP_ID,
+					submissionReceipt: submissionReceipt(),
 					ordinary: {
 						kind: "registration",
 						primary: {
@@ -749,6 +762,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// read in the caller's order.
 			const result = await store.applySubmission({
 				appId: APP_ID,
+				submissionReceipt: submissionReceipt(),
 				ordinary: {
 					kind: "registration",
 					primary: {
@@ -825,6 +839,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 
 			const result = await store.applySubmission({
 				appId: APP_ID,
+				submissionReceipt: submissionReceipt(),
 				ordinary: {
 					kind: "registration",
 					primary: {

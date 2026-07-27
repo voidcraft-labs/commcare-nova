@@ -29,7 +29,7 @@
 		"predev": "node scripts/check-node.mjs",
 		"dev": "npm run db:dev && NEXT_TELEMETRY_DISABLED=1 next dev",
 		"db:dev": "docker compose up -d --wait && NOVA_DB_LOCAL_URL=postgres://nova:nova@localhost:5432/nova_cases?sslmode=disable npm run db:migrate",
-		"db:migrate": "tsx scripts/migrate.ts",
+		"db:migrate": "NOVA_DB_WORKLOAD=migration tsx scripts/migrate.ts",
 		"db:dev:down": "docker compose down",
 		"build": "NEXT_TELEMETRY_DISABLED=1 next build && tsc --noEmit",
 		"start": "next start",

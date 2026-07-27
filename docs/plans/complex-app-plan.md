@@ -287,15 +287,21 @@ export for a carrier-bearing document (`LOOKUP_CARRIER_EXPORT_NOT_ACTIVE`). Loca
 One submission is one transaction. The preview store exposes a single envelope
 carrying ordinary form behavior plus advanced operations; the server builds the
 `CaseOperationProgram` from the **committed** document, and identity resolves
-server-side at the action boundary rather than being folded into a client-supplied
-literal. `SubmissionMutation` carries the form UUID plus complete per-scope
-operation answer bags as plain JSON — a `Map`, `Set`, or `File` argument would
-make React encode multipart, which the edge WAF blocks.
+server-side at the action boundary rather than being folded into a
+client-supplied literal. Every `SubmissionMutation` arm carries the final
+plain-JSON protocol: form UUID, controller-owned UUID entry key, and exact
+structured attachment references (including explicit `[]`), plus complete
+per-scope operation answer bags when the committed form has operations. The
+Server Action imperatively validates and normalizes that required projection
+before receipt, program, or effect derivation; the retired name-only projection
+is rejected. A `Map`, `Set`, or `File` argument would make React encode
+multipart, which the edge WAF blocks.
 
 The membership gate precedes the program build, closing a one-bit cross-tenant
-survey oracle. An answers-absent document snapshot submits ordinary-only, because
-empty bindings would blank-write and a blank projects to key-absent — silent
-property deletion.
+survey oracle. If a freshly authorized committed form has operations but the
+submission lacks its answer bags, the entire request rejects as stale/skewed:
+empty bindings would blank-write and an ordinary-only fallback would silently
+skip committed semantics.
 
 Wire facts the envelope rests on:
 
@@ -838,16 +844,12 @@ and they carry one asymmetry stated where the author picks the kind:
 `WidgetFactory::createWidgetFromPrompt` falls to `StringWidget` and a worker
 there types free text into a `binary` node.
 
-The declared target CommCare version (`hqShells.ts::applicationShell`'s
-`build_spec.version`) is the **maximum** of every floor Nova's vocabulary
-implies: 2.54 for menu-level instance declarations, 2.57 for file attachments
-(`feature_support.py::support_document_upload`). That 2.57 gate is
-authoring-palette-only — its one consumer repo-wide is
-`views/formdesigner.py::_get_vellum_features` — so an emitted form renders
-regardless; declaring the true floor is about not claiming a compatibility HQ
-itself does not. It is declarative on the upload path either way, because
-`models/applications.py::import_app` deletes `build_spec` and
-`ApplicationBase.wrap` substitutes the target domain's default.
+`hqShells.ts::applicationShell` emits one fixed `build_spec.version` (`2.54.0`)
+as part of Nova's single application-shell target. It is not a feature floor,
+reader gate, or capability switch, and no authoring/runtime branch consults it.
+The upload path is declarative because `models/applications.py::import_app`
+deletes `build_spec` and `ApplicationBase.wrap` substitutes the target domain's
+default.
 
 `FORM_TOO_MANY_ATTACHMENTS` rejects a form whose **non-repeating** capture
 questions exceed `MAX_FORM_ATTACHMENTS` (50). Formplayer counts at submit time
@@ -870,6 +872,292 @@ contrast is a docs fact rather than a Nova behavior.
 capture kind carrying `case_property_on`, and `formActions.ts` skips capture
 kinds when building the case-update map. Writing a capture onto the case is
 inseparable from emitting its URL column, so the two ship together (unit 6).
+
+### Attachments a worker captures
+
+A worker attaches files in the running preview, and they ride the submission.
+The lane is `form_attachments` plus two GCS prefixes — **never `media_assets`**:
+a captured photo is data, not an authoring asset, and a row in the library would
+surface it in the media picker, count it against the export budget, and make it
+deletable through the library UI. CommCare's own model agrees, keeping staged
+capture bytes under the form session and disposable.
+
+The acceptance lifecycle is
+`pending → staged → preparing → prepared → submitted`; Clear or expiry sends a
+`preparing`/`prepared` row through `discarding` instead. A form answer may name
+an attachment only once it is `staged`, because a `pending` row's object may
+never have been PUT. Bytes take the media lane's initiate → signed-PUT →
+confirm shape so they never travel through Cloud Run, and the routes nest under
+`/api/apps/[id]/attachments`, which needs no `lib/hostnames.ts` entry because
+allowlist matching is segment-anchored. The signed PUT binds the exact declared
+byte length and creation generation zero; confirm records the immutable GCS
+generation, CRC32C, size, and content type.
+
+**Names are server-minted and derived from nothing about the question** — not
+the field id, not the node path, not the repeat index — because
+`MediaHandler.kt::saveFile` is not either, and a field-derived name would
+collide across repeat instances exactly where CommCare's does not. Nova cannot
+produce CommCare's trailing-dot edge (`<uuid>.` from a filename with no
+extension), since an unrecognized extension is rejected before an id is minted;
+a consumer must still not assume a capture answer splits on a dot, because a
+submission that went through Formplayer can carry it.
+
+Two tenancy axes. `project_id` is the tenant, matching case rows, so every
+member of an app's Project sees the same submissions. `created_by` is narrower
+and scopes the writes: reservation is keyed on a client-minted `entry_key`, so
+without it a co-member in a shared Project could reserve or delete another
+member's in-flight attachments by sending their key.
+
+**Accepted means the bytes are already durable.** The client submits exact
+`{ attachmentName, fieldUuid, instancePath }` references. Before any case
+effect, the server builds capture authority from the authorized committed
+document. A DB transaction then locks that entry, validates the selected rows
+against that server-built intent, and moves them from `staged` to `preparing`.
+Only then may a bounded worker copy each immutable,
+generation-pinned source to its deterministic create-only durable key and
+verify size, CRC32C, content type, and concrete generation. The worker records
+`prepared` only after that proof. If the request dies after the copy but before
+the row update, the deterministic destination plus the prior `preparing` row
+lets the scheduled five-minute worker rediscover and verify the exact copy.
+There is no cross-system interval in which external bytes exist without a DB
+recovery record. Scheduled failures use backoff; pressing Submit again may make
+a recorded failure due immediately, but never steals an active copy lease.
+
+The later case-store transaction independently requires every selected row to
+be `prepared`, inserts the idempotency intent, moves those rows to `submitted`,
+applies every case effect, and stores the replay result atomically. A case
+failure rolls all of that back to `prepared`; a matching retry returns the
+stored result; a different payload under the same entry key is rejected. No GCS
+operation or other post-commit attachment await remains, so an accepted form
+cannot be reported failed by a hung copy and cannot point at bytes still
+subject to the staging TTL.
+The client also emits this intent with `attachments: []` when the committed
+form is capture-capable but the current projection is empty. The prior receipt
+check therefore still runs before case effects after a worker clears an answer,
+a condition hides it, or a repeat removes it: an identical accepted request
+replays and a changed digest rejects instead of applying the form twice. Every
+submission envelope also carries the actor/app/entry/form identity plus the
+canonical payload digest independently of current capture structure. The Server
+Action's one authorization transaction locks the app `FOR SHARE`, proves fresh
+Project membership, and reads a durable receipt before hydrating the current
+blueprint. A receipt returns the stored result without topology access; a new
+submission receives its program and capture authority from the committed app
+snapshot read in that transaction. Preparation and the entry-locked case-store
+transaction each reauthorize again at their mutation boundary and adjudicate
+the receipt before current topology or case effects. Exact retries therefore
+replay after the form or its capture fields are deleted or converted; a changed
+digest rejects before any case effect.
+
+There is deliberately no destructive hook on value change or repeat removal.
+Clear/replace deletes `pending`/`staged` metadata directly, moves
+`preparing`/`prepared` rows to `discarding`, and can never delete `submitted`
+state. The preparation worker observes Clear through the row's serialized
+terminal transition, then deletes the exact source and durable generations
+before removing the discard row. Unselected attempts expire through the same
+distinction. The Project move protocol blocks under the app lock whenever
+capture rows or submission intents exist, because no partial move may strand
+their rows or bytes in the source tenant.
+
+Initiate is also a lifecycle boundary: once POST has minted a pending row, a
+failed/aborted signed PUT or confirm schedules a bounded compensating DELETE.
+Signed-URL creation and the final response handoff both remain fenced by the
+request abort signal after the insert. If either fails or the request aborts,
+the route runs a bounded pending-only compare-and-delete using the full
+server-created attempt identity; a row that advanced is preserved, and cleanup
+failure leaves the expiry sweep as the explicit backstop without masking the
+signing error.
+That cleanup, replacement cleanup, explicit removal, repeat deletion, and entry
+retirement are all detached from the entry's critical mutation queue. A slow or
+hung DELETE can therefore leave only an expiring orphan; it can never hold a
+confirmed replacement, answer clear, or Submit behind it.
+
+Nova diverges from the platform in exactly two places, both toward correctness:
+
+- **Only named attachments ride the submission.** The real runtime enumerates
+  the session media DIRECTORY, not the answers
+  (`FormSubmissionHelper::getMultiPartFormBody`), so a deleted repeat
+  instance's file still uploads, still consumes one of the 50 slots, and lands
+  in HQ referenced by nothing.
+- **Clear and replace touch the answer first, bytes second.** The runtime does
+  the reverse and strands a required question naming a file it just deleted.
+
+Retention has two traffic-independent mechanisms with deliberately different
+authority. The GCS lifecycle TTL reaps ordinary staged and browser-abandoned
+source bytes even if the app receives no traffic, but GCS-only policy cannot
+atomically distinguish a DB-accepted submission; therefore an accepted
+generation must first live at a durable prefix the lifecycle never matches.
+The scheduled bounded worker owns the cross-system `preparing`/`prepared`/
+`discarding` recovery and the row `expires_at` sweep, including exact
+destination verification after a crash before the row update. Accepted
+durability takes priority over staging cleanup.
+Cloud Scheduler invokes one Cloud Run cleanup Job every five minutes. A session
+advisory lock collapses at-least-once or overlapping delivery to one active
+worker; a held lock or pre-lock connection saturation skips only that dispatch.
+After winning, the worker prewarms its work connection and then performs the
+same bounded preparation, verification, discard, and expiry sweep every time.
+There is no deploy-time execution, alternate mode, probe, or release gate. The
+IAM condition and its domain mirror reject empty or double-slash segments in
+either allowed prefix. The cleanup database login
+inherits no application role and holds only public-schema `USAGE` plus
+`SELECT`/`UPDATE`/`DELETE` on `form_attachments`. Its custom storage role is
+only object get/create/delete, IAM-condition-limited to `captures-staged/` and
+`projects/<project>/captures/`; the media-policy identity separately holds only
+bucket metadata get/update.
+`applyMediaBucketStoragePolicy` converges the bucket's whole temporary-object
+retention policy in one metageneration-fenced patch: the exact prefix lifecycle,
+soft delete disabled, versioning disabled, and default event holds disabled. It
+refuses to remove any operator retention policy and verifies the fresh bucket
+metadata after the write. `lib/storage/__tests__/mediaBucketPolicy.test.ts`
+pins that complete contract and concurrent-edit fence. The seven-day staging
+TTL therefore remains a hard byte-retention backstop for source objects, while
+acceptance requires the exact verified copy outside that prefix before the
+submission transaction can commit.
+
+Clear and Replace carry no confirmation on the picked kinds, deliberately:
+the device does not confirm either, and nothing is actually lost — the file
+is still on the worker's disk, and replacing one means they already went
+through the picker and chose another. Signature is the carve-out, because
+it is drawn rather than picked and clearing destroys the only copy; it gets
+inverse-action undo (the retained stroke buffer, re-emitted through the
+ordinary upload path) rather than a confirm, per the contracts' preference
+for undo over confirm-then-destroy. The real protection on both is the
+ordering — answer first, bytes second — not a prompt.
+
+The preview control is device-faithful: a filename and one visible removal
+action (Nova says **Remove**, where `entry_file.html` says **Clear**), no
+thumbnail, no playback, no way to reopen the file — and Formplayer declares no
+route serving a staged capture back. The preview could render a thumbnail,
+which is why it must not; an author laying out a form against a preview that
+confirms attachments would ship a form whose workers cannot. The filename lives
+in the entry's stable-slot registry, so
+relevance, collapse, repeat compaction, and Preview/Edit remounts do not erase it;
+it still dies with the page/entry, the same lifetime `form_ui.js`'s in-memory
+`fileNameCache` gives it. Action rows wrap at compact widths, arbitrary filenames
+break rather than overflow, and every Submit/Clear/Retry/Remove/Cancel action
+retains at least a 44 CSS-pixel target.
+
+**The preview does not resume a partially-filled form** — nothing persists
+runtime answers and `deactivate` wipes the store — so the entry key is minted
+per `activateForm` and lives on the `EngineController`, not the engine. It
+survives cold identity/lookup/case-data rebuilds and a same-Project access
+refresh. Confirmed app/form/Project changes, materially different workers,
+terminal revoke/upgrade states, and **Clear form** retire the old entry.
+`FormScreen` installs the exact `{ appId, entryKey, formUuid, projectId,
+actorUserId, ownerId, scopeEpoch, accessPhase, canEdit }` write-authority tuple
+above every capture field, including when all of them are hidden or unmounted.
+Every queued capture/maintenance operation also carries the exact stable slot
+key and checks the current controller/session coordinates before and after its
+awaited work. Missing authority, response methods, instance paths, or stable
+slot identity reject in production; test doubles must implement the real
+contract. A tuple change aborts the old network generation without erasing
+stable slots, drafts, diagnostics, or Submit blockers. The mounted answer tree,
+focus, File controls, case/persona binding, and entry key also survive the
+uncertain refresh. Even if React coalesces refreshing and same-Project
+authorization into one render, active file drafts become retained recovery
+state and dirty signature ink is adopted and encoded exactly once under the new
+generation.
+
+Capture mutations share one entry-wide serialized queue; same-slot replacement
+is latest-wins, but deletion is never queue-critical. Submit classifies every
+known/running capture **before** it joins the queue, then keeps reclassifying
+while it waits: ordinary signal-aware work for a dormant question is cancelled
+without losing its draft/diagnostic, removed work is retired, and only
+effectively visible `notReady` state can block. An explicit queued Clear remains
+owned and runs despite dormancy, ahead of Submit, so an older answer cannot
+revive later. This preflight includes queued retarget maintenance, so a hidden
+or removed question cannot
+starve Submit behind a never-settling upload or PATCH. A destructive Clear has
+a private serialization key but carries its real stable slot, concrete path,
+and field UUID into that classification, so an active Clear stays ahead of
+Submit. Initiate, PUT, confirm, and retarget each have a 30-second foreground
+deadline covering both the fetch and success/error response-body read. A
+visible Cancel aborts a file upload generation while preserving the previous
+confirmed owner and answer; a late completion is generation-fenced and cleaned
+up.
+A confirmed retarget cancelled by dormancy keeps a suspended, generation-tagged
+blocker. If relevance returns, the next barrier mints a newer generation and
+repairs or CAS-converges the owner before Submit; a late cancelled response
+cannot clear that repair. A non-abort retarget failure remains failed and does
+not auto-retry from barrier polling, preserving the worker's explicit
+Retry/replace/remove choice.
+
+Repeat instances keep stable render keys through index compaction. A failed
+retarget is recoverable, not destructive: the confirmed row, answer, filename,
+signature ink, desired path, and a generation-tagged blocker remain owned by the
+slot. Picked-file save diagnostics live in that same stable slot rather than
+component-local state, so they survive ordinary remounts and still offer
+**Retry** of the exact retained `File`, plus choose-a-different-file/remove.
+The structural Remove control stays visible but disabled without current write
+authority. At its imperative boundary it requires the exact coordinator
+authority generation captured by the handler and rechecks both the controller
+entry key and target repeat instance's stable key before compaction; a stale
+handler cannot retire a successor or its capture after authority restoration.
+Retarget recovery offers Retry plus
+replace/remove for picked files; Signature keeps Retry beside its single
+**Clear signature** action, and every message names that exact action. Every
+recovery action has a question-qualified accessible name. Retry
+compare-and-sets the retained row in place; a newer replacement/drawing
+generation wins and clears only the older diagnostic. No failed retarget deletes
+the only recoverable row or silently submits it under the wrong path. A CAS
+mismatch returns the locked server row's authoritative path. The client adopts
+that coordinate and converges toward the slot's newest desired path, so a
+successful A→B move whose response was lost can continue as B→C rather than
+remaining permanently stuck on expected A.
+
+Live authoring topology changes travel from `EngineController` to that same
+coordinator as one atomic pre/post batch. Every retained/deleted move includes
+the stable identity of each path segment, so capture and ancestor swaps,
+cross-parent moves, different-depth moves, group↔repeat conversion, and nested
+retained repeats preserve only their real instance indices. Projection is
+tri-state: mapped slots retarget; an explicit field deletion or a proven
+higher repeat instance with no destination may retire; malformed paths,
+missing/duplicate identities, and mismatched events preserve the exact owner,
+picked `File`, signature ink, and an invariant Submit blocker. All mapped
+destinations install synchronously before any PATCH or DELETE, so simultaneous
+swaps never observe a half-migrated topology. Capture-kind changes remain
+incompatible and require a replacement at the mapped destination. A malformed
+slot with no valid rendered path appears in a form-level, question-qualified
+recovery surface; Submit focuses **Remove attachment** or **Clear signature**
+there without registering a guessed path. An explicit deleted-field event for
+the same stable UUID takes precedence over an unusable old-path projection and
+retires only that slot.
+Those form-level recovery controls are also destructive authority boundaries:
+they disable during access refresh or viewer mode and pass the exact current
+coordinator generation into discard. A missing or stale token fails closed
+before the owner, retained File/signature ink, or invariant blocker can be
+removed.
+
+Signature strokes and the last successfully encoded CSS dimensions, device pixel
+ratio, and backing-store dimensions live together in stable draft state. A
+material change — including DPR-only change or a remount at a different width —
+generation-fences stale `toBlob` callbacks, redraws normalized ink, and re-encodes
+before Submit. A failed encode/upload retains both ink and an actionable
+Retry/**Clear signature** error across remounts. Clear's inverse stroke buffer
+also lives in stable draft state, so Undo survives ordinary remounts until new
+ink supersedes it. `pointercancel` and `lostpointercapture` settle the dirty
+drawing, and a dirty draft interrupted by unmount starts encoding when the pad
+returns.
+DPR-only detection uses a self-rearming resolution media query rather than
+relying on a resize event; an interaction-blocked canvas exposes
+disabled/read-only semantics. Clear is an explicit newer intent even during
+an active upload: it cancels that generation and composes exactly one queued
+answer-clear transition. The pad does not erase pixels or publish Undo until
+that transition explicitly reports `committed`; `canceled` or `refused`
+restores the action, retains the ink and blocker, and re-arms the current
+authority generation when it is writable. Invalid Submit expands every
+collapsed group/repeat ancestor, announces the validation failure, scrolls the
+first invalid question, and focuses its actual control (including the signature
+canvas). An attachment blocker carries its stable slot, field UUID, and concrete
+path through the same reveal flow, which focuses that question's uniquely named
+Retry action. Both flows switch to non-animated scrolling when reduced motion is
+requested. A kind-change replacement has no Retry action, so its recovery marker
+lives on
+the new control itself and Submit focuses the blank signature canvas.
+
+Those rules also mean the runtime's blank-pad-over-live-signature behavior has
+no Nova counterpart to be faithful to; the comment on
+`EngineController.currentEntryKey` is where a future resume story will need to
+carry the key forward and leave the pad blank.
 
 ### Export and HQ upload
 
@@ -898,8 +1186,9 @@ destination picker is an inline radio list over the Projects
 where the member also governs placement, because a second floating surface opened
 from inside the popover renders beneath it. Governance requires `delete` on both
 ends, `deleted_at IS NULL`, owner retention, and an exact empty lookup closure:
-an app whose blueprint references lookup tables cannot move, and stored edges that
-disagree with the blueprint are themselves a refusal until repaired. Same-Project
+an app whose blueprint references lookup tables or has capture rows or
+capture-submission intents cannot move, and stored lookup edges that disagree
+with the blueprint are themselves a refusal until repaired. Same-Project
 case-data recovery is a separate, always-available repair.
 
 Project deletion is globally disabled until Nova has an audited whole-tenant
@@ -922,7 +1211,7 @@ Request and run timings are three independently authored fields in
 
 ## What remains
 
-Sixteen units, one file each. **Every entry below is a pointer, not a summary of
+Fifteen units, one file each. **Every entry below is a pointer, not a summary of
 record** — the contract, the binding CommCare facts, the wire shapes, and the
 observed outcome live only in the linked file, and each entry names what it is
 withholding so you can tell when you need it. Read that file, and
@@ -970,21 +1259,10 @@ core fixture that misspells it, the companion entry datum, why grouping must
 happen at the data layer rather than after a page is fetched, and why the group
 key must be a real case index.
 
-### 5 — Capture, storage, and submission lifecycle
-
-[`complex-app/05-media-capture-in-forms.md`](complex-app/05-media-capture-in-forms.md)
-· depends on nothing · blocks unit 6
-
-Capture in the running preview: staged upload at pick time through the durable
-landing a submission gives it. **The file holds** the server-generated naming
-Nova must not reinvent, why "attachments on the form" is not "captures the worker
-kept", the two upstream Formplayer defects to design around, and what a worker
-can actually see after attaching.
-
 ### 6 — Attachment target-aware emission and link UX
 
 [`complex-app/06-attachment-emission-and-link-ux.md`](complex-app/06-attachment-emission-and-link-ux.md)
-· depends on units 5 and 11 · blocks nothing
+· depends on unit 11 · blocks nothing
 
 Save-to-case attachment shapes, target-aware URL-column emission, explicit link
 presentation, and the opt-in legacy attachment mode. **The file holds** the exact
@@ -1111,8 +1389,7 @@ Each unit's prerequisites, matching the "Depends on" line in its file:
 | [2 Project data workspace](complex-app/02-project-data-workspace.md) | — |
 | [3 SA, MCP, docs](complex-app/03-sa-mcp-and-docs-for-conditions-operations-lookups.md) | 1, 2 |
 | [4 grouped case tiles](complex-app/04-case-tiles.md) | — |
-| [5 media capture in forms](complex-app/05-media-capture-in-forms.md) | — |
-| [6 save-to-case and attachment link UX](complex-app/06-attachment-emission-and-link-ux.md) | 5, 11 |
+| [6 save-to-case and attachment link UX](complex-app/06-attachment-emission-and-link-ux.md) | 11 |
 | [8 organization and locations store](complex-app/08-organization-model-and-locations-store.md) | — |
 | [9 usercase, owner sets, wire](complex-app/09-usercase-owner-sets-and-wire.md) | 8 |
 | [10 automations](complex-app/10-automations-and-setup-guidance.md) | 8 |
@@ -1124,8 +1401,8 @@ Each unit's prerequisites, matching the "Depends on" line in its file:
 | [16 session endpoints and deep links](complex-app/16-session-endpoints-and-deep-links.md) | 12, 15 |
 | [17 multi-select, related cases, profile](complex-app/17-multi-select-related-cases-and-profile.md) | 12 |
 
-Six units have no outstanding prerequisites and can start in any order: 1, 2, 4,
-5, 8, and 14. They are the independent entry points — every other unit descends
+Five units have no outstanding prerequisites and can start in any order: 1, 2,
+4, 8, and 14. They are the independent entry points — every other unit descends
 from one of them.
 
 The deployment chain (8 → 10 → 11 → 12) is the critical path: it gates units 6,

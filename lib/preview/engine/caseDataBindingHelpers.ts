@@ -24,6 +24,7 @@
 
 import "server-only";
 
+import { createHash } from "node:crypto";
 import type { AppCapability } from "@/lib/auth/projectRoles";
 import { getSession } from "@/lib/auth-utils";
 import type {
@@ -33,10 +34,12 @@ import type {
 	CaseStore,
 	SortKey as CaseStoreSortKey,
 	LookupTableSchemas,
+	SubmissionReceiptIdentity,
 	TermBindings,
 } from "@/lib/case-store";
 import { buildCaseTypeMap, withProjectContext } from "@/lib/case-store";
 import {
+	CaptureSubmissionRejectedError,
 	CasePropertiesValidationError,
 	SchemaNotSyncedError,
 } from "@/lib/case-store/errors";
@@ -46,6 +49,7 @@ import {
 } from "@/lib/db/appAccess";
 import { loadApp } from "@/lib/db/apps";
 import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
+import type { AppDoc } from "@/lib/db/types";
 import {
 	caseOperationConditionalGuardUuids,
 	caseOperationExpressionSnapshotTypes,
@@ -58,6 +62,7 @@ import {
 	type CaseType,
 	type Column,
 	caseListColumnHasRuntimeRole,
+	isCaptureFieldKind,
 	orderedCaseOperations,
 	ownRecordValue,
 	type PersistableDoc,
@@ -65,6 +70,11 @@ import {
 	type UserCollections,
 	type Uuid,
 } from "@/lib/domain";
+import {
+	CAPTURE_EXTENSIONS_BY_KIND,
+	captureContentType,
+	committedCapturePath,
+} from "@/lib/domain/captureFormats";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
 import { asWalkableDoc } from "@/lib/domain/mediaRefs";
 import type { Predicate, ValueExpression } from "@/lib/domain/predicate";
@@ -89,6 +99,7 @@ import {
 	getLookupFixtureData,
 } from "@/lib/lookup/service";
 import type { LookupScope } from "@/lib/lookup/types";
+import type { CaptureSubmissionProjection } from "./captureSubmissionValidation";
 import type {
 	CaseQueryConstraintSource,
 	LoadCaseDataResult,
@@ -905,49 +916,222 @@ export async function resetSampleCases(
 export interface BuiltSubmissionOperations {
 	readonly program?: CaseOperationProgram;
 	readonly ordinaryCaseType?: string;
+	readonly submissionReceipt?: NonNullable<
+		ApplySubmissionArgs["submissionReceipt"]
+	>;
+	readonly captureIntent?: NonNullable<ApplySubmissionArgs["captureIntent"]>;
+}
+
+function canonicalJson(value: unknown): string {
+	const normalize = (input: unknown): unknown => {
+		if (
+			input === null ||
+			typeof input === "string" ||
+			typeof input === "number" ||
+			typeof input === "boolean"
+		) {
+			return input;
+		}
+		if (typeof input === "bigint") return { $bigint: input.toString() };
+		if (input instanceof Date) return { $date: input.toISOString() };
+		if (input instanceof Map) {
+			const entries = [...input.entries()].map(([key, entryValue]) => [
+				normalize(key),
+				normalize(entryValue),
+			]);
+			entries.sort((a, b) =>
+				JSON.stringify(a[0]).localeCompare(JSON.stringify(b[0])),
+			);
+			return { $map: entries };
+		}
+		if (input instanceof Set) {
+			const entries = [...input].map(normalize);
+			entries.sort((a, b) =>
+				JSON.stringify(a).localeCompare(JSON.stringify(b)),
+			);
+			return { $set: entries };
+		}
+		if (Array.isArray(input)) return input.map(normalize);
+		if (typeof input === "object") {
+			const normalized: Record<string, unknown> = {};
+			for (const key of Object.keys(input).sort()) {
+				const entry = (input as Record<string, unknown>)[key];
+				if (entry !== undefined) normalized[key] = normalize(entry);
+			}
+			return normalized;
+		}
+		return String(input);
+	};
+	return JSON.stringify(normalize(value));
+}
+
+/** Compute the durable entry identity without consulting the current
+ * blueprint. This is intentionally the first submission derivation: a receipt
+ * accepted under an older capture topology must be adjudicated before today's
+ * form/capture structure can reject or erase it. */
+export function buildSubmissionReceiptIdentity(args: {
+	readonly appId: string;
+	readonly identity: ResolvedPreviewIdentity;
+	readonly mutation: SubmissionMutation;
+	readonly projection: CaptureSubmissionProjection;
+	readonly viewerTimeZone?: string;
+}): SubmissionReceiptIdentity {
+	const { entryKey, formUuid } = args.projection;
+	const requestDigest = createHash("sha256")
+		.update(
+			canonicalJson({
+				appId: args.appId,
+				mutation: {
+					...args.mutation,
+					entryKey,
+					formUuid,
+					attachmentRefs: args.projection.attachmentRefs,
+				},
+				viewerTimeZone: args.viewerTimeZone,
+				identity: {
+					actorUserId: args.identity.actorUserId,
+					ownerId: args.identity.ownerId,
+					personaUuid: args.identity.personaUuid,
+				},
+			}),
+		)
+		.digest("hex");
+	return { entryKey, formUuid, requestDigest };
 }
 
 /**
- * Build the storage executor's `CaseOperationProgram` from ONE authorized,
- * committed blueprint. The caller owns the single blueprint load so persona
- * resolution and program derivation cannot observe different snapshots.
+ * Build the storage executor's `CaseOperationProgram` from the
+ * COMMITTED doc — the server is the structural authority, consuming
+ * only the client's answer values and iteration counts. The `operations`
+ * arm stays absent only when the committed form holds no operations.
+ * Missing final-protocol identity, a missing committed form, or absent
+ * answer bags for an operation-bearing form rejects the whole submission;
+ * none can fall back to ordinary-only effects.
  *
- * The server is the structural authority, consuming only the client's answer
- * values and iteration counts. Returns an empty result (the `operations` arm
- * stays absent) when the mutation carries no form identity, the doc's form
- * holds no operations, or the client collected no answer bags for an
- * operation-bearing form (doc-snapshot skew).
- *
- * Everything structural derives from the S04 analyses over the committed doc:
- * canonical `(order, uuid)` operation sequence, root-then-post-order
- * multiplicity scopes, transitive producer guards, and immutable expression
- * snapshot types. Identity is server-resolved: `sessionUser` /
- * `sessionContext` come from the authenticated preview identity, never the
- * client.
+ * Everything structural derives from the S04 analyses over the
+ * committed doc: canonical `(order, uuid)` operation sequence,
+ * root-then-post-order multiplicity scopes (every scope present even
+ * with zero client iterations — the executor requires the entry),
+ * transitive producer guards resolved to their condition ASTs, and
+ * the immutable expression snapshot types. Identity rides
+ * server-resolved: `sessionUser`/`sessionContext` from the
+ * authenticated preview identity, never the client.
+ */
+export async function buildSubmissionOperationProgram(args: {
+	readonly appId: string;
+	readonly committedApp: Pick<AppDoc, "blueprint" | "mutation_seq">;
+	readonly identity: ResolvedPreviewIdentity;
+	readonly mutation: SubmissionMutation;
+	readonly projection: CaptureSubmissionProjection;
+	readonly viewerTimeZone?: string;
+}): Promise<BuiltSubmissionOperations> {
+	const receiptIdentity = buildSubmissionReceiptIdentity(args);
+
+	const app = args.committedApp;
+	if (app.blueprint.forms[args.projection.formUuid as Uuid] === undefined) {
+		throw new CaptureSubmissionRejectedError(
+			"The submitted form no longer exists in the committed app.",
+		);
+	}
+	const built = buildCaseOperationProgramFromDoc({
+		blueprint: app.blueprint,
+		mutation: args.mutation,
+		projection: args.projection,
+		identity: args.identity,
+		...(args.viewerTimeZone !== undefined && {
+			viewerTimeZone: args.viewerTimeZone,
+		}),
+	});
+	const validated = args.projection;
+	const allowedAttachments = Object.values(app.blueprint.fields).flatMap(
+		(field) => {
+			if (!isCaptureFieldKind(field.kind)) return [];
+			const path = committedCapturePath(app.blueprint, field.uuid);
+			if (path === undefined || path.formUuid !== validated.formUuid) return [];
+			return [
+				{
+					fieldUuid: field.uuid,
+					instancePathTemplate: path.instancePathTemplate,
+					captureKind: field.kind,
+					acceptedFormats: CAPTURE_EXTENSIONS_BY_KIND[field.kind].map(
+						(extension) => ({
+							extension,
+							contentType: captureContentType(extension),
+						}),
+					),
+				},
+			];
+		},
+	);
+	// An empty projection from a capture-capable form still participates in
+	// the entry-key replay protocol. Otherwise a retry after a committed
+	// nonempty submission could bypass its receipt and repeat case effects.
+	if (
+		validated.attachmentRefs.length === 0 &&
+		allowedAttachments.length === 0
+	) {
+		return {
+			...built,
+			submissionReceipt: {
+				...receiptIdentity,
+				expectedAppMutationSeq: app.mutation_seq,
+			},
+		};
+	}
+	const captureIntentWithoutDigest = {
+		entryKey: validated.entryKey,
+		formUuid: validated.formUuid,
+		expectedAppMutationSeq: app.mutation_seq,
+		requestDigest: receiptIdentity.requestDigest,
+		attachments: validated.attachmentRefs,
+		allowedAttachments,
+	};
+	return {
+		...built,
+		submissionReceipt: {
+			...receiptIdentity,
+			expectedAppMutationSeq: app.mutation_seq,
+		},
+		captureIntent: {
+			...captureIntentWithoutDigest,
+		},
+	};
+}
+
+/**
+ * The pure half: derive the program from ONE committed blueprint. The
+ * I/O wrapper above owns the doc load; acceptance tests drive this
+ * directly against the storage executor.
  */
 export function buildCaseOperationProgramFromDoc(args: {
 	readonly blueprint: PersistableDoc;
 	readonly mutation: SubmissionMutation;
+	readonly projection: CaptureSubmissionProjection;
 	readonly identity: ResolvedPreviewIdentity;
 	readonly viewerTimeZone?: string;
 }): BuiltSubmissionOperations {
 	const { mutation } = args;
-	const formUuid = mutation.formUuid as Uuid | undefined;
-	if (formUuid === undefined) return {};
+	const formUuid = args.projection.formUuid as Uuid;
 	const blueprint = args.blueprint;
 	const doc = asWalkableDoc(blueprint);
 	const form = doc.forms[formUuid];
-	if (form === undefined) return {};
+	if (form === undefined) {
+		throw new CaptureSubmissionRejectedError(
+			"The submitted form no longer exists in the committed app.",
+		);
+	}
 	const operations = orderedCaseOperations(form);
 	if (operations.length === 0) return {};
-	/* Operations present but NO collected answers: the client's doc
-	 * snapshot predates a co-editor's operation add (a synced client
-	 * whose form holds operations always sends the bags). Running the
-	 * program with empty bindings would blank-write every field term —
-	 * key-absent projection REMOVES stored properties on update — so
-	 * this skew submits ordinary-only, the same fallback the
-	 * identity-less arm takes. */
-	if (mutation.operationAnswers === undefined) return {};
+	/* Operations present but NO collected answers means the client's doc
+	 * snapshot predates a co-editor's operation add. Running with empty
+	 * bindings would blank-write fields, while silently submitting the
+	 * ordinary arm would skip committed behavior. Reject the whole
+	 * submission and let the refreshed client retry the final protocol. */
+	if (mutation.operationAnswers === undefined) {
+		throw new CaptureSubmissionRejectedError(
+			"The submitted form is missing answers required by its committed case operations.",
+		);
+	}
 
 	const guards = caseOperationConditionalGuardUuids(doc, formUuid, operations);
 	const snapshotTypes = caseOperationExpressionSnapshotTypes(
@@ -1040,8 +1224,24 @@ export function submissionEnvelopeArgs(
 	appId: string,
 	built?: BuiltSubmissionOperations,
 ): ApplySubmissionArgs {
+	if (built?.submissionReceipt === undefined) {
+		throw new Error(
+			compilerBugMessage({
+				where: "preview.caseDataBindingHelpers.submissionEnvelopeArgs",
+				invariant:
+					"an atomic submission envelope was built without its durable receipt claim",
+				detail:
+					"Every form entry, including a text-only survey, must be derived through `buildSubmissionOperationProgram` before it reaches the case store.",
+			}),
+		);
+	}
 	const operations =
 		built?.program === undefined ? {} : { operations: built.program };
+	const captureIntent =
+		built?.captureIntent === undefined
+			? {}
+			: { captureIntent: built.captureIntent };
+	const submissionReceipt = { submissionReceipt: built.submissionReceipt };
 	switch (mutation.kind) {
 		case "registration":
 			return {
@@ -1052,6 +1252,8 @@ export function submissionEnvelopeArgs(
 					children: mutation.children,
 				},
 				...operations,
+				...submissionReceipt,
+				...captureIntent,
 			};
 		case "followup":
 		case "close":
@@ -1067,9 +1269,17 @@ export function submissionEnvelopeArgs(
 					children: mutation.children,
 				},
 				...operations,
+				...submissionReceipt,
+				...captureIntent,
 			};
 		case "survey":
-			return { appId, ordinary: { kind: "none" }, ...operations };
+			return {
+				appId,
+				ordinary: { kind: "none" },
+				...operations,
+				...submissionReceipt,
+				...captureIntent,
+			};
 		default: {
 			const _exhaustive: never = mutation;
 			throw new Error(
@@ -1228,7 +1438,7 @@ export type AuthorizedPreviewContext =
 			blueprint?: PersistableDoc;
 	  };
 
-const PERSONA_UNAVAILABLE_MESSAGE =
+export const PERSONA_UNAVAILABLE_MESSAGE =
 	"The selected preview persona is no longer available. Choose another worker and try again.";
 
 export async function resolveAuthorizedPreviewContext(args: {

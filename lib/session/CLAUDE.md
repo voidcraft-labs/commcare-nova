@@ -49,10 +49,14 @@ hooks only, and `BlueprintEditableBridge` projects the live `canEdit` into the
 doc mutation choke point.
 
 `resetProjectScope()` is the synchronous session-owned half of that boundary.
-It aborts every staged upload, clears staged/observed asset metadata, drops the
-selected preview case, and retires the full run-event payload plus its lifecycle
-timestamps before the destination GET starts. Chat owns the matching transport
-stop and closes any open document run bracket. Authoring state and the unsent
+It aborts every staged media upload, clears staged/observed asset metadata, and
+retires the full run-event payload plus its lifecycle timestamps before the
+destination GET starts. It does **not** discard the active Preview case,
+persona, form answers, or form entry while the Project outcome is unknown. An
+authorized snapshot for the same Project preserves them; a snapshot confirming
+a different Project clears the case/persona binding atomically, and the preview
+controller retires the old form entry. Chat owns the matching transport stop
+and closes any open document run bracket. Authoring state and the unsent
 composer draft are deliberately retained.
 
 **Generation stages are cumulative milestones, not the latest tool label.** The live model is `Foundation → Build`: `updateApp` and the optional `generateSchema` establish the foundation; atomic module/form tools establish Build. A later schema enrichment cannot undo already-committed content, so `deriveAgentStage` folds the whole event prefix into those facts instead of reading the last recognized tag or clamping against hidden state. Historical `schema` / `scaffold` / `fix:*` tags are projected into the current model at read time; stage values themselves are ephemeral and are not stored beside the event log, so this model needs no data migration.

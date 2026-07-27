@@ -17,7 +17,34 @@ External consumers import from the `@/lib/case-store` barrel: the `CaseStore` / 
 
 ## The atomic submission envelope — `applySubmission`
 
-`CaseStore.applySubmission` applies one whole form submission — the ordinary form action (registration primary+children, followup update+children, close including final writes) plus the advanced case-operation program — in ONE transaction under the standard lock order (authorize → relationship advisory → schema locks sorted up front; a followup/close bound case's type is discovered inside the update core, the same pattern `update` uses). The executor (`postgres/submissionEnvelope.ts`) mirrors the XForm emission in `lib/commcare/xform/caseOps.ts` phase for phase: expand the authored `(order, uuid)` sequence over the physical multiplicity scopes (root first, then repeats iteration-major — the caller supplies per-iteration form-answer bindings plus the doc-level analysis from `lib/doc/caseOperationOrder.ts`, since the blueprint never crosses this boundary); allocate every create identity in TypeScript before any evaluation (generated ids mint `uuidv7()`; authored keys run the shared `deriveAuthoredCaseId` and abort on blank/over-205 keys BEFORE any DML — the pinned TS↔XPath identity vector runs against this executor); evaluate every condition, value, and runtime target through the AST→Kysely compiler anchored on the loaded session case (the advisory lock plus evaluate-before-effects gives every expression the same pre-submission snapshot the device's calculates see; `TermBindings.actingUserId` is populated from the store's bound actor, never the client); resolve and reauthorize targets (`session` = the loaded case, `op` = the transaction's allocation record, `expression` = tenant-bound load + `validateCaseOperationTargetDescriptor` against the immutable snapshot type, with expression targets inheriting the running app's hold exclusion); then run `validateResolvedCaseOperationTypeSequence` over the whole server-resolved sequence — including the ordinary action as a final implicit type consumer when it is type-sensitive — before the first write. Effects apply in physical order (per operation: create → property writes → rename/retype → close → links; the ordinary action last, matching the wire where advanced blocks precede the ordinary `FormActions` block). Every evaluated create-name, rename, explicit owner, and default owner passes through `prepareCaseOperationTextValue`; only the normalized value is stored and the envelope aborts on `blank`/`too-long`. Retype executes ONLY the wirePortable subset, applied with the operation's writes and rename as ONE unit — the wire emits them in a single `<update>` block, so writes are typed against the DESTINATION declaration and the case ends as the destination type carrying them; a retained document (properties minus source-schema orphans, the same proof the update merge sheds by) the destination schema cannot hold rejects the envelope — never a conversion/parking plan. Link CRUD is identifier-keyed (delete-then-insert; null target removes) and persists the AUTHORED `child`/`extension` relationship; a `parent` identifier also maintains the denormalized `parent_case_id`. A duplicate authored id merges create-of-existing style — onto a prior submission's row or onto a row this same envelope created. Multi-select answers serialize to JSONB arrays explicitly, and a BLANK-evaluated write (SQL NULL, `''`, an empty selection) projects to key-absent — omitted on create, REMOVED from the stored document on update — because the wire's `''` write has no representable typed-storage form and Nova's two-state collapse reads absent as blank (`storageValueFromEvaluation`). A link-only operation still advances `modified_on`, the wire's per-block `@date_modified` stamp. Any failure rolls the entire submission back with a typed error: `SubmissionRejectedError` (a discriminated `rejection` union: authored-key, text-value, target, sequence, retype-not-portable) for operation-contract rejections, the standard typed errors otherwise — partial success is unobservable. The production supplier is `lib/preview`'s `buildCaseOperationProgramFromDoc` (one already-authorized committed-doc snapshot + the engine's collected per-scope answers); the program is exercised by `postgres/__tests__/submissionEnvelope.test.ts` and end-to-end by the preview acceptance suite.
+Every `applySubmission` transaction first claims the
+`(app, Project, actor, entry_key)` idempotency row under the entry advisory
+lock, independently of attachment presence. A new claim checks the committed
+app sequence before any case effect; a matching completed claim returns its
+stored result before that fresh-claim fence or current topology, while a
+different form/digest rejects. The receipt is completed in the same transaction
+as the ordinary and advanced effects. A case failure therefore rolls back the
+uncompleted claim and every case write; two concurrent first requests serialize,
+and only one can allocate generated case identities.
+
+When the server also supplies a capture intent, it first runs the DB-first
+pre-acceptance durability seam in `submissionAttachments.ts`: under the entry
+lock, exact selected `staged` rows become `preparing` before any external copy.
+A bounded worker copies each immutable generation to its deterministic
+create-only durable key, verifies size/CRC32C/type/generation, and records
+`prepared`. The scheduled five-minute worker leases the same recovery rows, so
+a request crash after copy but before row update is exhaustively rediscoverable
+by deterministic destination verification. The later mandatory receipt
+transaction re-proves exact structured attachment references and atomically
+moves those `prepared` rows to `submitted` beside the receipt and case effects.
+Before acceptance, each row's immutable filename/extension/content type is
+re-proved against the capture kind and accepted-format table in the committed
+snapshot, so a stable UUID/path cannot carry image bytes after a peer changes
+the field to audio. There is no post-commit GCS await: accepted case effects
+categorically point at a verified durable generation outside the staging
+lifecycle prefix.
+
+`CaseStore.applySubmission` applies one whole form submission — the ordinary form action (registration primary+children, followup update+children, close including final writes) plus the advanced case-operation program — in ONE transaction under the standard lock order (authorize → relationship advisory → schema locks sorted up front; a followup/close bound case's type is discovered inside the update core, the same pattern `update` uses). The executor (`postgres/submissionEnvelope.ts`) mirrors the XForm emission in `lib/commcare/xform/caseOps.ts` phase for phase: expand the authored `(order, uuid)` sequence over the physical multiplicity scopes (root first, then repeats iteration-major — the caller supplies per-iteration form-answer bindings plus the doc-level analysis from `lib/doc/caseOperationOrder.ts`, since the blueprint never crosses this boundary); allocate every create identity in TypeScript before any evaluation (generated ids mint `uuidv7()`; authored keys run the shared `deriveAuthoredCaseId` and abort on blank/over-205 keys BEFORE any DML — the pinned TS↔XPath identity vector runs against this executor); evaluate every condition, value, and runtime target through the AST→Kysely compiler anchored on the loaded session case (the advisory lock plus evaluate-before-effects gives every expression the same pre-submission snapshot the device's calculates see; `TermBindings.actingUserId` is populated from the store's bound actor, never the client); resolve and reauthorize targets (`session` = the loaded case, `op` = the transaction's allocation record, `expression` = tenant-bound load + `validateCaseOperationTargetDescriptor` against the immutable snapshot type, with expression targets inheriting the running app's hold exclusion); then run `validateResolvedCaseOperationTypeSequence` over the whole server-resolved sequence — including the ordinary action as a final implicit type consumer when it is type-sensitive — before the first write. Effects apply in physical order (per operation: create → property writes → rename/retype → close → links; the ordinary action last, matching the wire where advanced blocks precede the ordinary `FormActions` block). Every evaluated create-name, rename, explicit owner, and default owner passes through `prepareCaseOperationTextValue`; only the normalized value is stored and the envelope aborts on `blank`/`too-long`. Retype executes ONLY the wirePortable subset, applied with the operation's writes and rename as ONE unit — the wire emits them in a single `<update>` block, so writes are typed against the DESTINATION declaration and the case ends as the destination type carrying them; a retained document (properties minus source-schema orphans, the same proof the update merge sheds by) the destination schema cannot hold rejects the envelope — never a conversion/parking plan. Link CRUD is identifier-keyed (delete-then-insert; null target removes) and persists the AUTHORED `child`/`extension` relationship; a `parent` identifier also maintains the denormalized `parent_case_id`. A duplicate authored id merges create-of-existing style — onto a prior submission's row or onto a row this same envelope created. Multi-select answers serialize to JSONB arrays explicitly, and a BLANK-evaluated write (SQL NULL, `''`, an empty selection) projects to key-absent — omitted on create, REMOVED from the stored document on update — because the wire's `''` write has no representable typed-storage form and Nova's two-state collapse reads absent as blank (`storageValueFromEvaluation`). A link-only operation still advances `modified_on`, the wire's per-block `@date_modified` stamp. Any failure rolls the entire submission back with a typed error: `SubmissionRejectedError` (a discriminated `rejection` union: authored-key, text-value, target, sequence, retype-not-portable) for operation-contract rejections, the standard typed errors otherwise — partial success is unobservable. The production supplier is `lib/preview`'s `buildSubmissionOperationProgram` (one authorized committed-doc snapshot, capture authority, durable receipt identity, and the engine's collected per-scope answers); the program is exercised by `postgres/__tests__/submissionEnvelope.test.ts` and end-to-end by the preview acceptance suite.
 
 Retype planning lives in `lib/domain/caseRetype.ts::planCaseRetype`. Its richer storage plan describes exact retained JSON properties, casts, parking, and missing requirements; scalar row metadata such as `case_name` is excluded because it survives independently of the JSON schema. Its `safe` verdict means Nova can execute that plan atomically, while `wirePortable` is deliberately stricter: no conversion and no parking. S04 admits authored operations only under `wirePortable`, because CommCare's case XML retype changes `case_type` without casting or removing old property values. S06/S07 may activate that exact-schema subset in the authoritative submission transaction. They must not activate conversion/parking retypes until a future shared wire representation can make the device and Nova projection agree; if that representation lands, execute the complete plan as one transaction and surface parked values through Data to review. Never implement a richer retype as a bare `case_type` update around the schema store.
 
@@ -523,7 +550,9 @@ pinned postgis image the test harness uses) and applies the migrations
 `pg.Pool` against it instead of the Cloud SQL connector — an EXPLICIT
 opt-in, not a `NODE_ENV` fallback, so a production misconfig still
 hits the connector's loud `NOVA_DB_*` validation instead of silently
-falling back to localhost.
+falling back to localhost. Local app processes may omit
+`NOVA_DB_WORKLOAD` and default to `service`; `npm run db:migrate`
+declares `migration` explicitly.
 
 The read-only inspect scripts (`scripts/inspect-*.ts`) take `--prod`,
 which points this same connection layer at the production instance
@@ -531,15 +560,48 @@ over its PUBLIC IP (`NOVA_DB_IP_TYPE=PUBLIC`) authenticating as YOUR
 gcloud identity via IAM — per-developer prerequisites in
 `scripts/lib/prodDb.ts`. The instance has no authorized networks, so
 the connector's IAM-authenticated path is the only way in; Cloud Run
-keeps riding the private IP (it never sets `NOVA_DB_IP_TYPE`).
+keeps riding the private IP (it never sets `NOVA_DB_IP_TYPE`). That
+central `--prod` helper authoritatively declares the `operator`
+workload, whose pool max is one of the two residual ordinary-login
+connections.
+
+Every non-local process must declare its pool workload exactly:
+`service` = 3 pooled connections, `migration` = 1,
+`capture-cleanup` = 2, and `operator` = 1 ordinary connection. The
+serving process also owns one dedicated LISTEN connection outside its
+pool. PostgreSQL's direct-login `CONNECTION LIMIT` is the hard,
+cluster-wide boundary: runtime = 16, migration = 1, and cleanup = 3.
+Role attributes are not inherited, so migration and cleanup sessions count
+against their own login roles. Migration inherits runtime's table privileges;
+cleanup has no application-role parent and receives only public-schema `USAGE`
+plus `SELECT`/`UPDATE`/`DELETE` on `form_attachments`. Those caps total 20
+against `max_connections=25`; two more slots remain for ordinary/operator
+logins, while the final three are protected by
+`superuser_reserved_connections=3` for true superusers
+(`reserved_connections=0`).
+
+Cloud Run's service/revision maximum of four is a soft outer control; it keeps
+ordinary demand aligned at `4 * (pool 3 + listener 1) = 16`, but PostgreSQL
+admission is what prevents a transient platform overrun from consuming the
+maintenance/headroom allocations. Those final role limits and the `pgaudit`
+extension are established by the separately invoked privileged bootstrap, not
+by runtime or deploy-time compatibility machinery.
+Cloud SQL flag provisioning is also exact because its patch API replaces the
+whole set: `cloudsql.enable_pgaudit=on`, `cloudsql.iam_authentication=on`,
+`max_connections=25`, and `pgaudit.log=all`. Audit flags are part of the same
+durable contract as authentication/capacity, not unrelated settings a
+convergence patch may drop.
+Unknown or absent production workloads fail before connecting.
 
 Data lives in the persistent `nova-cases-data` Docker volume
 (`npm run db:dev:down` stops the container; `docker compose down -v`
-wipes it). The
-three required extensions (`pg_trgm` / `fuzzystrmatch` / `postgis`)
-install once on first boot via `dev/init-extensions.sql`, mirroring
-the prod / harness superuser split (the migrate runner connects as a
-non-superuser and can't `CREATE EXTENSION`).
+wipes it). The three compiler extensions (`pg_trgm` / `fuzzystrmatch` /
+`postgis`) install once on first boot via `dev/init-extensions.sql`, mirroring
+the prod / harness privilege split (the migrate runner connects as a
+non-superuser and cannot `CREATE EXTENSION`). Production additionally requires
+the operational `pgaudit` extension. The pinned local/test image has no pgAudit
+package, so local configs deliberately omit that production-only extension
+while exercising the same compiler dependencies.
 
 ## Migrations
 
@@ -650,17 +712,26 @@ override under a dedicated migration identity on the service's network. It calls
 `getCaseStoreDatabase()`, so it connects through the SAME
 `@google-cloud/cloud-sql-connector` + IAM path the runtime uses. Its connector
 env wires `NOVA_DB_USER` / `NOVA_DB_INSTANCE_CONNECTION_NAME` /
-`NOVA_DB_NAME`; privilege convergence additionally requires exactly
-`NOVA_MIGRATION_DB_USER` and `NOVA_RUNTIME_DB_USER`.
+`NOVA_DB_NAME` plus `NOVA_DB_WORKLOAD=migration`. Privilege convergence
+requires the migration and runtime role identities after migrations.
 
-The one-time bootstrap happens outside Nova: create both non-administrative
-database roles, make migration a member of runtime (never the reverse), and
-make the migration identity owner of the database before running this
-entrypoint. `public` remains owned by PostgreSQL's `pg_database_owner`, whose
-current member is the database owner, so migration is its effective owner
-without replacing that built-in role. Existing legacy objects must also be
-maintainable by migration; the one-way runtime membership covers the
-runtime-owned tables. Convergence deliberately does not create roles or
+The one-time bootstrap happens outside Nova: create runtime, migration, and
+capture-cleanup as non-superuser direct LOGIN roles; make only migration a
+member of runtime (never the reverse); leave cleanup without an application
+parent; apply their exact CONNECTION LIMIT 16/1/3; install all required
+extensions in `public`; and make migration the database owner before running
+this entrypoint. Required extensions may be owned only by migration or Cloud
+SQL's managed `postgres` role. Existing provider-installed extensions remain
+`postgres`-owned because PostgreSQL exposes no extension-owner transfer and a
+blanket `REASSIGN OWNED BY postgres` would seize unrelated managed objects.
+`public` remains owned by PostgreSQL's `pg_database_owner`, whose current
+member is the database owner, so migration is its effective owner without
+replacing that built-in role. The one-way runtime membership lets migration
+maintain runtime-owned tables.
+Convergence directly grants cleanup only public-schema `USAGE` plus
+`SELECT`/`UPDATE`/`DELETE` on `form_attachments`, and audits that it cannot
+insert/administer attachment rows or access other managed tables or the case
+schema. Convergence deliberately does not create roles, alter role limits, or
 transfer the database ownership it needs to authorize its own `REVOKE`,
 `GRANT`, and ownership changes.
 
@@ -711,18 +782,25 @@ The case-store's compiler stack depends on three extensions:
 - `postgis` — `match(mode: within-distance)` (`ST_GeogFromText`
   + `ST_DWithin`).
 
-All three are installed at provisioning time on the live Cloud
-SQL instance; the testcontainers harness installs the same set via
-its container's superuser before the migrations run. There is no
-runtime verification gate — missing extensions surface as `function
-does not exist` failures at the first compiler-emitted query against
-them.
+Production also requires `pgaudit`, because the Cloud SQL flags enable full
+audit logging only when the extension is installed in the database. The
+privileged owner bootstrap creates any missing extension, transfers
+non-permanent ownership, and inventories each required extension's owner,
+version, `public` schema, configuration relations, and dependency catalogs.
+Its permanent audit accepts only Cloud SQL's managed `postgres` or migration
+as owner.
+
+The testcontainers harness installs the three compiler extensions via its
+container superuser before migrations run. Its pinned PostGIS image does not
+package pgAudit, so harness bootstrap configs intentionally omit that
+production operational extension.
 
 `CREATE EXTENSION` requires `cloudsqlsuperuser` on production, and the
-IAM-authenticated migration identity is intentionally non-administrative. So
-extensions install once at provisioning time under the `postgres` superuser,
-and schema migrations apply per deploy under the migration identity. The
-testcontainer harness mirrors the same split.
+IAM-authenticated migration identity is intentionally non-administrative. The
+temporary built-in bootstrap administrator therefore installs the extensions
+in the same transaction that transfers all temporary-owned objects to
+migration; pre-existing Cloud SQL-managed extensions stay `postgres`-owned,
+and schema migrations then apply per deploy under the migration identity.
 
 ## Testcontainers harness
 

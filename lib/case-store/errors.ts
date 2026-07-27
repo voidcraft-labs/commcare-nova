@@ -298,6 +298,11 @@ export class SchemaChangePhaseBError extends Error {
 	}
 }
 
+/** Expected atomic rejection from the form-entry/capture admission gate. */
+export class CaptureSubmissionRejectedError extends Error {
+	readonly name = "CaptureSubmissionRejectedError";
+}
+
 /**
  * Why the submission envelope refused an advanced case operation. Every
  * arm is a pre-DML rejection: the transaction rolls back whole, so no

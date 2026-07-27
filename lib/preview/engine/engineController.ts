@@ -26,15 +26,17 @@
  * - **Field kind change (retype)** → drop the stale value, re-init the field
  * - **Expression field** → rebuild DAG, re-evaluate that field + cascade
  * - **Label/hint with hashtag refs** → re-evaluate resolved labels only
- * - **Field ID rename** → update paths, rebuild DAG, re-evaluate dependents
+ * - **Field ID rename** → already handled by the preceding batch-topology pass
  * - **Default value** → re-evaluate default + cascade
  *
- * ## Fully incremental
+ * ## Incremental, with one atomic topology boundary
  *
- * There is no "rebuild everything" path. Every operation — including
- * adding/removing fields and metadata changes — is targeted. Only the
- * affected fields' states change. Existing fields keep their original
- * object references in the runtime store. No diffing needed.
+ * Ordinary field edits remain targeted. A committed batch that changes
+ * authored paths is the exception: one whole-document subscription compares
+ * the complete pre/post UUID→path projections and moves every retained value
+ * in one atomic engine call before the per-field callbacks run. That boundary
+ * is what makes two independent renames and cross-parent subtree moves safe;
+ * processing either field against a half-updated path map loses the other.
  *
  * ## Domain types
  *
@@ -46,7 +48,13 @@ import { shallow } from "zustand/shallow";
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { BlueprintDocStore } from "@/lib/doc/provider";
 import type { BlueprintDocState } from "@/lib/doc/store";
-import type { CaseType, Field, Form, Uuid } from "@/lib/domain";
+import {
+	type CaseType,
+	type Field,
+	type Form,
+	isCaptureFieldKind,
+	type Uuid,
+} from "@/lib/domain";
 import { compilerBugMessage } from "@/lib/domain/predicate/errors";
 import type { SubmissionMutation } from "./caseDataBindingTypes";
 import type { FieldTreeNode } from "./fieldTree";
@@ -55,6 +63,7 @@ import {
 	type CaseDataByType,
 	FormEngine,
 	type FormEngineInput,
+	type InvalidFieldTarget,
 } from "./formEngine";
 import { type ResolvedPreviewIdentity, samePreviewIdentity } from "./identity";
 import type { PreviewLookupData } from "./lookupEvaluation";
@@ -68,6 +77,58 @@ export type RuntimeState = FieldState;
 
 /** The Zustand store shape — flat map of UUID → RuntimeState. */
 export type RuntimeStoreState = Record<string, RuntimeState>;
+
+/** Reactive form-entry identity. Unlike `entryKey`'s imperative getter, this
+ * store notifies FormScreen when a materially changed worker rotates the
+ * controller without first causing a parent React render. */
+export interface EngineEntryState {
+	readonly entryKey: string | undefined;
+	readonly formUuid: Uuid | undefined;
+	readonly revision: number;
+}
+
+export interface RepeatCompactionEvent {
+	readonly entryKey: string;
+	readonly removedPrefix: string;
+	readonly moves: ReadonlyArray<{
+		readonly fromPrefix: string;
+		readonly toPrefix: string;
+	}>;
+}
+
+export interface AuthoredCapturePathMigrationEvent {
+	readonly entryKey: string;
+	readonly moves: ReadonlyArray<
+		| {
+				readonly kind: "retained";
+				readonly fieldUuid: string;
+				readonly previous: {
+					readonly pathTemplate: string;
+					readonly segmentKeys: readonly string[];
+					readonly captureKind?: string;
+				};
+				/**
+				 * A retained non-capture field still carries its post-change path
+				 * projection with `captureKind` omitted. The explicit variant keeps
+				 * a malformed missing `current` from being mistaken for deletion.
+				 */
+				readonly current: {
+					readonly pathTemplate: string;
+					readonly segmentKeys: readonly string[];
+					readonly captureKind?: string;
+				};
+		  }
+		| {
+				readonly kind: "deleted";
+				readonly fieldUuid: string;
+				readonly previous: {
+					readonly pathTemplate: string;
+					readonly segmentKeys: readonly string[];
+					readonly captureKind: string;
+				};
+		  }
+	>;
+}
 
 /** Stable fallback for UUIDs that don't exist. Frozen so Zustand selectors
  *  always return the same reference — no spurious re-renders. */
@@ -145,23 +206,34 @@ function findModuleForForm(
 function buildPathMaps(
 	tree: FieldTreeNode[],
 	prefix = "/data",
-): { uuidToPath: Map<string, string>; pathToUuid: Map<string, string> } {
+): {
+	uuidToPath: Map<string, string>;
+	pathToUuid: Map<string, string>;
+	uuidToSegmentKeys: Map<string, readonly string[]>;
+} {
 	const uuidToPath = new Map<string, string>();
 	const pathToUuid = new Map<string, string>();
-	function walk(nodes: FieldTreeNode[], pfx: string) {
+	const uuidToSegmentKeys = new Map<string, readonly string[]>();
+	function walk(
+		nodes: FieldTreeNode[],
+		pfx: string,
+		ancestorUuids: readonly string[],
+	) {
 		for (const node of nodes) {
 			const f = node.field;
 			const path = `${pfx}/${f.id}`;
 			uuidToPath.set(f.uuid, path);
 			pathToUuid.set(path, f.uuid);
+			const segmentKeys = ["$data", ...ancestorUuids, f.uuid];
+			uuidToSegmentKeys.set(f.uuid, segmentKeys);
 			if (node.children) {
 				const childPrefix = f.kind === "repeat" ? `${path}[0]` : path;
-				walk(node.children, childPrefix);
+				walk(node.children, childPrefix, [...ancestorUuids, f.uuid]);
 			}
 		}
 	}
-	walk(tree, prefix);
-	return { uuidToPath, pathToUuid };
+	walk(tree, prefix, []);
+	return { uuidToPath, pathToUuid, uuidToSegmentKeys };
 }
 
 /** Recursively collect all field UUIDs belonging to a form. */
@@ -275,6 +347,8 @@ export class EngineController {
 	/** UUID-keyed Zustand runtime store. Components subscribe via
 	 *  `useStore(controller.store, s => s[uuid])`. */
 	readonly store: StoreApi<RuntimeStoreState>;
+	/** Form-level lifecycle store; updated only when entry identity changes. */
+	readonly entryStore: StoreApi<EngineEntryState>;
 
 	/** The computation engine — DataInstance, TriggerDag, expression evaluation. */
 	private engine: FormEngine | undefined;
@@ -289,6 +363,42 @@ export class EngineController {
 	 *  the owning module + form state from the latest doc snapshot. */
 	private activeFormUuid: Uuid | undefined;
 	private activeCaseData: CaseDataByType | undefined;
+
+	/**
+	 * Identifies THIS form entry to the attachment lane.
+	 *
+	 * One activation is one entry, so the key is minted in `activateForm`
+	 * and dropped in `deactivate`. It is preserved across same-entry engine
+	 * rebuilds and is the exact idempotency/reservation scope the atomic
+	 * submission intent claims.
+	 *
+	 * The lifecycle below is load-bearing and worth being explicit about,
+	 * because a future change to it silently changes the attachment
+	 * contract. **This controller does not resume a form.** `activateForm`
+	 * begins by calling `deactivate`, which resets the whole runtime store,
+	 * and nothing persists answers to storage — so leaving a form and
+	 * returning starts a new entry with a new key. The preview owner
+	 * best-effort deletes the previous entry's staged attachments at that
+	 * boundary; the scheduled row sweep and staging TTL collect anything a
+	 * dropped request leaves behind.
+	 *
+	 * If preview ever gains resume, it must carry the entry key forward
+	 * with the answers or every resumed attachment is orphaned. Resume is
+	 * also the point at which a signature question first becomes able to
+	 * hold an answer it cannot draw: the real runtime shows a blank pad
+	 * over a live signature (`entries.js::SignatureEntry`'s `afterRender`
+	 * sets `signatureData = null` and reads nothing back), so the faithful
+	 * behavior then is to leave the pad blank — not to helpfully restore
+	 * it. Today no such state exists, which is why nothing here simulates
+	 * one.
+	 */
+	private currentEntryKey: string | undefined;
+	private repeatCompactionListeners = new Set<
+		(event: RepeatCompactionEvent) => void
+	>();
+	private authoredCapturePathMigrationListeners = new Set<
+		(event: AuthoredCapturePathMigrationEvent) => void
+	>();
 
 	/** Field UUIDs with active per-field subscriptions. */
 	private trackedUuids = new Set<string>();
@@ -319,6 +429,57 @@ export class EngineController {
 
 	constructor() {
 		this.store = createStore<RuntimeStoreState>(() => ({}));
+		this.entryStore = createStore<EngineEntryState>(() => ({
+			entryKey: undefined,
+			formUuid: undefined,
+			revision: 0,
+		}));
+	}
+
+	private publishEntryState(): void {
+		const current = this.entryStore.getState();
+		if (
+			current.entryKey === this.currentEntryKey &&
+			current.formUuid === this.activeFormUuid
+		) {
+			return;
+		}
+		this.entryStore.setState(
+			{
+				entryKey: this.currentEntryKey,
+				formUuid: this.activeFormUuid,
+				revision: current.revision + 1,
+			},
+			true,
+		);
+	}
+
+	/** Form-level repeat ownership subscriber. The engine stays UI-agnostic;
+	 * FormScreen binds this event to the attachment coordinator. */
+	subscribeRepeatCompaction(
+		listener: (event: RepeatCompactionEvent) => void,
+	): () => void {
+		this.repeatCompactionListeners.add(listener);
+		return () => this.repeatCompactionListeners.delete(listener);
+	}
+
+	/** Form-level authored-path ownership subscriber. Stable field UUIDs make
+	 * this independent of which capture controls are currently mounted. */
+	subscribeAuthoredCapturePathMigration(
+		listener: (event: AuthoredCapturePathMigrationEvent) => void,
+	): () => void {
+		this.authoredCapturePathMigrationListeners.add(listener);
+		return () => this.authoredCapturePathMigrationListeners.delete(listener);
+	}
+
+	private publishAuthoredCapturePathMigration(
+		moves: AuthoredCapturePathMigrationEvent["moves"],
+	): void {
+		if (this.currentEntryKey === undefined || moves.length === 0) return;
+		const event = { entryKey: this.currentEntryKey, moves };
+		for (const listener of this.authoredCapturePathMigrationListeners) {
+			listener(event);
+		}
 	}
 
 	/** Connect to the doc store. Called by SyncBridge when the provider mounts. */
@@ -348,17 +509,17 @@ export class EngineController {
 			this.previewIdentity = identity;
 			return;
 		}
-		const restoreSnapshot =
-			this.previewIdentity === null && identity !== null
-				? this.engine?.getValueSnapshot()
-				: undefined;
+		const coldIdentityArrival =
+			this.previewIdentity === null && identity !== null;
 		this.previewIdentity = identity;
 		const formUuid = this.activeFormUuid;
 		if (formUuid !== undefined) {
-			this.activateForm(formUuid, this.activeCaseData);
-			if (restoreSnapshot !== undefined && this.engine !== undefined) {
-				this.engine.restoreValues(restoreSnapshot);
-				this.syncAllToStore();
+			if (coldIdentityArrival) {
+				this.rebuildActiveForm(formUuid, this.activeCaseData);
+			} else {
+				// A different concrete worker (or sign-out) is a new answer world,
+				// not a same-entry rebuild. Rotate the capture namespace with it.
+				this.activateForm(formUuid, this.activeCaseData);
 			}
 		}
 	}
@@ -388,12 +549,7 @@ export class EngineController {
 		 * stability); touched values restore through the shared snapshot
 		 * contract. */
 		if (this.engine.lookupDataCoversForm()) return;
-		const restoreSnapshot = this.engine.getValueSnapshot();
-		this.activateForm(formUuid, this.activeCaseData);
-		if (this.engine !== undefined) {
-			this.engine.restoreValues(restoreSnapshot);
-			this.syncAllToStore();
-		}
+		this.rebuildActiveForm(formUuid, this.activeCaseData);
 	}
 
 	// ── Lifecycle ────────────────────────────────────────────────────
@@ -407,25 +563,81 @@ export class EngineController {
 	 * thread positional indices through React state.
 	 */
 	activateForm(formUuid: Uuid, caseData?: CaseDataByType): void {
-		this.deactivate();
-		if (this.previewIdentityBlocked) return;
-		if (!this.docStore) return;
+		if (this.previewIdentityBlocked) {
+			this.deactivate();
+			return;
+		}
+		this.mountForm(formUuid, caseData, crypto.randomUUID());
+	}
+
+	/**
+	 * Rebuild the same live entry after cold identity/lookup/case context arrives.
+	 * The answer world may be reconstructed, but the upload namespace must not
+	 * rotate underneath already staged captures.
+	 */
+	rebuildActiveForm(formUuid: Uuid, caseData?: CaseDataByType): void {
+		const entryKey =
+			this.activeFormUuid === formUuid && this.currentEntryKey !== undefined
+				? this.currentEntryKey
+				: crypto.randomUUID();
+		const values = this.engine?.getValueSnapshot();
+		const repeatCounts = this.engine?.getRepeatCountSnapshot();
+		const repeatInstanceKeys = this.engine?.getRepeatInstanceKeySnapshot();
+		this.mountForm(formUuid, caseData, entryKey);
+		if (repeatCounts !== undefined) {
+			this.engine?.restoreRepeatCountSnapshot(repeatCounts);
+		}
+		if (repeatInstanceKeys !== undefined) {
+			this.engine?.restoreRepeatInstanceKeySnapshot(repeatInstanceKeys);
+		}
+		if (values !== undefined && this.engine !== undefined) {
+			this.engine.restoreValues(values);
+			this.syncAllToStore();
+		}
+	}
+
+	private mountForm(
+		formUuid: Uuid,
+		caseData: CaseDataByType | undefined,
+		entryKey: string,
+	): void {
+		this.clearActiveForm();
+		if (this.previewIdentityBlocked || !this.docStore) {
+			this.publishEntryState();
+			return;
+		}
 
 		const s = this.docStore.getState();
 		// Bail out silently if the form no longer exists — the hook uses an
 		// effect-based lifecycle so a transient "form deleted during
 		// re-render" window is normal; the next effect tick reactivates
 		// against the new active form.
-		if (!s.forms[formUuid]) return;
+		if (!s.forms[formUuid]) {
+			this.publishEntryState();
+			return;
+		}
 		const moduleUuid = findModuleForForm(s, formUuid);
-		if (!moduleUuid) return;
-
-		this.activeFormUuid = formUuid;
-		this.activeCaseData = caseData;
+		if (!moduleUuid) {
+			this.publishEntryState();
+			return;
+		}
 
 		/* Build the FormEngine input from the doc store */
 		const input = buildEngineInput(s, formUuid);
-		if (!input) return;
+		if (!input) {
+			this.publishEntryState();
+			return;
+		}
+
+		this.activeFormUuid = formUuid;
+		this.activeCaseData = caseData;
+		// The Web Crypto GLOBAL, not `node:crypto`. This controller runs in
+		// the browser, where importing `node:crypto` resolves to a shim whose
+		// `randomUUID` is undefined — so the import form throws here at
+		// runtime while typechecking and every node/jsdom test passes, both
+		// of which have a real `crypto`. `lib/doc/scaffolds.ts` mints uuids
+		// the same way for the same reason.
+		this.currentEntryKey = entryKey;
 
 		const mod = s.modules[moduleUuid];
 		this.engine = new FormEngine(
@@ -450,14 +662,15 @@ export class EngineController {
 			formUuid as string,
 			s.fieldOrder as unknown as Record<string, string[]>,
 		);
+		this.setupAuthoredPathTopologySubscription(formUuid);
 		this.setupPerFieldSubscriptions(uuids);
 		this.setupStructuralSubscription(formUuid);
 		this.setupMetadataSubscription();
 		this.setupUserPropertySubscription();
+		this.publishEntryState();
 	}
 
-	/** Clean up all subscriptions and reset state. */
-	deactivate(): void {
+	private clearActiveForm(): void {
 		for (const unsub of this.unsubscribers) unsub();
 		this.unsubscribers = [];
 		this.trackedUuids.clear();
@@ -466,7 +679,42 @@ export class EngineController {
 		this.pathToUuid.clear();
 		this.activeFormUuid = undefined;
 		this.activeCaseData = undefined;
+		this.currentEntryKey = undefined;
 		this.store.setState({}, true);
+	}
+
+	/** Clean up all subscriptions and reset state. */
+	deactivate(): void {
+		this.clearActiveForm();
+		this.publishEntryState();
+	}
+
+	/** This form entry's attachment scope, or `undefined` when no form is
+	 *  active. Capture widgets stage against it; submission reconciles it. */
+	get entryKey(): string | undefined {
+		return this.currentEntryKey;
+	}
+
+	/** The form identity paired with `entryKey`, for queued-mutation fencing. */
+	get formUuid(): Uuid | undefined {
+		return this.activeFormUuid;
+	}
+
+	/** Exact worker identity captured by the live engine entry. Attachment
+	 * continuations compare this imperative value after every await. */
+	get previewIdentitySnapshot(): ResolvedPreviewIdentity | null {
+		return this.previewIdentity;
+	}
+
+	/**
+	 * End the current answer world and synchronously mount a fresh entry for
+	 * the same form, case preload, lookup capture, and preview identity.
+	 */
+	restartActiveEntry(): string | undefined {
+		const formUuid = this.activeFormUuid;
+		if (formUuid === undefined) return undefined;
+		this.mountForm(formUuid, this.activeCaseData, crypto.randomUUID());
+		return this.currentEntryKey;
 	}
 
 	// ── Public actions (called by components) ────────────────────────
@@ -516,6 +764,24 @@ export class EngineController {
 		return result;
 	}
 
+	/** First invalid runtime question plus the collapsed ancestors that hide it. */
+	firstInvalidFieldTarget(): InvalidFieldTarget | undefined {
+		return this.engine?.firstInvalidFieldTarget();
+	}
+
+	/** Resolve a concrete question to the collapsed containers that hide it. */
+	fieldTarget(
+		instancePath: string,
+		fieldUuid?: string,
+	): InvalidFieldTarget | undefined {
+		return this.engine?.fieldTarget(instancePath, fieldUuid);
+	}
+
+	/** Submission-time disposition of one concrete capture path. */
+	attachmentPathDisposition(path: string): "active" | "dormant" | "removed" {
+		return this.engine?.attachmentPathDisposition(path) ?? "removed";
+	}
+
 	/** Full reset — reinitialize all runtime state. */
 	reset(): void {
 		if (!this.engine) return;
@@ -536,6 +802,13 @@ export class EngineController {
 		const path = this.uuidToPath.get(uuid);
 		if (!path) return 1;
 		return this.engine.getRepeatCount(path);
+	}
+
+	/** Stable render identity for a repeat instance even when indices compact. */
+	getRepeatInstanceKey(uuid: string, index: number, atPath?: string): string {
+		const path = atPath ?? this.uuidToPath.get(uuid);
+		if (!this.engine || !path) return `${uuid}:${index}`;
+		return this.engine.getRepeatInstanceKey(path, index);
 	}
 
 	/**
@@ -573,9 +846,28 @@ export class EngineController {
 		if (!this.isUserControlledRepeat(uuid)) return;
 		const path = atPath ?? this.uuidToPath.get(uuid);
 		if (!path) return;
+		const count = this.engine.getRepeatCount(path);
+		const entryKey = this.currentEntryKey;
 		this.engine.removeRepeat(path, index);
 		// Selective sweep — see `addRepeat`.
 		this.syncAllPathsSelectively();
+		if (entryKey !== undefined && count > 1 && index >= 0 && index < count) {
+			const event: RepeatCompactionEvent = {
+				entryKey,
+				removedPrefix: `${path}[${index}]`,
+				moves: Array.from(
+					{ length: Math.max(0, count - index - 1) },
+					(_, offset) => {
+						const fromIndex = index + offset + 1;
+						return {
+							fromPrefix: `${path}[${fromIndex}]`,
+							toPrefix: `${path}[${fromIndex - 1}]`,
+						};
+					},
+				),
+			};
+			for (const listener of this.repeatCompactionListeners) listener(event);
+		}
 	}
 
 	/** True iff `uuid` resolves to a repeat field whose `repeat_mode`
@@ -617,10 +909,173 @@ export class EngineController {
 				}),
 			);
 		}
-		return this.engine.computeSubmissionMutation(args);
+		if (this.currentEntryKey === undefined) {
+			throw new Error(
+				compilerBugMessage({
+					where: "preview.engineController.computeSubmissionMutation",
+					invariant:
+						"controller has an active engine without a current entry key",
+					detail:
+						"Every final submission carries the controller-owned entry identity and an explicit exact attachment projection.",
+				}),
+			);
+		}
+		return this.engine.computeSubmissionMutation({
+			...args,
+			entryKey: this.currentEntryKey,
+		});
 	}
 
 	// ── Per-field subscriptions ──────────────────────────────────────
+
+	/**
+	 * Reconcile the complete pre/post path projection once per committed doc
+	 * batch, before any per-field listener observes that commit.
+	 *
+	 * `applyMany` publishes one final Zustand state. Two fields can therefore
+	 * rename together, or a whole subtree can move across group/repeat
+	 * parents, without there being a meaningful per-field intermediate map.
+	 * Materialize every old path first, move them in one engine call, then
+	 * install the new maps and publish one capture migration event.
+	 */
+	private setupAuthoredPathTopologySubscription(formUuid: Uuid): void {
+		if (!this.docStore) return;
+		const store = this.docStore;
+		const unsub = store.subscribe((current, previous) => {
+			if (!this.engine) return;
+			const previousInput = buildEngineInput(previous, formUuid);
+			const currentInput = buildEngineInput(current, formUuid);
+			if (previousInput === undefined || currentInput === undefined) return;
+
+			const previousMaps = buildPathMaps(
+				buildFieldTree(
+					previousInput.formUuid,
+					previousInput.fields,
+					previousInput.fieldOrder,
+				),
+			);
+			const currentMaps = buildPathMaps(
+				buildFieldTree(
+					currentInput.formUuid,
+					currentInput.fields,
+					currentInput.fieldOrder,
+				),
+			);
+			const previousUuids = new Set(previousMaps.uuidToPath.keys());
+			const currentUuids = new Set(currentMaps.uuidToPath.keys());
+			const retainedUuids = [...previousUuids].filter((uuid) =>
+				currentUuids.has(uuid),
+			);
+			const pathPairs: Array<{
+				oldPath: string;
+				newPath: string;
+				oldSegmentKeys: readonly string[];
+				newSegmentKeys: readonly string[];
+			}> = [];
+			const captureMoves: AuthoredCapturePathMigrationEvent["moves"][number][] =
+				[];
+			for (const uuid of retainedUuids) {
+				const oldPath = previousMaps.uuidToPath.get(uuid);
+				const newPath = currentMaps.uuidToPath.get(uuid);
+				const oldSegmentKeys = previousMaps.uuidToSegmentKeys.get(uuid);
+				const newSegmentKeys = currentMaps.uuidToSegmentKeys.get(uuid);
+				const previousField = previousInput.fields[uuid];
+				const currentField = currentInput.fields[uuid];
+				if (
+					oldPath === undefined ||
+					newPath === undefined ||
+					oldSegmentKeys === undefined ||
+					newSegmentKeys === undefined ||
+					previousField === undefined ||
+					currentField === undefined
+				) {
+					continue;
+				}
+				if (oldPath !== newPath) {
+					pathPairs.push({
+						oldPath,
+						newPath,
+						oldSegmentKeys,
+						newSegmentKeys,
+					});
+				}
+				const previousCapture = isCaptureFieldKind(previousField.kind);
+				const currentCapture = isCaptureFieldKind(currentField.kind);
+				if (
+					(previousCapture || currentCapture) &&
+					(oldPath !== newPath || previousField.kind !== currentField.kind)
+				) {
+					captureMoves.push({
+						kind: "retained",
+						fieldUuid: uuid,
+						previous: {
+							pathTemplate: oldPath,
+							segmentKeys: oldSegmentKeys,
+							...(previousCapture ? { captureKind: previousField.kind } : {}),
+						},
+						current: {
+							pathTemplate: newPath,
+							segmentKeys: newSegmentKeys,
+							...(currentCapture ? { captureKind: currentField.kind } : {}),
+						},
+					});
+				}
+			}
+			for (const uuid of previousUuids) {
+				if (currentUuids.has(uuid)) continue;
+				const previousField = previousInput.fields[uuid];
+				if (
+					previousField === undefined ||
+					!isCaptureFieldKind(previousField.kind)
+				) {
+					continue;
+				}
+				const oldPath = previousMaps.uuidToPath.get(uuid);
+				const oldSegmentKeys = previousMaps.uuidToSegmentKeys.get(uuid);
+				if (oldPath === undefined || oldSegmentKeys === undefined) continue;
+				captureMoves.push({
+					kind: "deleted",
+					fieldUuid: uuid,
+					previous: {
+						pathTemplate: oldPath,
+						segmentKeys: oldSegmentKeys,
+						captureKind: previousField.kind,
+					},
+				});
+			}
+			if (pathPairs.length === 0 && captureMoves.length === 0) return;
+
+			this.engine.renamePaths(pathPairs);
+			const removedPaths = [...previousUuids]
+				.filter((uuid) => !currentUuids.has(uuid))
+				.map((uuid) => previousMaps.uuidToPath.get(uuid))
+				.filter((path): path is string => path !== undefined);
+			if (removedPaths.length > 0) {
+				this.engine.removeFieldStates(removedPaths);
+			}
+			this.uuidToPath = currentMaps.uuidToPath;
+			this.pathToUuid = currentMaps.pathToUuid;
+			this.publishAuthoredCapturePathMigration(captureMoves);
+			this.engine.rebuildDag(currentInput);
+			for (const uuid of retainedUuids) {
+				const oldPath = previousMaps.uuidToPath.get(uuid);
+				const newPath = currentMaps.uuidToPath.get(uuid);
+				const field = currentInput.fields[uuid];
+				if (
+					oldPath !== undefined &&
+					newPath !== undefined &&
+					oldPath !== newPath &&
+					field !== undefined
+				) {
+					this.engine.ensureFieldStates(newPath, field);
+				}
+			}
+			const allPaths = this.engine.getAllPaths();
+			if (allPaths.length > 0) this.engine.evaluatePathsInto(allPaths);
+			this.syncAllPathsSelectively();
+		});
+		this.unsubscribers.push(unsub);
+	}
 
 	/**
 	 * One Zustand subscription per field. Immer structural sharing means
@@ -631,7 +1086,7 @@ export class EngineController {
 	 * - "kind_change" → drop the stale value at the old path, re-init the field
 	 * - "expression" → rebuild DAG, evaluate field + cascade
 	 * - "label_refs" → re-evaluate resolved labels
-	 * - "id_rename" → update paths, rebuild DAG, re-evaluate dependents
+	 * - "id_rename" → no-op here; the batch-topology subscription ran first
 	 * - "default_value" → re-evaluate default + cascade
 	 */
 	private setupPerFieldSubscriptions(uuids: string[]): void {
@@ -663,7 +1118,8 @@ export class EngineController {
 							this.onLabelRefsChanged(uuid);
 							return;
 						case "id_rename":
-							this.onIdRenamed(uuid, previous.id, current.id);
+							// The whole-batch topology listener already moved every
+							// retained path, rebuilt the DAG, and re-evaluated once.
 							return;
 						case "default_value":
 							this.onDefaultValueChanged(uuid, current as Field);
@@ -931,80 +1387,6 @@ export class EngineController {
 		const targets = this.engine.materializePaths(path);
 		this.engine.evaluatePathsInto(targets);
 		this.syncPathsToStore(targets);
-	}
-
-	/** A field's ID was renamed. Update path mappings, move DataInstance
-	 *  values — every live instance, descendants included when a container
-	 *  was renamed — rebuild DAG, and re-evaluate dependents. */
-	private onIdRenamed(uuid: string, _oldId: string, _newId: string): void {
-		if (!this.engine) return;
-		const input = this.currentEngineInput();
-		if (!input) return;
-
-		/* Snapshot old paths (the field + every descendant — renaming a
-		 * container moves the whole subtree) against the PRE-rebuild maps. */
-		const oldPath = this.uuidToPath.get(uuid);
-		const descendantUuids = collectFormUuids(
-			uuid,
-			input.fieldOrder as unknown as Record<string, string[]>,
-		);
-		const oldDescendantPaths = new Map(
-			descendantUuids.map((d) => [d, this.uuidToPath.get(d)] as const),
-		);
-
-		const newTree = buildFieldTree(
-			input.formUuid,
-			input.fields,
-			input.fieldOrder,
-		);
-		const maps = buildPathMaps(newTree);
-		this.uuidToPath = maps.uuidToPath;
-		this.pathToUuid = maps.pathToUuid;
-		const newPath = this.uuidToPath.get(uuid);
-
-		/* Move values + states — one batch, BEFORE the DAG rebuild so the
-		 * old paths materialize against the pre-rename topology. */
-		const pairs: Array<{ oldPath: string; newPath: string }> = [];
-		if (oldPath && newPath && oldPath !== newPath) {
-			pairs.push({ oldPath, newPath });
-		}
-		for (const [descendantUuid, oldDescendantPath] of oldDescendantPaths) {
-			const newDescendantPath = this.uuidToPath.get(descendantUuid);
-			if (
-				oldDescendantPath &&
-				newDescendantPath &&
-				oldDescendantPath !== newDescendantPath
-			) {
-				pairs.push({ oldPath: oldDescendantPath, newPath: newDescendantPath });
-			}
-		}
-		this.engine.renamePaths(pairs);
-
-		/* Rebuild DAG (references may point to the new ID now) */
-		this.engine.rebuildDag(input);
-
-		/* Re-evaluate the renamed field + descendants + dependents at every
-		 * live instance. The selective sweep also propagates the unplugged
-		 * old-path entries. */
-		if (newPath) {
-			const affectedPaths = new Set<string>();
-			const renamedRoots = [
-				newPath,
-				...descendantUuids
-					.map((d) => this.uuidToPath.get(d))
-					.filter((p): p is string => !!p),
-			];
-			for (const p of renamedRoots) {
-				for (const concrete of this.engine.materializePaths(p)) {
-					affectedPaths.add(concrete);
-				}
-				for (const dep of this.engine.getAffectedPaths(p)) {
-					affectedPaths.add(dep);
-				}
-			}
-			this.engine.evaluatePathsInto([...affectedPaths]);
-			this.syncAllPathsSelectively();
-		}
 	}
 
 	/** A field's default_value expression changed. Re-evaluate the

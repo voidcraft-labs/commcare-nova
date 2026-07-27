@@ -51,13 +51,21 @@ onto `CaseStore.applySubmission` (`submissionEnvelopeArgs` in the
 binding helpers), which applies the primary write, every child insert,
 and close's lifecycle transition in ONE Postgres transaction — partial
 success is unobservable, and the running-app view re-queries one
-settled state on resolve. Since S07b the mutation also carries the
-form's uuid plus plain-JSON per-scope operation answer bindings
+settled state on resolve. Every mutation arm carries the form UUID,
+controller-owned entry UUID, and exact attachment-reference projection
+(including an explicit empty list), plus plain-JSON per-scope operation
+answer bindings when the committed form has operations
 (`computeOperationAnswers` — complete per iteration, parent-major,
-multi-select as token arrays), and the SERVER builds the case-operation
-program from the COMMITTED doc (`buildCaseOperationProgramFromDoc`:
-S04 analyses + `buildCaseTypeMap` + the identity's session values,
-`ordinary.caseType` populated for the rolling proof) — a survey with a
+multi-select as token arrays). The Server Action validates and normalizes
+that final protocol before program, capture-intent, or effect derivation; the
+retired name-only projection is rejected. Its authorization transaction locks
+the app, proves fresh Project membership, and reads any durable receipt before
+loading blueprint topology. The SERVER builds
+the case-operation program from the COMMITTED doc
+(`buildSubmissionOperationProgram`: S04 analyses + `buildCaseTypeMap` + the
+identity's session values, `ordinary.caseType` populated for the rolling
+proof). A committed operation-bearing form with missing answer bags rejects
+wholesale rather than silently applying ordinary-only effects. A survey with a
 program executes it, and the envelope's typed `SubmissionRejectedError` surfaces as the
 `submission-rejected` result arm with whole-rollback copy in
 `FormScreen`. The close transition itself stays the
@@ -66,6 +74,210 @@ built-in `status = "closed"`; the preview must never supply or invent
 its own status vocabulary. This keeps the live row aligned with
 CommCare's `@status` attribute and makes a close form with no property
 writes a complete lifecycle write by itself.
+
+## Attachments are staged per form entry, reserved atomically at submit
+
+A capture question's answer is a server-minted attachment name; the bytes go
+straight to GCS on a signed URL (`components/preview/form/fields/attachment`),
+never through a Server Action — a `File` argument would make React encode
+multipart, which the edge WAF reads as header injection.
+
+`EngineController.entryKey` is the idempotency/reservation scope, minted per
+`activateForm`. It lives on the CONTROLLER, not the engine, and survives cold
+identity, lookup, case-data rebuilds, and an access refresh confirmed for the
+same Project; a key minted by each rebuilt engine or scope epoch would rotate
+under already staged bytes. A confirmed app/form/Project change, materially
+different worker projection, terminal revoke/upgrade boundary, or **Clear
+form** retires the entry and rotates the key. Clear mounts the fresh answer
+world synchronously; deletion of the retired entry's staging rows is
+best-effort and never delays or later resets the new entry. **There is no form
+resume** — nothing persists
+runtime answers and `deactivate` wipes the store — so leaving a form starts a
+new entry. The controller exposes that identity through `entryStore`; form
+lifecycle code must subscribe to it rather than sampling the imperative getter,
+because a materially changed worker projection can rotate the entry from a
+provider effect without changing the persona UUID or route.
+
+Confirmed row ownership lives at `(app, entryKey, stableSlotKey)` above any one
+rendered field. A stable slot is the field UUID plus every enclosing repeat's
+stable instance identity; its concrete indexed path is a mutable projection.
+Relevance, group/repeat remounts, Preview/Edit flips, and positional repeat
+compaction therefore cannot delete or misidentify an answer whose entry is still
+live. The same slot retains its filename, recoverable issue, and signature draft
+above component lifetime. A real entry teardown/reset best-effort deletes those
+unreserved rows immediately; the scheduled row sweep and staging TTL remain the
+failure backstop. Every cleanup DELETE — teardown, replacement, remove, repeat
+deletion, or post-initiate PUT/confirm compensation — is bounded and detached
+from the entry queue. It can leave an expiring orphan but cannot delay an answer
+commit, confirmed replacement, or Submit. Initiate, signed PUT, confirm, and
+retarget each own a foreground deadline covering the request plus its
+success/error response body. Cancel aborts the current slot generation without
+changing its prior confirmed owner; a late completion is fenced and cleaned up.
+That absence of cross-entry resume is
+also why nothing simulates
+the runtime's blank-pad-over-live-signature behavior: the state cannot arise
+here. A future resume story must carry the entry key forward with the answers,
+and must leave the pad blank rather than helpfully restoring it.
+
+`FormEngine.collectAttachmentReferences` carries the exact server-minted name,
+field UUID, and concrete repeat-indexed path for every surviving answer, and it
+DOES consult effective visibility (the field plus every group/repeat ancestor)
+— unlike the case-property collector, whose
+visibility-blindness is an AJV storage constraint with nothing to say about
+attachments. The server re-derives the committed field/path templates and
+rejects stale or mismatched provenance. An irrelevant question's node is
+omitted from the submitted instance on the wire, so its attachment is genuinely
+not part of the submission. Nova then diverges from the platform by not
+shipping it at all, where the real runtime enumerates the session media
+directory and uploads orphans anyway.
+An empty attachment projection from a committed form that still contains a
+capture question nevertheless emits `captureIntent` with `attachments: []`.
+That keeps a retry under the same entry key inside the durable receipt/digest
+protocol after an earlier accepted request, instead of letting cleared, hidden,
+or removed answers bypass replay and repeat case effects. The submission
+envelope also carries that receipt identity independently of `captureIntent`.
+The action's one authorization transaction reads an existing durable receipt
+before current blueprint/form/capture validation; when no receipt exists it
+returns the committed app snapshot used for program and capture-authority
+derivation. The preparation transaction and entry-locked store reauthorize at
+their own mutation boundaries and adjudicate the receipt before effects, so an
+exact retry after the form or capture question is deleted still replays and a
+changed digest rejects before effects.
+
+Every capture mutation for one entry goes through one form-wide queue. A newer
+operation aborts and generation-fences an older operation on the same stable
+slot. The control publishes queued intent before it waits behind another slot,
+so a second picker/clear/draw gesture cannot silently supersede the first;
+signature debounce and `toBlob` encoding enter that queue immediately,
+and a dirty/failed encoding keeps the barrier blocked rather than submitting
+an older answer. `pointercancel` and `lostpointercapture` settle the ink through
+the same path; dirty stable draft state starts an immediate encode after an
+ordinary remount. A
+signature Clear during queued/active save is itself the newer explicit intent:
+it aborts that generation and queues exactly one answer-clear transition. Its
+private serialization key carries the real stable slot/path/field target, so
+Submit classifies and waits for that active clear rather than mistaking the
+synthetic key for a deleted engine path. Dormancy cancels an older signal-aware
+upload/retarget but does not cancel this explicit Clear: it runs ahead of Submit
+so the old answer cannot revive later.
+Submit first classifies every registered, active, not-ready, and retargeting
+slot **before** it joins the tail; it continues classification while waiting.
+Dormant work is aborted without dropping its draft/issue, removed work is
+retired, and only active `notReady` state can reject. Retarget PATCH maintenance
+is signal-aware and registered by slot too — otherwise an offline PATCH for a
+now-hidden question could starve the barrier it sits ahead of. Submit remains a
+barrier behind participating prior work and ahead of later work, and rechecks the
+initiating form, entry, persona, case, Project scope, and post-submit
+destination before calling the action. Once Submit enters `running`, the
+entire answer surface is inert/disabled until the barrier and server action
+settle; a post-click text,
+picker, signature, repeat, replace, or remove gesture cannot join only one side
+of the submission snapshot. Clear form does not use this barrier; it retires the
+old entry and synchronously mounts a new idempotency scope.
+A confirmed owner whose retarget is cancelled by dormancy keeps a stable
+retarget blocker and a suspended marker. If the question becomes active again,
+the next barrier mints a newer generation and repairs/converges that owner
+before submission; a late cancelled response cannot clear the newer blocker.
+A real non-abort retarget failure is marked failed and never auto-retries from
+barrier polling — the worker still chooses Retry, replacement, or removal.
+
+`EngineController.removeRepeat` is the ONE compaction owner. It emits the
+removed prefix plus every positional move; FormScreen binds that event to the
+entry coordinator even when the affected capture is irrelevant/unmounted.
+Remove remains visible but disabled without current write authority. Its
+imperative boundary requires the exact coordinator authority generation
+captured by the handler, then rechecks the controller entry key and target
+repeat instance's stable key immediately before compaction. A handler captured
+before refresh, viewer downgrade, or authority loss/restoration cannot retire a
+successor instance or its capture. The
+coordinator updates desired slot paths synchronously, queues server CAS
+retargets after any already-running upload/encoding and before Submit, and
+cancels/discards only slots belonging to the removed instance. A failed old
+retarget NEVER clears the answer or discards the retained row. It preserves the
+owned attachment, desired and server paths, filename/signature ink, and a
+generation-tagged `notReady` issue. A picked-file save failure also writes that
+stable slot issue instead of component-local state, so **Choose file** recovery
+survives an ordinary remount. Retarget failure exposes Retry plus
+replace/remove for picked files; Signature exposes Retry beside the pad's single
+**Clear signature** action, and its message names that exact action. Recovery
+controls have question-qualified accessible names. Retry CASes the retained
+row; a newer replacement generation supersedes it and clears only the older
+issue. A surviving pending signature keeps its draft and `notReady` blocker
+until its latest PNG confirms, then the newly owned row—not an older PNG—is
+retargeted.
+
+Authored path changes use the same ownership lane. One whole-batch
+`EngineController` topology subscription compares the complete pre/post
+UUID-to-path projections and moves every retained engine value in one atomic
+call before per-field listeners run. It emits one capture-move set by stable
+field UUID for simultaneous capture renames, cross-parent leaf/subtree moves,
+ancestor renames, and group↔repeat conversion; the coordinator remaps every
+concrete instance path synchronously and serializes its row CAS behind any
+in-flight upload and ahead of Submit. Each retained/deleted event carries the
+pre/post stable identity of every path segment, so retained repeat indices
+survive cross-parent and different-depth moves instead of following positional
+depth by accident. Projection is tri-state: mapped paths retarget, only a
+proven removed repeat instance or an explicit deleted-field variant may clean
+up, and malformed/missing identities preserve owner, picked file, signature
+ink, and an invariant Submit blocker. The stored old path is only the CAS
+coordinate—the destination alone must match the current committed capture
+template. When malformed topology leaves no valid rendered path, the form owns
+a recovery-only, question-qualified action that can remove the file or clear
+the signature without claiming a new path; Submit focuses that action. A stable
+UUID's explicit deleted-field event takes precedence over an unusable old-path
+projection and retires exactly that slot. A capture-kind change
+is incompatible ownership: cancel/fence active work, clean the old row, and
+retain a targeted replacement blocker on the stable field UUID. React remounts
+recover the existing slot by `(field UUID, desired concrete path)` so a
+group↔repeat renderer-key change cannot create a second owner.
+
+Project viewers may inspect capture answers but must never mint or mutate
+capture data. Controls disable picker, drawing, clear/remove, and recovery
+actions; authority loss aborts and generation-fences work already in flight.
+`FormScreen` installs one exact coordinator authority token containing
+`appId`, `entryKey`, `formUuid`, `projectId`, `actorUserId`, `ownerId`,
+`scopeEpoch`, `accessPhase`, and `canEdit`. Every operation also carries its
+exact stable slot key. Missing/stale authority, missing slot identity, missing
+response-body methods, and malformed response coordinates reject in production;
+tests must supply the real contract rather than activate fallbacks. Form-level
+invariant recovery uses the same exact coordinator authority token:
+its Remove/Clear control disables during refresh or viewer access, and
+imperative discard rejects a missing or stale generation before retiring the
+owner, retained File/signature ink, and Submit blocker.
+Every event handler re-reads the current session access tuple at its mutation
+boundary, just like Submit and Clear form. A transient refresh suspends old
+network generations but preserves the controller, entry key, answers, focus,
+browser-owned File controls, staged ownership, drafts, ink, diagnostics, and
+Submit blockers. If React batches the refresh and same-Project authorization
+into one committed render, the authority generation still pauses active file
+drafts and rearms dirty signature ink exactly once.
+
+Signature pixels are entry/stable-slot-local across ordinary remounts and reset
+on an entry/persona change. Points are normalized to the canvas bounds, so a
+successful encoding records CSS width/height, device pixel ratio, and backing
+width/height beside the strokes. CSS resize, DPR-only change, and a remount at
+different geometry redraw and re-encode the complete signature rather than
+clipping old absolute coordinates or submitting stale pixels. `toBlob`
+callbacks also carry a generation fence because the browser API cannot itself
+be aborted. Encode/upload failure retains the ink plus an actionable
+Retry/**Clear signature** slot issue across remounts; Retry re-encodes the
+retained strokes.
+The DPR watcher is a self-rearming resolution media query, so a density-only
+change does not depend on a window resize event. Clear's inverse stroke buffer
+is stable-slot state, so Undo survives ordinary remounts until the worker draws
+again. A blocked canvas exposes its disabled/read-only state to assistive
+technology.
+
+`FormEngine.firstInvalidFieldTarget` returns the first effectively visible
+invalid concrete path plus every structural ancestor UUID. On invalid Submit,
+`FormScreen` expands those group/repeat ancestors in one layout commit, announces
+the failure, then scrolls and focuses the real invalid control (`input`,
+signature canvas/custom textbox, button, or the focusable question wrapper
+fallback). Collapse toggles carry `aria-expanded` and `aria-controls`; selected
+capture questions use the same custom-control-aware focus selector.
+`AttachmentNotReadyError` carries stable slot, concrete path, and field UUID;
+the same reveal path opens a collapsed blocker and focuses its exact Retry
+action. Both paths use immediate scrolling when reduced motion is requested.
 
 ## Repeat instances are first-class
 
@@ -81,7 +293,7 @@ Repeat children live at CONCRETE indexed paths (`/data/orders[1]/name`), one Fie
   the proof sees them through the ordinary collection, not the swap.
 - **Instance counts are explicit.** `DataInstance` tracks cardinality in its own map, keyed by concrete repeat path — never derived from which value keys happen to exist (a repeat with only structural children still counts 1). `set` auto-extends counts from indexed path segments so restore/rename flows stay consistent. A new instance seeds the AUTHORED template shape — nested repeats restart at one instance, matching what the deployed form's `jr:template` produces — not `[0]`'s live shape.
 - **The runtime store is dual-keyed.** Every field keeps its uuid key (edit-mode rows); every path with an `[N]` segment ALSO gets a path key — the interactive renderer subscribes via `useEngineStateAt(uuid, path)` and writes through `controller.setValueAt(path, …)` / `touchAt(path)`, so two instances of one field hold independent value/visibility/validity. Uuid-keyed flows (`onValueChange`) address the `[0]` template only.
-- **Doc mutations land on every live instance.** The controller's incremental handlers (field added / removed / renamed / retyped / expression edited during live preview) route through the engine's instance-aware ops — `materializePaths` expands the uuid map's `[0]` template path over the live counts, and `renamePaths` moves values/states in one batch (materialize-before-move, since renaming a repeat container relocates the count its descendants materialize through). A repeat→group conversion keeps only instance 0; the other instances' values are dropped with their states unplugged.
+- **Doc mutations land on every live instance.** The controller's incremental handlers (field added / removed / retyped / expression edited during live preview) route through the engine's instance-aware ops. Authored topology is reconciled once per committed batch from complete pre/post path maps, so two independent renames or a cross-parent subtree move cannot observe a half-updated map. `materializePaths` expands the uuid map's `[0]` template path over the live counts, and `renamePaths` moves all values/states in one call (materialize-before-move, since renaming or moving a repeat container relocates the count its descendants materialize through). A repeat→group conversion keeps only instance 0; the other instances' values are dropped with their states unplugged.
 
 In render paths, read repeat instance counts from `state.repeatCount` (via the engine-state hooks), not from `controller.getRepeatCount(uuid)` — the latter is a non-reactive method call. `addRepeat` / `removeRepeat` bump `repeatCount` on the repeat's own `FieldState` precisely to give subscribers that signal. `getRepeatCount` is fine outside render or in render paths whose lifecycle guarantees no add/remove can happen while mounted (e.g. edit-mode-only rows).
 

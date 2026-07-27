@@ -72,5 +72,5 @@ done
 # Seed the local Postgres, then run Playwright (which builds + starts the
 # production server). Extra args pass straight through to Playwright via "$@".
 echo "[smoke] seeding local Postgres, running Playwright…"
-node_modules/.bin/tsx e2e/seed.ts
+node_modules/.bin/tsx --conditions=react-server e2e/seed.ts
 node_modules/.bin/playwright test "$@"

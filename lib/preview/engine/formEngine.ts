@@ -37,6 +37,7 @@ import {
 	CASE_LOADING_FORM_TYPES,
 	casePropertyDataTypes,
 	expressionSource,
+	isCaptureFieldKind,
 	orderedCaseOperations,
 	ownRecordValue,
 	type XPathPrintableDoc,
@@ -50,6 +51,7 @@ import { evaluate } from "../xpath/evaluator";
 import type { EvalContext } from "../xpath/types";
 import type {
 	SubmissionAnswerEntry,
+	SubmissionAttachmentReference,
 	SubmissionMutation,
 	SubmissionOperationAnswers,
 } from "./caseDataBindingTypes";
@@ -79,6 +81,13 @@ import {
 	type LookupChoice,
 	lookupChoicesEqual,
 } from "./types";
+
+export type AttachmentPathDisposition = "active" | "dormant" | "removed";
+export interface InvalidFieldTarget {
+	readonly fieldUuid: Uuid;
+	readonly instancePath: string;
+	readonly ancestorUuids: readonly Uuid[];
+}
 
 /** Stable fallback for paths that don't exist in the engine. Frozen so
  *  Zustand selectors always return the same reference — no spurious re-renders. */
@@ -200,6 +209,8 @@ export class FormEngine {
 	 *  materialization. Arrow property so it can pass as a bare callback. */
 	private repeatCounts = (repeatPath: string): number =>
 		this.instance.getRepeatCount(repeatPath);
+	/** Render-only identities that survive positional compaction. */
+	private repeatInstanceKeys = new Map<string, string[]>();
 
 	constructor(
 		input: FormEngineInput,
@@ -279,6 +290,7 @@ export class FormEngine {
 	/** Add a new repeat instance. Returns the new index. */
 	addRepeat(repeatPath: string): number {
 		const newIndex = this.instance.addRepeatInstance(repeatPath);
+		this.ensureRepeatInstanceKeys(repeatPath, newIndex + 1);
 		const instancePrefix = `${repeatPath}[${newIndex}]`;
 
 		const updates: EngineStoreState = {};
@@ -371,6 +383,36 @@ export class FormEngine {
 		}
 
 		this.instance.removeRepeatInstance(repeatPath, index);
+		const remappedRepeatKeys = new Map<string, string[]>();
+		for (const [path, keys] of this.repeatInstanceKeys) {
+			if (path === repeatPath) {
+				const remaining = [...keys];
+				remaining.splice(index, 1);
+				remappedRepeatKeys.set(path, remaining);
+				continue;
+			}
+			const instancePrefix = `${repeatPath}[`;
+			if (!path.startsWith(instancePrefix)) {
+				remappedRepeatKeys.set(path, keys);
+				continue;
+			}
+			const close = path.indexOf("]", instancePrefix.length);
+			const enclosingIndex = Number(path.slice(instancePrefix.length, close));
+			if (
+				close === -1 ||
+				!Number.isInteger(enclosingIndex) ||
+				enclosingIndex < index
+			) {
+				remappedRepeatKeys.set(path, keys);
+			} else if (enclosingIndex > index) {
+				remappedRepeatKeys.set(
+					`${repeatPath}[${enclosingIndex - 1}]${path.slice(close + 1)}`,
+					keys,
+				);
+			}
+			// Equal means the nested identity belonged to the removed instance.
+		}
+		this.repeatInstanceKeys = remappedRepeatKeys;
 		if (Object.keys(updates).length > 0) {
 			this.store.setState(updates);
 		}
@@ -490,6 +532,68 @@ export class FormEngine {
 		return this.instance.getRepeatCount(repeatPath);
 	}
 
+	getRepeatInstanceKey(repeatPath: string, index: number): string {
+		const keys = this.ensureRepeatInstanceKeys(
+			repeatPath,
+			this.instance.getRepeatCount(repeatPath),
+		);
+		return keys[index] ?? `${repeatPath}:${index}`;
+	}
+
+	getRepeatInstanceKeySnapshot(): ReadonlyMap<string, readonly string[]> {
+		return new Map(
+			[...this.repeatInstanceKeys].map(([path, keys]) => [path, [...keys]]),
+		);
+	}
+
+	getRepeatCountSnapshot(): ReadonlyMap<string, number> {
+		const counts = new Map<string, number>();
+		for (const [path, state] of Object.entries(this.store.getState())) {
+			if (state.repeatCount !== undefined) {
+				counts.set(path, state.repeatCount);
+			}
+		}
+		return counts;
+	}
+
+	restoreRepeatCountSnapshot(snapshot: ReadonlyMap<string, number>): void {
+		const paths = [...snapshot.keys()].sort((a, b) => {
+			const depth = (path: string) => path.split("/").length;
+			return depth(a) - depth(b) || a.localeCompare(b);
+		});
+		for (const path of paths) {
+			const target = snapshot.get(path) ?? 1;
+			let current = this.getRepeatCount(path);
+			while (current < target) {
+				this.addRepeat(path);
+				current++;
+			}
+			while (current > Math.max(target, 1)) {
+				this.removeRepeat(path, current - 1);
+				current--;
+			}
+		}
+	}
+
+	restoreRepeatInstanceKeySnapshot(
+		snapshot: ReadonlyMap<string, readonly string[]>,
+	): void {
+		this.repeatInstanceKeys = new Map(
+			[...snapshot].map(([path, keys]) => [path, [...keys]]),
+		);
+	}
+
+	private ensureRepeatInstanceKeys(
+		repeatPath: string,
+		count: number,
+	): string[] {
+		const keys = this.repeatInstanceKeys.get(repeatPath) ?? [];
+		while (keys.length < count) keys.push(crypto.randomUUID());
+		if (keys.length > count) keys.length = count;
+		this.repeatInstanceKeys.set(repeatPath, keys);
+		return keys;
+	}
+
 	/**
 	 * Mark a field as touched (on blur). Runs validation rules only — required
 	 * is intentionally deferred to submit.
@@ -513,10 +617,11 @@ export class FormEngine {
 		let valid = true;
 		const updates: EngineStoreState = {};
 		const currentState = this.store.getState();
+		const effectivelyVisible = this.effectivelyVisiblePaths(currentState);
 
 		for (const [path, state] of Object.entries(currentState)) {
 			if (state === DEFAULT_ENGINE_STATE) continue;
-			if (!state.visible) continue;
+			if (!effectivelyVisible.has(path)) continue;
 
 			const touched = state.touched ? state : { ...state, touched: true };
 			if (touched !== state) updates[path] = touched;
@@ -530,6 +635,153 @@ export class FormEngine {
 			this.store.setState(updates);
 		}
 		return valid;
+	}
+
+	/**
+	 * First effectively visible invalid question in runtime document order.
+	 *
+	 * Structural ancestors are returned by UUID because preview collapse state
+	 * is structural, while the target itself keeps its concrete repeat path.
+	 * Call after `validateAll()` so required checks have populated validity.
+	 */
+	firstInvalidFieldTarget(): InvalidFieldTarget | undefined {
+		const states = this.store.getState();
+		const walk = (
+			nodes: ReadonlyArray<FieldTreeNode>,
+			prefix: string,
+			ancestorsVisible: boolean,
+			ancestorUuids: readonly Uuid[],
+		): InvalidFieldTarget | undefined => {
+			for (const node of nodes) {
+				const instancePath = `${prefix}/${node.field.id}`;
+				const effective =
+					ancestorsVisible && states[instancePath]?.visible !== false;
+				if (!effective) continue;
+				const structural =
+					node.field.kind === "group" || node.field.kind === "repeat";
+				if (
+					!structural &&
+					node.field.kind !== "label" &&
+					node.field.kind !== "hidden" &&
+					states[instancePath]?.valid === false
+				) {
+					return {
+						fieldUuid: node.field.uuid,
+						instancePath,
+						ancestorUuids,
+					};
+				}
+				if (node.field.kind === "repeat") {
+					const nextAncestors = [...ancestorUuids, node.field.uuid];
+					const count = this.instance.getRepeatCount(instancePath);
+					for (let index = 0; index < count; index++) {
+						const target = walk(
+							node.children ?? [],
+							`${instancePath}[${index}]`,
+							effective,
+							nextAncestors,
+						);
+						if (target !== undefined) return target;
+					}
+				} else if (node.children !== undefined) {
+					const target = walk(node.children, instancePath, effective, [
+						...ancestorUuids,
+						node.field.uuid,
+					]);
+					if (target !== undefined) return target;
+				}
+			}
+			return undefined;
+		};
+		return walk(this.tree, "/data", true, []);
+	}
+
+	/**
+	 * Resolve one concrete runtime question to the structural containers that
+	 * can hide it. Attachment recovery uses this after its queue reports the
+	 * exact stable slot/path that blocked Submit.
+	 */
+	fieldTarget(
+		targetPath: string,
+		fieldUuid?: string,
+	): InvalidFieldTarget | undefined {
+		const walk = (
+			nodes: ReadonlyArray<FieldTreeNode>,
+			prefix: string,
+			ancestorUuids: readonly Uuid[],
+		): InvalidFieldTarget | undefined => {
+			for (const node of nodes) {
+				const instancePath = `${prefix}/${node.field.id}`;
+				const structural =
+					node.field.kind === "group" || node.field.kind === "repeat";
+				if (
+					!structural &&
+					instancePath === targetPath &&
+					(fieldUuid === undefined || node.field.uuid === fieldUuid)
+				) {
+					return {
+						fieldUuid: node.field.uuid,
+						instancePath,
+						ancestorUuids,
+					};
+				}
+				if (node.field.kind === "repeat") {
+					const nextAncestors = [...ancestorUuids, node.field.uuid];
+					const count = this.instance.getRepeatCount(instancePath);
+					for (let index = 0; index < count; index++) {
+						const target = walk(
+							node.children ?? [],
+							`${instancePath}[${index}]`,
+							nextAncestors,
+						);
+						if (target !== undefined) return target;
+					}
+				} else if (node.children !== undefined) {
+					const target = walk(node.children, instancePath, [
+						...ancestorUuids,
+						node.field.uuid,
+					]);
+					if (target !== undefined) return target;
+				}
+			}
+			return undefined;
+		};
+		return walk(this.tree, "/data", []);
+	}
+
+	/**
+	 * Materialize effective relevance through the structural tree.
+	 *
+	 * A child's own `visible` flag is only its authored expression. The wire
+	 * suppresses the entire subtree of an irrelevant group/repeat, so every
+	 * submission-facing consumer must also inherit all ancestor visibility.
+	 */
+	private effectivelyVisiblePaths(
+		states: Readonly<EngineStoreState>,
+	): ReadonlySet<string> {
+		const visible = new Set<string>();
+		const walk = (
+			nodes: ReadonlyArray<FieldTreeNode>,
+			prefix: string,
+			ancestorsVisible: boolean,
+		): void => {
+			for (const node of nodes) {
+				const fieldPath = `${prefix}/${node.field.id}`;
+				const effective =
+					ancestorsVisible && states[fieldPath]?.visible !== false;
+				if (effective) visible.add(fieldPath);
+				if (node.field.kind === "repeat") {
+					const count = this.instance.getRepeatCount(fieldPath);
+					for (let index = 0; index < count; index++) {
+						walk(node.children ?? [], `${fieldPath}[${index}]`, effective);
+					}
+				} else if (node.children) {
+					walk(node.children, fieldPath, effective);
+				}
+			}
+		};
+		walk(this.tree, "/data", true);
+		return visible;
 	}
 
 	/**
@@ -675,9 +927,114 @@ export class FormEngine {
 		};
 	}
 
+	/**
+	 * The attachment names this submission actually carries.
+	 *
+	 * Walks every capture question, including one instance per live repeat
+	 * iteration, and collects the non-empty answers of the questions that
+	 * are still RELEVANT. That set is what the server prepares; everything
+	 * else staged under this form entry is discarded.
+	 *
+	 * ## Why this consults visibility when the case-property collector does not
+	 *
+	 * The case-property walk deliberately ignores `state.visible`, for a
+	 * storage reason: an omitted key is the only JSONB shape that passes
+	 * AJV strict-mode validation, so a hidden field's value still lands.
+	 * That reason has nothing to say about attachments, and the wire
+	 * semantics here point the other way — an irrelevant question's node is
+	 * omitted from the submitted instance entirely
+	 * (`XFormSerializingVisitor::serializeNode` returns null for a
+	 * non-relevant node), so its attachment is genuinely not part of the
+	 * submission.
+	 *
+	 * Nova then diverges from the platform in one direction, on purpose.
+	 * The real runtime uploads the FILE anyway, because
+	 * `FormSubmissionHelper::getMultiPartFormBody` enumerates the session's
+	 * media directory rather than the answers — so an irrelevant question's
+	 * bytes, and a deleted repeat instance's, still ride the submission,
+	 * still consume one of the 50 attachment slots, and land in HQ
+	 * referenced by nothing. Replicating that would import a known defect
+	 * into a lane with no reason to inherit it.
+	 */
+	collectAttachmentReferences(): SubmissionAttachmentReference[] {
+		const references: SubmissionAttachmentReference[] = [];
+		const states = this.store.getState();
+		const walk = (
+			nodes: FieldTreeNode[],
+			prefix: string,
+			ancestorsVisible: boolean,
+		): void => {
+			for (const node of nodes) {
+				const f = node.field;
+				const fieldPath = `${prefix}/${f.id}`;
+				const effective =
+					ancestorsVisible && states[fieldPath]?.visible !== false;
+				if (f.kind === "repeat") {
+					const count = this.instance.getRepeatCount(fieldPath);
+					for (let i = 0; i < count; i++) {
+						walk(node.children ?? [], `${fieldPath}[${i}]`, effective);
+					}
+					continue;
+				}
+				if (node.children) {
+					walk(node.children, fieldPath, effective);
+					continue;
+				}
+				if (!isCaptureFieldKind(f.kind)) continue;
+				if (!effective) continue;
+				const raw = this.instance.get(fieldPath);
+				if (typeof raw === "string" && raw !== "") {
+					references.push({
+						attachmentName: raw,
+						fieldUuid: f.uuid,
+						instancePath: fieldPath,
+					});
+				}
+			}
+		};
+		walk(this.tree, "/data", true);
+		return references;
+	}
+
+	/**
+	 * Classify a capture slot at the instant Submit reaches its form-wide
+	 * attachment barrier.
+	 *
+	 * A relevance-hidden slot is dormant: its draft and any failed-encoding
+	 * diagnostic remain available if the question reappears, but neither is
+	 * part of this submission. A path absent from the current runtime tree
+	 * (field deletion or repeat-instance removal) is retired permanently.
+	 */
+	attachmentPathDisposition(path: string): AttachmentPathDisposition {
+		const node = this.findTreeNode(path);
+		if (node === undefined || !isCaptureFieldKind(node.field.kind)) {
+			return "removed";
+		}
+		const states = this.store.getState();
+		const state = states[path];
+		if (state === undefined || state === DEFAULT_ENGINE_STATE) {
+			return "removed";
+		}
+		return this.effectivelyVisiblePaths(states).has(path)
+			? "active"
+			: "dormant";
+	}
+
 	computeSubmissionMutation(args: {
 		caseId?: string;
 		caseTypes: ReadonlyArray<CaseType>;
+		/**
+		 * This form entry's attachment scope, supplied by the CONTROLLER
+		 * rather than owned here.
+		 *
+		 * The engine is recreated mid-entry whenever the blueprint changes
+		 * during live preview (that is what makes an edited `default_value`
+		 * visible immediately), so a key minted here would rotate under the
+		 * worker and orphan every attachment they had already staged. The
+		 * controller's lifetime is the entry's lifetime, so the key lives
+		 * there.
+		 */
+		entryKey: string;
 	}): SubmissionMutation {
 		/* The operation identity riding every arm: the submitting form's
 		 * uuid (the authored-key scope half and the server-side program
@@ -685,8 +1042,14 @@ export class FormEngine {
 		 * the form carries case operations. A survey with operations must
 		 * NOT short-circuit — its program still executes. */
 		const operationAnswers = this.computeOperationAnswers();
+		const attachmentRefs = this.collectAttachmentReferences();
 		const operationIdentity = {
 			formUuid: this.activeFormUuid() as string,
+			entryKey: args.entryKey,
+			// Always present, even when empty: an empty list is the exact
+			// projection that retires every unreferenced staged attachment for
+			// this entry.
+			attachmentRefs,
 			...(operationAnswers !== undefined && { operationAnswers }),
 		};
 		if (this.formType === "survey") {
@@ -1138,33 +1501,108 @@ export class FormEngine {
 	 * its value and unplugs its state.
 	 */
 	renamePaths(
-		pairs: ReadonlyArray<{ oldPath: string; newPath: string }>,
+		pairs: ReadonlyArray<{
+			oldPath: string;
+			newPath: string;
+			oldSegmentKeys?: readonly string[];
+			newSegmentKeys?: readonly string[];
+		}>,
 	): void {
 		const moves: Array<{ from: string; to: string | null }> = [];
-		for (const { oldPath, newPath } of pairs) {
+		for (const { oldPath, newPath, oldSegmentKeys, newSegmentKeys } of pairs) {
+			const identity =
+				oldSegmentKeys !== undefined && newSegmentKeys !== undefined
+					? { oldSegmentKeys, newSegmentKeys }
+					: undefined;
 			for (const from of this.materializePaths(oldPath)) {
-				moves.push({ from, to: remapInstancePath(from, oldPath, newPath) });
+				moves.push({
+					from,
+					to: remapInstancePath(from, oldPath, newPath, identity),
+				});
 			}
 		}
 
 		const updates: EngineStoreState = {};
 		const current = this.store.getState();
-		for (const { from, to } of moves) {
-			if (to === null) {
-				this.instance.delete(from);
-				if (current[from]) updates[from] = DEFAULT_ENGINE_STATE;
-				continue;
-			}
-			this.instance.rename(from, to);
-			const oldState = current[from];
-			if (oldState) {
-				updates[from] = DEFAULT_ENGINE_STATE;
-				updates[to] = { ...oldState, path: to };
+		const stateMoves = moves.map(({ from, to }) => ({
+			from,
+			to,
+			state: current[from],
+			instanceKeys: this.repeatInstanceKeys.get(from),
+		}));
+		this.instance.renameMany(moves);
+		for (const { from } of stateMoves) {
+			if (current[from]) updates[from] = DEFAULT_ENGINE_STATE;
+			this.repeatInstanceKeys.delete(from);
+		}
+		// Destinations land only after every source is retired. Besides making
+		// DataInstance atomic, this keeps the reactive store and repeat-row
+		// identity map correct for swaps and rename chains in the same batch.
+		for (const { to, state, instanceKeys } of stateMoves) {
+			if (to === null) continue;
+			if (state) updates[to] = { ...state, path: to };
+			if (instanceKeys !== undefined) {
+				this.repeatInstanceKeys.set(to, instanceKeys);
 			}
 		}
 		if (Object.keys(updates).length > 0) {
 			this.store.setState(updates);
 		}
+	}
+
+	/**
+	 * Seed only the concrete paths that a topology move newly exposes.
+	 *
+	 * A group moved into an already-expanded repeat has one preserved answer
+	 * for instance 0 and brand-new empty/default slots for the other live
+	 * instances. `renamePaths` deliberately moves only states that existed in
+	 * the old topology; this fills those new holes without resetting moved
+	 * values, touched flags, or validation state.
+	 *
+	 * Call after `rebuildDag`, so materialization follows the new topology.
+	 */
+	ensureFieldStates(path: string, field: Field): void {
+		const current = this.store.getState();
+		const updates: EngineStoreState = {};
+		const createdPaths: string[] = [];
+		const isStructural = field.kind === "group" || field.kind === "repeat";
+		const isRequired =
+			!isStructural &&
+			expressionSource(field, "required", this.printDoc) === "true()";
+
+		for (const concrete of this.materializePaths(path)) {
+			const existing = current[concrete];
+			if (existing !== undefined && existing !== DEFAULT_ENGINE_STATE) continue;
+
+			if (field.kind === "repeat") {
+				this.instance.ensureRepeat(concrete);
+				updates[concrete] = {
+					...this.initialContainerState(concrete, "repeat"),
+					repeatCount: this.instance.getRepeatCount(concrete),
+				};
+			} else if (field.kind === "group") {
+				updates[concrete] = this.initialContainerState(concrete, "group");
+			} else {
+				let value = this.instance.get(concrete);
+				if (value === undefined) {
+					value = this.computeDefault(field, concrete) ?? "";
+					this.instance.set(concrete, value);
+				}
+				updates[concrete] = {
+					path: concrete,
+					value,
+					visible: true,
+					required: isRequired,
+					valid: true,
+					touched: false,
+				};
+			}
+			createdPaths.push(concrete);
+		}
+
+		if (createdPaths.length === 0) return;
+		this.store.setState(updates);
+		this.evaluatePathsInto(createdPaths);
 	}
 
 	/**
@@ -1330,6 +1768,7 @@ export class FormEngine {
 
 	/** Full reset — reinitialize all values, defaults, and expressions. */
 	reset(): void {
+		this.repeatInstanceKeys.clear();
 		this.instance = new DataInstance();
 		this.instance.initFromFields(this.tree);
 
@@ -1369,7 +1808,7 @@ export class FormEngine {
 		const touched = new Set<string>();
 		for (const [path, state] of Object.entries(this.store.getState())) {
 			if (state === DEFAULT_ENGINE_STATE) continue;
-			if (state.value) values.set(path, state.value);
+			if (state.value || state.touched) values.set(path, state.value);
 			if (state.touched) touched.add(path);
 		}
 		return { values, touched };

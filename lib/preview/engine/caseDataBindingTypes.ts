@@ -377,57 +377,81 @@ export interface SubmissionOperationAnswers {
 	}>;
 }
 
-export type SubmissionMutation =
-	| {
-			kind: "registration";
-			formUuid?: string;
-			operationAnswers?: SubmissionOperationAnswers;
-			primary: {
-				caseType: string;
-				caseName?: string;
-				properties: JsonObject;
-			};
-			children: ReadonlyArray<{
-				caseType: string;
-				caseName?: string;
-				properties: JsonObject;
-			}>;
-	  }
-	| {
-			kind: "followup";
-			formUuid?: string;
-			operationAnswers?: SubmissionOperationAnswers;
-			caseId: string;
-			patch: { caseName?: string; properties: JsonObject };
-			children: ReadonlyArray<{
-				caseType: string;
-				caseName?: string;
-				properties: JsonObject;
-				parentCaseId: string;
-			}>;
-	  }
-	| {
-			kind: "close";
-			formUuid?: string;
-			operationAnswers?: SubmissionOperationAnswers;
-			caseId: string;
-			patch: { caseName?: string; properties: JsonObject };
-			children: ReadonlyArray<{
-				caseType: string;
-				caseName?: string;
-				properties: JsonObject;
-				parentCaseId: string;
-			}>;
-	  }
-	| {
-			/** A survey touches no case ORDINARILY, but its case operations
-			 *  still execute — the identity slots let the server build the
-			 *  program; absent (older clients, operation-free forms) keeps
-			 *  the historical no-op short-circuit. */
-			kind: "survey";
-			formUuid?: string;
-			operationAnswers?: SubmissionOperationAnswers;
-	  };
+/** One concrete capture answer carried by the submitted form instance. */
+export interface SubmissionAttachmentReference {
+	readonly attachmentName: string;
+	readonly fieldUuid: string;
+	readonly instancePath: string;
+}
+
+/**
+ * The final submission protocol every arm carries.
+ *
+ * `entryKey` names this form entry's attachment scope
+ * (`EngineController.entryKey`), while `attachmentRefs` is the exact surviving
+ * RELEVANT answer projection, including an explicit empty list. The server
+ * validates this identity/projection at the Server Action boundary before it
+ * derives a receipt, operation program, or capture intent.
+ *
+ * Neither value is authority: the server matches references against the
+ * acting member's own staged rows in the app's Project, so a forged projection
+ * can neither prepare nor preserve another member's attachment.
+ *
+ * The slots are plain JSON by necessity as well as by taste. A `File` or a
+ * `Map` argument makes React encode the Server Action as
+ * `multipart/form-data`, whose part headers the edge WAF reads as header
+ * injection — which is also why the bytes never travel this way at all.
+ */
+interface SubmissionProtocol {
+	readonly formUuid: string;
+	readonly entryKey: string;
+	readonly attachmentRefs: ReadonlyArray<SubmissionAttachmentReference>;
+	readonly operationAnswers?: SubmissionOperationAnswers;
+}
+
+export type SubmissionMutation = SubmissionProtocol &
+	(
+		| {
+				kind: "registration";
+				primary: {
+					caseType: string;
+					caseName?: string;
+					properties: JsonObject;
+				};
+				children: ReadonlyArray<{
+					caseType: string;
+					caseName?: string;
+					properties: JsonObject;
+				}>;
+		  }
+		| {
+				kind: "followup";
+				caseId: string;
+				patch: { caseName?: string; properties: JsonObject };
+				children: ReadonlyArray<{
+					caseType: string;
+					caseName?: string;
+					properties: JsonObject;
+					parentCaseId: string;
+				}>;
+		  }
+		| {
+				kind: "close";
+				caseId: string;
+				patch: { caseName?: string; properties: JsonObject };
+				children: ReadonlyArray<{
+					caseType: string;
+					caseName?: string;
+					properties: JsonObject;
+					parentCaseId: string;
+				}>;
+		  }
+		| {
+				/** A survey touches no case ORDINARILY, but its case operations and
+				 * capture intent still execute through the same final protocol. */
+				kind: "survey";
+		  }
+	);
 
 /**
  * Result of submitting a `SubmissionMutation` through the
