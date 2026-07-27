@@ -8,14 +8,14 @@
  *   1. an `auth_user` row (the signed-in Dimagi user),
  *   2. an `auth_session` row (a live, non-expired session token),
  *   3. one `complete` app to open in the builder, a populated patient workspace
- *      for Search / Results / Details visual QA, plus a handful of throwaway
- *      `complete` apps for the delete test to consume — all via real no-LLM
- *      storage paths, so the suite never calls a model.
+ *      for Search / Results / Details visual QA, retry-isolated case-change
+ *      universes, plus throwaway `complete` apps for destructive journeys —
+ *      all via real no-LLM storage paths, so the suite never calls a model.
  *
  * Auth state and app/thread/run state both live in Postgres now (one store).
- * The delete test mutates seeded state irreversibly, and Playwright retries
- * tests in CI; seeding several throwaway apps (one per possible attempt) keeps
- * the delete test idempotent so a retry always has a fresh app to delete.
+ * Several journeys mutate seeded state irreversibly, and Playwright retries
+ * tests in CI; seeding one isolated target per possible attempt keeps every
+ * retry away from the preceding attempt's already-changed state.
  *
  * SAFETY: refuses to run unless `NOVA_DB_LOCAL_URL` is set — the one gate that
  * keeps its writes on the local Postgres, never the real Cloud SQL instance
@@ -58,7 +58,11 @@ import {
 	caseWorkspaceCaseRows,
 	caseWorkspaceRoutes,
 } from "./lib/caseWorkspaceSeed";
-import { DELETE_APP_COUNT, MOVE_APP_COUNT } from "./lib/config";
+import {
+	CASE_CHANGES_FIXTURE_COUNT,
+	DELETE_APP_COUNT,
+	MOVE_APP_COUNT,
+} from "./lib/config";
 import { MP_SEED, seedMultiplayerFixture } from "./lib/multiplayerSeed";
 import { buildSessionStorageState } from "./lib/session";
 
@@ -446,69 +450,78 @@ async function main(): Promise<void> {
 		caseCount: caseWorkspaceCaseIds.length,
 		routes: caseWorkspaceRoutes(caseWorkspaceAppId, firstCaseId),
 	};
-	/* The case-changes fixture: a form whose changes already depend on one
-	 * another, so the smoke drives the reorder refusal in one keypress rather
-	 * than building the dependency through the UI first. */
-	const caseChangesAppId = await createApp(
-		SEED.userId,
-		seedProjectId,
-		randomUUID(),
-		{ appName: CASE_CHANGES_SEED.appName, status: "complete" },
-	);
-	const caseChangesLookup = await createLookupTable(
-		{
-			projectId: seedProjectId,
-			actorId: SEED.userId,
-			role: "owner",
-		},
-		{
-			name: "Case change flags",
-			tag: "case_change_flags",
-			columns: [
-				{
-					wireName: "status",
-					label: "Status",
-					dataType: "text",
-				},
-			],
-		},
-	);
-	const caseChangesLookupColumn = caseChangesLookup.columns[0];
-	if (caseChangesLookupColumn === undefined) {
-		throw new Error("e2e/seed.ts: case-change lookup seeded no column");
+	/* The case-changes journey mutates both its blueprint and saved rows. Seed a
+	 * complete, isolated universe for every possible Playwright attempt so a
+	 * retry never inherits the prior attempt's reordered operations, added
+	 * connection, retyped row, or submission effects. */
+	const caseChanges: {
+		appId: string;
+		route: string;
+		caseId: string;
+		viewerStateFile: string;
+	}[] = [];
+	for (let attempt = 0; attempt < CASE_CHANGES_FIXTURE_COUNT; attempt++) {
+		const caseChangesAppId = await createApp(
+			SEED.userId,
+			seedProjectId,
+			randomUUID(),
+			{ appName: CASE_CHANGES_SEED.appName, status: "complete" },
+		);
+		const caseChangesLookup = await createLookupTable(
+			{
+				projectId: seedProjectId,
+				actorId: SEED.userId,
+				role: "owner",
+			},
+			{
+				name: `Case change flags ${attempt + 1}`,
+				tag: `case_change_flags_${attempt + 1}`,
+				columns: [
+					{
+						wireName: "status",
+						label: "Status",
+						dataType: "text",
+					},
+				],
+			},
+		);
+		const caseChangesLookupColumn = caseChangesLookup.columns[0];
+		if (caseChangesLookupColumn === undefined) {
+			throw new Error("e2e/seed.ts: case-change lookup seeded no column");
+		}
+		const caseChangesDoc = toPersistableDoc(
+			buildCaseChangesBlueprint(caseChangesAppId, {
+				tableId: caseChangesLookup.id,
+				columnId: caseChangesLookupColumn.id,
+			}),
+		);
+		await appendSyntheticBatch({
+			appId: caseChangesAppId,
+			expectedBaseSeq: 0,
+			targetDoc: caseChangesDoc,
+			authority: { kind: "user", actorUserId: SEED.userId },
+		});
+		await materializeCaseStoreSchemas({
+			appId: caseChangesAppId,
+			blueprint: caseChangesDoc,
+			syncedSeq: 1,
+		});
+		const caseChangesPatient = await caseStore.insert({
+			appId: caseChangesAppId,
+			row: {
+				case_type: CASE_CHANGES_SEED.caseType,
+				case_name: "Smoke patient",
+				status: "open",
+				properties: { last_note: "Before submission" },
+			},
+		});
+		caseChanges.push({
+			appId: caseChangesAppId,
+			route: caseChangesRoute(caseChangesAppId),
+			caseId: caseChangesPatient.caseId,
+			viewerStateFile: VIEWER_STATE_FILE,
+		});
 	}
-	const caseChangesDoc = toPersistableDoc(
-		buildCaseChangesBlueprint(caseChangesAppId, {
-			tableId: caseChangesLookup.id,
-			columnId: caseChangesLookupColumn.id,
-		}),
-	);
-	await appendSyntheticBatch({
-		appId: caseChangesAppId,
-		expectedBaseSeq: 0,
-		targetDoc: caseChangesDoc,
-		authority: { kind: "user", actorUserId: SEED.userId },
-	});
-	await materializeCaseStoreSchemas({
-		appId: caseChangesAppId,
-		blueprint: caseChangesDoc,
-		syncedSeq: 1,
-	});
-	const caseChangesPatient = await caseStore.insert({
-		appId: caseChangesAppId,
-		row: {
-			case_type: CASE_CHANGES_SEED.caseType,
-			case_name: "Smoke patient",
-			status: "open",
-			properties: { last_note: "Before submission" },
-		},
-	});
-	const caseChanges = {
-		appId: caseChangesAppId,
-		route: caseChangesRoute(caseChangesAppId),
-		caseId: caseChangesPatient.caseId,
-		viewerStateFile: VIEWER_STATE_FILE,
-	};
 
 	/* The conversations fixture: a module-bearing app (docked chat) plus two
 	 * tall, settled conversations written through the real thread store (turn

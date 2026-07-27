@@ -40,6 +40,8 @@ const REVERSE_DEBOUNCE_MS = 400;
 interface GeopointPickerProps {
 	/** Committed wire value ("lat lon alt acc" or ""). */
 	readonly value: string;
+	/** Visible question label rendered by InteractiveFormRenderer. */
+	readonly labelledBy?: string;
 	/** Commit a new wire value (or "" to clear). */
 	readonly onChange: (value: string) => void;
 	/** Mark the field touched (for required-validation surfacing). */
@@ -50,6 +52,7 @@ interface GeopointPickerProps {
 
 export function GeopointPicker({
 	value,
+	labelledBy,
 	onChange,
 	onBlur,
 	showError,
@@ -191,7 +194,10 @@ export function GeopointPicker({
 	}, [onChange, onBlur]);
 
 	return (
-		<div className="space-y-2">
+		<fieldset
+			aria-labelledby={labelledBy}
+			className="m-0 space-y-2 border-none p-0"
+		>
 			{configured ? (
 				<>
 					<AddressSearch value={address} onSelect={handleAddressSelect} />
@@ -286,7 +292,7 @@ export function GeopointPicker({
 			/>
 
 			{showError && errorMessage && <ValidationError message={errorMessage} />}
-		</div>
+		</fieldset>
 	);
 }
 

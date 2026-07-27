@@ -265,7 +265,10 @@ the module's stale original type. A link target follows the parallel
 carry their rolling type, an exact expression keeps its AST and asserted type,
 and `null` changes only the target (the required `target: null` unlink value is
 assigned rather than treated as an optional-slot clear by the granular
-reducer). Runtime-expression link targets immediately mount the same full
+reducer). Relationship copy names an extension's host but never promises a
+lifecycle cascade: Nova and a default HQ domain close only the case explicitly
+named by the submission, so closing a host does not close its extensions.
+Runtime-expression link targets immediately mount the same full
 text-scoped `ExpressionCardEditor` as the operation's own target; a blank or
 out-of-scope case id is a submission-time fact and the running form refuses the
 whole atomic submission inline. A saved lookup-carrier-bearing operation is

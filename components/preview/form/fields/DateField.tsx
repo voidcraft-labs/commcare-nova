@@ -11,11 +11,19 @@ interface DateFieldProps {
 	/** Any of the three datetime-family kinds; the input type maps 1-to-1. */
 	field: DateFieldEntity | TimeField | DatetimeField;
 	state: FieldState;
+	/** Visible question label rendered by InteractiveFormRenderer. */
+	labelledBy?: string;
 	onChange: (value: string) => void;
 	onBlur: () => void;
 }
 
-export function DateField({ field, state, onChange, onBlur }: DateFieldProps) {
+export function DateField({
+	field,
+	state,
+	labelledBy,
+	onChange,
+	onBlur,
+}: DateFieldProps) {
 	// `kind` replaces wire `type`. The three kinds map to their native
 	// HTML input types; `datetime` uses `datetime-local` because the
 	// plain `datetime` type is obsolete.
@@ -31,6 +39,7 @@ export function DateField({ field, state, onChange, onBlur }: DateFieldProps) {
 		<div>
 			<input
 				type={inputType}
+				aria-labelledby={labelledBy}
 				value={state.value}
 				onChange={(e) => onChange(e.target.value)}
 				onBlur={onBlur}

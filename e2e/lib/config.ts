@@ -1,9 +1,8 @@
 /**
- * Smoke retry budget — single-sourced so the delete test stays idempotent under
- * retries. The seed mints `DELETE_APP_COUNT` throwaway "delete me" apps and the
- * delete test consumes one per Playwright attempt; deriving the count from the
- * retry budget here (rather than hand-syncing a magic number in two files) means
- * bumping retries can't silently under-seed.
+ * Smoke retry budget — single-sourced so every journey that irreversibly
+ * mutates its seed gets one fresh universe per possible attempt. Deriving the
+ * fixture counts here (rather than hand-syncing magic numbers between the seed,
+ * config, and specs) means bumping retries cannot silently under-seed.
  */
 export const SMOKE_RETRIES = process.env.CI ? 2 : 0;
 
@@ -13,3 +12,7 @@ export const DELETE_APP_COUNT = SMOKE_RETRIES + 1;
 /** Same rule for the cross-Project move journey: a moved app is gone from the
  *  source Project, so a retry needs its own. */
 export const MOVE_APP_COUNT = SMOKE_RETRIES + 1;
+
+/** The case-changes journey mutates both its blueprint and saved case rows, so
+ *  every attempt needs its own app + case-data fixture. */
+export const CASE_CHANGES_FIXTURE_COUNT = SMOKE_RETRIES + 1;

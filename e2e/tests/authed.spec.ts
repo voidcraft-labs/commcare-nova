@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import type { Page } from "@playwright/test";
+import type { Page, Response } from "@playwright/test";
 import { CROSS_PROJECT_MOVE_DISCLOSURE } from "../../lib/projects/moveTargets";
 import { CASE_CHANGES_SEED } from "../lib/caseChangesSeed";
 import { CASE_WORKSPACE_SEED } from "../lib/caseWorkspaceSeed";
@@ -56,7 +56,7 @@ interface SeedManifest {
 		route: string;
 		caseId: string;
 		viewerStateFile: string;
-	};
+	}[];
 }
 
 type SecondaryHeaderName =
@@ -66,6 +66,81 @@ type SecondaryHeaderName =
 	| "chat"
 	| "chat-rail"
 	| "inspector";
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null;
+}
+
+function isBlankExpressionTarget(value: unknown): boolean {
+	if (!isRecord(value) || value.kind !== "expression") return false;
+	const expr = value.expr;
+	if (!isRecord(expr) || expr.kind !== "term") return false;
+	const expressionTerm = expr.term;
+	return (
+		isRecord(expressionTerm) &&
+		expressionTerm.kind === "literal" &&
+		expressionTerm.value === ""
+	);
+}
+
+/**
+ * A generic PUT response can belong to any earlier leading/trailing autosave.
+ * Match the exact semantic delta introduced by choosing the blank calculated
+ * link target. The granular intent is normally `update-link`, but it can be
+ * `add-link` (or only the deployed full-operation fallback) when the new link
+ * and this edit share one throttled batch.
+ */
+function isBlankExpressionTargetAutosave(
+	response: Response,
+	appId: string,
+): boolean {
+	if (
+		response.request().method() !== "PUT" ||
+		new URL(response.url()).pathname !== `/api/apps/${appId}`
+	) {
+		return false;
+	}
+	let body: unknown;
+	try {
+		body = response.request().postDataJSON();
+	} catch {
+		return false;
+	}
+	if (!isRecord(body) || !Array.isArray(body.mutations)) return false;
+	return body.mutations.some((mutation) => {
+		if (!isRecord(mutation)) return false;
+		const semantic = mutation.caseOperationPatch;
+		if (isRecord(semantic)) {
+			if (
+				semantic.operation === "update-link" &&
+				isRecord(semantic.patch) &&
+				isBlankExpressionTarget(semantic.patch.target)
+			) {
+				return true;
+			}
+			if (
+				semantic.operation === "add-link" &&
+				isRecord(semantic.value) &&
+				isBlankExpressionTarget(semantic.value.target)
+			) {
+				return true;
+			}
+			return false;
+		}
+		const fallback = mutation.caseOperationChange;
+		if (
+			!isRecord(fallback) ||
+			(fallback.operation !== "add" && fallback.operation !== "update") ||
+			!isRecord(fallback.value) ||
+			!Array.isArray(fallback.value.links)
+		) {
+			return false;
+		}
+		return fallback.value.links.some(
+			(link) => isRecord(link) && isBlankExpressionTarget(link.target),
+		);
+	});
+}
 
 /**
  * The conversation's true scroll element. use-stick-to-bottom scrolls an
@@ -1501,9 +1576,15 @@ test.describe("authenticated builder", () => {
 		page,
 		browser,
 		baseURL,
-	}) => {
+	}, testInfo) => {
 		test.setTimeout(120_000);
-		await page.goto(seed.caseChanges.route);
+		const caseChanges = seed.caseChanges[testInfo.retry];
+		if (caseChanges === undefined) {
+			throw new Error(
+				`Case-changes fixture missing for Playwright attempt ${testInfo.retry}`,
+			);
+		}
+		await page.goto(caseChanges.route);
 
 		await expect(
 			page.getByRole("heading", { name: "Case changes", level: 1 }),
@@ -1707,11 +1788,15 @@ test.describe("authenticated builder", () => {
 					),
 				})
 				.click();
+			const blankTargetSaved = page.waitForResponse((response) =>
+				isBlankExpressionTargetAutosave(response, caseChanges.appId),
+			);
 			await page
 				.getByRole("menuitem", {
 					name: /^A case found by a calculation/,
 				})
 				.click();
+			expect((await blankTargetSaved).ok()).toBe(true);
 			await expect(
 				page.getByText("Work out the id of the case at the other end."),
 			).toBeVisible();
@@ -1730,8 +1815,8 @@ test.describe("authenticated builder", () => {
 				.locator("main")
 				.getByRole("button", { name: "Submit", exact: true });
 			await expect(submit).toBeEnabled();
-			await relatedPatientCaseId.fill(seed.caseChanges.caseId);
-			await expect(relatedPatientCaseId).toHaveValue(seed.caseChanges.caseId);
+			await relatedPatientCaseId.fill(caseChanges.caseId);
+			await expect(relatedPatientCaseId).toHaveValue(caseChanges.caseId);
 			await submit.click();
 			await expect(
 				page.getByRole("alert").filter({ hasText: "Nothing was saved" }),
@@ -1745,8 +1830,7 @@ test.describe("authenticated builder", () => {
 			const removalSaved = page.waitForResponse(
 				(response) =>
 					response.request().method() === "PUT" &&
-					new URL(response.url()).pathname ===
-						`/api/apps/${seed.caseChanges.appId}`,
+					new URL(response.url()).pathname === `/api/apps/${caseChanges.appId}`,
 			);
 			await page.getByRole("button", { name: "Remove", exact: true }).click();
 			expect((await removalSaved).ok()).toBe(true);
@@ -1760,8 +1844,8 @@ test.describe("authenticated builder", () => {
 				.locator("main")
 				.getByRole("button", { name: "Submit", exact: true });
 			await expect(submit).toBeEnabled();
-			await relatedPatientCaseId.fill(seed.caseChanges.caseId);
-			await expect(relatedPatientCaseId).toHaveValue(seed.caseChanges.caseId);
+			await relatedPatientCaseId.fill(caseChanges.caseId);
+			await expect(relatedPatientCaseId).toHaveValue(caseChanges.caseId);
 			await submit.click();
 
 			const patientModule = page.locator("main").getByRole("button", {
@@ -1809,12 +1893,12 @@ test.describe("authenticated builder", () => {
 		await test.step("a viewer can still open and inspect a case change", async () => {
 			const viewerContext = await browser.newContext({
 				baseURL: baseURL ?? undefined,
-				storageState: seed.caseChanges.viewerStateFile,
+				storageState: caseChanges.viewerStateFile,
 			});
 			const viewerPage = await viewerContext.newPage();
 			const viewerGuard = attachErrorGuard(viewerPage, baseURL);
 			try {
-				await viewerPage.goto(seed.caseChanges.route);
+				await viewerPage.goto(caseChanges.route);
 				await expect(
 					viewerPage.getByRole("heading", {
 						name: "Case changes",

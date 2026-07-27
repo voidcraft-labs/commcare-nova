@@ -11,9 +11,10 @@
 // the wire does — an empty target removes the connection.
 //
 // The two relationship kinds are genuinely different and an author has
-// to be able to tell them apart, so each states its consequence rather
-// than its name: a child belongs to its parent, while an extension
-// rides along with its host and is closed with it.
+// to be able to tell them apart, so each states what the edge means: a
+// child belongs to its parent, while an extension names a host. Do not
+// promise a close cascade here — Nova and a default HQ domain close only
+// the case explicitly named by the submission.
 
 "use client";
 
@@ -56,13 +57,13 @@ type LinkEditorScope = Pick<
 
 const RELATIONSHIP_LABEL = {
 	child: "Belongs to that case",
-	extension: "Rides along with that case",
+	extension: "Uses that case as its host",
 } as const;
 
 const RELATIONSHIP_DETAIL = {
 	child: "The connected case is this one's parent. Ordinary ownership.",
 	extension:
-		"The case travels wherever its host does, and closing the host closes it too.",
+		"The connected case is this one's host. Closing the host does not close this case.",
 } as const;
 
 export function CaseOperationLinks({

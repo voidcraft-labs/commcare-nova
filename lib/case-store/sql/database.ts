@@ -206,11 +206,13 @@ export interface CaseTypeSchemasTable {
 
 /**
  * `child` is the standard parent-child relation; `extension` is
- * the host-extension relation where closing the host closes the
- * extension. The wire grammars (CSQL, on-device XPath) match
- * across both via `ancestor-exists` / `subcase-exists`; the
- * explicit column lets the Postgres compiler answer
- * direction-specific queries the wire grammars cannot.
+ * the distinct host-extension relation. Neither Nova nor a default
+ * HQ domain closes an extension merely because its host closes; a
+ * lifecycle cascade requires separate explicit workflow. The wire
+ * grammars (CSQL, on-device XPath) match across both via
+ * `ancestor-exists` / `subcase-exists`; the explicit column lets the
+ * Postgres compiler answer direction-specific queries the wire
+ * grammars cannot.
  */
 export type CaseIndexRelationship = "child" | "extension";
 

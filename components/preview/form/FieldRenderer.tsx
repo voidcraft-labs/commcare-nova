@@ -58,6 +58,7 @@ export function FieldRenderer({
 				<NumberField
 					field={field}
 					state={state}
+					labelledBy={labelledBy}
 					onChange={onChange}
 					onBlur={onBlur}
 				/>
@@ -69,6 +70,7 @@ export function FieldRenderer({
 				<DateField
 					field={field}
 					state={state}
+					labelledBy={labelledBy}
 					onChange={onChange}
 					onBlur={onBlur}
 				/>
@@ -78,6 +80,7 @@ export function FieldRenderer({
 				<SelectOneField
 					field={field}
 					state={state}
+					labelledBy={labelledBy}
 					onChange={onChange}
 					onBlur={onBlur}
 				/>
@@ -87,6 +90,7 @@ export function FieldRenderer({
 				<SelectMultiField
 					field={field}
 					state={state}
+					labelledBy={labelledBy}
 					onChange={onChange}
 					onBlur={onBlur}
 				/>
@@ -100,6 +104,7 @@ export function FieldRenderer({
 				<GeopointField
 					field={field}
 					state={state}
+					labelledBy={labelledBy}
 					onChange={onChange}
 					onBlur={onBlur}
 				/>

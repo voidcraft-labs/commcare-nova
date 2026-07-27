@@ -22,11 +22,18 @@ import { formatLatLonLabel, parseGeopoint } from "./geopointValue";
 interface GeopointFieldProps {
 	readonly field: GeopointFieldEntity;
 	readonly state: FieldState;
+	/** Visible question label rendered by InteractiveFormRenderer. */
+	readonly labelledBy?: string;
 	readonly onChange: (value: string) => void;
 	readonly onBlur: () => void;
 }
 
-export function GeopointField({ state, onChange, onBlur }: GeopointFieldProps) {
+export function GeopointField({
+	state,
+	labelledBy,
+	onChange,
+	onBlur,
+}: GeopointFieldProps) {
 	const isEdit = useEditMode() === "edit";
 
 	if (isEdit) {
@@ -54,6 +61,7 @@ export function GeopointField({ state, onChange, onBlur }: GeopointFieldProps) {
 	return (
 		<GeopointPicker
 			value={state.value}
+			labelledBy={labelledBy}
 			onChange={onChange}
 			onBlur={onBlur}
 			showError={state.touched && !state.valid}

@@ -54,6 +54,13 @@ chat DOCKS, which only happens once the new app has a module (`docHasData`).
   moved app in the builder, which authorizes through the app's CURRENT Project, so
   an app stranded anywhere this user doesn't belong would 404 there. A test that
   must change the active Project has to switch back to `Personal` before finishing.
+- **The case-changes journey gets one complete universe per attempt.** It
+  reorders and extends the blueprint, then submits real changes into saved case
+  rows, so a retry cannot reuse the prior attempt's app. `seed.ts` materializes
+  one app + lookup + case row per possible attempt
+  (`CASE_CHANGES_FIXTURE_COUNT`), and the spec selects
+  `seed.caseChanges[testInfo.retry]`. Keep that attempt-indexed contract when
+  extending the journey.
 - **Chat sends are stubbed at the network layer.** The chat-scroll tests answer
   `POST /api/chat` from `page.route` with a canned UI-message SSE stream
   (`stubChatSends` in `authed.spec.ts`, chunk shapes pinned by
