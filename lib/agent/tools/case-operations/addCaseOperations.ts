@@ -17,34 +17,40 @@ import {
 	resolveOperationAddress,
 } from "./shared";
 
-export const addCaseOperationsInputSchema = operationAddressSchema
-	.extend({
-		operations: z
-			.array(caseOperationInputSchema)
-			.min(1)
-			.describe(
-				"Complete operations in execution order. A later item may target an earlier create by operationId.",
-			),
-		index: z
-			.number()
-			.int()
-			.nonnegative()
-			.optional()
-			.describe("Insertion index for the first item; defaults to the end"),
-	})
-	.superRefine((value, ctx) => {
-		const seen = new Set<string>();
-		for (const [index, operation] of value.operations.entries()) {
-			if (seen.has(operation.id)) {
-				ctx.addIssue({
-					code: "custom",
-					path: ["operations", index, "id"],
-					message: `"${operation.id}" is repeated in this batch.`,
-				});
+export const addCaseOperationsInputSchema = operationAddressSchema.extend({
+	operations: z
+		.array(caseOperationInputSchema)
+		.min(1)
+		// The batch duplicate-id check rides the FIELD, not the object.
+		// `lib/mcp/adapters/sharedToolAdapter.ts` rebuilds the wire schema
+		// from `inputSchema.shape` and hands the SDK-parsed args straight
+		// to `execute`, so an object-level refinement never runs on the
+		// MCP path — an MCP client could add two operations sharing one
+		// id in a call the chat path refuses. A field-level refinement
+		// travels with the field.
+		.superRefine((operations, ctx) => {
+			const seen = new Set<string>();
+			for (const [index, operation] of operations.entries()) {
+				if (seen.has(operation.id)) {
+					ctx.addIssue({
+						code: "custom",
+						path: [index, "id"],
+						message: `"${operation.id}" is repeated in this batch.`,
+					});
+				}
+				seen.add(operation.id);
 			}
-			seen.add(operation.id);
-		}
-	});
+		})
+		.describe(
+			"Complete operations in execution order. A later item may target an earlier create by operationId.",
+		),
+	index: z
+		.number()
+		.int()
+		.nonnegative()
+		.optional()
+		.describe("Insertion index for the first item; defaults to the end"),
+});
 
 export type AddCaseOperationsInput = z.infer<
 	typeof addCaseOperationsInputSchema
