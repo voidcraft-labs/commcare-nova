@@ -1223,15 +1223,31 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			/>
 		) : null;
 
-	/* `min-h-full` + a growing frame rather than a hard `h-full`: the tile
-	 * band above sticks to the scroller, and a sticky element can only
-	 * travel as far as its containing block, so that block has to span the
-	 * form's real height. The frame still fills a short form (it is the
-	 * flex child that grows), so the submit row keeps its footer position. */
+	/* The band is the only reason this frame grows. A sticky element can
+	 * travel no further than its containing block, so while a persistent
+	 * tile is on screen that block has to span the form's real height —
+	 * and the frame still fills a short form (it is the flex child that
+	 * grows), so the submit row keeps its footer position.
+	 *
+	 * With no band there is nothing to keep sticky, and growing COSTS the
+	 * edit canvas its height: `VirtualFormList` sizes its scroller with
+	 * `h-full` under `contain: strict`, so an auto-height ancestor leaves
+	 * that percentage unresolved and containment settles it at zero. The
+	 * virtualizer then measures an empty viewport and renders no rows at
+	 * all. The band is preview-only by construction, so edit mode always
+	 * takes the definite-height branch its virtualized canvas requires —
+	 * which is also the inner scroller `builder/CLAUDE.md` documents as
+	 * the edit-mode one, and the surface the flipbook's scroll restore
+	 * reads its offset and measurements back from. */
 	return (
-		<div className="flex min-h-full flex-col">
+		<div className={persistentTile ? "flex min-h-full flex-col" : "h-full"}>
 			{persistentTile}
-			<ContentFrame width="5xl" className="flex flex-1 flex-col">
+			<ContentFrame
+				width="5xl"
+				className={
+					persistentTile ? "flex flex-1 flex-col" : "flex h-full flex-col"
+				}
+			>
 				{/* FormLayoutProvider owns the group/repeat collapse set, shared across edit and live modes so a folded group stays folded when the user flips. */}
 				<FormLayoutProvider ref={formLayoutRef}>{formBody}</FormLayoutProvider>
 			</ContentFrame>
