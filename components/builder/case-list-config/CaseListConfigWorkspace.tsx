@@ -1639,18 +1639,47 @@ export function CaseListWorkspaceCanvas() {
 	const navigate = useNavigate();
 	const appId = useAppId() ?? "";
 	const compactHeight = useIsBreakpoint("max", 360, "height");
-	/* Bridge each tab body's scroll across a module unmount/remount; same-module
-	 * tab switches keep their scroll via the Activity boundaries below. */
+	/* Bridge each tab body's scroll across Activity hide/reveal and module
+	 * unmount/remount. The shared controller above this canvas owns the durable
+	 * authoring state. */
 	const scrollPositions = useRef(new Map<string, number>());
+	const departingScrollKeyRef = useRef<string | null>(null);
 	const moduleUuid = ws?.moduleUuid;
 	const scrollBodyRefs = useMemo(() => {
 		const bind =
 			(kind: CaseListWorkspaceTab) => (node: HTMLDivElement | null) => {
 				if (node === null || moduleUuid === undefined) return;
 				const key = `${moduleUuid}:${kind}`;
-				node.scrollTop = scrollPositions.current.get(key) ?? 0;
+				const remembered = scrollPositions.current.get(key);
+				let frame: number | null = null;
+				if (remembered !== undefined) {
+					/*
+					 * Activity can reconnect the ref while its host is still
+					 * display:none. Wait for the body to participate in layout,
+					 * then reassert the exact authored offset across the reveal's
+					 * settled frame. First mounts have no saved value and are
+					 * deliberately left alone.
+					 */
+					node.scrollTop = remembered;
+					const restoreAfterReveal = () => {
+						if (!node.isConnected) {
+							frame = null;
+							return;
+						}
+						if (getComputedStyle(node).display === "none") {
+							frame = requestAnimationFrame(restoreAfterReveal);
+							return;
+						}
+						node.scrollTop = remembered;
+						frame = requestAnimationFrame(() => {
+							node.scrollTop = remembered;
+							frame = null;
+						});
+					};
+					frame = requestAnimationFrame(restoreAfterReveal);
+				}
 				return () => {
-					scrollPositions.current.set(key, node.scrollTop);
+					if (frame !== null) cancelAnimationFrame(frame);
 				};
 			};
 		return {
@@ -1659,58 +1688,33 @@ export function CaseListWorkspaceCanvas() {
 			detail: bind("detail"),
 		};
 	}, [moduleUuid]);
-	const visibleTab = ws?.tab;
 	const rememberScroll = useCallback(
 		(kind: CaseListWorkspaceTab, scrollTop: number) => {
-			/*
-			 * Hiding an Activity body may itself dispatch a scroll event after
-			 * layout changes. That is browser bookkeeping, not the author's
-			 * position; accepting it would replace the last visible offset before
-			 * the tab can restore it.
-			 */
-			if (moduleUuid === undefined || kind !== visibleTab) return;
-			scrollPositions.current.set(`${moduleUuid}:${kind}`, scrollTop);
+			if (moduleUuid === undefined) return;
+			const key = `${moduleUuid}:${kind}`;
+			if (departingScrollKeyRef.current === key) return;
+			scrollPositions.current.set(key, scrollTop);
 		},
-		[moduleUuid, visibleTab],
+		[moduleUuid],
 	);
-	/*
-	 * React Activity keeps each tab body mounted, but showing a previously
-	 * hidden overflow element can let the browser adjust its scroll position
-	 * after the commit (observed as a one-line drift at the bottom). Activity
-	 * may reveal its host after this parent's first post-commit frames when React
-	 * is under load, so frame counts are not a readiness signal. Wait until the
-	 * body itself is laid out, then restore across the reveal's first settled
-	 * frame. The resulting scroll event writes the same value back to the map.
-	 */
-	useLayoutEffect(() => {
-		if (moduleUuid === undefined || visibleTab === undefined) return;
-		const kind = visibleTab;
-		const remembered = scrollPositions.current.get(`${moduleUuid}:${kind}`);
-		if (remembered === undefined) return;
-		let frame: number | null = null;
-		const restoreAfterReveal = () => {
+	const captureScroll = useCallback(
+		(kind: CaseListWorkspaceTab) => {
+			if (moduleUuid === undefined) return;
 			const node = document.querySelector<HTMLElement>(
 				`[data-case-workspace-scroll-body="${kind}"]`,
 			);
-			if (node === null) {
-				frame = null;
-				return;
+			if (node !== null) {
+				scrollPositions.current.set(`${moduleUuid}:${kind}`, node.scrollTop);
+				/*
+				 * Teardown may emit one browser scroll after this exact snapshot.
+				 * Ignore only that outgoing module/tab key; the next navigation
+				 * snapshot replaces it, and another module never matches it.
+				 */
+				departingScrollKeyRef.current = `${moduleUuid}:${kind}`;
 			}
-			if (getComputedStyle(node).display === "none") {
-				frame = requestAnimationFrame(restoreAfterReveal);
-				return;
-			}
-			node.scrollTop = remembered;
-			frame = requestAnimationFrame(() => {
-				node.scrollTop = remembered;
-				frame = null;
-			});
-		};
-		frame = requestAnimationFrame(restoreAfterReveal);
-		return () => {
-			if (frame !== null) cancelAnimationFrame(frame);
-		};
-	}, [moduleUuid, visibleTab]);
+		},
+		[moduleUuid],
+	);
 
 	// Guard the deletion-in-flight window: a peer cleared the case type on the
 	// module this URL points at (dropping caseListConfig with it), before
@@ -1789,16 +1793,24 @@ export function CaseListWorkspaceCanvas() {
 				onSelectTab={(next) => {
 					/* Tabs are no-ops when already active. */
 					if (next === tab) return;
+					/*
+					 * Capture in the click boundary, before React tears down the
+					 * outgoing tab. Cleanup-time reads happen after descendant
+					 * effects and Chromium can already be one line away from the
+					 * author's visible position.
+					 */
+					captureScroll(tab);
 					if (next === "search") navigate.openSearchConfig(ws.moduleUuid);
 					else if (next === "list") navigate.openCaseList(ws.moduleUuid);
 					else navigate.openDetailConfig(ws.moduleUuid);
 				}}
 			/>
 
-			{/* Each tab keeps its own body scroller mounted. The strip above is a
-			 * fixed flex sibling, so it cannot drift before "sticking" and each
-			 * canvas naturally remembers its own scroll position on return. Do not
-			 * use data-preview-scroll-container here: that selector belongs to the
+			{/* Each tab keeps its own body mounted through Activity. The explicit
+			 * snapshot/restore bridge corrects Chromium's reveal-time reclamp
+			 * without sacrificing the workbench's local state. The strip is a
+			 * fixed flex sibling, so it cannot drift before "sticking". Do not use
+			 * data-preview-scroll-container here: that selector belongs to the
 			 * builder's form flipbook contract. */}
 			<div className="relative min-h-0 flex-1 overflow-hidden">
 				<Activity mode={tab === "search" ? "visible" : "hidden"}>
