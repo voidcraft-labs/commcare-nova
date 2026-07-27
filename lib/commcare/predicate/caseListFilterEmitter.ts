@@ -461,19 +461,11 @@ function emitBetween(
 }
 
 /**
- * Emit text-match per `mode`. Each mode maps to a CCHQ wire
- * function:
- *
- *   - `starts-with` → `starts-with(prop, <value>)` (XPath 1.0 standard).
- *   - `fuzzy` → `fuzzy-match(prop, <value>)`.
- *   - `phonetic` → `phonetic-match(prop, <value>)`.
- *   - `fuzzy-date` → `fuzzy-date(prop, <value>)`.
- *
- * The three CCHQ extensions (`fuzzy-match`, `phonetic-match`,
- * `fuzzy-date`) are registered on CSQL's query-function table at
- * `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_QUERY_FUNCTIONS`.
- * The wire syntax is the same well-formed function-call shape
- * regardless of slot.
+ * Emit text-match per `mode`. On device there is exactly one:
+ * `starts-with` → `starts-with(prop, <value>)`, XPath 1.0 standard and
+ * the only one of the four Core registers. The other three throw —
+ * see `matchModeToWireFunction` for why the guard belongs at emission
+ * and not only in the AST rules.
  *
  * `match.value` is a full `ValueExpression`. The on-device expression
  * emitter handles literal/input/session terms as well as pure derived values,
@@ -491,10 +483,31 @@ function emitMatch(
 }
 
 /**
- * Map a `MatchMode` discriminator to the CCHQ wire function name.
- * Exhaustive switch on the closed `MATCH_MODES` enum — extending
- * the union surfaces here as a compile-time `never` error rather
- * than silently falling through to one of the existing branches.
+ * Map a `MatchMode` discriminator to the on-device wire function name.
+ *
+ * Only `starts-with` has one. CommCare Core's XPath dispatch
+ * (`commcare-core .../javarosa/xpath/parser/ast/ASTNodeFunctionCall.java::buildFuncExpr`)
+ * registers no `fuzzy-match`, `phonetic-match`, or `fuzzy-date`; those
+ * three are CSQL query functions living in HQ's Elasticsearch compiler
+ * (`commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_QUERY_FUNCTIONS`)
+ * and reach the server only inside a case-search `_xpath_query` payload.
+ * The server-side spelling is `csqlEmitter.ts`'s own separate dispatch,
+ * which keeps all four.
+ *
+ * The guard has to live HERE rather than only in an AST rule because an
+ * unknown name is not a parse failure: Core's `buildFuncExpr` falls
+ * through to `XPathCustomRuntimeFunc`, whose `validateArgCount` is a
+ * no-op, so the app installs clean and throws
+ * `XPathUnhandledException` at evaluation — rendering
+ * `<invalid xpath: …>` into a case-list cell rather than failing. Every
+ * carrier that dry-runs this emitter therefore inherits the finding
+ * (`rules/caseOperations.ts::validateOnDevicePredicate` and
+ * `::validateOnDeviceExpression`, which also reaches `count`'s `where`
+ * through `expression/onDeviceEmitter.ts`), which is why case-list and
+ * display-condition slots each needed their own AST rule and case
+ * operations were missed. Those AST rules keep naming the offending slot
+ * in the author's words; this throw is the totality backstop that no
+ * carrier can forget.
  */
 function matchModeToWireFunction(
 	mode: Extract<Predicate, { kind: "match" }>["mode"],
@@ -503,11 +516,11 @@ function matchModeToWireFunction(
 		case "starts-with":
 			return "starts-with";
 		case "fuzzy":
-			return "fuzzy-match";
 		case "phonetic":
-			return "phonetic-match";
 		case "fuzzy-date":
-			return "fuzzy-date";
+			throw new Error(
+				`caseListFilterEmitter: the '${mode}' match mode is a case-search function that CommCare Core's on-device XPath evaluator does not register, so it would install cleanly and then fail when the screen is opened. Only 'starts-with' runs on device. Validation should reject it before wire emission.`,
+			);
 		default: {
 			const _exhaustive: never = mode;
 			throw new Error(

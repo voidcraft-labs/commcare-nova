@@ -14,6 +14,7 @@ import {
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import {
 	concat,
+	count,
 	dateAdd,
 	double,
 	eq,
@@ -22,6 +23,7 @@ import {
 	idOf,
 	ifExpr,
 	literal,
+	match,
 	prop,
 	subcasePath,
 	tableLookup,
@@ -318,6 +320,58 @@ function mapFieldToCaseType(
 	field.id = id;
 	field.case_property_on = caseType;
 }
+
+describe("case-operation on-device portability", () => {
+	// An operation's condition lowers to wrapper relevance and its values to
+	// binds — both JavaRosa, the same evaluator a case-list filter's nodeset
+	// predicate runs on. Three of the four match modes are case-search
+	// functions absent from Core's dispatch
+	// (`ASTNodeFunctionCall::buildFuncExpr`), so they parse, install, and then
+	// throw when the screen opens. The case list and display conditions each
+	// caught this with their own AST rule; operations were missed because the
+	// on-device emitter lowered them silently, which is where the guard now
+	// lives — so every carrier that dry-runs the emitter inherits it.
+	it.each(["fuzzy", "phonetic", "fuzzy-date"] as const)(
+		"rejects the %s match mode a device cannot evaluate",
+		(mode) => {
+			expectCode("CASE_OPERATION_EXPRESSION_TYPE", [
+				update({ condition: match(prop("patient", "nickname"), "ali", mode) }),
+			]);
+		},
+	);
+
+	it("rejects an unevaluable match mode nested in a count's where", () => {
+		// `count` reaches the same emitter through the on-device expression
+		// emitter's own relation arm, so the finding must survive nesting
+		// inside a value slot rather than only at a condition's root.
+		expectCode("CASE_OPERATION_EXPRESSION_TYPE", [
+			update({
+				writes: [
+					{
+						property: "nickname",
+						value: concat(
+							term(literal("n=")),
+							count(
+								subcasePath("parent", "visit"),
+								match(prop("visit", "source_id"), "ali", "fuzzy"),
+							),
+						),
+					},
+				],
+			}),
+		]);
+	});
+
+	it("keeps starts-with, the one mode CommCare Core registers", () => {
+		expect(
+			codesFor([
+				update({
+					condition: match(prop("patient", "nickname"), "ali", "starts-with"),
+				}),
+			]),
+		).toEqual([]);
+	});
+});
 
 describe("case-operation activation and identity", () => {
 	it("rejects duplicate UUIDs, duplicate ids, and unsafe wire ids", () => {

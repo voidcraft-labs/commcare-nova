@@ -521,20 +521,21 @@ describe("emitCaseListFilter — match", () => {
 		expect(emitCaseListFilter(p)).toBe("starts-with(full_name, 'Ali')");
 	});
 
-	it("emits mode=fuzzy as fuzzy-match(prop, 'v')", () => {
-		const p = match(prop("patient", "full_name"), "alice", "fuzzy");
-		expect(emitCaseListFilter(p)).toBe("fuzzy-match(full_name, 'alice')");
-	});
-
-	it("emits mode=phonetic as phonetic-match(prop, 'v')", () => {
-		const p = match(prop("patient", "full_name"), "alice", "phonetic");
-		expect(emitCaseListFilter(p)).toBe("phonetic-match(full_name, 'alice')");
-	});
-
-	it("emits mode=fuzzy-date as fuzzy-date(prop, 'v')", () => {
-		const p = match(prop("patient", "dob"), "2020-01-01", "fuzzy-date");
-		expect(emitCaseListFilter(p)).toBe("fuzzy-date(dob, '2020-01-01')");
-	});
+	// The other three modes are case-search functions with no on-device
+	// implementation. Emitting them produced XPath that installs cleanly
+	// and then throws when the screen is opened, so this emitter refuses
+	// rather than lowering them — see `matchModeToWireFunction`. Their
+	// real wire home is `csqlEmitter.ts`, whose own dispatch keeps all
+	// four, and which is asserted separately.
+	it.each(["fuzzy", "phonetic", "fuzzy-date"] as const)(
+		"refuses mode=%s, which CommCare Core cannot evaluate",
+		(mode) => {
+			const p = match(prop("patient", "full_name"), "alice", mode);
+			expect(() => emitCaseListFilter(p)).toThrow(
+				/does not register|only 'starts-with' runs on device/i,
+			);
+		},
+	);
 
 	it("routes the match value through quoteLiteral for embedded quote escape", () => {
 		const p = match(prop("patient", "full_name"), "O'Brien", "starts-with");
