@@ -1643,7 +1643,7 @@ export function CaseListWorkspaceCanvas() {
 	 * unmount/remount. The shared controller above this canvas owns the durable
 	 * authoring state. */
 	const scrollPositions = useRef(new Map<string, number>());
-	const departingScrollKeyRef = useRef<string | null>(null);
+	const frozenScrollKeysRef = useRef(new Set<string>());
 	const moduleUuid = ws?.moduleUuid;
 	const scrollBodyRefs = useMemo(() => {
 		const bind =
@@ -1653,6 +1653,7 @@ export function CaseListWorkspaceCanvas() {
 				const remembered = scrollPositions.current.get(key);
 				let frame: number | null = null;
 				if (remembered !== undefined) {
+					frozenScrollKeysRef.current.add(key);
 					/*
 					 * Activity can reconnect the ref while its host is still
 					 * display:none. Wait for the body to participate in layout,
@@ -1673,6 +1674,7 @@ export function CaseListWorkspaceCanvas() {
 						node.scrollTop = remembered;
 						frame = requestAnimationFrame(() => {
 							node.scrollTop = remembered;
+							frozenScrollKeysRef.current.delete(key);
 							frame = null;
 						});
 					};
@@ -1692,7 +1694,7 @@ export function CaseListWorkspaceCanvas() {
 		(kind: CaseListWorkspaceTab, scrollTop: number) => {
 			if (moduleUuid === undefined) return;
 			const key = `${moduleUuid}:${kind}`;
-			if (departingScrollKeyRef.current === key) return;
+			if (frozenScrollKeysRef.current.has(key)) return;
 			scrollPositions.current.set(key, scrollTop);
 		},
 		[moduleUuid],
@@ -1704,13 +1706,14 @@ export function CaseListWorkspaceCanvas() {
 				`[data-case-workspace-scroll-body="${kind}"]`,
 			);
 			if (node !== null) {
-				scrollPositions.current.set(`${moduleUuid}:${kind}`, node.scrollTop);
+				const key = `${moduleUuid}:${kind}`;
+				scrollPositions.current.set(key, node.scrollTop);
 				/*
-				 * Teardown may emit one browser scroll after this exact snapshot.
-				 * Ignore only that outgoing module/tab key; the next navigation
-				 * snapshot replaces it, and another module never matches it.
+				 * Activity can emit delayed clamp/reveal scrolls after more than
+				 * one subsequent tab transition. Freeze this exact module/tab
+				 * snapshot until that tab has visibly restored it.
 				 */
-				departingScrollKeyRef.current = `${moduleUuid}:${kind}`;
+				frozenScrollKeysRef.current.add(key);
 			}
 		},
 		[moduleUuid],
@@ -1728,6 +1731,8 @@ export function CaseListWorkspaceCanvas() {
 			`${moduleUuid}:${visibleTab}`,
 		);
 		if (remembered === undefined) return;
+		const key = `${moduleUuid}:${visibleTab}`;
+		frozenScrollKeysRef.current.add(key);
 		let frame: number | null = null;
 		const restoreAfterReveal = () => {
 			const node = document.querySelector<HTMLElement>(
@@ -1744,6 +1749,7 @@ export function CaseListWorkspaceCanvas() {
 			node.scrollTop = remembered;
 			frame = requestAnimationFrame(() => {
 				node.scrollTop = remembered;
+				frozenScrollKeysRef.current.delete(key);
 				frame = null;
 			});
 		};
