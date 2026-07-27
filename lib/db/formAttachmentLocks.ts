@@ -4,8 +4,8 @@ import type { AppDatabase } from "./pg";
 
 type SharedDatabase = AppDatabase & CaseDatabase;
 
-/** Serialize every terminal operation for one concrete form entry. */
-export async function lockFormAttachmentEntry(
+/** Serialize every attachment mutation and receipt lifecycle for one entry. */
+export async function lockFormSubmissionEntry(
 	tx: Transaction<AppDatabase> | Transaction<CaseDatabase>,
 	args: { appId: string; actorUserId: string; entryKey: string },
 ): Promise<void> {

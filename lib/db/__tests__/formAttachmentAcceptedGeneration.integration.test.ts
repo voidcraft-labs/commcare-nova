@@ -235,6 +235,12 @@ describe("accepted capture generation storage race", () => {
 		await store.applySubmission({
 			appId: APP_ID,
 			ordinary: { kind: "none" },
+			submissionReceipt: {
+				entryKey: intent.entryKey,
+				formUuid: intent.formUuid,
+				expectedAppMutationSeq: intent.expectedAppMutationSeq,
+				requestDigest: intent.requestDigest,
+			},
 			captureIntent: intent,
 		});
 

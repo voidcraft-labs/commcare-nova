@@ -60,8 +60,8 @@ import {
 } from "@/lib/domain/captureFormats";
 import { loadAppInTransaction } from "./apps";
 import {
-	lockFormAttachmentEntry,
 	lockFormAttachmentProjectQuota,
+	lockFormSubmissionEntry,
 } from "./formAttachmentLocks";
 import type { FormAttachmentsTable } from "./pg";
 import { getAppDb, withAppTx } from "./pg";
@@ -220,60 +220,6 @@ function recordFromRow(
 }
 
 /**
- * Read an already-accepted entry receipt before consulting today's blueprint.
- *
- * The row is immutable after its accepting transaction commits. A plain
- * authorized read is therefore sufficient for the action's fast replay path;
- * `PostgresCaseStore.applySubmission` repeats the check under the entry lock
- * before any effect to close the read/build/write race.
- */
-export async function readFormSubmissionReceipt(args: {
-	appId: string;
-	projectId: string;
-	actorUserId: string;
-	entryKey: string;
-}): Promise<FormSubmissionReceiptRecord | undefined> {
-	return withAppTx(async (tx) => {
-		const app = await tx
-			.selectFrom("apps")
-			.select(["project_id", "deleted_at"])
-			.where("id", "=", args.appId)
-			.forShare()
-			.executeTakeFirst();
-		if (app?.project_id !== args.projectId || app.deleted_at !== null) {
-			throw new FormAttachmentWriteRejectedError("App not found.");
-		}
-		const role = await projectRoleForInTransaction(
-			tx,
-			args.actorUserId,
-			args.projectId,
-		);
-		if (role === null || !roleAllowsApp(role, "edit")) {
-			throw new FormAttachmentWriteRejectedError("App not found.");
-		}
-		const receipt = await tx
-			.selectFrom("form_submission_intents")
-			.select(["form_uuid", "request_digest", "result"])
-			.where("app_id", "=", args.appId)
-			.where("project_id", "=", args.projectId)
-			.where("created_by", "=", args.actorUserId)
-			.where("entry_key", "=", args.entryKey)
-			.executeTakeFirst();
-		if (receipt === undefined) return undefined;
-		if (receipt.result === null) {
-			throw new Error(
-				"A committed form submission intent is missing its atomic result.",
-			);
-		}
-		return {
-			formUuid: receipt.form_uuid,
-			requestDigest: receipt.request_digest,
-			result: receipt.result,
-		};
-	});
-}
-
-/**
  * Mint a `pending` attachment row and return the key its bytes go to.
  *
  * The caller has already authorized `edit` on the app and resolved its
@@ -359,7 +305,7 @@ export async function createPendingFormAttachment(args: {
 				"The capture question changed while the upload started. Reload and attach the file again.",
 			);
 		}
-		await lockFormAttachmentEntry(tx, {
+		await lockFormSubmissionEntry(tx, {
 			appId: args.appId,
 			actorUserId: args.createdBy,
 			entryKey: args.entryKey,
@@ -585,7 +531,7 @@ export async function authorizePendingFormAttachmentUpload(args: {
 			candidate.project_id,
 		);
 		if (role === null || !roleAllowsApp(role, "edit")) return null;
-		await lockFormAttachmentEntry(tx, {
+		await lockFormSubmissionEntry(tx, {
 			appId: candidate.app_id,
 			actorUserId: args.actorUserId,
 			entryKey: candidate.entry_key,
@@ -663,7 +609,7 @@ export async function confirmFormAttachment(args: {
 		if (role === null || !roleAllowsApp(role, "edit")) {
 			return { kind: "not_found" };
 		}
-		await lockFormAttachmentEntry(tx, {
+		await lockFormSubmissionEntry(tx, {
 			appId: args.expectedAppId,
 			actorUserId: args.actorUserId,
 			entryKey: candidate.entry_key,
@@ -803,7 +749,7 @@ export async function beginFormAttachmentPreparation(args: {
 		if (role === null || !roleAllowsApp(role, "edit")) {
 			throw new FormAttachmentWriteRejectedError("App not found.");
 		}
-		await lockFormAttachmentEntry(tx, {
+		await lockFormSubmissionEntry(tx, {
 			appId: args.appId,
 			actorUserId: args.actorUserId,
 			entryKey: args.entryKey,
@@ -982,7 +928,7 @@ export async function deleteUnsubmittedFormAttachment(args: {
 			args.expectedProjectId,
 		);
 		if (role === null || !roleAllowsApp(role, "edit")) return null;
-		await lockFormAttachmentEntry(tx, {
+		await lockFormSubmissionEntry(tx, {
 			appId: args.expectedAppId,
 			actorUserId: args.actorUserId,
 			entryKey: candidate.entry_key,
@@ -1070,7 +1016,7 @@ export async function retargetStagedFormAttachment(args: {
 			args.expectedProjectId,
 		);
 		if (role === null || !roleAllowsApp(role, "edit")) return null;
-		await lockFormAttachmentEntry(tx, {
+		await lockFormSubmissionEntry(tx, {
 			appId: args.expectedAppId,
 			actorUserId: args.actorUserId,
 			entryKey: candidate.entry_key,

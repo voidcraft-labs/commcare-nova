@@ -34,6 +34,7 @@ import type {
 	CaseStore,
 	SortKey as CaseStoreSortKey,
 	LookupTableSchemas,
+	SubmissionReceiptIdentity,
 	TermBindings,
 } from "@/lib/case-store";
 import { buildCaseTypeMap, withProjectContext } from "@/lib/case-store";
@@ -970,7 +971,7 @@ export function buildSubmissionReceiptIdentity(args: {
 	readonly mutation: SubmissionMutation;
 	readonly projection: CaptureSubmissionProjection;
 	readonly viewerTimeZone?: string;
-}): NonNullable<ApplySubmissionArgs["submissionReceipt"]> {
+}): SubmissionReceiptIdentity {
 	const { entryKey, formUuid } = args.projection;
 	const requestDigest = createHash("sha256")
 		.update(
@@ -1020,7 +1021,7 @@ export async function buildSubmissionOperationProgram(args: {
 	readonly projection: CaptureSubmissionProjection;
 	readonly viewerTimeZone?: string;
 }): Promise<BuiltSubmissionOperations> {
-	const submissionReceipt = buildSubmissionReceiptIdentity(args);
+	const receiptIdentity = buildSubmissionReceiptIdentity(args);
 
 	const app = args.committedApp;
 	if (app.blueprint.forms[args.projection.formUuid as Uuid] === undefined) {
@@ -1065,19 +1066,28 @@ export async function buildSubmissionOperationProgram(args: {
 		validated.attachmentRefs.length === 0 &&
 		allowedAttachments.length === 0
 	) {
-		return { ...built, submissionReceipt };
+		return {
+			...built,
+			submissionReceipt: {
+				...receiptIdentity,
+				expectedAppMutationSeq: app.mutation_seq,
+			},
+		};
 	}
 	const captureIntentWithoutDigest = {
 		entryKey: validated.entryKey,
 		formUuid: validated.formUuid,
 		expectedAppMutationSeq: app.mutation_seq,
-		requestDigest: submissionReceipt.requestDigest,
+		requestDigest: receiptIdentity.requestDigest,
 		attachments: validated.attachmentRefs,
 		allowedAttachments,
 	};
 	return {
 		...built,
-		submissionReceipt,
+		submissionReceipt: {
+			...receiptIdentity,
+			expectedAppMutationSeq: app.mutation_seq,
+		},
 		captureIntent: {
 			...captureIntentWithoutDigest,
 		},
@@ -1207,16 +1217,24 @@ export function submissionEnvelopeArgs(
 	appId: string,
 	built?: BuiltSubmissionOperations,
 ): ApplySubmissionArgs {
+	if (built?.submissionReceipt === undefined) {
+		throw new Error(
+			compilerBugMessage({
+				where: "preview.caseDataBindingHelpers.submissionEnvelopeArgs",
+				invariant:
+					"an atomic submission envelope was built without its durable receipt claim",
+				detail:
+					"Every form entry, including a text-only survey, must be derived through `buildSubmissionOperationProgram` before it reaches the case store.",
+			}),
+		);
+	}
 	const operations =
 		built?.program === undefined ? {} : { operations: built.program };
 	const captureIntent =
 		built?.captureIntent === undefined
 			? {}
 			: { captureIntent: built.captureIntent };
-	const submissionReceipt =
-		built?.submissionReceipt === undefined
-			? {}
-			: { submissionReceipt: built.submissionReceipt };
+	const submissionReceipt = { submissionReceipt: built.submissionReceipt };
 	switch (mutation.kind) {
 		case "registration":
 			return {

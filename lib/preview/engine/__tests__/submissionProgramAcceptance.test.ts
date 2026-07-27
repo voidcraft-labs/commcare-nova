@@ -27,6 +27,7 @@ import { buildDoc, f } from "../../../__tests__/docHelpers";
 import { validateCaptureSubmissionProjection } from "../captureSubmissionValidation";
 import {
 	buildCaseOperationProgramFromDoc,
+	buildSubmissionReceiptIdentity,
 	submissionEnvelopeArgs,
 } from "../caseDataBindingHelpers";
 import { FormEngine, type FormEngineInput } from "../formEngine";
@@ -203,7 +204,20 @@ async function submit(doc: BlueprintDoc, engine: FormEngine, store: CaseStore) {
 	});
 	expect(built.program).toBeDefined();
 	expect(built.ordinaryCaseType).toBe("patient");
-	return store.applySubmission(submissionEnvelopeArgs(mutation, APP_ID, built));
+	return store.applySubmission(
+		submissionEnvelopeArgs(mutation, APP_ID, {
+			...built,
+			submissionReceipt: {
+				...buildSubmissionReceiptIdentity({
+					appId: APP_ID,
+					identity: IDENTITY,
+					mutation,
+					projection,
+				}),
+				expectedAppMutationSeq: 0,
+			},
+		}),
+	);
 }
 
 async function loadCase(store: CaseStore, caseId: string) {

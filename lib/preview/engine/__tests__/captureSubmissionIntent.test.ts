@@ -105,6 +105,7 @@ describe("capture submission intent", () => {
 		expect(built.submissionReceipt).toEqual({
 			entryKey: ENTRY_KEY,
 			formUuid: FORM_UUID,
+			expectedAppMutationSeq: 17,
 			requestDigest: built.captureIntent?.requestDigest,
 		});
 	});
@@ -129,6 +130,7 @@ describe("capture submission intent", () => {
 		expect(built.submissionReceipt).toMatchObject({
 			entryKey: ENTRY_KEY,
 			formUuid: FORM_UUID,
+			expectedAppMutationSeq: 17,
 		});
 		expect(built.submissionReceipt?.requestDigest).toMatch(/^[0-9a-f]{64}$/);
 	});

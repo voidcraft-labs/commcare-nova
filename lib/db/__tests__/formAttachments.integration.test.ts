@@ -9,6 +9,7 @@
 import { sql } from "kysely";
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { asUuid } from "@/lib/domain";
 import { resolveAuthorizedAppSnapshot } from "../appAccess";
 import {
 	beginFormAttachmentPreparation,
@@ -107,6 +108,107 @@ describe("form submission authorization snapshot", () => {
 					childCaseIds: [],
 					operations: [],
 				},
+			},
+		});
+	});
+
+	it("replays before hydrating form, capture, and persona topology that was deleted after acceptance", async () => {
+		const formUuid = asUuid("10000000-0000-4000-8000-000000000001");
+		const fieldUuid = asUuid("10000000-0000-4000-8000-000000000002");
+		const userTypeUuid = asUuid("10000000-0000-4000-8000-000000000003");
+		const personaUuid = asUuid("10000000-0000-4000-8000-000000000004");
+		const base = buildDoc({
+			appName: "Deleted accepted topology",
+			modules: [
+				{
+					name: "Visits",
+					forms: [
+						{
+							uuid: formUuid,
+							name: "Visit",
+							type: "survey",
+							fields: [
+								f({
+									uuid: fieldUuid,
+									id: "photo",
+									kind: "image",
+									label: "Photo",
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const doc = {
+			...base,
+			userTypes: {
+				[userTypeUuid]: {
+					uuid: userTypeUuid,
+					name: "Worker",
+					values: {},
+				},
+			},
+			personas: {
+				[personaUuid]: {
+					uuid: personaUuid,
+					name: "Test worker",
+					userTypeUuid,
+					values: {},
+				},
+			},
+		};
+		const appId = await h.seedAppWithBlueprint(doc, {
+			id: "capture-replay-deleted-topology-app",
+			owner: "capture-replay-deleted-topology-owner",
+			projectId: PROJECT,
+		});
+		await h.seedProjectMember(ACTOR, PROJECT, "editor");
+		const entryKey = crypto.randomUUID();
+		const acceptedResult = {
+			primaryCaseId: crypto.randomUUID(),
+			childCaseIds: [],
+			operations: [],
+		};
+		await h
+			.db()
+			.insertInto("form_submission_intents")
+			.values({
+				app_id: appId,
+				project_id: PROJECT,
+				created_by: ACTOR,
+				entry_key: entryKey,
+				form_uuid: formUuid,
+				app_mutation_seq: 0,
+				request_digest: "accepted-before-topology-delete",
+				result: JSON.stringify(acceptedResult),
+			})
+			.execute();
+
+		const deleted = await h
+			.db()
+			.deleteFrom("blueprint_entities")
+			.where("app_id", "=", appId)
+			.where("kind", "in", ["form", "field", "user_type", "persona"])
+			.returning("kind")
+			.execute();
+		expect(new Set(deleted.map((row) => row.kind))).toEqual(
+			new Set(["form", "field", "user_type", "persona"]),
+		);
+
+		await expect(
+			loadAuthorizedFormSubmissionSnapshot({
+				appId,
+				actorUserId: ACTOR,
+				entryKey,
+			}),
+		).resolves.toEqual({
+			kind: "replay",
+			projectId: PROJECT,
+			receipt: {
+				formUuid,
+				requestDigest: "accepted-before-topology-delete",
+				result: acceptedResult,
 			},
 		});
 	});

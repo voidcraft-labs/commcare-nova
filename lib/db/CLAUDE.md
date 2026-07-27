@@ -475,11 +475,13 @@ GCS copy. Revocation after the route's initial Submit gate therefore wins
 before durable-copy work starts. `formAttachmentPreparation.ts` copies the
 immutable confirmed generation to a deterministic create-only durable key,
 verifies a pre-existing destination by size/CRC32C/type, and records
-`prepared`. The later case-store transaction accepts only `prepared`, then
-inserts `form_submission_intents`, moves those rows to `submitted`, applies
-every case effect, and stores the replay result atomically. A case failure
-restores `prepared`; no post-commit external await can make an accepted form
-appear failed.
+`prepared`. Every later case-store submission — text-only or attachment-bearing
+— first claims `form_submission_intents` under the entry lock. When attachments
+are present, that same transaction accepts only `prepared` and moves those rows
+to `submitted`; it then applies every case effect and stores the replay result
+atomically. A case failure removes the uncompleted receipt and restores
+`prepared`; no post-commit external await can make an accepted form appear
+failed.
 The Server Action's preflight is ordered the same way: one transaction locks
 the app `FOR SHARE`, proves fresh Project membership, and reads a durable
 receipt before hydrating any form/capture topology. A receipt returns without a

@@ -117,14 +117,13 @@ import type {
 	SubmissionEnvelopeResult,
 } from "../submission";
 import {
-	completeCaptureSubmission,
-	prepareCaptureSubmission,
-	replayCaptureSubmission,
-} from "./submissionAttachments";
-import {
 	executeSubmissionEnvelope,
 	type SubmissionEnvelopeHost,
 } from "./submissionEnvelope";
+import {
+	completeSubmissionReceipt,
+	prepareSubmissionReceipt,
+} from "./submissionReceipt";
 import { ajvErrorToCaseFailure } from "./validationFailure";
 
 /**
@@ -169,7 +168,7 @@ export interface PostgresCaseStoreArgs {
 			readonly projectId: string;
 			readonly actorUserId: string;
 		},
-	) => Promise<void>;
+	) => Promise<{ readonly appMutationSeq: number }>;
 	/**
 	 * Production-only app-placement fence for actor-free schema mutations. It
 	 * runs first in the schema/data transaction and holds `apps FOR SHARE` so a
@@ -271,9 +270,9 @@ export class PostgresCaseStore implements CaseStore {
 	private async authorizeMutation(
 		trx: Transaction<Database>,
 		appId: string,
-	): Promise<void> {
-		if (this.authorizeMutationCallback === undefined) return;
-		await this.authorizeMutationCallback(trx, {
+	): Promise<{ readonly appMutationSeq: number } | undefined> {
+		if (this.authorizeMutationCallback === undefined) return undefined;
+		return await this.authorizeMutationCallback(trx, {
 			appId,
 			projectId: this.requireProjectId(),
 			actorUserId: this.requireActorUserId(),
@@ -787,34 +786,30 @@ export class PostgresCaseStore implements CaseStore {
 	): Promise<SubmissionEnvelopeResult> {
 		// One transaction for the WHOLE submission — the ordinary form
 		// action and the advanced operation program land together or not
-		// at all. Standard lock order: authorize → relationship advisory
-		// → schema locks in sorted order for every case type the
+		// at all. Every envelope first adjudicates and claims its durable
+		// entry receipt, even with no attachments. Standard lock order:
+		// authorize → entry receipt → relationship advisory → schema locks in
+		// sorted order for every case type the
 		// submission names up front (a followup/close bound case's type
 		// is discovered inside the update core, which acquires its own
 		// schema lock — the same pattern `update` uses).
 		return await this.db.transaction().execute(async (trx) => {
-			await this.authorizeMutation(trx, args.appId);
-			if (args.captureIntent !== undefined) {
-				const replay = await prepareCaptureSubmission(trx, {
-					appId: args.appId,
-					projectId: this.requireProjectId(),
-					actorUserId: this.requireActorUserId(),
-					intent: args.captureIntent,
-				});
-				if (replay !== undefined) return replay;
-			} else if (args.submissionReceipt !== undefined) {
-				/* A capture can disappear from today's blueprint while an older
-				 * entry already has an accepted receipt. Recheck that durable
-				 * identity under the entry lock before any current case effect;
-				 * exact retries replay, changed payloads reject. */
-				const replay = await replayCaptureSubmission(trx, {
-					appId: args.appId,
-					projectId: this.requireProjectId(),
-					actorUserId: this.requireActorUserId(),
-					receipt: args.submissionReceipt,
-				});
-				if (replay !== undefined) return replay;
-			}
+			const authorization = await this.authorizeMutation(trx, args.appId);
+			const replay = await prepareSubmissionReceipt(trx, {
+				appId: args.appId,
+				projectId: this.requireProjectId(),
+				actorUserId: this.requireActorUserId(),
+				receipt: args.submissionReceipt,
+				...(args.captureIntent === undefined
+					? {}
+					: { captureIntent: args.captureIntent }),
+				...(authorization === undefined
+					? {}
+					: {
+							authorizedAppMutationSeq: authorization.appMutationSeq,
+						}),
+			});
+			if (replay !== undefined) return replay;
 			await this.lockRelationshipWrites(trx, args.appId);
 			await this.lockValidators(trx, args.appId, submissionCaseTypes(args));
 			const result = await executeSubmissionEnvelope(
@@ -822,15 +817,13 @@ export class PostgresCaseStore implements CaseStore {
 				this.submissionEnvelopeHost(),
 				args,
 			);
-			if (args.captureIntent !== undefined) {
-				await completeCaptureSubmission(trx, {
-					appId: args.appId,
-					projectId: this.requireProjectId(),
-					actorUserId: this.requireActorUserId(),
-					intent: args.captureIntent,
-					result,
-				});
-			}
+			await completeSubmissionReceipt(trx, {
+				appId: args.appId,
+				projectId: this.requireProjectId(),
+				actorUserId: this.requireActorUserId(),
+				receipt: args.submissionReceipt,
+				result,
+			});
 			return result;
 		});
 	}

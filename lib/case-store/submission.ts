@@ -95,6 +95,18 @@ export interface SubmissionReceiptIdentity {
 }
 
 /**
+ * The durable claim for one new form entry.
+ *
+ * `expectedAppMutationSeq` is a fresh-claim fence, not part of replay
+ * identity: an exact retry still replays after unrelated topology changes,
+ * while a first acceptance cannot execute a program derived from a stale
+ * committed blueprint.
+ */
+export interface SubmissionReceiptClaim extends SubmissionReceiptIdentity {
+	readonly expectedAppMutationSeq: number;
+}
+
+/**
  * Per-iteration runtime bindings for one physical execution of a
  * multiplicity scope. `formFields` is COMPLETE for the iteration: it
  * carries every field value visible to expressions evaluated there —
@@ -180,12 +192,13 @@ export interface ApplySubmissionArgs {
 	readonly ordinary: OrdinarySubmissionAction;
 	readonly operations?: CaseOperationProgram;
 	/**
-	 * Stable entry identity checked against any durable accepted receipt before
-	 * an ordinary or advanced case effect runs. It remains present when the
-	 * current blueprint no longer has a capture question, allowing an exact
-	 * retry to replay instead of bypassing capture idempotency.
+	 * Every submission claims this durable entry receipt before an ordinary or
+	 * advanced case effect runs, whether or not the form has attachment
+	 * questions. It remains present when the current blueprint no longer has a
+	 * capture question, allowing an exact retry to replay instead of bypassing
+	 * idempotency.
 	 */
-	readonly submissionReceipt?: SubmissionReceiptIdentity;
+	readonly submissionReceipt: SubmissionReceiptClaim;
 	/**
 	 * Server-derived form-entry identity and capture authority. When present,
 	 * the case effects, exact staged-row reservation, and replay record commit

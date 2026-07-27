@@ -285,7 +285,14 @@ describe("schemaHealingCaseStore — the whole submission envelope is one healed
 				},
 			],
 		};
-		const envelope = submissionEnvelopeArgs(mutation, "app-1");
+		const envelope = submissionEnvelopeArgs(mutation, "app-1", {
+			submissionReceipt: {
+				entryKey: mutation.entryKey,
+				formUuid: mutation.formUuid,
+				expectedAppMutationSeq: 0,
+				requestDigest: "schema-heal-submission",
+			},
+		});
 
 		const result = await store.applySubmission(envelope);
 

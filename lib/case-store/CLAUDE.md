@@ -17,30 +17,32 @@ External consumers import from the `@/lib/case-store` barrel: the `CaseStore` / 
 
 ## The atomic submission envelope — `applySubmission`
 
-When the server supplies a capture intent, it first runs the DB-first
+Every `applySubmission` transaction first claims the
+`(app, Project, actor, entry_key)` idempotency row under the entry advisory
+lock, independently of attachment presence. A new claim checks the committed
+app sequence before any case effect; a matching completed claim returns its
+stored result before that fresh-claim fence or current topology, while a
+different form/digest rejects. The receipt is completed in the same transaction
+as the ordinary and advanced effects. A case failure therefore rolls back the
+uncompleted claim and every case write; two concurrent first requests serialize,
+and only one can allocate generated case identities.
+
+When the server also supplies a capture intent, it first runs the DB-first
 pre-acceptance durability seam in `submissionAttachments.ts`: under the entry
 lock, exact selected `staged` rows become `preparing` before any external copy.
 A bounded worker copies each immutable generation to its deterministic
 create-only durable key, verifies size/CRC32C/type/generation, and records
 `prepared`. The scheduled five-minute worker leases the same recovery rows, so
 a request crash after copy but before row update is exhaustively rediscoverable
-by deterministic destination verification.
-
-Only then may the `applySubmission` transaction claim the
-`(app, Project, actor, entry_key)` idempotency row, validate the app sequence and
-exact structured attachment references, atomically move those `prepared` rows
-to `submitted`, apply the ordinary/advanced case effects, and store the exact
-replay result. Any case failure rolls the receipt and row transitions back. A
-matching retry returns the stored result without repeating case effects, even
-if an unrelated app edit advanced `mutation_seq` after acceptance: the digest
-identifies the stable client request, while the sequence remains a separate
-fresh-claim fence. Before acceptance, each row's immutable
-filename/extension/content type is re-proved against the capture kind and
-accepted-format table in the committed snapshot, so a stable UUID/path cannot
-carry image bytes after a peer changes the field to audio. A different digest
-for the same entry is a typed `CaptureSubmissionRejectedError`. There is no
-post-commit GCS await: accepted case effects categorically point at a verified
-durable generation outside the staging lifecycle prefix.
+by deterministic destination verification. The later mandatory receipt
+transaction re-proves exact structured attachment references and atomically
+moves those `prepared` rows to `submitted` beside the receipt and case effects.
+Before acceptance, each row's immutable filename/extension/content type is
+re-proved against the capture kind and accepted-format table in the committed
+snapshot, so a stable UUID/path cannot carry image bytes after a peer changes
+the field to audio. There is no post-commit GCS await: accepted case effects
+categorically point at a verified durable generation outside the staging
+lifecycle prefix.
 
 `CaseStore.applySubmission` applies one whole form submission — the ordinary form action (registration primary+children, followup update+children, close including final writes) plus the advanced case-operation program — in ONE transaction under the standard lock order (authorize → relationship advisory → schema locks sorted up front; a followup/close bound case's type is discovered inside the update core, the same pattern `update` uses). The executor (`postgres/submissionEnvelope.ts`) mirrors the XForm emission in `lib/commcare/xform/caseOps.ts` phase for phase: expand the authored `(order, uuid)` sequence over the physical multiplicity scopes (root first, then repeats iteration-major — the caller supplies per-iteration form-answer bindings plus the doc-level analysis from `lib/doc/caseOperationOrder.ts`, since the blueprint never crosses this boundary); allocate every create identity in TypeScript before any evaluation (generated ids mint `uuidv7()`; authored keys run the shared `deriveAuthoredCaseId` and abort on blank/over-205 keys BEFORE any DML — the pinned TS↔XPath identity vector runs against this executor); evaluate every condition, value, and runtime target through the AST→Kysely compiler anchored on the loaded session case (the advisory lock plus evaluate-before-effects gives every expression the same pre-submission snapshot the device's calculates see; `TermBindings.actingUserId` is populated from the store's bound actor, never the client); resolve and reauthorize targets (`session` = the loaded case, `op` = the transaction's allocation record, `expression` = tenant-bound load + `validateCaseOperationTargetDescriptor` against the immutable snapshot type, with expression targets inheriting the running app's hold exclusion); then run `validateResolvedCaseOperationTypeSequence` over the whole server-resolved sequence — including the ordinary action as a final implicit type consumer when it is type-sensitive — before the first write. Effects apply in physical order (per operation: create → property writes → rename/retype → close → links; the ordinary action last, matching the wire where advanced blocks precede the ordinary `FormActions` block). Every evaluated create-name, rename, explicit owner, and default owner passes through `prepareCaseOperationTextValue`; only the normalized value is stored and the envelope aborts on `blank`/`too-long`. Retype executes ONLY the wirePortable subset, applied with the operation's writes and rename as ONE unit — the wire emits them in a single `<update>` block, so writes are typed against the DESTINATION declaration and the case ends as the destination type carrying them; a retained document (properties minus source-schema orphans, the same proof the update merge sheds by) the destination schema cannot hold rejects the envelope — never a conversion/parking plan. Link CRUD is identifier-keyed (delete-then-insert; null target removes) and persists the AUTHORED `child`/`extension` relationship; a `parent` identifier also maintains the denormalized `parent_case_id`. A duplicate authored id merges create-of-existing style — onto a prior submission's row or onto a row this same envelope created. Multi-select answers serialize to JSONB arrays explicitly, and a BLANK-evaluated write (SQL NULL, `''`, an empty selection) projects to key-absent — omitted on create, REMOVED from the stored document on update — because the wire's `''` write has no representable typed-storage form and Nova's two-state collapse reads absent as blank (`storageValueFromEvaluation`). A link-only operation still advances `modified_on`, the wire's per-block `@date_modified` stamp. Any failure rolls the entire submission back with a typed error: `SubmissionRejectedError` (a discriminated `rejection` union: authored-key, text-value, target, sequence, retype-not-portable) for operation-contract rejections, the standard typed errors otherwise — partial success is unobservable. The production supplier is `lib/preview`'s `buildSubmissionOperationProgram` (committed-doc analyses + the engine's collected per-scope answers); the program is exercised by `postgres/__tests__/submissionEnvelope.test.ts` and end-to-end by the preview acceptance suite.
 

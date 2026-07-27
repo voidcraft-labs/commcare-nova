@@ -1,11 +1,9 @@
 import type { Transaction } from "kysely";
-import { lockFormAttachmentEntry } from "@/lib/db/formAttachmentLocks";
 import { preparePendingFormAttachments } from "@/lib/db/formAttachmentPreparation";
 import {
 	beginFormAttachmentPreparation,
 	FormAttachmentWriteRejectedError,
 	formAttachmentsArePrepared,
-	readFormSubmissionReceipt,
 } from "@/lib/db/formAttachments";
 import {
 	captureContentType,
@@ -17,52 +15,14 @@ import {
 } from "@/lib/domain/captureFormats";
 import { CaptureSubmissionRejectedError } from "../errors";
 import type { Database } from "../sql/database";
-import type {
-	ApplySubmissionArgs,
-	SubmissionEnvelopeResult,
-} from "../submission";
-import { adjudicateSubmissionReceipt } from "../submission";
+import type { ApplySubmissionArgs } from "../submission";
 
 function reject(message: string): never {
 	throw new CaptureSubmissionRejectedError(message);
 }
 
 type CaptureIntent = NonNullable<ApplySubmissionArgs["captureIntent"]>;
-type SubmissionReceipt = NonNullable<ApplySubmissionArgs["submissionReceipt"]>;
 type CommittedCaptureDescriptor = CaptureIntent["allowedAttachments"][number];
-
-/** Resolve an accepted receipt before reading today's form/capture structure.
- * Exact retries return the stored envelope; changed payloads reject under the
- * same entry identity. */
-export async function readCaptureSubmissionReceipt(args: {
-	appId: string;
-	projectId: string;
-	actorUserId: string;
-	receipt: SubmissionReceipt;
-}): Promise<SubmissionEnvelopeResult | undefined> {
-	let prior: Awaited<ReturnType<typeof readFormSubmissionReceipt>>;
-	try {
-		prior = await readFormSubmissionReceipt({
-			appId: args.appId,
-			projectId: args.projectId,
-			actorUserId: args.actorUserId,
-			entryKey: args.receipt.entryKey,
-		});
-	} catch (error) {
-		if (error instanceof FormAttachmentWriteRejectedError) {
-			reject(error.message);
-		}
-		throw error;
-	}
-	const verdict = adjudicateSubmissionReceipt(args.receipt, prior);
-	if (verdict.kind === "new") return undefined;
-	if (verdict.kind === "mismatch") {
-		reject(
-			"This form entry was already submitted with different answers. Start a new form entry before submitting again.",
-		);
-	}
-	return verdict.result;
-}
 
 /**
  * Copy and verify every selected immutable generation before case acceptance.
@@ -154,10 +114,14 @@ export function captureRowMatchesCommittedDescriptor(
 }
 
 /**
- * Claim the form entry before any case effect. A committed prior claim is an
- * idempotent replay; a fresh claim reserves exactly the named staged rows.
+ * Reserve exactly the named prepared rows for a new receipt claim.
+ *
+ * The generic receipt lifecycle owns entry serialization, replay
+ * adjudication, sequence fencing, receipt insertion, and completion. This
+ * attachment-only participant validates and transitions rows inside that same
+ * transaction.
  */
-export async function prepareCaptureSubmission(
+export async function reserveCaptureSubmission(
 	trx: Transaction<Database>,
 	args: {
 		appId: string;
@@ -165,15 +129,7 @@ export async function prepareCaptureSubmission(
 		actorUserId: string;
 		intent: CaptureIntent;
 	},
-): Promise<SubmissionEnvelopeResult | undefined> {
-	const replay = await replayCaptureSubmission(trx, {
-		appId: args.appId,
-		projectId: args.projectId,
-		actorUserId: args.actorUserId,
-		receipt: args.intent,
-	});
-	if (replay !== undefined) return replay;
-
+): Promise<void> {
 	const app = await trx
 		.selectFrom("apps")
 		.select(["mutation_seq", "project_id"])
@@ -264,19 +220,6 @@ export async function prepareCaptureSubmission(
 		);
 	}
 
-	await trx
-		.insertInto("form_submission_intents")
-		.values({
-			app_id: args.appId,
-			project_id: args.projectId,
-			created_by: args.actorUserId,
-			entry_key: args.intent.entryKey,
-			form_uuid: args.intent.formUuid,
-			app_mutation_seq: args.intent.expectedAppMutationSeq,
-			request_digest: args.intent.requestDigest,
-			result: null,
-		})
-		.execute();
 	if (selected.length > 0) {
 		for (const row of selected) {
 			const updated = await trx
@@ -305,84 +248,5 @@ export async function prepareCaptureSubmission(
 				);
 			}
 		}
-	}
-	return undefined;
-}
-
-/** Entry-locked replay check shared by capture-bearing and capture-removed
- * submissions. It must run before relationship/schema locks and every case
- * effect. */
-export async function replayCaptureSubmission(
-	trx: Transaction<Database>,
-	args: {
-		appId: string;
-		projectId: string;
-		actorUserId: string;
-		receipt: SubmissionReceipt;
-	},
-): Promise<SubmissionEnvelopeResult | undefined> {
-	await lockFormAttachmentEntry(trx, {
-		appId: args.appId,
-		actorUserId: args.actorUserId,
-		entryKey: args.receipt.entryKey,
-	});
-
-	const prior = await trx
-		.selectFrom("form_submission_intents")
-		.selectAll()
-		.where("app_id", "=", args.appId)
-		.where("project_id", "=", args.projectId)
-		.where("created_by", "=", args.actorUserId)
-		.where("entry_key", "=", args.receipt.entryKey)
-		.forUpdate()
-		.executeTakeFirst();
-	if (prior?.result === null) {
-		throw new Error(
-			"A committed form submission intent is missing its atomic result.",
-		);
-	}
-	const verdict = adjudicateSubmissionReceipt(
-		args.receipt,
-		prior === undefined
-			? undefined
-			: {
-					formUuid: prior.form_uuid,
-					requestDigest: prior.request_digest,
-					result: prior.result,
-				},
-	);
-	if (verdict.kind === "new") return undefined;
-	if (verdict.kind === "mismatch") {
-		reject(
-			"This form entry was already submitted with different answers. Start a new form entry before submitting again.",
-		);
-	}
-	return verdict.result;
-}
-
-/** Store the exact envelope result before the transaction can commit. */
-export async function completeCaptureSubmission(
-	trx: Transaction<Database>,
-	args: {
-		appId: string;
-		projectId: string;
-		actorUserId: string;
-		intent: CaptureIntent;
-		result: SubmissionEnvelopeResult;
-	},
-): Promise<void> {
-	const updated = await trx
-		.updateTable("form_submission_intents")
-		.set({ result: JSON.stringify(args.result) })
-		.where("app_id", "=", args.appId)
-		.where("project_id", "=", args.projectId)
-		.where("created_by", "=", args.actorUserId)
-		.where("entry_key", "=", args.intent.entryKey)
-		.where("result", "is", null)
-		.executeTakeFirst();
-	if (Number(updated.numUpdatedRows) !== 1) {
-		throw new Error(
-			"The atomic form submission intent could not record its result.",
-		);
 	}
 }

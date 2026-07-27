@@ -570,7 +570,14 @@ beforeEach(async () => {
 			// production; the envelope result's `primaryCaseId` maps to the
 			// arm's `caseId`.
 			const result = await store.applySubmission(
-				submissionEnvelopeArgs(mutation, appId),
+				submissionEnvelopeArgs(mutation, appId, {
+					submissionReceipt: {
+						entryKey: mutation.entryKey,
+						formUuid: mutation.formUuid,
+						expectedAppMutationSeq: 0,
+						requestDigest: "case-list-running-app-submission",
+					},
+				}),
 			);
 			if (result.primaryCaseId === undefined) {
 				throw new Error(

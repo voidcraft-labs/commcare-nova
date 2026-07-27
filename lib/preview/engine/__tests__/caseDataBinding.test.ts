@@ -105,13 +105,13 @@ import {
 import {
 	buildSubmissionOperationProgram,
 	buildSubmissionReceiptIdentity,
+	submissionEnvelopeArgs as projectSubmissionEnvelopeArgs,
 	readCaseData,
 	readCases,
 	readFilterPreview,
 	resetSampleCases,
 	SAMPLE_CASE_DEFAULT_COUNT,
 	seedSampleCases,
-	submissionEnvelopeArgs,
 } from "../caseDataBindingHelpers";
 import type { SubmissionMutation } from "../caseDataBindingTypes";
 import { previewAsMe } from "../identity";
@@ -262,6 +262,25 @@ const FINAL_SUBMISSION_PROTOCOL = {
 	entryKey: FINAL_ENTRY_KEY,
 	attachmentRefs: [],
 } as const;
+let submissionEnvelopeReceiptSequence = 0;
+
+function submissionEnvelopeArgs(
+	...args: Parameters<typeof projectSubmissionEnvelopeArgs>
+): ReturnType<typeof projectSubmissionEnvelopeArgs> {
+	const [mutation, appId, built] = args;
+	submissionEnvelopeReceiptSequence += 1;
+	return projectSubmissionEnvelopeArgs(mutation, appId, {
+		...built,
+		submissionReceipt:
+			built?.submissionReceipt ??
+			({
+				entryKey: mutation.entryKey,
+				formUuid: mutation.formUuid,
+				expectedAppMutationSeq: 0,
+				requestDigest: `case-data-binding-request-${submissionEnvelopeReceiptSequence}`,
+			} as const),
+	});
+}
 
 function finalSubmissionDoc() {
 	return buildDoc({
@@ -3175,6 +3194,12 @@ describe("submissionEnvelopeArgs", () => {
 		};
 		expect(submissionEnvelopeArgs(mutation, APP_ID)).toEqual({
 			appId: APP_ID,
+			submissionReceipt: {
+				entryKey: FINAL_ENTRY_KEY,
+				formUuid: FINAL_FORM_UUID,
+				expectedAppMutationSeq: 0,
+				requestDigest: expect.stringMatching(/^case-data-binding-request-/),
+			},
 			ordinary: {
 				kind: "registration",
 				primary: mutation.primary,
@@ -3200,6 +3225,12 @@ describe("submissionEnvelopeArgs", () => {
 		};
 		expect(submissionEnvelopeArgs(mutation, APP_ID)).toEqual({
 			appId: APP_ID,
+			submissionReceipt: {
+				entryKey: FINAL_ENTRY_KEY,
+				formUuid: FINAL_FORM_UUID,
+				expectedAppMutationSeq: 0,
+				requestDigest: expect.stringMatching(/^case-data-binding-request-/),
+			},
 			ordinary: {
 				kind: "followup",
 				caseId: ALICE_CASE_ID,
@@ -3226,6 +3257,12 @@ describe("submissionEnvelopeArgs", () => {
 		};
 		expect(submissionEnvelopeArgs(mutation, APP_ID)).toEqual({
 			appId: APP_ID,
+			submissionReceipt: {
+				entryKey: FINAL_ENTRY_KEY,
+				formUuid: FINAL_FORM_UUID,
+				expectedAppMutationSeq: 0,
+				requestDigest: expect.stringMatching(/^case-data-binding-request-/),
+			},
 			ordinary: {
 				kind: "close",
 				caseId: ALICE_CASE_ID,
@@ -3243,6 +3280,12 @@ describe("submissionEnvelopeArgs", () => {
 			),
 		).toEqual({
 			appId: APP_ID,
+			submissionReceipt: {
+				entryKey: FINAL_ENTRY_KEY,
+				formUuid: FINAL_FORM_UUID,
+				expectedAppMutationSeq: 0,
+				requestDigest: expect.stringMatching(/^case-data-binding-request-/),
+			},
 			ordinary: { kind: "none" },
 		});
 	});
@@ -3499,6 +3542,7 @@ describe("submitFormAction", () => {
 			submissionReceipt: {
 				entryKey: FINAL_ENTRY_KEY,
 				formUuid: FINAL_FORM_UUID,
+				expectedAppMutationSeq: 1,
 				requestDigest: expect.stringMatching(/^[0-9a-f]{64}$/),
 			},
 		});
@@ -3617,6 +3661,7 @@ describe("submitFormAction", () => {
 			submissionReceipt: {
 				entryKey: FINAL_ENTRY_KEY,
 				formUuid: FINAL_FORM_UUID,
+				expectedAppMutationSeq: 1,
 				requestDigest: expect.stringMatching(/^[0-9a-f]{64}$/),
 			},
 		});
