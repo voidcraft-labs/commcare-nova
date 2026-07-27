@@ -4513,7 +4513,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 					case_type: "household",
 					case_name: "Retired household",
 					status: "open",
-					properties: makeProperties({ head_name: "Ada" }),
+					properties: makeProperties({ region: "North" }),
 				},
 			});
 			// A retired/non-materializable type has no current schema row, but

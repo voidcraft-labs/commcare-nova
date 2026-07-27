@@ -91,6 +91,9 @@ vi.mock("@/lib/doc/hooks/useEntity", () => ({
 vi.mock("@/lib/doc/hooks/useCaseTypes", () => ({
 	useEffectiveCaseTypes: () => testState.caseTypes,
 }));
+vi.mock("@/lib/doc/hooks/useUserCollections", () => ({
+	useUserProperties: () => [],
+}));
 vi.mock("@/lib/doc/hooks/useCaseWorkspaceVerdicts", () => ({
 	useCaseWorkspaceBoundaryVerdicts: () => ({
 		filterBroken: false,

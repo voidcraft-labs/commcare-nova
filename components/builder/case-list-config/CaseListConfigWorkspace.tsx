@@ -1659,13 +1659,55 @@ export function CaseListWorkspaceCanvas() {
 			detail: bind("detail"),
 		};
 	}, [moduleUuid]);
+	const visibleTab = ws?.tab;
 	const rememberScroll = useCallback(
 		(kind: CaseListWorkspaceTab, scrollTop: number) => {
-			if (moduleUuid === undefined) return;
+			/*
+			 * Hiding an Activity body may itself dispatch a scroll event after
+			 * layout changes. That is browser bookkeeping, not the author's
+			 * position; accepting it would replace the last visible offset before
+			 * the tab can restore it.
+			 */
+			if (moduleUuid === undefined || kind !== visibleTab) return;
 			scrollPositions.current.set(`${moduleUuid}:${kind}`, scrollTop);
 		},
-		[moduleUuid],
+		[moduleUuid, visibleTab],
 	);
+	/*
+	 * React Activity keeps each tab body mounted, but showing a previously
+	 * hidden overflow element can let the browser adjust its scroll position
+	 * after the commit (observed as a one-line, 20px drift at the bottom).
+	 * Capture the authored position synchronously, then reapply it after the
+	 * tab-change effects have replaced any shorter nested canvas. The resulting
+	 * scroll event writes the same value back to the map.
+	 */
+	useLayoutEffect(() => {
+		if (moduleUuid === undefined || visibleTab === undefined) return;
+		const kind = visibleTab;
+		const remembered = scrollPositions.current.get(`${moduleUuid}:${kind}`);
+		if (remembered === undefined) return;
+		let settledFrame: number | null = null;
+		const restore = () => {
+			const node = document.querySelector<HTMLElement>(
+				`[data-case-workspace-scroll-body="${kind}"]`,
+			);
+			if (node === null) return;
+			node.scrollTop = remembered;
+		};
+		const frame = requestAnimationFrame(() => {
+			restore();
+			/*
+			 * Activity completes its hidden-to-visible browser bookkeeping after
+			 * the first paint. Reassert once on the following frame so that
+			 * bookkeeping cannot win over the author-owned position.
+			 */
+			settledFrame = requestAnimationFrame(restore);
+		});
+		return () => {
+			cancelAnimationFrame(frame);
+			if (settledFrame !== null) cancelAnimationFrame(settledFrame);
+		};
+	}, [moduleUuid, visibleTab]);
 
 	// Guard the deletion-in-flight window: a peer cleared the case type on the
 	// module this URL points at (dropping caseListConfig with it), before

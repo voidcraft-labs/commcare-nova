@@ -211,8 +211,8 @@ describe("classification table", () => {
 		expect(byClass.get("environment")).toHaveLength(9);
 		expect(byClass.get("oracle")).toHaveLength(98);
 		expect(byClass.get("shape")).toHaveLength(6);
-		expect(byClass.get("soundness")).toHaveLength(130);
-		expect(Object.keys(VALIDITY_CLASS_BY_CODE)).toHaveLength(253);
+		expect(byClass.get("soundness")).toHaveLength(133);
+		expect(Object.keys(VALIDITY_CLASS_BY_CODE)).toHaveLength(256);
 	});
 
 	it("keeps the structural image-map rule out of the environment class", () => {

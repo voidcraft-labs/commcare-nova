@@ -6,6 +6,7 @@ import {
 	toPersistableDoc,
 } from "@/lib/doc/fieldParent";
 import { applyMutations } from "@/lib/doc/mutations";
+import { toRscSerializableDoc } from "@/lib/doc/ownRecords";
 import {
 	buildReferenceIndex,
 	declarersOf,
@@ -115,6 +116,16 @@ describe("prototype-safe normalized blueprint records", () => {
 		expectNullPrototype(stored);
 		expect(Object.hasOwn(stored ?? {}, "__proto__")).toBe(true);
 		expect(Object.hasOwn(stored ?? {}, "constructor")).toBe(true);
+	});
+
+	it("seeds and rebuilds the derived parent record at a mutation boundary", () => {
+		const persisted = toPersistableDoc(emptyDoc());
+		const next = fold(persisted as unknown as BlueprintDoc, [
+			{ kind: "addModule", module: module_("module-without-fields") },
+		]);
+
+		expectNullPrototype(next.fieldParent);
+		expect(next.fieldParent).toEqual({});
 	});
 
 	it.each([
@@ -258,6 +269,64 @@ describe("prototype-safe normalized blueprint records", () => {
 		]) {
 			expectNullPrototype(record);
 		}
+	});
+
+	it("uses ordinary records across React Flight, then restores own-only records on hydration", () => {
+		const applied = fold(
+			emptyDoc(),
+			parsed([
+				{ kind: "addModule", module: module_("__proto__") },
+				{
+					kind: "addUserProperty",
+					property: {
+						uuid: "constructor",
+						slug: "region",
+						label: "Region",
+					},
+				},
+				{
+					kind: "addUserType",
+					userType: {
+						uuid: "worker",
+						name: "Worker",
+						values: Object.fromEntries([["constructor", "north"]]),
+					},
+				},
+			]),
+		);
+		const normalized = toPersistableDoc(applied);
+		const transport = toRscSerializableDoc(normalized);
+
+		expect(Object.getPrototypeOf(transport.modules)).toBe(Object.prototype);
+		expect(Object.getPrototypeOf(transport.formOrder)).toBe(Object.prototype);
+		expect(Object.getPrototypeOf(transport.userProperties ?? {})).toBe(
+			Object.prototype,
+		);
+		expect(Object.getPrototypeOf(transport.userTypes ?? {})).toBe(
+			Object.prototype,
+		);
+		expect(
+			Object.getPrototypeOf(
+				transport.userTypes?.[asUuid("worker")]?.values ?? {},
+			),
+		).toBe(Object.prototype);
+		expect(Object.hasOwn(transport.modules, "__proto__")).toBe(true);
+		expect(Object.hasOwn(transport.userProperties ?? {}, "constructor")).toBe(
+			true,
+		);
+		expect(
+			Object.hasOwn(
+				transport.userTypes?.[asUuid("worker")]?.values ?? {},
+				"constructor",
+			),
+		).toBe(true);
+		expectNullPrototype(normalized.modules);
+
+		const hydrated = hydratePersistedBlueprint(transport);
+		expectNullPrototype(hydrated.modules);
+		expectNullPrototype(hydrated.userProperties);
+		expectNullPrototype(hydrated.userTypes);
+		expectNullPrototype(hydrated.userTypes?.[asUuid("worker")]?.values);
 	});
 
 	it("diffs and replays special-key structural additions", () => {

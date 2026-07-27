@@ -230,7 +230,7 @@ describe("Results Cases available composer", () => {
 		fireEvent.click(
 			screen.getByRole("button", { name: "Value source: A value" }),
 		);
-		const otherCaseInformation = screen.getByRole("menuitem", {
+		const otherCaseInformation = screen.getByRole("menuitemradio", {
 			name: /^Other case information/,
 		});
 

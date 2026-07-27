@@ -7,7 +7,12 @@
  * no-inherited-namespace invariant without restricting valid identities.
  */
 
-import type { BlueprintDoc, Persona, UserType } from "@/lib/domain";
+import type {
+	BlueprintDoc,
+	PersistableDoc,
+	Persona,
+	UserType,
+} from "@/lib/domain";
 import {
 	isOwnRecord,
 	normalizeOwnRecord,
@@ -39,7 +44,17 @@ export function normalizeBlueprintOwnRecords(doc: BlueprintDoc): void {
 	doc.fields = normalizeOwnRecord(doc.fields);
 	doc.formOrder = normalizeOwnRecord(doc.formOrder);
 	doc.fieldOrder = normalizeOwnRecord(doc.fieldOrder);
-	doc.fieldParent = normalizeOwnRecord(doc.fieldParent);
+	/*
+	 * `fieldParent` is derived and deliberately absent from every persisted
+	 * blueprint. Mutation/diff entry points may therefore receive a widened
+	 * PersistableDoc before their final rebuild. Seed the derived record here;
+	 * reducers do not read it mid-batch, and applyMutation(s) rebuilds the exact
+	 * reverse index before returning.
+	 */
+	doc.fieldParent =
+		doc.fieldParent === undefined
+			? recordFromEntries([])
+			: normalizeOwnRecord(doc.fieldParent);
 
 	if (doc.userProperties !== undefined) {
 		doc.userProperties = normalizeOwnRecord(doc.userProperties);
@@ -50,4 +65,17 @@ export function normalizeBlueprintOwnRecords(doc: BlueprintDoc): void {
 	if (doc.personas !== undefined) {
 		doc.personas = normalizeUserDataCollection(doc.personas);
 	}
+}
+
+/**
+ * Cross a React Server Component boundary without leaking the in-memory
+ * null-prototype representation into Flight. React accepts ordinary objects
+ * only; the structured clone keeps every enumerable own key (including
+ * `__proto__`) while rebuilding record objects with `Object.prototype`.
+ *
+ * `BlueprintDocProvider` hydrates this transport copy back through
+ * `normalizeBlueprintOwnRecords` before any client-side document read.
+ */
+export function toRscSerializableDoc(doc: PersistableDoc): PersistableDoc {
+	return structuredClone(doc);
 }
