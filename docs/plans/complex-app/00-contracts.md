@@ -199,9 +199,22 @@ safe enough to be the standing answer:
   a `null` clear survives the JSON hop, and an empty collection round-trips
   byte-identically. That an old reducer no-ops on a kind it has never seen is
   not a property of any code here, which is why omission carries the weight.
-- Collections that are flat carry **no membership array**: the record's keys are
-  the membership and sequence comes from each entity's fractional `order` key,
-  so a record and its order array cannot disagree.
+- Collections that are flat carry a **membership array beside the record**, the
+  same shape every hierarchical collection uses: the array is the sequence, and
+  the record holds the entities. Both slots are `.optional()` and omitted when
+  empty, so the rule above still holds — an app declaring none serializes
+  byte-identically to one authored before the collection existed. A record and
+  its array cannot silently disagree because the assembler already throws on
+  exactly that mismatch (`lib/db/blueprintRows.ts::assembleBlueprint`), which is
+  the guard `moduleOrder` and `formOrder` have always relied on.
+
+  Sequence is **never** a value stored on the entity. Nothing in `lib/doc` mints,
+  compares, or repairs an ordering key: a position computed on the client is a
+  pure function of the sequence that client can see, so two people inserting at
+  the same place from the same starting document compute the *same* position —
+  and no position exists between two equal ones, which silently strands every
+  later insertion between them. Position belongs to the collection, not to the
+  member.
 
 The residual exposure is a pre-deploy tab that stays perfectly idle while a
 co-editor on a new client adds one of the new entities to the same app — and at
