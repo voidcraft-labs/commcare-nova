@@ -149,6 +149,7 @@ runStoreContract({
 		return new PostgresCaseStore({
 			projectId: tenant.projectId,
 			actorUserId: tenant.actorUserId,
+			ownerId: tenant.actorUserId,
 			db: dbHandle.db as unknown as Kysely<Database>,
 			sampleGenerator: new HeuristicCaseGenerator(),
 		});
@@ -233,6 +234,7 @@ function makeStore(
 	return new PostgresCaseStore({
 		projectId,
 		actorUserId,
+		ownerId: actorUserId,
 		db: dbHandle.db as unknown as Kysely<Database>,
 		sampleGenerator: new HeuristicCaseGenerator(),
 	});
@@ -244,6 +246,7 @@ describe("PostgresCaseStore — standalone schema authorization fence", () => {
 		const store = new PostgresCaseStore({
 			projectId: null,
 			actorUserId: null,
+			ownerId: null,
 			db: dbHandle.db as unknown as Kysely<Database>,
 			sampleGenerator: new HeuristicCaseGenerator(),
 			authorizeSchemaMutation: async (tx, args) => {
@@ -1887,6 +1890,7 @@ describe("PostgresCaseStore — bulk-insert rollback semantics", () => {
 		const store = new PostgresCaseStore({
 			projectId: OWNER_A,
 			actorUserId: OWNER_A,
+			ownerId: OWNER_A,
 			db: dbHandle.db as unknown as Kysely<Database>,
 			sampleGenerator: stubGenerator,
 		});
@@ -1980,6 +1984,12 @@ describe("PostgresCaseStore — creation stamps", () => {
 
 		await store.applySubmission({
 			appId: APP_ID,
+			submissionReceipt: {
+				entryKey: "store-creation-stamp-entry",
+				formUuid: "66666666-6666-4666-8666-666666666666",
+				expectedAppMutationSeq: 0,
+				requestDigest: "store-creation-stamp-request",
+			},
 			ordinary: {
 				kind: "registration",
 				primary: { caseType: "patient", caseName: "Mary", properties: {} },
@@ -2171,12 +2181,14 @@ describe("PostgresCaseStore — resetSampleData atomicity", () => {
 		const resetStore = new PostgresCaseStore({
 			projectId: OWNER_A,
 			actorUserId: OWNER_A,
+			ownerId: OWNER_A,
 			db: concurrentDb,
 			sampleGenerator: new HeuristicCaseGenerator(),
 		});
 		const childStore = new PostgresCaseStore({
 			projectId: OWNER_A,
 			actorUserId: OWNER_A,
+			ownerId: OWNER_A,
 			db: concurrentDb,
 			sampleGenerator: new HeuristicCaseGenerator(),
 		});
@@ -2264,6 +2276,7 @@ describe("PostgresCaseStore — resetSampleData atomicity", () => {
 		const seedingStore = new PostgresCaseStore({
 			projectId: OWNER_A,
 			actorUserId: OWNER_A,
+			ownerId: OWNER_A,
 			db: dbHandle.db as unknown as Kysely<Database>,
 			sampleGenerator: new HeuristicCaseGenerator(),
 		});
@@ -2314,6 +2327,7 @@ describe("PostgresCaseStore — resetSampleData atomicity", () => {
 		const failingStore = new PostgresCaseStore({
 			projectId: OWNER_A,
 			actorUserId: OWNER_A,
+			ownerId: OWNER_A,
 			db: dbHandle.db as unknown as Kysely<Database>,
 			sampleGenerator: failingSampleGenerator,
 		});

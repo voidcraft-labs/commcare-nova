@@ -107,6 +107,7 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	MISSING_CHILD_CASE_MODULE: "completeness",
 	RESERVED_CASE_TYPE_NAME: "soundness",
 	CONNECT_NO_PARTICIPATING_FORMS: "completeness",
+	BLUEPRINT_ENTITY_UUID_DUPLICATE: "soundness",
 	// Who runs the app. Every one is soundness: an illegal or duplicated
 	// slug is an identity CommCare refuses, a duplicated role or persona
 	// name is indistinguishable in every picker, a dangling role or
@@ -114,11 +115,13 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	// a property's choice list is rejected when the worker is created.
 	USER_PROPERTY_SLUG_INVALID: "soundness",
 	USER_PROPERTY_SLUG_DUPLICATE: "soundness",
+	USER_PROPERTY_CHOICES_DUPLICATE: "soundness",
 	USER_TYPE_NAME_DUPLICATE: "soundness",
 	PERSONA_NAME_DUPLICATE: "soundness",
 	PERSONA_USER_TYPE_UNKNOWN: "soundness",
 	USER_DATA_UNKNOWN_PROPERTY: "soundness",
 	USER_DATA_INVALID_CHOICE: "soundness",
+	USER_PROPERTY_REFERENCE_UNKNOWN: "soundness",
 	// ── Module-level ─────────────────────────────────────────────────
 	NO_CASE_TYPE: "soundness",
 	CASE_LIST_ONLY_HAS_FORMS: "soundness",
@@ -509,11 +512,46 @@ export function errorIdentity(err: ValidationError): string {
 		case "CONNECT_ID_DUPLICATE":
 			parts.push(part("connectId", det?.connectId));
 			break;
+		case "BLUEPRINT_ENTITY_UUID_DUPLICATE":
+			parts.push(
+				part("entity", det?.entityUuid),
+				part("entityKind", det?.entityKind),
+			);
+			break;
 		case "FORM_LINK_CIRCULAR":
 			// Code only: the cycle's membership exists solely in prose. Two
 			// simultaneous distinct cycles collapse to one identity —
 			// permissive, and rare enough that the rule itself reports a
 			// 2-cycle twice (once per entry point) already.
+			break;
+		case "USER_PROPERTY_SLUG_INVALID":
+		case "USER_PROPERTY_SLUG_DUPLICATE":
+		case "USER_PROPERTY_CHOICES_DUPLICATE":
+			parts.push(part("userProperty", det?.userPropertyUuid));
+			break;
+		case "USER_TYPE_NAME_DUPLICATE":
+			parts.push(part("userType", det?.userTypeUuid));
+			break;
+		case "PERSONA_NAME_DUPLICATE":
+		case "PERSONA_USER_TYPE_UNKNOWN":
+			parts.push(part("persona", det?.personaUuid));
+			break;
+		case "USER_DATA_UNKNOWN_PROPERTY":
+			parts.push(
+				part("ownerKind", det?.ownerKind),
+				part("owner", det?.ownerUuid),
+				part("userProperty", det?.propertyUuid),
+			);
+			break;
+		case "USER_DATA_INVALID_CHOICE":
+			parts.push(
+				part("userType", det?.userTypeUuid),
+				part("persona", det?.personaUuid),
+				part("userProperty", det?.userPropertyUuid),
+			);
+			break;
+		case "USER_PROPERTY_REFERENCE_UNKNOWN":
+			parts.push(part("userProperty", det?.userPropertyUuid));
 			break;
 
 		// Module-scope: stable sub-entity uuid from details.

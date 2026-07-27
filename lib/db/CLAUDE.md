@@ -463,6 +463,87 @@ slot expectations, and inserts exact `media_asset_refs` edges in that SAME
 transaction. Atomic creation and `appendSyntheticBatch` apply the identical
 admission rule; post-commit `syncMediaReferences` is legacy/backfill help only.
 
+**Form attachments are a separate lane from `media_assets`, on purpose.**
+`formAttachments.ts` holds the files a worker attaches while filling in a form:
+`pending → staged → preparing → prepared → submitted`, tenant-scoped
+`(app_id, project_id)` like case rows and additionally bound to `created_by`
+because the idempotency/reservation key is client-minted. A preparation
+transaction locks the current app row, freshly proves Project `edit`
+membership, then locks the entry and moves the exact selected
+`(attachment_name, field_uuid, instance_path)` rows to `preparing` before any
+GCS copy. Revocation after the route's initial Submit gate therefore wins
+before durable-copy work starts. `formAttachmentPreparation.ts` copies the
+immutable confirmed generation to a deterministic create-only durable key,
+verifies a pre-existing destination by size/CRC32C/type, and records
+`prepared`. Every later case-store submission — text-only or attachment-bearing
+— first claims `form_submission_intents` under the entry lock. When attachments
+are present, that same transaction accepts only `prepared` and moves those rows
+to `submitted`; it then applies every case effect and stores the replay result
+atomically. A case failure removes the uncompleted receipt and restores
+`prepared`; no post-commit external await can make an accepted form appear
+failed.
+The Server Action's preflight is ordered the same way: one transaction locks
+the app `FOR SHARE`, proves fresh Project membership, and reads a durable
+receipt before hydrating any form/capture topology. A receipt returns without a
+blueprint read; otherwise the committed app snapshot from that transaction is
+the sole input to operation-program and capture-authority derivation.
+The intent is still built for a capture-capable committed form when the current
+attachment projection is empty. `attachments: []` therefore reaches the prior
+receipt check before any case effect: the same digest replays the stored result,
+while a changed payload under that entry key is rejected. Text-only forms carry
+the same submission receipt but create no capture intent or attachment rows.
+
+The request prepares its selected rows immediately; the five-minute Cloud
+Scheduler job leases bounded `preparing`/`discarding` batches with `FOR UPDATE
+SKIP LOCKED` and retries with backoff. The DB-first transition plus deterministic
+final key makes a crash before the row update recoverable by destination
+verification. A foreground Submit retry may make a row due immediately only
+when the prior worker recorded an error; an active lease has no recorded error
+and cannot be stolen, while unattended scheduler failures keep their backoff.
+`captureCleanupLease.ts` holds one session advisory lock for the whole
+maintenance run, collapsing at-least-once or overlapping scheduler deliveries
+to one active worker. The worker always runs the same preparation, verification,
+discard, and expiry sweep; there is no alternate mode or deploy-time
+invocation. Its pool max is two (the lock session plus one work connection).
+Its isolated login role has no runtime membership and receives only
+public-schema `USAGE` plus `SELECT`/`UPDATE`/`DELETE` on `form_attachments`;
+migration-time convergence revokes access to every other managed table, the
+case schema, and attachment insertion/administration. The cleanup role's hard
+connection limit is three. A held lease or pre-lock SQLSTATE `53300` skips that
+dispatch; a `53300` after this process owns the lock is an active-worker
+failure. After winning, the owner prewarms its second connection with a bounded
+retry so Kysely reuses that admitted session; a stuck reservation fails the
+Job.
+
+GCS lifecycle remains the traffic-independent
+backstop for ordinary staged/browser-abandoned source bytes, but cannot
+atomically distinguish DB acceptance; accepted durability therefore requires
+the verified destination outside that TTL prefix before commit. The scheduled
+worker and initiate-route sweep share `purgeExpiredFormAttachments`. Repeat
+compaction preserves attachment-id identity and CAS-moves only a `staged` row's
+concrete `instance_path` under the same entry advisory lock; pending uploads
+cancel, `preparing`/`prepared` rows are fenced from retarget, and `submitted`
+rows are immutable. A CAS mismatch returns the locked row's authoritative path
+instead of rejecting it, so a client that lost an earlier successful response
+can adopt that coordinate and continue toward the latest repeat position.
+Clear/expiry moves `preparing`/`prepared` through
+`discarding`, where exact source and destination generations are deleted before
+the metadata row.
+Every item-route helper also takes the URL's `expectedAppId` and includes it in
+all candidate, lock-following, CAS, and delete predicates. Project membership
+alone never lets app B's URL read, confirm, retarget, or delete app A's row
+inside the same Project; absent/foreign/terminal cases retain the same collapsed
+not-found shape.
+Initiation is bounded independently by a fixed-minute Project/actor counter,
+per-entry attempt rows, and Project-wide row/byte quotas; the Project quota
+advisory lock makes each admission decision serial across apps.
+
+A captured photo is data, not an authoring asset; a library row would surface it
+in the media picker, count it against the export budget, and make it deletable
+through the library UI. Project moves currently block under the app lock if
+either capture rows or submission intents exist; there is no partial move that
+can strand capture evidence in the source tenant.
+
 **Media deletion is one authoritative transaction.**
 `mediaDeletion.ts` takes the shared membership gate, freshly proves Project
 `edit`, locks the asset `FOR UPDATE`, then re-walks every persisted carrier

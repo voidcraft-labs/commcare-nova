@@ -12,11 +12,37 @@ The `./index.ts` barrel must stay client-safe: Node-only modules (`./compiler` v
 
 `fieldProps.ts::readFieldString(field, key, doc)` is the one reading-helper the wire emitters share: expression slots (`relevant`, `validate`, `calculate`, `default_value`, `required`, the repeat slots, `label`, `hint`, …) delegate to the domain's `expressionSource`, which projects AST-stored values to their printed text against `doc` — identity references resolve to CURRENT names at every read — and passes prose/legacy strings through; non-expression keys (`case_property_on`) stay a plain untyped lookup. Narrowing per kind at every call site would cascade N×M branches.
 
+### Worker-information identity projection
+
+Custom worker information has one stable document identity and two authored AST
+spellings. Predicate / ValueExpression stores
+`session-user-property { userPropertyUuid }`; XPath stores
+`user-property-ref { userPropertyUuid }`. Every wire emitter receives the
+current UUID→slug map and throws if an identity has no binding — the commit
+validator should have caught the dangling reference, and silently emitting a
+UUID or stale name would corrupt behavior. The separate name-backed
+`session-user { field }` and XPath `user-ref { property }` arms are exclusively
+for CommCare-provided or external fields with no Nova entity. Worker-property
+slugs begin with a letter or underscore and admit hyphens only after that first
+character: both session and usercase emit the slug as an XML element, so this
+XML-safe intersection is stricter than HQ's Django slug validator. The HQ JSON,
+local XForm, and local suite fixtures pin a hyphenated slug to exact emitted
+bytes.
+
+The emitted paths are pinned to named CommCare authorities:
+`test_suite_remote_request.py::test_required` for
+`instance('commcaresession')/session/user/data/<slug>`,
+`suite-case-detail-tabs-with-nodesets.xml` for the usercase selector
+`instance('casedb')/casedb/case[@case_type='commcare-user'][hq_user_id=instance('commcaresession')/session/context/userid]/<slug>`,
+and the corresponding suite session path. The HQ JSON, local suite/XForm, and
+HQ-upload XForm tests assert those exact bytes and re-run them after a slug
+rename without changing the stored AST.
+
 ### Capture uploads — a closed enum, not a conditional
 
 `xform/captureUpload.ts` owns the `<upload mediatype>` vocabulary. It is a table rather than a conditional because an unmatched `mediatype` does not fail: `XFormParser::parseUpload` matches with literal `String.equals` against exactly four strings (`image/*`, `audio/*`, `video/*`, `application/*,text/*` — comma, NO space), anything else leaves the control at `CONTROL_UPLOAD`, `entries.js::getEntry` falls through to `UnsupportedEntry`, and that constructor SETS the answer to the literal string `Not Supported by Web Entry`, which submits. Silent bad data, not a visible error — so `UploadMediatype` admits only the four literals and `UPLOAD_MEDIATYPE_BY_CAPTURE_KIND` is total over `captureFieldKinds`, making the bad state unrepresentable. Signature shares `image/*` and is split out by `appearance="signature"`; `appearance="face"` and `jr:imageDimensionScaledMax` stay out because both are inert on every runtime Nova targets.
 
-`build_spec.version` in `hqShells.ts` is the MAXIMUM of every CommCare floor Nova's vocabulary implies, not the last one raised — 2.54 for menu-level instance declarations, 2.57 for file attachments. It is declarative on the upload path (`import_app` deletes `build_spec`; `ApplicationBase.wrap` substitutes the domain default), so raise it whenever a new floor appears rather than reasoning about whether it takes effect.
+`build_spec.version` in `hqShells.ts` is fixed output metadata for Nova's one application-shell target (`2.54.0`). It is not a feature floor, reader gate, or capability switch; no producer or runtime branch may consult it. The upload path is declarative (`import_app` deletes `build_spec`; `ApplicationBase.wrap` substitutes the domain default).
 
 ### Vellum dual-attribute pattern
 

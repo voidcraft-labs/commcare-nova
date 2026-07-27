@@ -1660,6 +1660,36 @@ async function assertMoveLookupClosureEmpty(
 	}
 }
 
+/**
+ * Capture objects are submission evidence and currently have no cross-Project
+ * copy/remap closure. Block the move under the app lock instead of moving only
+ * cases/media and stranding rows or bytes in the source tenant.
+ */
+async function assertMoveCaptureClosureEmpty(
+	tx: Transaction<AppDatabase>,
+	appId: string,
+): Promise<void> {
+	const [attachment, intent] = await Promise.all([
+		tx
+			.selectFrom("form_attachments")
+			.select("attachment_id")
+			.where("app_id", "=", appId)
+			.limit(1)
+			.executeTakeFirst(),
+		tx
+			.selectFrom("form_submission_intents")
+			.select("entry_key")
+			.where("app_id", "=", appId)
+			.limit(1)
+			.executeTakeFirst(),
+	]);
+	if (attachment !== undefined || intent !== undefined) {
+		throw new BlueprintCommitRejectedError(
+			"This app has captured form submissions and cannot move Projects yet. Keep it in its current Project.",
+		);
+	}
+}
+
 export type RepairLookupReferenceEdgesResult =
 	| { kind: "repaired" }
 	| { kind: "unchanged" };
@@ -1752,6 +1782,7 @@ export async function prepareAppProjectMoveInTransaction(
 	if (runDisposition) return runDisposition;
 	const { doc } = await assembleLockedProjectMoveDoc(tx, args.appId, fresh);
 	await assertMoveLookupClosureEmpty(tx, args.appId, doc);
+	await assertMoveCaptureClosureEmpty(tx, args.appId);
 	const threads = await readProjectMoveThreads(tx, args.appId);
 	const requiredAssetIds = [...collectRealAssetRefs(asWalkableDoc(doc))].sort();
 	const required = new Set(requiredAssetIds);
@@ -1842,6 +1873,7 @@ export async function commitAppProjectMoveInTransaction(
 	const { persisted: previousPersisted, doc: previousDoc } =
 		await assembleLockedProjectMoveDoc(tx, args.appId, fresh);
 	await assertMoveLookupClosureEmpty(tx, args.appId, previousDoc);
+	await assertMoveCaptureClosureEmpty(tx, args.appId);
 	const threads = await lockProjectMoveThreads(tx, args.appId);
 	const requiredAssetIds = [
 		...collectRealAssetRefs(asWalkableDoc(previousDoc)),

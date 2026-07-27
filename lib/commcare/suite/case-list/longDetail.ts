@@ -65,6 +65,7 @@ import {
 	effectiveCaseTypes,
 	type Module,
 	type Uuid,
+	userPropertySlugsByUuid,
 } from "@/lib/domain";
 import type { AssetManifest } from "../../multimedia/assetWirePath";
 import { buildColumnField } from "./columns";
@@ -147,6 +148,7 @@ export function buildLongDetail(args: {
 		caseProperties,
 		caseTypes: effectiveCaseTypes(args.doc),
 		currentCaseType: mod.caseType,
+		userPropertySlugs: userPropertySlugsByUuid(args.doc),
 		...(args.assets && { assets: args.assets }),
 		...(args.lookupNaming && { lookupNaming: args.lookupNaming }),
 	};

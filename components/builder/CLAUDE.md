@@ -41,9 +41,64 @@ objects, with no source metadata or tool parts). An authoritative thread-read
 failure remains blocked behind a durable reload action rather than risking a
 stripped transcript write-back.
 
+The running form's attachment lane fences the same transition at the form
+owner, not per mounted field: `FormScreen` synchronously installs
+`{ appId, entryKey, formUuid, projectId, actorUserId, ownerId, scopeEpoch,
+accessPhase, canEdit }` for the current entry, and every queued
+upload/retarget/clear carries the exact stable slot key and checks those live
+coordinates before and after awaited work. Missing authority is read-only, not
+an implicit test mode. A changed tuple aborts its network continuations but
+keeps the entry's stable slot, draft, diagnostic, and Submit blocker. Dirty
+signature ink is generation-tagged and re-encodes exactly once if the same
+entry regains editor authority; it is never silently discarded during an
+access refresh.
+
 ## Edit vs preview mode
 
 Edit is a frozen, stateless view: inputs empty, validation suppressed, submit bar hidden, and ALL fields render regardless of relevant conditions (hidden ones as compact cards) so the full structure stays editable. Preview is a persistent sandbox: values survive round-trips through edit; validation resets on exit; blueprint mutations recreate the engine but restore only user-touched values, so edited defaults show immediately.
+
+## App setup — Users & personas
+
+`app-setup/` edits the three flat user collections. Text whose intermediate
+state can be invalid — worker-information labels and saved keys, accepted-value
+lists, role names, and persona names — drafts locally through
+`DraftCommitField.tsx`. Names and keys commit on blur or Enter; newline lists
+commit on blur, Apply, or Command/Ctrl+Enter. Only a passing normalized value
+saves, and Escape restores the committed value. A refusal stays visible beside the
+draft, including when a multiplayer peer changed the same value while the local
+draft was open, so typing never loses characters or silently clobbers the peer.
+Selection controls remain immediate because every offered choice is valid by
+construction. Add focuses the new entity's name, successful removal returns
+focus to the section's Add action, and the required switch uses the full row as
+its label target. `AppSetupWorkspace` is an `@container`; keep subsection
+responsiveness scoped to the workspace rather than the viewport. Persona values
+have three real states and no magic-string sentinel: absent inherits the role's
+value (or means no authored value when there is no role value), `""` is an
+explicit blank override, and a nonempty string is explicit. Select controls use
+private numeric item identities so authored values such as `__none__` remain
+ordinary choices. Each value edit dispatches its own semantic mutation rather
+than replacing the whole role/persona value bag. XPath and predicate pickers
+bind custom worker information by UUID and display its current saved name; a
+rename updates chips and completions live without rewriting the AST. Predicate
+source menus keep **Worker information** (UUID catalog only) separate from
+**Other user field** (explicit raw built-in/external name); typing a custom
+slug in the raw source never upgrades it to identity, and a missing custom UUID
+stays visible as an unavailable reference rather than exposing the identifier.
+Built-in or external worker fields remain name-backed and admit XML-safe
+hyphens after their first character. Removing custom worker
+information first queries the shared reference index: while a condition or
+calculation reads it, the subsection lists the owning settings and offers no
+destructive action; once unreferenced, one gated batch clears its role/persona
+values and removes it. Entry disclosures stay mounted while collapsed, so
+invalid/refused name, key, and accepted-value drafts plus their explanations
+survive both collapse and switching between rows; Base UI retains the hidden
+panel's focus/inert semantics. Persona removal remains
+disabled until the owner-wide retained-case count succeeds; the confirmation
+states that rows of current or retired case types remain stored under that
+persona and may still appear in unfiltered data views, without implying
+deletion or reassignment. Preview identity and expression-source menus expose
+ordinary mutually exclusive choices as checked radio-menu items; color is only
+a secondary cue, not the selected-state contract.
 
 ## Preview mode
 
@@ -66,7 +121,7 @@ prosemirror-view hardcodes a `<br class="ProseMirror-trailingBreak">` per block.
 - Scroll-to-selection is a rAF loop, not native smooth — panel mount/unmount layout shifts make the browser abandon native `scrollTo` mid-flight. Cross-screen navigation scrolls `"instant"`.
 - Clicking empty space never deselects (it would constantly dismiss the inspector).
 - Selection is a URL replace; scroll is a separate pending-target request the selected field's wrapper consumes. Undo/redo scrolls directly — never through the pending mechanism.
-- The edit guard (XPath editor with unsaved invalid content) blocks navigation two-strike: first attempt warns, second lets through, any keystroke resets.
+- The edit guard (XPath editor with unsaved invalid content) blocks navigation two-strike: first attempt warns, second lets through, any keystroke resets. While an XPath editor is mounted, an identity-backed peer rename rebases a clean draft or a non-overlapping local addition. The editor subscribes to the custom-worker catalog independently of the printed expression, so a catalog-only change cannot leave a stale identity baseline. A dirty draft auto-rebases ONLY when the peer projection changes exactly one complete `#user/<slug>` token, that rename is the catalog's only identity change, the before/after entries prove the same unique custom-property UUID, and the cleanly parsed local and base texts each contain the complete old token exactly once. Any catalog-only change that could alter a draft token's identity interpretation, plus namespace matches, bare-slug guesses, parser recovery, token extensions, deletions, repetitions, and broader peer edits, fails closed. If the local and remote edits replace the same text, the controlled CodeMirror value preserves the local draft and refuses save until Escape reloads the shared projection; later external projections update only the shared base and cannot clear that conflict. An external value prop never blindly overwrites focused work.
 - Field uuid is the stable UI identity (survives renames); the path is only for mutation calls.
 
 ## Drag-and-drop
@@ -303,7 +358,7 @@ Cross-workspace authoring surface for Predicate / ValueExpression ASTs; lives un
 - **Form answers and the submission-local vocabulary are an OPT-IN axis.** `formFields` (already narrowed by the mounting surface to what the commit gate accepts) makes **A form answer** a real term source with its own picker; `operationScope` makes `acting-user`, `unowned`, and `id-of` authorable and supplies `id-of`'s picker over the creates in scope. Both are optional and **absent means unauthorable** — a surface that does not opt in keeps the exact round-trip-only behavior it had, which is the whole safety argument (`__tests__/operationScopeFailsClosed.test.ts` pins it against the checker, not against convention). `buildEditorTypeContext` is the ONE place either axis becomes a `TypeContext`, so a new editor cannot resolve types against a different vocabulary than the one its pickers offer.
 - **Evaluation scope is a required editor axis.** `PredicateEditContext.caseDataScope` (`"per-case"` | `"selected-case"` | `"global"`) states what the slot may read against a case row — see § Display conditions for the middle value, which admits one already-chosen case's own properties and withholds everything reached through a connection. `"global"` slots — a search field's starting value, the Search button's display condition — resolve once before any case is selected, so the registry drops every case-data-dependent verb (ordered comparisons, match, within-distance, multi-select-contains, exists/missing), seeds compare a session value (`sessionContext("username")`) instead of a property — and every UNCHOSEN placeholder is **truth-neutral for its destination**, because a global placeholder commits immediately and gates a whole surface (a false placeholder would hide the Search action before the author writes anything). The polarity is one bit, `PredicateEditContext.globalPlaceholderHolds` (default true — root and "all" groups; an "any" group's add-clause context flips it to false), consumed by `globalPlaceholder(holds)`; wrap siblings are intrinsically neutral for their combinator (`wrapSiblingDefault`: `and(p, true)` / `or(p, false)` keep `p`), and a fresh "Exclude when" inverts the bit for its inner clause. `__tests__/globalSeedNeutrality.test.ts` pins the actual truth values, the axis the type-check invariants can't see — and the `PredicateEditProvider` composes a case-data admission oracle in front of any caller oracle so value-source and calculated-kind menus disable property/relationship reads with one shared reason (`GLOBAL_SCOPE_CASE_DATA_REASON`). A relation walk's `where` and a count's `where` rebind to `"per-case"` (the destination row exists there whatever the outer slot). The field is REQUIRED so a new surface can't silently offer case reads into a global slot and bounce off the gate. So a user edit can never INTRODUCE a type finding; the commit gate is never surprised and the old "rejected commit → toast → silent revert" path is unreachable. The allowed-set is computed live from the type checker's OWN forward rules — `useResolvedType` resolves a slot's subject through `checkExpression`, and the `SlotConstraint` factories in `lib/domain/predicate/slotConstraints.ts` delegate to the inverse helpers co-located in `typeChecker.ts` (`comparisonOperatorsFor` / `matchModesFor` / `compatibleTypesFor` / `valueExpressionKindResultClass`) — so the offered-set can't drift from the accept-set. Seeds bind a value of the property's OWN type (`seedLiteralForProperty`), never a stray text `literal("")`. The only tolerated transient states are COMPLETENESS ("fill this in" — an unfilled property name or match value), never type-invalidity. Two pure invariant tests prove it: `__tests__/validByConstruction.test.ts` (admission ⟺ checker; reseed lands valid) and `__tests__/verbMenuBuildFuzz.test.ts` (every admitted verb build + every registry seed type-checks). Disabling per the SUBJECT, never auto-changing it, is what makes "**changing how you compare never loses what you compare**" hold.
 - **Conditions are readable clauses**: subject and verb share a compact first row; the value gets a full-width second row so editing never collapses into a strip of technical controls. A property remains the quiet common-case subject, but the subject is the full `ValueExpression` vocabulary — search answers, session/user information, relationship reads, and calculated expressions are all editable in place through `ExpressionPicker`, never reduced to replacement badges. Nothing titles a row with its AST node name. ONE verb menu holds every behavior plus a Structure group. Changing a verb carries the subject (and value where the target holds one) — **changing how you compare never loses what you compare**. Wrapping shapes (groups, not, when-field-filled) wrap the current condition rather than replacing it; only the always-true/false sentinels rebuild from defaults. **Always match** and **Never match** remain progressively authorable under that existing menu's **Special conditions** section; primary **Add condition** stays focused on common seeds and never duplicates those whole-condition replacements. Container kinds keep titled cards — a box's identity isn't expressible inline.
-- Values are unboxed: their source menu uses friendly choices such as **A value**, **A property** (for a condition subject), **Another property** (for an object value), and **Calculated** rather than exposing AST vocabulary such as “Term” or “Typed Value”, so one menu answers “where does this value come from?”. Absence checks disable only a literal placed directly at the subject root; literal inputs nested inside a calculation remain available because the checker permits them.
+- Values are unboxed: their source menu uses friendly choices such as **A value**, **A property** (for a condition subject), **Another property** (for an object value), **Worker information** (a UUID catalog), **Other user field** (an explicit raw name), and **Calculated** rather than exposing AST vocabulary such as “Term” or “Typed Value”, so one menu answers “where does this value come from?”. The two user sources never infer or convert into one another. Absence checks disable only a literal placed directly at the subject root; literal inputs nested inside a calculation remain available because the checker permits them.
 - Relationship paths are catalog-driven and lossless. Canonical parent steps follow the actual `parent_type` chain; child destinations use direct children, while any-direction destinations use the union of the parent and direct children. Optional case-type hints stay out of the common path when one destination is provable. A custom saved index can reach any declared case type and therefore requires an explicit destination; on a graph leaf, choosing a direction opens one atomic connection-name + case-type step so the editor never commits a half-configured relation. Saved missing or stale hints remain readable with a focused recovery choice. Link names draft locally and commit on blur or Enter only after passing the relation identifier's XML-name rule, so ordinary typing can never hit the commit gate and snap back. Multi-step walks preserve every link name, and structural removal rebinds only position-dependent canonical-parent hints; custom destinations remain explicit and nested conditions are never rewritten.
 - `PredicateWorkbench` takes a `rootLabel` naming what the whole rule is called on
   the owning surface (default `"Cases available"`). It is the root breadcrumb, the

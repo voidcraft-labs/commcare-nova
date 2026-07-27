@@ -11,7 +11,10 @@ import type { Kysely } from "kysely";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { CaseStore, LookupTableSchemas } from "@/lib/case-store";
 import { buildCaseTypeMap } from "@/lib/case-store";
-import { SubmissionRejectedError } from "@/lib/case-store/errors";
+import {
+	CaptureSubmissionRejectedError,
+	SubmissionRejectedError,
+} from "@/lib/case-store/errors";
 import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
 import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
 import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
@@ -35,8 +38,10 @@ import {
 	term,
 } from "@/lib/domain/predicate";
 import { buildDoc, f } from "../../../__tests__/docHelpers";
+import { validateCaptureSubmissionProjection } from "../captureSubmissionValidation";
 import {
 	buildCaseOperationProgramFromDoc,
+	buildSubmissionReceiptIdentity,
 	submissionEnvelopeArgs,
 } from "../caseDataBindingHelpers";
 import { FormEngine, type FormEngineInput } from "../formEngine";
@@ -54,6 +59,7 @@ const APP_ID = "app-program-acceptance";
 const PROJECT = "project-acceptance";
 const ACTOR = "worker-1";
 const SESSION_CASE = "50000000-0000-0000-0000-000000000001";
+const ENTRY_KEY = "11111111-1111-4111-8111-111111111111";
 
 const IDENTITY: ResolvedPreviewIdentity = {
 	actorUserId: ACTOR,
@@ -61,6 +67,7 @@ const IDENTITY: ResolvedPreviewIdentity = {
 	session: {
 		context: { userid: ACTOR, username: "ada" },
 		user: { role: "supervisor" },
+		userPropertySlugs: {},
 	},
 	usercase: { role: "supervisor" },
 };
@@ -69,6 +76,7 @@ function makeStore(): CaseStore {
 	return new PostgresCaseStore({
 		projectId: PROJECT,
 		actorUserId: ACTOR,
+		ownerId: ACTOR,
 		db: dbHandle.db as unknown as Kysely<Database>,
 		sampleGenerator: new HeuristicCaseGenerator(),
 	});
@@ -115,10 +123,12 @@ function acceptanceDoc(
 		],
 		modules: [
 			{
+				uuid: "60000000-0000-4000-8000-00000000a010",
 				name: "Mod",
 				caseType: "patient",
 				forms: [
 					{
+						uuid: "60000000-0000-4000-8000-00000000a011",
 						name: "Follow up",
 						type: "followup",
 						fields: [
@@ -206,10 +216,13 @@ async function submit(
 	const mutation = engine.computeSubmissionMutation({
 		caseId: SESSION_CASE,
 		caseTypes: doc.caseTypes ?? [],
+		entryKey: ENTRY_KEY,
 	});
+	const projection = validateCaptureSubmissionProjection(mutation);
 	const built = buildCaseOperationProgramFromDoc({
 		blueprint: doc,
 		mutation,
+		projection,
 		identity: IDENTITY,
 	});
 	expect(built.program).toBeDefined();
@@ -222,7 +235,18 @@ async function submit(
 					program: { ...built.program, lookupTableSchemas },
 				};
 	return store.applySubmission(
-		submissionEnvelopeArgs(mutation, APP_ID, withLookupSchemas),
+		submissionEnvelopeArgs(mutation, APP_ID, {
+			...withLookupSchemas,
+			submissionReceipt: {
+				...buildSubmissionReceiptIdentity({
+					appId: APP_ID,
+					identity: IDENTITY,
+					mutation,
+					projection,
+				}),
+				expectedAppMutationSeq: 0,
+			},
+		}),
 	);
 }
 
@@ -332,7 +356,7 @@ describe("engine → builder → executor acceptance", () => {
 		expect(row?.properties.status).toBe("open");
 	});
 
-	it("operations present but no collected answer bags submits ordinary-only (doc-snapshot skew)", async () => {
+	it("operations present but no collected answer bags rejects the final protocol", async () => {
 		const { doc, formUuid } = acceptanceDoc((ids) => [
 			{
 				uuid: OP_ROOT,
@@ -348,17 +372,20 @@ describe("engine → builder → executor acceptance", () => {
 		const mutation = engine.computeSubmissionMutation({
 			caseId: SESSION_CASE,
 			caseTypes: doc.caseTypes ?? [],
+			entryKey: ENTRY_KEY,
 		});
-		// A client whose doc snapshot predates the operation add sends NO
-		// answer bags; the builder must fall back to ordinary-only, never
-		// run the program with blank bindings (a blank write projects to
-		// key-absent and would silently strip stored properties).
-		const built = buildCaseOperationProgramFromDoc({
-			blueprint: doc,
-			mutation: { ...mutation, operationAnswers: undefined },
-			identity: IDENTITY,
-		});
-		expect(built.program).toBeUndefined();
+		const missingAnswers = { ...mutation, operationAnswers: undefined };
+		const projection = validateCaptureSubmissionProjection(missingAnswers);
+		// A stale client must neither run blank bindings nor silently skip the
+		// committed operation program.
+		expect(() =>
+			buildCaseOperationProgramFromDoc({
+				blueprint: doc,
+				mutation: missingAnswers,
+				projection,
+				identity: IDENTITY,
+			}),
+		).toThrow(CaptureSubmissionRejectedError);
 	});
 
 	it("a false condition skips the effect and records executed: false", async () => {

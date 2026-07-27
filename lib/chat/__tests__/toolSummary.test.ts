@@ -186,3 +186,17 @@ describe("scoped-edit rows are unchanged", () => {
 		expect(toolLocation(part)).toBe("Clients");
 	});
 });
+
+describe("users and personas transcript rows", () => {
+	it("renders batch counts and singular entity edits in author language", () => {
+		expect(toolAction(donePart("addUserProperties", { count: 2 }))).toBe(
+			"Added 2 worker-information properties",
+		);
+		expect(
+			toolAction(donePart("updateUserType", { subject: "Supervisor" })),
+		).toBe('Updated role "Supervisor"');
+		expect(toolAction(donePart("removePersona", { subject: "Asha" }))).toBe(
+			'Removed persona "Asha"',
+		);
+	});
+});

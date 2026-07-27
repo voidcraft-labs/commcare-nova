@@ -14,10 +14,11 @@
 //   2. Any undefined identifier short-circuits to the typed `error`
 //      arm with the verbatim user-actionable message. The Server
 //      Action is NOT called along that path.
-//   3. With the args populated, the hook forwards `(appId, caseType)`
-//      verbatim to `resetSampleCasesAction` — `caseType` is the live
-//      `CaseType` definition the client passes through (never the whole
-//      blueprint) — and returns the action's resolved result.
+//   3. With the args populated, the hook forwards
+//      `(appId, caseType, selectedPersonaUuid)` to
+//      `resetSampleCasesAction` — `caseType` is the live `CaseType`
+//      definition the client passes through (never the whole blueprint) —
+//      and returns the action's resolved result.
 
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
@@ -132,6 +133,57 @@ describe("useResetSampleCases", () => {
 		expect(vi.mocked(resetSampleCasesAction)).toHaveBeenCalledWith(
 			APP_ID,
 			PATIENT,
+			undefined,
+		);
+	});
+
+	it("forwards the selected persona so regenerated rows keep the visible worker owner", async () => {
+		const personaUuid = "persona-asha";
+		vi.mocked(resetSampleCasesAction).mockResolvedValueOnce({
+			kind: "ok",
+			inserted: 30,
+		});
+		const store = createBuilderSessionStore({ appId: APP_ID });
+		store.getState().setPreviewPersonaUuid(personaUuid);
+		const wrapper = ({ children }: { children: ReactNode }) => (
+			<BuilderSessionContext value={store}>{children}</BuilderSessionContext>
+		);
+		const { result } = renderHook(
+			() => useResetSampleCases({ appId: APP_ID, caseType: PATIENT }),
+			{ wrapper },
+		);
+
+		await result.current();
+		expect(resetSampleCasesAction).toHaveBeenCalledWith(
+			APP_ID,
+			PATIENT,
+			personaUuid,
+		);
+	});
+
+	it("drops the preview persona before edit-mode sample-data actions return", async () => {
+		vi.mocked(resetSampleCasesAction).mockResolvedValueOnce({
+			kind: "ok",
+			inserted: 30,
+		});
+		const store = createBuilderSessionStore({ appId: APP_ID });
+		store.getState().setPreviewing(true);
+		store.getState().setPreviewPersonaUuid("persona-asha");
+		const wrapper = ({ children }: { children: ReactNode }) => (
+			<BuilderSessionContext value={store}>{children}</BuilderSessionContext>
+		);
+		const { result } = renderHook(
+			() => useResetSampleCases({ appId: APP_ID, caseType: PATIENT }),
+			{ wrapper },
+		);
+
+		act(() => store.getState().setPreviewing(false));
+		await result.current();
+
+		expect(resetSampleCasesAction).toHaveBeenCalledWith(
+			APP_ID,
+			PATIENT,
+			undefined,
 		);
 	});
 
@@ -633,6 +685,47 @@ describe("useCaseCount request identity", () => {
 });
 
 describe("case-data invalidation", () => {
+	it("masks and refetches the selected row when Preview switches persona", async () => {
+		let resolvePersona: ((value: { kind: "missing" }) => void) | undefined;
+		vi.mocked(loadCaseDataAction)
+			.mockResolvedValueOnce({ kind: "missing" })
+			.mockImplementationOnce(
+				() =>
+					new Promise((resolve) => {
+						resolvePersona = resolve;
+					}),
+			);
+		const store = createBuilderSessionStore({ appId: APP_ID });
+		const wrapper = ({ children }: { children: ReactNode }) => (
+			<BuilderSessionContext value={store}>{children}</BuilderSessionContext>
+		);
+		const selected = renderHook(
+			() =>
+				useCaseData({
+					appId: APP_ID,
+					caseType: PATIENT.name,
+					caseId: "case-1",
+					ancestorDepth: 0,
+				}),
+			{ wrapper },
+		);
+		await waitFor(() =>
+			expect(selected.result.current.state).toEqual({ kind: "missing" }),
+		);
+
+		act(() => store.getState().setPreviewPersonaUuid("persona-asha"));
+		expect(selected.result.current.state).toEqual({ kind: "loading" });
+		await waitFor(() => expect(loadCaseDataAction).toHaveBeenCalledTimes(2));
+		expect(vi.mocked(loadCaseDataAction).mock.calls[1]?.at(-1)).toBe(
+			"persona-asha",
+		);
+
+		await act(async () => resolvePersona?.({ kind: "missing" }));
+		await waitFor(() =>
+			expect(selected.result.current.state).toEqual({ kind: "missing" }),
+		);
+	});
+
 	it("hides the prior selected row synchronously when its revision changes", async () => {
 		let resolveReload: ((value: { kind: "missing" }) => void) | undefined;
 		vi.mocked(loadCaseDataAction)

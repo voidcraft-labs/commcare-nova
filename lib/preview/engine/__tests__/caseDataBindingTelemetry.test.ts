@@ -11,6 +11,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+	CaptureSubmissionRejectedError,
 	CaseNotFoundError,
 	CasePropertiesValidationError,
 	CaseTypeNotInBlueprintError,
@@ -54,6 +55,7 @@ describe("reportUnexpectedActionError", () => {
 	it("stays silent on the typed user-domain errors that have dedicated result arms", () => {
 		const spy = vi.spyOn(log, "error").mockImplementation(() => {});
 		const expectedErrors = [
+			new CaptureSubmissionRejectedError("The form entry changed."),
 			new CaseNotFoundError("c1"),
 			new CaseTypeNotInBlueprintError("app-1", "patient"),
 			new SchemaNotSyncedError("app-1", "patient"),

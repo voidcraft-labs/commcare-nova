@@ -10,8 +10,13 @@
  */
 
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
-import type { PersistableDoc } from "@/lib/domain";
+import {
+	hasOwnRecordKey,
+	type PersistableDoc,
+	recordFromEntries,
+} from "@/lib/domain";
 import { backfillOptionUuids, backfillOrderKeys } from "./order/backfill";
+import { normalizeBlueprintOwnRecords } from "./ownRecords";
 
 /**
  * Rebuild the fieldParent reverse index from fieldOrder.
@@ -30,20 +35,24 @@ import { backfillOptionUuids, backfillOrderKeys } from "./order/backfill";
  * parent lookup undefined.
  */
 export function rebuildFieldParent(doc: BlueprintDoc): void {
-	doc.fieldParent = {} as Record<Uuid, Uuid | null>;
+	const fieldParent = recordFromEntries<Uuid | null>([]) as Record<
+		Uuid,
+		Uuid | null
+	>;
 
 	// Every field uuid that appears as a child of some parent gets that
 	// parent recorded.
 	for (const [parentUuid, fieldUuids] of Object.entries(doc.fieldOrder)) {
 		for (const fieldUuid of fieldUuids) {
-			doc.fieldParent[fieldUuid as Uuid] = parentUuid as Uuid;
+			fieldParent[fieldUuid as Uuid] = parentUuid as Uuid;
 		}
 	}
 
 	// Orphan guard: fields in doc.fields not referenced by any fieldOrder entry.
 	for (const uuid of Object.keys(doc.fields)) {
-		if (!(uuid in doc.fieldParent)) doc.fieldParent[uuid as Uuid] = null;
+		if (!hasOwnRecordKey(fieldParent, uuid)) fieldParent[uuid as Uuid] = null;
 	}
+	doc.fieldParent = fieldParent;
 }
 
 /**
@@ -90,7 +99,8 @@ export function hydratePersistedBlueprint(
 	persisted: PersistableDoc,
 ): BlueprintDoc {
 	const doc = structuredClone(persisted) as unknown as BlueprintDoc;
-	doc.fieldParent = {} as Record<Uuid, Uuid | null>;
+	doc.fieldParent = recordFromEntries([]) as Record<Uuid, Uuid | null>;
+	normalizeBlueprintOwnRecords(doc);
 	backfillOrderKeys(doc);
 	backfillOptionUuids(doc);
 	rebuildFieldParent(doc);

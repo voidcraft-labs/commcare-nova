@@ -45,6 +45,7 @@ import { asUuid, type Uuid } from "@/lib/domain";
 import { useEngineController } from "@/lib/preview/hooks/useEngineController";
 import { useEngineStateAt } from "@/lib/preview/hooks/useEngineState";
 import { LabelContent } from "@/lib/references/LabelContent";
+import { useAppId } from "@/lib/session/hooks";
 import { FieldHelp } from "./FieldHelp";
 import { FieldRenderer } from "./FieldRenderer";
 import { FIELD_STYLES } from "./fieldStyles";
@@ -73,6 +74,12 @@ interface InteractiveFormRendererProps {
 	 *  Default on; callers that own their own leading spacer (e.g. the
 	 *  repeat instance divider) pass `false`. */
 	readonly leadingGap?: boolean;
+	/** Stable identities of enclosing repeat instances. Concrete indices
+	 * compact; this key does not. */
+	readonly instanceScopeKey?: string;
+	/** IDs that name enclosing sections/repeat instances for controls whose
+	 * visible prompts may otherwise be duplicates. */
+	readonly accessibleContext?: string;
 }
 
 // ── Component ─────────────────────────────────────────────────────────
@@ -88,6 +95,8 @@ export const InteractiveFormRenderer = memo(function InteractiveFormRenderer({
 	parentPath,
 	depth = 0,
 	leadingGap = true,
+	instanceScopeKey = "",
+	accessibleContext = "",
 }: InteractiveFormRendererProps) {
 	const fieldUuids = useOrderedFields(parentEntityId as Uuid);
 
@@ -98,7 +107,7 @@ export const InteractiveFormRenderer = memo(function InteractiveFormRenderer({
 
 	return (
 		<div className={containerClass}>
-			{fieldUuids.map((rawUuid) => {
+			{fieldUuids.map((rawUuid, index) => {
 				const uuid = asUuid(rawUuid);
 				return (
 					<InteractiveField
@@ -107,6 +116,9 @@ export const InteractiveFormRenderer = memo(function InteractiveFormRenderer({
 						prefix={prefix}
 						parentPath={parentPath}
 						depth={depth}
+						instanceScopeKey={instanceScopeKey}
+						accessibleContext={accessibleContext}
+						position={index + 1}
 					/>
 				);
 			})}
@@ -121,6 +133,9 @@ interface InteractiveFieldProps {
 	readonly prefix: string;
 	readonly parentPath?: FieldPath;
 	readonly depth: number;
+	readonly instanceScopeKey: string;
+	readonly accessibleContext: string;
+	readonly position: number;
 }
 
 /**
@@ -140,6 +155,9 @@ const InteractiveField = memo(function InteractiveField({
 	prefix,
 	parentPath,
 	depth,
+	instanceScopeKey,
+	accessibleContext,
+	position,
 }: InteractiveFieldProps) {
 	const field = useField(uuid);
 	// Engine state is keyed by the CONCRETE path so each repeat instance
@@ -148,9 +166,15 @@ const InteractiveField = memo(function InteractiveField({
 	const enginePath = field ? `${prefix}/${field.id}` : undefined;
 	const state = useEngineStateAt(uuid, enginePath);
 	const controller = useEngineController();
-	// Repeat instances reuse the authored field UUID, so the DOM label identity
-	// must be per mounted field instance rather than UUID-derived.
-	const fieldLabelId = useId();
+	// Capture questions stage bytes against the app; every other kind
+	// ignores it.
+	const appId = useAppId();
+	// Repeat instances reuse the authored field UUID, so every DOM identity
+	// below must be per mounted field instance rather than UUID-derived.
+	const questionLabelId = useId();
+	const hintId = useId();
+	const helpId = useId();
+	const transparentSectionId = useId();
 
 	// Visibility gating lives here so the subscription cost of reading
 	// the field + engine state is paid per-field. Siblings whose
@@ -179,8 +203,14 @@ const InteractiveField = memo(function InteractiveField({
 	// `VirtualFormList` → `GroupBracket` so authors can select and edit
 	// them; this transparency only applies to interactive/preview mode.
 	if (field.kind === "group" && !field.label) {
+		const childContext = [accessibleContext, transparentSectionId]
+			.filter(Boolean)
+			.join(" ");
 		return (
 			<>
+				<span id={transparentSectionId} className="sr-only">
+					Section {position}.
+				</span>
 				{/* A label-less group is transparent in preview, but its
 				    `label_media` is authored content — without this it vanishes on
 				    the edit→preview flip (edit renders it in the GroupBracket
@@ -203,6 +233,8 @@ const InteractiveField = memo(function InteractiveField({
 					parentPath={fieldPath}
 					depth={depth}
 					leadingGap={false}
+					instanceScopeKey={instanceScopeKey}
+					accessibleContext={childContext}
 				/>
 			</>
 		);
@@ -211,9 +243,18 @@ const InteractiveField = memo(function InteractiveField({
 	const showInvalid = state.touched && !state.valid;
 	// Point interactive controls at the label workers already see. This keeps
 	// the accessible name on the same resolved/fallback path as LabelContent
-	// without maintaining a second copy. `useId` keeps repeated instances
-	// collision-free and hydration-stable. A blank authored label stays blank.
-	const labelId = field.label ? fieldLabelId : undefined;
+	// without maintaining a second copy. A blank authored label stays blank,
+	// and the sr-only fallback below carries the position instead.
+	const labelId = field.label ? questionLabelId : undefined;
+	// The capture control names itself with the FULL context — its recovery
+	// messages are read out of the question's flow, so they need the ancestor
+	// trail. An ordinary control points at the visible question alone, so a
+	// repeated instance's accessible name is exactly the question a worker
+	// reads. Deliberately two values: joining them would rename every ordinary
+	// control in the running preview.
+	const questionLabelledBy = [accessibleContext, questionLabelId]
+		.filter(Boolean)
+		.join(" ");
 
 	// Discriminated union narrowing on `field.kind` so each branch sees
 	// the kind-specific entity shape. `label` is absent from the `hidden`
@@ -226,6 +267,9 @@ const InteractiveField = memo(function InteractiveField({
 				path={path}
 				fieldPath={fieldPath}
 				depth={depth}
+				instanceScopeKey={instanceScopeKey}
+				accessibleContext={accessibleContext}
+				position={position}
 			/>
 		);
 	} else if (field.kind === "repeat") {
@@ -235,6 +279,9 @@ const InteractiveField = memo(function InteractiveField({
 				path={path}
 				fieldPath={fieldPath}
 				depth={depth}
+				instanceScopeKey={instanceScopeKey}
+				accessibleContext={accessibleContext}
+				position={position}
 			/>
 		);
 	} else if (field.kind === "label") {
@@ -264,30 +311,44 @@ const InteractiveField = memo(function InteractiveField({
 				    controls in preview mode; mounted at the same position as the
 				    edit-mode `FieldRow` so the flipbook doesn't drift. */}
 				<MediaDisplay media={field.label_media} interactive />
-				{field.label && (
-					<div className="flex items-center gap-1">
-						<div className="min-w-0 flex-1">
-							{/* `px-[5px] py-[5px]` matches TextEditable's idle
-							 *  wrapper in edit mode for flipbook parity. Without
-							 *  this, every leaf field is 10px shorter in live
-							 *  mode than in edit mode — see the matching note
-							 *  in `GroupField`. */}
-							<div id={labelId} className="px-[5px] py-[5px]">
-								<LabelContent
-									label={field.label}
-									resolvedLabel={state.resolvedLabel}
-									isEditMode={false}
-									className={FIELD_STYLES.label}
-								/>
-							</div>
+				{field.label ? (
+					<div className="min-w-0">
+						{/* `px-[5px] py-[5px]` matches TextEditable's idle
+						 *  wrapper in edit mode for flipbook parity. Without
+						 *  this, every leaf field is 10px shorter in live
+						 *  mode than in edit mode — see the matching note
+						 *  in `GroupField`. */}
+						<div
+							id={questionLabelId}
+							className="flex items-center gap-1 px-[5px] py-[5px]"
+						>
+							<span className="sr-only">Question {position}. </span>
+							<LabelContent
+								label={field.label}
+								resolvedLabel={state.resolvedLabel}
+								isEditMode={false}
+								className={FIELD_STYLES.label}
+							/>
+							{state.required ? (
+								<>
+									<span
+										aria-hidden="true"
+										className="shrink-0 text-xs text-nova-rose"
+									>
+										*
+									</span>
+									<span className="sr-only"> Required.</span>
+								</>
+							) : null}
 						</div>
-						{state.required && (
-							<span className="text-nova-rose text-xs shrink-0">*</span>
-						)}
 					</div>
+				) : (
+					<span id={questionLabelId} className="sr-only">
+						Question {position}.{state.required ? " Required." : ""}
+					</span>
 				)}
 				{field.hint && (
-					<div className="px-[5px] py-[5px]">
+					<div id={hintId} className="px-[5px] py-[5px]">
 						<LabelContent
 							label={field.hint}
 							resolvedLabel={state.resolvedHint}
@@ -306,6 +367,7 @@ const InteractiveField = memo(function InteractiveField({
 				    (CommCare hides help behind a "?"); both slots are input-kind
 				    only, so guard the access. */}
 				<FieldHelp
+					id={helpId}
 					help={"help" in field ? field.help : undefined}
 					helpMedia={"help_media" in field ? field.help_media : undefined}
 					interactive
@@ -314,8 +376,27 @@ const InteractiveField = memo(function InteractiveField({
 					field={field}
 					state={state}
 					labelledBy={labelId}
+					path={path}
+					appId={appId}
+					entryKey={controller.entryKey}
+					attachmentSlotKey={`${field.uuid}\u0000${instanceScopeKey}`}
+					questionLabelId={labelId}
+					questionLabelledBy={questionLabelledBy}
+					questionDescriptionIds={[
+						field.hint ? hintId : undefined,
+						"help" in field && (field.help || field.help_media)
+							? helpId
+							: undefined,
+					]
+						.filter((id): id is string => id !== undefined)
+						.join(" ")}
+					questionLabel={state.resolvedLabel ?? field.label ?? undefined}
 					onChange={(value) => controller.setValueAt(path, value)}
 					onBlur={() => controller.touchAt(path)}
+					onChangeAt={(targetPath, value) =>
+						controller.setValueAt(targetPath, value)
+					}
+					onBlurAt={(targetPath) => controller.touchAt(targetPath)}
 				/>
 			</div>
 		);
@@ -326,6 +407,8 @@ const InteractiveField = memo(function InteractiveField({
 			className="relative mb-6"
 			data-invalid={showInvalid ? "true" : undefined}
 			data-field-uuid={uuid}
+			data-instance-path={path}
+			tabIndex={showInvalid ? -1 : undefined}
 		>
 			{content}
 		</div>

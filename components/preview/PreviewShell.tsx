@@ -47,9 +47,11 @@ import { CaseOperationsCanvas } from "@/components/builder/case-operations/CaseO
 import { DisplayConditionCanvas } from "@/components/builder/conditions/DisplayConditionCanvas";
 import type { DisplayConditionTarget } from "@/components/builder/conditions/useDisplayConditionCarrier";
 import { DataReviewScreen } from "@/components/builder/data-review/DataReviewScreen";
+import { Button } from "@/components/shadcn/button";
 import { useAppStructure } from "@/lib/doc/hooks/useAppStructure";
 import type { Uuid } from "@/lib/doc/types";
 import { type PreviewScreen, screenKey } from "@/lib/preview/engine/types";
+import { useSelectedPreviewIdentityState } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import { previewCaseTargetBindsLocation } from "@/lib/routing/previewBreadcrumbs";
 import type { AppSetupSection, Location } from "@/lib/routing/types";
@@ -58,6 +60,7 @@ import {
 	usePreviewCaseTarget,
 	useProjectScopeEpoch,
 	useSetPreviewing,
+	useSetPreviewPersonaUuid,
 } from "@/lib/session/hooks";
 import { CaseListScreen } from "./screens/CaseListScreen";
 import { FormScreen } from "./screens/FormScreen";
@@ -192,6 +195,8 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 	const screen = view.screen;
 
 	const mode = useEditMode();
+	const identityState = useSelectedPreviewIdentityState();
+	const setPreviewPersonaUuid = useSetPreviewPersonaUuid();
 	/* `/cases/{caseId}` is the running record deep link, not the Results
 	 * authoring tab. It must remain a record screen after a reload even though
 	 * preview mode itself is ephemeral session state. */
@@ -376,6 +381,40 @@ export function PreviewShell({ onBack }: PreviewShellProps) {
 			prevScreenKeyRef.current = currentKey;
 		}
 	}, [screen]);
+
+	if (mode === "preview" && identityState.kind === "persona-unavailable") {
+		return (
+			<div className="preview-theme h-full flex flex-col">
+				<main
+					ref={scrollContainerRef}
+					data-preview-scroll-container
+					className="flex flex-1 items-center justify-center overflow-y-auto bg-pv-bg px-6 py-10"
+				>
+					<div
+						role="alert"
+						className="flex max-w-md flex-col items-start gap-4 rounded-2xl border border-pv-input-border bg-pv-surface p-6 shadow-sm"
+					>
+						<div className="space-y-2">
+							<h2 className="text-lg font-semibold text-foreground">
+								Choose who is previewing
+							</h2>
+							<p className="text-sm leading-relaxed text-muted-foreground">
+								The persona you selected is no longer in this app. Preview is
+								paused so it cannot quietly switch to a different worker.
+							</p>
+						</div>
+						<Button
+							type="button"
+							onClick={() => setPreviewPersonaUuid(undefined)}
+							className="min-h-11"
+						>
+							Preview as me
+						</Button>
+					</div>
+				</main>
+			</div>
+		);
+	}
 
 	return (
 		<div

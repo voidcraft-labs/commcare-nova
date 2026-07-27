@@ -426,7 +426,11 @@ async function main(): Promise<void> {
 		// A newly-created app starts at seq 0; appendSyntheticBatch advances it once.
 		syncedSeq: 1,
 	});
-	const caseStore = await withProjectContext(seedProjectId, SEED.userId);
+	const caseStore = await withProjectContext(
+		seedProjectId,
+		SEED.userId,
+		SEED.userId,
+	);
 	const caseWorkspaceCaseIds: string[] = [];
 	for (const row of caseWorkspaceCaseRows()) {
 		const inserted = await caseStore.insert({

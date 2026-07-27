@@ -5,20 +5,20 @@
  *
  * Each collection is a flat UUID-keyed record with no membership array,
  * so display sequence comes from each entity's fractional `order` key
- * (`bySortKey`). The hooks return sorted arrays because every surface
+ * (`byFlatEntitySortKey`). The hooks return sorted arrays because every surface
  * wants them in order; nothing reads the raw record.
  */
 "use client";
 
 import { useMemo } from "react";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
-import { bySortKey } from "@/lib/doc/order/compare";
+import { byFlatEntitySortKey } from "@/lib/doc/order/compare";
 import type { Persona, UserProperty, UserType } from "@/lib/domain";
 
 function sorted<T extends { order?: string; uuid: string }>(
 	record: Record<string, T> | undefined,
 ): T[] {
-	return Object.values(record ?? {}).sort(bySortKey);
+	return Object.values(record ?? {}).sort(byFlatEntitySortKey);
 }
 
 /** The app's worker-information catalog, in display order. */

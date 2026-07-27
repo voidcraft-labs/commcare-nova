@@ -91,6 +91,17 @@ describe("BuilderSession store", () => {
 		expect(s.sidebars.structure).toEqual({ open: true, stashed: undefined });
 	});
 
+	it("leaving Preview clears the acting persona before edit-mode data tools return", () => {
+		const store = createBuilderSessionStore();
+		store.getState().setPreviewing(true);
+		store.getState().setPreviewPersonaUuid("persona-a");
+		expect(store.getState().previewPersonaUuid).toBe("persona-a");
+
+		store.getState().setPreviewing(false);
+
+		expect(store.getState().previewPersonaUuid).toBeUndefined();
+	});
+
 	it("4. setPreviewing(true) with chat already closed: restores chat-closed state exactly", () => {
 		const store = createBuilderSessionStore();
 
@@ -238,10 +249,17 @@ describe("BuilderSession store", () => {
 		expect(store.getState().previewSelectedCase).toBeUndefined();
 	});
 
-	it("Project-scope reset clears preview case identity without leaving preview", () => {
-		const store = createBuilderSessionStore();
+	it("defers preview worker/case retirement until a snapshot confirms a Project change", () => {
+		const store = createBuilderSessionStore({
+			projectId: "project-source",
+			role: "editor",
+			canEdit: true,
+		});
 		const formUuid = asUuid("form-1");
 		store.getState().setPreviewing(true);
+		store
+			.getState()
+			.setPreviewPersonaUuid("11111111-1111-4111-8111-111111111111");
 		store.getState().setPreviewCaseTarget({
 			formUuid,
 			caseId: "case-from-source-project",
@@ -254,8 +272,36 @@ describe("BuilderSession store", () => {
 		store.getState().resetProjectScope();
 
 		expect(store.getState().previewing).toBe(true);
+		expect(store.getState().previewCaseTarget?.caseId).toBe(
+			"case-from-source-project",
+		);
+		expect(store.getState().previewSelectedCase?.caseId).toBe(
+			"case-from-source-project",
+		);
+		expect(store.getState().previewPersonaUuid).toBe(
+			"11111111-1111-4111-8111-111111111111",
+		);
+
+		store.getState().applyAccessSnapshot({
+			projectId: "project-source",
+			role: "editor",
+			canEdit: true,
+		});
+		expect(store.getState().previewCaseTarget?.caseId).toBe(
+			"case-from-source-project",
+		);
+		expect(store.getState().previewPersonaUuid).toBe(
+			"11111111-1111-4111-8111-111111111111",
+		);
+
+		store.getState().applyAccessSnapshot({
+			projectId: "project-destination",
+			role: "editor",
+			canEdit: true,
+		});
 		expect(store.getState().previewCaseTarget).toBeUndefined();
 		expect(store.getState().previewSelectedCase).toBeUndefined();
+		expect(store.getState().previewPersonaUuid).toBeUndefined();
 	});
 
 	it("Project-scope reset retires attachment/tool run payloads and phase state", () => {

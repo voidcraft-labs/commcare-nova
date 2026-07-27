@@ -34,6 +34,7 @@ import type { PreviewLookupStatus } from "../useLookupPreviewData";
 const SESSION: PreviewSearchSessionValues = {
 	context: { userid: "u1", username: "ada" },
 	user: { role: "supervisor" },
+	userPropertySlugs: {},
 };
 const NO_LOOKUP: PreviewLookupStatus = { kind: "idle" };
 
@@ -97,7 +98,7 @@ describe("moduleDisplayVisibility", () => {
 		expect(
 			moduleDisplayVisibility({
 				condition,
-				session: { context: {}, user: {} },
+				session: { context: {}, user: {}, userPropertySlugs: {} },
 				lookup: NO_LOOKUP,
 			}),
 		).toBe("hidden");
@@ -164,6 +165,7 @@ describe("moduleDisplayVisibility", () => {
 		const northSession: PreviewSearchSessionValues = {
 			context: { username: "north" },
 			user: {},
+			userPropertySlugs: {},
 		};
 		expect(
 			moduleDisplayVisibility({

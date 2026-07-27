@@ -144,6 +144,20 @@ export function isCaptureFieldKind(kind: string): kind is CaptureFieldKind {
 	return (captureFieldKinds as readonly string[]).includes(kind);
 }
 
+/** A field whose answer is an attachment name. */
+export type CaptureField = Extract<Field, { kind: CaptureFieldKind }>;
+
+/**
+ * Narrow a field to the capture variants.
+ *
+ * The entity-level twin of `isCaptureFieldKind`: narrowing the KIND
+ * string leaves the field itself unnarrowed, so a consumer that needs to
+ * pass the field on (a renderer, an emitter) needs this instead.
+ */
+export function isCaptureField(field: Field): field is CaptureField {
+	return isCaptureFieldKind(field.kind);
+}
+
 /**
  * The pre-lookup select shapes retained at rolling and authoring boundaries.
  *

@@ -177,13 +177,18 @@ export function emitCaseListFilter(
 	anchor: OnDeviceCaseAnchor = ROOT_ON_DEVICE_CASE_ANCHOR,
 	termContext: OnDeviceTermEmissionContext = {},
 ): string {
+	const resolvedTermContext =
+		termContext.userPropertySlugs === undefined &&
+		context.userPropertySlugs !== undefined
+			? { ...termContext, userPropertySlugs: context.userPropertySlugs }
+			: termContext;
 	return emitPredicate(
 		normalizeRelationEvaluationScopes(predicate, context),
 		0,
 		root,
 		context,
 		anchor,
-		termContext,
+		resolvedTermContext,
 	);
 }
 

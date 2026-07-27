@@ -98,6 +98,7 @@ import {
 	type SearchInputType,
 	type SimpleSearchInputDef,
 	simpleSearchInputDef,
+	type UserProperty,
 } from "@/lib/domain";
 import {
 	acceptsType,
@@ -152,6 +153,7 @@ export interface SearchInputEditorProps {
 	readonly siblings: readonly SearchInputDef[];
 	readonly caseTypes: readonly CaseType[];
 	readonly currentCaseType: string;
+	readonly userProperties?: readonly UserProperty[];
 	readonly onChange: (next: SearchInputDef) => void;
 	/** Opens this field's custom condition in the center-canvas workbench. */
 	readonly onEditCondition: () => void;
@@ -204,6 +206,7 @@ export function SearchInputEditor({
 	siblings,
 	caseTypes,
 	currentCaseType,
+	userProperties = [],
 	onChange,
 	onEditCondition,
 }: SearchInputEditorProps) {
@@ -584,6 +587,7 @@ export function SearchInputEditor({
 			caseTypes={caseTypes}
 			currentCaseType={currentCaseType}
 			knownInputs={knownInputs}
+			userProperties={userProperties}
 			validityIndex={emptyValidityIndex}
 		>
 			<div className="space-y-5">
@@ -695,6 +699,7 @@ export function SearchInputEditor({
 						inputType={value.type}
 						caseTypes={caseTypes}
 						currentCaseType={currentCaseType}
+						userProperties={userProperties}
 						rowIndex={index}
 						onChange={setDefault}
 					/>
@@ -1147,6 +1152,8 @@ function expressionHasMeaningfulContent(value: ValueExpression): boolean {
 			return true;
 		case "session-user":
 			return value.term.field.length > 0;
+		case "session-user-property":
+			return true;
 		case "table-column":
 			throw new Error(
 				"Lookup table columns are dormant and cannot reach the search-input editor.",
@@ -1534,6 +1541,7 @@ interface DefaultValueSlotProps {
 	readonly inputType: ScalarDefaultSearchInputType;
 	readonly caseTypes: readonly CaseType[];
 	readonly currentCaseType: string;
+	readonly userProperties: readonly UserProperty[];
 	readonly rowIndex: number;
 	readonly onChange: (next: ValueExpression | undefined) => void;
 }
@@ -1569,6 +1577,7 @@ function DefaultValueSlot({
 	inputType,
 	caseTypes,
 	currentCaseType,
+	userProperties,
 	rowIndex,
 	onChange,
 }: DefaultValueSlotProps) {
@@ -1600,6 +1609,7 @@ function DefaultValueSlot({
 						caseTypes={caseTypes}
 						currentCaseType={currentCaseType}
 						knownInputs={NO_SEARCH_INPUTS}
+						userProperties={userProperties}
 						caseDataScope="global"
 						constraint={constraint}
 					/>

@@ -172,6 +172,8 @@ export interface CaseListEmitContext {
 	 * emission, so an unqualified path cannot widen to a same-named edge on a
 	 * different case type. */
 	readonly currentCaseType?: string;
+	/** Stable custom worker-information identity → current emitted slug. */
+	readonly userPropertySlugs?: ReadonlyMap<Uuid, string>;
 	/**
 	 * Resolved media manifest, for image-map columns to resolve their
 	 * per-value `AssetId` → `jr://file/...` path. `undefined` when media

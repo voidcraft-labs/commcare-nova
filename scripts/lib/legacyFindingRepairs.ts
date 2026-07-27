@@ -156,6 +156,9 @@ export const REPAIR_JUDGMENTS: Readonly<
 	CONNECT_NO_PARTICIPATING_FORMS: owner(
 		"which form should participate in Connect — and the sub-config names/descriptions it carries — is content the user writes",
 	),
+	BLUEPRINT_ENTITY_UUID_DUPLICATE: owner(
+		"choosing which globally-colliding entity keeps its stable identity requires rewriting every reference to the other entity",
+	),
 	// ── Worker information, roles, personas ──────────────────────────
 	//
 	// No app predating the commit gate can carry any of these findings:
@@ -169,6 +172,9 @@ export const REPAIR_JUDGMENTS: Readonly<
 	),
 	USER_PROPERTY_SLUG_DUPLICATE: owner(
 		"which of the two colliding names to keep, and what to rename the other to, is the owner's decision",
+	),
+	USER_PROPERTY_CHOICES_DUPLICATE: owner(
+		"which duplicate accepted value is redundant, or whether the list itself is wrong, is an authoring decision",
 	),
 	USER_TYPE_NAME_DUPLICATE: owner(
 		"which duplicate role is which — and therefore what to rename — is content only the owner knows",
@@ -184,6 +190,9 @@ export const REPAIR_JUDGMENTS: Readonly<
 	),
 	USER_DATA_INVALID_CHOICE: owner(
 		"whether the value or the accepted-values list is the mistake is the owner's call",
+	),
+	USER_PROPERTY_REFERENCE_UNKNOWN: owner(
+		"choosing the intended worker-information property for a stranded stable reference is content",
 	),
 	// ── Module-level ─────────────────────────────────────────────────
 	NO_CASE_TYPE: owner(

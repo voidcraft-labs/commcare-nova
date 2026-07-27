@@ -26,6 +26,7 @@ export * from "./lookupCarriers";
 export * from "./lookupIds";
 export * from "./modules";
 export * from "./multimedia";
+export * from "./records";
 export * from "./referenceIndex";
 export * from "./referenceSlots";
 export * from "./standardCaseProperties";

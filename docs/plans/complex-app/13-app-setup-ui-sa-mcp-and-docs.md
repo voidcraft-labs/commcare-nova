@@ -22,14 +22,11 @@ and honest target prerequisites. Complete the SA and MCP tools and the public
 docs for units 8 through 12, and the cross-facility owner/restore walkthrough
 scenario.
 
-The SA and MCP projection of the **user-property, user-type, and persona**
-vocabulary is also this unit's. Unit 7 shipped that vocabulary's builder surface
-and public docs and deliberately left its two model-facing surfaces here,
-because the three-surfaces rule is served best by one pass over the whole App
-setup vocabulary: the tool schemas share a boundary walk, a slug-verdict
-projection, and the strict-mode normalization budget that
-`lib/agent/CLAUDE.md` governs, and splitting them across six units would mean
-six partial passes over the same constraints.
+Unit 7 already ships the **user-property, user-type, and persona** vocabulary on
+all three authoring surfaces: builder, Solutions Architect, and MCP. Its shared
+`getUsers` plus granular add/update/remove tools are an existing contract. This
+unit may consume and preserve those tools while completing the remaining App
+setup vocabulary; it must not rebuild, duplicate, defer, or rename them.
 
 **Observed:** every capability from units 8 through 12 is reachable without chat,
 and everything App setup can author is reachable from chat and MCP.

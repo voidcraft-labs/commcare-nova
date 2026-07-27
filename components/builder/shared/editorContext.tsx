@@ -26,7 +26,7 @@ import {
 	useMemo,
 	useRef,
 } from "react";
-import type { CaseType } from "@/lib/domain";
+import type { CaseType, UserProperty } from "@/lib/domain";
 import {
 	type CheckError,
 	checkExpression,
@@ -48,9 +48,11 @@ import type { EditorPath } from "./path";
 import { serializePath } from "./path";
 import type { EditorSearchInputDecl } from "./searchInputPresentation";
 
-/** Shared empty list so a provider without form answers keeps one stable
- *  identity across renders (the context memo depends on it). */
+/** Shared empty lists so a provider without form answers or a custom
+ *  worker catalog keeps one stable identity across renders (the context
+ *  memo and the type-context memo both depend on them). */
 const EMPTY_FORM_FIELDS: readonly EditorFormFieldDecl[] = [];
+const EMPTY_USER_PROPERTIES: readonly UserProperty[] = [];
 
 /**
  * Per-path user-facing diagnostic list. Raw `CheckError.message`
@@ -90,6 +92,8 @@ interface PredicateEditContextValue {
 	readonly currentCaseType: string;
 	/** Declared search inputs in scope at the editor's mount site. */
 	readonly knownInputs: readonly EditorSearchInputDecl[];
+	/** Custom worker information available to identity-backed user terms. */
+	readonly userProperties: readonly UserProperty[];
 	/**
 	 * Form answers this editor may read, ALREADY narrowed by the mounting
 	 * surface to the ones its slot admits — a case operation running once
@@ -144,6 +148,7 @@ interface PredicateEditProviderProps {
 	readonly caseTypes: readonly CaseType[];
 	readonly currentCaseType: string;
 	readonly knownInputs: readonly EditorSearchInputDecl[];
+	readonly userProperties?: readonly UserProperty[];
 	readonly formFields?: readonly EditorFormFieldDecl[];
 	readonly operationScope?: OperationValueScope;
 	/** Absent means the ordinary per-case scope. */
@@ -172,6 +177,7 @@ export function PredicateEditProvider({
 	caseTypes,
 	currentCaseType,
 	knownInputs,
+	userProperties = EMPTY_USER_PROPERTIES,
 	formFields = EMPTY_FORM_FIELDS,
 	operationScope,
 	caseDataScope = "per-case",
@@ -201,6 +207,7 @@ export function PredicateEditProvider({
 			caseTypes,
 			currentCaseType,
 			knownInputs,
+			userProperties,
 			formFields,
 			operationScope,
 			caseDataScope,
@@ -213,6 +220,7 @@ export function PredicateEditProvider({
 			caseTypes,
 			currentCaseType,
 			knownInputs,
+			userProperties,
 			formFields,
 			operationScope,
 			caseDataScope,
@@ -382,6 +390,7 @@ export function useEditorTypeContext(): TypeContext {
 		caseTypes,
 		currentCaseType,
 		knownInputs,
+		userProperties,
 		formFields,
 		operationScope,
 	} = usePredicateEditContext();
@@ -391,10 +400,18 @@ export function useEditorTypeContext(): TypeContext {
 				caseTypes,
 				currentCaseType,
 				knownInputs,
+				userProperties,
 				formFields,
 				operationScope,
 			}),
-		[caseTypes, currentCaseType, knownInputs, formFields, operationScope],
+		[
+			caseTypes,
+			currentCaseType,
+			knownInputs,
+			userProperties,
+			formFields,
+			operationScope,
+		],
 	);
 }
 
@@ -404,14 +421,22 @@ export function buildEditorTypeContext(args: {
 	readonly caseTypes: readonly CaseType[];
 	readonly currentCaseType: string;
 	readonly knownInputs: readonly EditorSearchInputDecl[];
+	readonly userProperties?: readonly UserProperty[];
 	readonly formFields?: readonly EditorFormFieldDecl[];
 	readonly operationScope?: OperationValueScope | undefined;
 }): TypeContext {
-	const { formFields = [], operationScope } = args;
+	const {
+		userProperties = EMPTY_USER_PROPERTIES,
+		formFields = EMPTY_FORM_FIELDS,
+		operationScope,
+	} = args;
 	return {
 		caseTypes: [...args.caseTypes],
 		knownInputs: [...args.knownInputs],
 		currentCaseType: args.currentCaseType,
+		userPropertySlugs: new Map(
+			userProperties.map((property) => [property.uuid, property.slug]),
+		),
 		formFields: new Map(
 			formFields.map((field) => [field.uuid, field.dataType]),
 		),

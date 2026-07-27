@@ -33,7 +33,7 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
 import { caseSearchPredicateEditVerdict } from "@/lib/doc/hooks/predicateVerdicts";
-import type { CaseType } from "@/lib/domain";
+import type { CaseType, UserProperty } from "@/lib/domain";
 import {
 	checkPredicate,
 	exists,
@@ -339,6 +339,8 @@ export interface PredicateWorkbenchProps {
 	readonly caseTypes: readonly CaseType[];
 	readonly currentCaseType: string;
 	readonly knownInputs?: readonly EditorSearchInputDecl[];
+	/** Current custom worker-information catalog for immutable user refs. */
+	readonly userProperties?: readonly UserProperty[];
 	/** Form answers this rule may read — already narrowed by the owning
 	 *  surface to the ones its slot admits. */
 	readonly formFields?: readonly EditorFormFieldDecl[];
@@ -379,6 +381,7 @@ export function PredicateWorkbench({
 	caseTypes,
 	currentCaseType,
 	knownInputs = [],
+	userProperties,
 	formFields,
 	operationScope,
 	evaluationTarget = "on-device",
@@ -418,10 +421,18 @@ export function PredicateWorkbench({
 				caseTypes,
 				knownInputs,
 				currentCaseType,
+				userProperties,
 				formFields,
 				operationScope,
 			}),
-		[caseTypes, currentCaseType, knownInputs, formFields, operationScope],
+		[
+			caseTypes,
+			currentCaseType,
+			knownInputs,
+			userProperties,
+			formFields,
+			operationScope,
+		],
 	);
 	const validity = useMemo(
 		() => checkPredicate(value, typeContext),
@@ -603,6 +614,7 @@ export function PredicateWorkbench({
 			caseTypes={caseTypes}
 			currentCaseType={focusedCaseType}
 			knownInputs={knownInputs}
+			userProperties={userProperties}
 			formFields={formFields}
 			operationScope={operationScope}
 			caseDataScope={caseDataScope}

@@ -33,11 +33,12 @@ import {
 	type ReactNode,
 	useContext,
 	useEffect,
+	useRef,
 	useState,
 } from "react";
-import { useReconcilerContext } from "@/lib/collab/context";
 import { BlueprintDocContext } from "@/lib/doc/provider";
-import { useSelectedPreviewIdentity } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
+import { useSelectedPreviewIdentityState } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
+import { useOptionalBuilderSessionApi } from "@/lib/session/provider";
 import { EngineController } from "./engineController";
 
 // ── Context ─────────────────────────────────────────────────────────────
@@ -62,7 +63,7 @@ export function BuilderFormEngineProvider({
 	children: ReactNode;
 }) {
 	const docStore = useContext(BlueprintDocContext);
-	const reconcilerContext = useReconcilerContext();
+	const session = useOptionalBuilderSessionApi();
 
 	/* Create the controller AND bind the doc store + preview identity
 	 * synchronously on first render. Child effects (e.g.
@@ -75,12 +76,17 @@ export function BuilderFormEngineProvider({
 	 * initializer runs during render, before any descendant mounts, so
 	 * both are in place before anyone needs them (`previewAsMe` is pure,
 	 * and Better Auth resolves a warm client session synchronously). */
-	const identity = useSelectedPreviewIdentity();
+	const identityState = useSelectedPreviewIdentityState({
+		useCachedSessionImmediately: true,
+	});
 
 	const [controller] = useState(() => {
 		const c = new EngineController();
 		if (docStore) c.setDocStore(docStore);
-		c.setPreviewIdentity(identity);
+		c.setPreviewIdentityBlocked(identityState.kind === "persona-unavailable");
+		if (identityState.kind === "ready") {
+			c.setPreviewIdentity(identityState.identity);
+		}
 		return c;
 	});
 
@@ -102,23 +108,49 @@ export function BuilderFormEngineProvider({
 	 * session resolving after mount, a sign-out broadcast from another
 	 * tab. The controller's setter treats a materially-identical identity
 	 * as a no-op, so session refetches minting new user references don't
-	 * rebuild an active engine; rendered markup never depends on the
-	 * session, so SSR/hydration stay identity-free. */
+	 * rebuild an active engine. The provider's warm-session opt-in changes
+	 * only this non-rendered controller; visual consumers retain the
+	 * identity-free hydration render. */
 	useEffect(() => {
-		controller.setPreviewIdentity(identity);
-	}, [controller, identity]);
+		if (identityState.kind === "persona-unavailable") {
+			controller.setPreviewIdentityBlocked(true);
+			return;
+		}
+		controller.setPreviewIdentityBlocked(false);
+		controller.setPreviewIdentity(identityState.identity);
+	}, [controller, identityState]);
 
-	/* A same-app Project move does not remount this long-lived controller.
-	 * Deactivate synchronously at the reconciler's scope boundary so neither
-	 * preloaded case rows nor entered form values can survive until React's
-	 * epoch-driven reactivation. */
-	useEffect(
-		() =>
-			reconcilerContext?.subscribeProjectScopeReset(() => {
+	/* The reset signal starts before the authoritative GET knows whether the
+	 * app actually changed Projects, so it cannot retire form state. Observe
+	 * confirmed authorized identities instead: a same-Project refresh keeps
+	 * the entry, while an app/Project change synchronously drops source-tenant
+	 * answers and case preloads. */
+	const confirmedScopeRef = useRef<
+		{ appId: string; projectId: string | undefined } | undefined
+	>(undefined);
+	useEffect(() => {
+		if (session === null) return;
+		const observe = () => {
+			const current = session.getState();
+			if (current.accessPhase !== "authorized" || current.appId === undefined) {
+				return;
+			}
+			const previous = confirmedScopeRef.current;
+			const next = {
+				appId: current.appId,
+				projectId: current.projectId,
+			};
+			confirmedScopeRef.current = next;
+			if (
+				previous !== undefined &&
+				(previous.appId !== next.appId || previous.projectId !== next.projectId)
+			) {
 				controller.deactivate();
-			}),
-		[controller, reconcilerContext],
-	);
+			}
+		};
+		observe();
+		return session.subscribe(observe);
+	}, [controller, session]);
 
 	return (
 		<BuilderFormEngineContext value={controller}>

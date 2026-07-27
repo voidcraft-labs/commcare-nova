@@ -47,6 +47,16 @@ export function bySortKey(a: Sortable, b: Sortable): number {
 	return 0;
 }
 
+/**
+ * Total ordering for flat identity-keyed collections, which have no
+ * membership array to provide the legacy fallback `bySortKey` preserves.
+ * Missing/missing `order` therefore ties on uuid instead of insertion order.
+ */
+export function byFlatEntitySortKey(a: Sortable, b: Sortable): number {
+	const order = bySortKey(a, b);
+	return order === 0 ? compareUuid(a.uuid, b.uuid) : order;
+}
+
 function compareResolvedColumnOrder(
 	a: ColumnSortable,
 	b: ColumnSortable,

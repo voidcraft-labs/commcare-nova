@@ -100,6 +100,25 @@ const TOOL_ACTIONS: Record<string, ActionPhrases> = {
 		done: "Set option media",
 	},
 	setMenuMedia: { doing: "Setting menu media", done: "Set menu media" },
+	addUserProperties: {
+		doing: "Adding worker information",
+		done: "Added worker information",
+	},
+	updateUserProperty: {
+		doing: "Updating worker information",
+		done: "Updated worker information",
+	},
+	removeUserProperty: {
+		doing: "Removing worker information",
+		done: "Removed worker information",
+	},
+	addUserTypes: { doing: "Adding roles", done: "Added roles" },
+	updateUserType: { doing: "Updating role", done: "Updated role" },
+	removeUserType: { doing: "Removing role", done: "Removed role" },
+	addPersonas: { doing: "Adding personas", done: "Added personas" },
+	updatePersona: { doing: "Updating persona", done: "Updated persona" },
+	removePersona: { doing: "Removing persona", done: "Removed persona" },
+	getUsers: { doing: "Inspecting users", done: "Inspected users" },
 	updateApp: { doing: "Updating app settings", done: "Updated app settings" },
 	generateSchema: {
 		doing: "Recording the data model",
@@ -154,6 +173,10 @@ const COUNTABLE_ACTIONS: Record<string, (n: number) => string> = {
 		`Added ${n} ${n === 1 ? "search input" : "search inputs"}`,
 	addCaseOperations: (n) =>
 		`Added ${n} case ${n === 1 ? "operation" : "operations"}`,
+	addUserProperties: (n) =>
+		`Added ${n} worker-information ${n === 1 ? "property" : "properties"}`,
+	addUserTypes: (n) => `Added ${n} ${n === 1 ? "role" : "roles"}`,
+	addPersonas: (n) => `Added ${n} ${n === 1 ? "persona" : "personas"}`,
 	reorderCaseListColumns: (n) =>
 		`Reordered ${n} ${n === 1 ? "column" : "columns"}`,
 	reorderSearchInputs: (n) =>

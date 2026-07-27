@@ -279,6 +279,10 @@ function caseOperationPatchSchemaFor(
 	operationValueSchema: typeof caseOperationSchema,
 ) {
 	const operationPatchSchema = clearablePartialPatch(operationValueSchema)
+		// `clearablePartialPatch` already drops `uuid`, so identity replacement
+		// is unrepresentable here rather than checked after the fact: the arm's
+		// own `uuid` is the addressing key, and `.strict()` rejects a second
+		// one outright. Do not add a runtime guard for it.
 		.omit({
 			order: true,
 			writes: true,
@@ -424,6 +428,13 @@ const carrierBlindCaseSearchConfigPatchSchema = caseSearchConfigPatchSchemaFor(
 const userPropertyUpdatePatchSchema = clearablePartialPatch(userPropertySchema);
 const userTypeUpdatePatchSchema = clearablePartialPatch(userTypeSchema);
 const personaUpdatePatchSchema = clearablePartialPatch(personaSchema);
+const userDataValuePatchSchema = z
+	.object({
+		userPropertyUuid: uuidSchema,
+		/** `null` is the JSON-stable spelling of removing one authored value. */
+		value: z.string().nullable(),
+	})
+	.strict();
 
 const canonicalModuleUpdatePatchSchema = clearablePartialPatch(moduleSchema);
 const canonicalFormUpdatePatchSchema = clearablePartialPatch(formSchema).omit({
@@ -542,73 +553,73 @@ const carrierBlindMutationFamily = {
 	predicate: rollingPredicateSchema,
 } as const satisfies MutationSchemaFamily;
 
-const optionsSourcePlacementSchema = z
-	.unknown()
-	.superRefine((value, ctx) => {
-		const rootKind =
-			typeof value === "object" &&
-			value !== null &&
-			!Array.isArray(value) &&
-			"kind" in value
-				? value.kind
-				: undefined;
-		const rootAllowsOptionsSource =
-			rootKind === "addField" || rootKind === "updateField";
-		if (
-			rootKind === "updateForm" &&
-			typeof value === "object" &&
-			value !== null &&
-			"caseOperationPatch" in value
-		) {
-			const change = value.caseOperationPatch;
+function reportMisplacedOptionsSource(
+	value: unknown,
+	ctx: z.RefinementCtx,
+): void {
+	const rootKind =
+		typeof value === "object" &&
+		value !== null &&
+		!Array.isArray(value) &&
+		"kind" in value
+			? value.kind
+			: undefined;
+	const rootAllowsOptionsSource =
+		rootKind === "addField" || rootKind === "updateField";
+	const visited = new WeakSet<object>();
+
+	function visit(node: unknown, path: PropertyKey[]): void {
+		if (typeof node !== "object" || node === null) return;
+		if (visited.has(node)) return;
+		visited.add(node);
+
+		for (const [key, child] of Object.entries(node)) {
+			const childPath = [...path, key];
 			if (
-				typeof change === "object" &&
-				change !== null &&
-				"operation" in change &&
-				change.operation === "update" &&
-				"patch" in change &&
-				typeof change.patch === "object" &&
-				change.patch !== null &&
-				Object.hasOwn(change.patch, "uuid")
+				key === "optionsSource" &&
+				!(path.length === 0 && rootAllowsOptionsSource)
 			) {
 				ctx.addIssue({
 					code: "custom",
-					path: ["caseOperationPatch", "patch", "uuid"],
+					path: childPath,
 					message:
-						"A case-operation update cannot change immutable operation identity.",
+						"Lookup optionsSource is reserved for the top level of addField and updateField mutations.",
 				});
 			}
+			visit(child, childPath);
 		}
-		const visited = new WeakSet<object>();
+	}
 
-		function visit(node: unknown, path: PropertyKey[]): void {
-			if (typeof node !== "object" || node === null) return;
-			if (visited.has(node)) return;
-			visited.add(node);
+	visit(value, []);
+}
 
-			for (const [key, child] of Object.entries(node)) {
-				const childPath = [...path, key];
-				if (
-					key === "optionsSource" &&
-					!(path.length === 0 && rootAllowsOptionsSource)
-				) {
-					ctx.addIssue({
-						code: "custom",
-						path: childPath,
-						message:
-							"Lookup optionsSource is reserved for the top level of addField and updateField mutations.",
-					});
-				}
-				visit(child, childPath);
-			}
-		}
-
-		visit(value, []);
-	})
-	// The intersection below evaluates this branch against the untouched input,
-	// before the normal object schemas strip unknown future extensions. Emit an
-	// empty object so the intersection's merged output remains the parsed union.
-	.transform(() => ({}));
+/**
+ * Run a raw-input check before `schema` without changing its public I/O types.
+ *
+ * Zod 4's `preprocess` declaration always exposes `unknown` as the wrapper's
+ * input, even when the preprocess callback is an identity over the inner
+ * schema's input. That is appropriate for ordinary coercion, but not for this
+ * validation-only wrapper: callers compose mutation schemas into arrays and
+ * event schemas, where widening the input would erase useful checking.
+ *
+ * The callback below returns its input unchanged and the direct schema remains
+ * the sole parser/output producer, so explicitly restoring that schema's
+ * `z.input` and `z.output` contract matches the runtime behavior. Compile-time
+ * equality assertions in `mutationEnvelopeStrictness.test.ts` lock both
+ * mutation families to their direct discriminated unions.
+ */
+function prevalidateRawMutationInput<Schema extends z.ZodType>(
+	schema: Schema,
+): z.ZodType<z.output<Schema>, z.input<Schema>> {
+	const guarded = z.preprocess<z.input<Schema>, Schema, z.input<Schema>>(
+		(value, ctx) => {
+			reportMisplacedOptionsSource(value, ctx);
+			return value;
+		},
+		schema,
+	);
+	return guarded as z.ZodType<z.output<Schema>, z.input<Schema>>;
+}
 
 /**
  * Per-column tile placement carried on a wholesale module write.
@@ -1527,6 +1538,12 @@ function createMutationSchema({
 			kind: z.literal("updateUserType"),
 			uuid: uuidSchema,
 			patch: userTypeUpdatePatchSchema.default(() => ({})),
+			/**
+			 * Current receivers apply this one semantic key and ignore the
+			 * whole-bag `patch.values` fallback. Older receivers strip this
+			 * extension and apply that cumulative fallback instead.
+			 */
+			valuePatch: userDataValuePatchSchema.optional(),
 		}),
 		z.object({ kind: z.literal("removeUserType"), uuid: uuidSchema }),
 		z.object({ kind: z.literal("addPersona"), persona: personaSchema }),
@@ -1534,6 +1551,7 @@ function createMutationSchema({
 			kind: z.literal("updatePersona"),
 			uuid: uuidSchema,
 			patch: personaUpdatePatchSchema.default(() => ({})),
+			valuePatch: userDataValuePatchSchema.optional(),
 		}),
 		z.object({ kind: z.literal("removePersona"), uuid: uuidSchema }),
 		// ─── Granular case-list collections ──────────────────────────────────
@@ -1873,7 +1891,15 @@ function createMutationSchema({
 			audioLabel: assetIdSchema.nullable(),
 		}),
 	]);
-	return Object.assign(schema.and(optionsSourcePlacementSchema), {
+	// Placement is a rule about the untouched envelope, including subtrees that
+	// an object arm would otherwise strip. Validate that raw value first, then
+	// hand the SAME input to the discriminated union and return only the union's
+	// output. Do not express this as an intersection: Zod 4 merges intersection
+	// outputs and can accept a nested strict-object failure when the other branch
+	// returns the raw or stripped object.
+	const rawInputGuardedSchema = prevalidateRawMutationInput(schema);
+
+	return Object.assign(rawInputGuardedSchema, {
 		// Preserve the useful arm-level inspection surface for grammar tests.
 		options: schema.options,
 	});

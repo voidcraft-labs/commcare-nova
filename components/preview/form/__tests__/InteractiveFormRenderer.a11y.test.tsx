@@ -15,6 +15,12 @@ const { controller, useEngineStateAtMock } = vi.hoisted(() => ({
 		removeRepeat: vi.fn(),
 		setValueAt: vi.fn(),
 		touchAt: vi.fn(),
+		// Repeat rows keep a stable render key across index compaction. The
+		// value only has to be distinct per instance for these assertions;
+		// what they check is that each row's accessible name stays unique.
+		getRepeatInstanceKey: vi.fn(
+			(uuid: string, index: number) => `${uuid}:${index}`,
+		),
 	},
 	useEngineStateAtMock: vi.fn(),
 }));
@@ -25,11 +31,18 @@ vi.mock("@/lib/preview/hooks/useEngineController", () => ({
 vi.mock("@/lib/preview/hooks/useEngineState", () => ({
 	useEngineStateAt: useEngineStateAtMock,
 }));
+// `InteractiveField` reads the app id for the capture lane. This suite mounts
+// the renderer without the builder session, so stub the id alongside the mode
+// rather than standing up a provider the accessible-name assertions never use.
 vi.mock("@/lib/session/hooks", async () => {
 	const actual = await vi.importActual<typeof import("@/lib/session/hooks")>(
 		"@/lib/session/hooks",
 	);
-	return { ...actual, useEditMode: () => "preview" as const };
+	return {
+		...actual,
+		useEditMode: () => "preview" as const,
+		useAppId: () => "app-repeat-a11y",
+	};
 });
 vi.mock("../fields/geopoint/googleMaps", () => ({
 	googleMapsConfigured: () => false,
@@ -99,7 +112,7 @@ describe("InteractiveFormRenderer repeated-field accessibility", () => {
 		);
 
 		expectCollisionFreeVisibleLabels(
-			screen.getAllByRole("textbox", { name: QUESTION }),
+			screen.getAllByRole("textbox", { name: nameContaining(QUESTION) }),
 			QUESTION,
 		);
 	});
@@ -175,29 +188,49 @@ describe("InteractiveFormRenderer repeated-field accessibility", () => {
 		);
 
 		expectCollisionFreeVisibleLabels(
-			screen.getAllByRole("spinbutton", { name: NUMBER_QUESTION }),
+			screen.getAllByRole("spinbutton", {
+				name: nameContaining(NUMBER_QUESTION),
+			}),
 			NUMBER_QUESTION,
 		);
 		expectCollisionFreeVisibleLabels(
-			screen.getAllByLabelText(DATE_QUESTION, {
+			screen.getAllByLabelText(nameContaining(DATE_QUESTION), {
 				selector: 'input[type="date"]',
 			}),
 			DATE_QUESTION,
 		);
 		expectCollisionFreeVisibleLabels(
-			screen.getAllByRole("group", { name: SINGLE_SELECT_QUESTION }),
+			screen.getAllByRole("group", {
+				name: nameContaining(SINGLE_SELECT_QUESTION),
+			}),
 			SINGLE_SELECT_QUESTION,
 		);
 		expectCollisionFreeVisibleLabels(
-			screen.getAllByRole("group", { name: MULTI_SELECT_QUESTION }),
+			screen.getAllByRole("group", {
+				name: nameContaining(MULTI_SELECT_QUESTION),
+			}),
 			MULTI_SELECT_QUESTION,
 		);
 		expectCollisionFreeVisibleLabels(
-			screen.getAllByRole("group", { name: GEOPOINT_QUESTION }),
+			screen.getAllByRole("group", { name: nameContaining(GEOPOINT_QUESTION) }),
 			GEOPOINT_QUESTION,
 		);
 	});
 });
+
+/**
+ * Every instance must carry the visible question in its accessible name, and
+ * each must point at its OWN label node — that pair is what makes a repeated
+ * question unambiguous to a screen reader.
+ *
+ * Matching is by containment, not equality: the renderer wraps the question in
+ * an sr-only position announcement (and a required announcement where it
+ * applies), so the accessible name is deliberately richer than the visible
+ * prompt.
+ */
+function nameContaining(question: string): RegExp {
+	return new RegExp(question.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+}
 
 function expectCollisionFreeVisibleLabels(
 	elements: readonly HTMLElement[],

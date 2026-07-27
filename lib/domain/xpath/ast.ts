@@ -35,8 +35,10 @@
 //     (the first precedes `data`), so unusual spacing survives the
 //     round trip; print re-derives the segment names from the uuid.
 //   - `case-ref` — an explicit per-type reference `#<type>/<prop>`.
-//   - `user-ref` — `#user/<prop>`; the property names a built-in user
-//     property outside the doc, so the name is the whole identity.
+//   - `user-ref` — a built-in or external `#user/<property>` name. The
+//     name is intentionally the identity because it has no doc entity.
+//   - `user-property-ref` — Nova-authored custom worker information,
+//     stored by stable uuid and printed through its current saved name.
 //   - `raw-ref` — a hashtag that names no identity the doc can
 //     anchor: a dangling `#form/...`, the transitional contextual
 //     `#case/...` (whose meaning follows the owning module's CURRENT
@@ -96,6 +98,13 @@ const xpathUserRefPartSchema = z
 	})
 	.strict();
 
+const xpathUserPropertyRefPartSchema = z
+	.object({
+		kind: z.literal("user-property-ref"),
+		userPropertyUuid: uuidSchema,
+	})
+	.strict();
+
 const xpathRawRefPartSchema = z
 	.object({
 		kind: z.literal("raw-ref"),
@@ -110,6 +119,7 @@ const xpathPartSchema = z.discriminatedUnion("kind", [
 	xpathPathRefPartSchema,
 	xpathCaseRefPartSchema,
 	xpathUserRefPartSchema,
+	xpathUserPropertyRefPartSchema,
 	xpathRawRefPartSchema,
 ]);
 
@@ -118,6 +128,9 @@ export type XPathFieldRefPart = z.infer<typeof xpathFieldRefPartSchema>;
 export type XPathPathRefPart = z.infer<typeof xpathPathRefPartSchema>;
 export type XPathCaseRefPart = z.infer<typeof xpathCaseRefPartSchema>;
 export type XPathUserRefPart = z.infer<typeof xpathUserRefPartSchema>;
+export type XPathUserPropertyRefPart = z.infer<
+	typeof xpathUserPropertyRefPartSchema
+>;
 export type XPathRawRefPart = z.infer<typeof xpathRawRefPartSchema>;
 export type XPathPart = z.infer<typeof xpathPartSchema>;
 

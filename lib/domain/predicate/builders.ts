@@ -87,6 +87,7 @@ import type {
 	SearchInputRef,
 	SessionContextField,
 	SessionContextRef,
+	SessionUserPropertyRef,
 	SessionUserRef,
 	SwitchCase,
 	TableColumnTerm,
@@ -117,6 +118,7 @@ const TERM_KINDS: ReadonlySet<string> = new Set([
 	"prop",
 	"input",
 	"session-user",
+	"session-user-property",
 	"session-context",
 	"field",
 	"table-column",
@@ -241,6 +243,13 @@ export function input(name: string): SearchInputRef {
  */
 export function sessionUser(field: string): SessionUserRef {
 	return { kind: "session-user", field };
+}
+
+/** Reference Nova-authored worker information by its stable identity. */
+export function sessionUserProperty(
+	userPropertyUuid: Uuid,
+): SessionUserPropertyRef {
+	return { kind: "session-user-property", userPropertyUuid };
 }
 
 /**

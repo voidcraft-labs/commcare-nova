@@ -2,6 +2,7 @@
 
 import type { Kysely } from "kysely";
 import { describe, expect, it } from "vitest";
+import { CaptureSubmissionRejectedError } from "@/lib/case-store";
 import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
 import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
 import type { Database as CaseDatabase } from "@/lib/case-store/sql/database";
@@ -20,10 +21,15 @@ function caseDb(): Kysely<CaseDatabase> {
 	return h.db() as unknown as Kysely<CaseDatabase>;
 }
 
-function store(projectId = PROJECT): PostgresCaseStore {
+function store(
+	projectId = PROJECT,
+	actorUserId = USER,
+	ownerId = actorUserId,
+): PostgresCaseStore {
 	return new PostgresCaseStore({
 		projectId,
-		actorUserId: USER,
+		actorUserId,
+		ownerId,
 		db: caseDb(),
 		sampleGenerator: new HeuristicCaseGenerator(),
 		authorizeMutation: authorizeCaseMutationInTransaction,
@@ -64,6 +70,95 @@ async function insertPatient(appId: string): Promise<string> {
 }
 
 describe("case mutation authorization", () => {
+	it("fences a new text-only receipt to the authorized snapshot but replays it after the app advances", async () => {
+		const appId = await seedAuthorizedApp();
+		const receipt = {
+			entryKey: crypto.randomUUID(),
+			formUuid: crypto.randomUUID(),
+			expectedAppMutationSeq: 0,
+			requestDigest: "authorized-text-registration",
+		};
+		const first = await store().applySubmission({
+			appId,
+			submissionReceipt: receipt,
+			ordinary: {
+				kind: "registration",
+				primary: {
+					caseType: CASE_TYPE,
+					caseName: "Ada",
+					properties: { name: "Ada" },
+				},
+				children: [],
+			},
+		});
+		await h
+			.db()
+			.updateTable("apps")
+			.set({ mutation_seq: 1 })
+			.where("id", "=", appId)
+			.execute();
+
+		await expect(
+			store().applySubmission({
+				appId,
+				submissionReceipt: receipt,
+				ordinary: {
+					kind: "registration",
+					primary: {
+						caseType: CASE_TYPE,
+						caseName: "must not run",
+						properties: { name: "must not run" },
+					},
+					children: [],
+				},
+			}),
+		).resolves.toEqual(first);
+
+		await expect(
+			store().applySubmission({
+				appId,
+				submissionReceipt: {
+					entryKey: crypto.randomUUID(),
+					formUuid: receipt.formUuid,
+					expectedAppMutationSeq: 0,
+					requestDigest: "stale-new-text-registration",
+				},
+				ordinary: {
+					kind: "registration",
+					primary: {
+						caseType: CASE_TYPE,
+						caseName: "stale",
+						properties: { name: "stale" },
+					},
+					children: [],
+				},
+			}),
+		).rejects.toBeInstanceOf(CaptureSubmissionRejectedError);
+
+		const cases = await caseDb()
+			.selectFrom("cases")
+			.select(["case_id", "case_name"])
+			.where("app_id", "=", appId)
+			.execute();
+		expect(cases).toEqual([
+			{
+				case_id: first.primaryCaseId,
+				case_name: "Ada",
+			},
+		]);
+		const receipts = await caseDb()
+			.selectFrom("form_submission_intents")
+			.select(["entry_key", "result"])
+			.where("app_id", "=", appId)
+			.execute();
+		expect(receipts).toEqual([
+			{
+				entry_key: receipt.entryKey,
+				result: first,
+			},
+		]);
+	});
+
 	it("rejects a stale store binding after the app changes Projects", async () => {
 		const appId = await seedAuthorizedApp();
 		const caseId = await insertPatient(appId);
@@ -112,6 +207,28 @@ describe("case mutation authorization", () => {
 			.where("app_id", "=", appId)
 			.executeTakeFirstOrThrow();
 		expect(Number(count.total)).toBe(0);
+	});
+
+	it("authorizes with the member actor when a different persona owns the row", async () => {
+		const appId = await seedAuthorizedApp();
+		const personaOwner = "persona-owner";
+
+		const result = await store(PROJECT, USER, personaOwner).insert({
+			appId,
+			row: {
+				case_type: CASE_TYPE,
+				case_name: "Persona row",
+				status: "open",
+				properties: { name: "Persona row" },
+			},
+		});
+
+		const row = await caseDb()
+			.selectFrom("cases")
+			.select(["owner_id", "project_id"])
+			.where("case_id", "=", result.caseId)
+			.executeTakeFirstOrThrow();
+		expect(row).toEqual({ owner_id: personaOwner, project_id: PROJECT });
 	});
 
 	it("replaces a parked value and archives it atomically", async () => {

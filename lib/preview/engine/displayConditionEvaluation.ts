@@ -24,7 +24,10 @@ import { effectiveDisplayConditionForEmission } from "@/lib/domain/predicate";
 import { toBoolean } from "../xpath/coerce";
 import { evaluate } from "../xpath/evaluator";
 import type { EvalContext } from "../xpath/types";
-import type { PreviewSearchSessionValues } from "./identity";
+import {
+	type PreviewSearchSessionValues,
+	previewUserPropertySlugMap,
+} from "./identity";
 import {
 	foldTableLookupsInPredicate,
 	predicateLookupsCovered,
@@ -103,6 +106,7 @@ function conditionVisibility(
 		data !== undefined
 			? foldTableLookupsInPredicate(effective, data, {
 					outer: ctx,
+					userPropertySlugs: previewUserPropertySlugMap(args.session),
 					...(emitSelfProperty !== undefined && { emitSelfProperty }),
 				})
 			: effective;
@@ -113,6 +117,7 @@ function conditionVisibility(
 			...(args.currentCaseType !== undefined && {
 				currentCaseType: args.currentCaseType,
 			}),
+			userPropertySlugs: previewUserPropertySlugMap(args.session),
 		},
 		undefined,
 		emitSelfProperty === undefined ? {} : { emitSelfProperty },

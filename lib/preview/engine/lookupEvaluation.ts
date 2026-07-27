@@ -109,6 +109,7 @@ export type { LookupChoice } from "./types";
 export interface LookupEvaluationBindings {
 	readonly outer: EvalContext;
 	readonly formFields?: ReadonlyMap<Uuid, string>;
+	readonly userPropertySlugs?: ReadonlyMap<Uuid, string>;
 	readonly emitSelfProperty?: (property: {
 		readonly property: string;
 	}) => string;
@@ -197,6 +198,9 @@ function emissionContext(
 		}),
 		...(bindings.emitSelfProperty !== undefined && {
 			emitSelfProperty: bindings.emitSelfProperty,
+		}),
+		...(bindings.userPropertySlugs !== undefined && {
+			userPropertySlugs: bindings.userPropertySlugs,
 		}),
 		lookup: {
 			naming: data.naming,

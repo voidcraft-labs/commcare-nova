@@ -32,6 +32,7 @@
 // connection layer in.
 
 import {
+	CaptureSubmissionRejectedError,
 	CaseNotFoundError,
 	CasePropertiesValidationError,
 	CaseTypeNotInBlueprintError,
@@ -332,6 +333,9 @@ export function mapFilterPreviewError(err: unknown): LoadFilterPreviewResult {
  * framework code) collapse to a default message.
  */
 export function mapSubmitFormError(err: unknown): SubmissionResult {
+	if (err instanceof CaptureSubmissionRejectedError) {
+		return { kind: "error", message: err.message };
+	}
 	if (err instanceof SubmissionRejectedError) {
 		return { kind: "submission-rejected", rejection: err.rejection };
 	}

@@ -71,6 +71,7 @@ import {
 	caseListColumnHasRuntimeRole,
 	defaultPostSubmit,
 	effectiveCaseSearchConfig,
+	userPropertySlugsByUuid,
 } from "@/lib/domain";
 import { effectiveDisplayConditionForEmission } from "@/lib/domain/predicate";
 
@@ -123,6 +124,7 @@ export function compileCcz(
 	const attachments = hqJson._attachments;
 	const assets = opts.assets;
 	const lookupNaming = opts.lookup?.naming;
+	const userPropertySlugs = userPropertySlugsByUuid(doc);
 
 	// Output file map — each entry becomes a zip entry at the end.
 	const files: Record<string, string> = {};
@@ -203,6 +205,7 @@ export function compileCcz(
 			effectiveModuleDisplayCondition,
 			mod.caseType,
 			lookupNaming,
+			userPropertySlugs,
 		);
 		const moduleConditionInstances =
 			effectiveModuleDisplayCondition === undefined
@@ -393,6 +396,7 @@ export function compileCcz(
 				form.displayCondition,
 				mod.caseType,
 				lookupNaming,
+				userPropertySlugs,
 			);
 
 			const formName = hqForm.name.en;

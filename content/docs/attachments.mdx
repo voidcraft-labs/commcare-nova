@@ -48,11 +48,34 @@ pad they sign with a finger or a mouse, saved as an image. Use it for
 consent and sign-off; use Image when the worker needs to attach a picture
 of something.
 
-One thing to know: if a worker leaves a form and comes back to it later,
-a signature question shows a blank pad again even though their signature
-was saved. The signature is not lost — it just is not drawn back onto the
-pad. If that would confuse people, put the signature near the end of the
-form so it is signed and submitted in one sitting.
+Clearing a signature waits until the form answer is actually cleared before the
+pad goes blank and offers **Undo**. If that action is canceled or the worker's
+edit access changes while it is waiting, the ink stays visible and Clear becomes
+available again — the pad never claims the signature is gone before the answer
+agrees. The Undo offer then stands until the worker signs again rather than
+disappearing on a timer. That is there because a signature is the one attachment
+with no copy anywhere else: a photo they clear is still on their phone, but a
+signature they clear is gone. Undo puts it back. Collapsing or temporarily
+hiding the question does not take that Undo away.
+
+The signature also follows the available width. Rotating a phone or
+narrowing the browser redraws the same complete signature to fit and saves
+that resized version before Submit can continue. Moving the page between
+screens with different pixel density does the same even when its CSS width
+does not change, and returning to a still-open form at a different width
+re-encodes the retained ink automatically. Adding another stroke afterward
+does not crop away ink that was drawn on the wider pad.
+
+If saving fails, the ink stays on the pad and Nova shows **Retry** beside the
+pad's one **Clear signature** action. The message and ink survive a temporary
+hide, collapse, or Preview/Edit switch. Retry saves the retained drawing; Clear
+removes it and remains undoable. Losing pointer capture or temporarily
+unmounting the pad does not strand the latest stroke: Nova settles it or resumes
+its save when the pad returns. Pressing **Clear signature** while an earlier
+save is still running cancels that older save and clears the answer once — old
+ink cannot reappear later. A temporary access refresh also keeps the ink and its
+Submit blocker; if editor access returns for that same form, Nova resumes the
+retained save once under the new access state.
 
 ## File attachments only work in the web app
 
@@ -89,15 +112,60 @@ Once a file is attached, the web app shows its filename and a **Clear**
 button. It does not show a thumbnail, and it does not play audio or video
 back. There is no way to open the file again from inside the form.
 
+While Nova is attaching a new file, a visible **Cancel** action stops that
+attempt. Replacing a file is confirm-before-swap, so canceling a replacement
+leaves the previous confirmed filename and answer in place. Initiate, upload,
+confirmation, and repeat-move requests each have a deadline covering both the
+request and its success or error response. A stalled network request or
+response body becomes a recoverable error instead of holding the whole form
+forever.
+
 That means a worker cannot check what they attached — only that they
 attached something. Where getting the right file matters, ask for it in
 a question of its own with a clear label, rather than as one of several
 attachments on a crowded screen.
 
-If a worker returns to a partly-filled form later, the filename they
-originally picked is no longer shown, and one attachment reads much like
-another. Keeping attachment questions near the end of a form, so they are
-answered and submitted together, avoids most of this.
+In CommCare Web Apps, the filename is only shown for as long as the page stays
+open. If that runtime restores a form after a reload, the attachment answer can
+still be there even though the filename is no longer shown. Nova Preview does
+not restore an unfinished form: reloading starts a new blank entry, including
+blank attachment answers. Keeping attachment questions near the end of a form,
+so they are answered and submitted in one sitting, avoids most of this.
+
+Temporary layout changes do not throw the file away. If saving a newly picked
+file fails, Nova retains that exact picked file: its message and **Retry**
+recovery action remain with that question through an ordinary remount, while
+the normal picker remains available to choose a different file. An attachment
+still in progress also restores its picked filename and **Cancel** action.
+If edit access briefly refreshes, Nova pauses the old request, retains the same
+file and a Submit blocker, and lets the worker retry it when access returns.
+The form stays the same live entry during a refresh confirmed for the same
+Project: typed answers, focus, file controls, signature ink, and the selected
+case or worker do not reset. A confirmed app, form, Project, or worker change,
+lost access, or **Clear form** ends that entry instead.
+If a condition hides the question and later shows it again, or an author flips
+to Edit and back while that same form entry remains open, Nova restores the
+confirmed filename and answer. The same is true when deleting an earlier
+repeat row moves a surviving answer up one position: Nova moves the attachment
+with that repeat entry even if the question is hidden at the time. Leaving or
+clearing the form ends that entry.
+
+If that repeat move cannot be saved — for example, while the browser is
+offline — Nova keeps the attachment and its answer in place and blocks Submit
+only while the question is active. The question shows **Retry**,
+**Replace file**, and **Remove attachment** for picked files. Signature keeps
+**Retry** beside its single **Clear signature** action. The same message is
+still there after an ordinary remount. Retry moves the retained file; a
+confirmed replacement takes over cleanly; **Remove attachment** or **Clear
+signature** clears the answer. If the server saved an earlier repeat move but
+its response was lost, Retry first adopts the row where the server actually
+stored it and then continues to the latest position; the worker does not have to
+attach the file or redraw the signature.
+If a condition hides the question while that move is still waiting, Nova pauses
+the request but keeps the confirmed file and its recovery state. When the
+question becomes active again, the next Submit repairs the retained file's
+location before sending the form; a late response from the paused request cannot
+replace that newer repair.
 
 ## Clearing a required attachment
 
@@ -127,5 +195,87 @@ Attachment questions are under **Attachments & scanning** in the question
 picker, alongside Barcode. Barcode is not an attachment: it scans a code
 and stores the text it read.
 
-In the builder's preview, an attachment question shows a placeholder card
-naming its type. The preview does not attach files.
+While you are arranging a form, an attachment question shows a card
+naming its type. Run the preview and it becomes a working control: attach
+a real file, replace it, or use the visible **Remove** action, and it rides
+the submission with the rest of the form.
+
+Project viewers can inspect attachment and signature answers in Preview, but
+only Project editors can attach, draw, retry, remove, clear, or submit them.
+
+When a worker presses Submit, Nova first waits for every attachment change
+still in progress — including the signature pad's short pause and PNG
+encoding after the latest stroke. If that encoding or upload fails, Nova keeps
+the ink and offers **Retry** or **Clear signature** instead of silently
+submitting an older signature. A file or signature action that is waiting
+behind another attachment says so immediately and disables conflicting
+gestures. Before waiting, Submit cancels unfinished work for questions that are
+now hidden and retires work for questions that were removed; it keeps checking
+relevance while it waits. A **Clear signature** action the worker already chose
+still completes if the question becomes hidden, so old ink cannot return later.
+A hidden question's draft and error do not block the current submission, but
+become active again if the question reappears. A slow cleanup request for an
+old/replaced file never delays its replacement or Submit; the staging expiry
+remains the backstop. While attachment work and the submission finish, the form
+is visibly locked: answers, file controls, pickers, and repeat rows cannot change
+underneath the request. Nova makes the exact selected bytes durable before it
+accepts the form answers and files together. If that preparation is temporarily
+interrupted, Submit reports a recoverable failure and can be tried again; the
+form has not been accepted yet. Once Nova reports success, no background file
+copy remains that can later fail. Replacing, clearing, or deleting a repeat row
+can affect only the current unsubmitted attempt, never a file already accepted
+with a submission.
+
+If Submit finds an unanswered required question inside a collapsed group or
+repeating section, Nova opens every ancestor, announces the problem, scrolls it
+into view, and focuses the real attachment control — the file picker or
+signature pad — so the worker can fix it immediately. If an author changed an
+answered question into Signature and the old attachment must be replaced,
+Submit likewise focuses the blank signature pad itself.
+
+The same recovery works when a failed attachment save or repeat move blocks
+Submit: Nova opens the exact question, announces its retained error, and focuses
+that question's exact **Retry** action. A picked-file retry reuses the retained
+file; the normal picker can still choose a different one. Scrolling is not
+animated when the worker has requested reduced motion.
+
+If an author renames an attachment question or one of its containing sections
+while the form is open, Nova moves the staged answer to the question's current
+path before Submit. Converting a section between a group and a repeating section
+does the same for the surviving entry. Moving a question or a whole nested
+section between different parents keeps the indices of repeats that are
+actually the same authored sections; extra instances of a repeat that no longer
+exists are removed rather than being attached to an unrelated row. If Nova
+cannot verify that identity after a live authoring change, it preserves the
+file or signature and blocks Submit instead of guessing and deleting it. The
+form shows a question-qualified **Remove attachment** or **Clear signature**
+action even when the changed question no longer has a valid rendered path, and
+Submit focuses that action. An explicit deletion of the same question removes
+only its retained attachment. Changing the question to a different attachment
+type instead removes the incompatible staged file and asks for a new file or
+signature.
+
+The preview shows you exactly what a worker sees, which means it shows
+you a filename and a **Remove** action and nothing else — no thumbnail, no
+playback. That is deliberate. If the preview confirmed your attachments
+in ways the real app cannot, you would design forms around a
+confirmation your workers never get.
+
+One difference worth knowing, in your favour: if you attach a file and
+then delete the repeating section it was in, or hide its question with a
+condition, Nova leaves that file out of the submission. CommCare itself
+sends it anyway, where it counts toward the 50-attachment limit and
+arrives attached to nothing. Nothing you need to do — it just means the
+count you see in the preview is the honest one.
+Even an attachment-free retry remains tied to that form entry's accepted
+submission: clearing or hiding the answer after a response is lost cannot make
+Nova apply the form's case changes twice. Nova checks a durable accepted
+receipt before relying on the form's current attachment structure, so the exact
+retry still replays if an author has since converted or deleted the attachment
+question—or deleted the form. A changed retry under that entry identity is
+rejected instead of applying case changes again.
+
+**Clear form** is different from removing one file. It immediately starts a
+new blank form entry with a new submission identity. Cleanup of files from the
+old entry continues separately, so a slow or failed cleanup cannot erase
+answers entered into the fresh form.

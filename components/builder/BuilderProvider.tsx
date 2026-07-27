@@ -76,9 +76,9 @@ export function BuilderProvider({
 }: {
 	buildId: string;
 	children: ReactNode;
-	/** Server-fetched normalized doc — hydrates the doc store synchronously
-	 *  in the provider so the first render sees populated entities. Persisted
-	 *  as the normalized `BlueprintDoc` shape directly. */
+	/** Server-fetched transport copy — ordinary records satisfy React Flight;
+	 *  `BlueprintDocProvider` synchronously normalizes them before the first
+	 *  document read so the first render sees populated, prototype-safe state. */
 	initialDoc?: PersistableDoc;
 	/** Atomic Project capability + cursor snapshot. A new build receives its
 	 *  active-Project role with `baseSeq: 0`; its reconciler is still dormant

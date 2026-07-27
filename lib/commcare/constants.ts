@@ -1,6 +1,7 @@
 /** CommCare platform constants — single source of truth. */
 
 import { captureFieldKinds } from "@/lib/domain";
+import { MAX_SUBMITTED_CAPTURE_COUNT } from "@/lib/domain/captureFormats";
 
 /**
  * Case property names that HQ rejects in update_case / case_preload blocks.
@@ -97,7 +98,7 @@ export const MEDIA_FIELD_KINDS: ReadonlySet<string> = new Set(
  * authoring time because the worker chooses the iteration count, and no
  * authoring-time check closes that.
  */
-export const MAX_FORM_ATTACHMENTS = 50;
+export const MAX_FORM_ATTACHMENTS = MAX_SUBMITTED_CAPTURE_COUNT;
 
 /**
  * Field kinds that accept user input and therefore support validation

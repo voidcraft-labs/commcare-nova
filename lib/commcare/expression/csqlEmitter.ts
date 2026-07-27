@@ -118,7 +118,7 @@ export function emitCsqlExpressionSegments(
 			//
 			// Constant arms (property refs, literals) emit as one
 			// constant segment regardless of position.
-			const inner = emitTermSegment(expr.term);
+			const inner = emitTermSegment(expr.term, typeContext);
 			if (inner.kind === "constant") {
 				return [{ kind: "constant", text: inner.text }];
 			}

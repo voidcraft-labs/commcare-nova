@@ -3,6 +3,7 @@
 import { emitCasePropertyWirePath } from "@/lib/commcare/casePropertyWire";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { emitCaseListFilter } from "@/lib/commcare/predicate";
+import type { Uuid } from "@/lib/domain";
 import type { Predicate } from "@/lib/domain/predicate";
 import { effectiveDisplayConditionForEmission } from "@/lib/domain/predicate";
 
@@ -15,6 +16,7 @@ export function emitModuleDisplayCondition(
 	condition: Predicate | undefined,
 	currentCaseType?: string,
 	lookupNaming?: LookupWireNaming,
+	userPropertySlugs?: ReadonlyMap<Uuid, string>,
 ): string | undefined {
 	const effective = effectiveDisplayConditionForEmission(condition);
 	if (effective === undefined) return undefined;
@@ -23,9 +25,15 @@ export function emitModuleDisplayCondition(
 		"casedb",
 		{
 			...(currentCaseType !== undefined && { currentCaseType }),
+			...(userPropertySlugs !== undefined && { userPropertySlugs }),
 		},
 		undefined,
-		lookupNaming === undefined ? {} : { lookup: { naming: lookupNaming } },
+		{
+			...(lookupNaming === undefined
+				? {}
+				: { lookup: { naming: lookupNaming } }),
+			...(userPropertySlugs === undefined ? {} : { userPropertySlugs }),
+		},
 	);
 }
 
@@ -39,13 +47,17 @@ export function emitFormDisplayConditionForSuite(
 	condition: Predicate | undefined,
 	currentCaseType?: string,
 	lookupNaming?: LookupWireNaming,
+	userPropertySlugs?: ReadonlyMap<Uuid, string>,
 ): string | undefined {
 	const effective = effectiveDisplayConditionForEmission(condition);
 	if (effective === undefined) return undefined;
 	return emitCaseListFilter(
 		effective,
 		"casedb",
-		{ ...(currentCaseType !== undefined && { currentCaseType }) },
+		{
+			...(currentCaseType !== undefined && { currentCaseType }),
+			...(userPropertySlugs !== undefined && { userPropertySlugs }),
+		},
 		undefined,
 		{
 			emitSelfProperty: (property) =>
@@ -53,6 +65,7 @@ export function emitFormDisplayConditionForSuite(
 			...(lookupNaming !== undefined && {
 				lookup: { naming: lookupNaming },
 			}),
+			...(userPropertySlugs !== undefined && { userPropertySlugs }),
 		},
 	);
 }
@@ -65,13 +78,17 @@ export function emitFormDisplayConditionForHq(
 	condition: Predicate | undefined,
 	currentCaseType?: string,
 	lookupNaming?: LookupWireNaming,
+	userPropertySlugs?: ReadonlyMap<Uuid, string>,
 ): string | undefined {
 	const effective = effectiveDisplayConditionForEmission(condition);
 	if (effective === undefined) return undefined;
 	return emitCaseListFilter(
 		effective,
 		"casedb",
-		{ ...(currentCaseType !== undefined && { currentCaseType }) },
+		{
+			...(currentCaseType !== undefined && { currentCaseType }),
+			...(userPropertySlugs !== undefined && { userPropertySlugs }),
+		},
 		undefined,
 		{
 			emitSelfProperty: (property) =>
@@ -79,6 +96,7 @@ export function emitFormDisplayConditionForHq(
 			...(lookupNaming !== undefined && {
 				lookup: { naming: lookupNaming },
 			}),
+			...(userPropertySlugs !== undefined && { userPropertySlugs }),
 		},
 	);
 }

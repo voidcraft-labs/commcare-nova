@@ -15,6 +15,8 @@ import type {
 import { asUuid } from "@/lib/domain";
 import { FormEngine, type FormEngineInput } from "../formEngine";
 
+const ENTRY_KEY = "11111111-1111-4111-8111-111111111111";
+
 interface DField {
 	id: string;
 	kind: FieldKind;
@@ -180,7 +182,10 @@ describe("computeOperationAnswers", () => {
 		const engine = new FormEngine(
 			dTree([{ id: "name", kind: "text", label: "Name" }], [OPERATION]),
 		);
-		const mutation = engine.computeSubmissionMutation({ caseTypes: [] });
+		const mutation = engine.computeSubmissionMutation({
+			caseTypes: [],
+			entryKey: ENTRY_KEY,
+		});
 		expect(mutation.kind).toBe("survey");
 		if (mutation.kind === "survey") {
 			expect(mutation.formUuid).toBe("test-form-uuid");

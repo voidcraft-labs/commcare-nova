@@ -7,14 +7,14 @@
  * The doc store's `load()` accepts this shape and rebuilds `fieldParent`
  * on load.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { xp } from "@/lib/__tests__/docHelpers";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { CaseType, Field, Uuid } from "@/lib/domain";
 import { asUuid } from "@/lib/domain";
 import type { PersistableDoc } from "@/lib/domain/blueprint";
 import { DEFAULT_RUNTIME_STATE, EngineController } from "../engineController";
-import { previewAsMe } from "../identity";
+import { previewAsMe, type ResolvedPreviewIdentity } from "../identity";
 
 // ── Fixtures ───────────────────────────────────────────────────────────
 
@@ -86,6 +86,172 @@ describe("EngineController", () => {
 			expect(runtime[Q2_UUID]).toBeDefined();
 			expect(runtime[Q1_UUID].visible).toBe(true);
 			expect(runtime[Q2_UUID].visible).toBe(true);
+		});
+
+		it("preserves one entry key across cold rebuilds and rotates it only for a new entry", () => {
+			const store = createLoadedStore();
+			const ctrl = new EngineController();
+			ctrl.setDocStore(store);
+			ctrl.activateForm(FORM_UUID);
+			const entryKey = ctrl.entryKey;
+
+			ctrl.rebuildActiveForm(FORM_UUID, new Map());
+			expect(ctrl.entryKey).toBe(entryKey);
+
+			ctrl.setPreviewIdentity(
+				previewAsMe({ id: "worker-1", email: "amina@example.org" }),
+			);
+			expect(ctrl.entryKey).toBe(entryKey);
+
+			ctrl.activateForm(FORM_UUID);
+			expect(ctrl.entryKey).toEqual(expect.any(String));
+			expect(ctrl.entryKey).not.toBe(entryKey);
+		});
+
+		it("starts a fresh entry immediately without changing the active form", () => {
+			const store = createLoadedStore();
+			const ctrl = new EngineController();
+			ctrl.setDocStore(store);
+			ctrl.activateForm(FORM_UUID);
+			ctrl.setValueAt("/data/name", "Old answer");
+			const previousEntryKey = ctrl.entryKey;
+
+			const nextEntryKey = ctrl.restartActiveEntry();
+
+			expect(nextEntryKey).toEqual(expect.any(String));
+			expect(nextEntryKey).not.toBe(previousEntryKey);
+			expect(ctrl.entryKey).toBe(nextEntryKey);
+			expect(ctrl.formUuid).toBe(FORM_UUID);
+			expect(ctrl.store.getState()[Q1_UUID].value).toBe("");
+		});
+
+		it("classifies capture blockers through hide, re-show, and field deletion", async () => {
+			const captureUuid = asUuid("aaaaaaaa-0020-0020-0020-000000000020");
+			const store = createLoadedStore(
+				makeDoc(
+					{
+						[captureUuid]: {
+							uuid: captureUuid,
+							id: "signature",
+							kind: "signature",
+							label: "Signature",
+							relevant: xp("false()"),
+						},
+					},
+					{ [FORM_UUID]: [captureUuid] },
+				),
+			);
+			const ctrl = new EngineController();
+			ctrl.setDocStore(store);
+			ctrl.activateForm(FORM_UUID);
+
+			expect(ctrl.attachmentPathDisposition("/data/signature")).toBe("dormant");
+
+			store.getState().applyMany([
+				{
+					kind: "updateField",
+					uuid: captureUuid,
+					targetKind: "signature",
+					patch: { relevant: xp("true()") },
+				},
+			]);
+			await vi.waitFor(() =>
+				expect(ctrl.attachmentPathDisposition("/data/signature")).toBe(
+					"active",
+				),
+			);
+
+			store.getState().applyMany([{ kind: "removeField", uuid: captureUuid }]);
+			await vi.waitFor(() =>
+				expect(ctrl.attachmentPathDisposition("/data/signature")).toBe(
+					"removed",
+				),
+			);
+		});
+
+		it("retires a capture path when its repeat instance is removed", () => {
+			const repeatUuid = asUuid("aaaaaaaa-0030-0030-0030-000000000030");
+			const captureUuid = asUuid("aaaaaaaa-0031-0031-0031-000000000031");
+			const store = createLoadedStore(
+				makeDoc(
+					{
+						[repeatUuid]: {
+							uuid: repeatUuid,
+							id: "visits",
+							kind: "repeat",
+							label: "Visits",
+							repeat_mode: "user_controlled",
+						},
+						[captureUuid]: {
+							uuid: captureUuid,
+							id: "photo",
+							kind: "image",
+							label: "Photo",
+						},
+					},
+					{
+						[FORM_UUID]: [repeatUuid],
+						[repeatUuid]: [captureUuid],
+					},
+				),
+			);
+			const ctrl = new EngineController();
+			ctrl.setDocStore(store);
+			ctrl.activateForm(FORM_UUID);
+			ctrl.addRepeat(repeatUuid);
+
+			expect(ctrl.attachmentPathDisposition("/data/visits[1]/photo")).toBe(
+				"active",
+			);
+
+			ctrl.removeRepeat(repeatUuid, 1);
+
+			expect(ctrl.attachmentPathDisposition("/data/visits[1]/photo")).toBe(
+				"removed",
+			);
+		});
+
+		it("preserves repeat render identities across a same-entry rebuild", () => {
+			const repeatUuid = asUuid("aaaaaaaa-0010-0010-0010-000000000010");
+			const childUuid = asUuid("aaaaaaaa-0011-0011-0011-000000000011");
+			const store = createLoadedStore(
+				makeDoc(
+					{
+						[repeatUuid]: {
+							uuid: repeatUuid,
+							id: "members",
+							kind: "repeat",
+							label: "Members",
+							repeat_mode: "user_controlled",
+						},
+						[childUuid]: {
+							uuid: childUuid,
+							id: "name",
+							kind: "text",
+							label: "Name",
+						},
+					},
+					{
+						[FORM_UUID]: [repeatUuid],
+						[repeatUuid]: [childUuid],
+					},
+				),
+			);
+			const ctrl = new EngineController();
+			ctrl.setDocStore(store);
+			ctrl.activateForm(FORM_UUID);
+			ctrl.addRepeat(repeatUuid);
+			const keys = [
+				ctrl.getRepeatInstanceKey(repeatUuid, 0),
+				ctrl.getRepeatInstanceKey(repeatUuid, 1),
+			];
+
+			ctrl.rebuildActiveForm(FORM_UUID, new Map());
+
+			expect([
+				ctrl.getRepeatInstanceKey(repeatUuid, 0),
+				ctrl.getRepeatInstanceKey(repeatUuid, 1),
+			]).toEqual(keys);
 		});
 
 		it("returns early for an unknown form uuid", () => {
@@ -567,6 +733,28 @@ describe("EngineController", () => {
 			);
 		}
 
+		function captureContainerDoc(
+			containerKind: "group" | "repeat" = "repeat",
+		): PersistableDoc {
+			const doc = repeatDoc();
+			doc.fields[repeatUuid] =
+				containerKind === "repeat"
+					? doc.fields[repeatUuid]
+					: {
+							uuid: repeatUuid,
+							id: "orders",
+							kind: "group",
+							label: "Orders",
+						};
+			doc.fields[nameUuid] = {
+				uuid: nameUuid,
+				id: "photo",
+				kind: "image",
+				label: "Photo",
+			};
+			return doc;
+		}
+
 		it("activation writes path-keyed entries for repeat children", () => {
 			const store = createLoadedStore(repeatDoc());
 			const ctrl = new EngineController();
@@ -616,6 +804,506 @@ describe("EngineController", () => {
 			// empty default (`path: ""`), so stale subscribers render nothing.
 			expect(afterRemove["/data/orders[1]/name"].path).toBe("");
 			expect(afterRemove["/data/orders[1]/name"].value).toBe("");
+		});
+
+		it("publishes positional repeat compaction from the controller owner", () => {
+			const store = createLoadedStore(repeatDoc());
+			const ctrl = new EngineController();
+			ctrl.setDocStore(store);
+			ctrl.activateForm(FORM_UUID);
+			ctrl.addRepeat(repeatUuid);
+			ctrl.addRepeat(repeatUuid);
+			const events: Parameters<
+				Parameters<typeof ctrl.subscribeRepeatCompaction>[0]
+			>[0][] = [];
+			const unsubscribe = ctrl.subscribeRepeatCompaction((event) => {
+				events.push(event);
+			});
+
+			ctrl.removeRepeat(repeatUuid, 0);
+			unsubscribe();
+
+			expect(events).toEqual([
+				{
+					entryKey: ctrl.entryKey,
+					removedPrefix: "/data/orders[0]",
+					moves: [
+						{
+							fromPrefix: "/data/orders[1]",
+							toPrefix: "/data/orders[0]",
+						},
+						{
+							fromPrefix: "/data/orders[2]",
+							toPrefix: "/data/orders[1]",
+						},
+					],
+				},
+			]);
+		});
+
+		it("publishes capture field and ancestor renames by stable field UUID", async () => {
+			const store = createLoadedStore(captureContainerDoc());
+			const ctrl = new EngineController();
+			ctrl.setDocStore(store);
+			ctrl.activateForm(FORM_UUID);
+			const events: Parameters<
+				Parameters<typeof ctrl.subscribeAuthoredCapturePathMigration>[0]
+			>[0][] = [];
+			ctrl.subscribeAuthoredCapturePathMigration((event) => events.push(event));
+
+			store.getState().applyMany([
+				{
+					kind: "updateField",
+					uuid: nameUuid,
+					targetKind: "image",
+					patch: { id: "evidence" },
+				},
+			]);
+			store.getState().applyMany([
+				{
+					kind: "updateField",
+					uuid: repeatUuid,
+					targetKind: "repeat",
+					patch: { id: "encounters" },
+				},
+			]);
+			await new Promise((resolve) => setTimeout(resolve, 10));
+
+			expect(events.map((event) => event.moves)).toEqual([
+				[
+					{
+						kind: "retained",
+						fieldUuid: nameUuid,
+						previous: {
+							pathTemplate: "/data/orders[0]/photo",
+							segmentKeys: ["$data", repeatUuid, nameUuid],
+							captureKind: "image",
+						},
+						current: {
+							pathTemplate: "/data/orders[0]/evidence",
+							segmentKeys: ["$data", repeatUuid, nameUuid],
+							captureKind: "image",
+						},
+					},
+				],
+				[
+					{
+						kind: "retained",
+						fieldUuid: nameUuid,
+						previous: {
+							pathTemplate: "/data/orders[0]/evidence",
+							segmentKeys: ["$data", repeatUuid, nameUuid],
+							captureKind: "image",
+						},
+						current: {
+							pathTemplate: "/data/encounters[0]/evidence",
+							segmentKeys: ["$data", repeatUuid, nameUuid],
+							captureKind: "image",
+						},
+					},
+				],
+			]);
+		});
+
+		it("publishes field deletion only through the explicit deleted variant", () => {
+			const store = createLoadedStore(captureContainerDoc());
+			const ctrl = new EngineController();
+			ctrl.setDocStore(store);
+			ctrl.activateForm(FORM_UUID);
+			const events: Parameters<
+				Parameters<typeof ctrl.subscribeAuthoredCapturePathMigration>[0]
+			>[0][] = [];
+			ctrl.subscribeAuthoredCapturePathMigration((event) => events.push(event));
+
+			store.getState().applyMany([{ kind: "removeField", uuid: nameUuid }]);
+
+			expect(events).toEqual([
+				{
+					entryKey: ctrl.entryKey,
+					moves: [
+						{
+							kind: "deleted",
+							fieldUuid: nameUuid,
+							previous: {
+								pathTemplate: "/data/orders[0]/photo",
+								segmentKeys: ["$data", repeatUuid, nameUuid],
+								captureKind: "image",
+							},
+						},
+					],
+				},
+			]);
+		});
+
+		it("atomically swaps two capture paths once from the complete pre/post maps", () => {
+			const firstUuid = asUuid("eeeeeeee-0010-0010-0010-000000000001");
+			const secondUuid = asUuid("eeeeeeee-0010-0010-0010-000000000002");
+			const store = createLoadedStore(
+				makeDoc(
+					{
+						[firstUuid]: {
+							uuid: firstUuid,
+							id: "photo",
+							kind: "image",
+							label: "Photo",
+						},
+						[secondUuid]: {
+							uuid: secondUuid,
+							id: "document",
+							kind: "file",
+							label: "Document",
+						},
+					},
+					{ [FORM_UUID]: [firstUuid, secondUuid] },
+				),
+			);
+			const ctrl = new EngineController();
+			ctrl.setDocStore(store);
+			ctrl.activateForm(FORM_UUID);
+			ctrl.setValueAt("/data/photo", "photo.png");
+			ctrl.setValueAt("/data/document", "document.pdf");
+			const events: Parameters<
+				Parameters<typeof ctrl.subscribeAuthoredCapturePathMigration>[0]
+			>[0][] = [];
+			ctrl.subscribeAuthoredCapturePathMigration((event) => events.push(event));
+
+			store.getState().applyMany([
+				{
+					kind: "updateField",
+					uuid: firstUuid,
+					targetKind: "image",
+					patch: { id: "document" },
+				},
+				{
+					kind: "updateField",
+					uuid: secondUuid,
+					targetKind: "file",
+					patch: { id: "photo" },
+				},
+			]);
+
+			expect(ctrl.getPath(firstUuid)).toBe("/data/document");
+			expect(ctrl.getPath(secondUuid)).toBe("/data/photo");
+			expect(ctrl.store.getState()[firstUuid].value).toBe("photo.png");
+			expect(ctrl.store.getState()[secondUuid].value).toBe("document.pdf");
+			expect(events).toEqual([
+				{
+					entryKey: ctrl.entryKey,
+					moves: [
+						{
+							kind: "retained",
+							fieldUuid: firstUuid,
+							previous: {
+								pathTemplate: "/data/photo",
+								segmentKeys: ["$data", firstUuid],
+								captureKind: "image",
+							},
+							current: {
+								pathTemplate: "/data/document",
+								segmentKeys: ["$data", firstUuid],
+								captureKind: "image",
+							},
+						},
+						{
+							kind: "retained",
+							fieldUuid: secondUuid,
+							previous: {
+								pathTemplate: "/data/document",
+								segmentKeys: ["$data", secondUuid],
+								captureKind: "file",
+							},
+							current: {
+								pathTemplate: "/data/photo",
+								segmentKeys: ["$data", secondUuid],
+								captureKind: "file",
+							},
+						},
+					],
+				},
+			]);
+		});
+
+		it("preserves a capture moved directly between group and repeat parents", () => {
+			const groupUuid = asUuid("eeeeeeee-0011-0011-0011-000000000001");
+			const repeatParentUuid = asUuid("eeeeeeee-0011-0011-0011-000000000002");
+			const captureUuid = asUuid("eeeeeeee-0011-0011-0011-000000000003");
+			const store = createLoadedStore(
+				makeDoc(
+					{
+						[groupUuid]: {
+							uuid: groupUuid,
+							id: "visit",
+							kind: "group",
+							label: "Visit",
+						},
+						[repeatParentUuid]: {
+							uuid: repeatParentUuid,
+							id: "rounds",
+							kind: "repeat",
+							label: "Rounds",
+							repeat_mode: "user_controlled",
+						},
+						[captureUuid]: {
+							uuid: captureUuid,
+							id: "photo",
+							kind: "image",
+							label: "Photo",
+						},
+					},
+					{
+						[FORM_UUID]: [groupUuid, repeatParentUuid],
+						[groupUuid]: [captureUuid],
+						[repeatParentUuid]: [],
+					},
+				),
+			);
+			const ctrl = new EngineController();
+			ctrl.setDocStore(store);
+			ctrl.activateForm(FORM_UUID);
+			ctrl.addRepeat(repeatParentUuid);
+			ctrl.setValueAt("/data/visit/photo", "photo.png");
+			const moves: Parameters<
+				Parameters<typeof ctrl.subscribeAuthoredCapturePathMigration>[0]
+			>[0]["moves"][number][] = [];
+			ctrl.subscribeAuthoredCapturePathMigration((event) => {
+				moves.push(...event.moves);
+			});
+
+			store.getState().applyMany([
+				{
+					kind: "moveField",
+					uuid: captureUuid,
+					toParentUuid: repeatParentUuid,
+					toIndex: 0,
+				},
+			]);
+			expect(ctrl.getPath(captureUuid)).toBe("/data/rounds[0]/photo");
+			expect(ctrl.store.getState()[captureUuid].value).toBe("photo.png");
+
+			store.getState().applyMany([
+				{
+					kind: "moveField",
+					uuid: captureUuid,
+					toParentUuid: groupUuid,
+					toIndex: 0,
+				},
+			]);
+			expect(ctrl.getPath(captureUuid)).toBe("/data/visit/photo");
+			expect(ctrl.store.getState()[captureUuid].value).toBe("photo.png");
+			expect(moves).toEqual([
+				expect.objectContaining({
+					kind: "retained",
+					fieldUuid: captureUuid,
+					previous: {
+						pathTemplate: "/data/visit/photo",
+						segmentKeys: ["$data", groupUuid, captureUuid],
+						captureKind: "image",
+					},
+					current: {
+						pathTemplate: "/data/rounds[0]/photo",
+						segmentKeys: ["$data", repeatParentUuid, captureUuid],
+						captureKind: "image",
+					},
+				}),
+				expect.objectContaining({
+					kind: "retained",
+					fieldUuid: captureUuid,
+					previous: {
+						pathTemplate: "/data/rounds[0]/photo",
+						segmentKeys: ["$data", repeatParentUuid, captureUuid],
+						captureKind: "image",
+					},
+					current: {
+						pathTemplate: "/data/visit/photo",
+						segmentKeys: ["$data", groupUuid, captureUuid],
+						captureKind: "image",
+					},
+				}),
+			]);
+		});
+
+		it("preserves capture descendants when their ancestor moves into and out of a repeat", () => {
+			const repeatParentUuid = asUuid("eeeeeeee-0012-0012-0012-000000000001");
+			const ancestorUuid = asUuid("eeeeeeee-0012-0012-0012-000000000002");
+			const captureUuid = asUuid("eeeeeeee-0012-0012-0012-000000000003");
+			const store = createLoadedStore(
+				makeDoc(
+					{
+						[repeatParentUuid]: {
+							uuid: repeatParentUuid,
+							id: "rounds",
+							kind: "repeat",
+							label: "Rounds",
+							repeat_mode: "user_controlled",
+						},
+						[ancestorUuid]: {
+							uuid: ancestorUuid,
+							id: "visit",
+							kind: "group",
+							label: "Visit",
+						},
+						[captureUuid]: {
+							uuid: captureUuid,
+							id: "photo",
+							kind: "image",
+							label: "Photo",
+						},
+					},
+					{
+						[FORM_UUID]: [repeatParentUuid, ancestorUuid],
+						[repeatParentUuid]: [],
+						[ancestorUuid]: [captureUuid],
+					},
+				),
+			);
+			const ctrl = new EngineController();
+			ctrl.setDocStore(store);
+			ctrl.activateForm(FORM_UUID);
+			ctrl.addRepeat(repeatParentUuid);
+			ctrl.setValueAt("/data/visit/photo", "photo.png");
+			const moves: Parameters<
+				Parameters<typeof ctrl.subscribeAuthoredCapturePathMigration>[0]
+			>[0]["moves"][number][] = [];
+			ctrl.subscribeAuthoredCapturePathMigration((event) => {
+				moves.push(...event.moves);
+			});
+
+			store.getState().applyMany([
+				{
+					kind: "moveField",
+					uuid: ancestorUuid,
+					toParentUuid: repeatParentUuid,
+					toIndex: 0,
+				},
+			]);
+			expect(ctrl.getPath(captureUuid)).toBe("/data/rounds[0]/visit/photo");
+			expect(ctrl.store.getState()[captureUuid].value).toBe("photo.png");
+
+			store.getState().applyMany([
+				{
+					kind: "moveField",
+					uuid: ancestorUuid,
+					toParentUuid: FORM_UUID,
+					toIndex: 1,
+				},
+			]);
+			expect(ctrl.getPath(captureUuid)).toBe("/data/visit/photo");
+			expect(ctrl.store.getState()[captureUuid].value).toBe("photo.png");
+			expect(moves).toEqual([
+				expect.objectContaining({
+					kind: "retained",
+					fieldUuid: captureUuid,
+					previous: {
+						pathTemplate: "/data/visit/photo",
+						segmentKeys: ["$data", ancestorUuid, captureUuid],
+						captureKind: "image",
+					},
+					current: {
+						pathTemplate: "/data/rounds[0]/visit/photo",
+						segmentKeys: ["$data", repeatParentUuid, ancestorUuid, captureUuid],
+						captureKind: "image",
+					},
+				}),
+				expect.objectContaining({
+					kind: "retained",
+					fieldUuid: captureUuid,
+					previous: {
+						pathTemplate: "/data/rounds[0]/visit/photo",
+						segmentKeys: ["$data", repeatParentUuid, ancestorUuid, captureUuid],
+						captureKind: "image",
+					},
+					current: {
+						pathTemplate: "/data/visit/photo",
+						segmentKeys: ["$data", ancestorUuid, captureUuid],
+						captureKind: "image",
+					},
+				}),
+			]);
+		});
+
+		it("publishes capture descendant moves for group↔repeat conversion", async () => {
+			const store = createLoadedStore(captureContainerDoc("group"));
+			const ctrl = new EngineController();
+			ctrl.setDocStore(store);
+			ctrl.activateForm(FORM_UUID);
+			const moves: Parameters<
+				Parameters<typeof ctrl.subscribeAuthoredCapturePathMigration>[0]
+			>[0]["moves"][number][] = [];
+			ctrl.subscribeAuthoredCapturePathMigration((event) => {
+				moves.push(...event.moves);
+			});
+
+			store
+				.getState()
+				.applyMany([
+					{ kind: "convertField", uuid: repeatUuid, toKind: "repeat" },
+				]);
+			store
+				.getState()
+				.applyMany([
+					{ kind: "convertField", uuid: repeatUuid, toKind: "group" },
+				]);
+			await new Promise((resolve) => setTimeout(resolve, 10));
+
+			expect(moves).toEqual([
+				expect.objectContaining({
+					kind: "retained",
+					previous: expect.objectContaining({
+						pathTemplate: "/data/orders/photo",
+						segmentKeys: ["$data", repeatUuid, nameUuid],
+					}),
+					current: expect.objectContaining({
+						pathTemplate: "/data/orders[0]/photo",
+						segmentKeys: ["$data", repeatUuid, nameUuid],
+					}),
+				}),
+				expect.objectContaining({
+					kind: "retained",
+					previous: expect.objectContaining({
+						pathTemplate: "/data/orders[0]/photo",
+						segmentKeys: ["$data", repeatUuid, nameUuid],
+					}),
+					current: expect.objectContaining({
+						pathTemplate: "/data/orders/photo",
+						segmentKeys: ["$data", repeatUuid, nameUuid],
+					}),
+				}),
+			]);
+		});
+
+		it("publishes incompatible capture-kind conversions at the stable path", async () => {
+			const store = createLoadedStore(captureContainerDoc());
+			const ctrl = new EngineController();
+			ctrl.setDocStore(store);
+			ctrl.activateForm(FORM_UUID);
+			const moves: Parameters<
+				Parameters<typeof ctrl.subscribeAuthoredCapturePathMigration>[0]
+			>[0]["moves"][number][] = [];
+			ctrl.subscribeAuthoredCapturePathMigration((event) => {
+				moves.push(...event.moves);
+			});
+
+			store
+				.getState()
+				.applyMany([{ kind: "convertField", uuid: nameUuid, toKind: "audio" }]);
+			await new Promise((resolve) => setTimeout(resolve, 10));
+
+			expect(moves).toEqual([
+				{
+					kind: "retained",
+					fieldUuid: nameUuid,
+					previous: {
+						pathTemplate: "/data/orders[0]/photo",
+						segmentKeys: ["$data", repeatUuid, nameUuid],
+						captureKind: "image",
+					},
+					current: {
+						pathTemplate: "/data/orders[0]/photo",
+						segmentKeys: ["$data", repeatUuid, nameUuid],
+						captureKind: "audio",
+					},
+				},
+			]);
 		});
 
 		it("a field added inside a repeat reaches every live instance", async () => {
@@ -878,7 +1566,10 @@ describe("EngineController", () => {
 			const mutation = ctrl.computeSubmissionMutation({
 				caseTypes: [patientCaseType],
 			});
-			expect(mutation).toEqual({
+			// The controller injects THIS entry's attachment scope, which is why
+			// the assertion is on the case-bearing slots plus explicit checks
+			// on the required submission protocol rather than whole-object equality.
+			expect(mutation).toMatchObject({
 				kind: "registration",
 				formUuid: "form-2-uuid",
 				primary: {
@@ -888,11 +1579,28 @@ describe("EngineController", () => {
 				},
 				children: [],
 			});
+			// Present because a form is active; empty because nothing was
+			// attached, which is the instruction to discard any staged
+			// attachment for this entry.
+			expect(mutation.entryKey).toEqual(expect.any(String));
+			expect(mutation.attachmentRefs).toEqual([]);
+
+			// One activation is one entry: a key that survived reactivation
+			// would let a new entry reconcile the previous one's attachments.
+			const firstEntry = ctrl.entryKey;
+			ctrl.activateForm(formUuid);
+			expect(ctrl.entryKey).toEqual(expect.any(String));
+			expect(ctrl.entryKey).not.toBe(firstEntry);
+
+			// And no active form means no scope to reconcile at all.
+			ctrl.deactivate();
+			expect(ctrl.entryKey).toBeUndefined();
 		});
 	});
 
 	describe("setPreviewIdentity", () => {
 		const WHO_UUID = asUuid("aaaaaaaa-0009-0009-0009-000000000009");
+		const REGION_UUID = asUuid("aaaaaaaa-0010-0010-0010-000000000010");
 		const ME = { id: "worker-1", email: "amina@example.org" };
 
 		/** Standard two-field doc plus a hidden `#user/username` calculate. */
@@ -992,6 +1700,79 @@ describe("EngineController", () => {
 
 			expect(ctrl.store.getState()[WHO_UUID].value).toBe("");
 			expect(ctrl.store.getState()[Q1_UUID].value).toBe("");
+		});
+
+		it("a custom worker-property rename reprints the same AST identity in an open form", () => {
+			const doc = makeDoc(
+				{
+					[Q1_UUID]: { uuid: Q1_UUID, id: "name", kind: "text", label: "Name" },
+					[WHO_UUID]: {
+						uuid: WHO_UUID,
+						id: "region",
+						kind: "hidden",
+						calculate: {
+							parts: [
+								{
+									kind: "user-property-ref",
+									userPropertyUuid: REGION_UUID,
+								},
+							],
+						},
+					} as Field,
+				},
+				{ [FORM_UUID]: [Q1_UUID, WHO_UUID] },
+			);
+			doc.userProperties = {
+				[REGION_UUID]: {
+					uuid: REGION_UUID,
+					slug: "assigned_region",
+					label: "Assigned region",
+				},
+			};
+			const identity: ResolvedPreviewIdentity = {
+				actorUserId: ME.id,
+				ownerId: ME.id,
+				session: {
+					context: { userid: ME.id },
+					user: {
+						assigned_region: "north",
+						supervision_area: "south",
+					},
+					userPropertySlugs: {
+						[REGION_UUID]: "assigned_region",
+					},
+				},
+				usercase: {
+					assigned_region: "north",
+					supervision_area: "south",
+				},
+			};
+			const store = createLoadedStore(doc);
+			const ctrl = new EngineController();
+			ctrl.setDocStore(store);
+			ctrl.setPreviewIdentity(identity);
+			ctrl.activateForm(FORM_UUID);
+			const storedField = store.getState().fields[WHO_UUID];
+			if (storedField.kind !== "hidden") {
+				throw new Error("test fixture must remain a hidden field");
+			}
+			const storedAst = storedField.calculate;
+			expect(ctrl.store.getState()[WHO_UUID].value).toBe("north");
+
+			store.getState().applyMany([
+				{
+					kind: "updateUserProperty",
+					uuid: REGION_UUID,
+					patch: { slug: "supervision_area", label: "Supervision area" },
+				},
+			]);
+
+			const renamedField = store.getState().fields[WHO_UUID];
+			if (renamedField.kind !== "hidden") {
+				throw new Error("worker-property rename must not retype the field");
+			}
+			expect(renamedField.calculate).toBe(storedAst);
+			expect(ctrl.store.getState()[WHO_UUID].value).toBe("south");
 		});
 	});
 });

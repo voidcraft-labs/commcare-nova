@@ -23,10 +23,11 @@
 // therefore assert visibility via the Activity's `<div>` parent
 // inline style rather than presence/absence in the DOM.
 
-import { render } from "@testing-library/react";
+import { fireEvent, render } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
 import { asUuid } from "@/lib/doc/types";
+import type { SelectedPreviewIdentityState } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
 import type { Location } from "@/lib/routing/types";
 import type { PreviewCaseTarget } from "@/lib/session/types";
 
@@ -46,9 +47,21 @@ const previewCaseTargetMock = vi.fn<() => PreviewCaseTarget | undefined>(
 	() => undefined,
 );
 const setPreviewingMock = vi.fn();
+const setPreviewPersonaUuidMock = vi.fn();
+const selectedIdentityStateMock = vi.fn<() => SelectedPreviewIdentityState>(
+	() => ({
+		kind: "ready",
+		identity: null,
+	}),
+);
 
 beforeEach(() => {
 	setPreviewingMock.mockReset();
+	setPreviewPersonaUuidMock.mockReset();
+	selectedIdentityStateMock.mockReturnValue({
+		kind: "ready",
+		identity: null,
+	});
 });
 
 vi.mock("@/lib/routing/hooks", async () => {
@@ -95,8 +108,13 @@ vi.mock("@/lib/session/hooks", async () => {
 		useBuilderIsReady: () => true,
 		usePreviewCaseTarget: () => previewCaseTargetMock(),
 		useSetPreviewing: () => setPreviewingMock,
+		useSetPreviewPersonaUuid: () => setPreviewPersonaUuidMock,
 	};
 });
+
+vi.mock("@/lib/preview/hooks/useSelectedPreviewIdentity", () => ({
+	useSelectedPreviewIdentityState: () => selectedIdentityStateMock(),
+}));
 
 // Stub the screens so the PreviewShell's dispatch logic is the only subject
 // under test. The workspace canvas reads its module + tab from the shared
@@ -342,5 +360,53 @@ describe("PreviewShell — preview case-datum injection", () => {
 		previewCaseTargetMock.mockReturnValue(undefined);
 		const { getByTestId } = renderShell();
 		expect(getByTestId("form-stub").getAttribute("data-case-id")).toBe("");
+	});
+});
+
+describe("PreviewShell — removed selected persona", () => {
+	for (const location of [
+		{ kind: "home" as const },
+		{ kind: "module" as const, moduleUuid: MODULE_UUID },
+		{ kind: "cases" as const, moduleUuid: MODULE_UUID },
+		{
+			kind: "form" as const,
+			moduleUuid: MODULE_UUID,
+			formUuid: FORM_UUID,
+		},
+	]) {
+		it(`blocks ${location.kind} instead of running anonymously`, () => {
+			editModeMock.mockReturnValue("preview");
+			locationMock.mockReturnValue(location);
+			selectedIdentityStateMock.mockReturnValue({
+				kind: "persona-unavailable",
+				personaUuid: "removed-persona",
+			});
+
+			const view = renderShell();
+
+			expect(view.getByRole("alert").textContent).toContain(
+				"no longer in this app",
+			);
+			expect(view.queryByTestId("home-stub")).toBeNull();
+			expect(view.queryByTestId("module-stub")).toBeNull();
+			expect(view.queryByTestId("legacy-case-list-stub")).toBeNull();
+			expect(view.queryByTestId("form-stub")).toBeNull();
+		});
+	}
+
+	it("offers an explicit route back to Preview as me", () => {
+		editModeMock.mockReturnValue("preview");
+		locationMock.mockReturnValue({ kind: "home" });
+		selectedIdentityStateMock.mockReturnValue({
+			kind: "persona-unavailable",
+			personaUuid: "removed-persona",
+		});
+		const view = renderShell();
+
+		const recovery = view.getByRole("button", { name: "Preview as me" });
+		expect(recovery.className.split(/\s+/)).toContain("min-h-11");
+		fireEvent.click(recovery);
+
+		expect(setPreviewPersonaUuidMock).toHaveBeenCalledWith(undefined);
 	});
 });

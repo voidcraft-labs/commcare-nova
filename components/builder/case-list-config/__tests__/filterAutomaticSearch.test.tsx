@@ -230,7 +230,7 @@ describe("Results Cases available composer", () => {
 		fireEvent.click(
 			screen.getByRole("button", { name: "Value source: A value" }),
 		);
-		const otherCaseInformation = screen.getByRole("menuitem", {
+		const otherCaseInformation = screen.getByRole("menuitemradio", {
 			name: /^Other case information/,
 		});
 
@@ -358,6 +358,9 @@ describe("Results Cases available composer", () => {
 		expect(
 			await screen.findByText("The number of matching cases isn’t available"),
 		).toBeDefined();
+		expect(screen.getByRole("status").classList.contains("min-h-[65px]")).toBe(
+			true,
+		);
 		expect(loadPreview.mock.calls.length).toBeGreaterThan(callsBeforeRender);
 		const callsBeforeRetry = loadPreview.mock.calls.length;
 
@@ -370,6 +373,7 @@ describe("Results Cases available composer", () => {
 		);
 		const loadingStatus = screen.getByRole("status");
 		expect(loadingStatus.textContent).toContain("Counting matches…");
+		expect(loadingStatus.classList.contains("min-h-[65px]")).toBe(true);
 		await waitFor(() => expect(document.activeElement).toBe(loadingStatus));
 
 		await act(async () =>
@@ -378,6 +382,9 @@ describe("Results Cases available composer", () => {
 		expect(
 			await screen.findByText("The number of matching cases isn’t available"),
 		).toBeDefined();
+		expect(screen.getByRole("status").classList.contains("min-h-[65px]")).toBe(
+			true,
+		);
 		const renewedRetry = screen.getByRole("button", { name: "Try again" });
 		await waitFor(() => expect(document.activeElement).toBe(renewedRetry));
 	});

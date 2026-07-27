@@ -157,6 +157,7 @@ function addTermInstance(
 			instances.add("search-input:results");
 			return;
 		case "session-user":
+		case "session-user-property":
 		case "session-context":
 			instances.add("commcaresession");
 			return;

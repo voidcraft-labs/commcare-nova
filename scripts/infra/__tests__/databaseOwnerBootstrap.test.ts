@@ -18,15 +18,41 @@ const safeFacts: DatabaseBootstrapFacts = {
 	publicSchemaOwner: "pg_database_owner",
 	migrationRoleExists: true,
 	runtimeRoleExists: true,
+	cleanupRoleExists: true,
 	legacyRoleExists: true,
+	migrationRoleCanLogin: true,
+	runtimeRoleCanLogin: true,
+	cleanupRoleCanLogin: true,
+	migrationRoleIsSuperuser: false,
+	runtimeRoleIsSuperuser: false,
+	cleanupRoleIsSuperuser: false,
+	migrationRoleConnectionLimit: 1,
+	runtimeRoleConnectionLimit: 16,
+	cleanupRoleConnectionLimit: 3,
 	currentUserIsMigrationMember: true,
 	currentUserCanSetMigration: true,
+	currentUserIsRuntimeMember: true,
+	currentUserCanSetRuntime: true,
+	currentUserIsCleanupMember: true,
+	currentUserCanSetCleanup: true,
 	currentUserIsLegacyMember: true,
 	currentUserCanSetLegacy: true,
 	migrationIsRuntimeMember: true,
 	migrationCanSetRuntime: true,
+	migrationIsCleanupMember: false,
+	migrationCanSetCleanup: false,
+	migrationIsLegacyMember: false,
+	migrationCanSetLegacy: false,
+	cleanupIsRuntimeMember: false,
+	cleanupCanSetRuntime: false,
+	cleanupIsMigrationMember: false,
+	cleanupCanSetMigration: false,
+	cleanupIsLegacyMember: false,
+	cleanupCanSetLegacy: false,
 	runtimeIsMigrationMember: false,
 	runtimeCanSetMigration: false,
+	runtimeIsCleanupMember: false,
+	runtimeCanSetCleanup: false,
 	runtimeIsLegacyMember: false,
 	runtimeCanSetLegacy: false,
 	runtimeCanCreateDatabase: false,
@@ -45,12 +71,35 @@ const safeFacts: DatabaseBootstrapFacts = {
 	legacyOwnedRelationCount: 0,
 	legacyOwnedRoutineCount: 0,
 	legacyDefaultAclCount: 0,
+	requiredExtensionCount: 4,
+	requiredExtensionInventory: [
+		"pg_trgm",
+		"fuzzystrmatch",
+		"postgis",
+		"pgaudit",
+	].map((name) => ({
+		name,
+		version: "1.0",
+		owner: "nova-migrate@commcare-nova.iam",
+		schema: "public",
+		configurationRelations: [],
+		dependencyCount: 1,
+		dependencyCatalogs: ["pg_proc"],
+	})),
+	pgauditPresent: true,
 };
 
 describe("deployment database owner bootstrap", () => {
 	test("quotes identifiers and emits the legacy ownership transfer without SQL membership changes", () => {
 		expect(quoteIdentifier('role"name')).toBe('"role""name"');
 		expect(databaseOwnerBootstrapStatements(safeFacts)).toEqual([
+			'CREATE EXTENSION IF NOT EXISTS "pg_trgm" WITH SCHEMA public',
+			'CREATE EXTENSION IF NOT EXISTS "fuzzystrmatch" WITH SCHEMA public',
+			'CREATE EXTENSION IF NOT EXISTS "postgis" WITH SCHEMA public',
+			'CREATE EXTENSION IF NOT EXISTS "pgaudit" WITH SCHEMA public',
+			'ALTER ROLE "commcare-nova@commcare-nova.iam" CONNECTION LIMIT 16',
+			'ALTER ROLE "nova-migrate@commcare-nova.iam" CONNECTION LIMIT 1',
+			'ALTER ROLE "nova-capture-cleanup@commcare-nova.iam" CONNECTION LIMIT 3',
 			'ALTER DATABASE "nova_cases" OWNER TO "nova-migrate@commcare-nova.iam"',
 			`REASSIGN OWNED BY "${LEGACY_DATABASE_ROLE}" TO "nova-migrate@commcare-nova.iam"`,
 			`DROP OWNED BY "${LEGACY_DATABASE_ROLE}" RESTRICT`,
@@ -63,10 +112,22 @@ describe("deployment database owner bootstrap", () => {
 				legacyRoleExists: false,
 			}),
 		).toEqual([
+			'CREATE EXTENSION IF NOT EXISTS "pg_trgm" WITH SCHEMA public',
+			'CREATE EXTENSION IF NOT EXISTS "fuzzystrmatch" WITH SCHEMA public',
+			'CREATE EXTENSION IF NOT EXISTS "postgis" WITH SCHEMA public',
+			'CREATE EXTENSION IF NOT EXISTS "pgaudit" WITH SCHEMA public',
+			'ALTER ROLE "commcare-nova@commcare-nova.iam" CONNECTION LIMIT 16',
+			'ALTER ROLE "nova-migrate@commcare-nova.iam" CONNECTION LIMIT 1',
+			'ALTER ROLE "nova-capture-cleanup@commcare-nova.iam" CONNECTION LIMIT 3',
 			'ALTER DATABASE "nova_cases" OWNER TO "nova-migrate@commcare-nova.iam"',
 			'REASSIGN OWNED BY "nova-deployment-bootstrap" TO "nova-migrate@commcare-nova.iam"',
 			'DROP OWNED BY "nova-deployment-bootstrap" RESTRICT',
 		]);
+		expect(
+			databaseOwnerBootstrapStatements(safeFacts).some((statement) =>
+				statement.includes('REASSIGN OWNED BY "postgres"'),
+			),
+		).toBe(false);
 	});
 
 	test("requires API-prepared role memberships and a bounded legacy dependency set", () => {
@@ -88,13 +149,49 @@ describe("deployment database owner bootstrap", () => {
 				...safeFacts,
 				currentUserCanSetLegacy: false,
 			}),
-		).toThrow("MEMBER and SET access to the legacy and migration roles");
+		).toThrow("MEMBER and SET access to runtime, migration, capture-cleanup");
+		expect(() =>
+			assertDatabaseBootstrapPreconditions({
+				...safeFacts,
+				currentUserIsCleanupMember: false,
+			}),
+		).toThrow("MEMBER and SET access to runtime, migration, capture-cleanup");
 		expect(() =>
 			assertDatabaseBootstrapPreconditions({
 				...safeFacts,
 				migrationCanSetRuntime: false,
 			}),
-		).toThrow("migration role must have MEMBER and SET access");
+		).toThrow("Migration must have MEMBER and SET");
+		expect(() =>
+			assertDatabaseBootstrapPreconditions({
+				...safeFacts,
+				cleanupIsRuntimeMember: true,
+			}),
+		).toThrow("wider than the one-way migration-to-runtime grant");
+		expect(() =>
+			assertDatabaseBootstrapPreconditions({
+				...safeFacts,
+				cleanupRoleExists: false,
+			}),
+		).toThrow("capture-cleanup IAM database users must exist");
+		expect(() =>
+			assertDatabaseBootstrapPreconditions({
+				...safeFacts,
+				cleanupRoleCanLogin: false,
+			}),
+		).toThrow("must remain direct LOGIN roles");
+		expect(() =>
+			assertDatabaseBootstrapPreconditions({
+				...safeFacts,
+				runtimeRoleIsSuperuser: true,
+			}),
+		).toThrow("must not be PostgreSQL superusers");
+		expect(() =>
+			assertDatabaseBootstrapPreconditions({
+				...safeFacts,
+				cleanupIsMigrationMember: true,
+			}),
+		).toThrow("wider than the one-way migration-to-runtime grant");
 		expect(() =>
 			assertDatabaseBootstrapPreconditions({
 				...safeFacts,
@@ -113,6 +210,28 @@ describe("deployment database owner bootstrap", () => {
 				runtimeCanCreatePublicSchema: true,
 			}),
 		).toThrow("runtime role still has effective CREATE");
+		expect(() =>
+			assertDatabaseBootstrapPreconditions({
+				...safeFacts,
+				requiredExtensionInventory: safeFacts.requiredExtensionInventory.map(
+					(extension, index) =>
+						index === 0
+							? { ...extension, owner: safeFacts.currentUser }
+							: extension,
+				),
+			}),
+		).toThrow("owned by untrusted role");
+		expect(() =>
+			assertDatabaseBootstrapPreconditions({
+				...safeFacts,
+				requiredExtensionInventory: safeFacts.requiredExtensionInventory.map(
+					(extension, index) =>
+						index === 0
+							? { ...extension, schema: "provider_extensions" }
+							: extension,
+				),
+			}),
+		).toThrow("expected public");
 	});
 
 	test("admits a fresh instance without a legacy role or dependencies", () => {
@@ -131,9 +250,31 @@ describe("deployment database owner bootstrap", () => {
 		expect(() =>
 			assertDatabaseBootstrapResult({
 				...safeFacts,
+				pgauditPresent: false,
+			}),
+		).toThrow("required database extensions");
+		expect(() =>
+			assertDatabaseBootstrapResult({
+				...safeFacts,
+				requiredExtensionCount: 3,
+				requiredExtensionInventory: safeFacts.requiredExtensionInventory.slice(
+					0,
+					3,
+				),
+			}),
+		).toThrow("incomplete");
+		expect(() =>
+			assertDatabaseBootstrapResult({
+				...safeFacts,
 				runtimeIsMigrationMember: true,
 			}),
-		).toThrow("membership is unsafe");
+		).toThrow("wider than the one-way migration-to-runtime grant");
+		expect(() =>
+			assertDatabaseBootstrapResult({
+				...safeFacts,
+				runtimeRoleConnectionLimit: 17,
+			}),
+		).toThrow("connection limits are unsafe");
 		expect(() =>
 			assertDatabaseBootstrapResult({
 				...safeFacts,
@@ -152,5 +293,26 @@ describe("deployment database owner bootstrap", () => {
 				runtimeCanCreateDatabase: true,
 			}),
 		).toThrow("effective CREATE");
+	});
+
+	test("accepts the permanent Cloud SQL-managed postgres extension-owner shape", () => {
+		const cloudSqlManaged = {
+			...safeFacts,
+			requiredExtensionInventory: safeFacts.requiredExtensionInventory.map(
+				(extension) => ({
+					...extension,
+					owner: "postgres",
+					version: `cloud-sql-${extension.name}`,
+					configurationRelations:
+						extension.name === "postgis" ? ["public.spatial_ref_sys"] : [],
+					dependencyCount: 24,
+					dependencyCatalogs: ["pg_class", "pg_proc", "pg_type"],
+				}),
+			),
+		};
+		expect(() =>
+			assertDatabaseBootstrapPreconditions(cloudSqlManaged),
+		).not.toThrow();
+		expect(() => assertDatabaseBootstrapResult(cloudSqlManaged)).not.toThrow();
 	});
 });

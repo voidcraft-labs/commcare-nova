@@ -84,6 +84,18 @@ import { searchBlueprintTool } from "./tools/searchBlueprint";
 import { updateAppTool } from "./tools/updateApp";
 import { updateFormTool } from "./tools/updateForm";
 import { updateModuleTool } from "./tools/updateModule";
+import {
+	addPersonasTool,
+	addUserPropertiesTool,
+	addUserTypesTool,
+	getUsersTool,
+	removePersonaTool,
+	removeUserPropertyTool,
+	removeUserTypeTool,
+	updatePersonaTool,
+	updateUserPropertyTool,
+	updateUserTypeTool,
+} from "./tools/users";
 import { wireToolSchema } from "./wireSchemas";
 
 // ── Solutions Architect Agent ────────────────────────────────────────
@@ -412,6 +424,16 @@ export function createSolutionsArchitect(
 		// ── Structural mutations ──────────────────────────────────────
 
 		updateApp: wrapMutating(updateAppTool),
+		getUsers: wrapRead(getUsersTool),
+		addUserProperties: wrapMutating(addUserPropertiesTool),
+		updateUserProperty: wrapMutating(updateUserPropertyTool),
+		removeUserProperty: wrapMutating(removeUserPropertyTool),
+		addUserTypes: wrapMutating(addUserTypesTool),
+		updateUserType: wrapMutating(updateUserTypeTool),
+		removeUserType: wrapMutating(removeUserTypeTool),
+		addPersonas: wrapMutating(addPersonasTool),
+		updatePersona: wrapMutating(updatePersonaTool),
+		removePersona: wrapMutating(removePersonaTool),
 		updateModule: wrapMutating(updateModuleTool),
 		updateForm: wrapMutating(updateFormTool),
 		createForm: wrapMutating(createFormTool),

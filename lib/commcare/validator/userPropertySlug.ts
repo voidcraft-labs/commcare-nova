@@ -21,13 +21,19 @@ import {
 // string in three places, and all three run when a domain admin saves the
 // user-data schema — so a slug that fails any of them makes the eventual
 // push fail on identity grounds, long after the author wrote it. Nova
-// applies the identical rule at construction instead:
+// applies the same acceptability boundary at construction instead, with the
+// reserved-name checks deliberately lowercased (marginally stricter than HQ
+// for mixed-case spellings; stricter cannot cost a push):
 //
 //   - `custom_data_fields/edit_model.py::XmlSlugField` lists
 //     `validate_slug` (Django's `[-a-zA-Z0-9_]+` charset),
 //     `validate_reserved_words`, and `RegexValidator(r'\D', '')` — the
 //     last of which demands at least one non-digit, because an all-digit
 //     key breaks XML;
+//   - Nova emits the slug as an XML element name on both the session and
+//     usercase paths, so the first character must be a letter or underscore.
+//     This is stricter than Django's slug validator and prevents a schema HQ
+//     can save but its generated worker XML cannot represent;
 //   - `::validate_reserved_words` refuses `SYSTEM_FIELDS` outright and
 //     anything prefixed `commcare` or `xml`;
 //   - `::CustomDataFieldsForm.verify_no_reserved_words` additionally
@@ -76,19 +82,20 @@ export function userPropertySlugVerdict(
 			userMessage: "Enter a name for this piece of worker information.",
 		};
 	}
+	if (!/\D/.test(trimmed)) {
+		return {
+			ok: false,
+			code: "all_digits",
+			userMessage:
+				"Include at least one non-digit character — digits alone won't work.",
+		};
+	}
 	if (!USER_PROPERTY_SLUG_PATTERN.test(trimmed)) {
 		return {
 			ok: false,
 			code: "illegal_format",
 			userMessage:
-				"Use only letters, digits, underscores, and hyphens — no spaces or punctuation.",
-		};
-	}
-	if (!/\D/.test(trimmed)) {
-		return {
-			ok: false,
-			code: "all_digits",
-			userMessage: "Include at least one letter — digits alone won't work.",
+				"Start with a letter or underscore, then use only letters, digits, underscores, and hyphens.",
 		};
 	}
 	if (trimmed.length > USER_PROPERTY_SLUG_MAX_LENGTH) {
@@ -100,7 +107,7 @@ export function userPropertySlugVerdict(
 	}
 	const lowered = trimmed.toLowerCase();
 	const reservedPrefix = USER_DATA_RESERVED_PREFIXES.find((prefix) =>
-		trimmed.startsWith(prefix),
+		lowered.startsWith(prefix),
 	);
 	if (reservedPrefix !== undefined) {
 		return {
@@ -110,7 +117,7 @@ export function userPropertySlugVerdict(
 		};
 	}
 	if (
-		USER_DATA_SYSTEM_FIELDS.includes(trimmed) ||
+		USER_DATA_SYSTEM_FIELDS.includes(lowered) ||
 		RESERVED_CASE_PROPERTIES.has(lowered)
 	) {
 		return {

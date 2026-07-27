@@ -72,6 +72,7 @@ import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useEffectiveCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useCaseWorkspaceBoundaryVerdicts } from "@/lib/doc/hooks/useCaseWorkspaceVerdicts";
 import { useModule } from "@/lib/doc/hooks/useEntity";
+import { useUserProperties } from "@/lib/doc/hooks/useUserCollections";
 import { appendOrderKey } from "@/lib/doc/order/append";
 import {
 	type ColumnSurface,
@@ -389,6 +390,7 @@ function useController(
 	/* The EFFECTIVE view — the same property admission set + types the
 	 * commit gate validates against (see the hook doc). */
 	const caseTypes = useEffectiveCaseTypes();
+	const userProperties = useUserProperties();
 	const navigate = useNavigate();
 	const { moveColumnOnSurface, moveSearchInputToIndex, commitMany, inline } =
 		useBlueprintMutations();
@@ -1381,6 +1383,7 @@ function useController(
 			config,
 			searchConfig,
 			caseTypes,
+			userProperties,
 			caseType,
 			onSearchConfigChange: updateSearchConfig,
 			replaceColumn,
@@ -1444,6 +1447,7 @@ function useController(
 									: returnToInputRemovalReview
 							}
 							caseTypes={caseTypes}
+							userProperties={userProperties}
 							currentCaseType={caseType}
 							knownInputs={searchInputDecls(config.searchInputs)}
 							dependencyReview={dependencyReview}
@@ -1466,6 +1470,7 @@ function useController(
 							returnFromSearchCondition({ type: "search-panel" });
 						}}
 						caseTypes={caseTypes}
+						userProperties={userProperties}
 						currentCaseType={caseType}
 						focusRequest={searchButtonConditionFocusRequest}
 					/>
@@ -1506,6 +1511,7 @@ function useController(
 		searchConfig,
 		effectiveSearchConfig,
 		caseTypes,
+		userProperties,
 		caseType: caseType ?? "",
 		ct,
 		sel,
@@ -1633,18 +1639,49 @@ export function CaseListWorkspaceCanvas() {
 	const navigate = useNavigate();
 	const appId = useAppId() ?? "";
 	const compactHeight = useIsBreakpoint("max", 360, "height");
-	/* Bridge each tab body's scroll across a module unmount/remount; same-module
-	 * tab switches keep their scroll via the Activity boundaries below. */
+	/* Bridge each tab body's scroll across Activity hide/reveal and module
+	 * unmount/remount. The shared controller above this canvas owns the durable
+	 * authoring state. */
 	const scrollPositions = useRef(new Map<string, number>());
+	const frozenScrollKeysRef = useRef(new Set<string>());
 	const moduleUuid = ws?.moduleUuid;
 	const scrollBodyRefs = useMemo(() => {
 		const bind =
 			(kind: CaseListWorkspaceTab) => (node: HTMLDivElement | null) => {
 				if (node === null || moduleUuid === undefined) return;
 				const key = `${moduleUuid}:${kind}`;
-				node.scrollTop = scrollPositions.current.get(key) ?? 0;
+				const remembered = scrollPositions.current.get(key);
+				let frame: number | null = null;
+				if (remembered !== undefined) {
+					frozenScrollKeysRef.current.add(key);
+					/*
+					 * Activity can reconnect the ref while its host is still
+					 * display:none. Wait for the body to participate in layout,
+					 * then reassert the exact authored offset across the reveal's
+					 * settled frame. First mounts have no saved value and are
+					 * deliberately left alone.
+					 */
+					node.scrollTop = remembered;
+					const restoreAfterReveal = () => {
+						if (!node.isConnected) {
+							frame = null;
+							return;
+						}
+						if (getComputedStyle(node).display === "none") {
+							frame = requestAnimationFrame(restoreAfterReveal);
+							return;
+						}
+						node.scrollTop = remembered;
+						frame = requestAnimationFrame(() => {
+							node.scrollTop = remembered;
+							frozenScrollKeysRef.current.delete(key);
+							frame = null;
+						});
+					};
+					frame = requestAnimationFrame(restoreAfterReveal);
+				}
 				return () => {
-					scrollPositions.current.set(key, node.scrollTop);
+					if (frame !== null) cancelAnimationFrame(frame);
 				};
 			};
 		return {
@@ -1656,10 +1693,71 @@ export function CaseListWorkspaceCanvas() {
 	const rememberScroll = useCallback(
 		(kind: CaseListWorkspaceTab, scrollTop: number) => {
 			if (moduleUuid === undefined) return;
-			scrollPositions.current.set(`${moduleUuid}:${kind}`, scrollTop);
+			const key = `${moduleUuid}:${kind}`;
+			if (frozenScrollKeysRef.current.has(key)) return;
+			scrollPositions.current.set(key, scrollTop);
 		},
 		[moduleUuid],
 	);
+	const captureScroll = useCallback(
+		(kind: CaseListWorkspaceTab) => {
+			if (moduleUuid === undefined) return;
+			const node = document.querySelector<HTMLElement>(
+				`[data-case-workspace-scroll-body="${kind}"]`,
+			);
+			if (node !== null) {
+				const key = `${moduleUuid}:${kind}`;
+				scrollPositions.current.set(key, node.scrollTop);
+				/*
+				 * Activity can emit delayed clamp/reveal scrolls after more than
+				 * one subsequent tab transition. Freeze this exact module/tab
+				 * snapshot until that tab has visibly restored it.
+				 */
+				frozenScrollKeysRef.current.add(key);
+			}
+		},
+		[moduleUuid],
+	);
+	const visibleTab = ws?.tab;
+	/*
+	 * Activity intentionally keeps each workbench mounted and may therefore
+	 * preserve its ref across a hide/reveal. The ref bridge alone cannot observe
+	 * that transition, so the URL-owned tab change performs the same
+	 * layout-ready correction explicitly.
+	 */
+	useLayoutEffect(() => {
+		if (moduleUuid === undefined || visibleTab === undefined) return;
+		const remembered = scrollPositions.current.get(
+			`${moduleUuid}:${visibleTab}`,
+		);
+		if (remembered === undefined) return;
+		const key = `${moduleUuid}:${visibleTab}`;
+		frozenScrollKeysRef.current.add(key);
+		let frame: number | null = null;
+		const restoreAfterReveal = () => {
+			const node = document.querySelector<HTMLElement>(
+				`[data-case-workspace-scroll-body="${visibleTab}"]`,
+			);
+			if (node === null || !node.isConnected) {
+				frame = null;
+				return;
+			}
+			if (getComputedStyle(node).display === "none") {
+				frame = requestAnimationFrame(restoreAfterReveal);
+				return;
+			}
+			node.scrollTop = remembered;
+			frame = requestAnimationFrame(() => {
+				node.scrollTop = remembered;
+				frozenScrollKeysRef.current.delete(key);
+				frame = null;
+			});
+		};
+		frame = requestAnimationFrame(restoreAfterReveal);
+		return () => {
+			if (frame !== null) cancelAnimationFrame(frame);
+		};
+	}, [moduleUuid, visibleTab]);
 
 	// Guard the deletion-in-flight window: a peer cleared the case type on the
 	// module this URL points at (dropping caseListConfig with it), before
@@ -1681,6 +1779,7 @@ export function CaseListWorkspaceCanvas() {
 		searchConfig,
 		effectiveSearchConfig,
 		caseTypes,
+		userProperties,
 		caseType,
 		ct,
 		sel,
@@ -1737,16 +1836,24 @@ export function CaseListWorkspaceCanvas() {
 				onSelectTab={(next) => {
 					/* Tabs are no-ops when already active. */
 					if (next === tab) return;
+					/*
+					 * Capture in the click boundary, before React tears down the
+					 * outgoing tab. Cleanup-time reads happen after descendant
+					 * effects and Chromium can already be one line away from the
+					 * author's visible position.
+					 */
+					captureScroll(tab);
 					if (next === "search") navigate.openSearchConfig(ws.moduleUuid);
 					else if (next === "list") navigate.openCaseList(ws.moduleUuid);
 					else navigate.openDetailConfig(ws.moduleUuid);
 				}}
 			/>
 
-			{/* Each tab keeps its own body scroller mounted. The strip above is a
-			 * fixed flex sibling, so it cannot drift before "sticking" and each
-			 * canvas naturally remembers its own scroll position on return. Do not
-			 * use data-preview-scroll-container here: that selector belongs to the
+			{/* Each tab keeps its own body mounted through Activity. The explicit
+			 * snapshot/restore bridge corrects Chromium's reveal-time reclamp
+			 * without sacrificing the workbench's local state. The strip is a
+			 * fixed flex sibling, so it cannot drift before "sticking". Do not use
+			 * data-preview-scroll-container here: that selector belongs to the
 			 * builder's form flipbook contract. */}
 			<div className="relative min-h-0 flex-1 overflow-hidden">
 				<Activity mode={tab === "search" ? "visible" : "hidden"}>
@@ -1791,6 +1898,7 @@ export function CaseListWorkspaceCanvas() {
 							config={config}
 							caseType={ct}
 							caseTypes={caseTypes}
+							userProperties={userProperties}
 							brokenColumns={brokenColumns}
 							selection={sel}
 							onSelect={setSel}
@@ -1862,6 +1970,7 @@ interface ResolveInspectorArgs {
 	readonly config: CaseListConfig;
 	readonly searchConfig: CaseSearchConfig | undefined;
 	readonly caseTypes: ReturnType<typeof useEffectiveCaseTypes>;
+	readonly userProperties: ReturnType<typeof useUserProperties>;
 	readonly caseType: string;
 	readonly onSearchConfigChange: (next: CaseSearchConfig) => void;
 	readonly replaceColumn: (uuid: string, next: Column) => void;
@@ -1936,6 +2045,7 @@ function resolveInspector(args: ResolveInspectorArgs): {
 							}
 							listVisibleCount={projection.listVisible.length}
 							caseTypes={args.caseTypes}
+							userProperties={args.userProperties}
 							currentCaseType={args.caseType}
 							repairMessages={sel.reveal?.messages}
 							tileOn={args.tileOn}
@@ -1973,6 +2083,7 @@ function resolveInspector(args: ResolveInspectorArgs): {
 						index={index}
 						siblings={sortedInputs}
 						caseTypes={args.caseTypes}
+						userProperties={args.userProperties}
 						currentCaseType={args.caseType}
 						onChange={(next) => args.replaceInput(input.uuid, next)}
 						onEditCondition={() => args.onEditInputCondition(input.uuid)}
@@ -2057,6 +2168,7 @@ function ColumnInspectorBody({
 	visibleCount,
 	listVisibleCount,
 	caseTypes,
+	userProperties,
 	currentCaseType,
 	repairMessages,
 	tileOn,
@@ -2076,6 +2188,7 @@ function ColumnInspectorBody({
 	readonly visibleCount: number;
 	readonly listVisibleCount: number;
 	readonly caseTypes: ReturnType<typeof useEffectiveCaseTypes>;
+	readonly userProperties: ReturnType<typeof useUserProperties>;
 	readonly currentCaseType: string;
 	/** Defined (including an empty array) while this off-screen definition is
 	 * being repaired in response to an Add information request. */
@@ -2138,6 +2251,7 @@ function ColumnInspectorBody({
 				value={column}
 				onChange={onChange}
 				caseTypes={caseTypes}
+				userProperties={userProperties}
 				currentCaseType={currentCaseType}
 			/>
 			{/* Not gated on `repairing`: a refused reveal is often a PLACEMENT
@@ -2224,6 +2338,7 @@ function SearchInputInspectorBody({
 	index,
 	siblings,
 	caseTypes,
+	userProperties,
 	currentCaseType,
 	onChange,
 	onEditCondition,
@@ -2243,6 +2358,7 @@ function SearchInputInspectorBody({
 	readonly index: number;
 	readonly siblings: readonly SearchInputDef[];
 	readonly caseTypes: ReturnType<typeof useEffectiveCaseTypes>;
+	readonly userProperties: ReturnType<typeof useUserProperties>;
 	readonly currentCaseType: string;
 	readonly onChange: (next: SearchInputDef) => void;
 	readonly onEditCondition: () => void;
@@ -2328,6 +2444,7 @@ function SearchInputInspectorBody({
 				index={index}
 				siblings={siblings}
 				caseTypes={caseTypes}
+				userProperties={userProperties}
 				currentCaseType={currentCaseType}
 				onChange={onChange}
 				onEditCondition={onEditCondition}

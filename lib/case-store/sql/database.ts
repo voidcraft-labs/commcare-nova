@@ -38,7 +38,12 @@
 // 'key'`, `properties->>'key' IS NULL`, `= ''`).
 
 import type { ColumnType, JSONColumnType } from "kysely";
-import type { LookupRowsTable } from "@/lib/db/pg";
+import type {
+	AppsTable,
+	FormAttachmentsTable,
+	FormSubmissionIntentsTable,
+	LookupRowsTable,
+} from "@/lib/db/pg";
 
 // Standard recursive JSON-value union. Read-side shape of every
 // JSONB column; the dialect's serializer turns this tree into a
@@ -301,9 +306,12 @@ export interface ParkedCaseValuesTable {
  * writes these rows.
  */
 export interface Database {
+	apps: AppsTable;
 	cases: CasesTable;
 	case_type_schemas: CaseTypeSchemasTable;
 	case_indices: CaseIndicesTable;
 	parked_case_values: ParkedCaseValuesTable;
 	lookup_rows: LookupRowsTable;
+	form_attachments: FormAttachmentsTable;
+	form_submission_intents: FormSubmissionIntentsTable;
 }

@@ -16,7 +16,7 @@
 // relationships, and whole-envelope rollback across ordinary +
 // operation effects.
 
-import type { Kysely } from "kysely";
+import { type Kysely, sql } from "kysely";
 import { beforeEach, describe, expect, it } from "vitest";
 import { asUuid, type CaseOperation, type CaseType } from "@/lib/domain";
 import {
@@ -30,6 +30,7 @@ import {
 } from "@/lib/domain/predicate";
 import { buildSimpleBlueprint } from "../../__tests__/fixtures/simpleBlueprint";
 import {
+	CaptureSubmissionRejectedError,
 	CaseNotFoundError,
 	CasePropertiesValidationError,
 	SubmissionRejectedError,
@@ -40,8 +41,10 @@ import { setupPerTestDatabase } from "../../sql/__tests__/perTestDatabase";
 import type { Database } from "../../sql/database";
 import { buildCaseTypeMap } from "../../store";
 import type {
+	ApplySubmissionArgs,
 	CaseOperationProgram,
 	EnvelopeCaseOperation,
+	SubmissionReceiptClaim,
 } from "../../submission";
 import { PostgresCaseStore } from "../store";
 import { storageValueFromEvaluation } from "../submissionEnvelope";
@@ -114,13 +117,51 @@ const NARROW: CaseType = {
 
 const ALL_TYPES = [PATIENT, PATIENT_V2, VISIT, NARROW];
 const SCHEMAS = buildCaseTypeMap(buildSimpleBlueprint(ALL_TYPES, APP_ID));
+let receiptSequence = 0;
 
-function makeStore(projectId = PROJECT_A, actorUserId = ACTOR) {
+function makeStore(
+	projectId = PROJECT_A,
+	actorUserId = ACTOR,
+	ownerId = actorUserId,
+) {
 	return new PostgresCaseStore({
 		projectId,
 		actorUserId,
+		ownerId,
 		db: dbHandle.db as unknown as Kysely<Database>,
 		sampleGenerator: new HeuristicCaseGenerator(),
+	});
+}
+
+type TestSubmissionArgs = Omit<ApplySubmissionArgs, "submissionReceipt"> & {
+	readonly submissionReceipt?: SubmissionReceiptClaim;
+};
+
+function receiptFor(args: TestSubmissionArgs): SubmissionReceiptClaim {
+	if (args.captureIntent !== undefined) {
+		return {
+			entryKey: args.captureIntent.entryKey,
+			formUuid: args.captureIntent.formUuid,
+			expectedAppMutationSeq: args.captureIntent.expectedAppMutationSeq,
+			requestDigest: args.captureIntent.requestDigest,
+		};
+	}
+	receiptSequence += 1;
+	return {
+		entryKey: `submission-envelope-entry-${receiptSequence}`,
+		formUuid: args.operations?.formUuid ?? FORM_UUID,
+		expectedAppMutationSeq: 0,
+		requestDigest: `submission-envelope-request-${receiptSequence}`,
+	};
+}
+
+function submit(
+	store: PostgresCaseStore,
+	args: TestSubmissionArgs,
+): Promise<Awaited<ReturnType<PostgresCaseStore["applySubmission"]>>> {
+	return store.applySubmission({
+		...args,
+		submissionReceipt: args.submissionReceipt ?? receiptFor(args),
 	});
 }
 
@@ -253,7 +294,7 @@ describe("authored create identity", () => {
 		const store = makeStore();
 		await seedSchemas(store);
 
-		await store.applySubmission({
+		await submit(store, {
 			appId: APP_ID,
 			ordinary: { kind: "none" },
 			operations: rootProgram(
@@ -292,7 +333,7 @@ describe("authored create identity", () => {
 		await seedSchemas(store);
 
 		const err = await rejection(
-			store.applySubmission({
+			submit(store, {
 				appId: APP_ID,
 				ordinary: { kind: "none" },
 				operations: rootProgram(
@@ -326,7 +367,7 @@ describe("authored create identity", () => {
 		await seedSchemas(store);
 
 		const err = await rejection(
-			store.applySubmission({
+			submit(store, {
 				appId: APP_ID,
 				ordinary: { kind: "none" },
 				operations: rootProgram(
@@ -361,8 +402,8 @@ describe("authored create identity", () => {
 	it("merges a duplicate authored id onto the existing row (create-of-existing)", async () => {
 		const store = makeStore();
 		await seedSchemas(store);
-		const submit = (name: string, notes: string) =>
-			store.applySubmission({
+		const submitExisting = (name: string, notes: string) =>
+			submit(store, {
 				appId: APP_ID,
 				ordinary: { kind: "none" },
 				operations: rootProgram(
@@ -382,8 +423,8 @@ describe("authored create identity", () => {
 				),
 			});
 
-		await submit("First", "started");
-		await submit("Second", "finished");
+		await submitExisting("First", "started");
+		await submitExisting("Second", "finished");
 
 		// One row, the retry's facets applied over it — the same merge
 		// Core and HQ perform for a create naming a known id.
@@ -400,7 +441,7 @@ describe("authored create identity", () => {
 		await seedSessionPatient(store);
 		const authoredId = `${PINNED_VECTOR_PREFIX}url unsafe/&?id`;
 
-		await store.applySubmission({
+		await submit(store, {
 			appId: APP_ID,
 			ordinary: { kind: "none" },
 			operations: rootProgram(
@@ -422,7 +463,7 @@ describe("authored create identity", () => {
 		// A later submission updates, links, and closes the authored-id
 		// row through a runtime expression target — the opaque id is a
 		// first-class identity on every arm.
-		await store.applySubmission({
+		await submit(store, {
 			appId: APP_ID,
 			ordinary: { kind: "none" },
 			operations: rootProgram([
@@ -540,7 +581,7 @@ describe("whole-envelope atomicity", () => {
 		// Third operation's runtime target resolves nothing — the whole
 		// program must roll back: no created visit, no patient write.
 		const err = await rejection(
-			store.applySubmission({
+			submit(store, {
 				appId: APP_ID,
 				ordinary: { kind: "none" },
 				operations: program("no-such-case"),
@@ -565,7 +606,7 @@ describe("whole-envelope atomicity", () => {
 		await seedSessionPatient(store);
 
 		await expect(
-			store.applySubmission({
+			submit(store, {
 				appId: APP_ID,
 				ordinary: {
 					kind: "close",
@@ -619,7 +660,7 @@ describe("pre-submission snapshot", () => {
 		await seedSchemas(store);
 		await seedSessionPatient(store, { notes: "original" });
 
-		await store.applySubmission({
+		await submit(store, {
 			appId: APP_ID,
 			ordinary: { kind: "none" },
 			operations: rootProgram([
@@ -673,7 +714,7 @@ describe("blank writes", () => {
 		// key-absent, clearing the previous value.
 		await seedSessionPatient(store, { notes: "original", age: 30 });
 
-		await store.applySubmission({
+		await submit(store, {
 			appId: APP_ID,
 			ordinary: { kind: "none" },
 			operations: rootProgram([
@@ -701,7 +742,7 @@ describe("blank writes", () => {
 		const store = makeStore();
 		await seedSchemas(store);
 
-		await store.applySubmission({
+		await submit(store, {
 			appId: APP_ID,
 			ordinary: { kind: "none" },
 			operations: rootProgram(
@@ -737,7 +778,7 @@ describe("conditions", () => {
 		await seedSchemas(store);
 		const condition = eq(formField(FLAG_FIELD), literal("yes"));
 
-		const result = await store.applySubmission({
+		const result = await submit(store, {
 			appId: APP_ID,
 			ordinary: { kind: "none" },
 			operations: rootProgram(
@@ -791,7 +832,7 @@ describe("conditions", () => {
 		// key on a false-conditioned create must not reject the envelope
 		// — the allocation holds the failure and discards it with the
 		// skip.
-		const result = await store.applySubmission({
+		const result = await submit(store, {
 			appId: APP_ID,
 			ordinary: { kind: "none" },
 			operations: rootProgram(
@@ -830,7 +871,7 @@ describe("conditions", () => {
 		await seedSchemas(store);
 		const condition = eq(formField(FLAG_FIELD), literal("yes"));
 
-		const result = await store.applySubmission({
+		const result = await submit(store, {
 			appId: APP_ID,
 			ordinary: { kind: "none" },
 			operations: rootProgram(
@@ -878,7 +919,7 @@ describe("conditions", () => {
 		await seedSchemas(store);
 		await seedSessionPatient(store);
 
-		await store.applySubmission({
+		await submit(store, {
 			appId: APP_ID,
 			ordinary: { kind: "none" },
 			operations: rootProgram(
@@ -930,7 +971,7 @@ describe("expression target reauthorization", () => {
 
 		const storeA = makeStore();
 		const err = await rejection(
-			storeA.applySubmission({
+			submit(storeA, {
 				appId: APP_ID,
 				ordinary: { kind: "none" },
 				operations: rootProgram(
@@ -978,7 +1019,7 @@ describe("expression target reauthorization", () => {
 		});
 
 		const err = await rejection(
-			store.applySubmission({
+			submit(store, {
 				appId: APP_ID,
 				ordinary: { kind: "none" },
 				operations: rootProgram(
@@ -1025,7 +1066,7 @@ describe("expression target reauthorization", () => {
 		);
 
 		const err = await rejection(
-			store.applySubmission({
+			submit(store, {
 				appId: APP_ID,
 				ordinary: { kind: "none" },
 				operations: rootProgram(
@@ -1071,7 +1112,7 @@ describe("resolved sequence proof", () => {
 		await seedSessionPatient(store);
 
 		const err = await rejection(
-			store.applySubmission({
+			submit(store, {
 				appId: APP_ID,
 				ordinary: { kind: "none" },
 				operations: rootProgram([
@@ -1107,7 +1148,7 @@ describe("resolved sequence proof", () => {
 		await seedSessionPatient(store);
 
 		const err = await rejection(
-			store.applySubmission({
+			submit(store, {
 				appId: APP_ID,
 				ordinary: { kind: "none" },
 				operations: rootProgram([
@@ -1155,7 +1196,7 @@ describe("resolved sequence proof", () => {
 		// Core-vs-HQ divergence the resolved fold refuses. The authored
 		// key's type-stability arm fires first, on the retype itself.
 		const err = await rejection(
-			store.applySubmission({
+			submit(store, {
 				appId: APP_ID,
 				ordinary: { kind: "none" },
 				operations: {
@@ -1216,7 +1257,7 @@ describe("resolved sequence proof", () => {
 		// executes. Pins per-iteration binding wiring, iteration-correlated
 		// op-id resolution, and the iteration-major effect-record order
 		// (A@0, B@0, A@1, B@1).
-		const result = await store.applySubmission({
+		const result = await submit(store, {
 			appId: APP_ID,
 			ordinary: { kind: "none" },
 			operations: {
@@ -1304,7 +1345,7 @@ describe("resolved sequence proof", () => {
 		const store = makeStore();
 		await seedSchemas(store);
 
-		const result = await store.applySubmission({
+		const result = await submit(store, {
 			appId: APP_ID,
 			ordinary: { kind: "none" },
 			operations: {
@@ -1353,7 +1394,7 @@ describe("resolved sequence proof", () => {
 		await seedSessionPatient(store);
 
 		const err = await rejection(
-			store.applySubmission({
+			submit(store, {
 				appId: APP_ID,
 				ordinary: followupOrdinary({ notes: "patched" }),
 				operations: rootProgram([
@@ -1393,7 +1434,7 @@ describe("text facets", () => {
 		await seedSchemas(store);
 
 		const err = await rejection(
-			store.applySubmission({
+			submit(store, {
 				appId: APP_ID,
 				ordinary: { kind: "none" },
 				operations: rootProgram(
@@ -1428,7 +1469,7 @@ describe("text facets", () => {
 		await seedSessionPatient(store);
 
 		const err = await rejection(
-			store.applySubmission({
+			submit(store, {
 				appId: APP_ID,
 				ordinary: { kind: "none" },
 				operations: rootProgram([
@@ -1457,7 +1498,7 @@ describe("text facets", () => {
 		await seedSchemas(store);
 		await seedSessionPatient(store);
 
-		await store.applySubmission({
+		await submit(store, {
 			appId: APP_ID,
 			ordinary: { kind: "none" },
 			operations: rootProgram([
@@ -1487,7 +1528,7 @@ describe("owner stamping", () => {
 		const store = makeStore();
 		await seedSchemas(store);
 
-		await store.applySubmission({
+		await submit(store, {
 			appId: APP_ID,
 			ordinary: { kind: "none" },
 			operations: rootProgram(
@@ -1524,12 +1565,13 @@ describe("owner stamping", () => {
 		expect(patients[0]?.owner_id).toBe("-");
 	});
 
-	it("writes an explicit update owner and resolves acting-user in write values", async () => {
-		const store = makeStore();
+	it("writes an explicit update owner and resolves acting-user as the worker, not the authorizing member", async () => {
+		const workerId = "persona-asha";
+		const store = makeStore(PROJECT_A, ACTOR, workerId);
 		await seedSchemas(store);
 		await seedSessionPatient(store);
 
-		await store.applySubmission({
+		await submit(store, {
 			appId: APP_ID,
 			ordinary: { kind: "none" },
 			operations: rootProgram([
@@ -1548,7 +1590,7 @@ describe("owner stamping", () => {
 
 		const row = await patientRow(store, SESSION_CASE_ID);
 		expect(row?.owner_id).toBe("supervisor-9");
-		expect(row?.properties).toMatchObject({ notes: ACTOR });
+		expect(row?.properties).toMatchObject({ notes: workerId });
 	});
 });
 
@@ -1562,7 +1604,7 @@ describe("retype", () => {
 		await seedSchemas(store);
 		await seedSessionPatient(store, { notes: "kept", age: 30 });
 
-		await store.applySubmission({
+		await submit(store, {
 			appId: APP_ID,
 			ordinary: { kind: "none" },
 			operations: rootProgram([
@@ -1593,7 +1635,7 @@ describe("retype", () => {
 		// validator resolves a retyping operation's writes against the
 		// destination, and the wire emits the write and the `case_type`
 		// change in one <update> block the server applies together.
-		await store.applySubmission({
+		await submit(store, {
 			appId: APP_ID,
 			ordinary: { kind: "none" },
 			operations: rootProgram([
@@ -1630,7 +1672,7 @@ describe("retype", () => {
 		await seedSessionPatient(store, { notes: "kept", age: 30 });
 
 		const err = await rejection(
-			store.applySubmission({
+			submit(store, {
 				appId: APP_ID,
 				ordinary: { kind: "none" },
 				operations: rootProgram([
@@ -1666,7 +1708,7 @@ describe("links", () => {
 		await seedSchemas(store);
 		await seedSessionPatient(store);
 
-		const first = await store.applySubmission({
+		const first = await submit(store, {
 			appId: APP_ID,
 			ordinary: { kind: "none" },
 			operations: rootProgram([
@@ -1710,7 +1752,7 @@ describe("links", () => {
 
 		// Null target removes the identifier's edge — the wire's
 		// empty-index-value unlink.
-		await store.applySubmission({
+		await submit(store, {
 			appId: APP_ID,
 			ordinary: { kind: "none" },
 			operations: rootProgram([
@@ -1760,7 +1802,7 @@ describe("links", () => {
 			},
 		});
 		await new Promise((resolve) => setTimeout(resolve, 10));
-		await store.applySubmission({
+		await submit(store, {
 			appId: APP_ID,
 			ordinary: { kind: "none" },
 			operations: rootProgram([
@@ -1807,7 +1849,7 @@ describe("links", () => {
 			},
 		});
 
-		await store.applySubmission({
+		await submit(store, {
 			appId: APP_ID,
 			ordinary: { kind: "none" },
 			operations: rootProgram([
@@ -1841,7 +1883,7 @@ describe("links", () => {
 			household.caseId,
 		);
 
-		await store.applySubmission({
+		await submit(store, {
 			appId: APP_ID,
 			ordinary: { kind: "none" },
 			operations: rootProgram([
@@ -1879,7 +1921,7 @@ describe("multi-select writes", () => {
 		await seedSchemas(store);
 		await seedSessionPatient(store);
 
-		await store.applySubmission({
+		await submit(store, {
 			appId: APP_ID,
 			ordinary: { kind: "none" },
 			operations: rootProgram(
@@ -1915,7 +1957,7 @@ describe("combined submission", () => {
 		await seedSchemas(store);
 		await seedSessionPatient(store);
 
-		const result = await store.applySubmission({
+		const result = await submit(store, {
 			appId: APP_ID,
 			ordinary: followupOrdinary({ notes: "from-form" }),
 			operations: rootProgram([
@@ -1945,7 +1987,7 @@ describe("combined submission", () => {
 		await seedSchemas(store);
 
 		await expect(
-			store.applySubmission({
+			submit(store, {
 				appId: APP_ID,
 				ordinary: { kind: "none" },
 				operations: rootProgram([
@@ -1961,6 +2003,515 @@ describe("combined submission", () => {
 				]),
 			}),
 		).rejects.toThrow(CaseNotFoundError);
+	});
+});
+
+// ---------------------------------------------------------------
+// Durable submission receipts
+// ---------------------------------------------------------------
+
+describe("durable text-only submission receipt", () => {
+	it("claims the first registration, replays it without reallocating cases, and rejects a changed digest", async () => {
+		const store = makeStore();
+		await seedSchemas(store);
+		const receipt: SubmissionReceiptClaim = {
+			entryKey: "text-registration-entry",
+			formUuid: FORM_UUID,
+			expectedAppMutationSeq: 0,
+			requestDigest: "text-registration-request",
+		};
+		const first = await submit(store, {
+			appId: APP_ID,
+			submissionReceipt: receipt,
+			ordinary: {
+				kind: "registration",
+				primary: {
+					caseType: "patient",
+					caseName: "First registration",
+					properties: { notes: "accepted" },
+				},
+				children: [],
+			},
+		});
+
+		const replay = await submit(store, {
+			appId: APP_ID,
+			submissionReceipt: receipt,
+			ordinary: {
+				kind: "registration",
+				primary: {
+					caseType: "patient",
+					caseName: "must not run",
+					properties: { notes: "must not run" },
+				},
+				children: [],
+			},
+		});
+		expect(replay).toEqual(first);
+		expect(first.primaryCaseId).toEqual(expect.any(String));
+		const patients = await store.query({
+			appId: APP_ID,
+			caseType: "patient",
+		});
+		expect(patients).toHaveLength(1);
+		expect(patients[0]).toMatchObject({
+			case_id: first.primaryCaseId,
+			case_name: "First registration",
+			properties: { notes: "accepted" },
+		});
+
+		const stored = await sql<{
+			app_mutation_seq: string;
+			result: unknown;
+		}>`
+			SELECT app_mutation_seq::text, result
+			FROM form_submission_intents
+			WHERE app_id = ${APP_ID}
+				AND project_id = ${PROJECT_A}
+				AND created_by = ${ACTOR}
+				AND entry_key = ${receipt.entryKey}
+		`.execute(dbHandle.db);
+		expect(stored.rows).toEqual([
+			{
+				app_mutation_seq: "0",
+				result: first,
+			},
+		]);
+
+		await expect(
+			submit(store, {
+				appId: APP_ID,
+				submissionReceipt: {
+					...receipt,
+					requestDigest: "changed-text-registration-request",
+				},
+				ordinary: {
+					kind: "registration",
+					primary: {
+						caseType: "patient",
+						caseName: "must not run",
+						properties: {},
+					},
+					children: [],
+				},
+			}),
+		).rejects.toBeInstanceOf(CaptureSubmissionRejectedError);
+		expect(
+			await store.query({ appId: APP_ID, caseType: "patient" }),
+		).toHaveLength(1);
+	});
+
+	it("serializes concurrent first requests and allocates one generated advanced create", async () => {
+		const store = makeStore();
+		await seedSchemas(store);
+		const receipt: SubmissionReceiptClaim = {
+			entryKey: "text-advanced-create-entry",
+			formUuid: FORM_UUID,
+			expectedAppMutationSeq: 0,
+			requestDigest: "text-advanced-create-request",
+		};
+		const args: TestSubmissionArgs = {
+			appId: APP_ID,
+			submissionReceipt: receipt,
+			ordinary: { kind: "none" },
+			operations: rootProgram(
+				[
+					envOp(
+						operation({
+							uuid: OP_A,
+							action: "create",
+							caseType: "visit",
+							target: { kind: "new" },
+							name: term(literal("Generated visit")),
+						}),
+					),
+				],
+				{ sessionCaseId: null },
+			),
+		};
+
+		const [first, concurrentRetry] = await Promise.all([
+			submit(store, args),
+			submit(store, args),
+		]);
+		expect(concurrentRetry).toEqual(first);
+		expect(first.operations).toHaveLength(1);
+		const createdCaseId = first.operations[0]?.caseId;
+		expect(createdCaseId).toEqual(expect.any(String));
+		const visits = await store.query({ appId: APP_ID, caseType: "visit" });
+		expect(visits).toHaveLength(1);
+		expect(visits[0]).toMatchObject({
+			case_id: createdCaseId,
+			case_name: "Generated visit",
+		});
+	});
+
+	it("rolls back an uncompleted receipt and every earlier case effect", async () => {
+		const store = makeStore();
+		await seedSchemas(store);
+		const receipt: SubmissionReceiptClaim = {
+			entryKey: "text-rollback-entry",
+			formUuid: FORM_UUID,
+			expectedAppMutationSeq: 0,
+			requestDigest: "text-rollback-request",
+		};
+		await expect(
+			submit(store, {
+				appId: APP_ID,
+				submissionReceipt: receipt,
+				ordinary: {
+					kind: "registration",
+					primary: {
+						caseType: "patient",
+						caseName: "must roll back",
+						properties: { notes: "must roll back" },
+					},
+					children: [
+						{
+							caseType: "visit",
+							caseName: "invalid child",
+							properties: { unknown: "reject" },
+						},
+					],
+				},
+			}),
+		).rejects.toBeInstanceOf(CasePropertiesValidationError);
+
+		expect(
+			await store.query({ appId: APP_ID, caseType: "patient" }),
+		).toHaveLength(0);
+		expect(
+			await store.query({ appId: APP_ID, caseType: "visit" }),
+		).toHaveLength(0);
+		const rows = await sql<{ count: string }>`
+			SELECT count(*)::text AS count
+			FROM form_submission_intents
+			WHERE app_id = ${APP_ID} AND entry_key = ${receipt.entryKey}
+		`.execute(dbHandle.db);
+		expect(rows.rows[0]?.count).toBe("0");
+	});
+});
+
+// ---------------------------------------------------------------
+// Atomic form-capture intent
+// ---------------------------------------------------------------
+
+async function seedPreparedCapture() {
+	const attachmentId = "55555555-5555-4555-8555-555555555555";
+	const entryKey = "77777777-7777-4777-8777-777777777777";
+	const fieldUuid = "88888888-8888-4888-8888-888888888888";
+	await sql`
+		INSERT INTO apps (
+			id, owner, project_id, app_name, app_name_lower
+		) VALUES (
+			${APP_ID}, ${ACTOR}, ${PROJECT_A}, 'Capture app', 'capture app'
+		)
+	`.execute(dbHandle.db);
+	await sql`
+		INSERT INTO form_attachments (
+			attachment_id,
+			attachment_name,
+			app_id,
+			project_id,
+			created_by,
+			entry_key,
+			field_uuid,
+			instance_path,
+			original_filename,
+			extension,
+			content_type,
+			size_bytes,
+			gcs_object_key,
+			object_generation,
+			object_checksum,
+			prepared_generation,
+			status,
+			expires_at
+		) VALUES (
+			${attachmentId},
+			${`${attachmentId}.png`},
+			${APP_ID},
+			${PROJECT_A},
+			${ACTOR},
+			${entryKey},
+			${fieldUuid},
+			'/data/photo',
+			'photo.png',
+			'.png',
+			'image/png',
+			3,
+			${`captures-staged/${PROJECT_A}/${attachmentId}.png`},
+			'generation-1',
+			'checksum-1',
+			'prepared-generation-1',
+			'prepared',
+			now() + interval '1 day'
+		)
+	`.execute(dbHandle.db);
+	return {
+		entryKey,
+		attachmentId,
+		fieldUuid,
+		intent: {
+			entryKey,
+			formUuid: FORM_UUID,
+			expectedAppMutationSeq: 0,
+			requestDigest: "capture-request-a",
+			attachments: [
+				{
+					attachmentName: `${attachmentId}.png`,
+					fieldUuid,
+					instancePath: "/data/photo",
+				},
+			],
+			allowedAttachments: [
+				{
+					fieldUuid,
+					instancePathTemplate: "/data/photo",
+					captureKind: "image" as const,
+					acceptedFormats: [
+						{ extension: ".jpg", contentType: "image/jpeg" },
+						{ extension: ".jpeg", contentType: "image/jpeg" },
+						{ extension: ".png", contentType: "image/png" },
+					],
+				},
+			],
+		},
+	};
+}
+
+describe("atomic form-capture intent", () => {
+	it("replays a nonempty accepted submission after current capture/form removal before case effects", async () => {
+		const store = makeStore();
+		const capture = await seedPreparedCapture();
+		await seedSchemas(store);
+		await seedSessionPatient(store);
+		const args = {
+			appId: APP_ID,
+			ordinary: followupOrdinary({ notes: "accepted" }),
+			submissionReceipt: {
+				entryKey: capture.intent.entryKey,
+				formUuid: capture.intent.formUuid,
+				expectedAppMutationSeq: capture.intent.expectedAppMutationSeq,
+				requestDigest: capture.intent.requestDigest,
+			},
+			captureIntent: capture.intent,
+		};
+
+		const first = await submit(store, args);
+		const replay = await submit(store, {
+			appId: APP_ID,
+			ordinary: followupOrdinary({ notes: "must not replay" }),
+			// Simulates a retry after the form or its final capture question was
+			// deleted: no current capture intent survives, only durable identity.
+			submissionReceipt: args.submissionReceipt,
+		});
+		expect(replay).toEqual(first);
+		expect(
+			(await patientRow(store, SESSION_CASE_ID))?.properties,
+		).toMatchObject({ notes: "accepted" });
+
+		const attachment = await sql<{
+			status: string;
+			object_generation: string | null;
+			prepared_generation: string | null;
+		}>`
+			SELECT status, object_generation, prepared_generation
+			FROM form_attachments
+			WHERE attachment_id = ${capture.attachmentId}
+		`.execute(dbHandle.db);
+		expect(attachment.rows[0]).toMatchObject({
+			status: "submitted",
+			object_generation: "prepared-generation-1",
+			prepared_generation: null,
+		});
+		const intents = await sql<{ count: string; result: unknown }>`
+			SELECT count(*) OVER ()::text AS count, result
+			FROM form_submission_intents
+			WHERE app_id = ${APP_ID} AND entry_key = ${capture.entryKey}
+		`.execute(dbHandle.db);
+		expect(intents.rows).toHaveLength(1);
+		expect(intents.rows[0]).toMatchObject({
+			count: "1",
+			result: first,
+		});
+
+		await expect(
+			submit(store, {
+				appId: APP_ID,
+				ordinary: followupOrdinary({ notes: "must not replay" }),
+				submissionReceipt: {
+					...args.submissionReceipt,
+					requestDigest: "capture-request-b",
+				},
+			}),
+		).rejects.toBeInstanceOf(CaptureSubmissionRejectedError);
+		expect(
+			(await patientRow(store, SESSION_CASE_ID))?.properties,
+		).toMatchObject({ notes: "accepted" });
+	});
+
+	it("replays an accepted submission after unrelated app mutations advance the fence", async () => {
+		const store = makeStore();
+		const capture = await seedPreparedCapture();
+		const first = await submit(store, {
+			appId: APP_ID,
+			ordinary: { kind: "none" },
+			captureIntent: capture.intent,
+		});
+		await sql`
+			UPDATE apps
+			SET mutation_seq = mutation_seq + 1
+			WHERE id = ${APP_ID}
+		`.execute(dbHandle.db);
+
+		await expect(
+			submit(store, {
+				appId: APP_ID,
+				ordinary: { kind: "none" },
+				captureIntent: {
+					...capture.intent,
+					expectedAppMutationSeq: 1,
+				},
+			}),
+		).resolves.toEqual(first);
+	});
+
+	it("refuses a confirmed image after the committed descriptor changes to audio", async () => {
+		const store = makeStore();
+		const capture = await seedPreparedCapture();
+
+		await expect(
+			submit(store, {
+				appId: APP_ID,
+				ordinary: { kind: "none" },
+				captureIntent: {
+					...capture.intent,
+					allowedAttachments: [
+						{
+							fieldUuid: capture.fieldUuid,
+							instancePathTemplate: "/data/photo",
+							captureKind: "audio",
+							acceptedFormats: [
+								{ extension: ".mp3", contentType: "audio/mpeg" },
+								{ extension: ".wav", contentType: "audio/wav" },
+							],
+						},
+					],
+				},
+			}),
+		).rejects.toBeInstanceOf(CaptureSubmissionRejectedError);
+
+		const row = await sql<{ status: string }>`
+			SELECT status
+			FROM form_attachments
+			WHERE attachment_id = ${capture.attachmentId}
+		`.execute(dbHandle.db);
+		expect(row.rows[0]?.status).toBe("prepared");
+	});
+
+	it("rolls the capture reservation and receipt back when the case envelope fails", async () => {
+		const store = makeStore();
+		const capture = await seedPreparedCapture();
+		await seedSchemas(store);
+
+		await expect(
+			submit(store, {
+				appId: APP_ID,
+				ordinary: followupOrdinary({ notes: "never lands" }),
+				captureIntent: capture.intent,
+			}),
+		).rejects.toBeInstanceOf(CaseNotFoundError);
+
+		const attachment = await sql<{ status: string }>`
+			SELECT status
+			FROM form_attachments
+			WHERE attachment_id = ${capture.attachmentId}
+		`.execute(dbHandle.db);
+		expect(attachment.rows[0]?.status).toBe("prepared");
+		const intent = await sql<{ count: string }>`
+			SELECT count(*)::text AS count
+			FROM form_submission_intents
+			WHERE app_id = ${APP_ID} AND entry_key = ${capture.entryKey}
+		`.execute(dbHandle.db);
+		expect(intent.rows[0]?.count).toBe("0");
+	});
+
+	it("rejects two staged rows forged into one concrete answer slot", async () => {
+		const store = makeStore();
+		const capture = await seedPreparedCapture();
+		const secondAttachmentId = "99999999-9999-4999-8999-999999999999";
+		await sql`
+			INSERT INTO form_attachments (
+				attachment_id,
+				attachment_name,
+				app_id,
+				project_id,
+				created_by,
+				entry_key,
+				field_uuid,
+				instance_path,
+				original_filename,
+				extension,
+				content_type,
+				size_bytes,
+				gcs_object_key,
+				object_generation,
+				object_checksum,
+				prepared_generation,
+				status,
+				expires_at
+			) VALUES (
+				${secondAttachmentId},
+				${`${secondAttachmentId}.png`},
+				${APP_ID},
+				${PROJECT_A},
+				${ACTOR},
+				${capture.entryKey},
+				${capture.fieldUuid},
+				'/data/photo',
+				'other.png',
+				'.png',
+				'image/png',
+				3,
+				${`captures-staged/${PROJECT_A}/${secondAttachmentId}.png`},
+				'generation-2',
+				'checksum-2',
+				'prepared-generation-2',
+				'prepared',
+				now() + interval '1 day'
+			)
+		`.execute(dbHandle.db);
+
+		await expect(
+			submit(store, {
+				appId: APP_ID,
+				ordinary: { kind: "none" },
+				captureIntent: {
+					...capture.intent,
+					requestDigest: "two-files-one-answer",
+					attachments: [
+						...capture.intent.attachments,
+						{
+							attachmentName: `${secondAttachmentId}.png`,
+							fieldUuid: capture.fieldUuid,
+							instancePath: "/data/photo",
+						},
+					],
+				},
+			}),
+		).rejects.toBeInstanceOf(CaptureSubmissionRejectedError);
+
+		const rows = await sql<{ status: string }>`
+			SELECT status
+			FROM form_attachments
+			WHERE entry_key = ${capture.entryKey}
+			ORDER BY attachment_id
+		`.execute(dbHandle.db);
+		expect(rows.rows.map((row) => row.status)).toEqual([
+			"prepared",
+			"prepared",
+		]);
 	});
 });
 

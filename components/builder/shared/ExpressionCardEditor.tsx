@@ -42,7 +42,7 @@
 "use client";
 import { useMemo } from "react";
 import { useValidityPropagator } from "@/components/builder/shared/useInnerValidityShadow";
-import type { CaseType } from "@/lib/domain";
+import type { CaseType, UserProperty } from "@/lib/domain";
 import {
 	ANY_CONSTRAINT,
 	acceptsType,
@@ -83,6 +83,8 @@ interface ExpressionCardEditorProps {
 	readonly currentCaseType: string;
 	/** Search inputs declared on the parent surface. */
 	readonly knownInputs?: readonly EditorSearchInputDecl[];
+	/** Current custom worker-information catalog for immutable user refs. */
+	readonly userProperties?: readonly UserProperty[];
 	/** Form answers this expression may read — already narrowed by the
 	 *  owning surface to the ones its slot admits. */
 	readonly formFields?: readonly EditorFormFieldDecl[];
@@ -131,6 +133,7 @@ export function ExpressionCardEditor({
 	caseTypes,
 	currentCaseType,
 	knownInputs = [],
+	userProperties,
 	formFields,
 	operationScope,
 	caseDataScope = "per-case",
@@ -147,10 +150,18 @@ export function ExpressionCardEditor({
 				caseTypes,
 				knownInputs,
 				currentCaseType,
+				userProperties,
 				formFields,
 				operationScope,
 			}),
-		[caseTypes, knownInputs, currentCaseType, formFields, operationScope],
+		[
+			caseTypes,
+			knownInputs,
+			currentCaseType,
+			userProperties,
+			formFields,
+			operationScope,
+		],
 	);
 
 	// Run the type checker on every value change (pure — running
@@ -190,6 +201,7 @@ export function ExpressionCardEditor({
 			caseTypes={caseTypes}
 			currentCaseType={currentCaseType}
 			knownInputs={knownInputs}
+			userProperties={userProperties}
 			formFields={formFields}
 			operationScope={operationScope}
 			caseDataScope={caseDataScope}
