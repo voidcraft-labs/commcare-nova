@@ -268,10 +268,9 @@ if [[ "$existing_capture_cleanup_user" != "$CAPTURE_CLEANUP_DB_USER" ]]; then
 		--instance="$INSTANCE" \
 		--type=CLOUD_IAM_SERVICE_ACCOUNT
 fi
-# Runtime must not inherit any custom database role. In particular, remove the
-# legacy Compute-default owner membership before the ownership bootstrap audits
-# and retires that role. `--database-roles` is intentionally omitted: Cloud SQL
-# interprets this as an empty replacement set.
+# Runtime and capture cleanup inherit no custom database role.
+# `--database-roles` is intentionally omitted: Cloud SQL interprets this as an
+# empty replacement set.
 run gcloud sql users assign-roles "$RUNTIME_DB_USER" \
 	--project="$PROJECT" \
 	--instance="$INSTANCE" \
@@ -300,5 +299,4 @@ run gcloud beta builds triggers update developer-connect "$TRIGGER_ID" \
 printf '%s\n' \
 	"Database bootstrap remains intentionally separate:" \
 	"  ${RUNTIME_DB_USER} and ${CAPTURE_CLEANUP_DB_USER} have no custom parent role; only migration inherits ${RUNTIME_DB_USER}." \
-	"  The checked-in bootstrap must transfer and retire the legacy database role before the first split-identity migration." \
-	"  Verify that prerequisite with the checked-in S02c runbook before merging."
+	"  Run the checked-in privileged bootstrap dry-run, inspect its catalog inventory, then apply it before ordinary migrations."

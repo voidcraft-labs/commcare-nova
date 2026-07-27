@@ -43,12 +43,15 @@ stripped transcript write-back.
 
 The running form's attachment lane fences the same transition at the form
 owner, not per mounted field: `FormScreen` synchronously installs
-`{ appId, scopeEpoch, accessPhase, canEdit }` for the current entry, and every
-queued upload/retarget/clear checks that generation before and after awaited
-work. A changed tuple aborts its network continuations but keeps the entry's
-stable slot, draft, diagnostic, and Submit blocker. Dirty signature ink is
-generation-tagged and re-encodes exactly once if the same entry regains editor
-authority; it is never silently discarded during an access refresh.
+`{ appId, entryKey, formUuid, projectId, actorUserId, ownerId, scopeEpoch,
+accessPhase, canEdit }` for the current entry, and every queued
+upload/retarget/clear carries the exact stable slot key and checks those live
+coordinates before and after awaited work. Missing authority is read-only, not
+an implicit test mode. A changed tuple aborts its network continuations but
+keeps the entry's stable slot, draft, diagnostic, and Submit blocker. Dirty
+signature ink is generation-tagged and re-encodes exactly once if the same
+entry regains editor authority; it is never silently discarded during an
+access refresh.
 
 ## Edit vs preview mode
 

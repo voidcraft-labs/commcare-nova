@@ -56,7 +56,7 @@ interface SignaturePadProps {
 	readonly instancePath: string;
 	/** Stable field + repeat-instance identity. Unlike `instancePath`, this
 	 * does not change when a surviving repeat row compacts. */
-	readonly slotKey?: string;
+	readonly slotKey: string;
 	readonly questionLabelId?: string;
 	readonly questionLabelledBy?: string;
 	readonly questionLabel?: string;
@@ -70,7 +70,7 @@ interface SignaturePadProps {
 	/** Project viewers can inspect the answer but cannot create capture data. */
 	readonly readOnly?: boolean;
 	/** Imperative current-session authority proof for stale event handlers. */
-	readonly hasWriteAuthority?: () => boolean;
+	readonly hasWriteAuthority: () => boolean;
 	readonly hasAnswer: boolean;
 	readonly needsAttention?: boolean;
 	/** A kind-change replacement has no Retry button; focus the pad itself. */
@@ -112,7 +112,6 @@ interface SignaturePadProps {
  * upload instead of ten.
  */
 const SIGNATURE_SETTLE_MS = 700;
-const ALLOW_SIGNATURE_WRITE = () => true;
 
 type Point = SignaturePoint;
 
@@ -186,7 +185,7 @@ export function SignaturePad({
 	queued = false,
 	interactionBlocked = false,
 	readOnly = false,
-	hasWriteAuthority = ALLOW_SIGNATURE_WRITE,
+	hasWriteAuthority,
 	hasAnswer,
 	needsAttention = false,
 	replacementRequired = false,
@@ -204,8 +203,7 @@ export function SignaturePad({
 	const instructionId = useId();
 	const clearActionId = useId();
 	const undoActionId = useId();
-	const fallbackSlotKeyRef = useRef(slotKey ?? instancePath);
-	const coordinationKey = slotKey ?? fallbackSlotKeyRef.current;
+	const coordinationKey = slotKey;
 	/** Completed strokes plus the one in progress, normalized to the canvas
 	 *  bounds. Retained so a resize can replay the whole signature without
 	 *  clipping coordinates captured at the previous width. */

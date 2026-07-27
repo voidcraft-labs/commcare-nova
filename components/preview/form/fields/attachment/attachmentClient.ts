@@ -40,6 +40,14 @@ export type AttachmentCommitResult = "committed" | "canceled" | "refused";
 
 export interface AttachmentEntryAuthoritySnapshot {
 	readonly appId: string | undefined;
+	/** The controller's exact live entry identity. A rotated controller makes
+	 * every task and destructive token from the prior entry stale immediately,
+	 * before React's passive teardown can retire that entry. */
+	readonly entryKey: string | undefined;
+	readonly formUuid: string | undefined;
+	readonly projectId: string | undefined;
+	readonly actorUserId: string | undefined;
+	readonly ownerId: string | undefined;
 	readonly scopeEpoch: number;
 	readonly accessPhase: AccessPhase;
 	readonly canEdit: boolean;
@@ -245,17 +253,6 @@ interface DetachedAttachmentCleanup {
 
 const detachedAttachmentCleanups = new Set<DetachedAttachmentCleanup>();
 
-function taskKey(args: {
-	readonly slotKey?: string;
-	readonly instancePath?: string;
-}): string {
-	const key = args.slotKey ?? args.instancePath;
-	if (key === undefined) {
-		throw new Error("An attachment task requires a stable slot key.");
-	}
-	return key;
-}
-
 function slotsFor(entryKey: string): Map<string, AttachmentSlot> {
 	let entry = attachmentSlots.get(entryKey);
 	if (entry === undefined) {
@@ -277,6 +274,11 @@ function sameAttachmentEntryAuthority(
 ): boolean {
 	return (
 		left.appId === right.appId &&
+		left.entryKey === right.entryKey &&
+		left.formUuid === right.formUuid &&
+		left.projectId === right.projectId &&
+		left.actorUserId === right.actorUserId &&
+		left.ownerId === right.ownerId &&
 		left.scopeEpoch === right.scopeEpoch &&
 		left.accessPhase === right.accessPhase &&
 		left.canEdit === right.canEdit
@@ -285,9 +287,15 @@ function sameAttachmentEntryAuthority(
 
 function activeAttachmentEntryAuthority(
 	snapshot: AttachmentEntryAuthoritySnapshot,
+	entryKey: string,
 ): boolean {
 	return (
 		snapshot.appId !== undefined &&
+		snapshot.entryKey === entryKey &&
+		snapshot.formUuid !== undefined &&
+		snapshot.projectId !== undefined &&
+		snapshot.actorUserId !== undefined &&
+		snapshot.ownerId !== undefined &&
 		snapshot.accessPhase === "authorized" &&
 		snapshot.canEdit
 	);
@@ -364,7 +372,7 @@ export function setAttachmentEntryAuthority(args: {
 	// busy after its request was aborted.
 	if (
 		existing !== undefined ||
-		!activeAttachmentEntryAuthority(args.snapshot)
+		!activeAttachmentEntryAuthority(args.snapshot, args.entryKey)
 	) {
 		for (const [slotKey, slot] of slots ?? []) {
 			suspendAttachmentRetargetMismatch(slot);
@@ -387,7 +395,7 @@ export function setAttachmentEntryAuthority(args: {
 		}
 	}
 	if (
-		activeAttachmentEntryAuthority(args.snapshot) &&
+		activeAttachmentEntryAuthority(args.snapshot, args.entryKey) &&
 		sameAttachmentEntryAuthority(args.snapshot, args.readCurrent())
 	) {
 		// A retarget's request generation was fenced by the access transition,
@@ -419,7 +427,7 @@ function attachmentEntryAuthorityToken(
 	const authority = entryAuthorities.get(entryKey);
 	if (authority === undefined) return undefined;
 	if (
-		!activeAttachmentEntryAuthority(authority.snapshot) ||
+		!activeAttachmentEntryAuthority(authority.snapshot, entryKey) ||
 		!sameAttachmentEntryAuthority(authority.snapshot, authority.readCurrent())
 	) {
 		return undefined;
@@ -436,16 +444,14 @@ function attachmentEntryAuthorityIsCurrent(
 	entryKey: string,
 	token: AttachmentEntryWriteAuthorityToken | undefined,
 ): boolean {
-	// Standalone field/coordinator tests have no form owner. Production form
-	// entries always register an authority tuple in `FormScreen`.
-	if (token === undefined) return !entryAuthorities.has(entryKey);
+	if (token === undefined) return false;
 	const authority = entryAuthorities.get(entryKey);
 	const tokenState = entryWriteAuthorityTokens.get(token);
 	return (
 		authority !== undefined &&
 		tokenState?.entryKey === entryKey &&
 		authority.generation === tokenState.generation &&
-		activeAttachmentEntryAuthority(authority.snapshot) &&
+		activeAttachmentEntryAuthority(authority.snapshot, entryKey) &&
 		sameAttachmentEntryAuthority(authority.snapshot, authority.readCurrent())
 	);
 }
@@ -475,10 +481,10 @@ export function captureAttachmentEntryWriteAuthority(
 /** Run one synchronous destructive action only while the captured authority
  * generation is still exact-current.
  *
- * Unlike the legacy internal task guard, a missing token always fails closed.
- * This is the imperative boundary for stale React handlers: access loss, a
- * viewer downgrade, or loss + restoration rotates the coordinator generation
- * before this callback can mutate the form entry. */
+ * A missing token always fails closed. This is the imperative boundary for
+ * stale React handlers: access loss, a viewer downgrade, or loss + restoration
+ * rotates the coordinator generation before this callback can mutate the form
+ * entry. */
 export function runWithAttachmentEntryWriteAuthority(args: {
 	readonly entryKey: string;
 	readonly token: AttachmentEntryWriteAuthorityToken | undefined;
@@ -767,7 +773,7 @@ function enqueueSlotMaintenance<T>(
 	work: (signal: AbortSignal) => Promise<T>,
 ): Promise<T> {
 	const authorityToken = attachmentEntryAuthorityToken(entryKey);
-	if (authorityToken === undefined && entryAuthorities.has(entryKey)) {
+	if (authorityToken === undefined) {
 		return Promise.reject(authorityAbort());
 	}
 	const queue = queueFor(entryKey);
@@ -818,10 +824,9 @@ function enqueue<T>(entryKey: string, work: () => Promise<T>): Promise<T> {
  */
 export function runAttachmentTask<T>(args: {
 	entryKey: string;
-	/** Stable client identity. Concrete paths are accepted only as a
-	 * compatibility fallback for non-repeat callers. */
-	slotKey?: string;
-	instancePath?: string;
+	/** Stable client identity. Concrete indexed paths are projections and are
+	 * never accepted as an alternate task identity. */
+	slotKey: string;
 	/**
 	 * The real capture target when the private queue key is intentionally
 	 * synthetic (currently destructive Clear). Omit for ordinary slot work.
@@ -830,11 +835,11 @@ export function runAttachmentTask<T>(args: {
 	task: (context: AttachmentTaskContext) => Promise<T>;
 }): Promise<T> {
 	const authorityToken = attachmentEntryAuthorityToken(args.entryKey);
-	if (authorityToken === undefined && entryAuthorities.has(args.entryKey)) {
+	if (authorityToken === undefined) {
 		return Promise.reject(authorityAbort());
 	}
 	const queue = queueFor(args.entryKey);
-	const key = taskKey(args);
+	const key = args.slotKey;
 	const previous = queue.paths.get(key);
 	previous?.controller.abort();
 	// A worker's new slot intent also supersedes queued/running path
@@ -845,17 +850,14 @@ export function runAttachmentTask<T>(args: {
 	const generation = nextAttachmentSlotGeneration(args.entryKey, key);
 	const registeredSlot = attachmentSlots
 		.get(args.entryKey)
-		?.get(args.target?.slotKey ?? args.slotKey ?? key);
+		?.get(args.target?.slotKey ?? key);
 	const current: PathTask = {
 		controller: new AbortController(),
 		generation,
 		target: {
-			slotKey: args.target?.slotKey ?? args.slotKey ?? key,
+			slotKey: args.target?.slotKey ?? key,
 			instancePath:
-				args.target?.instancePath ??
-				registeredSlot?.desiredInstancePath ??
-				args.instancePath ??
-				key,
+				args.target?.instancePath ?? registeredSlot?.desiredInstancePath ?? key,
 			...((args.target?.fieldUuid ?? registeredSlot?.fieldUuid)
 				? {
 						fieldUuid: args.target?.fieldUuid ?? registeredSlot?.fieldUuid,
@@ -1285,7 +1287,7 @@ export function getAttachmentSlotPath(args: {
 export function rememberOwnedStagedAttachment(args: {
 	appId: string;
 	entryKey: string;
-	slotKey?: string;
+	slotKey: string;
 	instancePath: string;
 	attachment: StagedAttachment;
 	/**
@@ -1295,7 +1297,7 @@ export function rememberOwnedStagedAttachment(args: {
 	 */
 	maximumDraftGeneration?: number;
 }): void {
-	const key = taskKey(args);
+	const key = args.slotKey;
 	const slots = slotsFor(args.entryKey);
 	const current = slots.get(key);
 	const newerDraft =
@@ -1346,24 +1348,22 @@ export function rememberOwnedStagedAttachment(args: {
 export function getOwnedStagedAttachment(args: {
 	appId: string;
 	entryKey: string;
-	slotKey?: string;
-	instancePath?: string;
+	slotKey: string;
 }): StagedAttachment | undefined {
-	const slot = attachmentSlots.get(args.entryKey)?.get(taskKey(args));
+	const slot = attachmentSlots.get(args.entryKey)?.get(args.slotKey);
 	return slot?.appId === args.appId ? slot.owned?.attachment : undefined;
 }
 
 export function forgetOwnedStagedAttachment(args: {
 	appId: string;
 	entryKey: string;
-	slotKey?: string;
-	instancePath?: string;
+	slotKey: string;
 }): StagedAttachment | undefined {
-	const slot = attachmentSlots.get(args.entryKey)?.get(taskKey(args));
+	const slot = attachmentSlots.get(args.entryKey)?.get(args.slotKey);
 	if (slot?.appId !== args.appId) return undefined;
 	const attachment = slot.owned?.attachment;
 	slot.owned = undefined;
-	clearSlotIssue(args.entryKey, taskKey(args), slot);
+	clearSlotIssue(args.entryKey, args.slotKey, slot);
 	return attachment;
 }
 
@@ -2176,9 +2176,7 @@ async function fetchWithDeadline(
 		// caller's Cancel signal) attached until the peer's success or error
 		// body has actually ended. This also prevents an ignored response body
 		// from retaining a transport outside the entry coordinator.
-		if (typeof response.arrayBuffer === "function") {
-			await response.arrayBuffer();
-		}
+		await response.arrayBuffer();
 		return response;
 	}, externalSignal);
 }
@@ -2359,38 +2357,26 @@ export async function retargetAttachment(args: {
 			},
 		);
 		if (!response.ok) {
-			const detail =
-				typeof response.json === "function"
-					? await response
-							.json()
-							.then((body: { error?: unknown }) =>
-								typeof body.error === "string" ? body.error : undefined,
-							)
-							.catch(() => undefined)
-					: undefined;
+			const detail = await response
+				.json()
+				.then((body: { error?: unknown }) =>
+					typeof body.error === "string" ? body.error : undefined,
+				)
+				.catch(() => undefined);
 			throw new AttachmentRejected(
 				detail ??
 					"This attachment couldn't follow its repeat row. Attach it again.",
 			);
 		}
-		if (typeof response.json === "function") {
-			const body = (await response.json()) as { instancePath?: unknown };
-			if (
-				typeof body.instancePath !== "string" ||
-				body.instancePath.length === 0
-			) {
-				throw new AttachmentRejected(
-					"The attachment move returned an invalid path. Retry now.",
-				);
-			}
-			return body.instancePath;
+		const body = (await response.json()) as { instancePath?: unknown };
+		if (
+			typeof body.instancePath !== "string" ||
+			body.instancePath.length === 0
+		) {
+			throw new AttachmentRejected(
+				"The attachment move returned an invalid path. Retry now.",
+			);
 		}
-		// Lightweight focused mocks predate the route's reconciliation payload.
-		// A real browser `Response` always has `json`; preserving this fallback
-		// keeps those transport/deadline tests scoped to their intended contract.
-		if (typeof response.arrayBuffer === "function") {
-			await response.arrayBuffer();
-		}
-		return args.instancePath;
+		return body.instancePath;
 	}, args.signal);
 }

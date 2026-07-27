@@ -17,6 +17,7 @@ import {
 	rememberOwnedStagedAttachment,
 	rememberSignatureDraft,
 	runAttachmentTask,
+	setAttachmentEntryAuthority,
 } from "../attachmentClient";
 
 const APP_ID = "test-app";
@@ -65,6 +66,26 @@ function loadedController(doc: PersistableDoc) {
 	if (entryKey === undefined) {
 		throw new Error("The activated form did not mint an attachment entry key.");
 	}
+	const snapshot = {
+		appId: APP_ID,
+		entryKey,
+		formUuid: FORM_UUID,
+		projectId: "project-attachment-engine-test",
+		actorUserId: "actor-attachment-engine-test",
+		ownerId: "actor-attachment-engine-test",
+		scopeEpoch: 1,
+		accessPhase: "authorized" as const,
+		canEdit: true,
+	};
+	setAttachmentEntryAuthority({
+		entryKey,
+		snapshot,
+		readCurrent: () => ({
+			...snapshot,
+			entryKey: controller.entryKey,
+			formUuid: controller.formUuid,
+		}),
+	});
 	return { store, controller, entryKey };
 }
 

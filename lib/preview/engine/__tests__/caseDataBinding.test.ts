@@ -104,6 +104,7 @@ import {
 } from "../caseDataBindingClient";
 import {
 	buildSubmissionOperationProgram,
+	buildSubmissionReceiptIdentity,
 	readCaseData,
 	readCases,
 	readFilterPreview,
@@ -113,6 +114,7 @@ import {
 	submissionEnvelopeArgs,
 } from "../caseDataBindingHelpers";
 import type { SubmissionMutation } from "../caseDataBindingTypes";
+import { previewAsMe } from "../identity";
 import type { SearchInputValues } from "../runtimeBindings";
 
 // ---------------------------------------------------------------
@@ -129,11 +131,9 @@ import type { SearchInputValues } from "../runtimeBindings";
 vi.mock("@/lib/auth-utils", () => ({
 	getSession: vi.fn(),
 }));
-const { prepareCaptureSubmissionBytesMock, readCaptureSubmissionReceiptMock } =
-	vi.hoisted(() => ({
-		prepareCaptureSubmissionBytesMock: vi.fn(),
-		readCaptureSubmissionReceiptMock: vi.fn(),
-	}));
+const { prepareCaptureSubmissionBytesMock } = vi.hoisted(() => ({
+	prepareCaptureSubmissionBytesMock: vi.fn(),
+}));
 vi.mock("@/lib/case-store", async () => {
 	const actual =
 		await vi.importActual<typeof import("@/lib/case-store")>(
@@ -146,8 +146,20 @@ vi.mock("@/lib/case-store", async () => {
 });
 vi.mock("@/lib/case-store/postgres/submissionAttachments", () => ({
 	prepareCaptureSubmissionBytes: prepareCaptureSubmissionBytesMock,
-	readCaptureSubmissionReceipt: readCaptureSubmissionReceiptMock,
 }));
+const { loadAuthorizedFormSubmissionSnapshotMock } = vi.hoisted(() => ({
+	loadAuthorizedFormSubmissionSnapshotMock: vi.fn(),
+}));
+vi.mock("@/lib/db/formAttachments", async () => {
+	const actual = await vi.importActual<
+		typeof import("@/lib/db/formAttachments")
+	>("@/lib/db/formAttachments");
+	return {
+		...actual,
+		loadAuthorizedFormSubmissionSnapshot:
+			loadAuthorizedFormSubmissionSnapshotMock,
+	};
+});
 // The schema heal's Postgres boundary, stubbed for the SAME reason the
 // auth boundary is: the actions wrap their store in
 // `schemaHealingCaseStore`, whose heal loads the persisted blueprint via
@@ -217,7 +229,15 @@ beforeEach(async () => {
 		role: "owner",
 		actorUserId: OWNER_A,
 	});
-	readCaptureSubmissionReceiptMock.mockResolvedValue(undefined);
+	loadAuthorizedFormSubmissionSnapshotMock.mockResolvedValue({
+		kind: "current",
+		projectId: PROJECT_A,
+		app: {
+			blueprint: finalSubmissionDoc(),
+			mutation_seq: 1,
+			project_id: PROJECT_A,
+		},
+	});
 	loadAppMock.mockResolvedValue({
 		blueprint: finalSubmissionDoc(),
 		mutation_seq: 1,
@@ -3402,7 +3422,7 @@ describe("submitFormAction", () => {
 		});
 		expect(getSession).not.toHaveBeenCalled();
 		expect(withProjectContext).not.toHaveBeenCalled();
-		expect(readCaptureSubmissionReceiptMock).not.toHaveBeenCalled();
+		expect(loadAuthorizedFormSubmissionSnapshotMock).not.toHaveBeenCalled();
 		expect(prepareCaptureSubmissionBytesMock).not.toHaveBeenCalled();
 		expect(loadAppMock).not.toHaveBeenCalled();
 	});
@@ -3424,10 +3444,10 @@ describe("submitFormAction", () => {
 			message: "The retired attachmentNames submission field is not accepted.",
 		});
 		expect(getSession).not.toHaveBeenCalled();
-		expect(readCaptureSubmissionReceiptMock).not.toHaveBeenCalled();
+		expect(loadAuthorizedFormSubmissionSnapshotMock).not.toHaveBeenCalled();
 	});
 
-	it("validates and authorizes an effect-free survey before returning without an envelope write", async () => {
+	it("routes an effect-free survey through the receipt adjudication envelope", async () => {
 		const { getSession } = await import("@/lib/auth-utils");
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
@@ -3437,9 +3457,9 @@ describe("submitFormAction", () => {
 			// `unknown` because Better Auth's `Session` type carries
 			// many fields we don't synthesize.
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
-		// The final survey protocol crosses the membership and committed-doc
-		// gates. Once that form proves to have no operations or capture
-		// questions, it can still avoid a no-op envelope write.
+		// Even without effects or current capture fields, the envelope must
+		// recheck a receipt that could have committed between the action
+		// snapshot and this transaction.
 		const stubStore = {
 			query: vi.fn(),
 			count: vi.fn(),
@@ -3468,9 +3488,22 @@ describe("submitFormAction", () => {
 		);
 		expect(result).toEqual({ kind: "survey" });
 		expect(vi.mocked(withProjectContext)).toHaveBeenCalledOnce();
-		expect(loadAppMock).toHaveBeenCalledOnce();
-		for (const method of Object.values(stubStore)) {
-			expect(method).not.toHaveBeenCalled();
+		expect(loadAuthorizedFormSubmissionSnapshotMock).toHaveBeenCalledWith({
+			appId: APP_ID,
+			actorUserId: OWNER_A,
+			entryKey: FINAL_ENTRY_KEY,
+		});
+		expect(stubStore.applySubmission).toHaveBeenCalledWith({
+			appId: APP_ID,
+			ordinary: { kind: "none" },
+			submissionReceipt: {
+				entryKey: FINAL_ENTRY_KEY,
+				formUuid: FINAL_FORM_UUID,
+				requestDigest: expect.stringMatching(/^[0-9a-f]{64}$/),
+			},
+		});
+		for (const [name, method] of Object.entries(stubStore)) {
+			if (name !== "applySubmission") expect(method).not.toHaveBeenCalled();
 		}
 	});
 
@@ -3579,9 +3612,14 @@ describe("submitFormAction", () => {
 		const result = await submitFormAction(mutation, APP_ID);
 
 		// The store saw exactly the pure projection of the mutation.
-		expect(stubStore.applySubmission).toHaveBeenCalledWith(
-			submissionEnvelopeArgs(mutation, APP_ID),
-		);
+		expect(stubStore.applySubmission).toHaveBeenCalledWith({
+			...submissionEnvelopeArgs(mutation, APP_ID),
+			submissionReceipt: {
+				entryKey: FINAL_ENTRY_KEY,
+				formUuid: FINAL_FORM_UUID,
+				requestDigest: expect.stringMatching(/^[0-9a-f]{64}$/),
+			},
+		});
 		// The envelope result mapped onto the registration arm.
 		expect(result).toEqual({
 			kind: "registration",
@@ -3615,7 +3653,15 @@ describe("submitFormAction", () => {
 		doc.personas = {
 			[PERSONA]: { uuid: PERSONA, name: "Asha" },
 		};
-		loadAppMock.mockResolvedValue({ blueprint: doc });
+		loadAuthorizedFormSubmissionSnapshotMock.mockResolvedValue({
+			kind: "current",
+			projectId: PROJECT_A,
+			app: {
+				blueprint: doc,
+				mutation_seq: 1,
+				project_id: PROJECT_A,
+			},
+		});
 
 		const stubStore = {
 			query: vi.fn(),
@@ -3720,9 +3766,7 @@ describe("submitFormAction", () => {
 			OWNER_A,
 			OWNER_A,
 		);
-		// The member path avoids persona-resolution reads, but the final
-		// submission protocol still inspects the committed form once.
-		expect(loadAppMock).toHaveBeenCalledOnce();
+		expect(loadAuthorizedFormSubmissionSnapshotMock).toHaveBeenCalledOnce();
 	});
 
 	// ---------------------------------------------------------------
@@ -3817,16 +3861,29 @@ describe("submitFormAction", () => {
 		} satisfies CaseStore;
 	}
 
-	it.each([
-		["a missing committed blueprint", undefined],
-		[
-			"a missing committed form",
-			{
-				blueprint: buildDoc({ appName: "Submitted form deleted" }),
-				mutation_seq: 2,
-			},
-		],
-	])("rejects %s after an exact replay miss", async (_label, app) => {
+	it("collapses authorization-snapshot denial to the IDOR-safe not-found arm", async () => {
+		const { AppAccessError } = await import("@/lib/db/appAccess");
+		const { getSession } = await import("@/lib/auth-utils");
+		const { withProjectContext } = await import("@/lib/case-store");
+		vi.mocked(getSession).mockResolvedValueOnce({
+			user: { id: OWNER_A },
+		} as unknown as Awaited<ReturnType<typeof getSession>>);
+		loadAuthorizedFormSubmissionSnapshotMock.mockRejectedValueOnce(
+			new AppAccessError("not_member"),
+		);
+
+		const { submitFormAction } = await import("../caseDataBinding");
+		await expect(
+			submitFormAction(
+				{ kind: "survey", ...FINAL_SUBMISSION_PROTOCOL },
+				APP_ID,
+			),
+		).resolves.toEqual({ kind: "error", message: "App not found." });
+		expect(withProjectContext).not.toHaveBeenCalled();
+		expect(prepareCaptureSubmissionBytesMock).not.toHaveBeenCalled();
+	});
+
+	it("rejects a missing committed form after an authorized replay miss", async () => {
 		const { getSession } = await import("@/lib/auth-utils");
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
@@ -3836,7 +3893,15 @@ describe("submitFormAction", () => {
 		vi.mocked(withProjectContext).mockResolvedValueOnce(
 			stubCaseStore(applySubmission),
 		);
-		loadAppMock.mockResolvedValueOnce(app);
+		loadAuthorizedFormSubmissionSnapshotMock.mockResolvedValueOnce({
+			kind: "current",
+			projectId: PROJECT_A,
+			app: {
+				blueprint: buildDoc({ appName: "Submitted form deleted" }),
+				mutation_seq: 2,
+				project_id: PROJECT_A,
+			},
+		});
 
 		const { submitFormAction } = await import("../caseDataBinding");
 		await expect(
@@ -3846,11 +3911,9 @@ describe("submitFormAction", () => {
 			),
 		).resolves.toMatchObject({
 			kind: "error",
-			message: expect.stringContaining(
-				app === undefined ? "committed blueprint" : "no longer exists",
-			),
+			message: expect.stringContaining("no longer exists"),
 		});
-		expect(readCaptureSubmissionReceiptMock).toHaveBeenCalledTimes(2);
+		expect(loadAuthorizedFormSubmissionSnapshotMock).toHaveBeenCalledOnce();
 		expect(applySubmission).not.toHaveBeenCalled();
 		expect(prepareCaptureSubmissionBytesMock).not.toHaveBeenCalled();
 	});
@@ -3862,7 +3925,15 @@ describe("submitFormAction", () => {
 			user: { id: OWNER_A },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const { doc, formUuid } = operationSurveyDoc();
-		loadAppMock.mockResolvedValueOnce({ blueprint: doc, mutation_seq: 2 });
+		loadAuthorizedFormSubmissionSnapshotMock.mockResolvedValueOnce({
+			kind: "current",
+			projectId: PROJECT_A,
+			app: {
+				blueprint: doc,
+				mutation_seq: 2,
+				project_id: PROJECT_A,
+			},
+		});
 		const applySubmission = vi.fn();
 		vi.mocked(withProjectContext).mockResolvedValueOnce(
 			stubCaseStore(applySubmission),
@@ -3895,7 +3966,15 @@ describe("submitFormAction", () => {
 			user: { id: OWNER_A },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		const { doc, formUuid, noteUuid } = operationSurveyDoc();
-		loadAppMock.mockResolvedValue({ blueprint: doc });
+		loadAuthorizedFormSubmissionSnapshotMock.mockResolvedValue({
+			kind: "current",
+			projectId: PROJECT_A,
+			app: {
+				blueprint: doc,
+				mutation_seq: 2,
+				project_id: PROJECT_A,
+			},
+		});
 		const applySubmission = vi.fn().mockResolvedValueOnce({
 			childCaseIds: [],
 			operations: [{ operationUuid: "op", iteration: 0, executed: true }],
@@ -3926,12 +4005,11 @@ describe("submitFormAction", () => {
 		expect(envelope.ordinary).toEqual({ kind: "none" });
 		expect(envelope.operations?.formUuid).toBe(formUuid);
 		expect(envelope.operations?.operations).toHaveLength(1);
-		// Authorization-ordering pin: the membership gate resolved BEFORE
-		// the committed doc was read — the build must never touch a
-		// foreign blueprint or decide the survey arm pre-authorization.
-		const gateOrder = resolveAppScopeMock.mock.invocationCallOrder[0];
-		const docReadOrder = loadAppMock.mock.invocationCallOrder[0];
-		expect(gateOrder).toBeLessThan(docReadOrder);
+		// The authorized snapshot is established before the store opens its
+		// fresh mutation-boundary membership gate.
+		expect(
+			loadAuthorizedFormSubmissionSnapshotMock.mock.invocationCallOrder[0],
+		).toBeLessThan(resolveAppScopeMock.mock.invocationCallOrder[0] ?? Infinity);
 	});
 
 	it("prepares and atomically commits an attachment-bearing survey instead of taking the legacy no-op guard", async () => {
@@ -3969,10 +4047,14 @@ describe("submitFormAction", () => {
 		const photoUuid = Object.values(doc.fields).find(
 			(field) => field.id === "photo",
 		)?.uuid as Uuid;
-		loadAppMock.mockResolvedValue({
-			blueprint: doc,
-			mutation_seq: 17,
-			project_id: PROJECT_A,
+		loadAuthorizedFormSubmissionSnapshotMock.mockResolvedValue({
+			kind: "current",
+			projectId: PROJECT_A,
+			app: {
+				blueprint: doc,
+				mutation_seq: 17,
+				project_id: PROJECT_A,
+			},
 		});
 		const applySubmission = vi.fn().mockResolvedValueOnce({
 			childCaseIds: [],
@@ -4044,11 +4126,6 @@ describe("submitFormAction", () => {
 		vi.mocked(withProjectContext).mockResolvedValueOnce(
 			stubCaseStore(applySubmission),
 		);
-		readCaptureSubmissionReceiptMock.mockResolvedValueOnce({
-			primaryCaseId: ALICE_CASE_ID,
-			childCaseIds: [VISIT_CASE_ID],
-			operations: [],
-		});
 		const formUuid = asUuid("41111111-1111-4111-8111-111111111111");
 		const fieldUuid = asUuid("51111111-1111-4111-8111-111111111111");
 		const mutation: SubmissionMutation = {
@@ -4069,6 +4146,27 @@ describe("submitFormAction", () => {
 			},
 			children: [],
 		};
+		const replayIdentity = previewAsMe({ id: OWNER_A });
+		if (replayIdentity === null) throw new Error("Expected replay identity.");
+		const receipt = buildSubmissionReceiptIdentity({
+			appId: APP_ID,
+			identity: replayIdentity,
+			mutation,
+			projection: validateCaptureSubmissionProjection(mutation),
+		});
+		loadAuthorizedFormSubmissionSnapshotMock.mockResolvedValueOnce({
+			kind: "replay",
+			projectId: PROJECT_A,
+			receipt: {
+				formUuid,
+				requestDigest: receipt.requestDigest,
+				result: {
+					primaryCaseId: ALICE_CASE_ID,
+					childCaseIds: [VISIT_CASE_ID],
+					operations: [],
+				},
+			},
+		});
 
 		const { submitFormAction } = await import("../caseDataBinding");
 		await expect(submitFormAction(mutation, APP_ID)).resolves.toEqual({
@@ -4076,22 +4174,17 @@ describe("submitFormAction", () => {
 			caseId: ALICE_CASE_ID,
 			childCaseIds: [VISIT_CASE_ID],
 		});
-		expect(readCaptureSubmissionReceiptMock).toHaveBeenCalledWith({
+		expect(loadAuthorizedFormSubmissionSnapshotMock).toHaveBeenCalledWith({
 			appId: APP_ID,
-			projectId: PROJECT_A,
 			actorUserId: OWNER_A,
-			receipt: {
-				entryKey: mutation.entryKey,
-				formUuid,
-				requestDigest: expect.stringMatching(/^[0-9a-f]{64}$/),
-			},
+			entryKey: mutation.entryKey,
 		});
 		expect(loadAppMock).not.toHaveBeenCalled();
 		expect(applySubmission).not.toHaveBeenCalled();
 		expect(prepareCaptureSubmissionBytesMock).not.toHaveBeenCalled();
 	});
 
-	it("rechecks a receipt committed while current-form validation is failing", async () => {
+	it("rejects changed answers against a receipt before loading current topology", async () => {
 		const { getSession } = await import("@/lib/auth-utils");
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
@@ -4101,18 +4194,51 @@ describe("submitFormAction", () => {
 		vi.mocked(withProjectContext).mockResolvedValueOnce(
 			stubCaseStore(applySubmission),
 		);
-		const committed = {
-			primaryCaseId: ALICE_CASE_ID,
-			childCaseIds: [VISIT_CASE_ID],
-			operations: [],
+		const mutation: SubmissionMutation = {
+			kind: "survey",
+			formUuid: asUuid("41111111-1111-4111-8111-111111111111"),
+			entryKey: "11111111-1111-4111-8111-111111111111",
+			attachmentRefs: [],
 		};
-		readCaptureSubmissionReceiptMock
-			.mockResolvedValueOnce(undefined)
-			.mockResolvedValueOnce(committed);
-		loadAppMock.mockResolvedValueOnce({
-			blueprint: buildDoc({ appName: "Form deleted during retry" }),
-			mutation_seq: 18,
-			project_id: PROJECT_A,
+		loadAuthorizedFormSubmissionSnapshotMock.mockResolvedValueOnce({
+			kind: "replay",
+			projectId: PROJECT_A,
+			receipt: {
+				formUuid: mutation.formUuid,
+				requestDigest: "0".repeat(64),
+				result: { childCaseIds: [], operations: [] },
+			},
+		});
+
+		const { submitFormAction } = await import("../caseDataBinding");
+		await expect(submitFormAction(mutation, APP_ID)).resolves.toEqual({
+			kind: "error",
+			message:
+				"This form entry was already submitted with different answers. Start a new form entry before submitting again.",
+		});
+		expect(loadAppMock).not.toHaveBeenCalled();
+		expect(applySubmission).not.toHaveBeenCalled();
+		expect(prepareCaptureSubmissionBytesMock).not.toHaveBeenCalled();
+	});
+
+	it("rejects a current snapshot whose form was removed before acceptance", async () => {
+		const { getSession } = await import("@/lib/auth-utils");
+		const { withProjectContext } = await import("@/lib/case-store");
+		vi.mocked(getSession).mockResolvedValueOnce({
+			user: { id: OWNER_A },
+		} as unknown as Awaited<ReturnType<typeof getSession>>);
+		const applySubmission = vi.fn();
+		vi.mocked(withProjectContext).mockResolvedValueOnce(
+			stubCaseStore(applySubmission),
+		);
+		loadAuthorizedFormSubmissionSnapshotMock.mockResolvedValueOnce({
+			kind: "current",
+			projectId: PROJECT_A,
+			app: {
+				blueprint: buildDoc({ appName: "Form deleted before acceptance" }),
+				mutation_seq: 18,
+				project_id: PROJECT_A,
+			},
 		});
 		const formUuid = asUuid("41111111-1111-4111-8111-111111111111");
 		const mutation: SubmissionMutation = {
@@ -4135,13 +4261,11 @@ describe("submitFormAction", () => {
 		};
 
 		const { submitFormAction } = await import("../caseDataBinding");
-		await expect(submitFormAction(mutation, APP_ID)).resolves.toEqual({
-			kind: "registration",
-			caseId: ALICE_CASE_ID,
-			childCaseIds: [VISIT_CASE_ID],
+		await expect(submitFormAction(mutation, APP_ID)).resolves.toMatchObject({
+			kind: "error",
+			message: expect.stringContaining("no longer exists"),
 		});
-		expect(readCaptureSubmissionReceiptMock).toHaveBeenCalledTimes(2);
-		expect(loadAppMock).toHaveBeenCalledOnce();
+		expect(loadAuthorizedFormSubmissionSnapshotMock).toHaveBeenCalledOnce();
 		expect(applySubmission).not.toHaveBeenCalled();
 		expect(prepareCaptureSubmissionBytesMock).not.toHaveBeenCalled();
 	});
@@ -4193,21 +4317,13 @@ describe("submitFormAction", () => {
 			session: { context: {}, user: {} },
 			usercase: {},
 		};
-		loadAppMock
-			.mockResolvedValueOnce({
-				blueprint: doc,
-				mutation_seq: 17,
-				project_id: PROJECT_A,
-			})
-			.mockResolvedValueOnce({
-				blueprint: doc,
-				mutation_seq: 18,
-				project_id: PROJECT_A,
-			});
+		const firstApp = { blueprint: doc, mutation_seq: 17 };
+		const retryApp = { blueprint: doc, mutation_seq: 18 };
 		const projection = validateCaptureSubmissionProjection(mutation);
 
 		const first = await buildSubmissionOperationProgram({
 			appId: APP_ID,
+			committedApp: firstApp,
 			identity,
 			mutation,
 			projection,
@@ -4215,6 +4331,7 @@ describe("submitFormAction", () => {
 		});
 		const retry = await buildSubmissionOperationProgram({
 			appId: APP_ID,
+			committedApp: retryApp,
 			identity,
 			mutation,
 			projection,

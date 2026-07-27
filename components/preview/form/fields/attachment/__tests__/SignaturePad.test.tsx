@@ -1,17 +1,72 @@
 // @vitest-environment happy-dom
 
 import { act, fireEvent, render, screen } from "@testing-library/react";
+import type { ComponentProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	__resetAttachmentCoordinatorForTests,
 	type AttachmentEntryAuthoritySnapshot,
 	getSignatureDraft,
+	hasAttachmentEntryWriteAuthority,
 	rememberSignatureDraft,
 	runAttachmentTask,
 	runFormAttachmentBarrier,
 	setAttachmentEntryAuthority,
 } from "../attachmentClient";
-import { SignaturePad } from "../SignaturePad";
+import { SignaturePad as ProductionSignaturePad } from "../SignaturePad";
+
+const TEST_AUTHORITY_COORDINATES = {
+	formUuid: "22222222-2222-4222-8222-222222222222",
+	projectId: "project-attachment-test",
+	actorUserId: "actor-attachment-test",
+	ownerId: "actor-attachment-test",
+} as const;
+
+function installDefaultAuthority(entryKey: string): void {
+	if (hasAttachmentEntryWriteAuthority(entryKey)) return;
+	const snapshot: AttachmentEntryAuthoritySnapshot = {
+		appId: "app-1",
+		entryKey,
+		...TEST_AUTHORITY_COORDINATES,
+		scopeEpoch: 1,
+		accessPhase: "authorized",
+		canEdit: true,
+	};
+	setAttachmentEntryAuthority({
+		entryKey,
+		snapshot,
+		readCurrent: () => snapshot,
+	});
+}
+
+type TestSignaturePadProps = Omit<
+	ComponentProps<typeof ProductionSignaturePad>,
+	"slotKey" | "hasWriteAuthority"
+> &
+	Partial<
+		Pick<
+			ComponentProps<typeof ProductionSignaturePad>,
+			"slotKey" | "hasWriteAuthority"
+		>
+	>;
+
+function SignaturePad({
+	slotKey,
+	hasWriteAuthority,
+	...props
+}: TestSignaturePadProps) {
+	if (hasWriteAuthority === undefined) installDefaultAuthority(props.entryKey);
+	return (
+		<ProductionSignaturePad
+			{...props}
+			slotKey={slotKey ?? props.instancePath}
+			hasWriteAuthority={
+				hasWriteAuthority ??
+				(() => hasAttachmentEntryWriteAuthority(props.entryKey))
+			}
+		/>
+	);
+}
 
 const context = {
 	setTransform: vi.fn(),
@@ -82,6 +137,7 @@ describe("SignaturePad", () => {
 			<SignaturePad
 				entryKey="entry-repeat"
 				instancePath="/data/visits[1]/signature"
+				slotKey="signature-field:stable-repeat-row"
 				uploading={false}
 				hasAnswer={true}
 				onDrawn={onDrawn}
@@ -118,6 +174,7 @@ describe("SignaturePad", () => {
 			<SignaturePad
 				entryKey="entry-repeat"
 				instancePath="/data/visits[0]/signature"
+				slotKey="signature-field:stable-repeat-row"
 				uploading={false}
 				hasAnswer={true}
 				onDrawn={onDrawn}
@@ -271,11 +328,12 @@ describe("SignaturePad", () => {
 	});
 
 	it("announces queued ink before it can run behind another capture", async () => {
+		installDefaultAuthority("entry-queued-signature");
 		const blockerStarted = deferred<void>();
 		const blockerRelease = deferred<void>();
 		const blocker = runAttachmentTask({
 			entryKey: "entry-queued-signature",
-			instancePath: "/data/photo",
+			slotKey: "/data/photo",
 			task: async () => {
 				blockerStarted.resolve();
 				await blockerRelease.promise;
@@ -939,6 +997,11 @@ describe("SignaturePad", () => {
 		const entryKey = "entry-signature-authority-restore";
 		let authority: AttachmentEntryAuthoritySnapshot = {
 			appId: "app-1",
+			entryKey,
+			formUuid: "22222222-2222-4222-8222-222222222222",
+			projectId: "project-attachment-test",
+			actorUserId: "actor-attachment-test",
+			ownerId: "actor-attachment-test",
 			scopeEpoch: 1,
 			accessPhase: "authorized",
 			canEdit: true,
@@ -995,6 +1058,11 @@ describe("SignaturePad", () => {
 
 		authority = {
 			appId: "app-1",
+			entryKey,
+			formUuid: "22222222-2222-4222-8222-222222222222",
+			projectId: "project-attachment-test",
+			actorUserId: "actor-attachment-test",
+			ownerId: "actor-attachment-test",
 			scopeEpoch: 2,
 			accessPhase: "authorized",
 			canEdit: true,
@@ -1043,6 +1111,11 @@ describe("SignaturePad", () => {
 		);
 		let authority: AttachmentEntryAuthoritySnapshot = {
 			appId: "app-1",
+			entryKey,
+			formUuid: "22222222-2222-4222-8222-222222222222",
+			projectId: "project-attachment-test",
+			actorUserId: "actor-attachment-test",
+			ownerId: "actor-attachment-test",
 			scopeEpoch: 1,
 			accessPhase: "authorized",
 			canEdit: true,
@@ -1076,6 +1149,11 @@ describe("SignaturePad", () => {
 
 		authority = {
 			appId: "app-1",
+			entryKey,
+			formUuid: "22222222-2222-4222-8222-222222222222",
+			projectId: "project-attachment-test",
+			actorUserId: "actor-attachment-test",
+			ownerId: "actor-attachment-test",
 			scopeEpoch: 2,
 			accessPhase: "refreshing",
 			canEdit: false,
@@ -1094,6 +1172,11 @@ describe("SignaturePad", () => {
 
 		authority = {
 			appId: "app-1",
+			entryKey,
+			formUuid: "22222222-2222-4222-8222-222222222222",
+			projectId: "project-attachment-test",
+			actorUserId: "actor-attachment-test",
+			ownerId: "actor-attachment-test",
 			scopeEpoch: 2,
 			accessPhase: "authorized",
 			canEdit: true,

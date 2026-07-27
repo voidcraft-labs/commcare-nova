@@ -7,13 +7,15 @@ import {
 	screen,
 	waitFor,
 } from "@testing-library/react";
+import type { ComponentProps } from "react";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CaptureField } from "@/lib/domain";
 import type { FieldState } from "@/lib/preview/engine/types";
-import { AttachmentField } from "../AttachmentField";
+import { AttachmentField as ProductionAttachmentField } from "../AttachmentField";
 import {
 	__resetAttachmentCoordinatorForTests,
+	type AttachmentEntryAuthoritySnapshot,
 	getOwnedStagedAttachment,
 	reconcileAttachmentRepeatCompaction,
 	registerAttachmentSlotPath,
@@ -22,8 +24,61 @@ import {
 	runAttachmentTask,
 	runFormAttachmentBarrier,
 	type StagedAttachment,
+	setAttachmentEntryAuthority,
 	setAttachmentSlotIssue,
 } from "../attachmentClient";
+
+const TEST_AUTHORITY_COORDINATES = {
+	formUuid: "22222222-2222-4222-8222-222222222222",
+	projectId: "project-attachment-test",
+	actorUserId: "actor-attachment-test",
+	ownerId: "actor-attachment-test",
+} as const;
+
+function installTestAuthority(entryKey: string): void {
+	const current = (): AttachmentEntryAuthoritySnapshot => ({
+		appId: "app-1",
+		entryKey,
+		...TEST_AUTHORITY_COORDINATES,
+		scopeEpoch: accessState.scopeEpoch,
+		accessPhase: accessState.accessPhase,
+		canEdit: accessState.canEdit,
+	});
+	setAttachmentEntryAuthority({
+		entryKey,
+		snapshot: current(),
+		readCurrent: current,
+	});
+}
+
+type TestAttachmentFieldProps = ComponentProps<
+	typeof ProductionAttachmentField
+> & {
+	readonly onChange: (value: string) => void;
+	readonly onBlur: () => void;
+};
+
+function AttachmentField({
+	onChange,
+	onBlur,
+	onChangeAt,
+	onBlurAt,
+	...props
+}: TestAttachmentFieldProps) {
+	if (props.entryKey !== undefined && props.appId !== undefined) {
+		installTestAuthority(props.entryKey);
+	}
+	return (
+		<ProductionAttachmentField
+			{...props}
+			attachmentSlotKey={
+				props.attachmentSlotKey ?? props.path ?? props.field.uuid
+			}
+			onChangeAt={onChangeAt ?? ((_path, value) => onChange(value))}
+			onBlurAt={onBlurAt ?? (() => onBlur())}
+		/>
+	);
+}
 
 const {
 	stageAttachmentMock,
@@ -314,6 +369,76 @@ describe("AttachmentField", () => {
 		);
 	});
 
+	it("cleans a just-confirmed row when the controller rotates before passive entry cleanup", async () => {
+		const entryKey = "entry-controller-rotation-before-cleanup";
+		const nextEntryKey = "entry-controller-rotation-successor";
+		let liveEntryKey = entryKey;
+		const currentAuthority = (): AttachmentEntryAuthoritySnapshot => ({
+			appId: "app-1",
+			entryKey: liveEntryKey,
+			...TEST_AUTHORITY_COORDINATES,
+			scopeEpoch: 0,
+			accessPhase: "authorized",
+			canEdit: true,
+		});
+		setAttachmentEntryAuthority({
+			entryKey,
+			snapshot: currentAuthority(),
+			readCurrent: currentAuthority,
+		});
+		const confirmed = deferred<StagedAttachment>();
+		stageAttachmentMock.mockReturnValue(confirmed.promise);
+		const onChange = vi.fn();
+		render(
+			<ProductionAttachmentField
+				field={FIELD}
+				state={EMPTY_STATE}
+				path="/data/photo"
+				appId="app-1"
+				entryKey={entryKey}
+				attachmentSlotKey="photo:controller-rotation"
+				onChangeAt={(_path, value) => onChange(value)}
+				onBlurAt={vi.fn()}
+			/>,
+		);
+		fireEvent.change(screen.getByLabelText(/Photo.*Attach file/i), {
+			target: {
+				files: [new File(["png"], "rotating.png", { type: "image/png" })],
+			},
+		});
+		await waitFor(() => expect(stageAttachmentMock).toHaveBeenCalledOnce());
+
+		// EngineController has synchronously installed its successor entry, but
+		// FormScreen's passive cleanup has not retired the old coordinator yet.
+		liveEntryKey = nextEntryKey;
+		setAttachmentEntryAuthority({
+			entryKey: nextEntryKey,
+			snapshot: currentAuthority(),
+			readCurrent: currentAuthority,
+		});
+		confirmed.resolve({
+			attachmentId: "attachment-confirmed-during-controller-rotation",
+			attachmentName: "attachment-confirmed-during-controller-rotation.png",
+			originalFilename: "rotating.png",
+			sizeBytes: 3,
+		});
+
+		await waitFor(() =>
+			expect(scheduleAttachmentCleanupMock).toHaveBeenCalledWith({
+				appId: "app-1",
+				attachmentId: "attachment-confirmed-during-controller-rotation",
+			}),
+		);
+		expect(onChange).not.toHaveBeenCalled();
+		expect(
+			getOwnedStagedAttachment({
+				appId: "app-1",
+				entryKey,
+				slotKey: "photo:controller-rotation",
+			}),
+		).toBeUndefined();
+	});
+
 	it("retains the exact replacement file and previous owner across authority loss", async () => {
 		const entryKey = "entry-replacement-authority-loss";
 		const slotKey = "photo:replacement-authority";
@@ -411,6 +536,7 @@ describe("AttachmentField", () => {
 	it("cancels a queued Clear without dropping ownership when edit authority is lost", async () => {
 		const entryKey = "entry-clear-authority-loss";
 		const slotKey = "/data/photo";
+		installTestAuthority(entryKey);
 		const blockerStarted = deferred<void>();
 		const blockerRelease = deferred<void>();
 		const blocker = runAttachmentTask({
@@ -421,6 +547,7 @@ describe("AttachmentField", () => {
 				await blockerRelease.promise;
 			},
 		});
+		const blockerResult = blocker.catch((error: unknown) => error);
 		await blockerStarted.promise;
 		const owned = {
 			attachmentId: "attachment-before-revocation",
@@ -460,11 +587,11 @@ describe("AttachmentField", () => {
 			}),
 		);
 
-		accessState.canEdit = false;
-		view.rerender(<AttachmentField {...props} />);
-		blockerRelease.resolve();
-		await blocker;
 		await act(async () => {
+			accessState.canEdit = false;
+			view.rerender(<AttachmentField {...props} />);
+			blockerRelease.resolve();
+			expect(await blockerResult).toMatchObject({ name: "AbortError" });
 			await Promise.resolve();
 		});
 
@@ -655,11 +782,12 @@ describe("AttachmentField", () => {
 
 	it("serializes Clear behind earlier work anywhere in the form entry", async () => {
 		const entryKey = "33333333-3333-4333-8333-333333333333";
+		installTestAuthority(entryKey);
 		const blockerStarted = deferred<void>();
 		const releaseBlocker = deferred<void>();
 		const blocker = runAttachmentTask({
 			entryKey,
-			instancePath: "/data/other",
+			slotKey: "/data/other",
 			task: async () => {
 				blockerStarted.resolve();
 				await releaseBlocker.promise;
@@ -715,12 +843,13 @@ describe("AttachmentField", () => {
 		"keeps an active $name ahead of Submit under its real slot target",
 		async ({ field, path, value, action }) => {
 			const entryKey = `entry-clear-submit-${field.kind}`;
+			installTestAuthority(entryKey);
 			const blockerStarted = deferred<void>();
 			const releaseBlocker = deferred<void>();
 			const order: string[] = [];
 			const blocker = runAttachmentTask({
 				entryKey,
-				instancePath: "/data/other",
+				slotKey: "/data/other",
 				task: async () => {
 					blockerStarted.resolve();
 					await releaseBlocker.promise;
@@ -728,7 +857,7 @@ describe("AttachmentField", () => {
 				},
 			});
 			await blockerStarted.promise;
-			const onChange = vi.fn(() => order.push("answer-cleared"));
+			const onChange = vi.fn((_value: string) => order.push("answer-cleared"));
 			render(
 				<AttachmentField
 					field={field}
@@ -738,6 +867,8 @@ describe("AttachmentField", () => {
 					entryKey={entryKey}
 					onChange={onChange}
 					onBlur={vi.fn()}
+					onChangeAt={(_path, value) => onChange(value)}
+					onBlurAt={vi.fn()}
 				/>,
 			);
 
@@ -764,11 +895,12 @@ describe("AttachmentField", () => {
 
 	it("publishes queued upload intent before waiting behind another field", async () => {
 		const entryKey = "entry-queued-upload-intent";
+		installTestAuthority(entryKey);
 		const blockerStarted = deferred<void>();
 		const releaseBlocker = deferred<void>();
 		const blocker = runAttachmentTask({
 			entryKey,
-			instancePath: "/data/other",
+			slotKey: "/data/other",
 			task: async () => {
 				blockerStarted.resolve();
 				await releaseBlocker.promise;
@@ -1336,7 +1468,7 @@ describe("AttachmentField", () => {
 			getOwnedStagedAttachment({
 				appId: "app-1",
 				entryKey,
-				instancePath: "/data/photo",
+				slotKey: "/data/photo",
 			}),
 		).toMatchObject({ attachmentName, originalFilename: "visit-photo.png" });
 
@@ -1433,7 +1565,7 @@ describe("AttachmentField", () => {
 		expect(input.getAttribute("aria-describedby")).toContain(alert.id);
 	});
 
-	it("uses attach-only copy when the form attachment lane is unavailable", async () => {
+	it("fails closed when the form attachment lane is unavailable", () => {
 		render(
 			<AttachmentField
 				field={FIELD}
@@ -1445,15 +1577,11 @@ describe("AttachmentField", () => {
 				onBlur={vi.fn()}
 			/>,
 		);
-		fireEvent.change(screen.getByLabelText(/Photo.*Attach file/i), {
-			target: {
-				files: [new File(["png"], "photo.png", { type: "image/png" })],
-			},
-		});
-
-		const alert = await screen.findByRole("alert");
-		expect(alert.textContent).toMatch(/ready to attach files/i);
-		expect(alert.textContent).not.toMatch(/\btake\b/i);
+		expect(
+			screen.getByText(/This attachment question is not ready yet/i),
+		).toBeDefined();
+		expect(screen.queryByLabelText(/Photo.*Attach file/i)).toBeNull();
+		expect(stageAttachmentMock).not.toHaveBeenCalled();
 	});
 
 	it("finishes a confirmed replacement without waiting for a hung cleanup DELETE", async () => {

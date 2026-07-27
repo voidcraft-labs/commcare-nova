@@ -19,11 +19,8 @@
 // `NOVA_DB_INSTANCE_CONNECTION_NAME` (the connector's input), not the raw
 // `NOVA_DB_HOST` Atlas needed. Kysely's `Migrator` is sequential, so this Job
 // declares `NOVA_DB_WORKLOAD=migration` and its pool holds just ONE Cloud SQL
-// connection at a time. Before DDL, every production invocation audits
-// max_connections/reserved settings plus the hard direct-login limits
-// (runtime 16, migration 1, cleanup 3), requires the pgaudit extension, and
-// waits for old runtime sessions to drain under 16. The migration role's own
-// non-inherited limit is one.
+// connection at a time. The migration role's non-inherited login limit is one;
+// the separately invoked privileged bootstrap owns that steady-state policy.
 
 import { getMigrations } from "better-auth/db/migration";
 import type { Kysely } from "kysely";
@@ -39,30 +36,9 @@ import {
 	convergeDatabasePrivileges,
 	readDatabasePrivilegeRoleConfig,
 } from "@/lib/db/privilegeConvergence";
-import {
-	readDatabaseCapacityRoleConfig,
-	runDatabaseCapacityPreflight,
-} from "@/scripts/infra/databaseCapacityPreflight";
 
 async function main(): Promise<void> {
 	const pool = await getCaseStorePool();
-	if (process.env.NOVA_DB_LOCAL_URL === undefined) {
-		const capacityClient = await pool.connect();
-		try {
-			await runDatabaseCapacityPreflight(
-				capacityClient,
-				readDatabaseCapacityRoleConfig(),
-			);
-			console.log("[migrate] database capacity contract verified");
-		} finally {
-			capacityClient.release();
-		}
-	} else {
-		console.log(
-			"[migrate] database capacity audit skipped for explicit local DB",
-		);
-	}
-
 	const db = await getCaseStoreDatabase();
 	// `getCaseStoreDatabase()` is typed `Kysely<Database>`; the migrator takes the
 	// schema-agnostic `Kysely<unknown>` (it only issues raw `sql` + DDL).

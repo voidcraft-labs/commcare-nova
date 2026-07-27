@@ -115,91 +115,6 @@ steps:
           --task-timeout=300
         gcloud run jobs execute commcare-nova-media-policy --region=us-central1 --wait
 
-  # Reconcile the OLD serving fleet's global and revision maxima before any
-  # database migration/maintenance Job starts. Cloud Run's maxima are a soft
-  # outer control (the platform can briefly exceed a maximum), so the durable
-  # hard ceiling comes from the PostgreSQL login-role limits audited in the
-  # next step. Updating only the new revision during `deploy` is too late:
-  # migration runs while the previous revision is still live. A missing
-  # service is a safe first-deploy case (zero serving connections); every
-  # existing service must report both caps as 4 before this step proceeds.
-  - id: capacity-precap
-    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
-    entrypoint: bash
-    args:
-      - -c
-      - |
-        set -euo pipefail
-        service_name="$$(gcloud run services list \
-          --region=us-central1 \
-          --filter='metadata.name=commcare-nova' \
-          --format='value(metadata.name)')"
-        if [[ "$${service_name}" == "commcare-nova" ]]; then
-          gcloud run services update commcare-nova \
-            --region=us-central1 \
-            --max=4 \
-            --max-instances=4 \
-            --quiet
-          service_json="$$(gcloud run services describe commcare-nova \
-            --region=us-central1 \
-            --format=json)"
-          reported_maxima="$$(printf '%s' "$${service_json}" | python3 -c '
-        import json
-        import sys
-        service = json.load(sys.stdin)
-        annotations = service.get("metadata", {}).get("annotations", {})
-        template_annotations = (
-            service.get("spec", {})
-            .get("template", {})
-            .get("metadata", {})
-            .get("annotations", {})
-        )
-        print(
-            annotations.get("run.googleapis.com/maxScale", "")
-            + ","
-            + template_annotations.get("autoscaling.knative.dev/maxScale", "")
-        )
-        ')"
-          if [[ "$${reported_maxima}" != "4,4" ]]; then
-            echo "ERROR: commcare-nova must report service/revision maxima 4,4 before migration; got '$${reported_maxima}'." >&2
-            exit 1
-          fi
-        elif [[ -n "$${service_name}" ]]; then
-          echo "ERROR: capacity pre-cap resolved an unexpected service '$${service_name}'." >&2
-          exit 1
-        else
-          echo "commcare-nova does not exist yet; first deploy has zero serving DB connections."
-        fi
-
-  # Fail closed unless Cloud SQL reports the exact settings and hard,
-  # non-inherited login-role caps established by the privileged bootstrap:
-  # runtime 16 + migration 1 + cleanup 3 = 20. Two ordinary login slots remain
-  # outside those roles and PostgreSQL reserves its final three slots for true
-  # superusers. Lowering a role limit does not evict existing sessions, so this
-  # Job also waits for any old runtime sessions above 16 to drain before
-  # migration or cleanup can start. It runs as the migration login role, whose
-  # own CONNECTION LIMIT is one, and has no retry that could overlap itself.
-  - id: capacity-audit
-    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
-    entrypoint: bash
-    args:
-      - -c
-      - |
-        set -euo pipefail
-        capacity_job=commcare-nova-capacity-preflight
-        gcloud run jobs deploy "$${capacity_job}" \
-          --image=us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/commcare-nova/app:$BUILD_ID \
-          --region=us-central1 \
-          --service-account=nova-migrate@commcare-nova.iam.gserviceaccount.com \
-          --network=default --subnet=default --vpc-egress=private-ranges-only \
-          --set-env-vars=NOVA_DB_WORKLOAD=migration,NOVA_DB_USER=nova-migrate@commcare-nova.iam,NOVA_DB_INSTANCE_CONNECTION_NAME=commcare-nova:us-central1:nova-cases,NOVA_DB_NAME=nova_cases,NOVA_RUNTIME_DB_USER=commcare-nova@commcare-nova.iam,NOVA_MIGRATION_DB_USER=nova-migrate@commcare-nova.iam,NOVA_CAPTURE_CLEANUP_DB_USER=nova-capture-cleanup@commcare-nova.iam \
-          --command=node \
-          --args=capacity-preflight.cjs \
-          --tasks=1 --parallelism=1 \
-          --max-retries=0 \
-          --task-timeout=420
-        gcloud run jobs execute "$${capacity_job}" --region=us-central1 --wait
-
   # Apply pending case-store migrations against live Cloud SQL, once. `jobs
   # deploy` is create-or-update (idempotent) so the Job's config lives here in
   # version control and stays pinned to the image being deployed. The Job runs
@@ -231,14 +146,9 @@ steps:
         gcloud run jobs execute commcare-nova-migrate --region=us-central1 --wait
 
   # Pre-acceptance preparation and exact discard recovery are traffic-
-  # independent: a leased Cloud Run Job resumes DB-first recovery rows, and
-  # Cloud Scheduler invokes it every five minutes. Scheduler delivery is
-  # at-least-once and can overlap this build invocation, so the worker holds a
-  # Postgres session advisory lock for the full run. Losing probes destroy
-  # their sessions; the winner prewarms its second connection before work, all
-  # within cleanup's hard three-session role cap. Deploy and execute the worker
-  # once before traffic moves so an incompatible or unauthorized worker fails
-  # the release instead of silently accumulating capture debt.
+  # independent. Cloud Scheduler invokes this bounded worker every five
+  # minutes; its Postgres advisory lock collapses at-least-once delivery to one
+  # active execution.
   - id: capture-cleanup
     name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
     entrypoint: bash
@@ -253,7 +163,7 @@ steps:
           --region=us-central1 \
           --service-account=nova-capture-cleanup@commcare-nova.iam.gserviceaccount.com \
           --network=default --subnet=default --vpc-egress=private-ranges-only \
-          --set-env-vars=NOVA_CAPTURE_CLEANUP_MODE=scheduler,NOVA_DB_WORKLOAD=capture-cleanup,NOVA_DB_USER=nova-capture-cleanup@commcare-nova.iam,NOVA_DB_INSTANCE_CONNECTION_NAME=commcare-nova:us-central1:nova-cases,NOVA_DB_NAME=nova_cases,NOVA_RUNTIME_DB_USER=commcare-nova@commcare-nova.iam,NOVA_MIGRATION_DB_USER=nova-migrate@commcare-nova.iam,NOVA_CAPTURE_CLEANUP_DB_USER=nova-capture-cleanup@commcare-nova.iam,NOVA_MEDIA_BUCKET=nova-multimedia-prod \
+          --set-env-vars=NOVA_DB_WORKLOAD=capture-cleanup,NOVA_DB_USER=nova-capture-cleanup@commcare-nova.iam,NOVA_DB_INSTANCE_CONNECTION_NAME=commcare-nova:us-central1:nova-cases,NOVA_DB_NAME=nova_cases,NOVA_MEDIA_BUCKET=nova-multimedia-prod \
           --command=node \
           --args=capture-cleanup.cjs \
           --tasks=1 --parallelism=1 \
@@ -263,11 +173,6 @@ steps:
           --region=us-central1 \
           --member="serviceAccount:$${scheduler_account}" \
           --role=roles/run.invoker
-        gcloud run jobs execute "$${cleanup_job}" \
-          --region=us-central1 \
-          --update-env-vars=NOVA_CAPTURE_CLEANUP_MODE=strict \
-          --wait
-
         scheduler_uri="https://run.googleapis.com/v2/projects/$PROJECT_ID/locations/us-central1/jobs/$${cleanup_job}:run"
         scheduler_args=(
           --location=us-central1

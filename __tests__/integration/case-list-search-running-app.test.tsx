@@ -434,6 +434,7 @@ function renderCaseListScreen(doc: BlueprintDoc) {
 		<BlueprintDocProvider appId={APP_ID} initialDoc={doc}>
 			<BuilderSessionProvider
 				init={{
+					appId: APP_ID,
 					projectId: "project-case-list-search-int",
 					role: "editor",
 					canEdit: true,
@@ -461,6 +462,7 @@ function renderFormScreen(doc: BlueprintDoc, formUuid: Uuid, caseId?: string) {
 		<BlueprintDocProvider appId={APP_ID} initialDoc={doc}>
 			<BuilderSessionProvider
 				init={{
+					appId: APP_ID,
 					projectId: "project-case-list-search-int",
 					role: "editor",
 					canEdit: true,
@@ -480,6 +482,16 @@ function renderFormScreen(doc: BlueprintDoc, formUuid: Uuid, caseId?: string) {
 			</BuilderSessionProvider>
 		</BlueprintDocProvider>,
 	);
+}
+
+async function readySubmitButton(): Promise<HTMLButtonElement> {
+	return await waitFor(() => {
+		const button = screen.getByRole("button", {
+			name: /^submit$/i,
+		}) as HTMLButtonElement;
+		expect(button.disabled).toBe(false);
+		return button;
+	});
 }
 
 // ── Setup ────────────────────────────────────────────────────────
@@ -742,7 +754,7 @@ describe("FormScreen registration submit — write-through to case list", () => 
 		const ageInput = screen.getByRole("spinbutton") as HTMLInputElement;
 		fireEvent.change(ageInput, { target: { value: "33" } });
 
-		fireEvent.click(screen.getByRole("button", { name: /^submit$/i }));
+		fireEvent.click(await readySubmitButton());
 
 		// Wait for the registration action to resolve — `navigateMock.goHome`
 		// firing is the signal the success arm dispatched the post-
@@ -829,7 +841,7 @@ describe("FormScreen followup submit — patch round-trip to case list", () => {
 		// the mutation entirely).
 		fireEvent.change(ageInput, { target: { value: "41" } });
 
-		fireEvent.click(screen.getByRole("button", { name: /^submit$/i }));
+		fireEvent.click(await readySubmitButton());
 
 		// Followup's default post-submit destination is `previous`,
 		// which routes to the `onBack` callback. We pass a no-op
@@ -927,13 +939,7 @@ describe("FormScreen close submit — closed_on stamps on the bound row", () => 
 		 * loaded full-suite worker, finding the element can beat that preload;
 		 * clicking a disabled button is correctly ignored. Wait for the actual
 		 * worker-visible readiness state before exercising submit. */
-		const submit = await waitFor(() => {
-			const button = screen.getByRole("button", {
-				name: /^submit$/i,
-			}) as HTMLButtonElement;
-			expect(button.disabled).toBe(false);
-			return button;
-		});
+		const submit = await readySubmitButton();
 		fireEvent.click(submit);
 
 		await waitFor(() => {

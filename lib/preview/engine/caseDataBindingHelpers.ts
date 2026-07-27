@@ -45,6 +45,7 @@ import {
 import { resolveAppScope } from "@/lib/db/appAccess";
 import { loadApp } from "@/lib/db/apps";
 import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
+import type { AppDoc } from "@/lib/db/types";
 import {
 	caseOperationConditionalGuardUuids,
 	caseOperationExpressionSnapshotTypes,
@@ -1013,6 +1014,7 @@ export function buildSubmissionReceiptIdentity(args: {
  */
 export async function buildSubmissionOperationProgram(args: {
 	readonly appId: string;
+	readonly committedApp: Pick<AppDoc, "blueprint" | "mutation_seq">;
 	readonly identity: ResolvedPreviewIdentity;
 	readonly mutation: SubmissionMutation;
 	readonly projection: CaptureSubmissionProjection;
@@ -1020,12 +1022,7 @@ export async function buildSubmissionOperationProgram(args: {
 }): Promise<BuiltSubmissionOperations> {
 	const submissionReceipt = buildSubmissionReceiptIdentity(args);
 
-	const app = await loadApp(args.appId);
-	if (!app?.blueprint) {
-		throw new CaptureSubmissionRejectedError(
-			"The submitted app no longer has a committed blueprint.",
-		);
-	}
+	const app = args.committedApp;
 	if (app.blueprint.forms[args.projection.formUuid as Uuid] === undefined) {
 		throw new CaptureSubmissionRejectedError(
 			"The submitted form no longer exists in the committed app.",
@@ -1068,7 +1065,7 @@ export async function buildSubmissionOperationProgram(args: {
 		validated.attachmentRefs.length === 0 &&
 		allowedAttachments.length === 0
 	) {
-		return built;
+		return { ...built, submissionReceipt };
 	}
 	const captureIntentWithoutDigest = {
 		entryKey: validated.entryKey,

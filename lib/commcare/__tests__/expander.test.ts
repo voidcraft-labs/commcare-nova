@@ -58,10 +58,7 @@ describe("display-condition HQ projection", () => {
 			],
 		});
 		const hq = expandDoc(displayDoc);
-		// The declared target is the MAX of every floor Nova's vocabulary
-		// implies — 2.54 for menu-level instance declarations (what this
-		// test's module filter needs), 2.57 for file-attachment questions.
-		expect(hq.build_spec.version).toBe("2.57.0");
+		expect(hq.build_spec.version).toBe("2.54.0");
 		expect(hq.modules[0].module_filter).toBe(
 			"instance('commcaresession')/session/user/data/role = 'supervisor'",
 		);

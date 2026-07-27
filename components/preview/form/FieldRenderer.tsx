@@ -88,8 +88,6 @@ export function FieldRenderer({
 				questionLabelledBy={questionLabelledBy}
 				questionDescriptionIds={questionDescriptionIds}
 				questionLabel={questionLabel}
-				onChange={onChange}
-				onBlur={onBlur}
 				onChangeAt={onChangeAt}
 				onBlurAt={onBlurAt}
 			/>

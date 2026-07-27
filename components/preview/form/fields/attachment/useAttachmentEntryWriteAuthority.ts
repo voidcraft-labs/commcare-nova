@@ -1,6 +1,5 @@
 "use client";
 
-import { useMemo } from "react";
 import {
 	useAccessPhase,
 	useCanEdit,
@@ -27,10 +26,12 @@ export function useAttachmentEntryWriteAuthority(
 	const accessPhase = useAccessPhase();
 	const canEdit = useCanEdit();
 
-	return useMemo(() => {
-		if (entryKey === undefined || accessPhase !== "authorized" || !canEdit) {
-			return undefined;
-		}
-		return captureAttachmentEntryWriteAuthority(entryKey, scopeEpoch);
-	}, [accessPhase, canEdit, entryKey, scopeEpoch]);
+	if (entryKey === undefined || accessPhase !== "authorized" || !canEdit) {
+		return undefined;
+	}
+	// Re-capture on every render. The controller's preview identity can resolve
+	// after the session coordinates without changing any of this hook's scalar
+	// inputs; memoizing those inputs would retain the earlier fail-closed token
+	// even after FormScreen installed the complete authority tuple.
+	return captureAttachmentEntryWriteAuthority(entryKey, scopeEpoch);
 }

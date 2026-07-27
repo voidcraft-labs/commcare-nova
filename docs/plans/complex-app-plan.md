@@ -692,16 +692,12 @@ and they carry one asymmetry stated where the author picks the kind:
 `WidgetFactory::createWidgetFromPrompt` falls to `StringWidget` and a worker
 there types free text into a `binary` node.
 
-The declared target CommCare version (`hqShells.ts::applicationShell`'s
-`build_spec.version`) is the **maximum** of every floor Nova's vocabulary
-implies: 2.54 for menu-level instance declarations, 2.57 for file attachments
-(`feature_support.py::support_document_upload`). That 2.57 gate is
-authoring-palette-only — its one consumer repo-wide is
-`views/formdesigner.py::_get_vellum_features` — so an emitted form renders
-regardless; declaring the true floor is about not claiming a compatibility HQ
-itself does not. It is declarative on the upload path either way, because
-`models/applications.py::import_app` deletes `build_spec` and
-`ApplicationBase.wrap` substitutes the target domain's default.
+`hqShells.ts::applicationShell` emits one fixed `build_spec.version` (`2.54.0`)
+as part of Nova's single application-shell target. It is not a feature floor,
+reader gate, or capability switch, and no authoring/runtime branch consults it.
+The upload path is declarative because `models/applications.py::import_app`
+deletes `build_spec` and `ApplicationBase.wrap` substitutes the target domain's
+default.
 
 `FORM_TOO_MANY_ATTACHMENTS` rejects a form whose **non-repeating** capture
 questions exceed `MAX_FORM_ATTACHMENTS` (50). Formplayer counts at submit time
@@ -789,11 +785,16 @@ check therefore still runs before case effects after a worker clears an answer,
 a condition hides it, or a repeat removes it: an identical accepted request
 replays and a changed digest rejects instead of applying the form twice. Every
 submission envelope also carries the actor/app/entry/form identity plus the
-canonical payload digest independently of current capture structure. Both the
-Server Action and entry-locked case-store transaction adjudicate any durable
-prior capture receipt before loading or trusting the current form/capture
-topology. Exact retries therefore replay after the form or its capture fields
-are deleted or converted; a changed digest rejects before any case effect.
+canonical payload digest independently of current capture structure. The Server
+Action's one authorization transaction locks the app `FOR SHARE`, proves fresh
+Project membership, and reads a durable receipt before hydrating the current
+blueprint. A receipt returns the stored result without topology access; a new
+submission receives its program and capture authority from the committed app
+snapshot read in that transaction. Preparation and the entry-locked case-store
+transaction each reauthorize again at their mutation boundary and adjudicate
+the receipt before current topology or case effects. Exact retries therefore
+replay after the form or its capture fields are deleted or converted; a changed
+digest rejects before any case effect.
 
 There is deliberately no destructive hook on value change or repeat removal.
 Clear/replace deletes `pending`/`staged` metadata directly, moves
@@ -837,17 +838,14 @@ The scheduled bounded worker owns the cross-system `preparing`/`prepared`/
 `discarding` recovery and the row `expires_at` sweep, including exact
 destination verification after a crash before the row update. Accepted
 durability takes priority over staging cleanup.
-The Cloud Run Job persists in best-effort `scheduler` mode: a held advisory
-lease or pre-lock connection saturation skips that dispatch. Cloud Build
-overrides one blocking pre-traffic execution to `strict`; it waits through
-bounded capacity/lease contention, performs the real create-only
-staged→durable copy under unguessable capture-only keys, verifies the durable
-generation, size, CRC32C, content type, and bytes, deletes both exact
-generations, and rejects any probe cleanup or maintenance row/object failure.
-The IAM condition and its domain mirror reject empty or double-slash segments
-in either allowed prefix. Both paths audit the exact server/role capacity
-contract and require the production
-`pgaudit` extension before work. The cleanup database login
+Cloud Scheduler invokes one Cloud Run cleanup Job every five minutes. A session
+advisory lock collapses at-least-once or overlapping delivery to one active
+worker; a held lock or pre-lock connection saturation skips only that dispatch.
+After winning, the worker prewarms its work connection and then performs the
+same bounded preparation, verification, discard, and expiry sweep every time.
+There is no deploy-time execution, alternate mode, probe, or release gate. The
+IAM condition and its domain mirror reject empty or double-slash segments in
+either allowed prefix. The cleanup database login
 inherits no application role and holds only public-schema `USAGE` plus
 `SELECT`/`UPDATE`/`DELETE` on `form_attachments`. Its custom storage role is
 only object get/create/delete, IAM-condition-limited to `captures-staged/` and
@@ -892,17 +890,20 @@ per `activateForm` and lives on the `EngineController`, not the engine. It
 survives cold identity/lookup/case-data rebuilds and a same-Project access
 refresh. Confirmed app/form/Project changes, materially different workers,
 terminal revoke/upgrade states, and **Clear form** retire the old entry.
-`FormScreen` installs the exact
-`{ appId, scopeEpoch, accessPhase, canEdit }` write-authority tuple above every
-capture field, including when all of them are hidden or unmounted. Every queued
-capture/maintenance operation holds that authority generation and checks it
-both before and after its awaited work. A tuple change aborts the old network
-generation without erasing stable slots, drafts, diagnostics, or Submit
-blockers. The mounted answer tree, focus, File controls, case/persona binding,
-and entry key also survive the uncertain refresh. Even if React coalesces
-refreshing and same-Project authorization into one render, active file drafts
-become retained recovery state and dirty signature ink is adopted and encoded
-exactly once under the new generation.
+`FormScreen` installs the exact `{ appId, entryKey, formUuid, projectId,
+actorUserId, ownerId, scopeEpoch, accessPhase, canEdit }` write-authority tuple
+above every capture field, including when all of them are hidden or unmounted.
+Every queued capture/maintenance operation also carries the exact stable slot
+key and checks the current controller/session coordinates before and after its
+awaited work. Missing authority, response methods, instance paths, or stable
+slot identity reject in production; test doubles must implement the real
+contract. A tuple change aborts the old network generation without erasing
+stable slots, drafts, diagnostics, or Submit blockers. The mounted answer tree,
+focus, File controls, case/persona binding, and entry key also survive the
+uncertain refresh. Even if React coalesces refreshing and same-Project
+authorization into one render, active file drafts become retained recovery
+state and dirty signature ink is adopted and encoded exactly once under the new
+generation.
 
 Capture mutations share one entry-wide serialized queue; same-slot replacement
 is latest-wins, but deletion is never queue-critical. Submit classifies every

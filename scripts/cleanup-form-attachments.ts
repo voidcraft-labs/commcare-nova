@@ -5,46 +5,21 @@
  * and discard batches. Preparing rows copy+verify immutable bytes before
  * acceptance; discarding rows delete exact source/final generations before
  * metadata removal. GCS lifecycle remains the independent backstop for
- * abandoned staging-prefix bytes. Each execution first audits the shared
- * database settings and hard login-role caps, then a session advisory lock held
- * for the whole run collapses Scheduler/build overlap to one active worker.
+ * abandoned staging-prefix bytes. A session advisory lock held for the whole
+ * run collapses at-least-once Scheduler delivery to one active worker.
  */
 
-import type { PoolClient } from "pg";
-import {
-	closeCaseStoreDatabase,
-	getCaseStorePool,
-} from "@/lib/case-store/postgres/connection";
-import {
-	assertStrictCaptureMaintenance,
-	type CaptureCleanupMode,
-	type CaptureMaintenanceSummary,
-	readCaptureCleanupMode,
-} from "@/lib/db/captureCleanupGate";
-import {
-	CAPTURE_CLEANUP_STRICT_ADMISSION_TIMEOUT_MS,
-	CAPTURE_CLEANUP_STRICT_LOCK_TIMEOUT_MS,
-	CAPTURE_CLEANUP_STRICT_RETRY_MS,
-	connectCaptureCleanupAuditSession,
-	withExclusiveCaptureCleanupWorker,
-} from "@/lib/db/captureCleanupLease";
+import { closeCaseStoreDatabase } from "@/lib/case-store/postgres/connection";
+import { withExclusiveCaptureCleanupWorker } from "@/lib/db/captureCleanupLease";
 import { preparePendingFormAttachments } from "@/lib/db/formAttachmentPreparation";
 import { purgeExpiredFormAttachments } from "@/lib/db/formAttachments";
-import {
-	deleteAsset,
-	deleteAssetGeneration,
-	probeCaptureStorageAuthority,
-} from "@/lib/storage/media";
-import {
-	readDatabaseCapacityRoleConfig,
-	runDatabaseCapacityPreflight,
-} from "@/scripts/infra/databaseCapacityPreflight";
+import { deleteAsset, deleteAssetGeneration } from "@/lib/storage/media";
 
 const BATCH_SIZE = 100;
 const MAX_BATCHES = 10;
 const TEARDOWN_TIMEOUT_MS = 10_000;
 
-async function runMaintenance(mode: CaptureCleanupMode): Promise<void> {
+async function runMaintenance(): Promise<void> {
 	let expiredRows = 0;
 	let transitionedExpiredRows = 0;
 	let objectDeleteFailures = 0;
@@ -82,7 +57,7 @@ async function runMaintenance(mode: CaptureCleanupMode): Promise<void> {
 			break;
 	}
 
-	const summary: CaptureMaintenanceSummary = {
+	const summary = {
 		prepared,
 		discarded,
 		preparationFailures,
@@ -101,65 +76,11 @@ async function runMaintenance(mode: CaptureCleanupMode): Promise<void> {
 			...summary,
 		}),
 	);
-	if (mode === "strict") assertStrictCaptureMaintenance(summary);
 }
 
 async function main(): Promise<void> {
-	const mode = readCaptureCleanupMode();
-	const strictOptions =
-		mode === "strict"
-			? {
-					admissionTimeoutMs: CAPTURE_CLEANUP_STRICT_ADMISSION_TIMEOUT_MS,
-					lockTimeoutMs: CAPTURE_CLEANUP_STRICT_LOCK_TIMEOUT_MS,
-					contentionRetryMs: CAPTURE_CLEANUP_STRICT_RETRY_MS,
-				}
-			: {};
-	const pool = await getCaseStorePool();
-	const capacityClient: PoolClient | null =
-		await connectCaptureCleanupAuditSession(pool, strictOptions);
-	if (capacityClient === null) {
-		if (mode === "strict") {
-			throw new Error(
-				"Strict capture maintenance could not reserve a database capacity-audit session before its deadline.",
-			);
-		}
-		console.log(
-			JSON.stringify({
-				severity: "INFO",
-				message:
-					"[attachments] scheduled maintenance skipped; database connection capacity is saturated before capacity audit",
-			}),
-		);
-		return;
-	}
-	try {
-		await runDatabaseCapacityPreflight(
-			capacityClient,
-			readDatabaseCapacityRoleConfig(),
-		);
-	} finally {
-		capacityClient.release();
-	}
-
-	if (mode === "strict") {
-		// Exercise the real create-only staged→durable copy, verify the exact
-		// destination generation/metadata/bytes, then clean both exact
-		// generations before the release can move traffic.
-		await probeCaptureStorageAuthority();
-	}
-
-	const result = await withExclusiveCaptureCleanupWorker(
-		() => runMaintenance(mode),
-		strictOptions,
-	);
+	const result = await withExclusiveCaptureCleanupWorker(runMaintenance);
 	if (result.kind !== "ran") {
-		if (mode === "strict") {
-			throw new Error(
-				result.kind === "already-running"
-					? "Strict capture maintenance timed out waiting for an overlapping cleanup lease."
-					: "Strict capture maintenance timed out waiting for database connection capacity.",
-			);
-		}
 		console.log(
 			JSON.stringify({
 				severity: "INFO",

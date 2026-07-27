@@ -480,44 +480,39 @@ inserts `form_submission_intents`, moves those rows to `submitted`, applies
 every case effect, and stores the replay result atomically. A case failure
 restores `prepared`; no post-commit external await can make an accepted form
 appear failed.
+The Server Action's preflight is ordered the same way: one transaction locks
+the app `FOR SHARE`, proves fresh Project membership, and reads a durable
+receipt before hydrating any form/capture topology. A receipt returns without a
+blueprint read; otherwise the committed app snapshot from that transaction is
+the sole input to operation-program and capture-authority derivation.
 The intent is still built for a capture-capable committed form when the current
 attachment projection is empty. `attachments: []` therefore reaches the prior
 receipt check before any case effect: the same digest replays the stored result,
-while a changed payload under that entry key is rejected. Text-only forms do
-not create capture receipts merely because every submission has an entry key.
+while a changed payload under that entry key is rejected. Text-only forms carry
+the same submission receipt but create no capture intent or attachment rows.
 
 The request prepares its selected rows immediately; the five-minute Cloud
-Scheduler job leases bounded `preparing`/`discarding` batches with
-`FOR UPDATE SKIP LOCKED` and retries with backoff. The DB-first transition plus
-deterministic final key makes a crash before the row update recoverable by
-destination verification. A foreground Submit retry may make a row due
-immediately only when the prior worker recorded an error; an active lease has
-no recorded error and cannot be stolen, while unattended scheduler failures
-keep their backoff. Scheduler delivery and the deploy-time invocation may
-overlap, so `captureCleanupLease.ts` holds one session advisory lock for the
-whole maintenance run. The active worker's pool max is two (the lock session
-plus one work connection). Its isolated login role has no runtime membership
-and receives only public-schema `USAGE` plus `SELECT`/`UPDATE`/`DELETE` on
-`form_attachments`; migration-time convergence revokes access to every other
-managed table, the case schema, and attachment insertion/administration. The
-cleanup role's hard connection limit is three. A scheduler dispatch probes
-once and treats a held lease or pre-lock SQLSTATE `53300` as a saturated
-best-effort no-op. A `53300` after this process owns the advisory lock is an
-active-worker failure, so it unlocks and fails the Job rather than masking
-skipped maintenance. Every scheduled/deploy execution audits the server
-settings, all three login-role limits, and `pgaudit` extension presence before
-acquiring the lock. After winning, the owner prewarms its second connection
-with a bounded retry; maintenance starts only once the owner's same pool holds
-the work session idle for Kysely to reuse. A stuck reservation times out and
-fails the Job.
+Scheduler job leases bounded `preparing`/`discarding` batches with `FOR UPDATE
+SKIP LOCKED` and retries with backoff. The DB-first transition plus deterministic
+final key makes a crash before the row update recoverable by destination
+verification. A foreground Submit retry may make a row due immediately only
+when the prior worker recorded an error; an active lease has no recorded error
+and cannot be stolen, while unattended scheduler failures keep their backoff.
+`captureCleanupLease.ts` holds one session advisory lock for the whole
+maintenance run, collapsing at-least-once or overlapping scheduler deliveries
+to one active worker. The worker always runs the same preparation, verification,
+discard, and expiry sweep; there is no alternate mode or deploy-time
+invocation. Its pool max is two (the lock session plus one work connection).
+Its isolated login role has no runtime membership and receives only
+public-schema `USAGE` plus `SELECT`/`UPDATE`/`DELETE` on `form_attachments`;
+migration-time convergence revokes access to every other managed table, the
+case schema, and attachment insertion/administration. The cleanup role's hard
+connection limit is three. A held lease or pre-lock SQLSTATE `53300` skips that
+dispatch; a `53300` after this process owns the lock is an active-worker
+failure. After winning, the owner prewarms its second connection with a bounded
+retry so Kysely reuses that admitted session; a stuck reservation fails the
+Job.
 
-The stored Cloud Run Job mode is `scheduler`. Cloud Build overrides one
-pre-traffic execution to `strict`: it waits through bounded capacity and lease
-contention, proves its capture-only GCS authority with the real create-only
-staged→durable copy, verifies the destination's exact generation, size, CRC32C,
-content type, and bytes, then deletes both exact generations, and rejects any maintenance
-summary with a row preparation/discard or exact object-deletion failure.
-Scheduler delivery remains best-effort; the deploy gate does not.
 GCS lifecycle remains the traffic-independent
 backstop for ordinary staged/browser-abandoned source bytes, but cannot
 atomically distinguish DB acceptance; accepted durability therefore requires

@@ -681,6 +681,12 @@ export class EngineController {
 		return this.activeFormUuid;
 	}
 
+	/** Exact worker identity captured by the live engine entry. Attachment
+	 * continuations compare this imperative value after every await. */
+	get previewIdentitySnapshot(): ResolvedPreviewIdentity | null {
+		return this.previewIdentity;
+	}
+
 	/**
 	 * End the current answer world and synchronously mount a fresh entry for
 	 * the same form, case preload, lookup capture, and preview identity.

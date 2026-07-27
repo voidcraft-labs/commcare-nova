@@ -15,24 +15,77 @@ import {
 	getAttachmentSlotPath,
 	getOwnedStagedAttachment,
 	getSignatureDraft,
+	hasAttachmentEntryWriteAuthority,
 	isAttachmentTaskAbort,
 	listAttachmentInvariantRecoveries,
 	markAttachmentNotReady,
 	reconcileAttachmentAuthoredPathMigration,
 	reconcileAttachmentRepeatCompaction,
-	registerAttachmentSlotPath,
+	registerAttachmentSlotPath as registerAttachmentSlotPathProduction,
 	rememberAttachmentSlotDraft,
 	rememberOwnedStagedAttachment,
 	rememberSignatureDraft,
 	resolveAttachmentSlotKey,
 	retargetAttachment,
 	retryAttachmentRetarget,
-	runAttachmentTask,
+	runAttachmentTask as runAttachmentTaskProduction,
 	runFormAttachmentBarrier,
 	runWithAttachmentEntryWriteAuthority,
-	setAttachmentEntryAuthority,
+	setAttachmentEntryAuthority as setAttachmentEntryAuthorityProduction,
 	stageAttachment,
 } from "../attachmentClient";
+
+const explicitlyManagedAuthorities = new Set<string>();
+
+function defaultAuthority(entryKey: string): AttachmentEntryAuthoritySnapshot {
+	return {
+		appId: "app-1",
+		entryKey,
+		formUuid: "22222222-2222-4222-8222-222222222222",
+		projectId: "project-attachment-test",
+		actorUserId: "actor-attachment-test",
+		ownerId: "actor-attachment-test",
+		scopeEpoch: 1,
+		accessPhase: "authorized",
+		canEdit: true,
+	};
+}
+
+function ensureDefaultAuthority(entryKey: string): void {
+	if (
+		explicitlyManagedAuthorities.has(entryKey) ||
+		hasAttachmentEntryWriteAuthority(entryKey)
+	) {
+		return;
+	}
+	const snapshot = defaultAuthority(entryKey);
+	setAttachmentEntryAuthorityProduction({
+		entryKey,
+		snapshot,
+		readCurrent: () => snapshot,
+	});
+}
+
+function setAttachmentEntryAuthority(
+	args: Parameters<typeof setAttachmentEntryAuthorityProduction>[0],
+): ReturnType<typeof setAttachmentEntryAuthorityProduction> {
+	explicitlyManagedAuthorities.add(args.entryKey);
+	return setAttachmentEntryAuthorityProduction(args);
+}
+
+function registerAttachmentSlotPath(
+	args: Parameters<typeof registerAttachmentSlotPathProduction>[0],
+): ReturnType<typeof registerAttachmentSlotPathProduction> {
+	ensureDefaultAuthority(args.entryKey);
+	return registerAttachmentSlotPathProduction(args);
+}
+
+function runAttachmentTask<T>(
+	args: Parameters<typeof runAttachmentTaskProduction<T>>[0],
+): ReturnType<typeof runAttachmentTaskProduction<T>> {
+	ensureDefaultAuthority(args.entryKey);
+	return runAttachmentTaskProduction(args);
+}
 
 function defaultSegmentKeys(pathTemplate: string, fieldUuid: string): string[] {
 	const depth = pathTemplate.split("/").filter(Boolean).length;
@@ -144,19 +197,108 @@ function waitForBodyAbort(
 	});
 }
 
+/**
+ * Test doubles implement the same response-body methods production consumes.
+ * Compact per-test objects are normalized here, never in application code.
+ */
+function stubFetch(fetchMock: ReturnType<typeof vi.fn>): void {
+	vi.stubGlobal(
+		"fetch",
+		async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+			const response = (await (
+				fetchMock as (input: RequestInfo | URL, init?: RequestInit) => unknown
+			)(input, init)) as Partial<Response>;
+			if (response instanceof Response) return response;
+
+			const providedJson =
+				typeof response.json === "function"
+					? response.json.bind(response)
+					: undefined;
+			const providedArrayBuffer =
+				typeof response.arrayBuffer === "function"
+					? response.arrayBuffer.bind(response)
+					: undefined;
+			let requestedInstancePath: string | undefined;
+			if (init?.method === "PATCH" && typeof init.body === "string") {
+				const parsed = JSON.parse(init.body) as { instancePath?: unknown };
+				if (typeof parsed.instancePath === "string") {
+					requestedInstancePath = parsed.instancePath;
+				}
+			}
+			const json = async (): Promise<unknown> => {
+				if (providedJson !== undefined) return providedJson();
+				if (providedArrayBuffer !== undefined) await providedArrayBuffer();
+				return requestedInstancePath === undefined
+					? {}
+					: { instancePath: requestedInstancePath };
+			};
+			const arrayBuffer = async (): Promise<ArrayBuffer> => {
+				if (providedArrayBuffer !== undefined) return providedArrayBuffer();
+				if (providedJson !== undefined) await providedJson();
+				return new ArrayBuffer(0);
+			};
+			const status = response.status ?? (response.ok === false ? 500 : 200);
+			return {
+				...response,
+				ok: response.ok ?? (status >= 200 && status < 300),
+				status,
+				json,
+				arrayBuffer,
+				text: async () => "",
+			} as Response;
+		},
+	);
+}
+
 afterEach(async () => {
 	await __resetAttachmentCoordinatorForTests();
+	explicitlyManagedAuthorities.clear();
 	vi.useRealTimers();
 	vi.unstubAllGlobals();
 });
 
 describe("form attachment coordinator", () => {
+	it("fails closed without an exact full entry authority tuple", async () => {
+		const entryKey = "entry-exact-authority";
+		await expect(
+			runAttachmentTaskProduction({
+				entryKey,
+				slotKey: "photo:exact-authority",
+				task: async () => "must not run",
+			}),
+		).rejects.toMatchObject({ name: "AbortError" });
+
+		const mismatched = {
+			...defaultAuthority(entryKey),
+			entryKey: "different-live-entry",
+		};
+		setAttachmentEntryAuthorityProduction({
+			entryKey,
+			snapshot: mismatched,
+			readCurrent: () => mismatched,
+		});
+		expect(hasAttachmentEntryWriteAuthority(entryKey)).toBe(false);
+		expect(captureAttachmentEntryWriteAuthority(entryKey, 1)).toBeUndefined();
+		await expect(
+			runAttachmentTaskProduction({
+				entryKey,
+				slotKey: "photo:exact-authority",
+				task: async () => "must not run",
+			}),
+		).rejects.toMatchObject({ name: "AbortError" });
+	});
+
 	it("rejects destructive callbacks captured before authority loss and restoration", async () => {
 		const entryKey = "entry-stale-destructive-authority";
 		const slotKey = "photo:stale-destructive-authority";
 		const fieldUuid = "22222222-2222-4222-8222-222222222222";
 		let current: AttachmentEntryAuthoritySnapshot = {
 			appId: "app-1",
+			entryKey,
+			formUuid: "22222222-2222-4222-8222-222222222222",
+			projectId: "project-attachment-test",
+			actorUserId: "actor-attachment-test",
+			ownerId: "actor-attachment-test",
 			scopeEpoch: 1,
 			accessPhase: "authorized",
 			canEdit: true,
@@ -221,6 +363,11 @@ describe("form attachment coordinator", () => {
 
 		current = {
 			appId: "app-1",
+			entryKey,
+			formUuid: "22222222-2222-4222-8222-222222222222",
+			projectId: "project-attachment-test",
+			actorUserId: "actor-attachment-test",
+			ownerId: "actor-attachment-test",
 			scopeEpoch: 2,
 			accessPhase: "refreshing",
 			canEdit: false,
@@ -228,6 +375,11 @@ describe("form attachment coordinator", () => {
 		install();
 		current = {
 			appId: "app-1",
+			entryKey,
+			formUuid: "22222222-2222-4222-8222-222222222222",
+			projectId: "project-attachment-test",
+			actorUserId: "actor-attachment-test",
+			ownerId: "actor-attachment-test",
 			scopeEpoch: 2,
 			accessPhase: "authorized",
 			canEdit: true,
@@ -259,10 +411,7 @@ describe("form attachment coordinator", () => {
 
 		const restoredAuthority = captureAttachmentEntryWriteAuthority(entryKey, 2);
 		expect(restoredAuthority).toBeDefined();
-		vi.stubGlobal(
-			"fetch",
-			vi.fn().mockResolvedValue({ ok: true, status: 200 }),
-		);
+		stubFetch(vi.fn().mockResolvedValue({ ok: true, status: 200 }));
 		expect(
 			discardAttachmentInvariantRecovery({
 				appId: "app-1",
@@ -276,10 +425,15 @@ describe("form attachment coordinator", () => {
 		).toBeUndefined();
 	});
 
-	it("entry authority fences queued slotless work and preserves a clean restored submit", async () => {
+	it("entry authority fences queued work and preserves a clean restored submit", async () => {
 		const entryKey = "entry-authority-generation";
 		let current: AttachmentEntryAuthoritySnapshot = {
 			appId: "app-1",
+			entryKey,
+			formUuid: "22222222-2222-4222-8222-222222222222",
+			projectId: "project-attachment-test",
+			actorUserId: "actor-attachment-test",
+			ownerId: "actor-attachment-test",
 			scopeEpoch: 1,
 			accessPhase: "authorized",
 			canEdit: true,
@@ -320,6 +474,11 @@ describe("form attachment coordinator", () => {
 
 		current = {
 			appId: "app-1",
+			entryKey,
+			formUuid: "22222222-2222-4222-8222-222222222222",
+			projectId: "project-attachment-test",
+			actorUserId: "actor-attachment-test",
+			ownerId: "actor-attachment-test",
 			scopeEpoch: 2,
 			accessPhase: "refreshing",
 			canEdit: false,
@@ -327,6 +486,11 @@ describe("form attachment coordinator", () => {
 		install();
 		current = {
 			appId: "app-1",
+			entryKey,
+			formUuid: "22222222-2222-4222-8222-222222222222",
+			projectId: "project-attachment-test",
+			actorUserId: "actor-attachment-test",
+			ownerId: "actor-attachment-test",
 			scopeEpoch: 2,
 			accessPhase: "authorized",
 			canEdit: true,
@@ -349,6 +513,11 @@ describe("form attachment coordinator", () => {
 		const fieldUuid = "22222222-2222-4222-8222-222222222222";
 		let current: AttachmentEntryAuthoritySnapshot = {
 			appId: "app-1",
+			entryKey,
+			formUuid: "22222222-2222-4222-8222-222222222222",
+			projectId: "project-attachment-test",
+			actorUserId: "actor-attachment-test",
+			ownerId: "actor-attachment-test",
 			scopeEpoch: 1,
 			accessPhase: "authorized",
 			canEdit: true,
@@ -384,8 +553,7 @@ describe("form attachment coordinator", () => {
 		const order: string[] = [];
 		const patchBodies: unknown[] = [];
 		let patchCount = 0;
-		vi.stubGlobal(
-			"fetch",
+		stubFetch(
 			vi.fn((_url: string, init?: RequestInit) => {
 				patchCount += 1;
 				patchBodies.push(JSON.parse(String(init?.body)));
@@ -415,6 +583,11 @@ describe("form attachment coordinator", () => {
 
 		current = {
 			appId: "app-1",
+			entryKey,
+			formUuid: "22222222-2222-4222-8222-222222222222",
+			projectId: "project-attachment-test",
+			actorUserId: "actor-attachment-test",
+			ownerId: "actor-attachment-test",
 			scopeEpoch: 2,
 			accessPhase: "refreshing",
 			canEdit: false,
@@ -422,6 +595,11 @@ describe("form attachment coordinator", () => {
 		install();
 		current = {
 			appId: "app-1",
+			entryKey,
+			formUuid: "22222222-2222-4222-8222-222222222222",
+			projectId: "project-attachment-test",
+			actorUserId: "actor-attachment-test",
+			ownerId: "actor-attachment-test",
 			scopeEpoch: 2,
 			accessPhase: "authorized",
 			canEdit: true,
@@ -471,6 +649,11 @@ describe("form attachment coordinator", () => {
 		const fieldUuid = "22222222-2222-4222-8222-222222222222";
 		let current: AttachmentEntryAuthoritySnapshot = {
 			appId: "app-1",
+			entryKey,
+			formUuid: "22222222-2222-4222-8222-222222222222",
+			projectId: "project-attachment-test",
+			actorUserId: "actor-attachment-test",
+			ownerId: "actor-attachment-test",
 			scopeEpoch: 1,
 			accessPhase: "authorized",
 			canEdit: true,
@@ -515,8 +698,7 @@ describe("form attachment coordinator", () => {
 		const firstPatchStarted = deferred<void>();
 		const order: string[] = [];
 		let patchCount = 0;
-		vi.stubGlobal(
-			"fetch",
+		stubFetch(
 			vi.fn((_url: string, init?: RequestInit) => {
 				patchCount += 1;
 				if (patchCount === 1) {
@@ -546,6 +728,11 @@ describe("form attachment coordinator", () => {
 
 		current = {
 			appId: "app-1",
+			entryKey,
+			formUuid: "22222222-2222-4222-8222-222222222222",
+			projectId: "project-attachment-test",
+			actorUserId: "actor-attachment-test",
+			ownerId: "actor-attachment-test",
 			scopeEpoch: 2,
 			accessPhase: "refreshing",
 			canEdit: false,
@@ -553,6 +740,11 @@ describe("form attachment coordinator", () => {
 		install();
 		current = {
 			appId: "app-1",
+			entryKey,
+			formUuid: "22222222-2222-4222-8222-222222222222",
+			projectId: "project-attachment-test",
+			actorUserId: "actor-attachment-test",
+			ownerId: "actor-attachment-test",
 			scopeEpoch: 2,
 			accessPhase: "authorized",
 			canEdit: true,
@@ -580,7 +772,7 @@ describe("form attachment coordinator", () => {
 		const order: string[] = [];
 		const first = runAttachmentTask({
 			entryKey: "entry-serialize",
-			instancePath: "/data/first",
+			slotKey: "/data/first",
 			task: async () => {
 				order.push("first:start");
 				await firstRelease.promise;
@@ -589,7 +781,7 @@ describe("form attachment coordinator", () => {
 		});
 		const second = runAttachmentTask({
 			entryKey: "entry-serialize",
-			instancePath: "/data/second",
+			slotKey: "/data/second",
 			task: async () => {
 				order.push("second:start");
 			},
@@ -606,7 +798,7 @@ describe("form attachment coordinator", () => {
 		let firstWasCurrent: (() => boolean) | undefined;
 		const first = runAttachmentTask({
 			entryKey: "entry-latest",
-			instancePath: "/data/photo",
+			slotKey: "/data/photo",
 			task: async ({ signal, isCurrent }) => {
 				firstWasCurrent = isCurrent;
 				observations.push("first:start");
@@ -624,7 +816,7 @@ describe("form attachment coordinator", () => {
 
 		const second = runAttachmentTask({
 			entryKey: "entry-latest",
-			instancePath: "/data/photo",
+			slotKey: "/data/photo",
 			task: async ({ isCurrent }) => {
 				observations.push(`second:current=${isCurrent()}`);
 			},
@@ -645,7 +837,7 @@ describe("form attachment coordinator", () => {
 		const order: string[] = [];
 		const upload = runAttachmentTask({
 			entryKey: "entry-barrier",
-			instancePath: "/data/photo",
+			slotKey: "/data/photo",
 			task: async () => {
 				order.push("upload");
 				await uploadRelease.promise;
@@ -657,7 +849,7 @@ describe("form attachment coordinator", () => {
 		});
 		const later = runAttachmentTask({
 			entryKey: "entry-barrier",
-			instancePath: "/data/signature",
+			slotKey: "/data/signature",
 			task: async () => {
 				order.push("later");
 			},
@@ -676,7 +868,7 @@ describe("form attachment coordinator", () => {
 		const active = ["/data/photo", "/data/signature"].map((instancePath) =>
 			runAttachmentTask({
 				entryKey: "entry-reset",
-				instancePath,
+				slotKey: instancePath,
 				task: async ({ signal }) => {
 					await new Promise<void>((_resolve, reject) => {
 						signal.addEventListener("abort", () => reject(signal.reason), {
@@ -770,7 +962,7 @@ describe("form attachment coordinator", () => {
 			},
 		});
 		const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
-		vi.stubGlobal("fetch", fetchMock);
+		stubFetch(fetchMock);
 		markAttachmentNotReady(
 			entryKey,
 			slotKey,
@@ -994,7 +1186,7 @@ describe("form attachment coordinator", () => {
 				status: 200,
 				json: async () => ({ instancePath: "/data/visits[0]/photo" }),
 			});
-		vi.stubGlobal("fetch", fetchMock);
+		stubFetch(fetchMock);
 		const maintenance = reconcileAttachmentRepeatCompaction({
 			appId: "app-1",
 			entryKey,
@@ -1079,8 +1271,7 @@ describe("form attachment coordinator", () => {
 			},
 		});
 		const retargetStarted = deferred<void>();
-		vi.stubGlobal(
-			"fetch",
+		stubFetch(
 			vi.fn((_url, init?: RequestInit) => {
 				retargetStarted.resolve();
 				return new Promise<never>((_resolve, reject) => {
@@ -1128,6 +1319,7 @@ describe("form attachment coordinator", () => {
 		rememberOwnedStagedAttachment({
 			appId: "app-1",
 			entryKey: "entry-keep",
+			slotKey: "photo:entry-keep",
 			instancePath: "/data/photo",
 			attachment: staged,
 		});
@@ -1137,12 +1329,12 @@ describe("form attachment coordinator", () => {
 			getOwnedStagedAttachment({
 				appId: "app-1",
 				entryKey: "entry-keep",
-				instancePath: "/data/photo",
+				slotKey: "photo:entry-keep",
 			}),
 		).toEqual(staged);
 
 		const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
-		vi.stubGlobal("fetch", fetchMock);
+		stubFetch(fetchMock);
 		await discardAttachmentEntry({
 			appId: "app-1",
 			entryKey: "entry-keep",
@@ -1156,7 +1348,7 @@ describe("form attachment coordinator", () => {
 			getOwnedStagedAttachment({
 				appId: "app-1",
 				entryKey: "entry-keep",
-				instancePath: "/data/photo",
+				slotKey: "photo:entry-keep",
 			}),
 		).toBeUndefined();
 	});
@@ -1211,7 +1403,7 @@ describe("form attachment coordinator", () => {
 				});
 				return { ok: true, status: 200 };
 			});
-			vi.stubGlobal("fetch", fetchMock);
+			stubFetch(fetchMock);
 
 			const maintenance = reconcileAttachmentAuthoredPathMigration({
 				appId: "app-1",
@@ -1280,7 +1472,7 @@ describe("form attachment coordinator", () => {
 			});
 			return { ok: true, status: 200 };
 		});
-		vi.stubGlobal("fetch", fetchMock);
+		stubFetch(fetchMock);
 		const maintenance = reconcileAttachmentAuthoredPathMigration({
 			appId: "app-1",
 			entryKey,
@@ -1331,7 +1523,7 @@ describe("form attachment coordinator", () => {
 			},
 		});
 		const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
-		vi.stubGlobal("fetch", fetchMock);
+		stubFetch(fetchMock);
 
 		await reconcileAttachmentAuthoredPathMigration({
 			appId: "app-1",
@@ -1439,7 +1631,7 @@ describe("form attachment coordinator", () => {
 			},
 		});
 		const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
-		vi.stubGlobal("fetch", fetchMock);
+		stubFetch(fetchMock);
 
 		await reconcileAttachmentAuthoredPathMigration({
 			appId: "app-1",
@@ -1505,7 +1697,7 @@ describe("form attachment coordinator", () => {
 			},
 		});
 		const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
-		vi.stubGlobal("fetch", fetchMock);
+		stubFetch(fetchMock);
 
 		await reconcileAttachmentAuthoredPathMigration({
 			appId: "app-1",
@@ -1577,7 +1769,7 @@ describe("form attachment coordinator", () => {
 		const strokes = [[{ x: 0.2, y: 0.4 }]];
 		rememberSignatureDraft(entryKey, signatureSlotKey, strokes);
 		const fetchMock = vi.fn();
-		vi.stubGlobal("fetch", fetchMock);
+		stubFetch(fetchMock);
 
 		await reconcileAttachmentAuthoredPathMigration({
 			appId: "app-1",
@@ -1813,7 +2005,7 @@ describe("form attachment coordinator", () => {
 		).toHaveLength(1);
 
 		const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
-		vi.stubGlobal("fetch", fetchMock);
+		stubFetch(fetchMock);
 		await reconcileAttachmentAuthoredPathMigration({
 			appId: "app-1",
 			entryKey,
@@ -1879,7 +2071,7 @@ describe("form attachment coordinator", () => {
 			});
 			return { ok: true, status: 200 };
 		});
-		vi.stubGlobal("fetch", fetchMock);
+		stubFetch(fetchMock);
 
 		// No AttachmentField is mounted here: relevance hid it before row 1
 		// was removed. The entry/form owner still receives compaction.
@@ -1936,8 +2128,7 @@ describe("form attachment coordinator", () => {
 		});
 		const patchBodies: unknown[] = [];
 		let patch = 0;
-		vi.stubGlobal(
-			"fetch",
+		stubFetch(
 			vi.fn(async (_url, init?: RequestInit) => {
 				if (init?.method !== "PATCH") {
 					return { ok: true, status: 200 };
@@ -2052,8 +2243,7 @@ describe("form attachment coordinator", () => {
 		await Promise.resolve();
 
 		const order: string[] = [];
-		vi.stubGlobal(
-			"fetch",
+		stubFetch(
 			vi.fn().mockImplementation(async () => {
 				order.push("discard");
 				return { ok: true, status: 200 };
@@ -2102,7 +2292,7 @@ describe("form attachment coordinator", () => {
 		const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) =>
 			waitForAbort(init?.signal),
 		);
-		vi.stubGlobal("fetch", fetchMock);
+		stubFetch(fetchMock);
 
 		const maintenance = reconcileAttachmentRepeatCompaction({
 			appId: "app-1",
@@ -2166,7 +2356,7 @@ describe("form attachment coordinator", () => {
 			},
 		});
 		const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
-		vi.stubGlobal("fetch", fetchMock);
+		stubFetch(fetchMock);
 		const maintenance = reconcileAttachmentRepeatCompaction({
 			appId: "app-1",
 			entryKey,
@@ -2225,7 +2415,7 @@ describe("form attachment coordinator", () => {
 			}
 			return { ok: true, status: 200 };
 		});
-		vi.stubGlobal("fetch", fetchMock);
+		stubFetch(fetchMock);
 
 		await reconcileAttachmentRepeatCompaction({
 			appId: "app-1",
@@ -2292,7 +2482,7 @@ describe("stageAttachment", () => {
 					sizeBytes: 3,
 				}),
 			});
-		vi.stubGlobal("fetch", fetchMock);
+		stubFetch(fetchMock);
 
 		await expect(
 			stageAttachment({
@@ -2325,7 +2515,7 @@ describe("stageAttachment", () => {
 				}),
 			} as Response)
 			.mockResolvedValueOnce({ ok: false, status: 500 } as Response);
-		vi.stubGlobal("fetch", fetchMock);
+		stubFetch(fetchMock);
 
 		await expect(
 			stageAttachment({
@@ -2348,7 +2538,7 @@ describe("stageAttachment", () => {
 		const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) =>
 			waitForAbort(init?.signal),
 		);
-		vi.stubGlobal("fetch", fetchMock);
+		stubFetch(fetchMock);
 
 		const stage = stageAttachment({
 			appId: "app-1",
@@ -2372,7 +2562,7 @@ describe("stageAttachment", () => {
 				json: () => waitForAbort(init?.signal),
 			} as unknown as Response),
 		);
-		vi.stubGlobal("fetch", fetchMock);
+		stubFetch(fetchMock);
 
 		const stage = stageAttachment({
 			appId: "app-1",
@@ -2397,7 +2587,7 @@ describe("stageAttachment", () => {
 				json: () => waitForAbort(init?.signal),
 			} as unknown as Response),
 		);
-		vi.stubGlobal("fetch", fetchMock);
+		stubFetch(fetchMock);
 
 		const stage = stageAttachment({
 			appId: "app-1",
@@ -2435,7 +2625,7 @@ describe("stageAttachment", () => {
 			}
 			return waitForAbort(init?.signal);
 		});
-		vi.stubGlobal("fetch", fetchMock);
+		stubFetch(fetchMock);
 
 		const stage = stageAttachment({
 			appId: "app-1",
@@ -2492,7 +2682,7 @@ describe("stageAttachment", () => {
 				}),
 			} as Response);
 		});
-		vi.stubGlobal("fetch", fetchMock);
+		stubFetch(fetchMock);
 
 		const stage = stageAttachment({
 			appId: "app-1",
@@ -2544,7 +2734,7 @@ describe("stageAttachment", () => {
 				}),
 			} as Response);
 		});
-		vi.stubGlobal("fetch", fetchMock);
+		stubFetch(fetchMock);
 
 		const stage = stageAttachment({
 			appId: "app-1",
@@ -2585,7 +2775,7 @@ describe("stageAttachment", () => {
 			}
 			return waitForAbort(init?.signal);
 		});
-		vi.stubGlobal("fetch", fetchMock);
+		stubFetch(fetchMock);
 
 		const stage = stageAttachment({
 			appId: "app-1",
@@ -2633,7 +2823,7 @@ describe("stageAttachment", () => {
 				json: () => waitForAbort(init?.signal),
 			} as unknown as Response);
 		});
-		vi.stubGlobal("fetch", fetchMock);
+		stubFetch(fetchMock);
 
 		const stage = stageAttachment({
 			appId: "app-1",
@@ -2682,7 +2872,7 @@ describe("stageAttachment", () => {
 				json: () => waitForAbort(init?.signal),
 			} as unknown as Response);
 		});
-		vi.stubGlobal("fetch", fetchMock);
+		stubFetch(fetchMock);
 
 		const stage = stageAttachment({
 			appId: "app-1",
@@ -2710,7 +2900,7 @@ describe("stageAttachment", () => {
 		const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) =>
 			waitForAbort(init?.signal),
 		);
-		vi.stubGlobal("fetch", fetchMock);
+		stubFetch(fetchMock);
 
 		const retarget = retargetAttachment({
 			appId: "app-1",
@@ -2740,7 +2930,7 @@ describe("stageAttachment", () => {
 				arrayBuffer: () => waitForBodyAbort(init?.signal),
 			} as unknown as Response),
 		);
-		vi.stubGlobal("fetch", fetchMock);
+		stubFetch(fetchMock);
 
 		const retarget = retargetAttachment({
 			appId: "app-1",
@@ -2757,8 +2947,7 @@ describe("stageAttachment", () => {
 	it("keeps external cancellation attached while a retarget body stalls", async () => {
 		const controller = new AbortController();
 		const bodyStarted = deferred<void>();
-		vi.stubGlobal(
-			"fetch",
+		stubFetch(
 			vi.fn((_input: RequestInfo | URL, init?: RequestInit) =>
 				Promise.resolve({
 					ok: true,
@@ -2788,8 +2977,7 @@ describe("stageAttachment", () => {
 
 	it("keeps the cleanup deadline open through a stalled success body", async () => {
 		vi.useFakeTimers();
-		vi.stubGlobal(
-			"fetch",
+		stubFetch(
 			vi.fn((_input: RequestInfo | URL, init?: RequestInit) =>
 				Promise.resolve({
 					ok: true,
@@ -2810,8 +2998,7 @@ describe("stageAttachment", () => {
 
 	it("keeps the cleanup deadline open through a stalled error body", async () => {
 		vi.useFakeTimers();
-		vi.stubGlobal(
-			"fetch",
+		stubFetch(
 			vi.fn((_input: RequestInfo | URL, init?: RequestInit) =>
 				Promise.resolve({
 					ok: false,
@@ -2833,8 +3020,7 @@ describe("stageAttachment", () => {
 	it("keeps external cancellation attached while a cleanup body stalls", async () => {
 		const controller = new AbortController();
 		const bodyStarted = deferred<void>();
-		vi.stubGlobal(
-			"fetch",
+		stubFetch(
 			vi.fn((_input: RequestInfo | URL, init?: RequestInit) =>
 				Promise.resolve({
 					ok: true,

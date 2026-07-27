@@ -16,7 +16,9 @@ import {
 	compensatePendingFormAttachmentInitiation,
 	completeFormAttachmentPreparation,
 	confirmFormAttachment,
+	createPendingFormAttachment,
 	deleteUnsubmittedFormAttachment,
+	loadAuthorizedFormSubmissionSnapshot,
 	loadFormAttachmentForEdit,
 	purgeExpiredFormAttachments,
 	recordFormAttachmentPreparationFailure,
@@ -27,6 +29,136 @@ import { setupAppStateTestDb } from "./appStateTestDb";
 const h = setupAppStateTestDb("form_attachment_app_scope_");
 const PROJECT = "capture-shared-project";
 const ACTOR = "capture-shared-editor";
+
+describe("form submission authorization snapshot", () => {
+	it("returns one committed app snapshot only after fresh edit authorization", async () => {
+		const doc = buildDoc({ appName: "Authorized submission snapshot" });
+		const appId = await h.seedAppWithBlueprint(doc, {
+			id: "capture-authorized-snapshot-app",
+			owner: "capture-authorized-snapshot-owner",
+			projectId: PROJECT,
+		});
+		await h.seedProjectMember(ACTOR, PROJECT, "editor");
+
+		await expect(
+			loadAuthorizedFormSubmissionSnapshot({
+				appId,
+				actorUserId: ACTOR,
+				entryKey: crypto.randomUUID(),
+			}),
+		).resolves.toMatchObject({
+			kind: "current",
+			projectId: PROJECT,
+			app: {
+				blueprint: { appName: "Authorized submission snapshot" },
+				mutation_seq: 0,
+			},
+		});
+	});
+
+	it("reauthorizes before returning a durable replay receipt", async () => {
+		const appId = await h.seedApp({
+			id: "capture-replay-authorization-app",
+			owner: "capture-replay-authorization-owner",
+			project_id: PROJECT,
+		});
+		const entryKey = crypto.randomUUID();
+		const formUuid = crypto.randomUUID();
+		await h
+			.db()
+			.insertInto("form_submission_intents")
+			.values({
+				app_id: appId,
+				project_id: PROJECT,
+				created_by: ACTOR,
+				entry_key: entryKey,
+				form_uuid: formUuid,
+				app_mutation_seq: 0,
+				request_digest: "accepted-request",
+				result: JSON.stringify({
+					childCaseIds: [],
+					operations: [],
+				}),
+			})
+			.execute();
+
+		await expect(
+			loadAuthorizedFormSubmissionSnapshot({
+				appId,
+				actorUserId: ACTOR,
+				entryKey,
+			}),
+		).rejects.toThrow("App not found.");
+
+		await h.seedProjectMember(ACTOR, PROJECT, "editor");
+		await expect(
+			loadAuthorizedFormSubmissionSnapshot({
+				appId,
+				actorUserId: ACTOR,
+				entryKey,
+			}),
+		).resolves.toEqual({
+			kind: "replay",
+			projectId: PROJECT,
+			receipt: {
+				formUuid,
+				requestDigest: "accepted-request",
+				result: {
+					childCaseIds: [],
+					operations: [],
+				},
+			},
+		});
+	});
+
+	it("authorizes attachment initiation before exposing Project or topology drift", async () => {
+		const fieldUuid = crypto.randomUUID();
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "Visits",
+					forms: [
+						{
+							name: "Visit",
+							type: "survey",
+							fields: [
+								f({
+									uuid: fieldUuid,
+									id: "photo",
+									kind: "image",
+									label: "Photo",
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const appId = await h.seedAppWithBlueprint(doc, {
+			id: "capture-initiation-authorization-app",
+			owner: "capture-initiation-authorization-owner",
+			projectId: PROJECT,
+		});
+		const initiate = () =>
+			createPendingFormAttachment({
+				appId,
+				projectId: "attacker-claimed-project",
+				expectedAppMutationSeq: 99,
+				createdBy: ACTOR,
+				entryKey: crypto.randomUUID(),
+				fieldUuid,
+				instancePath: "/data/photo",
+				originalFilename: "photo.png",
+				extension: ".png",
+				contentType: "image/png",
+				sizeBytes: 3,
+			});
+
+		await expect(initiate()).rejects.toThrow("App not found.");
+		await h.seedProjectMember(ACTOR, PROJECT, "editor");
+		await expect(initiate()).rejects.toThrow("The app changed Projects.");
+	});
+});
 
 describe("form attachment URL-app authority", () => {
 	it("cannot read or mutate app A's row through app B in the same Project", async () => {

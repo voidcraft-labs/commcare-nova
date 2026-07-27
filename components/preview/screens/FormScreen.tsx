@@ -45,6 +45,7 @@ import { useCaseDataReplacementRevision } from "@/lib/preview/hooks/caseDataInva
 import { useCaseData, useCases } from "@/lib/preview/hooks/useCaseDataBinding";
 import { useEngineEntry } from "@/lib/preview/hooks/useEngineEntry";
 import { useFormEngine } from "@/lib/preview/hooks/useFormEngine";
+import { useSelectedPreviewIdentity } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import {
 	useAccessPhase,
@@ -53,6 +54,7 @@ import {
 	useCanEdit,
 	useEditMode,
 	usePreviewPersonaUuid,
+	useProjectId,
 	useProjectScopeEpoch,
 	useSetPreviewCaseTarget,
 	useSetPreviewSelectedCase,
@@ -66,6 +68,7 @@ import { FormRenderer } from "../form/FormRenderer";
 import { AttachmentInvariantRecoveryPanel } from "../form/fields/attachment/AttachmentInvariantRecoveryPanel";
 import {
 	AttachmentNotReadyError,
+	hasAttachmentEntryWriteAuthority,
 	reconcileAttachmentAuthoredPathMigration,
 	reconcileAttachmentRepeatCompaction,
 	retireAttachmentEntry,
@@ -224,9 +227,11 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	const isReady = useBuilderIsReady();
 	const mode = useEditMode();
 	const appId = useAppId();
+	const projectId = useProjectId();
 	const scopeEpoch = useProjectScopeEpoch();
 	const accessPhase = useAccessPhase();
 	const personaUuid = usePreviewPersonaUuid();
+	const previewIdentity = useSelectedPreviewIdentity();
 	const session = useBuilderSessionApi();
 	/* A viewer may preview the running app but not WRITE case data (submit a
 	 * form, generate sample cases) — those server actions are edit-gated, so
@@ -369,11 +374,17 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	const engineEntry = useEngineEntry();
 	const entryKey =
 		engineEntry.formUuid === formUuid ? engineEntry.entryKey : undefined;
+	let attachmentEntryReady = false;
 	if (entryKey !== undefined) {
 		setAttachmentEntryAuthority({
 			entryKey,
 			snapshot: {
 				appId,
+				entryKey,
+				formUuid,
+				projectId,
+				actorUserId: previewIdentity?.actorUserId,
+				ownerId: previewIdentity?.ownerId,
 				scopeEpoch,
 				accessPhase,
 				canEdit: mayWriteCaseData,
@@ -382,12 +393,18 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				const current = session.getState();
 				return {
 					appId: current.appId,
+					entryKey: controller.entryKey,
+					formUuid: controller.formUuid,
+					projectId: current.projectId,
+					actorUserId: previewIdentity?.actorUserId,
+					ownerId: previewIdentity?.ownerId,
 					scopeEpoch: current.scopeEpoch,
 					accessPhase: current.accessPhase,
 					canEdit: current.canEdit,
 				};
 			},
 		});
+		attachmentEntryReady = hasAttachmentEntryWriteAuthority(entryKey);
 	}
 	const postSubmitDestination =
 		form === undefined
@@ -783,6 +800,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			});
 			return;
 		}
+		if (!hasAttachmentEntryWriteAuthority(submittedEntryKey)) return;
 
 		settleAttempt({ kind: "running" });
 		try {
@@ -1088,6 +1106,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 									submitStatus.kind === "running" ||
 									clearRunning ||
 									!caseBindingReady ||
+									(appId !== undefined && !attachmentEntryReady) ||
 									!mayWriteCaseData
 								}
 								className="inline-flex min-h-11 touch-manipulation cursor-pointer items-center gap-2 rounded-lg bg-pv-accent px-4 py-2 text-sm font-medium text-white transition-[filter] not-disabled:hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"

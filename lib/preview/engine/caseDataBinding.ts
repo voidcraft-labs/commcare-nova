@@ -18,8 +18,10 @@
 
 "use server";
 
+import { getSession } from "@/lib/auth-utils";
 import {
 	buildCaseTypeMap,
+	CaptureSubmissionRejectedError,
 	CaseNotFoundError,
 	CasePropertiesValidationError,
 	type CaseStore,
@@ -27,11 +29,13 @@ import {
 	ParkedValueNotFoundError,
 	type TermBindings,
 } from "@/lib/case-store";
-import {
-	prepareCaptureSubmissionBytes,
-	readCaptureSubmissionReceipt,
-} from "@/lib/case-store/postgres/submissionAttachments";
+import { prepareCaptureSubmissionBytes } from "@/lib/case-store/postgres/submissionAttachments";
+import { adjudicateSubmissionReceipt } from "@/lib/case-store/submission";
 import { AppAccessError } from "@/lib/db/appAccess";
+import {
+	FormAttachmentWriteRejectedError,
+	loadAuthorizedFormSubmissionSnapshot,
+} from "@/lib/db/formAttachments";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type {
 	BlueprintDoc,
@@ -42,6 +46,7 @@ import type {
 } from "@/lib/domain";
 import {
 	caseListConfigSchema,
+	personasOf,
 	SEARCH_INPUT_RUNTIME_VALUE_TYPES,
 } from "@/lib/domain";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
@@ -92,6 +97,7 @@ import type {
 } from "./caseDataBindingTypes";
 import { SearchInputValuesError } from "./dateRangeInputValidation";
 import type { PreviewSearchSessionValues } from "./identity";
+import { previewAsMe, previewAsPersona } from "./identity";
 import {
 	type SearchInputValues,
 	type SearchInputValuesWire,
@@ -965,11 +971,10 @@ export async function loadFilterPreviewAction(args: {
  * primary write, every child insert, and close's lifecycle transition
  * — in ONE Postgres transaction; partial success is unobservable and
  * the running-app view re-queries one settled state on resolve.
- * An authorized, committed operation- and attachment-free survey carries no
- * effect and short-circuits only after its final protocol has been validated
- * and the committed form has been inspected. An attachment-bearing survey
- * crosses the atomic envelope so its durable capture intent commits with the
- * submission receipt.
+ * An authorized, committed operation- and attachment-free survey still crosses
+ * the atomic envelope so a receipt committed after the action snapshot is
+ * adjudicated before it returns. An attachment-bearing survey uses that same
+ * envelope so its durable capture intent commits with the submission receipt.
  *
  * Caller-supplied `appId` is passed through verbatim, matching the
  * shape the other Server Actions in this file use. The bound
@@ -992,70 +997,74 @@ export async function submitFormAction(
 		 * normalized projection below so missing/stale clients cannot bypass
 		 * receipt, capture-intent, or committed-operation derivation. */
 		const projection = validateCaptureSubmissionProjection(mutation);
-		const identity = await resolvePreviewIdentityForApp(appId, personaUuid);
+		const session = await getSession();
+		if (!session) return { kind: "unauthenticated" };
+		const authorized = await loadAuthorizedFormSubmissionSnapshot({
+			appId,
+			actorUserId: session.user.id,
+			entryKey: projection.entryKey,
+		});
+		if (authorized.kind === "replay") {
+			/* Receipt identity deliberately does not consult today's topology.
+			 * Try the selected persona identity first, then the only fallback a
+			 * prior submission could have used when that selection named
+			 * nothing. This preserves an exact replay after either the persona or
+			 * the capture question is removed without accepting changed input. */
+			const previewAsMember = previewAsMe(session.user);
+			if (previewAsMember === null) return { kind: "unauthenticated" };
+			const replayIdentities =
+				personaUuid === undefined
+					? [previewAsMember]
+					: [
+							{
+								...previewAsMember,
+								ownerId: personaUuid,
+								personaUuid,
+							},
+							previewAsMember,
+						];
+			for (const replayIdentity of replayIdentities) {
+				const receipt = buildSubmissionReceiptIdentity({
+					appId,
+					identity: replayIdentity,
+					mutation,
+					projection,
+					viewerTimeZone,
+				});
+				const verdict = adjudicateSubmissionReceipt(
+					receipt,
+					authorized.receipt,
+				);
+				if (verdict.kind === "replay") {
+					return submissionResultFromEnvelope(mutation, verdict.result);
+				}
+			}
+			throw new CaptureSubmissionRejectedError(
+				"This form entry was already submitted with different answers. Start a new form entry before submitting again.",
+			);
+		}
+		const persona =
+			personaUuid === undefined
+				? undefined
+				: personasOf(authorized.app.blueprint)[personaUuid];
+		const identity =
+			persona === undefined
+				? previewAsMe(session.user, authorized.app.blueprint)
+				: previewAsPersona(session.user, persona, authorized.app.blueprint);
 		if (!identity) return { kind: "unauthenticated" };
-		/* Membership BEFORE the program build: the build loads the
-		 * committed doc (an unauthorized read on a foreign appId), and
-		 * the survey short-circuit below reflects that doc's contents —
-		 * distinguishable arms a non-member must never reach, or the
-		 * IDOR-safe not-found collapse leaks whether a foreign form
-		 * carries operations. */
-		const { store, scope } = await gatedCaseStoreWithScope(
+		const { store } = await gatedCaseStoreWithScope(appId, identity, "edit");
+		const built = await buildSubmissionOperationProgram({
 			appId,
-			identity,
-			"edit",
-		);
-		const submissionReceipt = buildSubmissionReceiptIdentity({
-			appId,
+			committedApp: authorized.app,
 			identity,
 			mutation,
 			projection,
 			viewerTimeZone,
 		});
-		const readSubmissionReplay = async () =>
-			await readCaptureSubmissionReceipt({
-				appId,
-				projectId: scope.projectId,
-				actorUserId: identity.actorUserId,
-				receipt: submissionReceipt,
-			});
-		const priorReplay = await readSubmissionReplay();
-		if (priorReplay !== undefined) {
-			return submissionResultFromEnvelope(mutation, priorReplay);
-		}
-		let built: Awaited<ReturnType<typeof buildSubmissionOperationProgram>>;
-		try {
-			built = await buildSubmissionOperationProgram({
-				appId,
-				identity,
-				mutation,
-				projection,
-				viewerTimeZone,
-			});
-		} catch (buildError) {
-			/* A response-lost original may commit after the first receipt read
-			 * while a concurrent authoring change makes today's form fail
-			 * structural validation. Re-adjudicate at the error boundary: an
-			 * exact receipt committed during the build wins, while a changed
-			 * digest still rejects. Successful builds continue to the
-			 * entry-locked store recheck below. */
-			const concurrentReplay = await readSubmissionReplay();
-			if (concurrentReplay !== undefined) {
-				return submissionResultFromEnvelope(mutation, concurrentReplay);
-			}
-			throw buildError;
-		}
-		if (
-			mutation.kind === "survey" &&
-			built.program === undefined &&
-			built.captureIntent === undefined
-		) {
-			return { kind: "survey" };
-		}
 		if (built.captureIntent !== undefined) {
 			await prepareCaptureSubmissionBytes({
 				appId,
-				projectId: scope.projectId,
+				projectId: authorized.projectId,
 				actorUserId: identity.actorUserId,
 				intent: built.captureIntent,
 			});
@@ -1072,7 +1081,10 @@ export async function submitFormAction(
 		// A Project-membership denial (`gatedCaseStore` → `AppAccessError`)
 		// is expected, not a fault: collapse it to the IDOR-safe not-found
 		// `error` arm WITHOUT alerting (`reportUnexpectedActionError`).
-		if (err instanceof AppAccessError)
+		if (
+			err instanceof AppAccessError ||
+			err instanceof FormAttachmentWriteRejectedError
+		)
 			return { kind: "error", message: "App not found." };
 		// Form submit: `CasePropertiesValidationError` is ordinary
 		// user error (the submitted values failed the schema), so it

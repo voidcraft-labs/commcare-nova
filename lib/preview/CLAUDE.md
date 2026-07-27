@@ -57,8 +57,10 @@ controller-owned entry UUID, and exact attachment-reference projection
 answer bindings when the committed form has operations
 (`computeOperationAnswers` — complete per iteration, parent-major,
 multi-select as token arrays). The Server Action validates and normalizes
-that final protocol before receipt, program, capture-intent, or effect
-derivation; the retired name-only projection is rejected. The SERVER builds
+that final protocol before program, capture-intent, or effect derivation; the
+retired name-only projection is rejected. Its authorization transaction locks
+the app, proves fresh Project membership, and reads any durable receipt before
+loading blueprint topology. The SERVER builds
 the case-operation program from the COMMITTED doc
 (`buildSubmissionOperationProgram`: S04 analyses + `buildCaseTypeMap` + the
 identity's session values, `ordinary.caseType` populated for the rolling
@@ -134,10 +136,13 @@ That keeps a retry under the same entry key inside the durable receipt/digest
 protocol after an earlier accepted request, instead of letting cleared, hidden,
 or removed answers bypass replay and repeat case effects. The submission
 envelope also carries that receipt identity independently of `captureIntent`.
-An action preflight and the entry-locked store both adjudicate an existing
-durable receipt before current blueprint/form/capture validation, so an exact
-retry after the form or capture question is deleted still replays and a changed
-digest rejects before effects.
+The action's one authorization transaction reads an existing durable receipt
+before current blueprint/form/capture validation; when no receipt exists it
+returns the committed app snapshot used for program and capture-authority
+derivation. The preparation transaction and entry-locked store reauthorize at
+their own mutation boundaries and adjudicate the receipt before effects, so an
+exact retry after the form or capture question is deleted still replays and a
+changed digest rejects before effects.
 
 Every capture mutation for one entry goes through one form-wide queue. A newer
 operation aborts and generation-fences an older operation on the same stable
@@ -229,7 +234,13 @@ group↔repeat renderer-key change cannot create a second owner.
 Project viewers may inspect capture answers but must never mint or mutate
 capture data. Controls disable picker, drawing, clear/remove, and recovery
 actions; authority loss aborts and generation-fences work already in flight.
-Form-level invariant recovery uses the same exact coordinator authority token:
+`FormScreen` installs one exact coordinator authority token containing
+`appId`, `entryKey`, `formUuid`, `projectId`, `actorUserId`, `ownerId`,
+`scopeEpoch`, `accessPhase`, and `canEdit`. Every operation also carries its
+exact stable slot key. Missing/stale authority, missing slot identity, missing
+response-body methods, and malformed response coordinates reject in production;
+tests must supply the real contract rather than activate fallbacks. Form-level
+invariant recovery uses the same exact coordinator authority token:
 its Remove/Clear control disables during refresh or viewer access, and
 imperative discard rejects a missing or stale generation before retiring the
 owner, retained File/signature ink, and Submit blocker.

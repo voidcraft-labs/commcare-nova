@@ -66,6 +66,7 @@ import {
 import type { FormAttachmentsTable } from "./pg";
 import { getAppDb, withAppTx } from "./pg";
 import { projectRoleForInTransaction } from "./projectMembership";
+import type { AppDoc } from "./types";
 
 /** Lifecycle of one staged capture. */
 export type FormAttachmentStatus =
@@ -108,6 +109,87 @@ export interface FormSubmissionReceiptRecord {
 	readonly formUuid: string;
 	readonly requestDigest: string;
 	readonly result: unknown;
+}
+
+export type AuthorizedFormSubmissionSnapshot =
+	| {
+			readonly kind: "replay";
+			readonly projectId: string;
+			readonly receipt: FormSubmissionReceiptRecord;
+	  }
+	| {
+			readonly kind: "current";
+			readonly projectId: string;
+			readonly app: AppDoc;
+	  };
+
+/**
+ * Establish the complete server-authoritative submission read world.
+ *
+ * The ordering is deliberate and is shared by both replay and a new submit:
+ * app placement lock → fresh Project membership → durable entry receipt.
+ * Current blueprint topology and `mutation_seq` are loaded only when no
+ * receipt exists. A response-lost retry therefore cannot be rejected because
+ * a peer subsequently removed the form, capture question, or persona, while a
+ * non-member never observes any of those facts.
+ */
+export async function loadAuthorizedFormSubmissionSnapshot(args: {
+	appId: string;
+	actorUserId: string;
+	entryKey: string;
+}): Promise<AuthorizedFormSubmissionSnapshot> {
+	return withAppTx(async (tx) => {
+		const appRow = await tx
+			.selectFrom("apps")
+			.select(["project_id", "deleted_at"])
+			.where("id", "=", args.appId)
+			.forShare()
+			.executeTakeFirst();
+		if (!appRow?.project_id || appRow.deleted_at !== null) {
+			throw new FormAttachmentWriteRejectedError("App not found.");
+		}
+		const role = await projectRoleForInTransaction(
+			tx,
+			args.actorUserId,
+			appRow.project_id,
+		);
+		if (role === null || !roleAllowsApp(role, "edit")) {
+			throw new FormAttachmentWriteRejectedError("App not found.");
+		}
+		const receipt = await tx
+			.selectFrom("form_submission_intents")
+			.select(["form_uuid", "request_digest", "result"])
+			.where("app_id", "=", args.appId)
+			.where("project_id", "=", appRow.project_id)
+			.where("created_by", "=", args.actorUserId)
+			.where("entry_key", "=", args.entryKey)
+			.executeTakeFirst();
+		if (receipt !== undefined) {
+			if (receipt.result === null) {
+				throw new Error(
+					"A committed form submission intent is missing its atomic result.",
+				);
+			}
+			return {
+				kind: "replay",
+				projectId: appRow.project_id,
+				receipt: {
+					formUuid: receipt.form_uuid,
+					requestDigest: receipt.request_digest,
+					result: receipt.result,
+				},
+			};
+		}
+		const app = await loadAppInTransaction(tx, args.appId);
+		if (app === null || app.project_id !== appRow.project_id) {
+			throw new FormAttachmentWriteRejectedError("App not found.");
+		}
+		return {
+			kind: "current",
+			projectId: appRow.project_id,
+			app,
+		};
+	});
 }
 
 function recordFromRow(
@@ -236,7 +318,18 @@ export async function createPendingFormAttachment(args: {
 			.where("id", "=", args.appId)
 			.forShare()
 			.executeTakeFirst();
-		if (app?.project_id !== args.projectId || app.deleted_at !== null) {
+		if (!app?.project_id || app.deleted_at !== null) {
+			throw new FormAttachmentWriteRejectedError("App not found.");
+		}
+		const role = await projectRoleForInTransaction(
+			tx,
+			args.createdBy,
+			app.project_id,
+		);
+		if (role === null || !roleAllowsApp(role, "edit")) {
+			throw new FormAttachmentWriteRejectedError("App not found.");
+		}
+		if (app.project_id !== args.projectId) {
 			throw new FormAttachmentWriteRejectedError(
 				"The app changed Projects. Reload and attach the file again.",
 			);
@@ -265,14 +358,6 @@ export async function createPendingFormAttachment(args: {
 			throw new FormAttachmentWriteRejectedError(
 				"The capture question changed while the upload started. Reload and attach the file again.",
 			);
-		}
-		const role = await projectRoleForInTransaction(
-			tx,
-			args.createdBy,
-			args.projectId,
-		);
-		if (role === null || !roleAllowsApp(role, "edit")) {
-			throw new FormAttachmentWriteRejectedError("App not found.");
 		}
 		await lockFormAttachmentEntry(tx, {
 			appId: args.appId,

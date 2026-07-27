@@ -73,14 +73,15 @@ beforeEach(() => {
 
 describe("capture submission intent", () => {
 	it("keeps the replay latch for an attachment-capable form with an empty projection", async () => {
-		loadAppMock.mockResolvedValue({
+		const committedApp = {
 			blueprint: surveyDoc("image"),
 			mutation_seq: 17,
-		});
+		};
 
 		const mutation = emptyCaptureMutation();
 		const built = await buildSubmissionOperationProgram({
 			appId: APP_ID,
+			committedApp,
 			identity: IDENTITY,
 			mutation,
 			projection: validateCaptureSubmissionProjection(mutation),
@@ -108,15 +109,16 @@ describe("capture submission intent", () => {
 		});
 	});
 
-	it("does not create a new capture receipt after the current form becomes text-only", async () => {
-		loadAppMock.mockResolvedValue({
+	it("keeps the submission replay receipt after the current form becomes text-only", async () => {
+		const committedApp = {
 			blueprint: surveyDoc("text"),
 			mutation_seq: 17,
-		});
+		};
 
 		const mutation = emptyCaptureMutation();
 		const built = await buildSubmissionOperationProgram({
 			appId: APP_ID,
+			committedApp,
 			identity: IDENTITY,
 			mutation,
 			projection: validateCaptureSubmissionProjection(mutation),
@@ -124,7 +126,11 @@ describe("capture submission intent", () => {
 		});
 
 		expect(built.captureIntent).toBeUndefined();
-		expect(built.submissionReceipt).toBeUndefined();
+		expect(built.submissionReceipt).toMatchObject({
+			entryKey: ENTRY_KEY,
+			formUuid: FORM_UUID,
+		});
+		expect(built.submissionReceipt?.requestDigest).toMatch(/^[0-9a-f]{64}$/);
 	});
 
 	it("purely replays an exact receipt and rejects a changed digest before structure", () => {

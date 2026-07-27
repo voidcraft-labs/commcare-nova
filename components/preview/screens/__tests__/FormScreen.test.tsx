@@ -127,8 +127,8 @@ let updateCapturedPersona:
  * as me" from `useAuth()`. Mock it so the suite doesn't subscribe Better
  * Auth's client session atom — its nanostores `onMount` schedules a
  * `setTimeout(0) → fetchSession()` real fetch that the async-leak
- * detector pins. A static unauthenticated result is enough: the engine
- * reads user slices as absent, which these tests never assert on. */
+ * detector pins. The persisted test member supplies the same actor/owner
+ * authority coordinates a live preview carries. */
 vi.mock("@/lib/auth/hooks/useAuth", () => ({
 	useAuth: () => ({
 		user: currentAuthUser,
@@ -563,7 +563,11 @@ beforeEach(async () => {
 	/* Reset the appId carrier so the `!appId` guard test's per-run
 	 *  override doesn't leak into sibling tests. */
 	currentAppId = APP_ID;
-	currentAuthUser = null;
+	currentAuthUser = {
+		id: "member-form-screen-test",
+		name: "Form Screen Tester",
+		email: "member@example.com",
+	};
 	capturedSession = undefined;
 	capturedController = undefined;
 	updateCapturedPersona = undefined;
@@ -1045,7 +1049,9 @@ describe("FormScreen — pending UX", () => {
 			});
 			rememberSignatureDraft(entryKey, signatureSlotKey, signatureInk);
 		});
-		const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValue(new Response(null, { status: 200 }));
 		vi.stubGlobal("fetch", fetchMock);
 
 		act(() => {
@@ -1229,7 +1235,7 @@ describe("FormScreen — pending UX", () => {
 		const releaseBlocker = deferred<void>();
 		const blocker = runAttachmentTask({
 			entryKey,
-			instancePath: "/data/slow-photo",
+			slotKey: "/data/slow-photo",
 			task: async () => {
 				blockerStarted.resolve();
 				await releaseBlocker.promise;
@@ -1283,7 +1289,7 @@ describe("FormScreen — pending UX", () => {
 		});
 		const upload = runAttachmentTask({
 			entryKey: initiatingEntryKey,
-			instancePath: "/data/photo",
+			slotKey: "/data/photo",
 			task: async () => {
 				uploadStarted();
 				await release;
@@ -1338,7 +1344,7 @@ describe("FormScreen — pending UX", () => {
 		const releaseBlocker = deferred<void>();
 		const blocker = runAttachmentTask({
 			entryKey: initiatingEntryKey,
-			instancePath: "/data/photo",
+			slotKey: "/data/photo",
 			task: async () => {
 				blockerStarted.resolve();
 				await releaseBlocker.promise;
@@ -1386,7 +1392,9 @@ describe("FormScreen — pending UX", () => {
 				},
 			});
 		});
-		const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValue(new Response(null, { status: 200 }));
 		vi.stubGlobal("fetch", fetchMock);
 		view.unmount();
 		await waitFor(() =>
@@ -1702,7 +1710,9 @@ describe("FormScreen — validate-fail short-circuit", () => {
 			await waitFor(() => expect(document.activeElement).toBe(recovery));
 			expect(vi.mocked(submitFormAction)).not.toHaveBeenCalled();
 
-			const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+			const fetchMock = vi
+				.fn()
+				.mockResolvedValue(new Response(null, { status: 200 }));
 			vi.stubGlobal("fetch", fetchMock);
 			fireEvent.click(recovery);
 			await waitFor(() =>
@@ -2045,6 +2055,7 @@ describe("FormScreen — Clear form clears stale server error", () => {
 			rememberOwnedStagedAttachment({
 				appId: APP_ID,
 				entryKey: previousEntryKey,
+				slotKey: "photo:old-entry",
 				instancePath: "/data/photo",
 				attachment: {
 					attachmentId: "attachment-old-entry",
@@ -2300,7 +2311,9 @@ describe("FormScreen — repeated structure accessibility", () => {
 		await waitFor(() =>
 			expect((removeSecond as HTMLButtonElement).disabled).toBe(false),
 		);
-		const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValue(new Response(null, { status: 200 }));
 		vi.stubGlobal("fetch", fetchMock);
 		fireEvent.click(removeSecond);
 		await waitFor(() =>

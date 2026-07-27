@@ -6,21 +6,15 @@ import { getCaseStorePool } from "@/lib/case-store/postgres/connection";
 /**
  * Session-level advisory lock for the one global capture-cleanup worker.
  *
- * Cloud Scheduler delivery is at-least-once and Cloud Build also executes the
- * Job before traffic moves. Both may dispatch concurrently. The active worker
+ * Cloud Scheduler delivery is at-least-once. The active worker
  * holds this lock on one checked-out pool connection for its whole run. Before
- * it reserves the work connection, up to two audited contenders may hold probe
- * sessions; each loser observes `false`, destroys its session, and exits
- * without touching maintenance rows. Further contenders are rejected by the
- * cleanup login role's hard connection cap before lock acquisition.
+ * it reserves the work connection, a loser observes `false`, destroys its
+ * session, and exits without touching maintenance rows.
  */
 const CAPTURE_CLEANUP_ADVISORY_LOCK = "nova:capture-cleanup:v1";
 
 export const CAPTURE_CLEANUP_WORK_CONNECTION_TIMEOUT_MS = 10_000;
 export const CAPTURE_CLEANUP_WORK_CONNECTION_RETRY_MS = 100;
-export const CAPTURE_CLEANUP_STRICT_ADMISSION_TIMEOUT_MS = 120_000;
-export const CAPTURE_CLEANUP_STRICT_LOCK_TIMEOUT_MS = 120_000;
-export const CAPTURE_CLEANUP_STRICT_RETRY_MS = 1_000;
 
 export type ExclusiveCaptureCleanupResult<T> =
 	| { readonly kind: "ran"; readonly value: T }
@@ -30,11 +24,6 @@ export type ExclusiveCaptureCleanupResult<T> =
 export interface ExclusiveCaptureCleanupOptions {
 	readonly workConnectionTimeoutMs?: number;
 	readonly workConnectionRetryMs?: number;
-	/** Scheduler delivery is best-effort and probes once. The deploy gate waits
-	 * through bounded role saturation and an overlapping scheduler lease. */
-	readonly admissionTimeoutMs?: number;
-	readonly lockTimeoutMs?: number;
-	readonly contentionRetryMs?: number;
 	readonly now?: () => number;
 	readonly sleep?: (milliseconds: number) => Promise<void>;
 }
@@ -56,38 +45,6 @@ export function isDatabaseConnectionSaturatedError(error: unknown): boolean {
 
 function defaultSleep(milliseconds: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, milliseconds));
-}
-
-async function connectWithBoundedAdmission(
-	pool: Pool,
-	options: ExclusiveCaptureCleanupOptions,
-): Promise<PoolClient | null> {
-	const timeoutMs = options.admissionTimeoutMs ?? 0;
-	const retryMs = options.contentionRetryMs ?? CAPTURE_CLEANUP_STRICT_RETRY_MS;
-	const now = options.now ?? Date.now;
-	const sleep = options.sleep ?? defaultSleep;
-	const deadline = now() + timeoutMs;
-
-	for (;;) {
-		try {
-			return await pool.connect();
-		} catch (error) {
-			if (!isDatabaseConnectionSaturatedError(error)) throw error;
-			if (now() >= deadline) return null;
-			await sleep(retryMs);
-		}
-	}
-}
-
-/**
- * Reserve the audit session. Strict deploy callers opt into a bounded wait;
- * Scheduler callers omit options and retain the single-probe/no-op behavior.
- */
-export async function connectCaptureCleanupAuditSession(
-	pool: Pool,
-	options: ExclusiveCaptureCleanupOptions = {},
-): Promise<PoolClient | null> {
-	return connectWithBoundedAdmission(pool, options);
 }
 
 /**
@@ -138,32 +95,26 @@ export async function withExclusiveCaptureCleanupWorker<T>(
 ): Promise<ExclusiveCaptureCleanupResult<T>> {
 	let pool: Pool;
 	pool = await getCaseStorePool();
-	const client = await connectWithBoundedAdmission(pool, options);
-	if (client === null) return { kind: "saturated" };
+	let client: PoolClient;
+	try {
+		client = await pool.connect();
+	} catch (error) {
+		if (isDatabaseConnectionSaturatedError(error)) {
+			return { kind: "saturated" };
+		}
+		throw error;
+	}
 
 	try {
-		const timeoutMs = options.lockTimeoutMs ?? 0;
-		const retryMs =
-			options.contentionRetryMs ?? CAPTURE_CLEANUP_STRICT_RETRY_MS;
-		const now = options.now ?? Date.now;
-		const sleep = options.sleep ?? defaultSleep;
-		const deadline = now() + timeoutMs;
-		for (;;) {
-			const lock = await client.query<{ acquired: boolean }>(
-				`SELECT pg_try_advisory_lock(
-					hashtextextended($1::text, 0::bigint)
-				) AS acquired`,
-				[CAPTURE_CLEANUP_ADVISORY_LOCK],
-			);
-			if (lock.rows[0]?.acquired === true) break;
-			if (now() >= deadline) {
-				// A loser is about to exit and cannot reuse this session. Destroy it
-				// immediately so an owner waiting to prewarm its work connection does
-				// not wait for process teardown to free the cleanup role slot.
-				client.release(true);
-				return { kind: "already-running" };
-			}
-			await sleep(retryMs);
+		const lock = await client.query<{ acquired: boolean }>(
+			`SELECT pg_try_advisory_lock(
+				hashtextextended($1::text, 0::bigint)
+			) AS acquired`,
+			[CAPTURE_CLEANUP_ADVISORY_LOCK],
+		);
+		if (lock.rows[0]?.acquired !== true) {
+			client.release(true);
+			return { kind: "already-running" };
 		}
 	} catch (error) {
 		client.release(asError(error));

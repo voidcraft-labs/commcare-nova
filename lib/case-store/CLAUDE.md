@@ -567,11 +567,9 @@ logins, while the final three are protected by
 Cloud Run's service/revision maximum of four is a soft outer control; it keeps
 ordinary demand aligned at `4 * (pool 3 + listener 1) = 16`, but PostgreSQL
 admission is what prevents a transient platform overrun from consuming the
-maintenance/headroom allocations. Before every production migration and
-capture-cleanup execution, the entrypoint audits all three exact role limits
-and all three server settings and requires the `pgaudit` extension to be
-present. The deploy preflight additionally waits for runtime sessions opened
-before a lowered cap to drain to 16 before migration.
+maintenance/headroom allocations. Those final role limits and the `pgaudit`
+extension are established by the separately invoked privileged bootstrap, not
+by runtime or deploy-time compatibility machinery.
 Cloud SQL flag provisioning is also exact because its patch API replaces the
 whole set: `cloudsql.enable_pgaudit=on`, `cloudsql.iam_authentication=on`,
 `max_connections=25`, and `pgaudit.log=all`. Audit flags are part of the same
@@ -698,17 +696,8 @@ override under a dedicated migration identity on the service's network. It calls
 `getCaseStoreDatabase()`, so it connects through the SAME
 `@google-cloud/cloud-sql-connector` + IAM path the runtime uses. Its connector
 env wires `NOVA_DB_USER` / `NOVA_DB_INSTANCE_CONNECTION_NAME` /
-`NOVA_DB_NAME` plus `NOVA_DB_WORKLOAD=migration`. Its mandatory capacity audit
-requires `NOVA_MIGRATION_DB_USER`, `NOVA_RUNTIME_DB_USER`, and
-`NOVA_CAPTURE_CLEANUP_DB_USER`; privilege convergence consumes the first two
-after migrations.
-
-Cloud Build first updates the already-serving service's global and revision
-maxima to four and verifies both reported values. It then runs the capacity
-preflight, which audits the exact server settings and 16/1/3 role caps and
-waits for runtime sessions to drain to 16 before this Job. A new deployment
-also pins both maxima. The Cloud Run controls are soft; PostgreSQL role limits
-remain the hard boundary while the old revision serves during migration.
+`NOVA_DB_NAME` plus `NOVA_DB_WORKLOAD=migration`. Privilege convergence
+requires the migration and runtime role identities after migrations.
 
 The one-time bootstrap happens outside Nova: create runtime, migration, and
 capture-cleanup as non-superuser direct LOGIN roles; make only migration a
@@ -721,8 +710,8 @@ SQL's managed `postgres` role. Existing provider-installed extensions remain
 blanket `REASSIGN OWNED BY postgres` would seize unrelated managed objects.
 `public` remains owned by PostgreSQL's `pg_database_owner`, whose current
 member is the database owner, so migration is its effective owner without
-replacing that built-in role. Existing legacy objects must also be maintainable
-by migration; the one-way runtime membership covers runtime-owned tables.
+replacing that built-in role. The one-way runtime membership lets migration
+maintain runtime-owned tables.
 Convergence directly grants cleanup only public-schema `USAGE` plus
 `SELECT`/`UPDATE`/`DELETE` on `form_attachments`, and audits that it cannot
 insert/administer attachment rows or access other managed tables or the case
@@ -779,12 +768,11 @@ The case-store's compiler stack depends on three extensions:
 
 Production also requires `pgaudit`, because the Cloud SQL flags enable full
 audit logging only when the extension is installed in the database. The
-privileged owner bootstrap creates any missing extension, transfers only
-temporary/legacy ownership, and inventories each required extension's owner,
+privileged owner bootstrap creates any missing extension, transfers
+non-permanent ownership, and inventories each required extension's owner,
 version, `public` schema, configuration relations, and dependency catalogs.
 Its permanent audit accepts only Cloud SQL's managed `postgres` or migration
-as owner. Every production capacity preflight
-rechecks `pgaudit` presence before a migration or cleanup Job can do work.
+as owner.
 
 The testcontainers harness installs the three compiler extensions via its
 container superuser before migrations run. Its pinned PostGIS image does not
