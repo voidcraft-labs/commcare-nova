@@ -69,6 +69,26 @@ jobs:
       # gates the merge — invisible until a version-dependent behavior differs.
       - name: Postgres test image is single-sourced
         run: node scripts/ci/print-test-image.mjs --check
+      # A raw NUL byte anywhere in a text file defeats the text/binary sniff
+      # every code-search tool relies on. `grep` then exits "no match" — not
+      # even "Binary file matches" — for a symbol defined in that file, and
+      # ripgrep replaces the hits with a one-line binary notice. Search stops
+      # answering truthfully, which is how a sweep concludes a live function
+      # has no callers. Review can't catch it either: git renders the byte as
+      # a space, so the line looks ordinary in a diff. The `\u0000` escape is
+      # the identical string at runtime and keeps the file text.
+      - name: Source files carry no raw NUL bytes
+        run: |
+          offenders="$(git ls-files -z -- \
+            '*.ts' '*.tsx' '*.js' '*.jsx' '*.mjs' '*.mts' '*.cjs' '*.cts' \
+            '*.json' '*.jsonc' '*.md' '*.mdx' '*.css' '*.yml' '*.yaml' \
+            | xargs -0 -r perl -ne 'if (/\0/) { print "$ARGV\n"; close ARGV }')"
+          if [ -n "$offenders" ]; then
+            printf '%s\n' "$offenders" | sed 's/^/  /'
+            echo "::error::Scanned every tracked source file for a raw NUL byte and found one in each file listed above. Source files must contain no raw NUL: it makes grep report no match at all for symbols that are present and makes ripgrep skip the file, so code search silently lies about what the file contains — and because a diff renders the byte as a space, review does not catch it. Write the escape \\u0000 instead; it produces an identical string at runtime and leaves the file searchable."
+            exit 1
+          fi
+          echo "No raw NUL bytes in tracked source files."
       - name: Install pinned npm
         run: |
           npm_version="$(node -p "require('./package.json').devEngines.packageManager.version")"
