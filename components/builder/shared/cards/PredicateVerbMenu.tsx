@@ -940,10 +940,18 @@ export function PredicateVerbMenu({
 	const [pendingEntryId, setPendingEntryId] = useState<string | null>(null);
 	const focus = useRuleFocusContext();
 	const ctx = usePredicateEditContext();
+	// Every axis the pickers offer travels into the build context: each
+	// `build` resolves types through `resolveExpressionType`, and a
+	// vocabulary narrower than the one on screen would resolve a form
+	// answer or a worker-information read to nothing and skip the reseed
+	// that keeps the new verb's object type-correct.
 	const editCtx: PredicateEditContext = {
 		caseTypes: ctx.caseTypes,
 		currentCaseType: ctx.currentCaseType,
 		knownInputs: ctx.knownInputs,
+		userProperties: ctx.userProperties,
+		formFields: ctx.formFields,
+		operationScope: ctx.operationScope,
 		caseDataScope: ctx.caseDataScope,
 		allowsNeverMatch: ctx.allowsNeverMatch,
 	};

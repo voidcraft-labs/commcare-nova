@@ -39,6 +39,7 @@ import {
 import { updateCaseOperationTool } from "../updateCaseOperation";
 
 const TEXT = asUuid("44444444-4444-4444-8444-444444444444");
+const WORKER_PROPERTY = asUuid("55555555-5555-4555-8555-555555555555");
 const LOOKUP_TABLE = "018f3e8a-7b2c-7def-8abc-1234567890ab" as LookupTableId;
 const LOOKUP_VALUE = "018f3e8a-7b2c-7def-8abc-1234567890ad" as LookupColumnId;
 const LOOKUP_FILTER = "018f3e8a-7b2c-7def-8abc-1234567890ae" as LookupColumnId;
@@ -973,5 +974,246 @@ describe("shared case-operation tools", () => {
 				links: [...linkedVisit.links, peerLink],
 			},
 		);
+	});
+});
+
+describe("worker information round-trips through the author boundary", () => {
+	// The canonical term union has seven arms. A missing one is not
+	// "unauthorable": it survives the projector untouched, leaking the
+	// storage UUID this boundary promises never to return, and then fails
+	// the union parse on the way back in — so a read cannot be edited.
+	const workerValue = {
+		kind: "term" as const,
+		term: { kind: "session-user-property" as const, slug: "district" },
+	};
+
+	function docWithWorkerProperty(): ReturnType<typeof fixture> {
+		const built = fixture();
+		const doc = produce(built.doc, (draft: BlueprintDoc) => {
+			(draft as { userProperties?: Record<string, unknown> }).userProperties = {
+				[WORKER_PROPERTY]: {
+					uuid: WORKER_PROPERTY,
+					slug: "district",
+					label: "District",
+				},
+			};
+		});
+		return { ...built, doc };
+	}
+
+	it("reads back a saved worker-information value as its saved key, then accepts it", async () => {
+		const { doc } = docWithWorkerProperty();
+		const { ctx } = makeStubToolContext();
+		const added = await addCaseOperationsTool.execute(
+			{
+				moduleId: "patients",
+				formId: "edit",
+				operations: [
+					{
+						...createVisit,
+						writes: [{ property: "source_id", value: workerValue }],
+					},
+				],
+			},
+			ctx,
+			doc,
+		);
+		expect(added.result).toEqual(
+			expect.objectContaining({ message: expect.any(String) }),
+		);
+
+		const read = await getCaseOperationsTool.execute(
+			{ moduleId: "patients", formId: "edit" },
+			ctx,
+			added.newDoc,
+		);
+		const json = JSON.stringify(read.data);
+		expect(json).toContain('"slug":"district"');
+		expect(json).not.toContain(WORKER_PROPERTY);
+		expect(json).not.toContain("userPropertyUuid");
+
+		// The exact projection the read returned goes straight back in.
+		const operations =
+			"operations" in read.data ? read.data.operations : undefined;
+		const projected = operations?.[0] as Record<string, unknown>;
+		const updated = await updateCaseOperationTool.execute(
+			{
+				moduleId: "patients",
+				formId: "edit",
+				operationId: "create_visit",
+				operation: { ...projected, id: "create_encounter" } as never,
+			},
+			ctx,
+			added.newDoc,
+		);
+		expect(updated.result).not.toHaveProperty("error");
+	});
+
+	it("names the saved keys it knows when the slug is not set up", async () => {
+		const { doc } = docWithWorkerProperty();
+		const { ctx } = makeStubToolContext();
+		const added = await addCaseOperationsTool.execute(
+			{
+				moduleId: "patients",
+				formId: "edit",
+				operations: [
+					{
+						...createVisit,
+						writes: [
+							{
+								property: "source_id",
+								value: {
+									kind: "term" as const,
+									term: {
+										kind: "session-user-property" as const,
+										slug: "not_set_up",
+									},
+								},
+							},
+						],
+					},
+				],
+			},
+			ctx,
+			doc,
+		);
+		expect(added.result).toEqual(
+			expect.objectContaining({
+				error: expect.stringContaining("district"),
+			}),
+		);
+	});
+});
+
+describe("dependency refusals say which constraint refused", () => {
+	// A `target-type` blocker holds no reference at all — it would simply be
+	// left acting on a kind of case the removed/moved change is what
+	// establishes. "Retarget those references" sends the agent looking for
+	// an edge that does not exist, which is why the planner reports the kind.
+	//
+	// The chain needs a PORTABLE retype (every property retained at the same
+	// type), so it gets its own two-type fixture rather than bending the
+	// shared one.
+	function retypeFixture(): BlueprintDoc {
+		return buildDoc({
+			caseTypes: [
+				{
+					name: "lead",
+					properties: [{ name: "note", label: "Note", data_type: "text" }],
+				},
+				{
+					name: "lead_copy",
+					properties: [{ name: "note", label: "Note", data_type: "text" }],
+				},
+			],
+			modules: [
+				{
+					id: "leads",
+					name: "Leads",
+					caseType: "lead",
+					forms: [
+						{
+							id: "edit",
+							name: "Edit",
+							type: "followup",
+							fields: [
+								f({
+									uuid: asUuid("66666666-6666-4666-8666-666666666666"),
+									kind: "text",
+									id: "note",
+									label: "Note",
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+	}
+
+	const noteValue = {
+		kind: "term" as const,
+		term: { kind: "field" as const, path: "note" },
+	};
+	const retypeLead = {
+		id: "retype_lead",
+		action: "update" as const,
+		caseType: "lead",
+		target: { kind: "session" as const },
+		retype: "lead_copy",
+	};
+	const tagLead = {
+		id: "tag_lead",
+		action: "update" as const,
+		caseType: "lead_copy",
+		target: { kind: "session" as const },
+		writes: [{ property: "note", value: noteValue }],
+	};
+
+	async function withRetypeChain() {
+		const { ctx, recordMutations } = makeStubToolContext();
+		const added = await addCaseOperationsTool.execute(
+			{
+				moduleId: "leads",
+				formId: "edit",
+				operations: [retypeLead, tagLead],
+			},
+			ctx,
+			retypeFixture(),
+		);
+		expect(added.result).not.toHaveProperty("error");
+		recordMutations.mockClear();
+		return { ctx, doc: added.newDoc, recordMutations };
+	}
+
+	it("does not tell the agent to retarget a reference that is a type dependency", async () => {
+		const { ctx, doc, recordMutations } = await withRetypeChain();
+
+		const removed = await removeCaseOperationTool.execute(
+			{ moduleId: "leads", formId: "edit", operationId: "retype_lead" },
+			ctx,
+			doc,
+		);
+		const removeError = (removed.result as { error: string }).error;
+		expect(removeError).toContain("kind of case");
+		expect(removeError).toContain("tag_lead");
+		expect(removeError).not.toContain("uses its result");
+
+		const moved = await moveCaseOperationTool.execute(
+			{
+				moduleId: "leads",
+				formId: "edit",
+				operationId: "retype_lead",
+				index: 1,
+			},
+			ctx,
+			doc,
+		);
+		const moveError = (moved.result as { error: string }).error;
+		expect(moveError).toContain("kind of case");
+		expect(moveError).not.toContain("reference");
+		expect(recordMutations).not.toHaveBeenCalled();
+	});
+
+	it("still says 'reference' when one is what breaks", async () => {
+		const { doc } = fixture();
+		const { ctx } = makeStubToolContext();
+		const added = await addCaseOperationsTool.execute(
+			{
+				moduleId: "patients",
+				formId: "edit",
+				operations: [createVisit, updateVisit],
+			},
+			ctx,
+			doc,
+		);
+		const removed = await removeCaseOperationTool.execute(
+			{ moduleId: "patients", formId: "edit", operationId: "create_visit" },
+			ctx,
+			added.newDoc,
+		);
+		const error = (removed.result as { error: string }).error;
+		expect(error).toContain("uses its result");
+		expect(error).not.toContain("kind of case");
 	});
 });

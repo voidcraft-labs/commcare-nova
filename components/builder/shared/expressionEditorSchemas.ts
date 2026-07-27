@@ -41,6 +41,7 @@ import type {
 	CaseType,
 	LookupColumnId,
 	LookupTableId,
+	UserProperty,
 	Uuid,
 } from "@/lib/domain";
 import {
@@ -107,6 +108,9 @@ export interface ExpressionEditContext {
 	readonly caseTypes: readonly CaseType[];
 	readonly currentCaseType: string;
 	readonly knownInputs: readonly SearchInputDecl[];
+	/** Custom worker information available to identity-backed user terms —
+	 *  the catalog a saved `session-user-property` read resolves through. */
+	readonly userProperties?: readonly UserProperty[];
 	/** Form answers this slot may read, already narrowed to the ones its
 	 *  surface admits. Absent means the slot reads no form answers. */
 	readonly formFields?: readonly EditorFormFieldDecl[];

@@ -45,14 +45,23 @@ import {
 } from "@/lib/domain";
 import { storageAssignmentConstraint } from "@/lib/domain/predicate";
 import { CaseTargetPicker, type TargetChoiceContext } from "./CaseTargetPicker";
+import { RUNTIME_TARGET_OPERATION_SCOPE } from "./editorScope";
 import { nextLinkIdentifier, seedCaseOperationLink } from "./seeds";
 
 /** What a LINK's target picker needs: everything but the two axes the link
  *  itself fixes (never a new case, always able to unlink). */
 type LinkTargetContext = Omit<TargetChoiceContext, "newOnly" | "allowsNone">;
+/** The only editor a link mounts is its RUNTIME TARGET, so `operationScope`
+ *  is deliberately absent from what the parent hands down: this file fixes
+ *  it to the target scope, which withholds `id-of` (the gate refuses one
+ *  anywhere in a target tree) while keeping the owner sentinels. */
 type LinkEditorScope = Pick<
 	ComponentProps<typeof ExpressionCardEditor>,
-	"caseTypes" | "currentCaseType" | "formFields" | "operationScope"
+	| "caseTypes"
+	| "currentCaseType"
+	| "userProperties"
+	| "formFields"
+	| "caseDataScope"
 >;
 
 const RELATIONSHIP_LABEL = {
@@ -282,6 +291,7 @@ function LinkRow({
 							}
 							constraint={storageAssignmentConstraint(["text"])}
 							{...editorScope}
+							operationScope={RUNTIME_TARGET_OPERATION_SCOPE}
 						/>
 					</div>
 				)}

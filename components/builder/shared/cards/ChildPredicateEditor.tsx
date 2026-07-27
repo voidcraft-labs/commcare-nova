@@ -724,6 +724,9 @@ export function PredicateKindReplaceMenu({
 		caseTypes: ctx.caseTypes,
 		currentCaseType: ctx.currentCaseType,
 		knownInputs: ctx.knownInputs,
+		userProperties: ctx.userProperties,
+		formFields: ctx.formFields,
+		operationScope: ctx.operationScope,
 		caseDataScope: ctx.caseDataScope,
 		allowsNeverMatch: ctx.allowsNeverMatch,
 	};

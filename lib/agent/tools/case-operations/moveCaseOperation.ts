@@ -1,6 +1,9 @@
 import { z } from "zod";
 import { BlueprintCommitRejectedError } from "@/lib/db/commitGuard";
-import { moveCaseOperationMutation } from "@/lib/doc/caseOperationMutations";
+import {
+	type CaseOperationMutationPlan,
+	moveCaseOperationMutation,
+} from "@/lib/doc/caseOperationMutations";
 import { type BlueprintDoc, orderedCaseOperations } from "@/lib/domain";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import {
@@ -32,6 +35,35 @@ export interface MoveCaseOperationSuccess extends MutationSuccess {
 export type MoveCaseOperationResult =
 	| MoveCaseOperationSuccess
 	| { readonly error: string };
+
+/**
+ * Why the destination was refused, in words that fit the constraint that
+ * refused it — the SA half of the same three-way split the builder makes
+ * in `components/builder/case-operations/refusalCopy.ts`.
+ *
+ * A `reference` blocker holds an `id-of` edge that the order would put
+ * on the wrong side of its producer. A `target-type` blocker holds no
+ * reference at all: the order would change which kind of case it acts
+ * on, so "retarget those references" names an edge that does not exist.
+ * `execution-order` is not about the author's changes at all — the
+ * SUBMITTED FORM cannot carry that sequence.
+ */
+function moveRefusal(
+	operationId: string,
+	plan: Extract<CaseOperationMutationPlan, { ok: false }>,
+	involved: string,
+): string {
+	switch (plan.reason) {
+		case "operation-not-found":
+			return `Case operation "${operationId}" is no longer part of this form.`;
+		case "execution-order":
+			return `Cannot move "${operationId}" there because the submitted form cannot preserve that execution order${involved ? ` (${involved})` : ""}.`;
+		case "dependent-reference":
+			return plan.dependencyKind === "target-type"
+				? `Cannot move "${operationId}" there because that order would change which kind of case ${involved || "a later operation"} acts on.`
+				: `Cannot move "${operationId}" there because it would break the reference ${involved || "another operation"} has to a case an earlier operation makes.`;
+	}
+}
 
 export const moveCaseOperationTool = {
 	description:
@@ -77,20 +109,20 @@ export const moveCaseOperationTool = {
 				actualIndex,
 			);
 			if (!plan.ok) {
-				const involved = dependentOperationNames(
-					doc,
-					address.formUuid,
-					plan.dependentUuids,
-				);
 				return {
 					kind: "mutate",
 					mutations: [],
 					newDoc: doc,
 					result: {
-						error:
-							plan.reason === "execution-order"
-								? `Cannot move "${input.operationId}" there because the submitted form cannot preserve that execution order${involved ? ` (${involved})` : ""}.`
-								: `Cannot move "${input.operationId}" there because it would break dependencies${involved ? ` involving ${involved}` : ""}.`,
+						error: moveRefusal(
+							input.operationId,
+							plan,
+							dependentOperationNames(
+								doc,
+								address.formUuid,
+								plan.dependentUuids,
+							),
+						),
 					},
 				};
 			}

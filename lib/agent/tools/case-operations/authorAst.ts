@@ -59,10 +59,34 @@ const authorFieldTermSchema = z
 	})
 	.strict();
 
+/**
+ * Worker information addressed the way an author names it — its slug,
+ * the same token `#user/<slug>` spells — rather than the immutable UUID
+ * the document stores.
+ *
+ * This arm is not optional. The canonical term union has seven arms; a
+ * missing one is not "unauthorable", it is a leaf that survives the
+ * projector untouched (which leaks a storage UUID this boundary
+ * promises never to return) and then fails the union parse on the way
+ * back in, so a read cannot round-trip through an update.
+ */
+const authorSessionUserPropertySchema = z
+	.object({
+		kind: z.literal("session-user-property"),
+		slug: z
+			.string()
+			.min(1)
+			.describe(
+				"Saved key of a worker-information property, as listed by get_users",
+			),
+	})
+	.strict();
+
 const authorTermSchema = z.discriminatedUnion("kind", [
 	arm(carrierBlindTermSchema, "prop"),
 	arm(carrierBlindTermSchema, "input"),
 	arm(carrierBlindTermSchema, "session-user"),
+	authorSessionUserPropertySchema,
 	arm(carrierBlindTermSchema, "session-context"),
 	authorFieldTermSchema,
 	arm(carrierBlindTermSchema, "literal"),
@@ -197,11 +221,13 @@ export const authorPredicateSchema: z.ZodType<unknown> = z.discriminatedUnion(
 export interface AuthorIdentityResolver {
 	readonly fieldUuid: (path: string) => Uuid;
 	readonly operationUuid: (id: string) => Uuid;
+	readonly userPropertyUuid: (slug: string) => Uuid;
 }
 
 export interface AuthorIdentityProjector {
 	readonly fieldPath: (uuid: Uuid) => string | undefined;
 	readonly operationId: (uuid: Uuid) => string | undefined;
+	readonly userPropertySlug: (uuid: Uuid) => string | undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -223,6 +249,15 @@ function rewriteAuthorIdentities(
 		return {
 			kind: "id-of",
 			opUuid: resolver.operationUuid(value.operationId),
+		};
+	}
+	if (
+		value.kind === "session-user-property" &&
+		typeof value.slug === "string"
+	) {
+		return {
+			kind: "session-user-property",
+			userPropertyUuid: resolver.userPropertyUuid(value.slug),
 		};
 	}
 	return Object.fromEntries(
@@ -252,6 +287,17 @@ function projectCanonicalIdentities(
 			kind: "id-of",
 			operationId:
 				projector.operationId(value.opUuid as Uuid) ?? "[missing operation]",
+		};
+	}
+	if (
+		value.kind === "session-user-property" &&
+		typeof value.userPropertyUuid === "string"
+	) {
+		return {
+			kind: "session-user-property",
+			slug:
+				projector.userPropertySlug(value.userPropertyUuid as Uuid) ??
+				"[missing worker information]",
 		};
 	}
 	return Object.fromEntries(

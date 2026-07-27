@@ -30,29 +30,27 @@ import type { CaseType, UserProperty } from "@/lib/domain";
 import {
 	type CheckError,
 	checkExpression,
-	expressionReadsCaseData,
-	expressionReadsRelatedCaseData,
 	type ResolvedType,
 	type TypeContext,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
 import { presentCheckErrorForEditor } from "./checkErrorPresentation";
+import { type CaseDataScope, caseDataScopeAdmission } from "./editorSchemas";
 import {
-	type CaseDataScope,
-	GLOBAL_SCOPE_CASE_DATA_REASON,
-	SELECTED_CASE_SCOPE_RELATED_DATA_REASON,
-} from "./editorSchemas";
+	buildEditorTypeContext,
+	EMPTY_FORM_FIELDS,
+	EMPTY_USER_PROPERTIES,
+} from "./editorTypeContext";
 import type { OperationValueScope } from "./expressionEditorSchemas";
 import type { EditorFormFieldDecl } from "./formFieldPresentation";
 import type { EditorPath } from "./path";
 import { serializePath } from "./path";
 import type { EditorSearchInputDecl } from "./searchInputPresentation";
 
-/** Shared empty lists so a provider without form answers or a custom
- *  worker catalog keeps one stable identity across renders (the context
- *  memo and the type-context memo both depend on them). */
-const EMPTY_FORM_FIELDS: readonly EditorFormFieldDecl[] = [];
-const EMPTY_USER_PROPERTIES: readonly UserProperty[] = [];
+/** Re-exported from its dependency-free home so the pure cascade-reseed
+ *  helpers can build the same context without importing this React
+ *  module — see `editorTypeContext.ts` for why that separation exists. */
+export { buildEditorTypeContext } from "./editorTypeContext";
 
 /**
  * Per-path user-facing diagnostic list. Raw `CheckError.message`
@@ -189,16 +187,9 @@ export function PredicateEditProvider({
 	const expressionFocusTargets = useRef(new Map<string, HTMLElement>()).current;
 	const effectiveAdmit = useMemo<AdmitExpressionChange | undefined>(() => {
 		if (caseDataScope === "per-case") return admitExpressionChange;
-		const readsOutOfScope =
-			caseDataScope === "global"
-				? expressionReadsCaseData
-				: expressionReadsRelatedCaseData;
-		const reason =
-			caseDataScope === "global"
-				? GLOBAL_SCOPE_CASE_DATA_REASON
-				: SELECTED_CASE_SCOPE_RELATED_DATA_REASON;
 		return (path, next) => {
-			if (readsOutOfScope(next)) return { admitted: false, reason };
+			const scoped = caseDataScopeAdmission(caseDataScope, next);
+			if (!scoped.admitted) return scoped;
 			return admitExpressionChange?.(path, next) ?? { admitted: true };
 		};
 	}, [caseDataScope, admitExpressionChange]);
@@ -375,15 +366,12 @@ export function useResolvedType(
 }
 
 /**
- * The `TypeContext` this editor's scope resolves against — the same
- * inputs the commit gate's validator composes, so the offered-set and
- * the accept-set cannot drift.
- *
- * Every editor that runs the checker (the workbench, the expression
- * editor, `useResolvedType`) builds it here rather than assembling its
- * own literal: a surface that quietly omitted `formFields` would render
- * every authored form answer as "not available in this expression
- * context" while the document itself is perfectly valid.
+ * The `TypeContext` this editor's scope resolves against. Every editor
+ * that runs the checker — the workbench, the expression editor,
+ * `useResolvedType`, and the cascade-reseed helpers a card runs inside
+ * an event handler — goes through the shared `buildEditorTypeContext`
+ * rather than assembling its own literal (`editorTypeContext.ts` records
+ * what an omitted axis silently costs).
  */
 export function useEditorTypeContext(): TypeContext {
 	const {
@@ -413,40 +401,6 @@ export function useEditorTypeContext(): TypeContext {
 			operationScope,
 		],
 	);
-}
-
-/** Pure twin of `useEditorTypeContext` for editors that compose the
- *  context before mounting the provider. */
-export function buildEditorTypeContext(args: {
-	readonly caseTypes: readonly CaseType[];
-	readonly currentCaseType: string;
-	readonly knownInputs: readonly EditorSearchInputDecl[];
-	readonly userProperties?: readonly UserProperty[];
-	readonly formFields?: readonly EditorFormFieldDecl[];
-	readonly operationScope?: OperationValueScope | undefined;
-}): TypeContext {
-	const {
-		userProperties = EMPTY_USER_PROPERTIES,
-		formFields = EMPTY_FORM_FIELDS,
-		operationScope,
-	} = args;
-	return {
-		caseTypes: [...args.caseTypes],
-		knownInputs: [...args.knownInputs],
-		currentCaseType: args.currentCaseType,
-		userPropertySlugs: new Map(
-			userProperties.map((property) => [property.uuid, property.slug]),
-		),
-		formFields: new Map(
-			formFields.map((field) => [field.uuid, field.dataType]),
-		),
-		...(operationScope !== undefined && {
-			operationIds: new Set(
-				operationScope.creates.map((create) => create.uuid),
-			),
-			caseOperationValues: true,
-		}),
-	};
 }
 
 /**

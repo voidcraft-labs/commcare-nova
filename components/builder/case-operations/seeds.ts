@@ -181,6 +181,33 @@ export function seedWriteValue(
 	}
 }
 
+/**
+ * The value "Give the case a new name" starts from.
+ *
+ * A name is not an ordinary text slot: `validateTextExpression` refuses a
+ * BLANK literal outright ("names, renames, and explicit owners must
+ * contain a value"), so the empty literal that is the right seed almost
+ * everywhere else is a button that can only fail here. Renaming a case
+ * overwhelmingly means "call it what they just told us", so an answer
+ * comes first exactly as it does for a write; the fallback is the same
+ * humanized placeholder a fresh create's name carries, so the two
+ * name slots read the same way.
+ */
+export function seedRenameValue(
+	caseType: string,
+	formFields: readonly {
+		readonly uuid: Uuid;
+		readonly dataType: CasePropertyDataType | undefined;
+	}[],
+): ValueExpression {
+	const answer = formFields.find((field) =>
+		isValueStorageAssignable(field.dataType ?? "text", "text"),
+	);
+	return answer === undefined
+		? seededCaseName(caseType)
+		: term(formField(answer.uuid));
+}
+
 /** Why this form cannot start a write onto a property of `dataType`. */
 export function writeSeedUnavailableReason(
 	dataType: CasePropertyDataType,

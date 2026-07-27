@@ -1,5 +1,6 @@
 import { z } from "zod";
 import {
+	type CaseOperationMutationPlan,
 	caseOperationAuthoringVerdict,
 	removeCaseOperationMutation,
 } from "@/lib/doc/caseOperationMutations";
@@ -29,6 +30,35 @@ export type RemoveCaseOperationInput = z.infer<
 export type RemoveCaseOperationResult =
 	| MutationSuccess
 	| { readonly error: string };
+
+/**
+ * Why the removal was refused, in words that fit the constraint that
+ * refused it.
+ *
+ * The two `dependent-reference` kinds are genuinely different facts, and
+ * the sentence that is true of one is false of the other: a `reference`
+ * blocker holds an `id-of` edge that can be retargeted, while a
+ * `target-type` blocker holds no reference at all — it would simply be
+ * left acting on a kind of case this change is what establishes. Telling
+ * the agent to "retarget those references" for a type dependency sends
+ * it looking for an edge that does not exist. The builder's
+ * `refusalCopy.ts` draws the same line; the two surfaces share the
+ * "which kind of case … acts on" phrasing so an author and the agent
+ * describe one refusal the same way.
+ */
+function removalRefusal(
+	operationId: string,
+	plan: Extract<CaseOperationMutationPlan, { ok: false }>,
+	dependents: string,
+): string {
+	if (plan.reason !== "dependent-reference") {
+		return `Case operation "${operationId}" could not be removed.`;
+	}
+	const named = dependents || "another operation";
+	return plan.dependencyKind === "target-type"
+		? `Cannot remove "${operationId}" because it establishes the kind of case ${named} acts on. Retarget or remove ${named} first.`
+		: `Cannot remove "${operationId}" while ${named} uses its result. Retarget or remove those references first.`;
+}
 
 export const removeCaseOperationTool = {
 	description:
@@ -77,20 +107,20 @@ export const removeCaseOperationTool = {
 				operation.uuid,
 			);
 			if (!plan.ok) {
-				const dependents = dependentOperationNames(
-					doc,
-					address.formUuid,
-					plan.dependentUuids,
-				);
 				return {
 					kind: "mutate",
 					mutations: [],
 					newDoc: doc,
 					result: {
-						error:
-							plan.reason === "dependent-reference"
-								? `Cannot remove "${input.operationId}" while ${dependents || "another operation"} depends on it. Retarget or remove those references first.`
-								: `Case operation "${input.operationId}" could not be removed.`,
+						error: removalRefusal(
+							input.operationId,
+							plan,
+							dependentOperationNames(
+								doc,
+								address.formUuid,
+								plan.dependentUuids,
+							),
+						),
 					},
 				};
 			}

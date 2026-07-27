@@ -70,6 +70,7 @@ import {
 	ANY_CONSTRAINT,
 	acceptsType,
 	admitsValueExpressionKind,
+	coalesce,
 	dateAdd,
 	dateAddOperandConstraint,
 	ifExpr,
@@ -264,6 +265,7 @@ export function ExpressionPicker({
 			caseTypes: ctx.caseTypes,
 			currentCaseType: ctx.currentCaseType,
 			knownInputs: ctx.knownInputs,
+			userProperties: ctx.userProperties,
 			formFields: ctx.formFields,
 			operationScope: ctx.operationScope,
 		};
@@ -508,8 +510,12 @@ function termSeedForSlot(
 /** Registry defaults are intentionally context-only. Depend-on-input kinds
  * (`term`, `if`, `switch`) need their result-bearing leaves reseeded for a
  * typed slot at selection time; otherwise choosing a calculated numeric
- * subject could transiently author a text expression. */
-function defaultExpressionForSlot<K extends ValueExpression["kind"]>(
+ * subject could transiently author a text expression.
+ *
+ * Exported so an invariant test can drive the EXACT value a kind menu
+ * would commit, rather than the registry default the menu never uses on
+ * its own. */
+export function defaultExpressionForSlot<K extends ValueExpression["kind"]>(
 	schema: ExpressionCardSchema<K>,
 	ctx: ExpressionEditContext,
 	constraint: SlotConstraint,
@@ -539,6 +545,14 @@ function defaultExpressionForSlot<K extends ValueExpression["kind"]>(
 			],
 			branchSeed(),
 		);
+	}
+	if (seed.kind === "coalesce") {
+		// Every value is result-bearing — the coalesce resolves to whichever
+		// one is first non-empty — so a typed slot needs each seeded for the
+		// slot, exactly as `if`'s branches and `switch`'s cases are. The
+		// registry's untyped `null` is not storable anywhere.
+		const [first, ...rest] = seed.values.map(() => branchSeed());
+		return coalesce(first, ...rest);
 	}
 	if (seed.kind === "date-add") {
 		const dateConstraint = dateAddOperandConstraint(childConstraint);
@@ -592,6 +606,7 @@ function KindReplaceMenu({
 		caseTypes: ctx.caseTypes,
 		currentCaseType: ctx.currentCaseType,
 		knownInputs: ctx.knownInputs,
+		userProperties: ctx.userProperties,
 		formFields: ctx.formFields,
 		operationScope: ctx.operationScope,
 	};

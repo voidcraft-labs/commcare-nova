@@ -34,6 +34,8 @@ import {
 	orderedCaseOperations,
 	RESERVED_CASE_OPERATION_TYPES,
 	type Uuid,
+	userPropertiesOf,
+	userPropertySlugsByUuid,
 } from "@/lib/domain";
 import {
 	type AuthorIdentityProjector,
@@ -340,6 +342,14 @@ function identityResolver(
 			if (operation !== undefined) return operation.uuid;
 			throw new Error(`Case operation "${id}" not found in this form.`);
 		},
+		userPropertyUuid(slug) {
+			const properties = Object.values(userPropertiesOf(doc));
+			const match = properties.find((property) => property.slug === slug);
+			if (match !== undefined) return match.uuid;
+			throw new Error(
+				`Worker information "${slug}" is not set up in this app. Available saved keys: ${properties.map((property) => property.slug).join(", ") || "none"}. Add it with add_user_properties first.`,
+			);
+		},
 	};
 }
 
@@ -356,9 +366,11 @@ function identityProjector(
 			id,
 		]),
 	);
+	const userPropertySlugs = userPropertySlugsByUuid(doc);
 	return {
 		fieldPath: (uuid) => fields.get(uuid),
 		operationId: (uuid) => operations.get(uuid),
+		userPropertySlug: (uuid) => userPropertySlugs.get(uuid),
 	};
 }
 

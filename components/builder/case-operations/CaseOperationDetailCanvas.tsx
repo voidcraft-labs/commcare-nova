@@ -11,9 +11,13 @@
 //
 // Every expression slot here mounts with the operation's own scope: the
 // form answers this change may read (narrowed by its multiplicity — see
-// `formFieldScope.ts`), and the submission's own vocabulary (the acting
-// user, no owner, an earlier create's case). Those two together are what
-// let the shared editor offer a form answer at all.
+// `formFieldScope.ts`), the app's worker information, the submission's own
+// vocabulary (the acting user, no owner, an earlier create's case), and
+// what the slot may read against a case row. Together they are what let
+// the shared editor offer a form answer at all — and what stop it
+// offering a case read this module can never make, or an earlier create's
+// id inside a runtime target. `editorScope.ts` owns the last two, because
+// the target slots deliberately do NOT get the same scope as the rest.
 
 "use client";
 
@@ -29,6 +33,7 @@ import { ContentFrame } from "@/components/builder/ContentFrame";
 import { ClearConditionButton } from "@/components/builder/shared/ClearConditionButton";
 import { firstComparisonDefault } from "@/components/builder/shared/cards/comparisonSeed";
 import { ExpressionCardEditor } from "@/components/builder/shared/ExpressionCardEditor";
+import type { CaseDataScope } from "@/components/builder/shared/editorSchemas";
 import type { OperationValueScope } from "@/components/builder/shared/expressionEditorSchemas";
 import { PredicateWorkbench } from "@/components/builder/shared/PredicateWorkbench";
 import { Button } from "@/components/shadcn/button";
@@ -40,6 +45,7 @@ import {
 import { useCaseOperations } from "@/lib/doc/hooks/useCaseOperations";
 import { useEffectiveCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useFormFieldEntries } from "@/lib/doc/hooks/useFormFieldEntries";
+import { useUserProperties } from "@/lib/doc/hooks/useUserCollections";
 import type { Uuid } from "@/lib/doc/types";
 import type {
 	CaseOperation,
@@ -50,18 +56,20 @@ import type {
 } from "@/lib/domain";
 import {
 	actingUser,
-	literal,
 	type Predicate,
 	storageAssignmentConstraint,
-	term,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useCanEdit } from "@/lib/session/hooks";
 import { CaseOperationLinks } from "./CaseOperationLinks";
+import {
+	operationCaseDataScope,
+	RUNTIME_TARGET_OPERATION_SCOPE,
+} from "./editorScope";
 import { operationFormFieldDecls } from "./formFieldScope";
 import { operationSentence } from "./operationSentence";
-import { seedCaseOperationWrite } from "./seeds";
+import { seedCaseOperationWrite, seedRenameValue } from "./seeds";
 import { useOperationSentenceContext } from "./useOperationSentenceContext";
 import { WritePropertyPicker } from "./WritePropertyPicker";
 
@@ -89,7 +97,12 @@ export function CaseOperationDetailCanvas({
 	const operation = index < 0 ? undefined : operations[index];
 
 	const fieldEntries = useFormFieldEntries(formUuid);
+	const userProperties = useUserProperties();
 	const caseFirst = useModuleSelectsCaseFirst(moduleUuid);
+	/* Whether a slot here may read the case at all. The gate refuses every
+	 * case-data read in a form the module opens without choosing a case
+	 * first — see `editorScope.ts` for why that maps onto `"global"`. */
+	const caseDataScope = operationCaseDataScope(caseFirst);
 	/* The scope an operation EXPRESSION resolves against is the module's case
 	 * type — what `rules/caseOperations.ts::expressionContext` hands the
 	 * checker — not the operation's destination type. The destination decides
@@ -157,8 +170,10 @@ export function CaseOperationDetailCanvas({
 	const editorScope = {
 		caseTypes,
 		currentCaseType: expressionCaseType,
+		userProperties,
 		formFields,
 		operationScope,
+		caseDataScope,
 	} as const;
 
 	return (
@@ -298,7 +313,10 @@ export function CaseOperationDetailCanvas({
 										caseTypes,
 										currentCaseType: expressionCaseType,
 										knownInputs: [],
-										caseDataScope: "per-case",
+										userProperties,
+										formFields,
+										operationScope,
+										caseDataScope,
 									}),
 								})
 							}
@@ -312,8 +330,10 @@ export function CaseOperationDetailCanvas({
 							rootLabel="when this runs"
 							caseTypes={caseTypes}
 							currentCaseType={expressionCaseType}
+							userProperties={userProperties}
 							formFields={formFields}
 							operationScope={operationScope}
+							caseDataScope={caseDataScope}
 						/>
 					)}
 				</Section>
@@ -330,6 +350,10 @@ export function CaseOperationDetailCanvas({
 							}
 							constraint={storageAssignmentConstraint(["text"])}
 							{...editorScope}
+							// A runtime target may not name a create's output — target
+							// that create directly instead. The empty scope withholds
+							// `id-of` while keeping the owner sentinels available.
+							operationScope={RUNTIME_TARGET_OPERATION_SCOPE}
 						/>
 					</Section>
 				)}
@@ -360,7 +384,7 @@ export function CaseOperationDetailCanvas({
 						clearConsequence="This change will stop renaming the case."
 						value={operation.rename}
 						canEdit={operationCanEdit}
-						seed={() => term(literal(""))}
+						seed={() => seedRenameValue(destination, formFields)}
 						onChange={(rename) => commit({ ...operation, rename })}
 						constraint={storageAssignmentConstraint(["text"])}
 						editorScope={editorScope}
@@ -463,7 +487,16 @@ export function CaseOperationDetailCanvas({
 							}
 							precedingOperations={operations.slice(0, index)}
 							initialSessionCaseType={expressionCaseType || undefined}
-							editorScope={editorScope}
+							// The only editor a link mounts is a runtime target, so
+							// `operationScope` is withheld here rather than overridden
+							// there — the rows fix it to the target scope themselves.
+							editorScope={{
+								caseTypes,
+								currentCaseType: expressionCaseType,
+								userProperties,
+								formFields,
+								caseDataScope,
+							}}
 							targetContext={{
 								priorCreates: operationScope.creates,
 								sessionUnavailableReason,
@@ -537,8 +570,10 @@ function AddSlotButton({
 interface EditorScope {
 	readonly caseTypes: ReturnType<typeof useEffectiveCaseTypes>;
 	readonly currentCaseType: string;
+	readonly userProperties: ReturnType<typeof useUserProperties>;
 	readonly formFields: ReturnType<typeof operationFormFieldDecls>;
 	readonly operationScope: OperationValueScope;
+	readonly caseDataScope: CaseDataScope;
 }
 
 /** A slot that is either absent or a full expression, with one gesture
@@ -657,10 +692,8 @@ function WriteRow({
 							onChange({
 								...write,
 								condition: firstComparisonDefault({
-									caseTypes: editorScope.caseTypes,
-									currentCaseType: editorScope.currentCaseType,
+									...editorScope,
 									knownInputs: [],
-									caseDataScope: "per-case",
 								}),
 							})
 						}
@@ -688,8 +721,10 @@ function WriteRow({
 							rootLabel={`when ${write.property} is saved`}
 							caseTypes={editorScope.caseTypes}
 							currentCaseType={editorScope.currentCaseType}
+							userProperties={editorScope.userProperties}
 							formFields={editorScope.formFields}
 							operationScope={editorScope.operationScope}
+							caseDataScope={editorScope.caseDataScope}
 						/>
 					</div>
 				)}
