@@ -55,10 +55,16 @@ import {
 	caseOperationExpressionSnapshotTypes,
 	caseOperationMultiplicityScopes,
 } from "@/lib/doc/caseOperationOrder";
+import {
+	extractLookupReferenceOccurrences,
+	lookupReferenceTargetsFromOccurrences,
+	PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
+} from "@/lib/doc/lookupReferences";
 import { byListColumnOrder } from "@/lib/doc/order/compare";
 import {
 	type BlueprintDoc,
 	type CaseListConfig,
+	type CaseOperation,
 	type CaseType,
 	type Column,
 	caseListColumnHasRuntimeRole,
@@ -77,8 +83,13 @@ import {
 } from "@/lib/domain/captureFormats";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
 import { asWalkableDoc } from "@/lib/domain/mediaRefs";
-import type { Predicate, ValueExpression } from "@/lib/domain/predicate";
-import { mapExpressionAst, mapPredicateAst } from "@/lib/domain/predicate";
+import type { Predicate, Term, ValueExpression } from "@/lib/domain/predicate";
+import {
+	mapExpressionAst,
+	mapPredicateAst,
+	walkExpressionTerms,
+	walkTerms,
+} from "@/lib/domain/predicate";
 import {
 	ancestorPath,
 	eq,
@@ -1016,11 +1027,18 @@ export function buildSubmissionReceiptIdentity(args: {
  * the immutable expression snapshot types. Identity rides
  * server-resolved: `sessionUser`/`sessionContext` from the
  * authenticated preview identity, never the client.
+ *
+ * When that exact program carries lookup references, this I/O half also
+ * projects their table ids through the canonical production occurrence
+ * registry and attaches one Project-authorized, rows-free definitions map.
+ * A carrier-free program takes the loader's empty-id fast path and performs no
+ * lookup read.
  */
 export async function buildSubmissionOperationProgram(args: {
 	readonly appId: string;
 	readonly committedApp: Pick<AppDoc, "blueprint" | "mutation_seq">;
 	readonly identity: ResolvedPreviewIdentity;
+	readonly lookupScope: LookupScope;
 	readonly mutation: SubmissionMutation;
 	readonly projection: CaptureSubmissionProjection;
 	readonly viewerTimeZone?: string;
@@ -1042,6 +1060,17 @@ export async function buildSubmissionOperationProgram(args: {
 			viewerTimeZone: args.viewerTimeZone,
 		}),
 	});
+	/* Attach the program's rows-free lookup-definition snapshot BEFORE the
+	 * capture intent, so both augmentations ride one returned value. A
+	 * program-free submission has nothing to look up but must still reach
+	 * the receipt below — that receipt is what makes an ordinary form's
+	 * retry replay instead of repeating its case effects. */
+	const withLookups = await withProgramLookupTableSchemas(
+		built,
+		app.blueprint,
+		args.lookupScope,
+	);
+
 	const validated = args.projection;
 	const allowedAttachments = Object.values(app.blueprint.fields).flatMap(
 		(field) => {
@@ -1071,7 +1100,7 @@ export async function buildSubmissionOperationProgram(args: {
 		allowedAttachments.length === 0
 	) {
 		return {
-			...built,
+			...withLookups,
 			submissionReceipt: {
 				...receiptIdentity,
 				expectedAppMutationSeq: app.mutation_seq,
@@ -1087,7 +1116,7 @@ export async function buildSubmissionOperationProgram(args: {
 		allowedAttachments,
 	};
 	return {
-		...built,
+		...withLookups,
 		submissionReceipt: {
 			...receiptIdentity,
 			expectedAppMutationSeq: app.mutation_seq,
@@ -1096,6 +1125,108 @@ export async function buildSubmissionOperationProgram(args: {
 			...captureIntentWithoutDigest,
 		},
 	};
+}
+
+/**
+ * Attach the Project-authorized, rows-free lookup-definition snapshot the
+ * program's own operations reference. Returning the program untouched when
+ * it carries no references is the loader's empty-id fast path, so a
+ * carrier-free submission performs no lookup read at all.
+ */
+async function withProgramLookupTableSchemas(
+	built: BuiltSubmissionOperations,
+	blueprint: AppDoc["blueprint"],
+	lookupScope: LookupScope,
+): Promise<BuiltSubmissionOperations> {
+	if (built.program === undefined) return built;
+	const lookupTableSchemas = await loadLookupTableSchemas(
+		lookupScope,
+		caseOperationProgramLookupTableIds(
+			asWalkableDoc(blueprint),
+			built.program.operations.map(({ operation }) => operation.uuid),
+		),
+	);
+	if (lookupTableSchemas === undefined) return built;
+	return {
+		...built,
+		program: { ...built.program, lookupTableSchemas },
+	};
+}
+
+/**
+ * Project the canonical production lookup-reference occurrence stream onto
+ * the operations in ONE built submission program. Write and link members have
+ * no UUID of their own, so the registry deliberately anchors them to their
+ * owning operation UUID; filtering carrier identities therefore covers every
+ * runtime expression slot without a second hand-maintained AST walker.
+ */
+export function caseOperationProgramLookupTableIds(
+	doc: BlueprintDoc,
+	operationUuids: readonly Uuid[],
+): readonly LookupTableId[] {
+	if (operationUuids.length === 0) return [];
+	const activeOperations = new Set<Uuid>(operationUuids);
+	return lookupReferenceTargetsFromOccurrences(
+		extractLookupReferenceOccurrences(
+			doc,
+			PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
+		).filter((occurrence) => activeOperations.has(occurrence.carrierUuid)),
+	).tableIds;
+}
+
+/**
+ * Every form field the operations bound to ONE multiplicity scope read.
+ *
+ * Scope binding is the operation's own `forEach.repeat` — an operation with
+ * none runs once against the root bag. Only these references compile for that
+ * scope, which is what keeps the completeness check from demanding an answer
+ * the submission will never read.
+ */
+function operationFormFieldRefs(
+	operations: readonly CaseOperation[],
+	repeatUuid: Uuid | undefined,
+): ReadonlySet<Uuid> {
+	const refs = new Set<Uuid>();
+	/* `field` is a TERM kind, not a ValueExpression kind — walking expression
+	 * nodes only ever sees the `{ kind: "term" }` wrapper around it. */
+	const note = (term: Term) => {
+		if (term.kind === "field") refs.add(term.uuid);
+	};
+	for (const operation of operations) {
+		if (operation.forEach?.repeat !== repeatUuid) continue;
+		// A create's `idFrom` is a field reference like any other, and the
+		// builder's own `referencedFieldUuids` counts it. Missing it here
+		// meant the staleness guard passed and `allocateCreateIdentities`
+		// then read an absent answer as the empty key — rejecting the
+		// whole submission with a blank-identity error about a question
+		// the worker was never shown, instead of asking them to reload.
+		if (operation.target.kind === "new" && operation.target.idFrom) {
+			refs.add(operation.target.idFrom);
+		}
+		for (const expression of [
+			operation.name,
+			operation.owner,
+			operation.rename,
+			...(operation.target.kind === "expression"
+				? [operation.target.expr]
+				: []),
+			...(operation.links ?? []).flatMap((link) =>
+				link.target?.kind === "expression" ? [link.target.expr] : [],
+			),
+			...(operation.writes ?? []).map((write) => write.value),
+		]) {
+			if (expression !== undefined) walkExpressionTerms(expression, note);
+		}
+		for (const predicate of [
+			operation.condition,
+			...(operation.writes ?? []).flatMap((write) =>
+				write.condition === undefined ? [] : [write.condition],
+			),
+		]) {
+			if (predicate !== undefined) walkTerms(predicate, note);
+		}
+	}
+	return refs;
 }
 
 /**
@@ -1162,22 +1293,73 @@ export function buildCaseOperationProgramFromDoc(args: {
 		new Map(
 			(entries ?? []).map((entry) => [entry.fieldUuid as Uuid, entry.value]),
 		);
-	const scopes = caseOperationMultiplicityScopes(doc, formUuid).map(
-		(repeatUuid) => {
-			if (repeatUuid === undefined) {
-				return { iterations: [{ formFields: answerMap(answers?.root) }] };
-			}
-			const clientScope = answers?.repeats.find(
-				(scope) => scope.repeat === (repeatUuid as string),
-			);
-			return {
-				repeat: repeatUuid,
-				iterations: (clientScope?.iterations ?? []).map((bag) => ({
-					formFields: answerMap(bag),
-				})),
-			};
-		},
+	/* A repeat the COMMITTED doc scopes an operation over, with no scope in
+	 * the payload, is provable staleness rather than an empty repeat.
+	 * `FormEngine.computeOperationAnswers` registers a scope for every repeat
+	 * in the client's OWN doc before counting its instances, so a worker who
+	 * simply added no rows still sends that repeat with an empty iteration
+	 * list. Absent means the client never knew the repeat existed — a
+	 * co-editor added it, and this snapshot predates the commit.
+	 *
+	 * Distinguishing the two is the whole point: `?? []` reads an absent
+	 * scope as zero iterations, so the operation runs zero times and the
+	 * submission reports success while committed case effects never
+	 * happened. That is the same silent skip the guard above refuses, one
+	 * level deeper. */
+	const requiredScopes = caseOperationMultiplicityScopes(doc, formUuid);
+	const suppliedRepeats = new Set(answers.repeats.map((scope) => scope.repeat));
+	const missingRepeats = requiredScopes.filter(
+		(repeatUuid): repeatUuid is Uuid =>
+			repeatUuid !== undefined && !suppliedRepeats.has(repeatUuid as string),
 	);
+	if (missingRepeats.length > 0) {
+		throw new CaptureSubmissionRejectedError(
+			"The submitted form is missing answers for a repeat its committed case operations run over. Reload the form and submit again.",
+		);
+	}
+
+	const scopes = requiredScopes.map((repeatUuid) => {
+		if (repeatUuid === undefined) {
+			return { iterations: [{ formFields: answerMap(answers.root) }] };
+		}
+		const clientScope = answers.repeats.find(
+			(scope) => scope.repeat === (repeatUuid as string),
+		);
+		return {
+			repeat: repeatUuid,
+			iterations: (clientScope?.iterations ?? []).map((bag) => ({
+				formFields: answerMap(bag),
+			})),
+		};
+	});
+
+	/* The same staleness one level finer. A peer can add a FIELD an operation
+	 * reads without adding a repeat, so the scope arrives and its iterations
+	 * simply lack that answer. That reference reaches `compileBoundRef`, which
+	 * has no fallback for a form field — deliberately, since a blank would
+	 * change a predicate's truth value — and throws a developer-voiced
+	 * invariant naming `ctx.bindings`. With no arm in `mapSubmitFormError`
+	 * that text becomes the WORKER's submission error and fires a Sentry
+	 * alert, for what is an ordinary multiplayer race.
+	 *
+	 * Checked per scope against the iterations that will actually compile: a
+	 * field inside a repeat the worker left empty is never read, so requiring
+	 * it would reject an honest submission. */
+	const missingFieldScopes = scopes.filter((scope) => {
+		if (scope.iterations.length === 0) return false;
+		const referenced = operationFormFieldRefs(
+			envelopeOperations.map(({ operation }) => operation),
+			"repeat" in scope ? scope.repeat : undefined,
+		);
+		return scope.iterations.some((iteration) =>
+			[...referenced].some((fieldUuid) => !iteration.formFields.has(fieldUuid)),
+		);
+	});
+	if (missingFieldScopes.length > 0) {
+		throw new CaptureSubmissionRejectedError(
+			"The submitted form is missing an answer its committed case operations read. Reload the form and submit again.",
+		);
+	}
 
 	const sessionContext = new Map<string, string>();
 	for (const [field, value] of Object.entries(args.identity.session.context)) {

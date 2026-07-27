@@ -245,10 +245,14 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	 * schema's writer-derived property types. */
 	const caseTypes = useMaterializableCaseTypes();
 
-	/* `form-condition` is one of this form's own configuration URLs, and
-	 * Preview runs a configuration URL's owning item — so it identifies
-	 * the same form here. It carries no field selection. */
-	const atForm = loc.kind === "form" || loc.kind === "form-condition";
+	/* `form-condition` and `form-operations` are this form's own
+	 * configuration URLs, and Preview runs a configuration URL's owning
+	 * item — so they identify the same form here. Neither carries a field
+	 * selection. */
+	const atForm =
+		loc.kind === "form" ||
+		loc.kind === "form-condition" ||
+		loc.kind === "form-operations";
 	const formUuid = atForm ? loc.formUuid : undefined;
 	const moduleUuid = atForm ? loc.moduleUuid : undefined;
 	const selectedUuid = loc.kind === "form" ? loc.selectedUuid : undefined;

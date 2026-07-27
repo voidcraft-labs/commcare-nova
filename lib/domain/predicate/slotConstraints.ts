@@ -15,6 +15,7 @@
 // accept-set. This module adds NO second table; it only shapes the
 // checker's verdicts into per-slot descriptors.
 
+import type { CasePropertyDataType } from "@/lib/domain/casePropertyTypes";
 import {
 	ALL_RESOLVED_TYPES,
 	ANY_TYPE,
@@ -23,8 +24,10 @@ import {
 	compatibleTypesFor,
 	isDateOrDatetime,
 	isNumeric,
+	isValueStorageAssignable,
 	MATCH_PROPERTY_TYPES_BY_MODE,
 	type ResolvedType,
+	SEQUENCE_TYPE,
 	TEXT_SHAPED_TYPES,
 	type ValueExpressionResultClass,
 	valueExpressionKindResultClass,
@@ -329,6 +332,42 @@ export function coerceOperandConstraint(): SlotConstraint {
 /** A text-shaped value. */
 export function textShapedConstraint(): SlotConstraint {
 	return { accepts: TEXT_SHAPED_TYPES };
+}
+
+/**
+ * A value that will be STORED — a case-operation write, or an operation
+ * facet whose result lands verbatim in the case block.
+ *
+ * Storage assignability is deliberately narrower than comparison
+ * compatibility (`isValueStorageAssignable`): `int` widens to `decimal`
+ * and text and single-select interchange, but nothing else crosses. The
+ * accept-set is computed by asking that exact function about every
+ * resolved type, so the picker's offered-set is the checker's own rule
+ * rather than a second table that could drift from it. Several
+ * destinations (a property two writers disagree about) intersect.
+ */
+export function storageAssignmentConstraint(
+	destinationTypes: readonly CasePropertyDataType[],
+): SlotConstraint {
+	const destinations = [...new Set(destinationTypes)];
+	if (destinations.length === 0) {
+		return {
+			accepts: new Set(
+				ALL_RESOLVED_TYPES.filter(
+					(type) => type !== ANY_TYPE && type !== SEQUENCE_TYPE,
+				),
+			),
+		};
+	}
+	return {
+		accepts: new Set(
+			ALL_RESOLVED_TYPES.filter((type) =>
+				destinations.every((destination) =>
+					isValueStorageAssignable(type, destination),
+				),
+			),
+		),
+	};
 }
 
 // ── Admission helpers (consumed by the pickers) ───────────────────

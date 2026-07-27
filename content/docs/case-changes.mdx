@@ -1,0 +1,165 @@
+---
+title: Change cases when a form is submitted
+description: See everything one form does to your cases, in the order it happens, and edit each change on its own screen.
+---
+
+An ordinary form saves its answers onto the case someone picked before opening
+it. Real work often needs more than that: an intake form that creates a client
+*and* a referral, a visit form that also closes the task it came from, a bed
+survey that updates one case per row someone filled in.
+
+**Case changes** are how a form says what else happens. Each one creates a case,
+updates a case, or closes a case, and they happen in the order you put them in.
+
+## Where to find them
+
+Open a form, choose the settings gear, and pick **Edit case changes**. The
+screen lists every change the form makes, and the settings row above it tells
+you the count without opening anything — a form that changes no cases says so.
+
+The screen has its own address, so you can link a teammate straight to it, and
+the **Preview** control runs the form the changes belong to.
+
+## The list reads as sentences
+
+Each row says what the change does in plain words:
+
+> **Create a new referral case** — once for each “Beds” entry, saves 3
+> properties, links it to another case
+
+That list is the answer to “what does submitting this form do?”, which is the
+one question the underlying platform never shows anywhere. If a change only runs
+when an earlier one does, its row says so at rest, without you having to open it.
+
+## Add a change
+
+Choose **Add a change** and say what it does:
+
+- **Create a case** — then choose the kind of case. Nova creates it complete,
+  with a name you can edit, so you never land on a half-built change.
+- **Update the case this form opened** — saves values onto the case someone
+  already picked.
+- **Close the case this form opened** — finishes it. A close can still save
+  final values.
+
+The last two are only offered when the module picks a case before opening its
+forms. When it does not, the choice says so rather than disappearing.
+
+## Order matters, and some orders are refused
+
+A later change can act on the case an earlier one created — that is how one
+submission registers a client and then files a referral against them. Because of
+that, order is not free.
+
+Drag a change by its handle, or focus the handle and use the arrow keys (**Home**
+and **End** jump to the ends). If a position is not available, Nova says why
+before anything moves, and names the changes involved. There are two reasons,
+and they mean different things:
+
+- **Something else uses this change's result.** Move the change that depends on
+  it as well, or point it somewhere else.
+- **The submitted form cannot carry that order.** Nothing you did is wrong. The
+  form itself cannot express that sequence, because the two systems that process
+  a submission would put the changes in different orders and disagree about the
+  result.
+
+Both reasons read the same whether you drag or use the keyboard.
+
+## Edit one change
+
+Choose a row to open it. The middle of the screen holds everything the change
+works out when the form is submitted:
+
+- **When this runs** — leave it out and the change happens on every submission.
+- **The case's name**, **who owns it**, and (for an update) **a new name**.
+- **What it saves** — the values that land on the case, each with its own
+  optional condition so a value can be saved only sometimes.
+- **Connections to other cases** — see below.
+
+The panel beside it holds the choices: what the change does, the kind of case,
+which case, how often it happens, and removing it.
+
+Those choices stay in sync. If you turn “create a referral” into “update the
+case this form opened,” Nova also switches to that existing case's real type.
+A case type that would conflict with the chosen case, a later type change, or a
+connection is disabled with the reason beside it; platform-owned case types
+never appear. You can choose an available option knowing it will save.
+
+If an imported change contains lookup-table logic that this editor does not
+author, Nova preserves the logic and shows why every setting on that change is
+read-only instead of risking a partial save. The change stays in the list, and
+you can still move the whole change in the execution order.
+
+Values can come from a **form answer**, from information already on a case, from
+fixed values, from information about the person using the app, or from a
+calculation you build.
+
+## How often a change happens
+
+A change normally happens once per submission. Set **How often** to a repeating
+section and it happens once for every entry someone adds — one case per bed, one
+update per visit.
+
+That choice decides which answers the change can use. A change that happens once
+cannot read an answer that has one value per entry, because there would be no way
+to say which entry it meant. Nova only offers the answers that work, and says
+why when it cannot offer one.
+
+## Identity: a distinct case, or a keyed one
+
+A create normally makes a distinct case every time. If the same submission
+should reach the same case when it is sent again — a record keyed on a
+registration number someone types — set **Identity** to that answer instead.
+
+## Connections to other cases
+
+A connection says how the case relates to another one:
+
+- **Belongs to that case** — ordinary parent-and-child.
+- **Uses that case as its host** — a host connection distinct from ordinary
+  parent-and-child. Closing the host does not close this case.
+
+Set the connection's target to **Remove this connection** to break an existing
+one instead of making it. That is what you reach for when a temporary grouping
+has done its job and the cases in it need to survive on their own.
+
+The other end can be the case the form opened, a case made by an earlier
+change, or a case id worked out by a calculation. Choosing the calculation
+opens its full editor directly under the target. Choosing a known case also
+brings that case's current type along in the same edit, including a type changed
+by an earlier operation, so the target and type cannot get temporarily out of
+sync.
+
+In Preview, a calculation that produces no case id or names a case that is no
+longer available is refused beside the running form. The whole submission is
+atomic: no case is created, changed, linked, or unlinked until every target can
+be resolved.
+
+## Removing a change
+
+Removing is offered only when nothing depends on the change. When something
+does, the panel names each one and the exact place holding the reference — the
+value it saves, the case it changes, when it runs — so you know what to edit
+first.
+
+## Ask Nova or an MCP agent
+
+Case changes are also part of Nova's shared authoring tools. You can ask Nova in
+chat to add, edit, move, or remove them, and a connected MCP agent has the same
+abilities. Both surfaces use the names you see in the builder: the module,
+form, and change ids plus field paths such as `visits/outcome`. Internal storage
+ids never enter the conversation. Change ids and connection names use letters,
+numbers, and underscores and start with a letter or underscore; saved property
+names use the same characters and start with a letter.
+
+If a saved change contains lookup-table logic these tools cannot author yet,
+the read result keeps that change in its exact list position and identifies it
+by name, but marks its settings as unavailable instead of returning a partial
+editable shape. Nova and MCP refuse both updates and removal rather than
+discarding hidden behavior; you can still ask either one to move the intact
+change by that name.
+
+A request that adds several changes can connect them in one atomic call — for
+example, create a referral and then update that new referral. If any change is
+invalid or the order cannot be preserved on submission, none of the call is
+saved and the response says what to adjust.

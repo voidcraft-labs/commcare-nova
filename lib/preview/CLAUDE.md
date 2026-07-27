@@ -64,9 +64,16 @@ loading blueprint topology. The SERVER builds
 the case-operation program from the COMMITTED doc
 (`buildSubmissionOperationProgram`: S04 analyses + `buildCaseTypeMap` + the
 identity's session values, `ordinary.caseType` populated for the rolling
-proof). A committed operation-bearing form with missing answer bags rejects
-wholesale rather than silently applying ordinary-only effects. A survey with a
-program executes it, and the envelope's typed `SubmissionRejectedError` surfaces as the
+proof). That same authorized boundary retains the `LookupScope`, projects the
+canonical production lookup occurrences onto the built program's operation
+UUIDs, and loads one rows-free definition snapshot only when those operations
+actually carry lookup references. The resulting `lookupTableSchemas` map is
+part of the immutable program handed to `applySubmission`, so a schema-heal
+retry reuses the exact same compiler context; lookup rows themselves stay
+current inside the submission transaction. A committed operation-bearing form
+with missing answer bags rejects wholesale rather than silently applying
+ordinary-only effects. A survey with a program executes it, and the envelope's
+typed `SubmissionRejectedError` surfaces as the
 `submission-rejected` result arm with whole-rollback copy in
 `FormScreen`. The close transition itself stays the
 store's: it atomically owns both `closed_on` and the canonical

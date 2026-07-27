@@ -70,8 +70,10 @@ import {
 	ANY_CONSTRAINT,
 	acceptsType,
 	admitsValueExpressionKind,
+	coalesce,
 	dateAdd,
 	dateAddOperandConstraint,
+	formField,
 	ifExpr,
 	input,
 	literal,
@@ -91,6 +93,7 @@ import {
 } from "../cards/expression/TermCard";
 import { reseedValueForConstraint } from "../cards/reseed";
 import {
+	buildEditorTypeContext,
 	useEditorErrorsAt,
 	useEditorErrorsBelow,
 	useExpressionFocusTarget,
@@ -263,12 +266,11 @@ export function ExpressionPicker({
 			caseTypes: ctx.caseTypes,
 			currentCaseType: ctx.currentCaseType,
 			knownInputs: ctx.knownInputs,
+			userProperties: ctx.userProperties,
+			formFields: ctx.formFields,
+			operationScope: ctx.operationScope,
 		};
-		const typeCtx = {
-			caseTypes: [...ctx.caseTypes],
-			currentCaseType: ctx.currentCaseType,
-			knownInputs: [...ctx.knownInputs],
-		};
+		const typeCtx = buildEditorTypeContext(ctx);
 		const pendingTermSourceLabel = termSourceLabel(
 			pendingTermReplacement?.source ?? value,
 		);
@@ -277,7 +279,8 @@ export function ExpressionPicker({
 			: expressionCardSchemaList
 					.filter(
 						(schema) =>
-							schema.kind !== "term" && isAuthorableExpressionKind(schema.kind),
+							schema.kind !== "term" &&
+							isAuthorableExpressionKind(schema.kind, ctx),
 					)
 					.map((s) => {
 						const typeAdmission = admitsValueExpressionKind(s.kind, constraint);
@@ -473,6 +476,30 @@ function termSeedForSlot(
 	constraint: SlotConstraint,
 	presentation: "value" | "subject",
 ): ValueExpression {
+	// A `nonEmpty` slot DECLARES that an empty string is invalid in it —
+	// a case name, a rename, an explicit owner, all of which CommCare
+	// refuses blank. Seeding `literal("")` there offers a choice the
+	// commit gate refuses the instant it is picked, so seed something
+	// non-blank by construction instead.
+	//
+	// Deliberately not the property-first cascade below: a case read is
+	// refused outright in a `global` slot (an operation on a form whose
+	// module selects no case), and this seed has no way to see that
+	// scope. A form answer and a session value are in scope wherever the
+	// surface offered them at all.
+	if (constraint.nonEmpty === true) {
+		const answer = ctx.formFields?.find(
+			(candidate) =>
+				constraint.accepts === "any" ||
+				acceptsType(constraint, candidate.dataType ?? "text"),
+		);
+		if (answer !== undefined) return term(formField(answer.uuid));
+
+		if (constraint.accepts === "any" || acceptsType(constraint, "text")) {
+			return term(sessionContext("userid"));
+		}
+	}
+
 	if (presentation === "subject" || constraint.forbidDirectLiteral === true) {
 		const caseType = ctx.caseTypes.find(
 			(candidate) => candidate.name === ctx.currentCaseType,
@@ -508,8 +535,12 @@ function termSeedForSlot(
 /** Registry defaults are intentionally context-only. Depend-on-input kinds
  * (`term`, `if`, `switch`) need their result-bearing leaves reseeded for a
  * typed slot at selection time; otherwise choosing a calculated numeric
- * subject could transiently author a text expression. */
-function defaultExpressionForSlot<K extends ValueExpression["kind"]>(
+ * subject could transiently author a text expression.
+ *
+ * Exported so an invariant test can drive the EXACT value a kind menu
+ * would commit, rather than the registry default the menu never uses on
+ * its own. */
+export function defaultExpressionForSlot<K extends ValueExpression["kind"]>(
 	schema: ExpressionCardSchema<K>,
 	ctx: ExpressionEditContext,
 	constraint: SlotConstraint,
@@ -539,6 +570,14 @@ function defaultExpressionForSlot<K extends ValueExpression["kind"]>(
 			],
 			branchSeed(),
 		);
+	}
+	if (seed.kind === "coalesce") {
+		// Every value is result-bearing — the coalesce resolves to whichever
+		// one is first non-empty — so a typed slot needs each seeded for the
+		// slot, exactly as `if`'s branches and `switch`'s cases are. The
+		// registry's untyped `null` is not storable anywhere.
+		const [first, ...rest] = seed.values.map(() => branchSeed());
+		return coalesce(first, ...rest);
 	}
 	if (seed.kind === "date-add") {
 		const dateConstraint = dateAddOperandConstraint(childConstraint);
@@ -592,12 +631,11 @@ function KindReplaceMenu({
 		caseTypes: ctx.caseTypes,
 		currentCaseType: ctx.currentCaseType,
 		knownInputs: ctx.knownInputs,
+		userProperties: ctx.userProperties,
+		formFields: ctx.formFields,
+		operationScope: ctx.operationScope,
 	};
-	const typeCtx = {
-		caseTypes: [...ctx.caseTypes],
-		currentCaseType: ctx.currentCaseType,
-		knownInputs: [...ctx.knownInputs],
-	};
+	const typeCtx = buildEditorTypeContext(ctx);
 	const currentKind = currentValue.kind;
 	const pendingSourceLabel =
 		pendingReplacement === null
@@ -660,7 +698,7 @@ function KindReplaceMenu({
 								.filter(
 									(schema) =>
 										schema.kind === currentKind ||
-										isAuthorableExpressionKind(schema.kind),
+										isAuthorableExpressionKind(schema.kind, ctx),
 								)
 								.map((schema) => {
 									const isCurrent = schema.kind === currentKind;

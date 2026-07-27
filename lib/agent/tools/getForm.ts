@@ -16,6 +16,7 @@ import {
 	resolveFormUuid,
 } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
+import { projectedCaseOperations } from "./case-operations/shared";
 import type { ReadToolResult } from "./common";
 
 export const getFormInputSchema = z
@@ -36,7 +37,13 @@ export type GetFormInput = z.infer<typeof getFormInputSchema>;
  */
 export type GetFormResult =
 	| { error: string }
-	| { moduleIndex: number; formIndex: number; form: FormSnapshot };
+	| {
+			moduleIndex: number;
+			formIndex: number;
+			form: Omit<FormSnapshot, "caseOperations"> & {
+				caseOperations?: readonly Record<string, unknown>[];
+			};
+	  };
 
 export const getFormTool = {
 	description:
@@ -56,9 +63,18 @@ export const getFormTool = {
 		if (!formUuid) return notFound;
 		const snapshot = formSnapshot(doc, formUuid);
 		if (!snapshot) return notFound;
+		const { caseOperations: _canonicalOperations, ...authorForm } = snapshot;
+		const operations = projectedCaseOperations(doc, formUuid);
 		return {
 			kind: "read",
-			data: { moduleIndex, formIndex, form: snapshot },
+			data: {
+				moduleIndex,
+				formIndex,
+				form: {
+					...authorForm,
+					...(operations.length > 0 && { caseOperations: operations }),
+				},
+			},
 		};
 	},
 };

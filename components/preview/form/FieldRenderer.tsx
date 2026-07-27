@@ -16,6 +16,8 @@ interface FieldRendererProps {
 	/** Domain field entity — discriminated union narrowed by `kind` below. */
 	field: Field;
 	state: FieldState;
+	/** ID of the already-rendered visible question label, when present. */
+	labelledBy?: string;
 	/**
 	 * Concrete engine path — carries the repeat index, so a capture
 	 * question's replace targets exactly one instance.
@@ -59,6 +61,7 @@ interface FieldRendererProps {
 export function FieldRenderer({
 	field,
 	state,
+	labelledBy,
 	path,
 	appId,
 	entryKey,
@@ -100,6 +103,7 @@ export function FieldRenderer({
 				<TextField
 					field={field}
 					state={state}
+					labelledBy={labelledBy}
 					onChange={onChange}
 					onBlur={onBlur}
 				/>
@@ -110,6 +114,7 @@ export function FieldRenderer({
 				<NumberField
 					field={field}
 					state={state}
+					labelledBy={labelledBy}
 					onChange={onChange}
 					onBlur={onBlur}
 				/>
@@ -121,6 +126,7 @@ export function FieldRenderer({
 				<DateField
 					field={field}
 					state={state}
+					labelledBy={labelledBy}
 					onChange={onChange}
 					onBlur={onBlur}
 				/>
@@ -130,6 +136,7 @@ export function FieldRenderer({
 				<SelectOneField
 					field={field}
 					state={state}
+					labelledBy={labelledBy}
 					onChange={onChange}
 					onBlur={onBlur}
 				/>
@@ -139,6 +146,7 @@ export function FieldRenderer({
 				<SelectMultiField
 					field={field}
 					state={state}
+					labelledBy={labelledBy}
 					onChange={onChange}
 					onBlur={onBlur}
 				/>
@@ -152,6 +160,7 @@ export function FieldRenderer({
 				<GeopointField
 					field={field}
 					state={state}
+					labelledBy={labelledBy}
 					onChange={onChange}
 					onBlur={onBlur}
 				/>

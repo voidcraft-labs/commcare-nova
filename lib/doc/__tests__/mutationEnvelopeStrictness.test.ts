@@ -8,6 +8,8 @@ import {
 
 const MODULE = asUuid("11111111-1111-4111-8111-111111111111");
 const FORM = asUuid("22222222-2222-4222-8222-222222222222");
+const OPERATION = asUuid("33333333-3333-4333-8333-333333333333");
+const OTHER_OPERATION = asUuid("44444444-4444-4444-8444-444444444444");
 const FIELD = asUuid("33333333-3333-4333-8333-333333333333");
 const OPTION_A = asUuid("44444444-4444-4444-8444-444444444444");
 const OPTION_B = asUuid("55555555-5555-4555-8555-555555555555");
@@ -261,6 +263,86 @@ describe("mutation envelope strictness", () => {
 			}
 		},
 	);
+
+	/* The structural omission in `caseOperationPatchSchemaFor` is what makes
+	 * identity replacement impossible; this pins the SENTENCE that refusal
+	 * carries. A caller who believes an update can move an operation's
+	 * identity has to be able to act on the message, and "Unrecognized key"
+	 * does not tell them what they got wrong. */
+	it("tells a case-operation update why it may not set the operation uuid", () => {
+		const payload = {
+			kind: "updateForm",
+			uuid: FORM,
+			patch: {},
+			caseOperationPatch: {
+				operation: "update",
+				uuid: OPERATION,
+				patch: { uuid: OTHER_OPERATION, id: "renamed" },
+			},
+		};
+
+		for (const schema of [mutationSchema, canonicalMutationSchema]) {
+			const result = schema.safeParse(payload);
+			expect(result.success).toBe(false);
+			if (result.success) continue;
+			const issue = result.error.issues.find(
+				(candidate) =>
+					candidate.path.join(".") === "caseOperationPatch.patch.uuid",
+			);
+			expect(issue?.message).toContain("identity is fixed when it is created");
+			expect(issue?.message).toContain("leave that slot out");
+		}
+	});
+
+	/* Clearing a connection's target is the one slot where a patch `null`
+	 * is an ASSIGNED value rather than a deletion — a link's `target` is
+	 * required and nullable, so the fallback carries a literal `null`
+	 * where a cleared optional slot would simply be absent. Treating the
+	 * two the same made this envelope reject itself, and the write 400'd
+	 * instead of unlinking. */
+	it("accepts an unlink, whose fallback carries a real null target", () => {
+		const payload = {
+			kind: "updateForm",
+			uuid: FORM,
+			patch: {},
+			caseOperationChange: {
+				operation: "update",
+				uuid: OPERATION,
+				value: {
+					uuid: OPERATION,
+					id: "update_visit",
+					order: "b",
+					action: "update",
+					caseType: "visit",
+					target: { kind: "session" },
+					links: [
+						{
+							identifier: "parent",
+							targetType: "patient",
+							relationship: "child",
+							target: null,
+						},
+					],
+				},
+			},
+			caseOperationPatch: {
+				operation: "update-link",
+				uuid: OPERATION,
+				identifier: "parent",
+				patch: { target: null },
+			},
+		};
+
+		for (const schema of [mutationSchema, canonicalMutationSchema]) {
+			const result = schema.safeParse(payload);
+			expect(
+				result.success,
+				result.success
+					? ""
+					: JSON.stringify(result.error.issues.map((i) => i.message)),
+			).toBe(true);
+		}
+	});
 
 	it("does not reintroduce raw unknown content into parsed output", () => {
 		const payload = {

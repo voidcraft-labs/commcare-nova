@@ -49,6 +49,7 @@ import {
 import { firstComparisonDefault } from "./cards/comparisonSeed";
 import { SearchInputMenu } from "./cards/WhenInputPresentCard";
 import {
+	buildEditorTypeContext,
 	buildValidityIndex,
 	PredicateEditProvider,
 	useEditorErrorsAt,
@@ -61,6 +62,8 @@ import {
 	predicateCardSchemas,
 	predicateUnavailableReason,
 } from "./editorSchemas";
+import type { OperationValueScope } from "./expressionEditorSchemas";
+import type { EditorFormFieldDecl } from "./formFieldPresentation";
 import {
 	appendKindIndex,
 	appendKindSlot,
@@ -91,7 +94,12 @@ import {
 	useStableListIdentity,
 } from "./useStableListIdentity";
 
-const STRUCTURE_KINDS = [
+/** The structural shapes the Add-condition menu offers, beside its one
+ *  comparison leaf. Exported so the per-carrier invariant tests can
+ *  drive exactly what the menu offers rather than a superset — a seed
+ *  the menu cannot reach is not an offer, and asserting one claims a
+ *  path that does not exist. */
+export const STRUCTURE_KINDS = [
 	"and",
 	"or",
 	"not",
@@ -205,7 +213,8 @@ const STRUCTURE_ACTION_LABELS: Record<StructureKind, string> = {
 	missing: "Require no related case",
 };
 
-function buildStructure(
+/** Build one structural seed exactly as the Add-condition menu does. */
+export function buildStructure(
 	kind: StructureKind,
 	ctx: PredicateEditContext,
 ): StructuralPredicate {
@@ -338,6 +347,12 @@ export interface PredicateWorkbenchProps {
 	readonly knownInputs?: readonly EditorSearchInputDecl[];
 	/** Current custom worker-information catalog for immutable user refs. */
 	readonly userProperties?: readonly UserProperty[];
+	/** Form answers this rule may read — already narrowed by the owning
+	 *  surface to the ones its slot admits. */
+	readonly formFields?: readonly EditorFormFieldDecl[];
+	/** Present only inside a case operation, where the submission's own
+	 *  vocabulary is available. */
+	readonly operationScope?: OperationValueScope;
 	/** Runtime that evaluates this rule. Search-backed rules consult the
 	 *  boundary verdict before offering a guaranteed-invalid value source. */
 	readonly evaluationTarget?: "on-device" | "case-search";
@@ -372,7 +387,9 @@ export function PredicateWorkbench({
 	caseTypes,
 	currentCaseType,
 	knownInputs = [],
-	userProperties = [],
+	userProperties,
+	formFields,
+	operationScope,
 	evaluationTarget = "on-device",
 	caseDataScope = "per-case",
 	rootLabel = DEFAULT_RULE_ROOT_LABEL,
@@ -405,15 +422,23 @@ export function PredicateWorkbench({
 	);
 
 	const typeContext = useMemo(
-		() => ({
-			caseTypes: [...caseTypes],
-			knownInputs: [...knownInputs],
+		() =>
+			buildEditorTypeContext({
+				caseTypes,
+				knownInputs,
+				currentCaseType,
+				userProperties,
+				formFields,
+				operationScope,
+			}),
+		[
+			caseTypes,
 			currentCaseType,
-			userPropertySlugs: new Map(
-				userProperties.map((property) => [property.uuid, property.slug]),
-			),
-		}),
-		[caseTypes, currentCaseType, knownInputs, userProperties],
+			knownInputs,
+			userProperties,
+			formFields,
+			operationScope,
+		],
 	);
 	const validity = useMemo(
 		() => checkPredicate(value, typeContext),
@@ -424,15 +449,34 @@ export function PredicateWorkbench({
 		[validity],
 	);
 
+	// Every axis the pickers offer travels together. `userProperties` in
+	// particular is not optional in practice: the sibling `typeContext`
+	// above already carries it, so omitting it here made the validity
+	// index and the verb menu resolve a saved worker-information read
+	// against two different vocabularies — the menu's the narrower one.
 	const editContext = useMemo<PredicateEditContext>(
 		() => ({
 			caseTypes,
 			currentCaseType: focusedCaseType,
 			knownInputs,
+			formFields,
+			operationScope,
 			caseDataScope,
 			allowsNeverMatch,
+			userProperties,
+			evaluationTarget,
 		}),
-		[caseTypes, focusedCaseType, knownInputs, caseDataScope, allowsNeverMatch],
+		[
+			caseTypes,
+			focusedCaseType,
+			knownInputs,
+			formFields,
+			operationScope,
+			caseDataScope,
+			allowsNeverMatch,
+			userProperties,
+			evaluationTarget,
+		],
 	);
 	const admitCaseSearchExpression = useCallback(
 		(path: EditorPath, next: ValueExpression) => {
@@ -586,8 +630,11 @@ export function PredicateWorkbench({
 			currentCaseType={focusedCaseType}
 			knownInputs={knownInputs}
 			userProperties={userProperties}
+			formFields={formFields}
+			operationScope={operationScope}
 			caseDataScope={caseDataScope}
 			allowsNeverMatch={allowsNeverMatch}
+			evaluationTarget={evaluationTarget}
 			validityIndex={validityIndex}
 			admitExpressionChange={
 				evaluationTarget === "case-search"

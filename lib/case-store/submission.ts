@@ -29,6 +29,7 @@ import type {
 	Uuid,
 } from "@/lib/domain";
 import type { Predicate } from "@/lib/domain/predicate";
+import type { LookupTableSchemas } from "./sql/compileLookup";
 import type { JsonObject } from "./sql/database";
 
 /**
@@ -178,6 +179,14 @@ export interface CaseOperationProgram {
 	/** Schema map for expression compilation (`buildCaseTypeMap` at the
 	 * caller's boundary). */
 	readonly caseTypeSchemas: ReadonlyMap<string, CaseType>;
+	/**
+	 * Rows-free Project-scoped lookup definitions for every carrier in this
+	 * exact operation program. The server derives the target ids from the
+	 * same committed blueprint that built `operations`, loads one definitions
+	 * snapshot after membership authorization, and keeps this map immutable
+	 * across the whole envelope (including a schema-heal retry).
+	 */
+	readonly lookupTableSchemas?: LookupTableSchemas;
 	/** Open-namespace worker data for `sessionUser` terms; absent keys
 	 * resolve blank, the device's missing-worker-data semantic. */
 	readonly sessionUser?: ReadonlyMap<string, string>;

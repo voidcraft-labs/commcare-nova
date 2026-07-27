@@ -91,9 +91,10 @@ function fillOrderByUuids<T extends Ordered>(
 /**
  * Seed `order` from current array position on every structural and
  * collection entity that lacks one: modules (`moduleOrder`), forms (each
- * `formOrder[m]`), fields (each `fieldOrder[p]`), and the per-module
- * `caseListConfig` columns/searchInputs plus each select field's options
- * (whose array index IS their position). Mutates `doc` in place.
+ * `formOrder[m]`), fields (each `fieldOrder[p]`), and the per-form case
+ * operations plus the per-module `caseListConfig` columns/searchInputs plus
+ * each select field's options (whose array index IS their position). Mutates
+ * `doc` in place.
  */
 export function backfillOrderKeys(doc: BlueprintDoc): void {
 	fillOrderByUuids(doc.moduleOrder, (uuid) => doc.modules[uuid]);
@@ -102,6 +103,9 @@ export function backfillOrderKeys(doc: BlueprintDoc): void {
 	}
 	for (const fieldUuids of Object.values(doc.fieldOrder)) {
 		fillOrderByUuids(fieldUuids, (uuid) => doc.fields[uuid]);
+	}
+	for (const form of Object.values(doc.forms)) {
+		if (form.caseOperations) fillOrder(form.caseOperations);
 	}
 	for (const module of Object.values(doc.modules)) {
 		const config = module.caseListConfig;

@@ -35,6 +35,7 @@ import {
 	type CsqlRepresentabilityIssue,
 	checkCsqlRepresentability,
 } from "@/lib/commcare/predicate";
+import { matchModeRunsOnDevice } from "@/lib/commcare/predicate/matchModes";
 import type { ValidationScope } from "@/lib/commcare/validator";
 import type { ValidationError } from "@/lib/commcare/validator/errors";
 import {
@@ -52,7 +53,7 @@ import {
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation, MutationResult } from "@/lib/doc/types";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
-import type { Predicate } from "@/lib/domain/predicate";
+import type { MatchMode, Predicate } from "@/lib/domain/predicate";
 
 export type PredicateEditVerdict =
 	| { readonly ok: true }
@@ -96,6 +97,22 @@ export function caseSearchPredicateEditVerdict(
 	return introduced === undefined
 		? { ok: true }
 		: { ok: false, reason: predicateEditIssueReason(introduced) };
+}
+
+/**
+ * Whether CommCare's own evaluator implements `mode`, for a slot that runs
+ * on the device rather than as a remote case-search query.
+ *
+ * The builder asks the same question the on-device emitter and the two
+ * portability rules ask, through this boundary rather than by restating a
+ * CommCare fact in React code — the mode table lives once, at
+ * `lib/commcare/predicate/matchModes.ts`. A picker needs it because the
+ * refusal is otherwise invisible until commit: the three case-search modes
+ * type-check perfectly, so nothing short of the wire dialect knows they
+ * cannot run.
+ */
+export function matchModeAvailableOnDevice(mode: MatchMode): boolean {
+	return matchModeRunsOnDevice(mode);
 }
 
 /** Absolute readiness verdict for a predicate that will execute as a remote

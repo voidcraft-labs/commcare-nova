@@ -11,6 +11,7 @@ import {
 	columnSnapshotMutations,
 	columnTileMutations,
 } from "@/lib/doc/caseListColumnMutations";
+import { caseOperationChangesForUpdate } from "@/lib/doc/caseOperationMutations";
 import {
 	cleanupCaseSearchAfterFinalInputMutation,
 	disableUnusedCaseSearchMutation,
@@ -27,8 +28,10 @@ import { searchInputUpdateMutation } from "@/lib/doc/searchInputMutations";
 import {
 	asUuid,
 	type BlueprintDoc,
+	type CaseOperation,
 	type CaseTileLayout,
 	type Column,
+	caseOperationSchema,
 	type Field,
 	type LookupOptionsSource,
 	type Module,
@@ -51,6 +54,7 @@ const COLUMN = asUuid("20000000-0000-4000-8000-000000000000");
 const ADDED_COLUMN = asUuid("30000000-0000-4000-8000-000000000000");
 const INPUT = asUuid("35000000-0000-4000-8000-000000000000");
 const FORM = asUuid("60000000-0000-4000-8000-000000000000");
+const OPERATION = asUuid("65000000-0000-4000-8000-000000000000");
 const FIELD = asUuid("70000000-0000-4000-8000-000000000000");
 const OPTION_A = asUuid("80000000-0000-4000-8000-000000000000");
 const OPTION_B = asUuid("90000000-0000-4000-8000-000000000000");
@@ -241,6 +245,47 @@ const legacyUpdateFieldSchema = z.discriminatedUnion("targetKind", [
 	}),
 ]);
 
+/** Exact deployed `updateForm.caseOperationChange` grammar from the immediate
+ * parent of this unit. The nested union is intentionally frozen here: reducing
+ * the old parser to an updateForm schema that does not know this key would only
+ * prove that an unknown key strips, not that an already-deployed strict nested
+ * payload still parses. */
+const legacyCaseOperationChangeSchema = z.discriminatedUnion("operation", [
+	z
+		.object({ operation: z.literal("add"), value: caseOperationSchema })
+		.strict(),
+	z
+		.object({
+			operation: z.literal("update"),
+			uuid: uuidSchema,
+			value: caseOperationSchema,
+		})
+		.strict()
+		.superRefine((change, ctx) => {
+			if (change.uuid === change.value.uuid) return;
+			ctx.addIssue({
+				code: "custom",
+				path: ["value", "uuid"],
+				message: "A case-operation replacement must preserve UUID identity.",
+			});
+		}),
+	z.object({ operation: z.literal("remove"), uuid: uuidSchema }).strict(),
+	z
+		.object({
+			operation: z.literal("move"),
+			uuid: uuidSchema,
+			order: z.string(),
+		})
+		.strict(),
+]);
+
+const legacyUpdateFormSchema = z.object({
+	kind: z.literal("updateForm"),
+	uuid: uuidSchema,
+	patch: z.object({}).default(() => ({})),
+	caseOperationChange: legacyCaseOperationChangeSchema.optional(),
+});
+
 const legacyMutationSchema = z.discriminatedUnion("kind", [
 	z.object({
 		kind: z.literal("addModule"),
@@ -302,6 +347,7 @@ const legacyMutationSchema = z.discriminatedUnion("kind", [
 		index: z.number().int().nonnegative().optional(),
 	}),
 	legacyUpdateFieldSchema,
+	legacyUpdateFormSchema,
 ]);
 
 type LegacyMutation = z.infer<typeof legacyMutationSchema>;
@@ -544,10 +590,284 @@ function applyLegacy(
 					draft.fields[uuid] = result.data;
 					break;
 				}
+				case "updateForm": {
+					const form = draft.forms[asUuid(mutation.uuid)];
+					if (!form) break;
+					const change = mutation.caseOperationChange;
+					if (change === undefined) break;
+					const operations = form.caseOperations ?? [];
+					switch (change.operation) {
+						case "add":
+							if (
+								!operations.some(
+									(operation) => operation.uuid === change.value.uuid,
+								)
+							) {
+								operations.push(change.value);
+								form.caseOperations = operations;
+							}
+							break;
+						case "update": {
+							const index = operations.findIndex(
+								(operation) => operation.uuid === change.uuid,
+							);
+							if (index < 0) break;
+							operations[index] = change.value;
+							form.caseOperations = operations;
+							break;
+						}
+						case "remove": {
+							const index = operations.findIndex(
+								(operation) => operation.uuid === change.uuid,
+							);
+							if (index >= 0) operations.splice(index, 1);
+							if (operations.length === 0) delete form.caseOperations;
+							else form.caseOperations = operations;
+							break;
+						}
+						case "move": {
+							const operation = operations.find(
+								(candidate) => candidate.uuid === change.uuid,
+							);
+							if (operation !== undefined) operation.order = change.order;
+							form.caseOperations = operations;
+							break;
+						}
+					}
+					break;
+				}
 			}
 		}
 	});
 }
+
+function operationDoc(operation: CaseOperation): BlueprintDoc {
+	return {
+		appId: "case-operation-rolling",
+		appName: "Case operation rolling",
+		connectType: null,
+		caseTypes: [
+			{
+				name: "patient",
+				properties: [
+					{ name: "status", label: "Status" },
+					{ name: "note", label: "Note" },
+				],
+			},
+		],
+		modules: {
+			[MODULE]: {
+				uuid: MODULE,
+				id: "patients",
+				name: "Patients",
+				caseType: "patient",
+			},
+		},
+		forms: {
+			[FORM]: {
+				uuid: FORM,
+				id: "edit",
+				name: "Edit",
+				type: "followup",
+				caseOperations: [operation],
+			},
+		},
+		fields: {},
+		moduleOrder: [MODULE],
+		formOrder: { [MODULE]: [FORM] },
+		fieldOrder: { [FORM]: [] },
+		fieldParent: {},
+	};
+}
+
+function operationValue(value: string) {
+	return {
+		kind: "term" as const,
+		term: { kind: "literal" as const, value },
+	};
+}
+
+function rollingOperation(patch: Partial<CaseOperation> = {}): CaseOperation {
+	return {
+		uuid: OPERATION,
+		id: "update_patient",
+		order: "a",
+		action: "update",
+		caseType: "patient",
+		target: { kind: "session" },
+		writes: [{ property: "status", value: operationValue("open") }],
+		links: [
+			{
+				identifier: "parent",
+				targetType: "patient",
+				target: null,
+				relationship: "child",
+			},
+		],
+		...patch,
+	};
+}
+
+function withoutOperationSlots(
+	operation: CaseOperation,
+	...keys: readonly (keyof CaseOperation)[]
+): CaseOperation {
+	const result = structuredClone(operation) as unknown as Record<
+		string,
+		unknown
+	>;
+	for (const key of keys) delete result[key];
+	return result as unknown as CaseOperation;
+}
+
+describe("case operations — exact immediate-parent rolling envelope", () => {
+	const scenarios = [
+		{
+			name: "scalar patch",
+			before: rollingOperation(),
+			after: rollingOperation({ id: "update_patient_record" }),
+		},
+		{
+			name: "write add",
+			before: rollingOperation(),
+			after: rollingOperation({
+				writes: [
+					{ property: "status", value: operationValue("open") },
+					{ property: "note", value: operationValue("added") },
+				],
+			}),
+		},
+		{
+			name: "write update",
+			before: rollingOperation(),
+			after: rollingOperation({
+				writes: [{ property: "status", value: operationValue("closed") }],
+			}),
+		},
+		{
+			name: "write remove",
+			before: rollingOperation(),
+			after: withoutOperationSlots(rollingOperation(), "writes"),
+		},
+		{
+			name: "link add",
+			before: withoutOperationSlots(rollingOperation(), "links"),
+			after: rollingOperation(),
+		},
+		{
+			name: "link update",
+			before: rollingOperation(),
+			after: rollingOperation({
+				links: [
+					{
+						identifier: "parent",
+						targetType: "patient",
+						target: null,
+						relationship: "extension",
+					},
+				],
+			}),
+		},
+		{
+			name: "link remove",
+			before: rollingOperation(),
+			after: withoutOperationSlots(rollingOperation(), "links"),
+		},
+		{
+			name: "order move",
+			before: rollingOperation(),
+			after: rollingOperation({ order: "z" }),
+		},
+		{
+			name: "order clear",
+			before: rollingOperation(),
+			after: withoutOperationSlots(rollingOperation(), "order"),
+		},
+	] as const;
+
+	it.each(scenarios)(
+		"current $name -> immediate-parent parser/reducer applies the equivalent fallback",
+		({ before, after }) => {
+			const doc = operationDoc(before);
+			const batch = caseOperationChangesForUpdate(FORM, before, after);
+			expect(batch).toHaveLength(1);
+			const currentEvent = mutationSchema.parse(
+				JSON.parse(JSON.stringify(batch[0])),
+			);
+			expect(currentEvent).toHaveProperty("caseOperationPatch");
+
+			const parentEvent = legacyUpdateFormSchema.parse(currentEvent);
+			expect(parentEvent).not.toHaveProperty("caseOperationPatch");
+			expect(
+				applyLegacy(doc, [parentEvent]).forms[FORM].caseOperations?.[0],
+			).toEqual(after);
+			// The deployed reducer dispatches on its known nested fallback even if
+			// it receives the unparsed raw object from the event fan-out.
+			expect(
+				applyLegacy(doc, [currentEvent as unknown as LegacyMutation]).forms[
+					FORM
+				].caseOperations?.[0],
+			).toEqual(after);
+			expect(
+				applyCurrent(doc, [currentEvent]).forms[FORM].caseOperations?.[0],
+			).toEqual(after);
+		},
+	);
+
+	it.each(scenarios)(
+		"immediate-parent $name -> current parser/reducer preserves full replacement semantics",
+		({ before, after }) => {
+			const doc = operationDoc(before);
+			const parentEvent = legacyUpdateFormSchema.parse({
+				kind: "updateForm",
+				uuid: FORM,
+				patch: {},
+				caseOperationChange: {
+					operation: "update",
+					uuid: OPERATION,
+					value: after,
+				},
+			});
+			const currentEvent = mutationSchema.parse(
+				JSON.parse(JSON.stringify(parentEvent)),
+			);
+			expect(currentEvent).not.toHaveProperty("caseOperationPatch");
+			const result = applyCurrent(doc, [currentEvent]).forms[FORM]
+				.caseOperations?.[0];
+			expect(result).toEqual(after);
+			for (const slot of ["order", "writes", "links"] as const) {
+				if (!(slot in after)) expect(result).not.toHaveProperty(slot);
+			}
+		},
+	);
+
+	it("rejects a semantic extension that disagrees with or changes the fallback identity", () => {
+		const before = rollingOperation();
+		const after = rollingOperation({ id: "new_id" });
+		const [event] = caseOperationChangesForUpdate(FORM, before, after);
+		if (event?.kind !== "updateForm") {
+			throw new Error("Expected one updateForm event.");
+		}
+		expect(
+			mutationSchema.safeParse({
+				...event,
+				caseOperationPatch: {
+					...event.caseOperationPatch,
+					uuid: asUuid("66000000-0000-4000-8000-000000000000"),
+				},
+			}).success,
+		).toBe(false);
+		expect(
+			mutationSchema.safeParse({
+				...event,
+				caseOperationChange: {
+					...event.caseOperationChange,
+					value: rollingOperation({ id: "fallback_disagrees" }),
+				},
+			}).success,
+		).toBe(false);
+	});
+});
 
 function onlyMutation(
 	result: ReturnType<typeof updateColumnMutation>,

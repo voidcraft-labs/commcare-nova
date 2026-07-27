@@ -83,6 +83,7 @@ vi.mock("@/lib/routing/hooks", async () => {
 		openModuleCondition: vi.fn(),
 		openFormCondition: vi.fn(),
 		openAppSetup: vi.fn(),
+		openFormOperations: vi.fn(),
 		openForm: vi.fn(),
 		push: vi.fn(),
 		replace: vi.fn(),

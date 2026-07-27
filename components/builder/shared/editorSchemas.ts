@@ -40,16 +40,19 @@ import tablerSlash from "@iconify-icons/tabler/slash";
 import tablerTextRecognition from "@iconify-icons/tabler/text-recognition";
 import tablerUnlink from "@iconify-icons/tabler/unlink";
 import type { ComponentType } from "react";
-import type { CaseProperty, CaseType } from "@/lib/domain";
+import type { CaseProperty, CaseType, UserProperty } from "@/lib/domain";
 import { effectiveDataType, isOrdered, isTextShaped } from "@/lib/domain";
 import {
 	acceptsType,
 	matchAll as buildMatchAll,
 	matchNone as buildMatchNone,
 	type ComparisonKind,
+	expressionReadsCaseData,
+	expressionReadsRelatedCaseData,
 	inSubjectConstraint,
 	type Predicate,
 	type SlotConstraint,
+	type ValueExpression,
 } from "@/lib/domain/predicate";
 import { BetweenCard, betweenDefault } from "./cards/BetweenCard";
 import { ComparisonCard, comparisonDefault } from "./cards/ComparisonCard";
@@ -78,6 +81,8 @@ import {
 	withinDistanceDefault,
 } from "./cards/WithinDistanceCard";
 import { hasConditionSeed } from "./conditionSeed";
+import type { OperationValueScope } from "./expressionEditorSchemas";
+import type { EditorFormFieldDecl } from "./formFieldPresentation";
 import { hasRelatedCaseType } from "./relationSeed";
 import type { EditorSearchInputDecl } from "./searchInputPresentation";
 
@@ -138,6 +143,16 @@ export interface PredicateEditContext {
 	readonly currentCaseType: string;
 	readonly knownInputs: readonly EditorSearchInputDecl[];
 	readonly caseDataScope: CaseDataScope;
+	/** Custom worker information available to identity-backed user terms.
+	 *  Carried here — not just on the React context — because a card's
+	 *  cascade reseed resolves types against this shape, and a missing
+	 *  catalog would resolve a saved worker-information read to nothing. */
+	readonly userProperties?: readonly UserProperty[];
+	/** Form answers this slot may read, already narrowed to the ones its
+	 *  surface admits. Absent means the slot reads no form answers. */
+	readonly formFields?: readonly EditorFormFieldDecl[];
+	/** Present only inside a case operation — see `ExpressionEditContext`. */
+	readonly operationScope?: OperationValueScope;
 	/**
 	 * Whether a rule that can never match is meaningful in this slot.
 	 *
@@ -162,7 +177,32 @@ export interface PredicateEditContext {
 	 *  true. Ignored in per-case slots, whose seeds are friendly content
 	 *  rather than neutral placeholders. */
 	readonly globalPlaceholderHolds?: boolean;
+	/**
+	 * WHICH RUNTIME evaluates this rule — the axis that decides whether a
+	 * case-search-only capability is authorable here.
+	 *
+	 * Absent means `"on-device"`, and that default is deliberately the
+	 * STRICT value, not the permissive one. `caseDataScope` defaults the
+	 * other way and is the cautionary tale: a surface that forgets it
+	 * silently offers reads its gate refuses. Here a surface that forgets
+	 * this offers strictly less, which is visible and repairable rather
+	 * than a commit-time bounce. Only a slot that genuinely resolves as a
+	 * remote case-search query — an advanced search input's predicate —
+	 * passes `"case-search"`.
+	 *
+	 * The case-list filter is the one carrier this two-value axis cannot
+	 * yet state: it emits to the ordinary on-device nodeset AND to the
+	 * remote query, so it needs BOTH oracles. It keeps its existing
+	 * `"case-search"` while search is on, which is why a CSQL-only match
+	 * there is still offered and still refused; that is pre-existing and
+	 * is a follow-up, not something this axis regressed.
+	 */
+	readonly evaluationTarget?: EvaluationTarget;
 }
+
+/** The runtime a rule is evaluated by. See
+ *  `PredicateEditContext.evaluationTarget`. */
+export type EvaluationTarget = "on-device" | "case-search";
 
 /** Whether case-property / relationship reads are meaningful in this
  *  editor scope. */
@@ -186,6 +226,38 @@ export function relatedCaseDataInScope(ctx: PredicateEditContext): boolean {
  *  editor scope (see `PredicateEditContext.globalPlaceholderHolds`). */
 export function globalPlaceholderTruth(ctx: PredicateEditContext): boolean {
 	return ctx.globalPlaceholderHolds ?? true;
+}
+
+export type ScopeAdmission =
+	| { readonly admitted: true }
+	| { readonly admitted: false; readonly reason: string };
+
+/**
+ * Whether an evaluation scope lets a value be committed into a slot.
+ *
+ * `PredicateEditProvider` composes this in FRONT of any caller-supplied
+ * oracle so every value-source and calculated-kind menu disables an
+ * out-of-scope read with one shared reason. It lives here, as a pure
+ * function of the scope alone, so a test can drive the exact rule the
+ * running editor applies rather than a re-derivation of it.
+ */
+export function caseDataScopeAdmission(
+	scope: CaseDataScope,
+	next: ValueExpression,
+): ScopeAdmission {
+	if (scope === "per-case") return { admitted: true };
+	const readsOutOfScope =
+		scope === "global"
+			? expressionReadsCaseData
+			: expressionReadsRelatedCaseData;
+	if (!readsOutOfScope(next)) return { admitted: true };
+	return {
+		admitted: false,
+		reason:
+			scope === "global"
+				? GLOBAL_SCOPE_CASE_DATA_REASON
+				: SELECTED_CASE_SCOPE_RELATED_DATA_REASON,
+	};
 }
 
 /**

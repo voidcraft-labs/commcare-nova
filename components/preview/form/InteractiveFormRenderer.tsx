@@ -169,6 +169,8 @@ const InteractiveField = memo(function InteractiveField({
 	// Capture questions stage bytes against the app; every other kind
 	// ignores it.
 	const appId = useAppId();
+	// Repeat instances reuse the authored field UUID, so every DOM identity
+	// below must be per mounted field instance rather than UUID-derived.
 	const questionLabelId = useId();
 	const hintId = useId();
 	const helpId = useId();
@@ -239,6 +241,26 @@ const InteractiveField = memo(function InteractiveField({
 	}
 
 	const showInvalid = state.touched && !state.valid;
+	// Point interactive controls at the label workers already see. This keeps
+	// the accessible name on the same resolved/fallback path as LabelContent
+	// without maintaining a second copy. A blank authored label stays blank,
+	// and the sr-only fallback below carries the position instead.
+	// Always the question node's id, never gated on the label being
+	// authored: that node exists either way — it holds the visible label
+	// when there is one and the sr-only "Question N." fallback when
+	// there is not. Gating it left a blank-labelled question's control
+	// with no accessible name at all, which is strictly worse than the
+	// position the fallback already provides.
+	const labelId = questionLabelId;
+	// The capture control names itself with the FULL context — its recovery
+	// messages are read out of the question's flow, so they need the ancestor
+	// trail. An ordinary control points at the visible question alone, so a
+	// repeated instance's accessible name is exactly the question a worker
+	// reads. Deliberately two values: joining them would rename every ordinary
+	// control in the running preview.
+	const questionLabelledBy = [accessibleContext, questionLabelId]
+		.filter(Boolean)
+		.join(" ");
 
 	// Discriminated union narrowing on `field.kind` so each branch sees
 	// the kind-specific entity shape. `label` is absent from the `hidden`
@@ -359,14 +381,13 @@ const InteractiveField = memo(function InteractiveField({
 				<FieldRenderer
 					field={field}
 					state={state}
+					labelledBy={labelId}
 					path={path}
 					appId={appId}
 					entryKey={controller.entryKey}
 					attachmentSlotKey={`${field.uuid}\u0000${instanceScopeKey}`}
-					questionLabelId={field.label ? questionLabelId : undefined}
-					questionLabelledBy={[accessibleContext, questionLabelId]
-						.filter(Boolean)
-						.join(" ")}
+					questionLabelId={labelId}
+					questionLabelledBy={questionLabelledBy}
 					questionDescriptionIds={[
 						field.hint ? hintId : undefined,
 						"help" in field && (field.help || field.help_media)

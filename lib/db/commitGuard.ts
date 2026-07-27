@@ -148,6 +148,96 @@ export function batchTargetsMissing(
 	const userProperties = new Set(Object.keys(doc.userProperties ?? {}));
 	const userTypes = new Set(Object.keys(doc.userTypes ?? {}));
 	const personas = new Set(Object.keys(doc.personas ?? {}));
+	// Case operations are form-owned; their writes and links have logical
+	// identity inside one operation. Track all three levels so the authoritative
+	// writer rejects the reducer's otherwise-silent no-op both for concurrent
+	// deletes and for colliding same-key adds.
+	const caseOperationsByForm = new Map<string, Set<string>>();
+	const caseOperationWrites = new Map<string, Set<string>>();
+	const caseOperationLinks = new Map<string, Set<string>>();
+	const caseOperationOrders = new Map<
+		string,
+		{ readonly uuid: string; order: string | undefined }
+	>();
+	// Rank intent describes the batch's committed end state. Defer the check
+	// until every same-batch add/remove/move has advanced the projection; an
+	// autosave may carry several absolute order-key changes, and validating an
+	// intermediate rank would reject its own later mutations as a fake peer
+	// conflict. Only the final rank-bearing move for an identity survives.
+	const caseOperationMoveExpectations = new Map<
+		string,
+		{ readonly formUuid: string; readonly uuid: string; readonly index: number }
+	>();
+	const caseOperationKey = (formUuid: string, operationUuid: string) =>
+		`${formUuid}\0${operationUuid}`;
+	const seedCaseOperation = (
+		formUuid: string,
+		operation: NonNullable<
+			BlueprintDoc["forms"][string]["caseOperations"]
+		>[number],
+	): void => {
+		const operationUuids = caseOperationsByForm.get(formUuid) ?? new Set();
+		operationUuids.add(operation.uuid);
+		caseOperationsByForm.set(formUuid, operationUuids);
+		const key = caseOperationKey(formUuid, operation.uuid);
+		caseOperationWrites.set(
+			key,
+			new Set((operation.writes ?? []).map((write) => write.property)),
+		);
+		caseOperationLinks.set(
+			key,
+			new Set((operation.links ?? []).map((link) => link.identifier)),
+		);
+		caseOperationMoveExpectations.delete(key);
+		caseOperationOrders.set(key, {
+			uuid: operation.uuid,
+			order: operation.order,
+		});
+	};
+	const removeSeededCaseOperation = (
+		formUuid: string,
+		operationUuid: string,
+	): void => {
+		caseOperationsByForm.get(formUuid)?.delete(operationUuid);
+		const key = caseOperationKey(formUuid, operationUuid);
+		caseOperationWrites.delete(key);
+		caseOperationLinks.delete(key);
+		caseOperationOrders.delete(key);
+		caseOperationMoveExpectations.delete(key);
+	};
+	const movedCaseOperationRank = (
+		formUuid: string,
+		operationUuid: string,
+		order: string | undefined,
+	): number => {
+		const entries = [...(caseOperationsByForm.get(formUuid) ?? [])]
+			.map((uuid) => {
+				const existing = caseOperationOrders.get(
+					caseOperationKey(formUuid, uuid),
+				);
+				return {
+					uuid,
+					order: uuid === operationUuid ? order : existing?.order,
+				};
+			})
+			.sort((left, right) => {
+				if (left.order !== undefined && right.order !== undefined) {
+					if (left.order < right.order) return -1;
+					if (left.order > right.order) return 1;
+					return left.uuid.localeCompare(right.uuid);
+				}
+				if (left.order !== undefined) return -1;
+				if (right.order !== undefined) return 1;
+				return left.uuid.localeCompare(right.uuid);
+			});
+		return entries.findIndex((entry) => entry.uuid === operationUuid);
+	};
+	for (const form of Object.values(doc.forms)) {
+		caseOperationsByForm.set(form.uuid, new Set());
+		for (const operation of form.caseOperations ?? []) {
+			seedCaseOperation(form.uuid, operation);
+		}
+	}
 	// A field's parent is a form or a group/repeat field — either may hold it.
 	const container = (uuid: string) => forms.has(uuid) || fields.has(uuid);
 	for (const m of mutations) {
@@ -184,19 +274,116 @@ export function batchTargetsMissing(
 			case "addForm":
 				if (!modules.has(m.moduleUuid)) return true;
 				forms.add(m.form.uuid);
+				caseOperationsByForm.set(m.form.uuid, new Set());
+				for (const operation of m.form.caseOperations ?? []) {
+					seedCaseOperation(m.form.uuid, operation);
+				}
 				break;
 			case "removeForm":
 				if (!forms.has(m.uuid)) return true;
 				forms.delete(m.uuid);
+				for (const operationUuid of caseOperationsByForm.get(m.uuid) ?? []) {
+					removeSeededCaseOperation(m.uuid, operationUuid);
+				}
+				caseOperationsByForm.delete(m.uuid);
 				break;
 			case "moveForm":
 				if (!forms.has(m.uuid) || !modules.has(m.toModuleUuid)) return true;
 				break;
 			case "renameForm":
-			case "updateForm":
 			case "setFormMedia":
 				if (!forms.has(m.uuid)) return true;
 				break;
+			case "updateForm": {
+				if (!forms.has(m.uuid)) return true;
+				const operationUuids =
+					caseOperationsByForm.get(m.uuid) ?? new Set<string>();
+				caseOperationsByForm.set(m.uuid, operationUuids);
+				const semantic = m.caseOperationPatch;
+				if (semantic !== undefined) {
+					if (!operationUuids.has(semantic.uuid)) return true;
+					const key = caseOperationKey(m.uuid, semantic.uuid);
+					const writes = caseOperationWrites.get(key) ?? new Set<string>();
+					const links = caseOperationLinks.get(key) ?? new Set<string>();
+					caseOperationWrites.set(key, writes);
+					caseOperationLinks.set(key, links);
+					switch (semantic.operation) {
+						case "update":
+							break;
+						case "add-write":
+							if (writes.has(semantic.value.property)) return true;
+							writes.add(semantic.value.property);
+							break;
+						case "update-write":
+							if (!writes.has(semantic.property)) return true;
+							break;
+						case "remove-write":
+							if (!writes.has(semantic.property)) return true;
+							writes.delete(semantic.property);
+							break;
+						case "add-link":
+							if (links.has(semantic.value.identifier)) return true;
+							links.add(semantic.value.identifier);
+							break;
+						case "update-link":
+							if (!links.has(semantic.identifier)) return true;
+							break;
+						case "remove-link":
+							if (!links.has(semantic.identifier)) return true;
+							links.delete(semantic.identifier);
+							break;
+						case "move":
+							if (semantic.index !== undefined) {
+								if (semantic.order === null) return true;
+								caseOperationMoveExpectations.set(key, {
+									formUuid: m.uuid,
+									uuid: semantic.uuid,
+									index: semantic.index,
+								});
+							} else {
+								caseOperationMoveExpectations.delete(key);
+							}
+							caseOperationOrders.set(key, {
+								uuid: semantic.uuid,
+								order: semantic.order ?? undefined,
+							});
+							break;
+					}
+					break;
+				}
+
+				// An event authored by the immediate-parent grammar has no granular
+				// extension. Simulate its exact full-operation reducer semantics so a
+				// later mutation in the same batch sees births, removals, and replaced
+				// write/link collections.
+				const change = m.caseOperationChange;
+				if (change === undefined) break;
+				switch (change.operation) {
+					case "add":
+						if (operationUuids.has(change.value.uuid)) return true;
+						seedCaseOperation(m.uuid, change.value);
+						break;
+					case "update":
+						if (!operationUuids.has(change.uuid)) return true;
+						seedCaseOperation(m.uuid, change.value);
+						break;
+					case "remove":
+						if (!operationUuids.has(change.uuid)) return true;
+						removeSeededCaseOperation(m.uuid, change.uuid);
+						break;
+					case "move":
+						if (!operationUuids.has(change.uuid)) return true;
+						caseOperationMoveExpectations.delete(
+							caseOperationKey(m.uuid, change.uuid),
+						);
+						caseOperationOrders.set(caseOperationKey(m.uuid, change.uuid), {
+							uuid: change.uuid,
+							order: change.order,
+						});
+						break;
+				}
+				break;
+			}
 			case "addField":
 				if (!container(m.parentUuid)) return true;
 				fields.add(m.field.uuid);
@@ -336,6 +523,25 @@ export function batchTargetsMissing(
 				break;
 			default:
 				assertNever(m, "batchTargetsMissing");
+		}
+	}
+	// One rank per AUTHORED move, never one per re-keyed sibling. A ranked move
+	// through a run of tied siblings re-keys the shorter side of the destination
+	// to open a gap (`lib/doc/order/rankedMove.ts`); those companion moves ride
+	// deliberately index-less. Asserting a rank for each of them would fence a
+	// position the author never chose, so an unrelated peer insert anywhere above
+	// the run would shift it and reject the batch as a conflict it is not. The
+	// author chose ONE rank, so exactly one rank is fenced — and fencing it is
+	// enough, because the mover's own landing is what the whole plan is for.
+	for (const expectation of caseOperationMoveExpectations.values()) {
+		const order = caseOperationOrders.get(
+			caseOperationKey(expectation.formUuid, expectation.uuid),
+		)?.order;
+		if (
+			movedCaseOperationRank(expectation.formUuid, expectation.uuid, order) !==
+			expectation.index
+		) {
+			return true;
 		}
 	}
 	return false;

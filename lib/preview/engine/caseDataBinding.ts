@@ -1120,11 +1120,22 @@ export async function submitFormAction(
 			);
 		}
 		if (!identity) return { kind: "unauthenticated" };
-		const { store } = await gatedCaseStoreWithScope(appId, identity, "edit");
+		/* Membership BEFORE the program build: the build reads the
+		 * committed doc, and the survey short-circuit below reflects that
+		 * doc's contents — distinguishable arms a non-member must never
+		 * reach, or the IDOR-safe not-found collapse leaks whether a
+		 * foreign form carries operations. The same call yields the
+		 * `LookupScope` the program's definition snapshot loads under. */
+		const { store, scope } = await gatedCaseStoreWithScope(
+			appId,
+			identity,
+			"edit",
+		);
 		const built = await buildSubmissionOperationProgram({
 			appId,
 			committedApp: authorized.app,
 			identity,
+			lookupScope: scope,
 			mutation,
 			projection,
 			viewerTimeZone,

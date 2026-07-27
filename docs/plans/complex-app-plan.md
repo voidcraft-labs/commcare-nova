@@ -226,6 +226,145 @@ An owner expression's result lands verbatim and unvalidated in the case block �
 the only server-side check is length ≤ 255. Typed owner addressing is entirely
 Nova's guarantee.
 
+Operations are authored on the form's own URL — `/{formUuid}/operations`, with
+`/{operationUuid}` selecting one — reached from the form settings panel, whose
+row states how many changes the form makes. The list is the answer to "what does
+submitting this form do to the case universe?", the question the platform's own
+question-scoped surface never puts on a screen: one row per change, in execution
+order, each a sentence (`operationSentence.ts`, a display projection that forks
+no semantics). A row shows the conditions it inherits from earlier changes at
+rest, not on hover.
+
+**Both reorder gestures read one map.** `caseOperationMoveVerdicts`
+(`lib/doc/caseOperationReview.ts`) asks the move planner about every destination
+at once; drag feeds it to `useReorderableList`'s `canDropAtIndex` — capturing the
+source on the handle's pointer-down, so the first pointer move is already gated —
+and the keyboard asks the same map before committing. Neither gesture can commit
+what the other would refuse, and `view.move` re-plans from the invocation-time
+document so a peer edit mid-gesture cannot slip one through. The move mutation
+carries both its fractional key and requested final rank; the authoritative
+commit rejects it if a peer insertion makes that key land elsewhere.
+
+**A fractional key alone cannot name a destination inside a run of tied
+siblings**, and the sequence is `(order, uuid)`: a key above the run sorts after
+all of it, below sorts before all of it, and equal leaves the mover's immutable
+uuid to decide. `lib/doc/order/rankedMove.ts::planRankedMove` therefore returns
+the mover's key plus the minimum sibling re-keys that open a real gap — the
+shorter side of the run, empty in the common case, and only the upper side where
+the lower bound is numerically zero, below which nothing sorts. Re-keys preserve
+sibling relative order, so only the mover changes rank and the dependency and
+wire-order analyses stay about the same graph; they ride index-less, so exactly
+one rank is fenced — the one the author chose — while a genuine peer shift is
+still rejected. Its comparator is a required parameter because the repo has two
+tie-breaks, and a default matching one silently mis-plans for the other.
+`backfillOrderKeys` covers `caseOperations`, so an absent key is a
+directly-constructed-document case rather than a live path; the primitive stays
+total for it regardless. Successful
+pointer, keyboard, SA, and MCP outcomes all report the rank in the committed
+document, never the stale requested rank. Moving to the rank the operation
+already occupies is a true no-op: it reports that rank without rewriting the
+fractional key, persisting an event, or adding undo history. A refused keyboard
+move ANNOUNCES why and names the operations involved (`keyboardMove.ts`), which
+is the whole point:
+a pointer author reads a refusal off a drop zone that will not open, and a
+keyboard author would otherwise get a key that silently does nothing. Refusals
+go to `role="alert"` (the screen is otherwise unchanged, so the press would read
+as a no-op) and the polite region carries only outcomes that did something.
+`dependent-reference` and `execution-order` stay distinct: the second is a
+property of the submitted form, not the author's mistake, and never says
+otherwise. A dependency refusal additionally carries WHICH kind it is —
+`reference` for an `id-of` edge, `target-type` for a dependent left acting on a
+type the move or removal would stop establishing. The planner's refusal arm is a
+discriminated split rather than an optional field, so a dependency refusal with
+no cause is un-constructible: the copy layer reads the cause instead of
+re-deriving it by walking `id-of` edges, which is how a target-type refusal used
+to name an unrelated create the operation was already after. A target-type
+sentence claims no direction, because a retype moved either way can leave a
+neighbour mistyped.
+
+The rail owns the discrete choices — name, action, case type, target, identity
+key, multiplicity, retype, removal — and the centre canvas owns every recursive
+AST, the same split the case-list workspace keeps. Adding is chooser-first and
+lands a complete operation the commit gate already accepts
+(`components/builder/case-operations/seeds.ts`, proved against
+`mutationCommitVerdict`). Existing-operation choices ask
+`caseOperationEditVerdict` — the real mutation planner plus that same commit
+gate — before they are offered. Changing a create into an update/close retargets
+both the case identity and its proven rolling type; case-type, retype, link-type,
+identity-key, and multiplicity pickers disable every impossible choice
+with the gate's exact reason, and omit the three platform-owned types
+everywhere. Removal asks `removalPlan` first and, when something depends on the
+operation, names each consumer and the exact slot holding the reference instead
+of offering a delete that would bounce. Viewer mode renders these controls as
+explicit disabled triggers. Choosing the already-active target is also a true
+no-op; a keyed new target retains `idFrom`, and an expression target retains its
+exact AST rather than being replaced by that choice's creation seed.
+Link targets use the same atomic-intent rule: choosing the session case or a
+prior create carries the type established by all earlier retypes in the same
+edit, unlinking stores the required `target: null` without clearing or
+overwriting peer facets, and a runtime-expression target immediately mounts the
+full text-scoped expression editor beneath the picker. A blank or inaccessible
+runtime id stays repairable as authored expression state, but Preview/device
+submission refuses the complete transaction before any case effect executes.
+
+Which form answers an operation may read is ONE rule with two callers:
+`lib/domain/caseOperationScope.ts` holds `operationCanReadFormField` and
+`formFieldCanKeyCreate`, the validator calls them, and the answer pickers apply
+them — so the offered set cannot drift from the accepted set. `field` terms,
+`acting-user`, `unowned`, and `id-of` become authorable in the shared expression
+editor only when a surface supplies `formFields` / `operationScope`; absent means
+unauthorable, which is what keeps every other surface's round-trip-only behavior
+exactly as it was (`operationScopeFailsClosed.test.ts` pins it).
+
+The same vocabulary is authorable through the Solutions Architect and MCP.
+`getCaseOperations`/`get_case_operations` projects the ordered sequence with
+operation ids and form-field paths; batch add plus singular update, move, and
+remove use those same author identities and cross to immutable UUID leaves
+before checking. Batch add resolves earlier creates within its working overlay
+and commits the complete sequence atomically. Full-shape updates emit only
+identity-keyed scalar, write-property, link-identifier, and order mutations, so
+unrelated concurrent edits compose. Builder full-shape edits additionally
+rebase only the slots changed from their render snapshot onto the
+invocation-time operation; peer-deleted targets and same-key write/link adds
+fail before local state changes. Each non-order granular event carries the
+deployed full-operation `caseOperationChange.update.value` as the
+immediate-parent fallback and its current intent in top-level
+`caseOperationPatch`; an ordinary move uses the deployed carrier-blind
+`caseOperationChange.move` as its exact fallback. Current reducers apply only
+the intent, immediate-parent reducers apply the equivalent fallback, and
+immediate-parent events still replay with their established semantics. Schema
+integrity binds both views to one UUID and value. The authoritative commit guard
+tracks operation UUIDs, requested move ranks, and write-property/link-identifier
+sets through the batch, rejecting peer-deleted targets, shifted destinations,
+and same-key peer adds instead of allowing a total reducer no-op to report
+success.
+
+The operation id, write property, and link identifier vocabularies share their
+validator-owned grammar with the builder and tool schemas: ASCII letters,
+digits, and underscores only; an operation id or link identifier starts with a
+letter or underscore, and a write property starts with a letter. Action-illegal
+facet combinations, platform-owned case types, and reserved write properties
+are unconstructible at the shared tool boundary, with the validator as the
+replay/import backstop. Case types separately admit hyphens, so chooser-created
+operation ids normalize each hyphen to an underscore for every create, update,
+and close seed before the first commit.
+
+Lookup-backed predicates and expressions already persisted on a case operation
+remain preserved. The builder keeps the operation visible and movable but
+renders both the rail and recursive canvas persistently read-only, with the
+reason, until lookup authoring owns those slots. The carrier inventory is the
+single exhaustive oracle. `getCaseOperations` and `getForm` preserve the full
+ordered operation sequence: each carrier-bearing operation keeps its author id,
+action, and case type plus
+`unavailable: { kind: "lookup-table-logic", reason }`, while every lookup AST
+detail is withheld. The id remains addressable by `moveCaseOperation`, so the
+operation can move without a partial read ever posing as an editable shape.
+Builder edits refuse before dispatching local state, full-shape SA/MCP updates
+and removals refuse, and moves stay persistable because their deployed fallback
+carries only UUID plus order.
+
+`content/docs/case-changes.mdx` is the user-facing guide.
+
 ### Case identity storage
 
 The whole case-identity family — `cases.case_id`, `cases.parent_case_id`,
@@ -302,6 +441,24 @@ survey oracle. If a freshly authorized committed form has operations but the
 submission lacks its answer bags, the entire request rejects as stale/skewed:
 empty bindings would blank-write and an ordinary-only fallback would silently
 skip committed semantics.
+
+Two finer skews reject for the same reason. **A repeat scope the committed
+document requires, absent from the payload, is provable staleness rather than an
+empty repeat** — `computeOperationAnswers` registers a scope for every repeat in
+the client's own document *before* counting instances, so a worker who added no
+rows still sends it carrying an empty iteration list. Only a client that never
+knew the repeat omits it, and reading that as zero iterations would run the
+operation zero times and report success. **A missing form answer rejects too**,
+checked per scope against the iterations that will actually compile: a field
+inside a repeat the worker left empty is never read, so demanding it would refuse
+an honest submission. Without that check the reference reaches `compileBoundRef`,
+which deliberately has no fallback for a form field — a blank would change a
+predicate's truth value — and its developer-voiced invariant became the worker's
+error text plus an alert, for an ordinary multiplayer race. That same authorized boundary projects canonical
+lookup-reference occurrences onto the committed form's operation UUIDs and
+threads one exact rows-free definition snapshot through the immutable envelope;
+carrier-free programs perform no lookup-definition read, while lookup rows
+remain current transactional inputs.
 
 Wire facts the envelope rests on:
 
@@ -1211,21 +1368,11 @@ Request and run timings are three independently authored fields in
 
 ## What remains
 
-Fifteen units, one file each. **Every entry below is a pointer, not a summary of
+Fourteen units, one file each. **Every entry below is a pointer, not a summary of
 record** — the contract, the binding CommCare facts, the wire shapes, and the
 observed outcome live only in the linked file, and each entry names what it is
 withholding so you can tell when you need it. Read that file, and
 [`00-contracts.md`](complex-app/00-contracts.md), before you plan or implement.
-
-### 1 — Case-operation authoring
-
-[`complex-app/01-conditions-and-operations-authoring.md`](complex-app/01-conditions-and-operations-authoring.md)
-· depends on nothing · blocks unit 3
-
-The builder authoring surface for the case-operation vocabulary that already
-validates, emits, and previews. **The file holds** the 20-operation stress case
-and its interaction model, the planner refusals the reorder UI must surface
-before the gesture, and which vocabulary unit 1 deliberately excludes.
 
 ### 2 — Project data tables workspace
 
@@ -1238,12 +1385,12 @@ confirmation UX that lets lookup schema governance leave package-private scope.
 **The file holds** the asymmetric source-mode switch, the one semantic that
 silently ships an inert feature when missed.
 
-### 3 — SA, MCP, and docs for conditions, operations, and lookups
+### 3 — SA, MCP, and docs for conditions and lookups
 
-[`complex-app/03-sa-mcp-and-docs-for-conditions-operations-lookups.md`](complex-app/03-sa-mcp-and-docs-for-conditions-operations-lookups.md)
-· depends on units 1 and 2 · blocks nothing
+[`complex-app/03-sa-mcp-and-docs-for-conditions-lookups.md`](complex-app/03-sa-mcp-and-docs-for-conditions-lookups.md)
+· depends on unit 2 · blocks nothing
 
-Expose the shipped conditions, operations, and lookup vocabulary through both the
+Expose the shipped condition and lookup vocabulary through both the
 camelCase chat tools and the snake_case MCP projection, with public docs and one
 integrated end-to-end flow. **The file holds** the two pieces of engineering under
 that packaging: the SA identity bridge and the null-clears contract.
@@ -1385,9 +1532,8 @@ Each unit's prerequisites, matching the "Depends on" line in its file:
 
 | Unit | Needs |
 | --- | --- |
-| [1 case-operation authoring](complex-app/01-conditions-and-operations-authoring.md) | — |
 | [2 Project data workspace](complex-app/02-project-data-workspace.md) | — |
-| [3 SA, MCP, docs](complex-app/03-sa-mcp-and-docs-for-conditions-operations-lookups.md) | 1, 2 |
+| [3 SA, MCP, docs](complex-app/03-sa-mcp-and-docs-for-conditions-lookups.md) | 2 |
 | [4 grouped case tiles](complex-app/04-case-tiles.md) | — |
 | [6 save-to-case and attachment link UX](complex-app/06-attachment-emission-and-link-ux.md) | 11 |
 | [8 organization and locations store](complex-app/08-organization-model-and-locations-store.md) | — |
@@ -1401,8 +1547,8 @@ Each unit's prerequisites, matching the "Depends on" line in its file:
 | [16 session endpoints and deep links](complex-app/16-session-endpoints-and-deep-links.md) | 12, 15 |
 | [17 multi-select, related cases, profile](complex-app/17-multi-select-related-cases-and-profile.md) | 12 |
 
-Five units have no outstanding prerequisites and can start in any order: 1, 2,
-4, 8, and 14. They are the independent entry points — every other unit descends
+Four units have no outstanding prerequisites and can start in any order: 2, 4,
+8, and 14. They are the independent entry points — every other unit descends
 from one of them.
 
 The deployment chain (8 → 10 → 11 → 12) is the critical path: it gates units 6,

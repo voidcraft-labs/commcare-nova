@@ -1,12 +1,10 @@
 import {
-	CASE_PROPERTY_REGEX,
 	CASE_TYPE_REGEX,
 	MAX_CASE_INDEX_IDENTIFIER_LENGTH,
 	MAX_CASE_PROPERTY_LENGTH,
 	MAX_CASE_TYPE_LENGTH,
 	RESERVED_CASE_PROPERTIES,
 	RESERVED_XFORM_NODE_PREFIX,
-	XML_ELEMENT_NAME_REGEX,
 } from "@/lib/commcare/constants";
 import { emitOnDeviceExpression } from "@/lib/commcare/expression";
 import { inertLookupWireNaming } from "@/lib/commcare/lookup/naming";
@@ -18,18 +16,26 @@ import {
 } from "@/lib/doc/caseOperationOrder";
 import {
 	type BlueprintDoc,
+	CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
+	CASE_OPERATION_PROPERTY_FORMAT_MESSAGE,
 	type CaseOperation,
 	type CasePropertyDataType,
 	caseDataTypeForFieldKind,
 	concreteCasePropertyWriterTypes,
 	effectiveCaseTypes,
 	type Form,
+	formFieldCanKeyCreate,
+	formFieldCorrelatesWithCreate,
 	isCaseFirstModule,
+	isCaseOperationIdentifier,
+	isCaseOperationProperty,
 	MAX_CASE_OPERATION_TEXT_LENGTH,
 	type Module,
+	operationCanReadFormField,
 	orderedCaseOperations,
 	planCaseRetype,
 	prepareCaseOperationTextValue,
+	RESERVED_CASE_OPERATION_TYPES,
 	type Uuid,
 	userPropertySlugsByUuid,
 } from "@/lib/domain";
@@ -56,13 +62,15 @@ import {
 	semanticCheckErrors,
 } from "../lookupTypeContext";
 
-const RESERVED_OPERATION_CASE_TYPES: ReadonlySet<string> = new Set([
-	"commcare-user",
-	"commcare-case-claim",
-	"user-owner-mapping-case",
-]);
-
-const RESERVED_OPERATION_PROPERTIES: ReadonlySet<string> = new Set([
+/**
+ * Case properties an operation may never write, because the operation's
+ * own facets own them (`case_name` is the name/rename slot, `owner_id`
+ * the owner slot) or the two runtimes disagree about what they mean
+ * (`category` / `state`). Exported so the authoring surfaces disable
+ * them in the property picker rather than letting the commit gate
+ * reject the write afterwards.
+ */
+export const RESERVED_OPERATION_PROPERTIES: ReadonlySet<string> = new Set([
 	...RESERVED_CASE_PROPERTIES,
 	"location_id",
 	"hq_user_id",
@@ -199,7 +207,7 @@ export function validateCaseOperations(
 		}
 		seenUuids.add(operation.uuid);
 		if (
-			!XML_ELEMENT_NAME_REGEX.test(operation.id) ||
+			!isCaseOperationIdentifier(operation.id) ||
 			operation.id.startsWith(RESERVED_XFORM_NODE_PREFIX)
 		) {
 			errors.push(
@@ -207,7 +215,9 @@ export function validateCaseOperations(
 					ctx,
 					operation,
 					"CASE_OPERATION_INVALID_ID",
-					`Case operation id "${operation.id}" must be an XML-safe slug outside Nova's reserved namespace.`,
+					!isCaseOperationIdentifier(operation.id)
+						? `Case operation id "${operation.id}" is invalid. ${CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE}`
+						: `Case operation id "${operation.id}" starts with Nova's reserved "${RESERVED_XFORM_NODE_PREFIX}" namespace.`,
 				),
 			);
 		}
@@ -329,12 +339,7 @@ function validateOperation(
 		operation.target.idFrom !== undefined
 	) {
 		const field = ctx.fields.get(operation.target.idFrom);
-		if (
-			field === undefined ||
-			(field.kind !== "hidden" &&
-				(field.dataType === undefined ||
-					(field.dataType !== "text" && field.dataType !== "single_select")))
-		) {
+		if (field === undefined || !formFieldCanKeyCreate(field)) {
 			errors.push(
 				opError(
 					ctx,
@@ -343,7 +348,7 @@ function validateOperation(
 					"An authored create id must come from a scalar string-valued field in this form; a multi-select answer is an array in Nova and cannot be an identity key.",
 				),
 			);
-		} else if (field.repeat !== repeat) {
+		} else if (!formFieldCorrelatesWithCreate(field.repeat, repeat)) {
 			errors.push(
 				opError(
 					ctx,
@@ -403,10 +408,11 @@ function validateOperation(
 	);
 	const seenWrites = new Set<string>();
 	for (const write of operation.writes ?? []) {
+		const invalidPropertyFormat = !isCaseOperationProperty(write.property);
+		const propertyTooLong = write.property.length > MAX_CASE_PROPERTY_LENGTH;
 		if (
-			!CASE_PROPERTY_REGEX.test(write.property) ||
-			!XML_ELEMENT_NAME_REGEX.test(write.property) ||
-			write.property.length > MAX_CASE_PROPERTY_LENGTH ||
+			invalidPropertyFormat ||
+			propertyTooLong ||
 			!persistedProperties.has(write.property)
 		) {
 			errors.push(
@@ -414,7 +420,11 @@ function validateOperation(
 					ctx,
 					operation,
 					"CASE_OPERATION_UNKNOWN_PROPERTY",
-					`Case property "${write.property}" is not declared on ${destination}.`,
+					invalidPropertyFormat
+						? `Case property "${write.property}" is invalid. ${CASE_OPERATION_PROPERTY_FORMAT_MESSAGE}`
+						: propertyTooLong
+							? `Case property "${write.property}" is longer than ${MAX_CASE_PROPERTY_LENGTH} characters.`
+							: `Case property "${write.property}" is not declared on ${destination}.`,
 				),
 			);
 		}
@@ -461,18 +471,24 @@ function validateOperation(
 
 	const linkIds = new Set<string>();
 	for (const link of operation.links ?? []) {
-		if (
-			!XML_ELEMENT_NAME_REGEX.test(link.identifier) ||
-			link.identifier.length > MAX_CASE_INDEX_IDENTIFIER_LENGTH ||
-			link.identifier.startsWith(RESERVED_XFORM_NODE_PREFIX) ||
-			linkIds.has(link.identifier)
-		) {
+		const invalidLinkFormat = !isCaseOperationIdentifier(link.identifier);
+		const linkTooLong =
+			link.identifier.length > MAX_CASE_INDEX_IDENTIFIER_LENGTH;
+		const reservedLink = link.identifier.startsWith(RESERVED_XFORM_NODE_PREFIX);
+		const duplicateLink = linkIds.has(link.identifier);
+		if (invalidLinkFormat || linkTooLong || reservedLink || duplicateLink) {
 			errors.push(
 				opError(
 					ctx,
 					operation,
 					"CASE_OPERATION_LINK_INVALID",
-					`Link identifier "${link.identifier}" must be unique, XML-safe, and at most ${MAX_CASE_INDEX_IDENTIFIER_LENGTH} characters.`,
+					invalidLinkFormat
+						? `Link identifier "${link.identifier}" is invalid. ${CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE}`
+						: linkTooLong
+							? `Link identifier "${link.identifier}" is longer than ${MAX_CASE_INDEX_IDENTIFIER_LENGTH} characters.`
+							: reservedLink
+								? `Link identifier "${link.identifier}" starts with Nova's reserved "${RESERVED_XFORM_NODE_PREFIX}" namespace.`
+								: `Link identifier "${link.identifier}" is used more than once by this operation.`,
 				),
 			);
 		}
@@ -571,7 +587,7 @@ function validateCaseType(
 			),
 		);
 	}
-	if (RESERVED_OPERATION_CASE_TYPES.has(caseType)) {
+	if (RESERVED_CASE_OPERATION_TYPES.has(caseType)) {
 		errors.push(
 			opError(
 				ctx,
@@ -677,6 +693,17 @@ function validateExpressionSlot(
 		);
 	} else if (result.ok) {
 		validateOnDeviceExpression(ctx, operation, expression, typeContext, errors);
+		let strictNull = false;
+		walkExpressionPredicateNodes(expression, (node) => {
+			if (node.kind === "is-null") strictNull = true;
+		});
+		validateStrictNullPortability(
+			ctx,
+			operation,
+			"expression",
+			strictNull,
+			errors,
+		);
 	}
 	validateCaseSnapshotUse(
 		ctx,
@@ -748,6 +775,17 @@ function validatePredicateSlot(
 		);
 	} else if (result.ok) {
 		validateOnDevicePredicate(ctx, operation, predicate, typeContext, errors);
+		let strictNull = false;
+		walkPredicateNodes(predicate, (node) => {
+			if (node.kind === "is-null") strictNull = true;
+		});
+		validateStrictNullPortability(
+			ctx,
+			operation,
+			"condition",
+			strictNull,
+			errors,
+		);
 	}
 	validateCaseSnapshotUse(
 		ctx,
@@ -823,6 +861,36 @@ function validateOnDevicePredicate(
 	}
 }
 
+/**
+ * Strict `is-null` has no portable spelling in an operation's lowered
+ * XPath, and unlike the unrunnable match modes the emitter cannot catch
+ * it: `caseListFilterEmitter` emits `<term> = ''` for `is-null` and
+ * `is-blank` ALIKE, so the dry-run succeeds and the wire quietly answers
+ * a different question from the one the author asked.
+ *
+ * Preview and Postgres can tell an absent property from a stored blank;
+ * CommCare's emitted dialects collapse both. `strictNullPortability`
+ * states the same rule for every module wire slot — case operations are
+ * a form-carried slot, so they need their own walk, not a wider one.
+ */
+function validateStrictNullPortability(
+	ctx: OperationRuleContext,
+	operation: CaseOperation,
+	facet: "condition" | "expression",
+	found: boolean,
+	errors: ValidationError[],
+): void {
+	if (!found) return;
+	errors.push(
+		opError(
+			ctx,
+			operation,
+			"CASE_OPERATION_EXPRESSION_TYPE",
+			`A ${facet} in case operation "${operation.id}" checks whether a value is missing, but on a device CommCare cannot tell a missing value from one saved as blank — both read as empty. Use the blank check instead, which is true for either.`,
+		),
+	);
+}
+
 function identityBindings(values: Iterable<Uuid>): ReadonlyMap<Uuid, string> {
 	return new Map([...values].map((uuid) => [uuid, `/data/__nova_${uuid}`]));
 }
@@ -847,8 +915,8 @@ function validateOperationTerm(
 	}
 
 	const fieldRepeat = field.repeat;
-	if (fieldRepeat === undefined) return;
 	const operationRepeat = operation.forEach?.repeat;
+	if (operationCanReadFormField(fieldRepeat, operationRepeat)) return;
 	if (operationRepeat === undefined) {
 		errors.push(
 			opError(

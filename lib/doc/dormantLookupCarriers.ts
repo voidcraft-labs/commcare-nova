@@ -19,7 +19,14 @@
  * fallback leaves the carrier itself untouched.
  */
 
-import type { BlueprintDoc, Field, Form, Module, Uuid } from "@/lib/domain";
+import type {
+	BlueprintDoc,
+	CaseOperation,
+	Field,
+	Form,
+	Module,
+	Uuid,
+} from "@/lib/domain";
 import type { Predicate, ValueExpression } from "@/lib/domain/predicate/types";
 import {
 	walkExpressionNodes,
@@ -282,6 +289,76 @@ function addExpressionSlot(
 }
 
 /**
+ * The single inventory walk for every carrier a case operation may own.
+ *
+ * Keeping this as a focused helper lets the edit planner inspect the operation
+ * already in hand without rescanning every module, field, and unrelated form.
+ * The full document collector calls the same helper, so the fail-closed edit
+ * boundary and export validation cannot drift to different slot lists.
+ */
+function addCaseOperationCarriers(
+	carriers: DormantLookupCarrier[],
+	operation: CaseOperation,
+	location: CarrierLocation,
+): void {
+	const operationArgs = {
+		ownerUuid: operation.uuid,
+		ownerKind: "case-operation" as const,
+		location,
+	};
+	addPredicateSlot(carriers, {
+		...operationArgs,
+		slot: "case_operation_condition",
+		predicate: operation.condition,
+	});
+	addExpressionSlot(carriers, {
+		...operationArgs,
+		slot: "case_operation_name",
+		expression: operation.name,
+	});
+	addExpressionSlot(carriers, {
+		...operationArgs,
+		slot: "case_operation_owner",
+		expression: operation.owner,
+	});
+	addExpressionSlot(carriers, {
+		...operationArgs,
+		slot: "case_operation_rename",
+		expression: operation.rename,
+	});
+	if (operation.target.kind === "expression") {
+		addExpressionSlot(carriers, {
+			...operationArgs,
+			slot: "case_operation_target_expression",
+			expression: operation.target.expr,
+		});
+	}
+	for (const write of operation.writes ?? []) {
+		addExpressionSlot(carriers, {
+			...operationArgs,
+			slot: "case_operation_write_value",
+			subpath: canonicalLookupReferenceSubpath(["property", write.property]),
+			expression: write.value,
+		});
+		addPredicateSlot(carriers, {
+			...operationArgs,
+			slot: "case_operation_write_condition",
+			subpath: canonicalLookupReferenceSubpath(["property", write.property]),
+			predicate: write.condition,
+		});
+	}
+	for (const link of operation.links ?? []) {
+		if (link?.target?.kind !== "expression") continue;
+		addExpressionSlot(carriers, {
+			...operationArgs,
+			slot: "case_operation_link_target_expression",
+			subpath: canonicalLookupReferenceSubpath(["identifier", link.identifier]),
+			expression: link.target.expr,
+		});
+	}
+}
+
+/**
  * Return one deterministic entry per authored slot/root that contains any
  * dormant lookup carrier.
  *
@@ -401,70 +478,7 @@ export function collectDormantLookupCarriers(
 		});
 
 		for (const operation of form.caseOperations ?? []) {
-			const operationArgs = {
-				ownerUuid: operation.uuid,
-				ownerKind: "case-operation" as const,
-				location,
-			};
-			addPredicateSlot(carriers, {
-				...operationArgs,
-				slot: "case_operation_condition",
-				predicate: operation.condition,
-			});
-			addExpressionSlot(carriers, {
-				...operationArgs,
-				slot: "case_operation_name",
-				expression: operation.name,
-			});
-			addExpressionSlot(carriers, {
-				...operationArgs,
-				slot: "case_operation_owner",
-				expression: operation.owner,
-			});
-			addExpressionSlot(carriers, {
-				...operationArgs,
-				slot: "case_operation_rename",
-				expression: operation.rename,
-			});
-			if (operation.target.kind === "expression") {
-				addExpressionSlot(carriers, {
-					...operationArgs,
-					slot: "case_operation_target_expression",
-					expression: operation.target.expr,
-				});
-			}
-			for (const write of operation.writes ?? []) {
-				addExpressionSlot(carriers, {
-					...operationArgs,
-					slot: "case_operation_write_value",
-					subpath: canonicalLookupReferenceSubpath([
-						"property",
-						write.property,
-					]),
-					expression: write.value,
-				});
-				addPredicateSlot(carriers, {
-					...operationArgs,
-					slot: "case_operation_write_condition",
-					subpath: canonicalLookupReferenceSubpath([
-						"property",
-						write.property,
-					]),
-					predicate: write.condition,
-				});
-			}
-			for (const link of operation.links ?? []) {
-				if (link?.target?.kind !== "expression") continue;
-				addExpressionSlot(carriers, {
-					...operationArgs,
-					slot: "case_operation_link_target_expression",
-					subpath: canonicalLookupReferenceSubpath([
-						"identifier",
-						link.identifier,
-					]),
-					expression: link.target.expr,
-				});
-			}
+			addCaseOperationCarriers(carriers, operation, location);
 		}
 	}
 
@@ -486,4 +500,22 @@ export function collectDormantLookupCarriers(
 	}
 
 	return carriers;
+}
+
+/**
+ * Whether one case operation owns any dormant lookup-backed authoring slot.
+ *
+ * The carrier inventory is the exhaustive boundary used by validation and
+ * export, so edit surfaces consult it rather than maintaining a second AST
+ * walk. Until lookup expressions become authorable on every editor, a
+ * full-shape operation update must fail closed: the carrier-blind SA/MCP read
+ * projection cannot round-trip a hidden slot, and the rolling mutation
+ * envelope cannot safely spell it inside a replacement fallback.
+ */
+export function caseOperationContainsDormantLookupCarrier(
+	operation: CaseOperation,
+): boolean {
+	const carriers: DormantLookupCarrier[] = [];
+	addCaseOperationCarriers(carriers, operation, { scope: "form" });
+	return carriers.length > 0;
 }

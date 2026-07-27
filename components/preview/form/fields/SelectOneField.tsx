@@ -12,6 +12,8 @@ interface SelectOneFieldProps {
 	/** A single-select field; `options` is required on this kind. */
 	field: SingleSelectField;
 	state: FieldState;
+	/** Visible question label rendered by InteractiveFormRenderer. */
+	labelledBy?: string;
 	onChange: (value: string) => void;
 	onBlur: () => void;
 }
@@ -25,6 +27,7 @@ interface SelectOneFieldProps {
 export function SelectOneField({
 	field,
 	state,
+	labelledBy,
 	onChange,
 	onBlur,
 }: SelectOneFieldProps) {
@@ -55,7 +58,11 @@ export function SelectOneField({
 		return <LookupChoicesLoading />;
 	}
 	return (
-		<fieldset className="m-0 border-none p-0" onBlur={onBlur}>
+		<fieldset
+			aria-labelledby={labelledBy}
+			className="m-0 border-none p-0"
+			onBlur={onBlur}
+		>
 			<div className="space-y-1.5">
 				{lookupBacked && options.length === 0 && <LookupChoicesEmpty />}
 				{options.map((opt) => {

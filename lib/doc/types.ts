@@ -47,6 +47,7 @@ import {
 	searchInputRefSchema,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
+import { deepEqual } from "./deepEqual";
 
 // Runtime-narrow, statically canonical projections. Mutation call sites keep
 // their long-standing Predicate / ValueExpression types; the wire parser and
@@ -266,6 +267,120 @@ function caseOperationChangeSchemaFor(
 	]);
 }
 
+/**
+ * Current granular intent for an established `updateForm` event.
+ *
+ * `caseOperationChange` above is already deployed and therefore stays exact:
+ * its full-operation `update` is the fallback a pre-granular reducer applies.
+ * This separate top-level extension is stripped by that parser and interpreted
+ * by current reducers against fresh peer state.
+ */
+function caseOperationPatchSchemaFor(
+	operationValueSchema: typeof caseOperationSchema,
+) {
+	const operationPatchSchema = clearablePartialPatch(operationValueSchema)
+		// `clearablePartialPatch` already drops `uuid`, so identity replacement
+		// is unrepresentable here rather than checked after the fact: the arm's
+		// own `uuid` is the addressing key, and `.strict()` rejects a second
+		// one outright. Do not add a runtime guard for it.
+		.omit({
+			order: true,
+			writes: true,
+			links: true,
+		})
+		.strict()
+		.refine((patch) => Object.keys(patch).length > 0, {
+			message: "A case-operation update patch must change at least one slot.",
+		});
+	const writeSchema = operationValueSchema.shape.writes.unwrap().element;
+	const writePatchSchema = z
+		.object({
+			value: writeSchema.shape.value.optional(),
+			condition: writeSchema.shape.condition.unwrap().nullable().optional(),
+		})
+		.strict()
+		.refine((patch) => Object.keys(patch).length > 0, {
+			message: "A case-operation write patch must change at least one slot.",
+		});
+	const linkSchema = operationValueSchema.shape.links.unwrap().element;
+	const linkPatchSchema = linkSchema
+		.omit({ identifier: true })
+		.partial()
+		.strict()
+		.refine((patch) => Object.keys(patch).length > 0, {
+			message: "A case-operation link patch must change at least one slot.",
+		});
+
+	return z.discriminatedUnion("operation", [
+		z
+			.object({
+				operation: z.literal("update"),
+				uuid: uuidSchema,
+				patch: operationPatchSchema,
+			})
+			.strict(),
+		z
+			.object({
+				operation: z.literal("add-write"),
+				uuid: uuidSchema,
+				value: writeSchema,
+				index: z.number().int().nonnegative().optional(),
+			})
+			.strict(),
+		z
+			.object({
+				operation: z.literal("update-write"),
+				uuid: uuidSchema,
+				property: writeSchema.shape.property,
+				patch: writePatchSchema,
+			})
+			.strict(),
+		z
+			.object({
+				operation: z.literal("remove-write"),
+				uuid: uuidSchema,
+				property: writeSchema.shape.property,
+			})
+			.strict(),
+		z
+			.object({
+				operation: z.literal("add-link"),
+				uuid: uuidSchema,
+				value: linkSchema,
+				index: z.number().int().nonnegative().optional(),
+			})
+			.strict(),
+		z
+			.object({
+				operation: z.literal("update-link"),
+				uuid: uuidSchema,
+				identifier: linkSchema.shape.identifier,
+				patch: linkPatchSchema,
+			})
+			.strict(),
+		z
+			.object({
+				operation: z.literal("remove-link"),
+				uuid: uuidSchema,
+				identifier: linkSchema.shape.identifier,
+			})
+			.strict(),
+		z
+			.object({
+				operation: z.literal("move"),
+				uuid: uuidSchema,
+				order: z.string().nullable(),
+				/**
+				 * Optional current-writer placement intent. The fractional key is
+				 * still the deterministic replay value; the guarded writer uses this
+				 * rank only to reject a peer-shifted placement on its fresh doc.
+				 */
+				index: z.number().int().nonnegative().optional(),
+			})
+			.strict(),
+	]);
+}
+
 function caseSearchConfigPatchSchemaFor(
 	configSchema: typeof caseSearchConfigSchema,
 ) {
@@ -291,6 +406,9 @@ const carrierBlindFormUpdatePatchSchema = clearablePartialPatch(
 	caseOperations: true,
 });
 const carrierBlindCaseOperationChangeSchema = caseOperationChangeSchemaFor(
+	carrierBlindCaseOperationSchema,
+);
+const carrierBlindCaseOperationPatchSchema = caseOperationPatchSchemaFor(
 	carrierBlindCaseOperationSchema,
 );
 const carrierBlindCaseSearchConfigPatchSchema = caseSearchConfigPatchSchemaFor(
@@ -324,6 +442,8 @@ const canonicalFormUpdatePatchSchema = clearablePartialPatch(formSchema).omit({
 });
 const canonicalCaseOperationChangeSchema =
 	caseOperationChangeSchemaFor(caseOperationSchema);
+const canonicalCaseOperationPatchSchema =
+	caseOperationPatchSchemaFor(caseOperationSchema);
 const canonicalCaseSearchConfigPatchSchema = caseSearchConfigPatchSchemaFor(
 	caseSearchConfigSchema,
 );
@@ -411,6 +531,7 @@ const canonicalMutationFamily = {
 	form: formSchema,
 	formUpdatePatch: canonicalFormUpdatePatchSchema,
 	caseOperationChange: canonicalCaseOperationChangeSchema,
+	caseOperationPatch: canonicalCaseOperationPatchSchema,
 	column: columnSchema,
 	searchInput: searchInputDefSchema,
 	predicate: predicateSchema,
@@ -426,6 +547,7 @@ const carrierBlindMutationFamily = {
 	form: carrierBlindFormSchema,
 	formUpdatePatch: carrierBlindFormUpdatePatchSchema,
 	caseOperationChange: carrierBlindCaseOperationChangeSchema,
+	caseOperationPatch: carrierBlindCaseOperationPatchSchema,
 	column: carrierBlindColumnSchema,
 	searchInput: carrierBlindSearchInputDefSchema,
 	predicate: rollingPredicateSchema,
@@ -472,6 +594,48 @@ function reportMisplacedOptionsSource(
 }
 
 /**
+ * Reports a case-operation update that also tries to set the operation's
+ * `uuid`.
+ *
+ * `clearablePartialPatch` already omits `uuid`, so `.strict()` refuses this
+ * shape on its own — the refusal is structural and this function does not
+ * create it. What it creates is the SENTENCE. Strict parsing would otherwise
+ * answer "Unrecognized key" for a caller (the SA, an MCP client) whose actual
+ * mistake is believing an update can move an operation's identity, and that
+ * caller has to be able to act on the message. Running as a preprocess means
+ * this lands before the structural refusal rather than beside it.
+ */
+function reportImmutableCaseOperationIdentity(
+	value: unknown,
+	ctx: z.RefinementCtx,
+): void {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+		return;
+	}
+	if (!("kind" in value) || value.kind !== "updateForm") return;
+	if (!("caseOperationPatch" in value)) return;
+	const change = value.caseOperationPatch;
+	if (
+		typeof change !== "object" ||
+		change === null ||
+		!("operation" in change) ||
+		change.operation !== "update" ||
+		!("patch" in change) ||
+		typeof change.patch !== "object" ||
+		change.patch === null ||
+		!Object.hasOwn(change.patch, "uuid")
+	) {
+		return;
+	}
+	ctx.addIssue({
+		code: "custom",
+		path: ["caseOperationPatch", "patch", "uuid"],
+		message:
+			"This update also sets the case operation's uuid. An operation's identity is fixed when it is created, so an update can change what the operation does but never which operation it is — address the operation by its existing uuid and leave that slot out of the patch.",
+	});
+}
+
+/**
  * Run a raw-input check before `schema` without changing its public I/O types.
  *
  * Zod 4's `preprocess` declaration always exposes `unknown` as the wrapper's
@@ -492,6 +656,7 @@ function prevalidateRawMutationInput<Schema extends z.ZodType>(
 	const guarded = z.preprocess<z.input<Schema>, Schema, z.input<Schema>>(
 		(value, ctx) => {
 			reportMisplacedOptionsSource(value, ctx);
+			reportImmutableCaseOperationIdentity(value, ctx);
 			return value;
 		},
 		schema,
@@ -559,6 +724,216 @@ function reportUnmatchedTileCellEntries(
 	}
 }
 
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+	return typeof value === "object" && value !== null && !Array.isArray(value)
+		? (value as Record<string, unknown>)
+		: undefined;
+}
+
+function recordsIn(value: unknown): Record<string, unknown>[] {
+	return Array.isArray(value)
+		? value
+				.map(asRecord)
+				.filter(
+					(entry): entry is Record<string, unknown> => entry !== undefined,
+				)
+		: [];
+}
+
+/**
+ * Bind the current granular intent to the established full-operation fallback.
+ *
+ * A rolling parser from the immediate parent strips `caseOperationPatch` and
+ * applies `caseOperationChange.value`; a current parser applies only the
+ * granular extension. The two views must therefore name one identity and
+ * agree on the slot the extension edits. This is schema-level integrity, not
+ * reducer trust: malformed durable events cannot fork old and current replay.
+ */
+function reportCaseOperationPatchIntegrity(
+	fallbackValue: unknown,
+	semanticValue: unknown,
+	ctx: z.RefinementCtx,
+): void {
+	if (semanticValue === undefined) return;
+	const semantic = asRecord(semanticValue);
+	const fallback = asRecord(fallbackValue);
+	const issue = (path: readonly (string | number)[], message: string): void => {
+		ctx.addIssue({ code: "custom", path: [...path], message });
+	};
+	if (
+		semantic?.operation === "move" &&
+		fallback?.operation === "move" &&
+		typeof semantic.uuid === "string" &&
+		fallback.uuid === semantic.uuid &&
+		semantic.order !== null &&
+		fallback.order === semantic.order
+	) {
+		return;
+	}
+	if (
+		semantic === undefined ||
+		fallback === undefined ||
+		fallback.operation !== "update"
+	) {
+		issue(
+			["caseOperationChange"],
+			"A granular case-operation edit requires the established full-operation update fallback.",
+		);
+		return;
+	}
+
+	const desired = asRecord(fallback.value);
+	const uuid = semantic.uuid;
+	if (
+		typeof uuid !== "string" ||
+		fallback.uuid !== uuid ||
+		desired?.uuid !== uuid
+	) {
+		issue(
+			["caseOperationChange", "value", "uuid"],
+			"The case-operation fallback and granular edit must preserve one UUID identity.",
+		);
+		return;
+	}
+
+	const mismatch = (
+		path: readonly (string | number)[],
+		message = "The case-operation fallback must agree with the granular edit.",
+	): void => issue(path, message);
+	// A patch `null` means one of two different things depending on the
+	// slot it addresses, and the fallback spells each differently:
+	//
+	//   - a CLEARABLE OPTIONAL slot (a scalar facet, an order key) —
+	//     `null` deletes it, so the fallback simply omits the key and
+	//     reads back `undefined`;
+	//   - a REQUIRED NULLABLE slot — a link's `target` is the one today
+	//     — where `null` is the assigned value meaning "no target", so
+	//     the fallback carries a literal `null`.
+	//
+	// Normalizing to `undefined` alone made the second case disagree
+	// with itself: clearing a connection's target emitted a granular
+	// `update-link` whose own fallback it then rejected, so
+	// `mutationSchema` refused the mutation and the write 400'd rather
+	// than persisting. Accepting either spelling keeps the clear case
+	// exact while letting an assigned `null` match.
+	const matchesPatch = (
+		target: Record<string, unknown>,
+		patch: Record<string, unknown>,
+	): boolean =>
+		Object.entries(patch).every(([key, value]) => {
+			if (value === null) {
+				return target[key] === undefined || target[key] === null;
+			}
+			return deepEqual(target[key], value);
+		});
+
+	switch (semantic.operation) {
+		case "update": {
+			const patch = asRecord(semantic.patch);
+			if (
+				desired === undefined ||
+				patch === undefined ||
+				!matchesPatch(desired, patch)
+			) {
+				mismatch(["caseOperationPatch", "patch"]);
+			}
+			return;
+		}
+		case "add-write": {
+			const writes = recordsIn(desired?.writes);
+			const expected = asRecord(semantic.value);
+			const matches = writes
+				.map((write, index) => ({ write, index }))
+				.filter(({ write }) => write.property === expected?.property);
+			if (
+				expected === undefined ||
+				matches.length !== 1 ||
+				!deepEqual(matches[0]?.write, expected) ||
+				(typeof semantic.index === "number" &&
+					matches[0]?.index !== semantic.index)
+			) {
+				mismatch(["caseOperationPatch", "value"]);
+			}
+			return;
+		}
+		case "update-write": {
+			const matches = recordsIn(desired?.writes).filter(
+				(write) => write.property === semantic.property,
+			);
+			const patch = asRecord(semantic.patch);
+			if (
+				matches.length !== 1 ||
+				patch === undefined ||
+				!matchesPatch(matches[0] ?? {}, patch)
+			) {
+				mismatch(["caseOperationPatch", "patch"]);
+			}
+			return;
+		}
+		case "remove-write": {
+			if (
+				recordsIn(desired?.writes).some(
+					(write) => write.property === semantic.property,
+				)
+			) {
+				mismatch(["caseOperationPatch", "property"]);
+			}
+			return;
+		}
+		case "add-link": {
+			const links = recordsIn(desired?.links);
+			const expected = asRecord(semantic.value);
+			const matches = links
+				.map((link, index) => ({ link, index }))
+				.filter(({ link }) => link.identifier === expected?.identifier);
+			if (
+				expected === undefined ||
+				matches.length !== 1 ||
+				!deepEqual(matches[0]?.link, expected) ||
+				(typeof semantic.index === "number" &&
+					matches[0]?.index !== semantic.index)
+			) {
+				mismatch(["caseOperationPatch", "value"]);
+			}
+			return;
+		}
+		case "update-link": {
+			const matches = recordsIn(desired?.links).filter(
+				(link) => link.identifier === semantic.identifier,
+			);
+			const patch = asRecord(semantic.patch);
+			if (
+				matches.length !== 1 ||
+				patch === undefined ||
+				!matchesPatch(matches[0] ?? {}, patch)
+			) {
+				mismatch(["caseOperationPatch", "patch"]);
+			}
+			return;
+		}
+		case "remove-link": {
+			if (
+				recordsIn(desired?.links).some(
+					(link) => link.identifier === semantic.identifier,
+				)
+			) {
+				mismatch(["caseOperationPatch", "identifier"]);
+			}
+			return;
+		}
+		case "move":
+			if (
+				!deepEqual(
+					desired?.order,
+					semantic.order === null ? undefined : semantic.order,
+				)
+			) {
+				mismatch(["caseOperationPatch", "order"]);
+			}
+			return;
+	}
+}
+
 function createMutationSchema({
 	module: mutationModuleSchema,
 	moduleUpdatePatch: mutationModuleUpdatePatchSchema,
@@ -567,6 +942,7 @@ function createMutationSchema({
 	form: mutationFormSchema,
 	formUpdatePatch: mutationFormUpdatePatchSchema,
 	caseOperationChange: mutationCaseOperationChangeSchema,
+	caseOperationPatch: mutationCaseOperationPatchSchema,
 	column: mutationColumnSchema,
 	searchInput: mutationSearchInputSchema,
 	predicate: mutationPredicateSchema,
@@ -1049,22 +1425,32 @@ function createMutationSchema({
 			// See renameModule — reject empty ids at the schema boundary.
 			newId: z.string().min(1),
 		}),
-		z.object({
-			kind: z.literal("updateForm"),
-			uuid: uuidSchema,
-			// A clear carries an explicit `null` (the clearable slots are
-			// nullable — see `clearablePartialPatch`), so a clear-only edit is a
-			// NON-empty patch that round-trips intact. The `{}` default exists for
-			// a genuinely-empty patch: a degenerate no-property update, or a legacy
-			// event written before clears carried `null` (then a clear lowered to
-			// an all-`undefined` patch that `ignoreUndefinedProperties` stripped to
-			// an empty, document-omitted map). See `updateFieldArms`.
-			patch: mutationFormUpdatePatchSchema.default(() => ({})),
-			// Semantic extension on the long-lived updateForm discriminator. Old
-			// receivers strip this unknown key and safely replay the empty patch;
-			// new receivers apply one identity-keyed operation edit.
-			caseOperationChange: mutationCaseOperationChangeSchema.optional(),
-		}),
+		z
+			.object({
+				kind: z.literal("updateForm"),
+				uuid: uuidSchema,
+				// A clear carries an explicit `null` (the clearable slots are
+				// nullable — see `clearablePartialPatch`), so a clear-only edit is a
+				// NON-empty patch that round-trips intact. The `{}` default exists for
+				// a genuinely-empty patch: a degenerate no-property update, or a legacy
+				// event written before clears carried `null` (then a clear lowered to
+				// an all-`undefined` patch that `ignoreUndefinedProperties` stripped to
+				// an empty, document-omitted map). See `updateFieldArms`.
+				patch: mutationFormUpdatePatchSchema.default(() => ({})),
+				// Exact immediate-parent grammar. For a granular edit, `update.value`
+				// is the full-operation fallback an older reducer safely applies.
+				caseOperationChange: mutationCaseOperationChangeSchema.optional(),
+				// Current-only granular intent. Immediate-parent strict object parsers
+				// strip this top-level key and consume the fallback above.
+				caseOperationPatch: mutationCaseOperationPatchSchema.optional(),
+			})
+			.superRefine((mutation, ctx) => {
+				reportCaseOperationPatchIntegrity(
+					mutation.caseOperationChange,
+					mutation.caseOperationPatch,
+					ctx,
+				);
+			}),
 		// Field
 		z
 			.object({

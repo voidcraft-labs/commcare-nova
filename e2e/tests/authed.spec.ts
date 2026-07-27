@@ -1,8 +1,10 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import type { Page } from "@playwright/test";
+import type { Page, Response } from "@playwright/test";
 import { CROSS_PROJECT_MOVE_DISCLOSURE } from "../../lib/projects/moveTargets";
+import { CASE_CHANGES_SEED } from "../lib/caseChangesSeed";
 import { CASE_WORKSPACE_SEED } from "../lib/caseWorkspaceSeed";
+import { attachErrorGuard } from "../lib/errorGuard";
 import { expect, test } from "../lib/fixtures";
 
 /**
@@ -49,6 +51,12 @@ interface SeedManifest {
 			tileResults: string;
 		};
 	};
+	caseChanges: {
+		appId: string;
+		route: string;
+		caseId: string;
+		viewerStateFile: string;
+	}[];
 }
 
 type SecondaryHeaderName =
@@ -58,6 +66,81 @@ type SecondaryHeaderName =
 	| "chat"
 	| "chat-rail"
 	| "inspector";
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null;
+}
+
+function isBlankExpressionTarget(value: unknown): boolean {
+	if (!isRecord(value) || value.kind !== "expression") return false;
+	const expr = value.expr;
+	if (!isRecord(expr) || expr.kind !== "term") return false;
+	const expressionTerm = expr.term;
+	return (
+		isRecord(expressionTerm) &&
+		expressionTerm.kind === "literal" &&
+		expressionTerm.value === ""
+	);
+}
+
+/**
+ * A generic PUT response can belong to any earlier leading/trailing autosave.
+ * Match the exact semantic delta introduced by choosing the blank calculated
+ * link target. The granular intent is normally `update-link`, but it can be
+ * `add-link` (or only the deployed full-operation fallback) when the new link
+ * and this edit share one throttled batch.
+ */
+function isBlankExpressionTargetAutosave(
+	response: Response,
+	appId: string,
+): boolean {
+	if (
+		response.request().method() !== "PUT" ||
+		new URL(response.url()).pathname !== `/api/apps/${appId}`
+	) {
+		return false;
+	}
+	let body: unknown;
+	try {
+		body = response.request().postDataJSON();
+	} catch {
+		return false;
+	}
+	if (!isRecord(body) || !Array.isArray(body.mutations)) return false;
+	return body.mutations.some((mutation) => {
+		if (!isRecord(mutation)) return false;
+		const semantic = mutation.caseOperationPatch;
+		if (isRecord(semantic)) {
+			if (
+				semantic.operation === "update-link" &&
+				isRecord(semantic.patch) &&
+				isBlankExpressionTarget(semantic.patch.target)
+			) {
+				return true;
+			}
+			if (
+				semantic.operation === "add-link" &&
+				isRecord(semantic.value) &&
+				isBlankExpressionTarget(semantic.value.target)
+			) {
+				return true;
+			}
+			return false;
+		}
+		const fallback = mutation.caseOperationChange;
+		if (
+			!isRecord(fallback) ||
+			(fallback.operation !== "add" && fallback.operation !== "update") ||
+			!isRecord(fallback.value) ||
+			!Array.isArray(fallback.value.links)
+		) {
+			return false;
+		}
+		return fallback.value.links.some(
+			(link) => isRecord(link) && isBlankExpressionTarget(link.target),
+		);
+	});
+}
 
 /**
  * The conversation's true scroll element. use-stick-to-bottom scrolls an
@@ -1486,6 +1569,379 @@ test.describe("authenticated builder", () => {
 			await expect(
 				page.getByText(/This tile uses 6 columns and 3 rows/),
 			).toBeVisible();
+		});
+	});
+
+	test("case changes add, retarget, preserve dormant logic, and stay navigable to viewers", async ({
+		page,
+		browser,
+		baseURL,
+	}, testInfo) => {
+		test.setTimeout(120_000);
+		const caseChanges = seed.caseChanges[testInfo.retry];
+		if (caseChanges === undefined) {
+			throw new Error(
+				`Case-changes fixture missing for Playwright attempt ${testInfo.retry}`,
+			);
+		}
+		await page.goto(caseChanges.route);
+
+		await expect(
+			page.getByRole("heading", { name: "Case changes", level: 1 }),
+		).toBeVisible({ timeout: 20_000 });
+
+		// Rows read as sentences, in the order the runtime applies them.
+		const list = page.getByRole("list", {
+			name: "Case changes in the order they happen",
+		});
+		const rows = list.getByRole("listitem");
+		await expect(rows).toHaveCount(5);
+		await expect(rows.nth(0)).toContainText("Create a new referral case");
+		await expect(rows.nth(3)).toContainText(
+			`Update the archived referral case from \u201c${CASE_CHANGES_SEED.ids.create}\u201d`,
+		);
+
+		// The handle is the keyboard alternative to dragging, and its name
+		// states where in the sequence this change is.
+		const fileHandle = page.getByRole("button", {
+			name: new RegExp(`^Move ${CASE_CHANGES_SEED.ids.file}\\. Runs 4 of 5`),
+		});
+		await fileHandle.focus();
+
+		// Home would put it ahead of the create whose case it changes. The
+		// planner refuses, and the refusal NAMES the change it is about
+		// rather than the key silently doing nothing.
+		await page.keyboard.press("Home");
+		const refusal = page
+			.getByRole("alert")
+			.filter({ hasText: `${CASE_CHANGES_SEED.ids.file} did not move` });
+		await expect(refusal).toContainText(
+			`${CASE_CHANGES_SEED.ids.file} did not move`,
+		);
+		// The moved change is the one whose reference would break, so the
+		// sentence names what it DEPENDS on rather than naming it back.
+		await expect(refusal).toContainText(
+			`This change uses the case \u201c${CASE_CHANGES_SEED.ids.create}\u201d makes`,
+		);
+		// Nothing moved: the refusal came BEFORE the gesture, not after a
+		// commit that had to be undone.
+		await expect(rows.nth(0)).toContainText("Create a new referral case");
+		await expect(rows.nth(3)).toContainText(
+			`Update the archived referral case from \u201c${CASE_CHANGES_SEED.ids.create}\u201d`,
+		);
+
+		// The same keyboard path still moves a change nothing depends on.
+		const noteHandle = page.getByRole("button", {
+			name: new RegExp(`^Move ${CASE_CHANGES_SEED.ids.note}\\. Runs 3 of 5`),
+		});
+		await noteHandle.focus();
+		await page.keyboard.press("ArrowUp");
+		await expect(
+			page.getByRole("button", {
+				name: new RegExp(`^Move ${CASE_CHANGES_SEED.ids.note}\\. Runs 2 of 5`),
+			}),
+		).toBeVisible();
+
+		await test.step("retargeting across case types commits target and proven type together", async () => {
+			await page
+				.locator(
+					`[data-case-operation-select="${CASE_CHANGES_SEED.operations.file}"]`,
+				)
+				.click();
+			await expect(
+				page.getByRole("heading", {
+					name: new RegExp(
+						`Update the archived referral case from .${CASE_CHANGES_SEED.ids.create}.`,
+					),
+					level: 1,
+				}),
+			).toBeVisible();
+			await expect(
+				page.getByRole("button", {
+					name: "Connect to: A case found by a calculation",
+				}),
+			).toBeVisible();
+			await expect(
+				page.getByText("Work out the id of the case at the other end."),
+			).toBeVisible();
+
+			const target = page.getByRole("button", {
+				name: new RegExp(
+					`^Which case: The case from .${CASE_CHANGES_SEED.ids.create}.`,
+				),
+			});
+			await target.click();
+			await page
+				.getByRole("menuitem", {
+					name: /The case this form opened/,
+				})
+				.click();
+			await expect(
+				page.getByRole("button", { name: "Kind of case: Patient" }),
+			).toBeVisible();
+			await expect(
+				page.getByRole("button", {
+					name: "Which case: The case this form opened",
+				}),
+			).toBeVisible();
+
+			await page
+				.getByRole("button", {
+					name: "Which case: The case this form opened",
+				})
+				.click();
+			await page
+				.getByRole("menuitem", {
+					name: new RegExp(`The case from .${CASE_CHANGES_SEED.ids.create}.`),
+				})
+				.click();
+			await expect(
+				page.getByRole("button", {
+					name: "Kind of case: Archived referral",
+				}),
+			).toBeVisible();
+		});
+
+		await test.step("a persisted lookup-bearing change opens but remains safely read-only", async () => {
+			await page.getByRole("button", { name: "All case changes" }).click();
+			await page
+				.locator(
+					`[data-case-operation-select="${CASE_CHANGES_SEED.operations.dormant}"]`,
+				)
+				.click();
+			const notes = page
+				.getByRole("note")
+				.filter({ hasText: "uses lookup-table logic" });
+			await expect(notes).toHaveCount(2);
+			await expect(
+				page.getByRole("button", { name: "Kind of case: Patient" }),
+			).toBeDisabled();
+			await expect(
+				page.getByRole("button", {
+					name: "Which case: The case this form opened",
+				}),
+			).toBeDisabled();
+
+			await page.getByRole("button", { name: "All case changes" }).click();
+			await expect(
+				page.getByRole("button", {
+					name: new RegExp(
+						`^Move ${CASE_CHANGES_SEED.ids.dormant}\\. Runs 5 of 5`,
+					),
+				}),
+			).toBeVisible();
+		});
+
+		await test.step("a fresh link after an earlier retype adopts a prior create's rolling type atomically", async () => {
+			await page.getByRole("button", { name: "Add a change" }).click();
+			await page
+				.getByRole("button", {
+					name: "Update the case this form opened Save answers onto the case already in hand",
+					exact: true,
+				})
+				.click();
+			await expect(
+				page.getByRole("heading", {
+					name: "Update the case this form opened",
+					level: 1,
+				}),
+			).toBeVisible();
+			await expect(
+				page.getByRole("button", { name: "Kind of case: Patient" }),
+			).toBeVisible();
+			await page.locator("[data-case-operation-add-link]").click();
+			await expect(
+				page.getByRole("button", {
+					name: "Kind of case at the other end: Patient",
+				}),
+			).toBeVisible();
+
+			await page
+				.getByRole("button", {
+					name: "Connect to: Remove this connection",
+				})
+				.click();
+			await page
+				.getByRole("menuitem", {
+					name: new RegExp(`The case from .${CASE_CHANGES_SEED.ids.create}.`),
+				})
+				.click();
+			await expect(
+				page.getByRole("button", {
+					name: "Kind of case at the other end: Archived referral",
+				}),
+			).toBeVisible();
+			await expect(
+				page.getByRole("button", {
+					name: new RegExp(
+						`Connect to: The case from .${CASE_CHANGES_SEED.ids.create}.`,
+					),
+				}),
+			).toBeVisible();
+
+			// Keep a blank runtime target for the first Preview submit. It is
+			// editable immediately and the submission must refuse atomically.
+			await page
+				.getByRole("button", {
+					name: new RegExp(
+						`Connect to: The case from .${CASE_CHANGES_SEED.ids.create}.`,
+					),
+				})
+				.click();
+			const blankTargetSaved = page.waitForResponse((response) =>
+				isBlankExpressionTargetAutosave(response, caseChanges.appId),
+			);
+			await page
+				.getByRole("menuitem", {
+					name: /^A case found by a calculation/,
+				})
+				.click();
+			expect((await blankTargetSaved).ok()).toBe(true);
+			await expect(
+				page.getByText("Work out the id of the case at the other end."),
+			).toBeVisible();
+		});
+
+		await test.step("running Preview refuses a blank link target with no partial case effects", async () => {
+			await page.getByRole("button", { name: "Preview", exact: true }).click();
+			await expect(
+				page.getByRole("button", { name: "Back to edit", exact: true }),
+			).toBeVisible();
+			const relatedPatientCaseId = page.getByRole("textbox", {
+				name: "Related patient case id",
+			});
+			await expect(relatedPatientCaseId).toBeVisible();
+			const submit = page
+				.locator("main")
+				.getByRole("button", { name: "Submit", exact: true });
+			await expect(submit).toBeEnabled();
+			await relatedPatientCaseId.fill(caseChanges.caseId);
+			await expect(relatedPatientCaseId).toHaveValue(caseChanges.caseId);
+			await submit.click();
+			await expect(
+				page.getByRole("alert").filter({ hasText: "Nothing was saved" }),
+			).toContainText(
+				"a case automation points at a case that no longer exists or moved out of reach",
+			);
+		});
+
+		await test.step("repairing the target submits real effects and the linked rows are visible", async () => {
+			await page.getByRole("button", { name: "Back to edit" }).click();
+			const removalSaved = page.waitForResponse(
+				(response) =>
+					response.request().method() === "PUT" &&
+					new URL(response.url()).pathname === `/api/apps/${caseChanges.appId}`,
+			);
+			await page.getByRole("button", { name: "Remove", exact: true }).click();
+			expect((await removalSaved).ok()).toBe(true);
+
+			await page.getByRole("button", { name: "Preview", exact: true }).click();
+			const relatedPatientCaseId = page.getByRole("textbox", {
+				name: "Related patient case id",
+			});
+			await expect(relatedPatientCaseId).toBeVisible();
+			const submit = page
+				.locator("main")
+				.getByRole("button", { name: "Submit", exact: true });
+			await expect(submit).toBeEnabled();
+			await relatedPatientCaseId.fill(caseChanges.caseId);
+			await expect(relatedPatientCaseId).toHaveValue(caseChanges.caseId);
+			await submit.click();
+
+			const patientModule = page.locator("main").getByRole("button", {
+				name: new RegExp(`^${CASE_CHANGES_SEED.moduleName}\\b`),
+			});
+			await expect(patientModule).toBeVisible({ timeout: 20_000 });
+			await patientModule.click();
+			await expect(
+				page.getByRole("heading", {
+					name: CASE_CHANGES_SEED.moduleName,
+					level: 1,
+				}),
+			).toBeVisible();
+			const patientRows = page
+				.getByRole("list", { name: "Cases" })
+				.getByRole("listitem");
+			await expect(patientRows).toHaveCount(1);
+			await expect(patientRows.first()).toContainText("Smoke patient");
+			await expect(patientRows.first()).toContainText("Visited");
+
+			await page.goBack();
+			const archivedModule = page.locator("main").getByRole("button", {
+				name: new RegExp(`^${CASE_CHANGES_SEED.archivedModuleName}\\b`),
+			});
+			await expect(archivedModule).toBeVisible();
+			await archivedModule.click();
+			await expect(
+				page.getByRole("heading", {
+					name: CASE_CHANGES_SEED.archivedModuleName,
+					level: 1,
+				}),
+			).toBeVisible();
+			const archivedRows = page
+				.getByRole("list", { name: "Cases" })
+				.getByRole("listitem");
+			await expect(archivedRows).toHaveCount(1);
+			await expect(archivedRows.first()).toContainText("Referral");
+			await expect(archivedRows.first()).toContainText("Filed");
+			// The calculated Patient column traverses the persisted parent link.
+			await expect(archivedRows.first()).toContainText("Smoke patient");
+
+			await page.getByRole("button", { name: "Back to edit" }).click();
+		});
+
+		await test.step("a viewer can still open and inspect a case change", async () => {
+			const viewerContext = await browser.newContext({
+				baseURL: baseURL ?? undefined,
+				storageState: caseChanges.viewerStateFile,
+			});
+			const viewerPage = await viewerContext.newPage();
+			const viewerGuard = attachErrorGuard(viewerPage, baseURL);
+			try {
+				await viewerPage.goto(caseChanges.route);
+				await expect(
+					viewerPage.getByRole("heading", {
+						name: "Case changes",
+						level: 1,
+					}),
+				).toBeVisible({ timeout: 20_000 });
+				await expect(
+					viewerPage.getByRole("button", { name: /^Move / }),
+				).toHaveCount(0);
+				await expect(
+					viewerPage.getByRole("button", { name: "Add a change" }),
+				).toHaveCount(0);
+
+				const openFile = viewerPage.locator(
+					`[data-case-operation-select="${CASE_CHANGES_SEED.operations.file}"]`,
+				);
+				await expect(openFile).toBeVisible();
+				await openFile.click();
+				await expect(
+					viewerPage.getByRole("heading", {
+						name: new RegExp(
+							`Update the archived referral case from .${CASE_CHANGES_SEED.ids.create}.`,
+						),
+						level: 1,
+					}),
+				).toBeVisible();
+				await expect(
+					viewerPage.getByRole("button", {
+						name: "Kind of case: Archived referral",
+					}),
+				).toBeDisabled();
+				await expect(
+					viewerPage.getByRole("button", {
+						name: "Connect to: A case found by a calculation",
+					}),
+				).toBeDisabled();
+				await expect(
+					viewerPage.getByText("Work out the id of the case at the other end."),
+				).toBeVisible();
+				viewerGuard.assertNoErrors();
+			} finally {
+				await viewerContext.close();
+			}
 		});
 	});
 

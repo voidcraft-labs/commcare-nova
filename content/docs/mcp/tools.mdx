@@ -122,6 +122,29 @@ CommCare has four form types: `registration` creates a new case, `followup` upda
 | `remove_form` | Delete a form. |
 | `get_form` | Show details for one form. |
 
+## Changing cases on submission
+
+Most forms save their answers onto their primary case through their fields. Case operations cover additional ordered effects: create another case, update or close a known case, connect cases, rename or retype one, assign an owner, or repeat an effect for every row in a repeating section.
+
+These tools use author identities throughout: module, form, and operation slug ids, plus field paths such as `visits/outcome`. They never ask for or return storage UUIDs. A later operation in one add call can target an earlier create from that call by its operation id; the whole list is checked and saved atomically.
+
+Operation ids and link identifiers contain letters, numbers, and underscores
+and start with a letter or underscore. Write-property names use the same
+characters and start with a letter. An operation that already contains
+lookup-table logic is preserved in its exact list position and remains movable
+by id. Its read shape keeps `id`, `action`, and `caseType`, adds
+`unavailable.kind: "lookup-table-logic"` plus an explanation, and withholds the
+lookup AST. A full-shape update is refused rather than dropping logic the author
+projection cannot represent.
+
+| Tool | What it does |
+|---|---|
+| `get_case_operations` | List every operation in execution order, using operation ids and field paths; a lookup-bearing operation remains in place with explicit unavailable metadata. |
+| `add_case_operations` | Add one or more complete create, update, or close operations. Later items may target an earlier create in the same call. |
+| `update_case_operation` | Edit one operation's complete author shape by id. Only changed identity-keyed slots are written, so unrelated concurrent edits compose. |
+| `move_case_operation` | Move an operation to a new execution index. Refuses dependency-breaking, non-portable, or peer-shifted placement and reports the committed index. |
+| `remove_case_operation` | Remove an operation by id. Refuses while another operation still depends on it and names the dependents. |
+
 ## Working on fields (questions)
 
 A field is a single question on a form: text input, dropdown, date, number, repeat group, label, and so on. Most fields also save to a case property; some (on survey forms, or label-only fields) don't.

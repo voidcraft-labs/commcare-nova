@@ -266,12 +266,132 @@ rather than as a toast over a silently reverted edit. `allowsNeverMatch` is its
 own axis, not a reading of `caseDataScope` — the Search action's condition is
 `global` too and legitimately admits `match-none`.
 
+## Case changes (`case-operations/`)
+
+A form's ordered case operations are authored on `/{formUuid}/operations`, with
+`/{operationUuid}` selecting one — the one form-owned configuration URL that
+carries a selection, because a form can hold twenty changes and "look at this
+one" has to be sendable. The form-settings panel's **Case changes** row states
+the count and hands off; Preview from either URL runs the owning form.
+
+**The list is the screen the platform never had.** Each row is a sentence
+(`operationSentence.ts`) — a display projection with no semantics of its own,
+same discipline as the display-condition summary printer — and shows the
+conditions it inherits from earlier changes AT REST, not on hover.
+
+**Both reorder gestures read ONE map**, which is what makes them structurally
+unable to disagree: `caseOperationMoveVerdicts` (`lib/doc/caseOperationReview.ts`)
+answers the move planner for every destination at once. Drag feeds it to
+`useReorderableList`'s `canDropAtIndex`; the source is captured on the handle's
+`onPointerDown`, which precedes dragstart, so the FIRST pointer move is already
+gated rather than one frame late. Keyboard asks the same map through the pure
+`planKeyboardMove` before committing. `commitMove` re-asks against the live
+document and `view.move` re-plans at commit, so a peer edit mid-gesture cannot
+slip an illegal move through — that path says the list changed rather than
+silently doing nothing. **A refused keyboard move ANNOUNCES why and names the
+operations**; that parity with the pointer's disabled drop zone is the point of
+the unit. Refusals go to `role="alert"` (the screen is otherwise unchanged, so
+the press would read as a no-op) while the polite region carries only outcomes
+that DID something, so an author hears one sentence rather than two.
+Moving to the current rank is a real no-op: no fractional-key churn, store
+dispatch, or undo entry.
+`dependent-reference` and `execution-order` stay distinct — the second is a
+property of the submitted form, never the author's mistake, and the copy never
+implies otherwise. **Three refusals, three sentences, and none of them is a
+paraphrase of another** (`refusalCopy.ts`): a `reference` dependency names what
+uses this change (or, when the moved change is the one that would break, what it
+depends on); a `target-type` dependency names whose KIND OF CASE would change and
+never says "makes" or "uses", because nothing is made or used and the reference
+wording would name an unrelated change; `execution-order` speaks about the
+submitted form. The copy layer never re-derives which of the two dependency
+constraints refused — the planner carries it — and no sentence names the moved
+change back to itself.
+
+**AST in the canvas, choice in the rail.** The detail canvas owns the condition,
+the name / rename / owner expressions, the writes with their per-write
+conditions, and the links; the rail (`useActiveInspector`'s third source) owns
+the discrete settings and removal. Adding is chooser-first and lands a complete
+operation the gate already accepts (`seeds.ts`, proved through
+`mutationCommitVerdict`); removal asks `removalPlan` first and, when something
+depends on it, names each blocker and the exact slot rather than offering a
+delete that would bounce. That list is `view.removalBlockers` — the REMOVE
+planner's own answer, not a reference walk, so a blocker that depends on the
+case TYPE is listed with no slot instead of vanishing and leaving the heading
+over an empty list. Inline confirmations use `useInlineConfirmFocus`.
+Every candidate in the action, case-type, target, identity-key, multiplicity,
+retype, and link-type menus asks `view.editVerdict`; a stranded downstream
+consumer therefore disables the exact choice with the planner's reason instead
+of allowing a commit-gate bounce. That reason is one present-tense line in the
+builder's voice (`offeredChoiceRefusal`), never the commit-rejection report — a
+menu item's reason span collapses newlines, and nothing was attempted to report. Choosing a different known target is one
+`retargetCaseOperation` transformation: target identity and the type established
+by all earlier creates/retypes change in the same gated operation patch, while
+every other facet stays intact for the verdict to adjudicate. Update/close adds
+at the end use that same rolling session-type projection and `addVerdict`, never
+the module's stale original type. A link target follows the parallel
+`retargetCaseOperationLink` intent: session/prior-create choices atomically
+carry their rolling type, an exact expression keeps its AST and asserted type,
+and `null` changes only the target (the required `target: null` unlink value is
+assigned rather than treated as an optional-slot clear by the granular
+reducer). Relationship copy names an extension's host but never promises a
+lifecycle cascade: Nova and a default HQ domain close only the case explicitly
+named by the submission, so closing a host does not close its extensions.
+Runtime-expression link targets immediately mount the same full
+text-scoped `ExpressionCardEditor` as the operation's own target; a blank or
+out-of-scope case id is a submission-time fact and the running form refuses the
+whole atomic submission inline. A saved lookup-carrier-bearing operation is
+persistently read-only in both the rail and canvas with the shared carrier
+reason; callbacks also fail closed before dispatch. It remains visible and
+movable because the move envelope never serializes its hidden AST. Selecting an
+already-active target dispatches nothing and uses the exact current value while
+computing its verdict, so a new target's `idFrom` and an expression target's AST
+cannot be replaced by the menu seed. Viewer rows remain navigation buttons:
+details and previous/next traversal are view capability, while handles, add,
+remove, and every authored control remain edit capability.
+
+`useCaseOperations` treats the render snapshot as intent, never as commit state.
+Every callback reads `docApi.getState()` at invocation. Full-shape edits rebase
+only changed scalar/write/link slots onto that fresh operation, refusing a
+peer-deleted logical target or same-key peer add before local mutation. Adds,
+removes, and moves resolve their targets against the same fresh snapshot; move
+announcements use the rank and list length after the synchronous commit, not
+the requested index captured by the gesture.
+
+Which answers a change may read is not decided here: `lib/domain/caseOperationScope.ts`
+holds the rule and the validator calls the same functions, so `formFieldScope.ts`
+only APPLIES it. Every expression slot mounts with the operation's FOUR scope
+axes — `formFields` narrowed by multiplicity, `userProperties` (a
+worker-information read is legal in an operation: `caseOperations.ts` puts the
+slug catalog in its type context), `operationScope` for the submission-local
+vocabulary, and `caseDataScope`.
+
+**The last two are not one value across the screen** (`editorScope.ts` owns both
+decisions, and `__tests__/caseOperationValidByConstruction.test.ts` drives every
+slot × both module shapes against the validator rule itself):
+
+- `caseDataScope` follows the MODULE, not the operation. `validateCaseSnapshotUse`
+  refuses a case property, a relationship count, and a presence test in ANY slot
+  unless the module selects a case before opening its forms — spelled with
+  exactly the walks `expressionReadsCaseData` performs, which is `"global"`'s own
+  admission oracle. So a module holding a registration form is `"global"`, and its
+  seeds compare a session value rather than a property (neutral, so adding a
+  condition does not change when the change runs until the author edits it).
+  `"selected-case"` is deliberately not the middle answer: it admits the chosen
+  case's own properties and the gate admits none.
+- A RUNTIME TARGET slot — the operation's own "which case to change", and a link's
+  "work out the id at the other end" — mounts `RUNTIME_TARGET_OPERATION_SCOPE`
+  instead of the operation's own. `caseOperations.ts` refuses `id-of` anywhere in
+  a target tree (target that create directly), so the create list is EMPTY there.
+  Empty rather than absent, because the two owner sentinels stay legal.
+
 ## Predicate / expression card editor (shared)
 
 Cross-workspace authoring surface for Predicate / ValueExpression ASTs; lives under `shared/` so workspaces don't import each other's chrome.
 
 - **Valid by construction.** Every picker offers ONLY choices that keep the AST type-correct — a verb the current subject can't take, or a value type/source/kind the slot won't accept, is DISABLED with a reason (never dimmed-but-clickable), and a subject change that tightens a dependent slot reseeds it atomically in the SAME onChange (carrying the typed content where the new type can hold it — `cards/reseed.ts`).
-- **Evaluation scope is a required editor axis.** `PredicateEditContext.caseDataScope` (`"per-case"` | `"global"`) states whether the slot runs against a case row. `"global"` slots — a search field's starting value, the Search button's display condition — resolve once before any case is selected, so the registry drops every case-data-dependent verb (ordered comparisons, match, within-distance, multi-select-contains, exists/missing), seeds compare a session value (`sessionContext("username")`) instead of a property — and every UNCHOSEN placeholder is **truth-neutral for its destination**, because a global placeholder commits immediately and gates a whole surface (a false placeholder would hide the Search action before the author writes anything). The polarity is one bit, `PredicateEditContext.globalPlaceholderHolds` (default true — root and "all" groups; an "any" group's add-clause context flips it to false), consumed by `globalPlaceholder(holds)`; wrap siblings are intrinsically neutral for their combinator (`wrapSiblingDefault`: `and(p, true)` / `or(p, false)` keep `p`), and a fresh "Exclude when" inverts the bit for its inner clause. `__tests__/globalSeedNeutrality.test.ts` pins the actual truth values, the axis the type-check invariants can't see — and the `PredicateEditProvider` composes a case-data admission oracle in front of any caller oracle so value-source and calculated-kind menus disable property/relationship reads with one shared reason (`GLOBAL_SCOPE_CASE_DATA_REASON`). A relation walk's `where` and a count's `where` rebind to `"per-case"` (the destination row exists there whatever the outer slot). The field is REQUIRED so a new surface can't silently offer case reads into a global slot and bounce off the gate. So a user edit can never INTRODUCE a type finding; the commit gate is never surprised and the old "rejected commit → toast → silent revert" path is unreachable. The allowed-set is computed live from the type checker's OWN forward rules — `useResolvedType` resolves a slot's subject through `checkExpression`, and the `SlotConstraint` factories in `lib/domain/predicate/slotConstraints.ts` delegate to the inverse helpers co-located in `typeChecker.ts` (`comparisonOperatorsFor` / `matchModesFor` / `compatibleTypesFor` / `valueExpressionKindResultClass`) — so the offered-set can't drift from the accept-set. Seeds bind a value of the property's OWN type (`seedLiteralForProperty`), never a stray text `literal("")`. The only tolerated transient states are COMPLETENESS ("fill this in" — an unfilled property name or match value), never type-invalidity. Two pure invariant tests prove it: `__tests__/validByConstruction.test.ts` (admission ⟺ checker; reseed lands valid) and `__tests__/verbMenuBuildFuzz.test.ts` (every admitted verb build + every registry seed type-checks). Disabling per the SUBJECT, never auto-changing it, is what makes "**changing how you compare never loses what you compare**" hold.
+- **Form answers and the submission-local vocabulary are an OPT-IN axis.** `formFields` (already narrowed by the mounting surface to what the commit gate accepts) makes **A form answer** a real term source with its own picker; `operationScope` makes `acting-user`, `unowned`, and `id-of` authorable and supplies `id-of`'s picker over the creates in scope. Both are optional and **absent means unauthorable** — a surface that does not opt in keeps the exact round-trip-only behavior it had, which is the whole safety argument (`__tests__/operationScopeFailsClosed.test.ts` pins it against the checker, not against convention). `buildEditorTypeContext` (`shared/editorTypeContext.ts`, a type-only-import leaf so the pure cascade-reseed helpers can reach it without closing a cycle through the card registry) is the ONE place either axis — plus `userProperties` — becomes a `TypeContext`. **That includes `cards/reseed.ts`, which runs inside an event handler where a hook can't**: the axes have opposite polarity at the checker (an absent worker catalog is permissive, absent `formFields` is fatal), so a reseed resolving against a narrower context returns `undefined` for a form answer, widens the dependent slot's accept-set to everything, skips the reseed, and commits the type-incorrect pair the gate then refuses. Every narrowed `PredicateEditContext` / `ExpressionEditContext` literal a card builds for a menu therefore carries all three axes forward.
+- **Which RUNTIME evaluates the rule is a second editor axis.** `PredicateEditContext.evaluationTarget` (`"on-device"` | `"case-search"`) decides whether a case-search-only capability is authorable. Three of the four match modes — `fuzzy`, `phonetic`, `fuzzy-date` — exist only in CommCare HQ's server-side Elasticsearch compiler; CommCare Core's XPath dispatch registers `starts-with` and nothing else, and Formplayer shares that table (it adds only `here()`). Emitting one is not an install error — Core's dispatch falls through to a custom-runtime function with no arity check, so the app installs clean and throws when the expression is EVALUATED, which in a case list renders `<invalid xpath: …>` into the cell instead of failing. The mode table lives once at `lib/commcare/predicate/matchModes.ts`, the on-device emitter refuses the three so every carrier that dry-runs it inherits the finding, and the editor reads the same fact through `lib/doc/commitVerdicts.ts` (the allowlisted seam `caseSearchPredicateEditVerdict` already uses). **Absent means `"on-device"`, and that default is deliberately the STRICT one** — the opposite polarity to `caseDataScope`, whose permissive default means a surface that forgets it silently offers refused reads. A surface that forgets this one offers strictly less, which is visible and repairable. The case-list filter is the carrier this two-value axis cannot yet state: it emits to the ordinary on-device nodeset AND the remote query, so it needs both oracles, and it keeps `"case-search"` while search is on.
+- **Evaluation scope is a required editor axis.** `PredicateEditContext.caseDataScope` (`"per-case"` | `"selected-case"` | `"global"`) states what the slot may read against a case row — see § Display conditions for the middle value, which admits one already-chosen case's own properties and withholds everything reached through a connection. `"global"` slots — a search field's starting value, the Search button's display condition — resolve once before any case is selected, so the registry drops every case-data-dependent verb (ordered comparisons, match, within-distance, multi-select-contains, exists/missing), seeds compare a session value (`sessionContext("username")`) instead of a property — and every UNCHOSEN placeholder is **truth-neutral for its destination**, because a global placeholder commits immediately and gates a whole surface (a false placeholder would hide the Search action before the author writes anything). The polarity is one bit, `PredicateEditContext.globalPlaceholderHolds` (default true — root and "all" groups; an "any" group's add-clause context flips it to false), consumed by `globalPlaceholder(holds)`; wrap siblings are intrinsically neutral for their combinator (`wrapSiblingDefault`: `and(p, true)` / `or(p, false)` keep `p`), and a fresh "Exclude when" inverts the bit for its inner clause. `__tests__/globalSeedNeutrality.test.ts` pins the actual truth values, the axis the type-check invariants can't see — and the `PredicateEditProvider` composes a case-data admission oracle in front of any caller oracle so value-source and calculated-kind menus disable property/relationship reads with one shared reason (`GLOBAL_SCOPE_CASE_DATA_REASON`). A relation walk's `where` and a count's `where` rebind to `"per-case"` (the destination row exists there whatever the outer slot). The field is REQUIRED so a new surface can't silently offer case reads into a global slot and bounce off the gate. So a user edit can never INTRODUCE a type finding. That is exactly as far as the two shared invariant tests reach, and no further: their oracle is the TYPE CHECKER, while the real authoring oracle is the COMMIT GATE, which is strictly stronger — `lib/commcare/validator/gate.ts` rejects every `soundness` and `completeness` finding on every commit, and the carrier rules report plenty the checker is happy with (a case read in an operation slot, an `id-of` in a runtime target, a match mode no device implements). Proving "the gate is never surprised" therefore needs a PER-CARRIER test whose oracle is that carrier's own validator rule; `components/builder/case-operations/__tests__/caseOperationValidByConstruction.test.ts` is the pattern, and it found three live offer-then-refuse defects on the day it was written. The allowed-set is computed live from the type checker's OWN forward rules — `useResolvedType` resolves a slot's subject through `checkExpression`, and the `SlotConstraint` factories in `lib/domain/predicate/slotConstraints.ts` delegate to the inverse helpers co-located in `typeChecker.ts` (`comparisonOperatorsFor` / `matchModesFor` / `compatibleTypesFor` / `valueExpressionKindResultClass`) — so the offered-set can't drift from the accept-set. Seeds bind a value of the property's OWN type (`seedLiteralForProperty`), never a stray text `literal("")`. **Nothing unfinished may be committed.** The gate has no tolerant class — `gate.ts` gates `completeness` exactly like `soundness` — so a "fill this in" state the editor commits is refused like any other finding. A slot that requires a filled value says so with `SlotConstraint.nonEmpty`, and every path that PRODUCES a value honors it: the text widget holds an emptied draft rather than committing it, and `termSeedForSlot` seeds something non-blank rather than `literal("")`. Where no complete value can be invented, the gesture is disabled with its reason instead — a verb switch to `match` stays disabled until the condition carries a value. Two pure invariant tests prove it: `__tests__/validByConstruction.test.ts` (admission ⟺ checker; reseed lands valid) and `__tests__/verbMenuBuildFuzz.test.ts` (every admitted verb build + every registry seed type-checks). Disabling per the SUBJECT, never auto-changing it, is what makes "**changing how you compare never loses what you compare**" hold.
 - **Conditions are readable clauses**: subject and verb share a compact first row; the value gets a full-width second row so editing never collapses into a strip of technical controls. A property remains the quiet common-case subject, but the subject is the full `ValueExpression` vocabulary — search answers, session/user information, relationship reads, and calculated expressions are all editable in place through `ExpressionPicker`, never reduced to replacement badges. Nothing titles a row with its AST node name. ONE verb menu holds every behavior plus a Structure group. Changing a verb carries the subject (and value where the target holds one) — **changing how you compare never loses what you compare**. Wrapping shapes (groups, not, when-field-filled) wrap the current condition rather than replacing it; only the always-true/false sentinels rebuild from defaults. **Always match** and **Never match** remain progressively authorable under that existing menu's **Special conditions** section; primary **Add condition** stays focused on common seeds and never duplicates those whole-condition replacements. Container kinds keep titled cards — a box's identity isn't expressible inline.
 - Values are unboxed: their source menu uses friendly choices such as **A value**, **A property** (for a condition subject), **Another property** (for an object value), **Worker information** (a UUID catalog), **Other user field** (an explicit raw name), and **Calculated** rather than exposing AST vocabulary such as “Term” or “Typed Value”, so one menu answers “where does this value come from?”. The two user sources never infer or convert into one another. Absence checks disable only a literal placed directly at the subject root; literal inputs nested inside a calculation remain available because the checker permits them.
 - Relationship paths are catalog-driven and lossless. Canonical parent steps follow the actual `parent_type` chain; child destinations use direct children, while any-direction destinations use the union of the parent and direct children. Optional case-type hints stay out of the common path when one destination is provable. A custom saved index can reach any declared case type and therefore requires an explicit destination; on a graph leaf, choosing a direction opens one atomic connection-name + case-type step so the editor never commits a half-configured relation. Saved missing or stale hints remain readable with a focused recovery choice. Link names draft locally and commit on blur or Enter only after passing the relation identifier's XML-name rule, so ordinary typing can never hit the commit gate and snap back. Multi-step walks preserve every link name, and structural removal rebinds only position-dependent canonical-parent hints; custom destinations remain explicit and nested conditions are never rewritten.

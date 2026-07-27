@@ -55,6 +55,11 @@ import { setCaseListFilterTool } from "./tools/case-list-config/setCaseListFilte
 import { setCaseListTileTool } from "./tools/case-list-config/setCaseListTile";
 import { updateCaseListColumnTool } from "./tools/case-list-config/updateCaseListColumn";
 import { updateSearchInputTool } from "./tools/case-list-config/updateSearchInput";
+import { addCaseOperationsTool } from "./tools/case-operations/addCaseOperations";
+import { getCaseOperationsTool } from "./tools/case-operations/getCaseOperations";
+import { moveCaseOperationTool } from "./tools/case-operations/moveCaseOperation";
+import { removeCaseOperationTool } from "./tools/case-operations/removeCaseOperation";
+import { updateCaseOperationTool } from "./tools/case-operations/updateCaseOperation";
 import { setCaseSearchAdvancedTool } from "./tools/case-search-config/setCaseSearchAdvanced";
 import { setCaseSearchDisplayTool } from "./tools/case-search-config/setCaseSearchDisplay";
 import type { MutatingToolResult, ReadToolResult } from "./tools/common";
@@ -408,6 +413,7 @@ export function createSolutionsArchitect(
 		getModule: wrapRead(getModuleTool),
 		getForm: wrapRead(getFormTool),
 		getField: wrapRead(getFieldTool),
+		getCaseOperations: wrapRead(getCaseOperationsTool),
 
 		// ── Field mutations ────────────────────────────────────────
 
@@ -434,6 +440,17 @@ export function createSolutionsArchitect(
 		removeForm: wrapMutating(removeFormTool),
 		createModule: wrapMutating(createModuleTool),
 		removeModule: wrapMutating(removeModuleTool),
+
+		// ── Case-operation mutations ───────────────────────────────────
+		// Author identities cross to UUIDs inside the shared tool module
+		// before the checker runs. Add is batch-shaped so a later operation
+		// can target an earlier create atomically; update decomposes into
+		// identity-keyed operation/write/link edits for concurrent composition.
+
+		addCaseOperations: wrapMutating(addCaseOperationsTool),
+		updateCaseOperation: wrapMutating(updateCaseOperationTool),
+		removeCaseOperation: wrapMutating(removeCaseOperationTool),
+		moveCaseOperation: wrapMutating(moveCaseOperationTool),
 
 		// ── Case list config mutations ─────────────────────────────────
 		// Two arrays (`columns`, `searchInputs`) decompose into atomic

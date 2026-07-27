@@ -72,6 +72,11 @@ export type PendingDrop = {
 	readonly itemKey: string;
 	readonly fromIndex: number;
 	readonly toIndex: number;
+	/** True when `canDropAtIndex` refused this destination. The drop is
+	 *  suppressed, and the host renders the position as unavailable
+	 *  rather than letting the author release onto a move that will not
+	 *  happen. Always false for a list with no gate. */
+	readonly refused: boolean;
 } | null;
 
 /** The one item move that produced a reordered array. Consumers backed by
@@ -147,6 +152,20 @@ interface UseReorderableListArgs<T> {
 	 *  rebuild from `next`; fractional-order surfaces use `move` to write only
 	 *  the moved entity rather than resequencing its neighbors. */
 	readonly onReorder: (next: readonly T[], move: ReorderMove<T>) => void;
+	/**
+	 * Optional per-destination gate. A list whose order carries meaning
+	 * beyond presentation — case operations, where a later change can
+	 * consume an earlier one's result — has positions that are not legal
+	 * destinations. Returning false suppresses the drop and marks
+	 * `pendingDrop.refused`, so the author sees the position is
+	 * unavailable while dragging instead of releasing onto a silent
+	 * no-op.
+	 *
+	 * Must be cheap: it runs on every pointer move that resolves a new
+	 * destination. Callers that need real analysis should precompute it
+	 * (a `Map` lookup, not a fresh plan per call).
+	 */
+	readonly canDropAtIndex?: (toIndex: number) => boolean;
 }
 
 interface UseReorderableListResult {
@@ -167,6 +186,7 @@ export function useReorderableList<T>(
 	args: UseReorderableListArgs<T>,
 ): UseReorderableListResult {
 	const { containerKey, containerKind, items, itemKeys, onReorder } = args;
+	const canDropAtIndex = args.canDropAtIndex;
 	const [pendingDrop, setPendingDrop] = useState<PendingDrop>(null);
 
 	// Ref-stash: write the latest items + onReorder during render so
@@ -177,9 +197,11 @@ export function useReorderableList<T>(
 	const itemsRef = useRef(items);
 	const itemKeysRef = useRef(itemKeys);
 	const onReorderRef = useRef(onReorder);
+	const canDropAtIndexRef = useRef(canDropAtIndex);
 	itemsRef.current = items;
 	itemKeysRef.current = itemKeys;
 	onReorderRef.current = onReorder;
+	canDropAtIndexRef.current = canDropAtIndex;
 
 	useEffect(() => {
 		const cleanup = monitorForElements({
@@ -220,6 +242,11 @@ export function useReorderableList<T>(
 					placeAfterTarget: edge === "bottom" || edge === "right",
 				});
 				if (resolved === undefined) return;
+				// The gate already marked this destination refused during the
+				// drag; releasing over it must not commit the move.
+				if (canDropAtIndexRef.current?.(resolved.move.toIndex) === false) {
+					return;
+				}
 				onReorderRef.current(resolved.items, resolved.move);
 			},
 			onDrag: ({ source, location }) => {
@@ -262,6 +289,7 @@ export function useReorderableList<T>(
 					itemKey: sourceData.itemKey,
 					fromIndex: resolved.move.fromIndex,
 					toIndex: resolved.move.toIndex,
+					refused: canDropAtIndexRef.current?.(resolved.move.toIndex) === false,
 				});
 			},
 		});

@@ -5,7 +5,9 @@
 
 export * from "./blueprint";
 export * from "./builtinIcons";
+export * from "./caseOperationIdentifiers";
 export * from "./caseOperationIdentity";
+export * from "./caseOperationScope";
 export * from "./caseOperationText";
 export * from "./casePropertyTypes";
 export * from "./caseRetype";

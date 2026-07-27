@@ -11,10 +11,14 @@ chat DOCKS, which only happens once the new app has a module (`docHasData`).
 - **Hermetic, free, no real GCP.** The suite runs against a **local Postgres**
   (`scripts/smoke.sh`), not a real project — the same testcontainer-free local stack the
   integration tests use under `npm test`. No CI GCP project, no prod credentials, no LLM spend.
-- **Runs the production build, not `next dev`.** The managed server is `next build &&
-  next start` — the gate exercises the deployed artifact, and `next dev`'s server→browser
-  log forwarding can't trip the error guard. Costs ~2 min of build; don't "speed it up"
-  by reverting to dev.
+- **Runs the production build, not `next dev`.** The managed server runs `next build`,
+  then Nova's `scripts/start-standalone.mjs`: it validates the canonical generated
+  `server.js`, places public + static assets, overlays sharp's dlopen-only `@img`
+  runtime exactly like Docker, and launches that server with signal forwarding.
+  The gate therefore exercises the deployed artifact, and `next dev`'s
+  server→browser log forwarding can't trip the error guard. `next start` is not a
+  supported runner for `output: "standalone"`. Costs ~2 min of build; don't
+  "speed it up" by reverting to dev.
 - **Production Host hardening stays active in smoke.** The managed server receives
   `NOVA_ALLOW_LOCALHOST_HOSTS=1`; `proxy.ts` honors it only for loopback Host spellings,
   so the production artifact remains reachable at `localhost:3000` without making an
@@ -50,6 +54,13 @@ chat DOCKS, which only happens once the new app has a module (`docHasData`).
   moved app in the builder, which authorizes through the app's CURRENT Project, so
   an app stranded anywhere this user doesn't belong would 404 there. A test that
   must change the active Project has to switch back to `Personal` before finishing.
+- **The case-changes journey gets one complete universe per attempt.** It
+  reorders and extends the blueprint, then submits real changes into saved case
+  rows, so a retry cannot reuse the prior attempt's app. `seed.ts` materializes
+  one app + lookup + case row per possible attempt
+  (`CASE_CHANGES_FIXTURE_COUNT`), and the spec selects
+  `seed.caseChanges[testInfo.retry]`. Keep that attempt-indexed contract when
+  extending the journey.
 - **Chat sends are stubbed at the network layer.** The chat-scroll tests answer
   `POST /api/chat` from `page.route` with a canned UI-message SSE stream
   (`stubChatSends` in `authed.spec.ts`, chunk shapes pinned by

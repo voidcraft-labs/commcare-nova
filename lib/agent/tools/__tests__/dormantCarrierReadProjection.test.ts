@@ -23,6 +23,7 @@ import {
 	term,
 } from "@/lib/domain/predicate";
 import { makeStubToolContext } from "../../__tests__/fixtures";
+import { getCaseOperationsTool } from "../case-operations/getCaseOperations";
 import { getFieldTool } from "../getField";
 import { getFormTool } from "../getForm";
 import { getModuleTool } from "../getModule";
@@ -246,14 +247,29 @@ describe("shared read tools — dormant lookup carriers", () => {
 			ctx,
 			doc,
 		);
+		const operationRead = await getCaseOperationsTool.execute(
+			{
+				moduleId: doc.modules[MODULE].id,
+				formId: doc.forms[FORM].id,
+			},
+			ctx,
+			doc,
+		);
 
 		if ("error" in fieldRead.data) throw new Error(fieldRead.data.error);
 		if ("error" in formRead.data) throw new Error(formRead.data.error);
 		if ("error" in moduleRead.data) throw new Error(moduleRead.data.error);
+		if ("error" in operationRead.data) {
+			throw new Error(operationRead.data.error);
+		}
 
 		expectNoDormantCarrier(fieldRead.data);
 		expectNoDormantCarrier(formRead.data);
 		expectNoDormantCarrier(moduleRead.data);
+		expectNoDormantCarrier(operationRead.data);
+		expect(
+			operationRead.data.operations.map((operation) => operation.id),
+		).toEqual(["safe_update", "partial_update", "dormant_target"]);
 
 		const field = fieldRead.data.field;
 		if (!("children" in field) || field.children === undefined) {
@@ -274,31 +290,29 @@ describe("shared read tools — dormant lookup carriers", () => {
 		expect(formRead.data.form.caseOperations?.map((op) => op.id)).toEqual([
 			"safe_update",
 			"partial_update",
+			"dormant_target",
 		]);
 		const partial = formRead.data.form.caseOperations?.[1];
-		expect(partial?.condition).toBeUndefined();
-		expect(partial?.name).toBeUndefined();
-		expect(partial?.owner).toEqual(term(literal("preserved-owner")));
-		expect(partial?.writes).toEqual([
-			{
-				property: "preserved_write",
-				value: term(literal("preserved-value")),
+		expect(partial).toEqual({
+			id: "partial_update",
+			action: "update",
+			caseType: "person",
+			unavailable: {
+				kind: "lookup-table-logic",
+				reason:
+					"This case change uses lookup-table logic that Nova preserves but cannot safely edit from this surface.",
 			},
-		]);
-		expect(partial?.links).toEqual([
-			{
-				identifier: "safe_null",
-				targetType: "household",
-				target: null,
-				relationship: "child",
+		});
+		expect(formRead.data.form.caseOperations?.[2]).toEqual({
+			id: "dormant_target",
+			action: "update",
+			caseType: "person",
+			unavailable: {
+				kind: "lookup-table-logic",
+				reason:
+					"This case change uses lookup-table logic that Nova preserves but cannot safely edit from this surface.",
 			},
-			{
-				identifier: "safe_expression",
-				targetType: "household",
-				target: { kind: "expression", expr: term(literal("case-id")) },
-				relationship: "extension",
-			},
-		]);
+		});
 
 		expect(moduleRead.data.case_list_config).toMatchObject({
 			icon: "asset-case-list",
@@ -449,8 +463,16 @@ describe("shared read tools — dormant lookup carriers", () => {
 
 		expect(formRead.data.form.caseOperations).toHaveLength(1);
 		const operation = formRead.data.form.caseOperations?.[0];
-		expect(operation?.id).toBe("dormant_links");
-		expect(operation && "links" in operation).toBe(false);
+		expect(operation).toEqual({
+			id: "dormant_links",
+			action: "update",
+			caseType: "person",
+			unavailable: {
+				kind: "lookup-table-logic",
+				reason:
+					"This case change uses lookup-table logic that Nova preserves but cannot safely edit from this surface.",
+			},
+		});
 		expect(moduleRead.data.case_list_config).toEqual({
 			columns: [],
 			searchInputs: [],

@@ -12,6 +12,8 @@ interface SelectMultiFieldProps {
 	/** Multi-select field — options are required on this kind. */
 	field: MultiSelectField;
 	state: FieldState;
+	/** Visible question label rendered by InteractiveFormRenderer. */
+	labelledBy?: string;
 	onChange: (value: string) => void;
 	onBlur: () => void;
 }
@@ -26,6 +28,7 @@ interface SelectMultiFieldProps {
 export function SelectMultiField({
 	field,
 	state,
+	labelledBy,
 	onChange,
 	onBlur,
 }: SelectMultiFieldProps) {
@@ -60,7 +63,11 @@ export function SelectMultiField({
 		return <LookupChoicesLoading />;
 	}
 	return (
-		<fieldset className="m-0 border-none p-0" onBlur={onBlur}>
+		<fieldset
+			aria-labelledby={labelledBy}
+			className="m-0 border-none p-0"
+			onBlur={onBlur}
+		>
 			<div className="space-y-1.5">
 				{lookupBacked && options.length === 0 && <LookupChoicesEmpty />}
 				{options.map((opt) => {

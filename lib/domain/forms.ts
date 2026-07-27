@@ -193,7 +193,21 @@ export type CaseTarget = z.infer<typeof caseTargetSchema>;
 export const CASE_OPERATION_ACTIONS = ["create", "update", "close"] as const;
 export type CaseOperationAction = (typeof CASE_OPERATION_ACTIONS)[number];
 
-const caseOperationWriteSchema = z
+/**
+ * Platform-owned case types that an authored case operation may never create,
+ * update, close, link to, or retype into.
+ *
+ * This is domain vocabulary, not an emitter detail: every authoring surface
+ * filters the same closed set before construction, while the validator remains
+ * the import/replay backstop.
+ */
+export const RESERVED_CASE_OPERATION_TYPES: ReadonlySet<string> = new Set([
+	"commcare-user",
+	"commcare-case-claim",
+	"user-owner-mapping-case",
+]);
+
+export const caseOperationWriteSchema = z
 	.object({
 		property: z.string(),
 		value: valueExpressionSchema,
@@ -206,7 +220,7 @@ export type CaseOperationWrite = {
 	condition?: Predicate;
 };
 
-const caseOperationLinkSchema = z
+export const caseOperationLinkSchema = z
 	.object({
 		identifier: z.string(),
 		targetType: z.string(),
@@ -349,7 +363,8 @@ export const formSchema = z
 		connect: connectConfigSchema.nullable().optional(),
 		postSubmit: z.enum(POST_SUBMIT_DESTINATIONS).optional(),
 		formLinks: z.array(formLinkSchema).optional(),
-		/** Ordered, typed case effects. Dormant until the S07 runtime activation. */
+		/** Ordered, typed case effects: what one submission does to the case
+		 *  universe, in the order the runtime applies it. */
 		caseOperations: z.array(caseOperationSchema).optional(),
 		/**
 		 * Image shown on the form's menu tile — the per-form

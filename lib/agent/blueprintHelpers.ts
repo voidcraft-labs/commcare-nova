@@ -81,7 +81,10 @@ import type {
 } from "@/lib/domain";
 import { asUuid, fieldKinds, isContainer, slugifyId } from "@/lib/domain";
 import { effectiveFilterForEmission } from "@/lib/domain/predicate";
-import { carrierBlindFormProjection } from "./dormantCarrierReadProjection";
+import {
+	type CarrierBlindCaseOperationProjection,
+	carrierBlindFormProjection,
+} from "./dormantCarrierReadProjection";
 import {
 	removeByUuid,
 	reorderByUuid,
@@ -371,7 +374,10 @@ export function resolveFormContext(
  * Lives alongside the positional lookup helpers because it's a
  * `BlueprintDoc`-read derived shape — the same category of surface.
  */
-export type FormSnapshot = Form & { fields: FieldWithChildren[] };
+export type FormSnapshot = Omit<Form, "caseOperations"> & {
+	fields: FieldWithChildren[];
+	caseOperations?: CarrierBlindCaseOperationProjection[];
+};
 
 /**
  * Build a carrier-blind `FormSnapshot` for the given form uuid. Returns

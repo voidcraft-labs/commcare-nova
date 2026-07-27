@@ -3,10 +3,18 @@ import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { LookupTypeIndex } from "@/lib/commcare/validator/lookupTypeContext";
 import { validateCaseOperations } from "@/lib/commcare/validator/rules/caseOperations";
 import { asUuid } from "@/lib/doc/types";
-import type { BlueprintDoc, CaseOperation, Form, Uuid } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
+	CASE_OPERATION_PROPERTY_FORMAT_MESSAGE,
+	type CaseOperation,
+	type Form,
+	type Uuid,
+} from "@/lib/domain";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import {
 	concat,
+	count,
 	dateAdd,
 	double,
 	eq,
@@ -14,7 +22,10 @@ import {
 	formField,
 	idOf,
 	ifExpr,
+	isBlank,
+	isNull,
 	literal,
+	match,
 	prop,
 	subcasePath,
 	tableLookup,
@@ -312,6 +323,75 @@ function mapFieldToCaseType(
 	field.case_property_on = caseType;
 }
 
+describe("case-operation on-device portability", () => {
+	// An operation's condition lowers to wrapper relevance and its values to
+	// binds — both JavaRosa, the same evaluator a case-list filter's nodeset
+	// predicate runs on. Three of the four match modes are case-search
+	// functions absent from Core's dispatch
+	// (`ASTNodeFunctionCall::buildFuncExpr`), so they parse, install, and then
+	// throw when the screen opens. The case list and display conditions each
+	// caught this with their own AST rule; operations were missed because the
+	// on-device emitter lowered them silently, which is where the guard now
+	// lives — so every carrier that dry-runs the emitter inherits it.
+	it.each(["fuzzy", "phonetic", "fuzzy-date"] as const)(
+		"rejects the %s match mode a device cannot evaluate",
+		(mode) => {
+			expectCode("CASE_OPERATION_EXPRESSION_TYPE", [
+				update({ condition: match(prop("patient", "nickname"), "ali", mode) }),
+			]);
+		},
+	);
+
+	it("rejects an unevaluable match mode nested in a count's where", () => {
+		// `count` reaches the same emitter through the on-device expression
+		// emitter's own relation arm, so the finding must survive nesting
+		// inside a value slot rather than only at a condition's root.
+		expectCode("CASE_OPERATION_EXPRESSION_TYPE", [
+			update({
+				writes: [
+					{
+						property: "nickname",
+						value: concat(
+							term(literal("n=")),
+							count(
+								subcasePath("parent", "visit"),
+								match(prop("visit", "source_id"), "ali", "fuzzy"),
+							),
+						),
+					},
+				],
+			}),
+		]);
+	});
+
+	// Unlike the match modes, the emitter cannot catch this one: it emits
+	// `<term> = ''` for `is-null` and `is-blank` alike, so the dry-run
+	// succeeds and the wire quietly answers a different question.
+	it("rejects a strict missing-value check the wire cannot express", () => {
+		expectCode("CASE_OPERATION_EXPRESSION_TYPE", [
+			update({ condition: isNull(term(prop("patient", "nickname"))) }),
+		]);
+	});
+
+	it("keeps the blank check, which is the portable answer", () => {
+		expect(
+			codesFor([
+				update({ condition: isBlank(term(prop("patient", "nickname"))) }),
+			]),
+		).toEqual([]);
+	});
+
+	it("keeps starts-with, the one mode CommCare Core registers", () => {
+		expect(
+			codesFor([
+				update({
+					condition: match(prop("patient", "nickname"), "ali", "starts-with"),
+				}),
+			]),
+		).toEqual([]);
+	});
+});
+
 describe("case-operation activation and identity", () => {
 	it("rejects duplicate UUIDs, duplicate ids, and unsafe wire ids", () => {
 		expectCode("CASE_OPERATION_DUPLICATE_UUID", [
@@ -323,6 +403,47 @@ describe("case-operation activation and identity", () => {
 			update({ id: "create_visit" }),
 		]);
 		expectCode("CASE_OPERATION_INVALID_ID", [update({ id: "__nova_bad" })]);
+	});
+
+	it("accepts underscores but rejects hyphens and dots in emitted node names", () => {
+		expect(codesFor([update({ id: "_update_patient2" })])).not.toContain(
+			"CASE_OPERATION_INVALID_ID",
+		);
+		for (const id of ["update-patient", "update.patient"]) {
+			const error = errorsFor([update({ id })]).find(
+				(candidate) => candidate.code === "CASE_OPERATION_INVALID_ID",
+			);
+			expect(error?.message).toContain(
+				CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
+			);
+		}
+		for (const property of ["not-wire-safe", "not.wire.safe"]) {
+			const error = errorsFor([
+				update({
+					writes: [{ property, value: term(literal("not emitted as a node")) }],
+				}),
+			]).find(
+				(candidate) => candidate.code === "CASE_OPERATION_UNKNOWN_PROPERTY",
+			);
+			expect(error?.message).toContain(CASE_OPERATION_PROPERTY_FORMAT_MESSAGE);
+		}
+		for (const identifier of ["parent-link", "parent.link"]) {
+			const error = errorsFor([
+				update({
+					links: [
+						{
+							identifier,
+							targetType: "visit",
+							target: null,
+							relationship: "child",
+						},
+					],
+				}),
+			]).find((candidate) => candidate.code === "CASE_OPERATION_LINK_INVALID");
+			expect(error?.message).toContain(
+				CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
+			);
+		}
 	});
 
 	it("keeps repeated operations on an explicit in-form repeat", () => {
@@ -1027,6 +1148,16 @@ describe("case-operation target and dependency safety", () => {
 		expectCode("CASE_OPERATION_REPEAT_CORRELATION", [
 			create({
 				target: { kind: "new", idFrom: REPEAT_B_TEXT },
+				forEach: { repeat: REPEAT_A },
+			}),
+		]);
+		// A ROOT answer is readable from a repeated operation but cannot KEY
+		// one: it has a single value per submission, so every iteration would
+		// derive the same identity and collapse onto one case. The identity
+		// rule is exact correlation, never the (looser) read rule.
+		expectCode("CASE_OPERATION_REPEAT_CORRELATION", [
+			create({
+				target: { kind: "new", idFrom: TEXT },
 				forEach: { repeat: REPEAT_A },
 			}),
 		]);

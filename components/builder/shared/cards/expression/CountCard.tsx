@@ -139,11 +139,29 @@ export function CountCard({ value, onChange, path }: CountCardProps) {
 						caseTypes: ctx.caseTypes,
 						currentCaseType: destinationCaseType,
 						knownInputs: ctx.knownInputs,
+						// Only the CASE TYPE and the scope change inside a
+						// relation walk. The other axes still describe what this
+						// surface offers, and a narrowed context resolves a form
+						// answer to nothing — which widens the dependent slot's
+						// accept-set, skips the reseed, and commits the
+						// type-incorrect pair the gate then refuses.
+						userProperties: ctx.userProperties,
+						formFields: ctx.formFields,
+						operationScope: ctx.operationScope,
+						evaluationTarget: ctx.evaluationTarget,
 						// A count's `where` runs against each counted related
 						// case row — per-case even under a global outer slot.
 						caseDataScope: "per-case",
 					}),
-		[destinationCaseType, ctx.caseTypes, ctx.knownInputs],
+		[
+			destinationCaseType,
+			ctx.caseTypes,
+			ctx.knownInputs,
+			ctx.userProperties,
+			ctx.formFields,
+			ctx.operationScope,
+			ctx.evaluationTarget,
+		],
 	);
 	const addWhere = () => {
 		if (whereSeed === undefined) return;

@@ -66,7 +66,10 @@ npx playwright show-report e2e/playwright-report
 ```
 
 `scripts/smoke.sh` boots local Postgres (compose) + migrations, seeds, then runs
-Playwright (which builds + starts the production server, `next build && next start`).
+Playwright, which builds and starts Next's generated standalone server through
+`scripts/start-standalone.mjs`. The launcher fails if the production build is
+missing, places `public` and `.next/static` under `.next/standalone`, and overlays
+sharp's `node_modules/@img` runtime exactly like Docker before running `server.js`.
 It uses a throwaway `BETTER_AUTH_SECRET` and dummy OAuth creds — never production
 secrets.
 
@@ -122,8 +125,9 @@ npm run mp:manual    # DRIVE all four members yourself: Ada (owner, top-left),
 
 Each launch pays the production build (~2 min). Relaunching with **unchanged code**
 can skip it: `SMOKE_REUSE_BUILD=1 npm run mp:manual` serves the existing `.next`
-(`next start` fails loudly if there's no production build to reuse). Window tiling
-is Chromium-on-a-real-display niceness — headless or non-Chromium runs just skip it.
+(the standalone launcher fails loudly if there is no production build to reuse).
+Window tiling is Chromium-on-a-real-display niceness — headless or non-Chromium
+runs just skip it.
 
 ## Run against a live deployment (post-deploy prod probe)
 

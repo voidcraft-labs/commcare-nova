@@ -76,6 +76,7 @@ import {
 	columnAddMutation,
 	columnSnapshotMutations,
 } from "@/lib/doc/caseListColumnMutations";
+import { caseOperationChangesForUpdate } from "@/lib/doc/caseOperationMutations";
 import {
 	cleanupCaseSearchAfterFinalInputMutation,
 	disableUnusedCaseSearchMutation,
@@ -727,6 +728,19 @@ function diffCaseOperations(
 	next: Form,
 	formUuid: Uuid,
 ): Mutation[] {
+	// No rank is asserted from a document diff, deliberately.
+	//
+	// A requested rank is an optimistic fence, and `commitGuard.ts` only
+	// admits ONE per authored move: a ranked move re-keys tied siblings
+	// to open its gap, and fencing a position the author never chose
+	// means any unrelated peer insert above the run shifts it and
+	// rejects the batch as a conflict it is not. Two docs cannot say
+	// which operation the author dragged — every re-keyed sibling looks
+	// identical to the mover here — so this path asserts nothing and
+	// lets the move commit unfenced. The builder's own gesture keeps its
+	// fence: `useCaseOperations` dispatches the semantic move directly
+	// with the rank it actually requested.
+	const nextRanks = new Map<Uuid, number>();
 	const before = new Map(
 		(prev.caseOperations ?? []).map((operation) => [operation.uuid, operation]),
 	);
@@ -743,58 +757,31 @@ function diffCaseOperations(
 			caseOperationChange: { operation: "remove", uuid },
 		});
 	}
+	// Births precede edits so every rank-bearing move is evaluated against the
+	// batch's complete final membership by the authoritative conflict guard.
+	for (const [uuid, operation] of after) {
+		if (before.has(uuid)) continue;
+		mutations.push({
+			kind: "updateForm",
+			uuid: formUuid,
+			patch: {},
+			caseOperationChange: {
+				operation: "add",
+				value: cloneEntity(operation),
+			},
+		});
+	}
 	for (const [uuid, operation] of after) {
 		const prior = before.get(uuid);
-		if (prior === undefined) {
-			mutations.push({
-				kind: "updateForm",
-				uuid: formUuid,
-				patch: {},
-				caseOperationChange: {
-					operation: "add",
-					value: cloneEntity(operation),
-				},
-			});
-			continue;
-		}
-		const priorWithoutOrder = { ...prior, order: undefined };
-		const operationWithoutOrder = { ...operation, order: undefined };
-		if (!deepEqual(priorWithoutOrder, operationWithoutOrder)) {
-			mutations.push({
-				kind: "updateForm",
-				uuid: formUuid,
-				patch: {},
-				caseOperationChange: {
-					operation: "update",
-					uuid,
-					value: cloneEntity(operation),
-				},
-			});
-		} else if (prior.order !== operation.order) {
-			mutations.push(
-				operation.order === undefined
-					? {
-							kind: "updateForm",
-							uuid: formUuid,
-							patch: {},
-							caseOperationChange: {
-								operation: "update",
-								uuid,
-								value: cloneEntity(operation),
-							},
-						}
-					: {
-							kind: "updateForm",
-							uuid: formUuid,
-							patch: {},
-							caseOperationChange: {
-								operation: "move",
-								uuid,
-								order: operation.order,
-							},
-						},
-			);
-		}
+		if (prior === undefined) continue;
+		mutations.push(
+			...caseOperationChangesForUpdate(
+				formUuid,
+				prior,
+				cloneEntity(operation),
+				nextRanks.get(uuid),
+			),
+		);
 	}
 	return mutations;
 }

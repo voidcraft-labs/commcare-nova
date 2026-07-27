@@ -20,11 +20,7 @@
 // where a hook can't run, to decide whether the dependent slot's
 // existing value still fits.
 
-import {
-	type CaseProperty,
-	type CaseType,
-	effectiveDataType,
-} from "@/lib/domain";
+import { type CaseProperty, effectiveDataType } from "@/lib/domain";
 import {
 	checkExpression,
 	checkPredicate,
@@ -37,20 +33,23 @@ import {
 	type Predicate,
 	type RelationPath,
 	type ResolvedType,
-	type SearchInputDecl,
 	term,
 	timeLiteral,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
+import {
+	buildEditorTypeContext,
+	type EditorTypeVocabulary,
+} from "../editorTypeContext";
 import { resolveRelationDestination } from "../relationDestination";
 
 /** The editor context shape a card already holds via
- *  `usePredicateEditContext()` — enough to drive a checker pass. */
-interface ResolveContext {
-	readonly caseTypes: readonly CaseType[];
-	readonly currentCaseType: string;
-	readonly knownInputs: readonly SearchInputDecl[];
-}
+ *  `usePredicateEditContext()` — enough to drive a checker pass. It is
+ *  the SHARED vocabulary type, not a narrower local one: resolving a
+ *  reseed against fewer axes than the pickers offer is exactly how a
+ *  form answer resolves to `undefined`, widens the dependent slot's
+ *  accept-set to everything, and lets a type-incorrect pair commit. */
+type ResolveContext = EditorTypeVocabulary;
 
 /**
  * Resolve a value expression's type against the editor scope, the same
@@ -64,16 +63,7 @@ export function resolveExpressionType(
 	ctx: ResolveContext,
 ): ResolvedType | undefined {
 	if (expr === undefined) return undefined;
-	return checkExpression(
-		expr,
-		{
-			caseTypes: [...ctx.caseTypes],
-			knownInputs: [...ctx.knownInputs],
-			currentCaseType: ctx.currentCaseType,
-		},
-		[],
-		[],
-	);
+	return checkExpression(expr, buildEditorTypeContext(ctx), [], []);
 }
 
 // The literal types the editor can construct an EMPTY typed value for,
@@ -212,10 +202,9 @@ export function rescopeWhereForVia(
 		...ctx.caseTypes,
 	]);
 	if (destination === undefined) return where;
-	const result = checkPredicate(where, {
-		caseTypes: [...ctx.caseTypes],
-		knownInputs: [...ctx.knownInputs],
-		currentCaseType: destination,
-	});
+	const result = checkPredicate(
+		where,
+		buildEditorTypeContext({ ...ctx, currentCaseType: destination }),
+	);
 	return result.ok ? where : matchAll();
 }
