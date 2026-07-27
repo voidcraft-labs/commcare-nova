@@ -14,8 +14,11 @@
 import { useMemo } from "react";
 import type { OperationSentenceContext } from "@/components/builder/case-operations/operationSentence";
 import { useBlueprintDocShallow } from "@/lib/doc/hooks/useBlueprintDoc";
-import type { Uuid } from "@/lib/doc/types";
+import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
 import { orderedCaseOperations } from "@/lib/domain";
+
+/** Stable empty stand-in, so the shallow compare holds across notifications. */
+const NO_FIELDS: BlueprintDoc["fields"] = {};
 
 /**
  * Resolve operation / repeat / field uuids to the author's own words for
@@ -26,10 +29,15 @@ import { orderedCaseOperations } from "@/lib/domain";
 export function useOperationSentenceContext(
 	formUuid: Uuid,
 ): OperationSentenceContext {
-	const { form, fields } = useBlueprintDocShallow((state) => ({
-		form: state.forms[formUuid],
-		fields: state.fields,
-	}));
+	/* The label lookup is over a uuid the caller supplies, so it genuinely
+	 * needs the whole record — but only once a form resolves. A caller that
+	 * holds no form (the rail's hook-order-preserving call while nothing is
+	 * selected) would otherwise subscribe every builder screen to every field
+	 * in the app, and re-render the layout on each keystroke in any label. */
+	const { form, fields } = useBlueprintDocShallow((state) => {
+		const form = state.forms[formUuid];
+		return { form, fields: form === undefined ? NO_FIELDS : state.fields };
+	});
 
 	return useMemo(() => {
 		const operationNames = new Map(

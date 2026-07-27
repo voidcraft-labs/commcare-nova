@@ -29,6 +29,7 @@ import { FieldInspectorBody } from "@/components/builder/editor/FieldInspectorBo
 import { PeerBadge } from "@/components/builder/PeerBadge";
 import { useCaseOperation } from "@/lib/doc/hooks/useCaseOperationFacts";
 import type { Uuid } from "@/lib/doc/types";
+import type { CaseOperation } from "@/lib/domain";
 import { fieldRegistry } from "@/lib/domain";
 import {
 	useLocation,
@@ -104,7 +105,7 @@ export function useInspectorPresence(): {
 	const field = useSelectedField();
 	const select = useSelect();
 	const caseList = useCaseListInspector();
-	const operation = useSelectedCaseOperation();
+	const operation = useSelectedCaseOperationTarget();
 	const navigate = useNavigate();
 	const caseListClose = caseList?.onClose;
 	const docked =
@@ -120,6 +121,13 @@ export function useInspectorPresence(): {
 	return { docked, requestClose };
 }
 
+interface SelectedCaseOperationTarget {
+	readonly moduleUuid: Uuid;
+	readonly formUuid: Uuid;
+	readonly operationUuid: Uuid;
+	readonly operation: CaseOperation;
+}
+
 /**
  * The third selection source: one case change, selected in the URL.
  *
@@ -128,18 +136,17 @@ export function useInspectorPresence(): {
  * field it names an entity inside a form record rather than a top-level
  * one, which is why closing means dropping back to the list URL rather
  * than clearing a selection param.
+ *
+ * Split from the titled descriptor because presence is asked by layout code
+ * on every builder screen: naming the change means resolving repeat and
+ * operation uuids to their author-given words, and nothing that only needs
+ * to know whether a change is selected should pay for that.
  */
-function useSelectedCaseOperation(): {
-	readonly moduleUuid: Uuid;
-	readonly formUuid: Uuid;
-	readonly operationUuid: Uuid;
-	readonly title: string;
-} | null {
+function useSelectedCaseOperationTarget(): SelectedCaseOperationTarget | null {
 	const loc = useLocation();
 	const formUuid = loc.kind === "form-operations" ? loc.formUuid : undefined;
 	const operationUuid =
 		loc.kind === "form-operations" ? loc.operationUuid : undefined;
-	const context = useOperationSentenceContext(formUuid ?? EMPTY_FORM_UUID);
 	const operation = useCaseOperation(formUuid, operationUuid);
 	if (
 		loc.kind !== "form-operations" ||
@@ -149,11 +156,21 @@ function useSelectedCaseOperation(): {
 	) {
 		return null;
 	}
+	return { moduleUuid: loc.moduleUuid, formUuid, operationUuid, operation };
+}
+
+/** The selected change plus the sentence that names it in the rail header. */
+function useSelectedCaseOperation():
+	| (SelectedCaseOperationTarget & { readonly title: string })
+	| null {
+	const target = useSelectedCaseOperationTarget();
+	const context = useOperationSentenceContext(
+		target?.formUuid ?? EMPTY_FORM_UUID,
+	);
+	if (target === null) return null;
 	return {
-		moduleUuid: loc.moduleUuid,
-		formUuid,
-		operationUuid,
-		title: operationSentence(operation, context).lead,
+		...target,
+		title: operationSentence(target.operation, context).lead,
 	};
 }
 

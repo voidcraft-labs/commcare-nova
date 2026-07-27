@@ -585,6 +585,11 @@ export function planCaseOperationUpdate(
 	};
 }
 
+const EDIT_VERDICT_CACHE = new WeakMap<
+	BlueprintDoc,
+	Map<string, CaseOperationEditVerdict>
+>();
+
 /**
  * The shared builder-choice oracle for one complete operation candidate.
  *
@@ -592,8 +597,40 @@ export function planCaseOperationUpdate(
  * commit still runs through the same gate. Keeping the planner + commit verdict
  * here means React never re-derives target-type, execution-order, reserved-name,
  * or facet rules.
+ *
+ * Memoized per (doc reference, form uuid, candidate operation) — the
+ * `validationContextFor` discipline. A menu asks this once per OFFERED choice,
+ * so one open case-type picker runs a whole-document validation per case type,
+ * and its surrounding component re-renders on every keystroke in the
+ * create-new box. The candidate is the cache key because it is what varies
+ * across those calls: a caller builds it by spreading the current operation, so
+ * the same offered choice serializes identically every render, while any
+ * committed batch mints a fresh doc reference and drops the whole map.
+ *
+ * Deliberately NOT applied to `caseOperationAddVerdict`: its callers mint a
+ * fresh operation uuid per probe (`seedCaseOperation`), so every call would be
+ * a miss and the map would only grow. That path stabilizes its callback at the
+ * React layer instead.
  */
 export function caseOperationEditVerdict(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	operation: CaseOperation,
+): CaseOperationEditVerdict {
+	const cacheKey = `${formUuid} ${JSON.stringify(operation)}`;
+	let perCandidate = EDIT_VERDICT_CACHE.get(doc);
+	if (perCandidate === undefined) {
+		perCandidate = new Map();
+		EDIT_VERDICT_CACHE.set(doc, perCandidate);
+	}
+	const cached = perCandidate.get(cacheKey);
+	if (cached !== undefined) return cached;
+	const verdict = computeCaseOperationEditVerdict(doc, formUuid, operation);
+	perCandidate.set(cacheKey, verdict);
+	return verdict;
+}
+
+function computeCaseOperationEditVerdict(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 	operation: CaseOperation,
@@ -865,19 +902,53 @@ export function moveCaseOperationMutation(
 	};
 }
 
-function introducedTargetTypeViolationUuids(
+/**
+ * The BEFORE half of the introduced-violation diff, memoized per
+ * (doc reference, form reference) — the `validationContextFor`
+ * discipline this package already follows.
+ *
+ * `caseOperationMoveVerdicts` asks the move planner about every
+ * destination at once, and each call re-derived this identical answer
+ * from the same unmodified form: an N-operation form ran the whole-form
+ * target-type analysis N times for one unchanging result, on every
+ * render that opens a reorder handle. Both keys are immer products, so
+ * any real change to either mints a new reference and misses the cache.
+ */
+const BEFORE_TARGET_TYPE_KEYS = new WeakMap<
+	BlueprintDoc,
+	WeakMap<Form, ReadonlySet<string>>
+>();
+
+function beforeTargetTypeViolationKeys(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 	before: Form,
-	after: Form,
-): Uuid[] {
-	const beforeKeys = new Set(
+): ReadonlySet<string> {
+	let perForm = BEFORE_TARGET_TYPE_KEYS.get(doc);
+	if (perForm === undefined) {
+		perForm = new WeakMap();
+		BEFORE_TARGET_TYPE_KEYS.set(doc, perForm);
+	}
+	const cached = perForm.get(before);
+	if (cached !== undefined) return cached;
+	const keys = new Set(
 		caseOperationTargetTypeOrderViolations(
 			doc,
 			formUuid,
 			orderedCaseOperations(before),
 		).map(targetTypeViolationKey),
 	);
+	perForm.set(before, keys);
+	return keys;
+}
+
+function introducedTargetTypeViolationUuids(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	before: Form,
+	after: Form,
+): Uuid[] {
+	const beforeKeys = beforeTargetTypeViolationKeys(doc, formUuid, before);
 	return [
 		...new Set(
 			caseOperationTargetTypeOrderViolations(

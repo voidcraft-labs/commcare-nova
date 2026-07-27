@@ -478,6 +478,22 @@ function AddChangeControl({
 			close: choice("close-session"),
 		};
 	}, [addVerdict, operations, sessionCaseType, sessionReason]);
+	/* Stable so `CaseTypePickerContent` can memoize the whole verdict map: it
+	 * asks once per offered case type, each ask is a whole-document validation,
+	 * and the picker re-renders on every keystroke in its create-new box. The
+	 * verdict itself cannot be value-cached here the way an edit verdict is —
+	 * `seedCaseOperation` mints a fresh uuid per call, so each candidate is a
+	 * new identity — which is exactly why the stability has to live here. */
+	const createTypeVerdict = useCallback(
+		(caseType: string) =>
+			addVerdict(
+				seedCaseOperation(
+					{ kind: "create", caseType },
+					takenOperationIds(operations),
+				),
+			),
+		[addVerdict, operations],
+	);
 	const updateSessionReason = sessionChoices.update.available
 		? undefined
 		: sessionChoices.update.reason;
@@ -515,14 +531,7 @@ function AddChangeControl({
 						</p>
 						<CaseTypePickerContent
 							exclude={RESERVED_CASE_OPERATION_TYPES}
-							choiceVerdict={(caseType) =>
-								addVerdict(
-									seedCaseOperation(
-										{ kind: "create", caseType },
-										takenOperationIds(operations),
-									),
-								)
-							}
+							choiceVerdict={createTypeVerdict}
 							onChange={(caseType) =>
 								onAdd(
 									seedCaseOperation(
