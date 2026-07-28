@@ -960,23 +960,6 @@ function createMutationSchema({
 				// parse this established discriminator and safely degrade.
 				module: mutationModuleSchema,
 				index: z.number().int().nonnegative().optional(),
-				columnSurfaceOrders: z
-					.array(
-						z
-							.object({
-								uuid: uuidSchema,
-								listOrder: z.string().optional(),
-								detailOrder: z.string().optional(),
-							})
-							.strict()
-							.refine(
-								(value) =>
-									value.listOrder !== undefined ||
-									value.detailOrder !== undefined,
-								{ message: "A column surface-order entry cannot be empty." },
-							),
-					)
-					.optional(),
 				// Per-column tile placement and the case list's tile layout are both
 				// current-only slots on a strict nested schema, so they travel here and
 				// the fallback module stays tile-free. An old reducer applies a
@@ -1009,24 +992,6 @@ function createMutationSchema({
 					new Set(columns.map((column) => column.uuid)),
 					ctx,
 				);
-				const columnUuids = new Set(columns.map((column) => column.uuid));
-				const seenSurfaceOrders = new Set<string>();
-				for (const [index, entry] of (
-					mutation.columnSurfaceOrders ?? []
-				).entries()) {
-					if (
-						!columnUuids.has(entry.uuid) ||
-						seenSurfaceOrders.has(entry.uuid)
-					) {
-						ctx.addIssue({
-							code: "custom",
-							path: ["columnSurfaceOrders", index, "uuid"],
-							message:
-								"Each column surface-order entry must name one unique column in the fallback module.",
-						});
-					}
-					seenSurfaceOrders.add(entry.uuid);
-				}
 
 				const desiredSearch = mutation.caseSearchConfigValue;
 				const fallbackSearch = mutation.module.caseSearchConfig;
@@ -1119,23 +1084,6 @@ function createMutationSchema({
 				// A full case-list replacement carries old-shape nested columns in the
 				// patch and reconstructs current-only surface keys from this top-level
 				// extension. Origin/main strips the extension and accepts the fallback.
-				columnSurfaceOrders: z
-					.array(
-						z
-							.object({
-								uuid: uuidSchema,
-								listOrder: z.string().optional(),
-								detailOrder: z.string().optional(),
-							})
-							.strict()
-							.refine(
-								(value) =>
-									value.listOrder !== undefined ||
-									value.detailOrder !== undefined,
-								{ message: "A column surface-order entry cannot be empty." },
-							),
-					)
-					.optional(),
 				// Search presence and final-input cleanup are likewise semantic edits on
 				// the origin/main-known `updateModule` discriminator. The patch retains
 				// the locally projected `caseSearchConfig` as an old-reducer fallback;
@@ -1191,27 +1139,6 @@ function createMutationSchema({
 					new Set(fallbackColumns.map((column) => column.uuid)),
 					ctx,
 				);
-				const fallbackColumnUuids = new Set(
-					fallbackColumns.map((column) => column.uuid),
-				);
-				const seenSurfaceOrders = new Set<string>();
-				for (const [index, entry] of (
-					mutation.columnSurfaceOrders ?? []
-				).entries()) {
-					if (
-						!fallbackColumnUuids.has(entry.uuid) ||
-						seenSurfaceOrders.has(entry.uuid)
-					) {
-						ctx.addIssue({
-							code: "custom",
-							path: ["columnSurfaceOrders", index, "uuid"],
-							message:
-								"Each column surface-order entry must name one unique column in the fallback case-list config.",
-						});
-					}
-					seenSurfaceOrders.add(entry.uuid);
-				}
-
 				if (mutation.ensureCaseListConfig) {
 					const fallback = mutation.patch.caseListConfig;
 					const hasOnlyRequiredEmptySlots =
