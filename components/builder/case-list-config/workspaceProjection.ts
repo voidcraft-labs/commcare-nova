@@ -1,21 +1,21 @@
 // components/builder/case-list-config/workspaceProjection.ts
 //
 // Pure column projections for the case-list authoring workspace. Column
-// definitions are shared, while Results and Details each own membership and a
-// presentation order. Legacy documents fall back to the original `order` key.
+// definitions are shared; Results and Details each own a sequence over them.
+//
+// Both sequences name EVERY column, visible or not, which is what makes hiding
+// a genuinely reversible presentation choice: the place is held by the config's
+// ordering array, so a restored field returns exactly where the author had it.
+// Hiding used to snapshot the column's resolved sort key ONTO the column so a
+// later restore could find its way back — there is nothing to snapshot now, and
+// no way for a hidden column to lose its place.
 
-import { resolvedColumnSurfaceOrder } from "@/lib/doc/order/columnSurface";
-import {
-	byDetailColumnOrder,
-	byListColumnOrder,
-	bySortKey,
-} from "@/lib/doc/order/compare";
-import type { Column } from "@/lib/domain";
+import type { CaseListConfig, Column } from "@/lib/domain";
 
 export type CaseDisplaySurface = "list" | "detail";
 
 export interface CaseWorkspaceColumnProjection {
-	/** Membership-wide legacy sequence used to keep add-menu recovery calm. */
+	/** Every definition, in the Results sequence — the add-menu's recovery list. */
 	readonly ordered: readonly Column[];
 	readonly listVisible: readonly Column[];
 	/** Definitions available to add to Results. */
@@ -27,34 +27,53 @@ export interface CaseWorkspaceColumnProjection {
 	readonly fullyHidden: readonly Column[];
 }
 
+/** Resolve a sequence of uuids against the column set, skipping unknown ids. */
+function inSequence(
+	columns: readonly Column[],
+	sequence: readonly string[],
+): Column[] {
+	const byUuid = new Map(
+		columns.map((column) => [column.uuid as string, column]),
+	);
+	const out: Column[] = [];
+	for (const uuid of sequence) {
+		const column = byUuid.get(uuid);
+		if (column !== undefined) out.push(column);
+	}
+	return out;
+}
+
 /**
- * Derive the membership-wide recovery choices used only by Add information,
- * then sort the two visible compositions independently. Visibility slots
- * follow the domain convention: absent is visible.
+ * Split each surface's sequence into what it shows and what it offers.
+ * Visibility slots follow the domain convention: absent is visible.
  */
 export function projectCaseWorkspaceColumns(
-	columns: readonly Column[],
+	config: CaseListConfig,
 ): CaseWorkspaceColumnProjection {
-	const ordered = [...columns].sort(bySortKey);
+	const listSequence = inSequence(config.columns, config.listColumnOrder);
+	const detailSequence = inSequence(config.columns, config.detailColumnOrder);
+
 	const listVisible: Column[] = [];
 	const listHidden: Column[] = [];
+	for (const column of listSequence) {
+		(column.visibleInList !== false ? listVisible : listHidden).push(column);
+	}
+
 	const detailVisible: Column[] = [];
 	const detailHidden: Column[] = [];
-	const fullyHidden: Column[] = [];
-
-	for (const column of ordered) {
-		const visibleInList = column.visibleInList !== false;
-		const visibleInDetail = column.visibleInDetail !== false;
-
-		(visibleInList ? listVisible : listHidden).push(column);
-		(visibleInDetail ? detailVisible : detailHidden).push(column);
-		if (!visibleInList && !visibleInDetail) fullyHidden.push(column);
+	for (const column of detailSequence) {
+		(column.visibleInDetail !== false ? detailVisible : detailHidden).push(
+			column,
+		);
 	}
-	listVisible.sort(byListColumnOrder);
-	detailVisible.sort(byDetailColumnOrder);
+
+	const fullyHidden = listSequence.filter(
+		(column) =>
+			column.visibleInList === false && column.visibleInDetail === false,
+	);
 
 	return {
-		ordered,
+		ordered: listSequence,
 		listVisible,
 		listHidden,
 		detailVisible,
@@ -64,59 +83,45 @@ export function projectCaseWorkspaceColumns(
 }
 
 /**
- * Hide one definition from a user-facing screen. The definition always stays
- * in the document so the author can restore it through Add information. Nova
- * treats visibility as a reversible presentation choice, never as deletion.
+ * Hide one definition from a user-facing screen. The definition always stays in
+ * the document — and keeps its place in that screen's sequence — so the author
+ * can restore it through Add information. Nova treats visibility as a
+ * reversible presentation choice, never as deletion.
  */
 export function removeColumnFromDisplay(
 	columns: readonly Column[],
 	uuid: Column["uuid"],
 	surface: CaseDisplaySurface,
 ): Column[] {
-	return columns.map((column) => {
-		if (column.uuid !== uuid) return column;
-		return surface === "list"
+	return columns.map((column) =>
+		column.uuid === uuid
 			? ({
 					...column,
-					/* Snapshot the resolved fallback before hiding. A later restore
-					 * can then return this field to the exact place the author arranged
-					 * instead of quietly appending it to the end. */
-					listOrder: resolvedColumnSurfaceOrder(column, surface),
-					visibleInList: false,
+					...(surface === "list"
+						? { visibleInList: false }
+						: { visibleInDetail: false }),
 				} as Column)
-			: ({
-					...column,
-					detailOrder: resolvedColumnSurfaceOrder(column, surface),
-					visibleInDetail: false,
-				} as Column);
-	});
+			: column,
+	);
 }
 
 /**
- * Restore a definition to one screen. A field hidden through Nova carries a
- * surface-order snapshot and returns to that place; a definition that has
- * never appeared on the screen has no surface key and joins at the end.
+ * Restore a definition to one screen. It returns to the place it already holds
+ * in that screen's sequence, because hiding never took it out of there.
  */
 export function showColumnOnDisplay(
 	columns: readonly Column[],
 	uuid: Column["uuid"],
 	surface: CaseDisplaySurface,
-	appendOrder: string,
 ): Column[] {
 	return columns.map((column) => {
 		if (column.uuid !== uuid) return column;
 		if (surface === "list") {
 			const { visibleInList: _visibility, ...rest } = column;
-			return {
-				...rest,
-				listOrder: column.listOrder ?? appendOrder,
-			} as Column;
+			return rest as Column;
 		}
 		const { visibleInDetail: _visibility, ...rest } = column;
-		return {
-			...rest,
-			detailOrder: column.detailOrder ?? appendOrder,
-		} as Column;
+		return rest as Column;
 	});
 }
 
