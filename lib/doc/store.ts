@@ -253,16 +253,27 @@ function overlayDoc(draft: Record<string, unknown>, next: object): void {
 
 /**
  * Whether a store-state key is DOC DATA — as opposed to an action method or
- * the store's own bookkeeping (`remoteFrameApplyInProgress`). The ONE
- * definition every doc-shaped state walker uses: `overlayDoc` above (which
- * must not blank the raised bookkeeping flag mid-bracket) and the
- * reconciler's `normalizeConfirmed` (which must not let bookkeeping leak into
- * `confirmedDoc`) — a future bookkeeping field handled in one but not the
- * other would reopen exactly one of those two failure modes.
+ * the store's own bookkeeping. The ONE definition every doc-shaped state walker
+ * uses: `overlayDoc` above (which must not blank a bookkeeping field, since an
+ * incoming document never carries one) and the reconciler's
+ * `normalizeConfirmed` (which must not let bookkeeping leak into
+ * `confirmedDoc`) — a field handled in one but not the other reopens exactly
+ * one of those two failure modes.
+ *
+ * EVERY bookkeeping field must be listed. Missing one means an inbound frame's
+ * overlay blanks it: `canUndo` left out here reads as `undefined` the moment a
+ * peer's edit or the author's own echo arrives, and the toolbar's Undo control
+ * goes dead while the history behind it is intact.
  */
+const BOOKKEEPING_KEYS = new Set([
+	"remoteFrameApplyInProgress",
+	"canUndo",
+	"canRedo",
+]);
+
 export function isDocDataKey(key: string, value: unknown): boolean {
 	if (typeof value === "function") return false;
-	return key !== "remoteFrameApplyInProgress";
+	return !BOOKKEEPING_KEYS.has(key);
 }
 
 /**

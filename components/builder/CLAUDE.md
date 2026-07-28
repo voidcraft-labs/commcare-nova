@@ -140,7 +140,7 @@ Children contain nested interactive elements; HTML forbids interactive content i
 
 ## Undo / redo
 
-The action runs temporal restore → `flushSync` → focus hint → scroll → flash (it does NOT touch the URL — the selection stays put). `flushSync` is required (DOM nodes created by the undo must exist before focus queries); do not replace with rAF. The scroll brings the canvas field ROW into view; the flash lands on the edited property's editor in the rail. Temporal store subscriptions use `useStoreWithEqualityFn` with `Object.is` — plain `useStore` re-renders on every temporal change. Focus restoration consumes a focus-hint string written by a delegated onFocus handler; never query `document.activeElement` (blur has already moved focus). Undo tracking is paused during hydration and agent writes — the empty→populated transition must not enter history, and an agent write is one undoable unit. Do not remove the pause/resume calls.
+The action runs gate → apply the recorded step → `flushSync` → focus hint → scroll → flash (it does NOT touch the URL — the selection stays put). `flushSync` is required (DOM nodes created by the undo must exist before focus queries); do not replace with rAF. The scroll brings the canvas field ROW into view; the flash lands on the edited property's editor in the rail. Focus restoration consumes a focus-hint string written by a delegated onFocus handler; never query `document.activeElement` (blur has already moved focus). Undo records no step during hydration or an agent write — the empty→populated transition must not enter history, and a whole run is one undoable unit. Do not remove the bracket calls.
 
 ## Field editor
 

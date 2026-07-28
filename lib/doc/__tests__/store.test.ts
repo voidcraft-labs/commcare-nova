@@ -132,6 +132,31 @@ describe("createBlueprintDocStore", () => {
 		}
 	});
 
+	it("an inbound frame's overlay leaves the history flags alone", () => {
+		// `overlayDoc` blanks every DOC key the incoming document does not carry,
+		// and an incoming document never carries bookkeeping. A bookkeeping field
+		// missing from `isDocDataKey` therefore reads as `undefined` the moment a
+		// peer's edit or the author's own echo arrives — the toolbar's Undo goes
+		// dead while the history behind it is intact.
+		const store = createBlueprintDocStore();
+		store.getState().load(makeEmptyDoc({ appName: "Base" }));
+		store.getState().startTracking();
+		store.getState().applyMany([{ kind: "setAppName", name: "Mine" }]);
+		expect(store.getState().canUndo).toBe(true);
+
+		// The reconciler folding a frame: a suppressed whole-document commit.
+		store.getState().beginRemoteApply();
+		store.getState().commitDoc({
+			...store.getState(),
+			appName: "Peer",
+		} as BlueprintDoc);
+		store.getState().endRemoteApply();
+
+		expect(store.getState().appName).toBe("Peer");
+		expect(store.getState().canUndo).toBe(true);
+		expect(store.getState().canRedo).toBe(false);
+	});
+
 	it("load() is not a step the author can take back", () => {
 		const store = createBlueprintDocStore();
 		store.getState().load(makeEmptyDoc());
