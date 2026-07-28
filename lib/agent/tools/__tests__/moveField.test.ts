@@ -67,7 +67,6 @@ function makeDoc(): BlueprintDoc {
 			},
 		],
 	});
-	backfillOrderKeys(doc);
 	return doc;
 }
 
@@ -248,7 +247,6 @@ describe("moveField — parentId placement", () => {
 				},
 			],
 		});
-		backfillOrderKeys(twinDoc);
 		const { ctx } = makeStubToolContext();
 		const nested = Object.values(twinDoc.fields).find(
 			(fld) => fld.id === "dup" && "label" in fld && fld.label === "Nested dup",
@@ -308,7 +306,6 @@ describe("moveField — refusals", () => {
 				},
 			],
 		});
-		backfillOrderKeys(twin);
 		const { ctx } = makeStubToolContext();
 		const result = await moveFieldTool.execute(
 			{

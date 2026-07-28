@@ -16,6 +16,7 @@ import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { HqApplication, HqFormLink } from "@/lib/commcare";
 import { expandDoc } from "@/lib/commcare/expander";
 import { applyMutations } from "@/lib/doc/mutations";
+import { backfillOptionUuids } from "@/lib/doc/optionIdentity";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, FormLink, Uuid } from "@/lib/domain";
 import { asUuid, plainColumn } from "@/lib/domain";
@@ -45,7 +46,6 @@ function firstFormLinkTarget(app: HqApplication): HqFormLink["target"] {
 
 function hydrate(doc: BlueprintDoc): BlueprintDoc {
 	const copy = structuredClone(doc);
-	backfillOrderKeys(copy);
 	backfillOptionUuids(copy);
 	return copy;
 }

@@ -463,6 +463,20 @@ function pickModule(doc: BlueprintDoc, pick: number): Uuid | undefined {
 		: undefined;
 }
 
+/**
+ * The sibling a move should land after, drawn from the destination sequence.
+ *
+ * A move names an anchor rather than an index, so the fuzz op's numeric pick
+ * has to resolve against the destination: `0` means first (`null`), and any
+ * other value picks an existing member. Anchors the fuzzer can't satisfy —
+ * an empty destination — also come out `null`, which places the item first
+ * in a sequence where first and last are the same position anyway.
+ */
+function pickAnchor(sequence: readonly Uuid[], pick: number): Uuid | null {
+	if (sequence.length === 0 || pick % (sequence.length + 1) === 0) return null;
+	return sequence[(pick % (sequence.length + 1)) - 1];
+}
+
 /** Field parents: every form plus every group/repeat container. */
 function pickParent(doc: BlueprintDoc, pick: number): Uuid | undefined {
 	const parents = [
@@ -530,7 +544,8 @@ function lower(doc: BlueprintDoc, op: FuzzOp): Mutation[] {
 			const uuid = pickField(doc, op.fieldPick);
 			const toParentUuid = pickParent(doc, op.parentPick);
 			if (!uuid || !toParentUuid) return [];
-			return [{ kind: "moveField", uuid, toParentUuid, toIndex: op.index }];
+			const after = pickAnchor(doc.fieldOrder[toParentUuid] ?? [], op.index);
+			return [{ kind: "moveField", uuid, toParentUuid, after }];
 		}
 		case "duplicateField": {
 			const uuid = pickField(doc, op.fieldPick);
@@ -593,7 +608,8 @@ function lower(doc: BlueprintDoc, op: FuzzOp): Mutation[] {
 			const uuid = pickForm(doc, op.formPick);
 			const toModuleUuid = pickModule(doc, op.modulePick);
 			if (!uuid || !toModuleUuid) return [];
-			return [{ kind: "moveForm", uuid, toModuleUuid, toIndex: op.index }];
+			const after = pickAnchor(doc.formOrder[toModuleUuid] ?? [], op.index);
+			return [{ kind: "moveForm", uuid, toModuleUuid, after }];
 		}
 		case "renameForm": {
 			const uuid = pickForm(doc, op.formPick);
@@ -640,7 +656,15 @@ function lower(doc: BlueprintDoc, op: FuzzOp): Mutation[] {
 		}
 		case "moveModule": {
 			const uuid = pickModule(doc, op.modulePick);
-			return uuid ? [{ kind: "moveModule", uuid, toIndex: op.index }] : [];
+			return uuid
+				? [
+						{
+							kind: "moveModule",
+							uuid,
+							after: pickAnchor(doc.moduleOrder, op.index),
+						},
+					]
+				: [];
 		}
 		case "renameModule": {
 			const uuid = pickModule(doc, op.modulePick);

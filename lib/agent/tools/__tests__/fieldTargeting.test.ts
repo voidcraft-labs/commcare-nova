@@ -65,7 +65,6 @@ function makeDoc(): BlueprintDoc {
 			},
 		],
 	});
-	backfillOrderKeys(doc);
 	return doc;
 }
 
@@ -164,7 +163,6 @@ describe("editField targeting", () => {
 				},
 			],
 		});
-		backfillOrderKeys(doc);
 		const { ctx } = makeStubToolContext();
 		const original = fieldByLabel(doc, "Original");
 		const result = await editFieldTool.execute(
@@ -278,7 +276,6 @@ describe("addFields parent targeting", () => {
 				},
 			],
 		});
-		backfillOrderKeys(doc);
 		return doc;
 	}
 
@@ -336,7 +333,6 @@ describe("addFields parent targeting", () => {
 				},
 			],
 		});
-		backfillOrderKeys(doc);
 		const { ctx, recordMutations } = makeStubToolContext();
 		const result = await addFieldsTool.execute(
 			{
@@ -400,7 +396,6 @@ describe("addFields parent targeting", () => {
 				},
 			],
 		});
-		backfillOrderKeys(doc);
 		const { ctx, recordMutations } = makeStubToolContext();
 		const result = await addFieldsTool.execute(
 			{
@@ -443,7 +438,6 @@ describe("addFields parent targeting", () => {
 				},
 			],
 		});
-		backfillOrderKeys(doc);
 		const { ctx } = makeStubToolContext();
 		const result = await addFieldsTool.execute(
 			{

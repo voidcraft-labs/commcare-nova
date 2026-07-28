@@ -49,7 +49,6 @@ describe("useBlueprintMutations.moveColumnOnSurface", () => {
 				},
 			],
 		});
-		backfillOrderKeys(initial);
 		const moduleUuid = initial.moduleOrder[0];
 		const initialColumns =
 			initial.modules[moduleUuid].caseListConfig?.columns ?? [];
@@ -137,7 +136,6 @@ describe("useBlueprintMutations.moveSearchInputToIndex", () => {
 				},
 			],
 		});
-		backfillOrderKeys(initial);
 		const moduleUuid = initial.moduleOrder[0];
 		const wrapper = ({ children }: { children: ReactNode }) => (
 			<BlueprintDocProvider appId={initial.appId} initialDoc={initial}>

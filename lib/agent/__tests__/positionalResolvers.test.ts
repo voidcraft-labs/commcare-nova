@@ -23,7 +23,6 @@ import {
 
 function hydrate(doc: BlueprintDoc): BlueprintDoc {
 	const copy = structuredClone(doc);
-	backfillOrderKeys(copy);
 	return copy;
 }
 

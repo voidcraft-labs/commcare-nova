@@ -491,7 +491,7 @@ describe("moveField", () => {
 				kind: "moveField",
 				uuid: Q("a"),
 				toParentUuid: F("1"),
-				toIndex: 2,
+				after: Q("c"),
 			});
 		});
 		expect(next.fieldOrder[F("1")]).toEqual([Q("b"), Q("c"), Q("a")]);
@@ -514,7 +514,7 @@ describe("moveField", () => {
 				kind: "moveField",
 				uuid: Q("x"),
 				toParentUuid: Q("grp"),
-				toIndex: 0,
+				after: null,
 			});
 		});
 		expect(next.fieldOrder[F("1")]).toEqual([Q("grp")]);
@@ -539,7 +539,7 @@ describe("moveField", () => {
 				kind: "moveField",
 				uuid: Q("name_a"),
 				toParentUuid: Q("grp"),
-				toIndex: 1,
+				after: Q("name_b"),
 			});
 		});
 		// After move, Q("name_a") must have a unique id — "name_2".
@@ -570,7 +570,7 @@ describe("moveField", () => {
 				kind: "moveField",
 				uuid: Q("src"),
 				toParentUuid: Q("grp"),
-				toIndex: 0,
+				after: null,
 			});
 		});
 		// Path changed from `/data/source` to `/data/grp/source`. Nothing
@@ -590,7 +590,7 @@ describe("moveField", () => {
 				kind: "moveField",
 				uuid: Q("a"),
 				toParentUuid: Q("missing"),
-				toIndex: 0,
+				after: null,
 			});
 		});
 		expect(next.fieldOrder[F("1")]).toEqual([Q("a")]);
@@ -775,7 +775,7 @@ describe("moveField result metadata", () => {
 				kind: "moveField",
 				uuid: Q("name_root"),
 				toParentUuid: Q("grp"),
-				toIndex: 1,
+				after: Q("name_grp"),
 			}) as MoveFieldResult;
 		});
 
@@ -816,7 +816,7 @@ describe("moveField result metadata", () => {
 				kind: "moveField",
 				uuid: Q("src_a"),
 				toParentUuid: Q("grp"),
-				toIndex: 1,
+				after: Q("src_b"),
 			}) as MoveFieldResult;
 		});
 
@@ -846,7 +846,7 @@ describe("moveField result metadata", () => {
 				kind: "moveField",
 				uuid: Q("x"),
 				toParentUuid: Q("grp"),
-				toIndex: 0,
+				after: null,
 			}) as MoveFieldResult;
 		});
 
@@ -886,7 +886,7 @@ describe("moveField result metadata", () => {
 				kind: "moveField",
 				uuid: Q("src"),
 				toParentUuid: Q("grp"),
-				toIndex: 0,
+				after: null,
 			});
 		});
 
@@ -917,7 +917,7 @@ describe("moveField result metadata", () => {
 				kind: "moveField",
 				uuid: Q("src"),
 				toParentUuid: F("1"),
-				toIndex: 1,
+				after: Q("grp"),
 			});
 		});
 

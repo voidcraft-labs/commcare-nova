@@ -481,7 +481,7 @@ describe("moveField re-anchors form-level wiring", () => {
 				kind: "moveField",
 				uuid: Q("s"),
 				toParentUuid: Q("grp"),
-				toIndex: 0,
+				after: null,
 			});
 		});
 		const movedCondition = next.forms[F("1")]?.formLinks?.[0]?.condition;

@@ -92,7 +92,7 @@ describe("moveField + path rewrite", () => {
 				kind: "moveField",
 				uuid: SRC,
 				toParentUuid: GRP2,
-				toIndex: 0,
+				after: null,
 			},
 		]);
 
@@ -180,7 +180,7 @@ describe("moveField re-anchors refs to a moved CONTAINER's descendants", () => {
 		store
 			.getState()
 			.applyMany([
-				{ kind: "moveField", uuid: GRP, toParentUuid: OUTER, toIndex: 0 },
+				{ kind: "moveField", uuid: GRP, toParentUuid: OUTER, after: null },
 			]);
 		expect(calcText(store.getState(), WATCH)).toBe(
 			"#form/outer/grp/child = '1' and /data/outer/grp/child != ''",
@@ -193,7 +193,7 @@ describe("moveField re-anchors refs to a moved CONTAINER's descendants", () => {
 		store
 			.getState()
 			.applyMany([
-				{ kind: "moveField", uuid: GRP, toParentUuid: OUTER, toIndex: 0 },
+				{ kind: "moveField", uuid: GRP, toParentUuid: OUTER, after: null },
 			]);
 		const labeled = store.getState().fields[LABELED] as
 			| { label?: string }
@@ -276,7 +276,7 @@ describe("moveField across forms is warn-and-skipped (undesigned operation)", ()
 		const [result] = store
 			.getState()
 			.applyMany([
-				{ kind: "moveField", uuid: NOTES_A, toParentUuid: FORM_B, toIndex: 0 },
+				{ kind: "moveField", uuid: NOTES_A, toParentUuid: FORM_B, after: null },
 			]);
 
 		// Skip convention: warn logged, empty result, nothing mutated.
@@ -334,7 +334,7 @@ describe("moveField across forms is warn-and-skipped (undesigned operation)", ()
 		const [result] = store
 			.getState()
 			.applyMany([
-				{ kind: "moveField", uuid: GRP, toParentUuid: SEC, toIndex: 0 },
+				{ kind: "moveField", uuid: GRP, toParentUuid: SEC, after: null },
 			]);
 
 		expect(warn).toHaveBeenCalledTimes(1);
@@ -368,7 +368,7 @@ describe("moveField across forms is warn-and-skipped (undesigned operation)", ()
 		const [result] = store
 			.getState()
 			.applyMany([
-				{ kind: "moveField", uuid: SRC, toParentUuid: ORPHAN, toIndex: 0 },
+				{ kind: "moveField", uuid: SRC, toParentUuid: ORPHAN, after: null },
 			]);
 
 		expect(warn).toHaveBeenCalledTimes(1);
@@ -447,7 +447,7 @@ describe("moveField into the moved field's own subtree is warn-and-skipped", () 
 		const [result] = store
 			.getState()
 			.applyMany([
-				{ kind: "moveField", uuid: PAR, toParentUuid: PAR, toIndex: 0 },
+				{ kind: "moveField", uuid: PAR, toParentUuid: PAR, after: null },
 			]);
 
 		// Skip convention: warn logged, empty result, nothing mutated.
@@ -467,7 +467,7 @@ describe("moveField into the moved field's own subtree is warn-and-skipped", () 
 		const [result] = store
 			.getState()
 			.applyMany([
-				{ kind: "moveField", uuid: PAR, toParentUuid: INNER, toIndex: 0 },
+				{ kind: "moveField", uuid: PAR, toParentUuid: INNER, after: null },
 			]);
 
 		expect(warn).toHaveBeenCalledTimes(1);

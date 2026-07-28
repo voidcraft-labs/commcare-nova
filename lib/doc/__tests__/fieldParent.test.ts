@@ -437,7 +437,7 @@ describe("after moveField", () => {
 		const store = storeFrom(doc);
 		const formUuid = Object.keys(doc.forms)[0] as Uuid;
 		const result = applyBatch(store, [
-			{ kind: "moveField", uuid: FLD_A, toParentUuid: formUuid, toIndex: 2 },
+			{ kind: "moveField", uuid: FLD_A, toParentUuid: formUuid, after: FLD_C },
 		]);
 		assertFieldParentInvariants(result);
 		// After reorder, parent for the moved field should still be the form.
@@ -465,7 +465,7 @@ describe("after moveField", () => {
 		const store = storeFrom(doc);
 		const formUuid = Object.keys(doc.forms)[0] as Uuid;
 		const result = applyBatch(store, [
-			{ kind: "moveField", uuid: FLD_B, toParentUuid: formUuid, toIndex: 0 },
+			{ kind: "moveField", uuid: FLD_B, toParentUuid: formUuid, after: null },
 		]);
 		assertFieldParentInvariants(result);
 		expect(result.fieldParent[FLD_B]).toBe(formUuid);
@@ -496,7 +496,7 @@ describe("after moveField", () => {
 		});
 		const store = storeFrom(doc);
 		const result = applyBatch(store, [
-			{ kind: "moveField", uuid: FLD_A, toParentUuid: GRP, toIndex: 0 },
+			{ kind: "moveField", uuid: FLD_A, toParentUuid: GRP, after: null },
 		]);
 		assertFieldParentInvariants(result);
 		// Parent must now be the group, not the form.
@@ -530,7 +530,7 @@ describe("after moveField", () => {
 		const store = storeFrom(doc);
 		const formUuid = Object.keys(doc.forms)[0] as Uuid;
 		const result = applyBatch(store, [
-			{ kind: "moveField", uuid: FLD_A, toParentUuid: formUuid, toIndex: 1 },
+			{ kind: "moveField", uuid: FLD_A, toParentUuid: formUuid, after: GRP },
 		]);
 		assertFieldParentInvariants(result);
 		expect(result.fieldParent[FLD_A]).toBe(formUuid);
@@ -568,7 +568,7 @@ describe("after moveField", () => {
 		});
 		const store = storeFrom(doc);
 		const result = applyBatch(store, [
-			{ kind: "moveField", uuid: FLD_A, toParentUuid: GRP2, toIndex: 0 },
+			{ kind: "moveField", uuid: FLD_A, toParentUuid: GRP2, after: null },
 		]);
 		assertFieldParentInvariants(result);
 		expect(result.fieldParent[FLD_A]).toBe(GRP2);
@@ -857,7 +857,7 @@ describe("after applyMany batches", () => {
 					label: "New Q",
 				} as BlueprintDoc["fields"][Uuid],
 			},
-			{ kind: "moveField", uuid: FLD_B, toParentUuid: GRP, toIndex: 0 },
+			{ kind: "moveField", uuid: FLD_B, toParentUuid: GRP, after: null },
 			{ kind: "removeField", uuid: FLD_B },
 		]);
 		assertFieldParentInvariants(result);

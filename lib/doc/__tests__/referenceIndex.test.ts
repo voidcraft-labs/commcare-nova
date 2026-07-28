@@ -373,7 +373,7 @@ describe("index-driven rewrites — slash-path descendants and mid-batch currenc
 				kind: "moveField",
 				uuid: grp,
 				toParentUuid: outerUuid as never,
-				toIndex: 0,
+				after: null,
 			},
 		]);
 		expect(printedRelevant(moved, slashWatcher)).toBe(

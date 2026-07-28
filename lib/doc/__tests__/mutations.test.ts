@@ -126,7 +126,7 @@ describe("mutationSchema round-trip", () => {
 		});
 
 		it("moveModule", () => {
-			expectRoundTrip({ kind: "moveModule", uuid: moduleUuid, toIndex: 1 });
+			expectRoundTrip({ kind: "moveModule", uuid: moduleUuid, after: null });
 		});
 
 		it("renameModule", () => {
@@ -260,7 +260,7 @@ describe("mutationSchema round-trip", () => {
 				kind: "moveForm",
 				uuid: formUuid,
 				toModuleUuid: otherModuleUuid,
-				toIndex: 0,
+				after: null,
 			});
 		});
 
@@ -334,7 +334,7 @@ describe("mutationSchema round-trip", () => {
 				kind: "moveField",
 				uuid: fieldUuid,
 				toParentUuid: otherFieldUuid,
-				toIndex: 2,
+				after: null,
 			});
 		});
 

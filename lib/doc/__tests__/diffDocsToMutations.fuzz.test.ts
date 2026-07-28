@@ -51,6 +51,7 @@ import {
 } from "@/lib/doc/fieldWalk";
 import { applyMutations } from "@/lib/doc/mutations";
 import { findContainingForm } from "@/lib/doc/mutations/helpers";
+import { backfillOptionUuids } from "@/lib/doc/optionIdentity";
 import { type Mutation, mutationSchema } from "@/lib/doc/types";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { eq, literal, prop } from "@/lib/domain/predicate";
@@ -883,15 +884,10 @@ function normalizeOrder<T extends ReturnType<typeof toPersistableDoc>>(
 
 /** Reverse the DISPLAY order of `formUuid`'s direct children by swapping their
  *  `order` keys — a same-parent reorder leaves the membership array untouched. */
+/** Reverse a form's visual order. The membership array IS that order, so
+ *  reversing it is the whole gesture. */
 function reverseDisplayOrder(doc: BlueprintDoc, formUuid: Uuid): void {
-	const sorted = orderedFieldUuids(doc, formUuid);
-	const keys = sorted.map((u) => doc.fields[u]?.order);
-	const reversed = [...keys].reverse();
-	sorted.forEach((u, i) => {
-		const field = doc.fields[u];
-		const key = reversed[i];
-		if (field && key !== undefined) field.order = key;
-	});
+	doc.fieldOrder[formUuid] = [...orderedFieldUuids(doc, formUuid)].reverse();
 }
 
 // ── The property ──────────────────────────────────────────────────────
@@ -910,7 +906,6 @@ describe("diffDocsToMutations — diff(prev, next) replayed on prev ≡ next", (
 					// hydration boundary does this in production); the fuzz's adds +
 					// order-key moves then keep prev/next consistently keyed.
 					const seed = produce(SEEDS[seedPick](), (draft) => {
-						backfillOrderKeys(draft);
 						backfillOptionUuids(draft);
 					});
 					const prev = applyOps(seed, batchA);
@@ -954,20 +949,16 @@ describe("diffDocsToMutations — explicit cases", () => {
 	});
 
 	it("pure field reorder within a form", () => {
-		const prev = produce(singleModuleDoc(), (d) => {
-			backfillOrderKeys(d);
-		});
+		const prev = singleModuleDoc();
 		const formUuid = prev.moduleOrder
 			.flatMap((m) => prev.formOrder[m] ?? [])
 			.at(0);
-		// A same-parent reorder is an ORDER-KEY change, not an array shuffle — the
-		// membership array stays put; reverse DISPLAY order by reversing keys.
 		const next = produce(prev, (draft) => {
 			if (!formUuid) return;
 			reverseDisplayOrder(draft as unknown as BlueprintDoc, formUuid);
 		});
 		const diff = diffDocsToMutations(prev, next);
-		expect(diff.some((m) => m.kind === "moveField" && "order" in m)).toBe(true);
+		expect(diff.some((m) => m.kind === "moveField")).toBe(true);
 		assertRoundTrip(prev, next);
 	});
 
@@ -1016,9 +1007,7 @@ describe("diffDocsToMutations — explicit cases", () => {
 			],
 		});
 		expect(prev.caseTypes).not.toBeNull();
-		const backfilled = produce(prev, (d) => {
-			backfillOrderKeys(d);
-		});
+		const backfilled = prev;
 		const formUuid = backfilled.moduleOrder
 			.flatMap((m) => backfilled.formOrder[m] ?? [])
 			.at(0);

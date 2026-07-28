@@ -126,6 +126,44 @@ export interface FormSpec {
 	fields?: FieldSpec[];
 }
 
+/**
+ * A case-list config as a FIXTURE writes one: the two ordering arrays are
+ * optional, and a config that omits them means "both screens show the columns
+ * in the order I wrote them".
+ *
+ * The domain type requires both arrays, because in a real doc a sequence that
+ * is merely absent would mean "derive it somehow" — the ambiguity array
+ * position exists to remove. A fixture is not a real doc: it writes the
+ * columns in visual order because that's how a person reads a test. So the
+ * spec accepts the shorthand and `buildDoc` resolves it to the real shape,
+ * which keeps the derivation in ONE place instead of in every fixture.
+ */
+export type CaseListConfigSpec = Omit<
+	NonNullable<Module["caseListConfig"]>,
+	"listColumnOrder" | "detailColumnOrder"
+> &
+	Partial<
+		Pick<
+			NonNullable<Module["caseListConfig"]>,
+			"listColumnOrder" | "detailColumnOrder"
+		>
+	>;
+
+/**
+ * Resolve a fixture's case-list config to the domain shape, filling either
+ * ordering array it left out with the written column order.
+ */
+export function resolveCaseListConfig(
+	spec: CaseListConfigSpec,
+): NonNullable<Module["caseListConfig"]> {
+	const written = spec.columns.map((column) => column.uuid);
+	return {
+		...spec,
+		listColumnOrder: spec.listColumnOrder ?? written,
+		detailColumnOrder: spec.detailColumnOrder ?? [...written],
+	};
+}
+
 /** A spec for a single module. Forms are nested; case-list columns are optional. */
 export interface ModuleSpec {
 	uuid?: string;
@@ -135,7 +173,7 @@ export interface ModuleSpec {
 	caseListOnly?: boolean;
 	purpose?: string;
 	displayCondition?: Module["displayCondition"];
-	caseListConfig?: Module["caseListConfig"];
+	caseListConfig?: CaseListConfigSpec;
 	caseSearchConfig?: Module["caseSearchConfig"];
 	forms?: FormSpec[];
 }
@@ -217,7 +255,7 @@ export function buildDoc(spec: DocSpec = {}): BlueprintDoc {
 				displayCondition: modSpec.displayCondition,
 			}),
 			...(modSpec.caseListConfig !== undefined && {
-				caseListConfig: modSpec.caseListConfig,
+				caseListConfig: resolveCaseListConfig(modSpec.caseListConfig),
 			}),
 			...(modSpec.caseSearchConfig !== undefined && {
 				caseSearchConfig: modSpec.caseSearchConfig,

@@ -74,7 +74,6 @@ function makeCaseBoundDoc(): BlueprintDoc {
 			},
 		],
 	});
-	backfillOrderKeys(doc);
 	return doc;
 }
 
@@ -235,7 +234,6 @@ describe("editField — conversion consent", () => {
 				},
 			],
 		});
-		backfillOrderKeys(doc);
 		const { ctx, conversionImpact } = makeStubToolContext();
 		const result = await editFieldTool.execute(
 			{

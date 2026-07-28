@@ -45,7 +45,6 @@ function makeDoc(field: Parameters<typeof f>[0]): BlueprintDoc {
 			},
 		],
 	});
-	backfillOrderKeys(doc);
 	return doc;
 }
 
@@ -322,7 +321,6 @@ describe("editField — demotions", () => {
 				},
 			],
 		});
-		backfillOrderKeys(doc);
 		const { ctx } = makeStubToolContext();
 		const result = await editFieldTool.execute(
 			{
@@ -408,7 +406,6 @@ describe("editField — demotions", () => {
 				},
 			],
 		});
-		backfillOrderKeys(doc);
 		const { ctx } = makeStubToolContext();
 		const result = await editFieldTool.execute(
 			{
@@ -502,7 +499,6 @@ describe("editField — demotions", () => {
 				},
 			],
 		});
-		backfillOrderKeys(doc);
 		const { ctx, recordMutationStages } = makeStubToolContext();
 		const result = await editFieldTool.execute(
 			{
@@ -577,7 +573,6 @@ describe("editField — demotions", () => {
 				},
 			],
 		});
-		backfillOrderKeys(doc);
 		const registerStatus = Object.values(doc.fields).find(
 			(fld) => fld.id === "status" && "label" in fld && fld.label === "Status",
 		);
@@ -671,7 +666,6 @@ describe("editField — demotions", () => {
 				},
 			],
 		});
-		backfillOrderKeys(doc);
 		const { ctx, recordMutationStages } = makeStubToolContext();
 		const result = await editFieldTool.execute(
 			{
@@ -743,7 +737,6 @@ describe("editField — demotions", () => {
 				},
 			],
 		});
-		backfillOrderKeys(doc);
 		const { ctx } = makeStubToolContext();
 		const result = await editFieldTool.execute(
 			{

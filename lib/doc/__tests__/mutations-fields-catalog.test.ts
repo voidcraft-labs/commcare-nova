@@ -341,7 +341,7 @@ describe("moveField catalog sync", () => {
 			kind: "moveField",
 			uuid: Q("b"),
 			toParentUuid: F("1"),
-			toIndex: 2,
+			after: Q("grp"),
 		});
 		expect(next.fields[Q("b")]?.id).toBe("age_2");
 		expect(catalogProps(next, "patient")).toEqual([
@@ -364,7 +364,7 @@ describe("moveField catalog sync", () => {
 			kind: "moveField",
 			uuid: Q("a"),
 			toParentUuid: Q("grp"),
-			toIndex: 0,
+			after: null,
 		});
 		expect(next.caseTypes).toBeNull();
 	});

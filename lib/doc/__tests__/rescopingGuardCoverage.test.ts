@@ -1,4 +1,5 @@
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { backfillOptionUuids } from "@/lib/doc/optionIdentity";
 /**
  * Guard coverage per mutation kind — the second half of the proof that
  * licenses deleting the validate-fix loop (beside the construction fuzz):
@@ -305,7 +306,7 @@ const GUARD_COVERAGE = {
 			const doc = richDoc();
 			return {
 				doc,
-				batch: [{ kind: "moveModule", uuid: doc.moduleOrder[1], toIndex: 0 }],
+				batch: [{ kind: "moveModule", uuid: doc.moduleOrder[1], after: null }],
 			};
 		},
 	},
@@ -405,7 +406,7 @@ const GUARD_COVERAGE = {
 						kind: "moveForm",
 						uuid: asUuid("frm-reg"),
 						toModuleUuid: doc.moduleOrder[1],
-						toIndex: 0,
+						after: null,
 					},
 				],
 			};
@@ -509,7 +510,7 @@ const GUARD_COVERAGE = {
 						kind: "moveField",
 						uuid: byId(doc, "status").uuid,
 						toParentUuid: byId(doc, "visits").uuid,
-						toIndex: 0,
+						after: null,
 					},
 				],
 			};

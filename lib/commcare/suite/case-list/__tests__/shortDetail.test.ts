@@ -159,8 +159,6 @@ describe("emitShortDetail — empty cases", () => {
 		const mod = makeModule({
 			caseListConfig: makeConfig({
 				columns: [plainColumn(COL(1), "full_name", "Name")],
-				listColumnOrder: [COL(1)],
-				detailColumnOrder: [COL(1)],
 			}),
 		});
 		const out = emitShortDetail({
@@ -198,8 +196,6 @@ describe("emitShortDetail — single-kind goldens", () => {
 			caseType: "patient",
 			caseListConfig: makeConfig({
 				columns: [plainColumn(COL(1), "full_name", "Name")],
-				listColumnOrder: [COL(1)],
-				detailColumnOrder: [COL(1)],
 			}),
 		});
 		const out = emitShortDetail({
@@ -232,8 +228,6 @@ describe("emitShortDetail — single-kind goldens", () => {
 					plainColumn(COL(1), "full_name", "Name"),
 					phoneColumn(COL(2), "phone", "Phone"),
 				],
-				listColumnOrder: [COL(1)],
-				detailColumnOrder: [COL(1)],
 			}),
 		});
 		const out = emitShortDetail({
@@ -255,8 +249,6 @@ describe("emitShortDetail — single-kind goldens", () => {
 					plainColumn(COL(1), "full_name", "Name"),
 					calculatedColumn(COL(2), "My Calc", term(prop("patient", "phone"))),
 				],
-				listColumnOrder: [COL(1)],
-				detailColumnOrder: [COL(1)],
 			}),
 		});
 		const out = emitShortDetail({
@@ -374,8 +366,6 @@ describe("emitShortDetail — sort emission", () => {
 			caseType: "patient",
 			caseListConfig: makeConfig({
 				columns: [plainColumn(COL(1), "full_name", "Name")],
-				listColumnOrder: [COL(1)],
-				detailColumnOrder: [COL(1)],
 			}),
 		});
 		const out = emitShortDetail({
@@ -615,8 +605,6 @@ describe("emitShortDetail — multi-kind integration", () => {
 			caseType: "patient",
 			caseListConfig: makeConfig({
 				columns: [plainColumn(COL(1), "full_name", "Name")],
-				listColumnOrder: [COL(1)],
-				detailColumnOrder: [COL(1)],
 			}),
 		});
 		const out = emitShortDetail({

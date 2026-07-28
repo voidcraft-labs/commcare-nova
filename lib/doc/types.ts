@@ -1388,10 +1388,9 @@ function createMutationSchema({
 				}
 			}),
 		z.object({ kind: z.literal("removeField"), uuid: uuidSchema }),
-		// `order` is the gesture-computed fractional key (written verbatim);
-		// `toIndex` is kept optional for legacy replay only. A same-parent reorder
-		// sets only `order` (membership untouched); a cross-parent move also updates
-		// membership and re-anchors references.
+		// A same-parent reorder splices the field to a new position in its
+		// parent's membership array; a cross-parent move splices it into the
+		// destination's array and re-anchors references.
 		z.object({
 			kind: z.literal("moveField"),
 			uuid: uuidSchema,

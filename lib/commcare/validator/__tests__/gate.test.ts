@@ -306,7 +306,7 @@ describe("errorIdentity", () => {
 			.map(errorIdentity);
 		expect(before).toHaveLength(1);
 		const reordered = apply(doc, [
-			{ kind: "moveModule", uuid: doc.moduleOrder[1], toIndex: 0 },
+			{ kind: "moveModule", uuid: doc.moduleOrder[1], after: null },
 		]);
 		const after = runValidation(reordered, LOOKUP_CONTEXT_UNAVAILABLE)
 			.filter((e) => e.code === "RESERVED_CASE_TYPE_NAME")

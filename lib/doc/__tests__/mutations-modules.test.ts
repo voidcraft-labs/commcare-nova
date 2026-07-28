@@ -122,12 +122,12 @@ describe("moveModule", () => {
 			formOrder: { [M("A")]: [], [M("B")]: [], [M("C")]: [] },
 		};
 		const next = produce(start, (d) => {
-			applyMutation(d, { kind: "moveModule", uuid: M("A"), toIndex: 2 });
+			applyMutation(d, { kind: "moveModule", uuid: M("A"), after: M("C") });
 		});
 		expect(next.moduleOrder).toEqual([M("B"), M("C"), M("A")]);
 	});
 
-	it("clamps toIndex to valid range", () => {
+	it("appends when the anchor is gone", () => {
 		const start: BlueprintDoc = {
 			...emptyDoc(),
 			modules: {
@@ -138,14 +138,16 @@ describe("moveModule", () => {
 			formOrder: { [M("A")]: [], [M("B")]: [] },
 		};
 		const next = produce(start, (d) => {
-			applyMutation(d, { kind: "moveModule", uuid: M("A"), toIndex: 999 });
+			// A peer removed the anchor before this move replayed. Appending keeps
+			// the reducer total, so historical replay never fails.
+			applyMutation(d, { kind: "moveModule", uuid: M("A"), after: M("gone") });
 		});
 		expect(next.moduleOrder).toEqual([M("B"), M("A")]);
 	});
 
 	it("is a no-op when the module isn't in moduleOrder", () => {
 		const next = produce(emptyDoc(), (d) => {
-			applyMutation(d, { kind: "moveModule", uuid: M("missing"), toIndex: 0 });
+			applyMutation(d, { kind: "moveModule", uuid: M("missing"), after: null });
 		});
 		expect(next.moduleOrder).toEqual([]);
 	});

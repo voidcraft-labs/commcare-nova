@@ -1,4 +1,5 @@
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { backfillOptionUuids } from "@/lib/doc/optionIdentity";
 /**
  * Phase 2 — merge-by-construction state-model tests.
  *
@@ -93,7 +94,6 @@ function applyWithLegacyColumnReducer(
 
 function backfilled(doc: BlueprintDoc): BlueprintDoc {
 	return produce(doc, (d) => {
-		backfillOrderKeys(d);
 		backfillOptionUuids(d);
 	});
 }

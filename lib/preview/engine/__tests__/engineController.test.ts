@@ -1074,7 +1074,7 @@ describe("EngineController", () => {
 					kind: "moveField",
 					uuid: captureUuid,
 					toParentUuid: repeatParentUuid,
-					toIndex: 0,
+					after: null,
 				},
 			]);
 			expect(ctrl.getPath(captureUuid)).toBe("/data/rounds[0]/photo");
@@ -1085,7 +1085,7 @@ describe("EngineController", () => {
 					kind: "moveField",
 					uuid: captureUuid,
 					toParentUuid: groupUuid,
-					toIndex: 0,
+					after: null,
 				},
 			]);
 			expect(ctrl.getPath(captureUuid)).toBe("/data/visit/photo");
@@ -1173,7 +1173,7 @@ describe("EngineController", () => {
 					kind: "moveField",
 					uuid: ancestorUuid,
 					toParentUuid: repeatParentUuid,
-					toIndex: 0,
+					after: null,
 				},
 			]);
 			expect(ctrl.getPath(captureUuid)).toBe("/data/rounds[0]/visit/photo");
@@ -1184,7 +1184,7 @@ describe("EngineController", () => {
 					kind: "moveField",
 					uuid: ancestorUuid,
 					toParentUuid: FORM_UUID,
-					toIndex: 1,
+					after: null,
 				},
 			]);
 			expect(ctrl.getPath(captureUuid)).toBe("/data/visit/photo");

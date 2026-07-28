@@ -71,7 +71,6 @@ function temporalDoc(): BlueprintDoc {
 			},
 		],
 	});
-	backfillOrderKeys(doc);
 	return doc;
 }
 
@@ -178,7 +177,6 @@ describe("planKindConversion — generalized escort", () => {
 				},
 			],
 		});
-		backfillOrderKeys(doc);
 		const result = plan(doc, "symptoms", "text");
 
 		const converts = result.mutations.filter(
@@ -275,7 +273,6 @@ describe("planKindConversion — dataLossRisk verdict", () => {
 				},
 			],
 		});
-		backfillOrderKeys(doc);
 		const result = plan(doc, "when", "time");
 		expect(result.dataLossRisk).toBeUndefined();
 		expect(result.mutations).toHaveLength(1);
