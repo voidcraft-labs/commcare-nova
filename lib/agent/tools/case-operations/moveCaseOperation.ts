@@ -91,7 +91,7 @@ export const moveCaseOperationTool = {
 					mutations: [],
 					newDoc: doc,
 					result: {
-						error: `Case operation "${input.operationId}" not found in ${input.moduleId}/${input.formId}.`,
+						error: `Case operation "${input.operationId}" not found in form "${doc.forms[address.formUuid]?.name ?? input.formUuid}".`,
 					},
 				};
 			}
@@ -131,7 +131,7 @@ export const moveCaseOperationTool = {
 				ctx,
 				doc,
 				mutations,
-				`form:${input.moduleId}/${input.formId}`,
+				`form:${address.formUuid}`,
 			);
 			if (!commit.ok) {
 				return {
@@ -157,7 +157,7 @@ export const moveCaseOperationTool = {
 					message: `Moved case operation "${input.operationId}" to index ${committedIndex}.`,
 					index: committedIndex,
 					summary: {
-						location: doc.forms[address.formUuid]?.name ?? input.formId,
+						location: doc.forms[address.formUuid]?.name ?? input.formUuid,
 						subject: input.operationId,
 					},
 				},

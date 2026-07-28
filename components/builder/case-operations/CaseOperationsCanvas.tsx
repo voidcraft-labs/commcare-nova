@@ -173,6 +173,20 @@ export function CaseOperationsCanvas({
 		},
 	});
 
+	/* A refused destination cannot be signalled by the insertion rule's HUE
+	 * alone — that is state conveyed by color, and on the twenty-change form
+	 * this screen is designed for, the sentence below the list can be a
+	 * screenful away from the pointer. The reason travels WITH the rule. */
+	const dropRefusal =
+		pendingDrop?.refused === true
+			? dragRefusalText(
+					dragVerdictsRef.current,
+					pendingDrop.toIndex,
+					pendingDrop.itemKey as Uuid,
+					view,
+				)
+			: undefined;
+
 	const moveByKeyboard = (index: number, key: ReorderKey) => {
 		if (!canEdit) return;
 		const uuid = order[index];
@@ -302,16 +316,35 @@ export function CaseOperationsCanvas({
 										{closestEdge !== null && (
 											<div
 												aria-hidden="true"
-												className={`absolute left-3 right-3 z-10 h-0.5 rounded-full ${
-													pendingDrop?.refused === true
-														? "bg-nova-rose"
-														: "bg-nova-violet"
-												}`}
+												className="absolute left-3 right-3 z-10"
 												style={{
 													top: closestEdge === "top" ? -5 : undefined,
 													bottom: closestEdge === "bottom" ? -5 : undefined,
 												}}
-											/>
+											>
+												{dropRefusal === undefined ? (
+													<span className="block h-0.5 rounded-full bg-nova-violet" />
+												) : (
+													/* Shape AND words, not just a hue: a dashed rule
+													 *  reads as blocked without color vision, and the
+													 *  reason is at the pointer rather than below a
+													 *  list that may be a screen long. */
+													<span className="flex items-center gap-2">
+														<span className="h-0 flex-1 border-t-2 border-dashed border-nova-rose" />
+														<span className="flex max-w-sm items-start gap-1.5 rounded-lg border border-nova-rose/30 bg-nova-void px-2 py-1 text-xs leading-relaxed text-nova-text-secondary shadow-lg">
+															<Icon
+																icon={tablerCircleX}
+																width="14"
+																height="14"
+																className="mt-0.5 shrink-0 text-nova-rose"
+															/>
+															<span className="min-w-0 break-words">
+																{dropRefusal}
+															</span>
+														</span>
+													</span>
+												)}
+											</div>
 										)}
 										<CaseOperationRow
 											operation={operation}
@@ -345,14 +378,9 @@ export function CaseOperationsCanvas({
 				</ol>
 			)}
 
-			{pendingDrop?.refused === true && (
+			{dropRefusal !== undefined && (
 				<p className="mb-4 text-[13px] leading-relaxed text-nova-rose">
-					{dragRefusalText(
-						dragVerdictsRef.current,
-						pendingDrop.toIndex,
-						pendingDrop.itemKey as Uuid,
-						view,
-					)}
+					{dropRefusal}
 				</p>
 			)}
 

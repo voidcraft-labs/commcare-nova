@@ -50,9 +50,7 @@ import type { Uuid } from "@/lib/doc/types";
 import type {
 	CaseOperation,
 	CaseOperationWrite,
-	CaseProperty,
 	CasePropertyDataType,
-	CaseType,
 } from "@/lib/domain";
 import {
 	actingUser,
@@ -62,6 +60,8 @@ import {
 } from "@/lib/domain/predicate";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useCanEdit } from "@/lib/session/hooks";
+import { useClearedSlotFocus } from "@/lib/ui/hooks/useClearedSlotFocus";
+import { useRemovedRowFocus } from "@/lib/ui/hooks/useRemovedRowFocus";
 import { CaseOperationLinks } from "./CaseOperationLinks";
 import {
 	caseOperationTextConstraint,
@@ -69,7 +69,11 @@ import {
 	RUNTIME_TARGET_OPERATION_SCOPE,
 } from "./editorScope";
 import { operationFormFieldDecls } from "./formFieldScope";
-import { operationSentence } from "./operationSentence";
+import {
+	casePropertyLabel,
+	caseTypePhrase,
+	operationSentence,
+} from "./operationSentence";
 import { seedCaseOperationWrite, seedRenameValue } from "./seeds";
 import { useOperationSentenceContext } from "./useOperationSentenceContext";
 import { WritePropertyPicker } from "./WritePropertyPicker";
@@ -100,6 +104,11 @@ export function CaseOperationDetailCanvas({
 	const fieldEntries = useFormFieldEntries(formUuid);
 	const userProperties = useUserProperties();
 	const caseFirst = useModuleSelectsCaseFirst(moduleUuid);
+	/* Clearing the condition unmounts the control that cleared it, so focus
+	 * has to be handed forward to the Add button that replaces the editor. */
+	const conditionCleared = useClearedSlotFocus(operation?.condition);
+	/* Same shape for a removed row: the button pressed goes away with it. */
+	const writeFocus = useRemovedRowFocus((operation?.writes ?? []).length);
 	/* Whether a slot here may read the case at all. The gate refuses every
 	 * case-data read in a form the module opens without choosing a case
 	 * first — see `editorScope.ts` for why that maps onto `"global"`. */
@@ -298,13 +307,18 @@ export function CaseOperationDetailCanvas({
 								label="Always run"
 								title="Always run this change?"
 								consequence="It will happen on every submission of this form."
-								onConfirm={() => commit({ ...operation, condition: undefined })}
+								finalFocus={() => conditionCleared.addRef.current}
+								onConfirm={() => {
+									conditionCleared.onCleared();
+									commit({ ...operation, condition: undefined });
+								}}
 							/>
 						) : undefined
 					}
 				>
 					{operation.condition === undefined ? (
 						<AddSlotButton
+							ref={conditionCleared.addRef}
 							label="Add a condition"
 							disabled={!operationCanEdit}
 							onClick={() =>
@@ -413,19 +427,26 @@ export function CaseOperationDetailCanvas({
 					title="What it saves"
 					description={
 						destinationType === undefined
-							? `Values saved onto the ${destination} case.`
-							: `Values saved onto the ${destination} case. They stay on the case after the form is submitted.`
+							? `Values saved onto the ${caseTypePhrase(destination)} case.`
+							: `Values saved onto the ${caseTypePhrase(destination)} case. They stay on the case after the form is submitted.`
 					}
 				>
 					<div className="space-y-3">
+						{(operation.writes ?? []).length === 0 && !operationCanEdit && (
+							<p className="text-[13px] leading-relaxed text-nova-text-muted">
+								This change saves no values.
+							</p>
+						)}
 						{(operation.writes ?? []).map((write, writeIndex) => (
 							<WriteRow
 								key={write.property}
 								write={write}
 								canEdit={operationCanEdit}
 								editorScope={editorScope}
-								destinationType={declaredPropertyType(
-									destinationType,
+								removeRef={writeFocus.register(writeIndex)}
+								destinationType={view.writeValueType(
+									operation.uuid,
+									destination,
 									write.property,
 								)}
 								onChange={(next) =>
@@ -436,18 +457,20 @@ export function CaseOperationDetailCanvas({
 										),
 									})
 								}
-								onRemove={() =>
+								onRemove={() => {
+									writeFocus.onRemoved(writeIndex);
 									commit({
 										...operation,
 										writes: (operation.writes ?? []).filter(
 											(_, i) => i !== writeIndex,
 										),
-									})
-								}
+									});
+								}}
 							/>
 						))}
 						{operationCanEdit && (
 							<WritePropertyPicker
+								triggerRef={writeFocus.addRef}
 								caseTypeName={destination}
 								alreadyWritten={
 									new Set(
@@ -548,13 +571,17 @@ function AddSlotButton({
 	label,
 	disabled,
 	onClick,
+	ref,
 }: {
 	readonly label: string;
 	readonly disabled: boolean;
 	readonly onClick: () => void;
+	/** So a clear can hand focus to the control that replaced its editor. */
+	readonly ref?: React.Ref<HTMLButtonElement>;
 }) {
 	return (
 		<Button
+			ref={ref}
 			type="button"
 			variant="outline"
 			size="xl"
@@ -606,6 +633,7 @@ function OptionalExpressionSection({
 	readonly constraint: ReturnType<typeof storageAssignmentConstraint>;
 	readonly editorScope: EditorScope;
 }) {
+	const { addRef, onCleared } = useClearedSlotFocus(value);
 	return (
 		<Section
 			title={title}
@@ -616,13 +644,18 @@ function OptionalExpressionSection({
 						label={clearLabel}
 						title={clearTitle}
 						consequence={clearConsequence}
-						onConfirm={() => onChange(undefined)}
+						finalFocus={() => addRef.current}
+						onConfirm={() => {
+							onCleared();
+							onChange(undefined);
+						}}
 					/>
 				) : undefined
 			}
 		>
 			{value === undefined ? (
 				<AddSlotButton
+					ref={addRef}
 					label={addLabel}
 					disabled={!canEdit}
 					onClick={() => onChange(seed())}
@@ -646,6 +679,7 @@ function WriteRow({
 	destinationType,
 	onChange,
 	onRemove,
+	removeRef,
 }: {
 	readonly write: CaseOperationWrite;
 	readonly canEdit: boolean;
@@ -656,19 +690,23 @@ function WriteRow({
 	readonly destinationType: CasePropertyDataType | undefined;
 	readonly onChange: (next: CaseOperationWrite) => void;
 	readonly onRemove: () => void;
+	readonly removeRef?: React.Ref<HTMLButtonElement>;
 }) {
+	const conditionCleared = useClearedSlotFocus(write.condition);
 	return (
 		<div className="rounded-xl border border-white/[0.07] bg-nova-deep/30 p-3 @sm:p-4">
 			<div className="mb-3 flex flex-wrap items-center justify-between gap-2">
 				<h3 className="min-w-0 break-words text-[14px] font-semibold text-nova-text">
-					{write.property}
+					{casePropertyLabel(write.property)}
 				</h3>
 				{canEdit && (
 					<Button
+						ref={removeRef}
 						type="button"
 						variant="ghost"
 						size="xl"
 						onClick={onRemove}
+						aria-label={`Stop saving ${write.property}`}
 						className="px-3 text-sm text-nova-rose not-disabled:hover:bg-nova-rose/[0.08] not-disabled:hover:text-nova-rose"
 					>
 						<Icon icon={tablerTrash} width="14" height="14" />
@@ -687,6 +725,7 @@ function WriteRow({
 			<div className="mt-3 border-t border-white/[0.06] pt-3">
 				{write.condition === undefined ? (
 					<AddSlotButton
+						ref={conditionCleared.addRef}
 						label="Only save this sometimes"
 						disabled={!canEdit}
 						onClick={() =>
@@ -710,7 +749,11 @@ function WriteRow({
 									label="Always save it"
 									title="Always save this value?"
 									consequence="It will be saved every time this change runs."
-									onConfirm={() => onChange({ ...write, condition: undefined })}
+									finalFocus={() => conditionCleared.addRef.current}
+									onConfirm={() => {
+										conditionCleared.onCleared();
+										onChange({ ...write, condition: undefined });
+									}}
 								/>
 							)}
 						</div>
@@ -732,15 +775,4 @@ function WriteRow({
 			</div>
 		</div>
 	);
-}
-
-/** The declared type of one property on the destination case type. */
-function declaredPropertyType(
-	caseType: CaseType | undefined,
-	property: string,
-): CasePropertyDataType | undefined {
-	const declared: CaseProperty | undefined = caseType?.properties.find(
-		(candidate) => candidate.name === property,
-	);
-	return declared?.data_type;
 }

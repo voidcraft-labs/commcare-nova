@@ -631,7 +631,7 @@ describe("registerSharedTool — dormant lookup read projection", () => {
 
 describe("registerSharedTool — real mutating tool integration (addFields)", () => {
 	it("refuses dormant case-operation update/removal through MCP while allowing an identity-only move", async () => {
-		const { blueprint, formUuid } = mockBlueprintWithForm();
+		const { blueprint, modUuid, formUuid } = mockBlueprintWithForm();
 		const table = "018f3e8a-7b2c-7def-8abc-1234567890ab" as LookupTableId;
 		const valueColumn =
 			"018f3e8a-7b2c-7def-8abc-1234567890ad" as LookupColumnId;
@@ -711,8 +711,8 @@ describe("registerSharedTool — real mutating tool integration (addFields)", ()
 				"update_case_operation",
 				updateCaseOperationTool,
 				{
-					moduleId: "patients",
-					formId: "register",
+					moduleUuid: modUuid,
+					formUuid,
 					operationId: "dormant_update",
 					operation: {
 						id: "renamed_update",
@@ -730,8 +730,8 @@ describe("registerSharedTool — real mutating tool integration (addFields)", ()
 				"remove_case_operation",
 				removeCaseOperationTool,
 				{
-					moduleId: "patients",
-					formId: "register",
+					moduleUuid: modUuid,
+					formUuid,
 					operationId: "dormant_update",
 				},
 			);
@@ -741,8 +741,8 @@ describe("registerSharedTool — real mutating tool integration (addFields)", ()
 			expect(recordSpy).not.toHaveBeenCalled();
 
 			const move = await invoke("move_case_operation", moveCaseOperationTool, {
-				moduleId: "patients",
-				formId: "register",
+				moduleUuid: modUuid,
+				formUuid,
 				operationId: "dormant_update",
 				index: 1,
 			});

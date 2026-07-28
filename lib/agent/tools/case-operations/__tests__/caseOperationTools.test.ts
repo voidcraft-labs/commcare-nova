@@ -13,6 +13,7 @@ import {
 	type CaseOperation,
 	type LookupColumnId,
 	type LookupTableId,
+	type Uuid,
 } from "@/lib/domain";
 import {
 	eq,
@@ -53,6 +54,7 @@ const lookupPredicate = eq(
 
 function fixture(): {
 	readonly doc: BlueprintDoc;
+	readonly moduleUuid: ReturnType<typeof asUuid>;
 	readonly formUuid: ReturnType<typeof asUuid>;
 } {
 	const doc = buildDoc({
@@ -95,7 +97,7 @@ function fixture(): {
 		],
 	});
 	const moduleUuid = doc.moduleOrder[0];
-	return { doc, formUuid: doc.formOrder[moduleUuid][0] };
+	return { doc, moduleUuid, formUuid: doc.formOrder[moduleUuid][0] };
 }
 
 const fieldValue = {
@@ -211,6 +213,8 @@ describe("case-operation author boundary", () => {
 	});
 
 	it("keeps the chat wire compact without weakening author validation", async () => {
+		// Schema-level: the address is two opaque identities, so any pair does.
+		const { moduleUuid, formUuid } = fixture();
 		const wire = wireToolSchema(addCaseOperationsInputSchema);
 		const json = JSON.stringify(await wire.jsonSchema);
 		expect(json).toContain("Author ValueExpression AST node");
@@ -218,14 +222,14 @@ describe("case-operation author boundary", () => {
 		expect(json).not.toContain("table-lookup");
 
 		const valid = await wire.validate?.({
-			moduleId: "patients",
-			formId: "edit",
+			moduleUuid,
+			formUuid,
 			operations: [createVisit],
 		});
 		expect(valid?.success).toBe(true);
 		const rejected = await wire.validate?.({
-			moduleId: "patients",
-			formId: "edit",
+			moduleUuid,
+			formUuid,
 			operations: [
 				{
 					...createVisit,
@@ -242,12 +246,12 @@ describe("case-operation author boundary", () => {
 
 describe("shared case-operation tools", () => {
 	it("adds a dependent batch atomically and resolves every author identity", async () => {
-		const { doc, formUuid } = fixture();
+		const { doc, moduleUuid, formUuid } = fixture();
 		const { ctx, recordMutations } = makeStubToolContext();
 		const result = await addCaseOperationsTool.execute(
 			{
-				moduleId: "patients",
-				formId: "edit",
+				moduleUuid,
+				formUuid,
 				operations: [createVisit, updateVisit],
 			},
 			ctx,
@@ -276,23 +280,29 @@ describe("shared case-operation tools", () => {
 	});
 
 	it("returns an author projection with no UUID vocabulary", async () => {
-		const { doc } = fixture();
+		const { doc, moduleUuid, formUuid } = fixture();
 		const { ctx } = makeStubToolContext();
 		const added = await addCaseOperationsTool.execute(
 			{
-				moduleId: "patients",
-				formId: "edit",
+				moduleUuid,
+				formUuid,
 				operations: [createVisit, updateVisit],
 			},
 			ctx,
 			doc,
 		);
 		const read = await getCaseOperationsTool.execute(
-			{ moduleId: "patients", formId: "edit" },
+			{ moduleUuid, formUuid },
 			ctx,
 			added.newDoc,
 		);
-		const json = JSON.stringify(read.data);
+		// The rule is about the OPERATIONS: no storage identity may reach an
+		// author-facing expression, whose leaves the caller has to read and
+		// write. The envelope's address is the identity the caller supplied and
+		// is deliberately echoed, so it is not part of that claim.
+		const json = JSON.stringify(
+			(read.data as { operations: readonly unknown[] }).operations,
+		);
 		expect(json).not.toContain("uuid");
 		expect(json).not.toContain("Uuid");
 		expect(json).toContain('"path":"nickname"');
@@ -312,12 +322,12 @@ describe("shared case-operation tools", () => {
 	});
 
 	it("updates through granular identity-keyed mutations", async () => {
-		const { doc } = fixture();
+		const { doc, moduleUuid, formUuid } = fixture();
 		const { ctx } = makeStubToolContext();
 		const added = await addCaseOperationsTool.execute(
 			{
-				moduleId: "patients",
-				formId: "edit",
+				moduleUuid,
+				formUuid,
 				operations: [createVisit],
 			},
 			ctx,
@@ -325,8 +335,8 @@ describe("shared case-operation tools", () => {
 		);
 		const result = await updateCaseOperationTool.execute(
 			{
-				moduleId: "patients",
-				formId: "edit",
+				moduleUuid,
+				formUuid,
 				operationId: "create_visit",
 				operation: {
 					...createVisit,
@@ -363,12 +373,12 @@ describe("shared case-operation tools", () => {
 	});
 
 	it("retargets across case types atomically on the shared chat and MCP tool", async () => {
-		const { doc, formUuid } = fixture();
+		const { doc, moduleUuid, formUuid } = fixture();
 		const { ctx, recordMutations } = makeStubToolContext();
 		const added = await addCaseOperationsTool.execute(
 			{
-				moduleId: "patients",
-				formId: "edit",
+				moduleUuid,
+				formUuid,
 				operations: [createVisit, updateVisit],
 			},
 			ctx,
@@ -383,8 +393,8 @@ describe("shared case-operation tools", () => {
 		};
 		const result = await updateCaseOperationTool.execute(
 			{
-				moduleId: "patients",
-				formId: "edit",
+				moduleUuid,
+				formUuid,
 				operationId: "tag_visit",
 				operation: desired,
 			},
@@ -587,7 +597,7 @@ describe("shared case-operation tools", () => {
 		];
 
 		for (const scenario of cases) {
-			const { doc, formUuid } = fixture();
+			const { doc, moduleUuid, formUuid } = fixture();
 			const operation = { ...scenario.operation, order: "a" };
 			const safePeer: CaseOperation = {
 				uuid: asUuid("10000000-0000-4000-8000-000000000099"),
@@ -599,7 +609,7 @@ describe("shared case-operation tools", () => {
 			doc.forms[formUuid].caseOperations = [operation, safePeer];
 			const { ctx, recordMutations } = makeStubToolContext();
 			const read = await getCaseOperationsTool.execute(
-				{ moduleId: "patients", formId: "edit" },
+				{ moduleUuid, formUuid },
 				ctx,
 				doc,
 			);
@@ -624,8 +634,8 @@ describe("shared case-operation tools", () => {
 
 			const result = await updateCaseOperationTool.execute(
 				{
-					moduleId: "patients",
-					formId: "edit",
+					moduleUuid,
+					formUuid,
 					operationId: operation.id,
 					operation: scenario.authorShape,
 				},
@@ -650,8 +660,8 @@ describe("shared case-operation tools", () => {
 
 			const removed = await removeCaseOperationTool.execute(
 				{
-					moduleId: "patients",
-					formId: "edit",
+					moduleUuid,
+					formUuid,
 					operationId: operation.id,
 				},
 				ctx,
@@ -674,8 +684,8 @@ describe("shared case-operation tools", () => {
 
 			const moved = await moveCaseOperationTool.execute(
 				{
-					moduleId: "patients",
-					formId: "edit",
+					moduleUuid,
+					formUuid,
 					operationId: operation.id,
 					index: 1,
 				},
@@ -695,12 +705,12 @@ describe("shared case-operation tools", () => {
 	});
 
 	it("refuses removing or moving a producer past its dependent", async () => {
-		const { doc } = fixture();
+		const { doc, moduleUuid, formUuid } = fixture();
 		const { ctx, recordMutations } = makeStubToolContext();
 		const added = await addCaseOperationsTool.execute(
 			{
-				moduleId: "patients",
-				formId: "edit",
+				moduleUuid,
+				formUuid,
 				operations: [createVisit, updateVisit],
 			},
 			ctx,
@@ -710,8 +720,8 @@ describe("shared case-operation tools", () => {
 
 		const removed = await removeCaseOperationTool.execute(
 			{
-				moduleId: "patients",
-				formId: "edit",
+				moduleUuid,
+				formUuid,
 				operationId: "create_visit",
 			},
 			ctx,
@@ -723,8 +733,8 @@ describe("shared case-operation tools", () => {
 
 		const moved = await moveCaseOperationTool.execute(
 			{
-				moduleId: "patients",
-				formId: "edit",
+				moduleUuid,
+				formUuid,
 				operationId: "create_visit",
 				index: 1,
 			},
@@ -738,12 +748,12 @@ describe("shared case-operation tools", () => {
 	});
 
 	it("reports the actual clamped move destination", async () => {
-		const { doc } = fixture();
+		const { doc, moduleUuid, formUuid } = fixture();
 		const { ctx, recordMutations } = makeStubToolContext();
 		const added = await addCaseOperationsTool.execute(
 			{
-				moduleId: "patients",
-				formId: "edit",
+				moduleUuid,
+				formUuid,
 				operations: [createVisit],
 			},
 			ctx,
@@ -752,8 +762,8 @@ describe("shared case-operation tools", () => {
 		recordMutations.mockClear();
 		const moved = await moveCaseOperationTool.execute(
 			{
-				moduleId: "patients",
-				formId: "edit",
+				moduleUuid,
+				formUuid,
 				operationId: "create_visit",
 				index: 999,
 			},
@@ -770,7 +780,7 @@ describe("shared case-operation tools", () => {
 	});
 
 	it("surfaces authoritative operation/write/link races instead of reporting success", async () => {
-		const { doc, formUuid } = fixture();
+		const { doc, moduleUuid, formUuid } = fixture();
 		const linkedVisit = {
 			...createVisit,
 			links: [
@@ -785,8 +795,8 @@ describe("shared case-operation tools", () => {
 		const setup = makeStubToolContext();
 		const added = await addCaseOperationsTool.execute(
 			{
-				moduleId: "patients",
-				formId: "edit",
+				moduleUuid,
+				formUuid,
 				operations: [linkedVisit],
 			},
 			setup.ctx,
@@ -814,8 +824,8 @@ describe("shared case-operation tools", () => {
 			await expect(
 				updateCaseOperationTool.execute(
 					{
-						moduleId: "patients",
-						formId: "edit",
+						moduleUuid,
+						formUuid,
 						operationId: "create_visit",
 						operation,
 					},
@@ -921,12 +931,12 @@ describe("worker information round-trips through the author boundary", () => {
 	}
 
 	it("reads back a saved worker-information value as its saved key, then accepts it", async () => {
-		const { doc } = docWithWorkerProperty();
+		const { doc, moduleUuid, formUuid } = docWithWorkerProperty();
 		const { ctx } = makeStubToolContext();
 		const added = await addCaseOperationsTool.execute(
 			{
-				moduleId: "patients",
-				formId: "edit",
+				moduleUuid,
+				formUuid,
 				operations: [
 					{
 						...createVisit,
@@ -942,7 +952,7 @@ describe("worker information round-trips through the author boundary", () => {
 		);
 
 		const read = await getCaseOperationsTool.execute(
-			{ moduleId: "patients", formId: "edit" },
+			{ moduleUuid, formUuid },
 			ctx,
 			added.newDoc,
 		);
@@ -957,8 +967,8 @@ describe("worker information round-trips through the author boundary", () => {
 		const projected = operations?.[0] as Record<string, unknown>;
 		const updated = await updateCaseOperationTool.execute(
 			{
-				moduleId: "patients",
-				formId: "edit",
+				moduleUuid,
+				formUuid,
 				operationId: "create_visit",
 				operation: { ...projected, id: "create_encounter" } as never,
 			},
@@ -969,12 +979,12 @@ describe("worker information round-trips through the author boundary", () => {
 	});
 
 	it("names the saved keys it knows when the slug is not set up", async () => {
-		const { doc } = docWithWorkerProperty();
+		const { doc, moduleUuid, formUuid } = docWithWorkerProperty();
 		const { ctx } = makeStubToolContext();
 		const added = await addCaseOperationsTool.execute(
 			{
-				moduleId: "patients",
-				formId: "edit",
+				moduleUuid,
+				formUuid,
 				operations: [
 					{
 						...createVisit,
@@ -1013,6 +1023,15 @@ describe("dependency refusals say which constraint refused", () => {
 	// The chain needs a PORTABLE retype (every property retained at the same
 	// type), so it gets its own two-type fixture rather than bending the
 	// shared one.
+	/** Identity of the one module/form this fixture builds, for the address. */
+	function retypeAddress(doc: BlueprintDoc): {
+		moduleUuid: Uuid;
+		formUuid: Uuid;
+	} {
+		const moduleUuid = doc.moduleOrder[0];
+		return { moduleUuid, formUuid: doc.formOrder[moduleUuid][0] };
+	}
+
 	function retypeFixture(): BlueprintDoc {
 		return buildDoc({
 			caseTypes: [
@@ -1071,25 +1090,28 @@ describe("dependency refusals say which constraint refused", () => {
 
 	async function withRetypeChain() {
 		const { ctx, recordMutations } = makeStubToolContext();
+		const base = retypeFixture();
+		const { moduleUuid, formUuid } = retypeAddress(base);
 		const added = await addCaseOperationsTool.execute(
 			{
-				moduleId: "leads",
-				formId: "edit",
+				moduleUuid,
+				formUuid,
 				operations: [retypeLead, tagLead],
 			},
 			ctx,
-			retypeFixture(),
+			base,
 		);
 		expect(added.result).not.toHaveProperty("error");
 		recordMutations.mockClear();
-		return { ctx, doc: added.newDoc, recordMutations };
+		return { ctx, doc: added.newDoc, recordMutations, moduleUuid, formUuid };
 	}
 
 	it("does not tell the agent to retarget a reference that is a type dependency", async () => {
-		const { ctx, doc, recordMutations } = await withRetypeChain();
+		const { ctx, doc, recordMutations, moduleUuid, formUuid } =
+			await withRetypeChain();
 
 		const removed = await removeCaseOperationTool.execute(
-			{ moduleId: "leads", formId: "edit", operationId: "retype_lead" },
+			{ moduleUuid, formUuid, operationId: "retype_lead" },
 			ctx,
 			doc,
 		);
@@ -1100,8 +1122,8 @@ describe("dependency refusals say which constraint refused", () => {
 
 		const moved = await moveCaseOperationTool.execute(
 			{
-				moduleId: "leads",
-				formId: "edit",
+				moduleUuid,
+				formUuid,
 				operationId: "retype_lead",
 				index: 1,
 			},
@@ -1115,19 +1137,19 @@ describe("dependency refusals say which constraint refused", () => {
 	});
 
 	it("still says 'reference' when one is what breaks", async () => {
-		const { doc } = fixture();
+		const { doc, moduleUuid, formUuid } = fixture();
 		const { ctx } = makeStubToolContext();
 		const added = await addCaseOperationsTool.execute(
 			{
-				moduleId: "patients",
-				formId: "edit",
+				moduleUuid,
+				formUuid,
 				operations: [createVisit, updateVisit],
 			},
 			ctx,
 			doc,
 		);
 		const removed = await removeCaseOperationTool.execute(
-			{ moduleId: "patients", formId: "edit", operationId: "create_visit" },
+			{ moduleUuid, formUuid, operationId: "create_visit" },
 			ctx,
 			added.newDoc,
 		);

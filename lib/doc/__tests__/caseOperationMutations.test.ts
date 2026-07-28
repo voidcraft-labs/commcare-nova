@@ -583,12 +583,11 @@ describe("case-operation mutation planning", () => {
 	});
 });
 
-// A move asserts a RANK to the authoritative writer, so the key it mints has to
-// land the operation at exactly the index the author asked for. Sequence is
-// `(order, uuid)`, so a run of siblings sharing one key is separated only by
-// their immutable uuids — a destination inside such a run is unreachable by any
-// single key, and the writer's fence turns the near miss into a false "this app
-// changed while you were editing" rather than a silently wrong position.
+// A move asserts a RANK to the authoritative writer, so it has to land the
+// operation at exactly the index the author asked for — every destination
+// reachable, and the writer's fence agreeing that it landed there. Moving the
+// first, a middle, and the last operation are separate cases because each
+// splices differently.
 describe("case-operation move lands at the rank it asserts", () => {
 	const RANKED = [
 		asUuid("aaaaaaaa-0000-4000-8000-000000000001"),
@@ -598,21 +597,21 @@ describe("case-operation move lands at the rank it asserts", () => {
 	];
 
 	/** An independent session update — nothing here constrains execution order. */
-	function ranked(index: number, order?: string): CaseOperation {
+	function ranked(index: number): CaseOperation {
 		return {
 			uuid: RANKED[index],
 			id: `update_patient_${index}`,
 			action: "update",
 			caseType: "patient",
 			target: { kind: "session" },
-			...(order === undefined ? {} : { order }),
 		};
 	}
 
-	function docWith(orders: (string | undefined)[]) {
+	function docWith(count: number) {
 		const { doc, formUuid } = fixture();
-		(doc.forms[formUuid] as Form).caseOperations = orders.map((order, index) =>
-			ranked(index, order),
+		(doc.forms[formUuid] as Form).caseOperations = Array.from(
+			{ length: count },
+			(_, index) => ranked(index),
 		);
 		return { doc, formUuid };
 	}
@@ -628,10 +627,8 @@ describe("case-operation move lands at the rank it asserts", () => {
 		).findIndex((operation) => operation.uuid === uuid);
 	}
 
-	it("lands a move out of a tied run at the requested index, and the fence agrees", () => {
-		// Sequence "V", "a", "a", "b": the first operation is dragged to the slot
-		// between the two tied siblings, which no single key can address.
-		const { doc, formUuid } = docWith(["V", "a", "a", "b"]);
+	it("drops the first operation inward, and the fence agrees", () => {
+		const { doc, formUuid } = docWith(4);
 		const plan = moveCaseOperationMutation(doc, formUuid, RANKED[0], 1);
 		expect(plan.ok).toBe(true);
 		if (!plan.ok) return;
@@ -639,10 +636,8 @@ describe("case-operation move lands at the rank it asserts", () => {
 		expect(batchTargetsMissing(doc, [...plan.mutations])).toBe(false);
 	});
 
-	it("moves an operation that has no order key at all", () => {
-		// A legacy form whose operations predate the order slot: every sibling
-		// sorts by uuid, so a keyed mover would jump to the front instead.
-		const { doc, formUuid } = docWith([undefined, undefined, undefined]);
+	it("moves an operation up out of the middle", () => {
+		const { doc, formUuid } = docWith(3);
 		const plan = moveCaseOperationMutation(doc, formUuid, RANKED[2], 1);
 		expect(plan.ok).toBe(true);
 		if (!plan.ok) return;
@@ -650,8 +645,8 @@ describe("case-operation move lands at the rank it asserts", () => {
 		expect(batchTargetsMissing(doc, [...plan.mutations])).toBe(false);
 	});
 
-	it("lifts the last operation one place across a tied run (keyboard reorder)", () => {
-		const { doc, formUuid } = docWith(["V", "a", "a", "b"]);
+	it("lifts the last operation one place (keyboard reorder)", () => {
+		const { doc, formUuid } = docWith(4);
 		const plan = moveCaseOperationMutation(doc, formUuid, RANKED[3], 2);
 		expect(plan.ok).toBe(true);
 		if (!plan.ok) return;
@@ -659,8 +654,8 @@ describe("case-operation move lands at the rank it asserts", () => {
 		expect(batchTargetsMissing(doc, [...plan.mutations])).toBe(false);
 	});
 
-	it("lands at EVERY destination of a wholly tied form", () => {
-		const { doc, formUuid } = docWith(["a", "a", "a", "a"]);
+	it("lands at EVERY destination of the form", () => {
+		const { doc, formUuid } = docWith(4);
 		const ordered = orderedCaseOperations(doc.forms[formUuid]);
 		const currentIndex = ordered.findIndex(
 			(operation) => operation.uuid === RANKED[1],
@@ -670,7 +665,7 @@ describe("case-operation move lands at the rank it asserts", () => {
 			expect(plan.ok).toBe(true);
 			if (!plan.ok) return;
 			if (index === currentIndex) {
-				// Already there: no key rewrite, no authoritative event, no undo entry.
+				// Already there: no authoritative event, and no undo entry.
 				expect(plan.mutations).toEqual([]);
 			}
 			expect(landedIndex(doc, formUuid, RANKED[1], plan.mutations)).toBe(index);
@@ -678,8 +673,8 @@ describe("case-operation move lands at the rank it asserts", () => {
 		}
 	});
 
-	it("adds an operation at a tied index", () => {
-		const { doc, formUuid } = docWith(["a", "a", "a"]);
+	it("adds an operation at a requested index", () => {
+		const { doc, formUuid } = docWith(3);
 		const mutations = addCaseOperationMutations(doc, formUuid, ranked(3), 1);
 		expect(landedIndex(doc, formUuid, RANKED[3], mutations)).toBe(1);
 		expect(batchTargetsMissing(doc, [...mutations])).toBe(false);
@@ -1136,5 +1131,186 @@ describe("case-operation persistence and reference participation", () => {
 		expect(write?.property).toBe("display_name");
 		expect(write?.value).toEqual(term(prop("patient", "display_name")));
 		expect(next.refIndex).toEqual(buildReferenceIndex(next));
+	});
+});
+
+// Writes and links are keyed collections, so pairing them up says nothing
+// about their ORDER — that has to be compared separately, and it is intent
+// like every other slot: honored when it differs from the snapshot the author
+// saw, left alone when it does not.
+describe("case-operation write and link order is intent", () => {
+	function withWrites(properties: readonly string[]): CaseOperation {
+		return {
+			uuid: CONSUMER,
+			id: "record_visit",
+			action: "update",
+			caseType: "patient",
+			target: { kind: "session" },
+			writes: properties.map((property) => ({
+				property,
+				value: term(literal(property)),
+			})),
+		};
+	}
+
+	function withLinks(identifiers: readonly string[]): CaseOperation {
+		return {
+			uuid: CONSUMER,
+			id: "record_visit",
+			action: "update",
+			caseType: "patient",
+			target: { kind: "session" },
+			links: identifiers.map((identifier) => ({
+				identifier,
+				targetType: "patient",
+				target: null,
+				relationship: "child" as const,
+			})),
+		};
+	}
+
+	function docHolding(operation: CaseOperation) {
+		const { doc, formUuid } = fixture();
+		(doc.forms[formUuid] as Form).caseOperations = [operation];
+		return { doc, formUuid };
+	}
+
+	function committed(
+		doc: BlueprintDoc,
+		formUuid: ReturnType<typeof asUuid>,
+		mutations: readonly Mutation[],
+	): CaseOperation | undefined {
+		return apply(doc, mutations).forms[formUuid].caseOperations?.find(
+			(operation) => operation.uuid === CONSUMER,
+		);
+	}
+
+	it("honors a reorder that arrives together with an addition", () => {
+		// The regression: comparing the two arrays' LENGTHS made this reorder
+		// invisible, because the addition changed the length. The tool then
+		// reported success for an order it had silently discarded.
+		const { doc, formUuid } = docHolding(withWrites(["alpha", "bravo"]));
+		const plan = planCaseOperationUpdate(
+			doc,
+			formUuid,
+			withWrites(["bravo", "alpha", "charlie"]),
+			withWrites(["alpha", "bravo"]),
+		);
+		expect(plan.ok).toBe(true);
+		if (!plan.ok) return;
+		expect(
+			committed(doc, formUuid, plan.mutations)?.writes?.map(
+				(write) => write.property,
+			),
+		).toEqual(["bravo", "alpha", "charlie"]);
+	});
+
+	it("leaves a peer's reorder alone when the author never touched the order", () => {
+		const authorSaw = withWrites(["alpha", "bravo", "charlie"]);
+		// The peer reordered while the author was editing alpha's value.
+		const { doc, formUuid } = docHolding(
+			withWrites(["charlie", "alpha", "bravo"]),
+		);
+		const desired = withWrites(["alpha", "bravo", "charlie"]);
+		desired.writes = desired.writes?.map((write) =>
+			write.property === "alpha"
+				? { ...write, value: term(literal("edited")) }
+				: write,
+		);
+
+		const plan = planCaseOperationUpdate(doc, formUuid, desired, authorSaw);
+		expect(plan.ok).toBe(true);
+		if (!plan.ok) return;
+		const result = committed(doc, formUuid, plan.mutations);
+		expect(result?.writes?.map((write) => write.property)).toEqual([
+			"charlie",
+			"alpha",
+			"bravo",
+		]);
+		expect(
+			result?.writes?.find((write) => write.property === "alpha")?.value,
+		).toEqual(term(literal("edited")));
+	});
+
+	it("leaves a peer's insertion where the peer put it while reordering around it", () => {
+		// The author saw [alpha, bravo] and swapped them. Between the snapshot
+		// and the dispatch a peer inserted charlie FIRST. The author's intent
+		// permutes the two slots they could see; charlie is not theirs to move,
+		// and appending it would be the clobber this whole rule prevents.
+		const { doc, formUuid } = docHolding(
+			withWrites(["charlie", "alpha", "bravo"]),
+		);
+		const plan = planCaseOperationUpdate(
+			doc,
+			formUuid,
+			withWrites(["bravo", "alpha"]),
+			withWrites(["alpha", "bravo"]),
+		);
+		expect(plan.ok).toBe(true);
+		if (!plan.ok) return;
+		expect(
+			committed(doc, formUuid, plan.mutations)?.writes?.map(
+				(write) => write.property,
+			),
+		).toEqual(["charlie", "bravo", "alpha"]);
+	});
+
+	it("composes an add, a removal, a reorder, and a peer's insertion at once", () => {
+		// Every moving part in one call. The author saw [alpha, bravo, charlie],
+		// removed bravo, added delta, and ordered what was left [charlie,
+		// delta, alpha]; a peer inserted echo at the FRONT meanwhile. Each half
+		// has to survive whole: echo keeps index 0, and the author's order fills
+		// the three slots their own members occupy.
+		const { doc, formUuid } = docHolding(
+			withWrites(["echo", "alpha", "bravo", "charlie"]),
+		);
+		const plan = planCaseOperationUpdate(
+			doc,
+			formUuid,
+			withWrites(["charlie", "delta", "alpha"]),
+			withWrites(["alpha", "bravo", "charlie"]),
+		);
+		expect(plan.ok).toBe(true);
+		if (!plan.ok) return;
+		expect(
+			committed(doc, formUuid, plan.mutations)?.writes?.map(
+				(write) => write.property,
+			),
+		).toEqual(["echo", "charlie", "delta", "alpha"]);
+	});
+
+	it("honors a link reorder that arrives together with an addition", () => {
+		const { doc, formUuid } = docHolding(withLinks(["parent", "sibling"]));
+		const plan = planCaseOperationUpdate(
+			doc,
+			formUuid,
+			withLinks(["sibling", "parent", "guardian"]),
+			withLinks(["parent", "sibling"]),
+		);
+		expect(plan.ok).toBe(true);
+		if (!plan.ok) return;
+		expect(
+			committed(doc, formUuid, plan.mutations)?.links?.map(
+				(link) => link.identifier,
+			),
+		).toEqual(["sibling", "parent", "guardian"]);
+	});
+
+	it("states its order unconditionally when the caller passes no snapshot", () => {
+		// The tool surface has no snapshot, so `base` IS `current` there and
+		// any order it states is intent by construction.
+		const { doc, formUuid } = docHolding(
+			withWrites(["alpha", "bravo", "charlie"]),
+		);
+		const mutations = updateCaseOperationMutations(
+			doc,
+			formUuid,
+			withWrites(["charlie", "bravo", "alpha"]),
+		);
+		expect(
+			committed(doc, formUuid, mutations)?.writes?.map(
+				(write) => write.property,
+			),
+		).toEqual(["charlie", "bravo", "alpha"]);
 	});
 });

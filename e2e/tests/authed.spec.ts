@@ -2,7 +2,11 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import type { Page, Response } from "@playwright/test";
 import { CROSS_PROJECT_MOVE_DISCLOSURE } from "../../lib/projects/moveTargets";
-import { CASE_CHANGES_SEED } from "../lib/caseChangesSeed";
+import {
+	CASE_CHANGES_ROUTINE,
+	CASE_CHANGES_SEED,
+	CASE_CHANGES_SEQUENCE_LENGTH,
+} from "../lib/caseChangesSeed";
 import { CASE_WORKSPACE_SEED } from "../lib/caseWorkspaceSeed";
 import { attachErrorGuard } from "../lib/errorGuard";
 import { expect, test } from "../lib/fixtures";
@@ -1630,7 +1634,7 @@ test.describe("authenticated builder", () => {
 			name: "Case changes in the order they happen",
 		});
 		const rows = list.getByRole("listitem");
-		await expect(rows).toHaveCount(5);
+		await expect(rows).toHaveCount(CASE_CHANGES_SEQUENCE_LENGTH);
 		await expect(rows.nth(0)).toContainText("Create a new referral case");
 		await expect(rows.nth(3)).toContainText(
 			`Update the archived referral case from \u201c${CASE_CHANGES_SEED.ids.create}\u201d`,
@@ -1639,7 +1643,9 @@ test.describe("authenticated builder", () => {
 		// The handle is the keyboard alternative to dragging, and its name
 		// states where in the sequence this change is.
 		const fileHandle = page.getByRole("button", {
-			name: new RegExp(`^Move ${CASE_CHANGES_SEED.ids.file}\\. Runs 4 of 5`),
+			name: new RegExp(
+				`^Move ${CASE_CHANGES_SEED.ids.file}\\. Runs 4 of ${CASE_CHANGES_SEQUENCE_LENGTH}`,
+			),
 		});
 		await fileHandle.focus();
 
@@ -1667,15 +1673,63 @@ test.describe("authenticated builder", () => {
 
 		// The same keyboard path still moves a change nothing depends on.
 		const noteHandle = page.getByRole("button", {
-			name: new RegExp(`^Move ${CASE_CHANGES_SEED.ids.note}\\. Runs 3 of 5`),
+			name: new RegExp(
+				`^Move ${CASE_CHANGES_SEED.ids.note}\\. Runs 3 of ${CASE_CHANGES_SEQUENCE_LENGTH}`,
+			),
 		});
 		await noteHandle.focus();
 		await page.keyboard.press("ArrowUp");
 		await expect(
 			page.getByRole("button", {
-				name: new RegExp(`^Move ${CASE_CHANGES_SEED.ids.note}\\. Runs 2 of 5`),
+				name: new RegExp(
+					`^Move ${CASE_CHANGES_SEED.ids.note}\\. Runs 2 of ${CASE_CHANGES_SEQUENCE_LENGTH}`,
+				),
 			}),
 		).toBeVisible();
+
+		await test.step("a change deep in the sequence states where it is and walks to its neighbours", async () => {
+			// The list and the detail are mutually exclusive screens at every
+			// width, so at twenty changes this is the whole of "where am I":
+			// the detail's position and Previous / Next. Nothing here works by
+			// reading the list, because the list is not on screen.
+			const deep = CASE_CHANGES_ROUTINE.at(-1);
+			const beforeDeep = CASE_CHANGES_ROUTINE.at(-2);
+			if (deep === undefined || beforeDeep === undefined) {
+				throw new Error("case-changes fixture: routine changes missing");
+			}
+			const deepPosition = CASE_CHANGES_SEQUENCE_LENGTH - 1;
+
+			await page.locator(`[data-case-operation-select="${deep.uuid}"]`).click();
+			await expect(
+				page.getByText(`${deepPosition} of ${CASE_CHANGES_SEQUENCE_LENGTH}`),
+			).toBeVisible();
+			await expect(page.getByText(deep.id, { exact: true })).toBeVisible();
+
+			await page.getByRole("button", { name: "Previous change" }).click();
+			await expect(
+				page.getByText(
+					`${deepPosition - 1} of ${CASE_CHANGES_SEQUENCE_LENGTH}`,
+				),
+			).toBeVisible();
+			await expect(
+				page.getByText(beforeDeep.id, { exact: true }),
+			).toBeVisible();
+
+			// Two forward lands on the dormant change, which is last — so the
+			// traversal ends rather than wrapping, and says so by going dead.
+			const next = page.getByRole("button", { name: "Next change" });
+			await next.click();
+			await next.click();
+			await expect(
+				page.getByText(
+					`${CASE_CHANGES_SEQUENCE_LENGTH} of ${CASE_CHANGES_SEQUENCE_LENGTH}`,
+				),
+			).toBeVisible();
+			await expect(next).toBeDisabled();
+
+			await page.getByRole("button", { name: "All case changes" }).click();
+			await expect(rows).toHaveCount(CASE_CHANGES_SEQUENCE_LENGTH);
+		});
 
 		await test.step("retargeting across case types commits target and proven type together", async () => {
 			await page
@@ -1761,7 +1815,7 @@ test.describe("authenticated builder", () => {
 			await expect(
 				page.getByRole("button", {
 					name: new RegExp(
-						`^Move ${CASE_CHANGES_SEED.ids.dormant}\\. Runs 5 of 5`,
+						`^Move ${CASE_CHANGES_SEED.ids.dormant}\\. Runs ${CASE_CHANGES_SEQUENCE_LENGTH} of ${CASE_CHANGES_SEQUENCE_LENGTH}`,
 					),
 				}),
 			).toBeVisible();
@@ -1867,8 +1921,22 @@ test.describe("authenticated builder", () => {
 					response.request().method() === "PUT" &&
 					new URL(response.url()).pathname === `/api/apps/${caseChanges.appId}`,
 			);
-			await page.getByRole("button", { name: "Remove", exact: true }).click();
+			// The connection's Remove names which connection it removes, so a
+			// screen-reader user hears more than "Remove" on a change that can
+			// hold several.
+			await page
+				.getByRole("button", { name: "Remove the connection “parent”" })
+				.click();
 			expect((await removalSaved).ok()).toBe(true);
+
+			// The button that did the removing unmounted with the row it
+			// removed, so focus has to be handed forward or it falls to the
+			// document body and the next Tab restarts at the top of the page.
+			// That was the last connection, so the Add control is where the
+			// rule (next, then previous, then Add) lands.
+			await expect(
+				page.locator("[data-case-operation-add-link]"),
+			).toBeFocused();
 
 			await page.getByRole("button", { name: "Preview", exact: true }).click();
 			const relatedPatientCaseId = page.getByRole("textbox", {

@@ -246,10 +246,7 @@ describe("shared read tools — dormant lookup carriers", () => {
 			doc,
 		);
 		const operationRead = await getCaseOperationsTool.execute(
-			{
-				moduleId: doc.modules[MODULE].id,
-				formId: doc.forms[FORM].id,
-			},
+			{ moduleUuid: MODULE, formUuid: FORM },
 			ctx,
 			doc,
 		);

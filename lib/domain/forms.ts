@@ -233,11 +233,11 @@ export type CaseOperationLink = z.infer<typeof caseOperationLinkSchema>;
 /**
  * One declared case effect of a form submission.
  *
- * `uuid` is reference identity; `id` is the author-facing/wire slug; `order`
- * is the fractional execution key. Array position is membership only. Facet
- * legality intentionally stays out of the shape schema so legacy documents
- * remain parseable and the rule engine can return precise, repairable
- * findings instead of a generic Zod failure.
+ * `uuid` is reference identity and `id` is the author-facing/wire slug;
+ * execution order is the array's own position, so an operation carries no
+ * ordering slot at all. Facet legality intentionally stays out of the shape
+ * schema so legacy documents remain parseable and the rule engine can return
+ * precise, repairable findings instead of a generic Zod failure.
  */
 export const caseOperationSchema = z
 	.object({

@@ -110,8 +110,9 @@ function collectPredicateDependencies(
  * A repeated group is appended to the exact repeat iteration template after
  * that template's authored children. The resulting traversal is therefore
  * root first, then repeat scopes in post-order field traversal. This derived
- * order is shared by validation and move planning so the authored fractional
- * order can never promise a sequence the wire tree cannot represent.
+ * order is shared by validation and move planning so the authored sequence —
+ * the `caseOperations` array's own positions — can never promise a sequence the
+ * wire tree cannot represent.
  */
 export function caseOperationMultiplicityScopes(
 	doc: BlueprintDoc,

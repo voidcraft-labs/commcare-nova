@@ -23,7 +23,9 @@ import {
 import { parseLookupRevision } from "@/lib/lookup/schema";
 import {
 	buildCaseChangesBlueprint,
+	CASE_CHANGES_ROUTINE,
 	CASE_CHANGES_SEED,
+	CASE_CHANGES_SEQUENCE_LENGTH,
 } from "./caseChangesSeed";
 
 const doc = buildCaseChangesBlueprint();
@@ -39,7 +41,35 @@ describe("the case-changes smoke fixture", () => {
 	it("lists its changes in the order the journey reads them", () => {
 		expect(
 			orderedCaseOperations(doc.forms[formUuid] ?? {}).map((op) => op.id),
-		).toEqual([ids.create, ids.retype, ids.note, ids.file]);
+		).toEqual([
+			ids.create,
+			ids.retype,
+			ids.note,
+			ids.file,
+			...CASE_CHANGES_ROUTINE.map((routine) => routine.id),
+		]);
+	});
+
+	it("puts the four dependent changes at the head of the full sequence", () => {
+		// The journey reads "Runs 4 of 20" off a handle and presses Home from
+		// there. Both halves of that sentence are fixture facts: the position
+		// of the dependent change, and the length it is refused across.
+		const operationIds = orderedCaseOperations(doc.forms[formUuid] ?? {}).map(
+			(op) => op.id,
+		);
+		expect(operationIds.indexOf(ids.file)).toBe(3);
+		// Without the carrier the dormant change is absent, so the browser
+		// fixture is one longer than this one.
+		expect(operationIds).toHaveLength(CASE_CHANGES_SEQUENCE_LENGTH - 1);
+	});
+
+	it("gives every routine change its own declared property", () => {
+		// Fifteen writes of one property would render fifteen identical
+		// sentences, and the traversal half of the journey would prove nothing.
+		const properties = CASE_CHANGES_ROUTINE.map((routine) => routine.property);
+		expect(new Set(properties).size).toBe(properties.length);
+		const uuids = CASE_CHANGES_ROUTINE.map((routine) => routine.uuid);
+		expect(new Set(uuids).size).toBe(uuids.length);
 	});
 
 	it("projects both the unchanged session type and the earlier create's retype", () => {
@@ -91,7 +121,17 @@ describe("the case-changes smoke fixture", () => {
 			orderedCaseOperations(withLookup.forms[formUuid] ?? {}).map(
 				(operation) => operation.id,
 			),
-		).toEqual([ids.create, ids.retype, ids.note, ids.file, ids.dormant]);
+		).toEqual([
+			ids.create,
+			ids.retype,
+			ids.note,
+			ids.file,
+			...CASE_CHANGES_ROUTINE.map((routine) => routine.id),
+			ids.dormant,
+		]);
+		expect(
+			orderedCaseOperations(withLookup.forms[formUuid] ?? {}),
+		).toHaveLength(CASE_CHANGES_SEQUENCE_LENGTH);
 	});
 
 	it("refuses moving the consumer ahead of the create it consumes", () => {

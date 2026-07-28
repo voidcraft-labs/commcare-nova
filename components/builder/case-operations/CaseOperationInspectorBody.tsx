@@ -20,7 +20,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerAlertCircle from "@iconify-icons/tabler/alert-circle";
 import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import tablerTrash from "@iconify-icons/tabler/trash";
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { CaseTypePicker } from "@/components/builder/shared/CaseTypePicker";
 import { BlurCommitTextInput } from "@/components/builder/shared/primitives/BlurCommitTextInput";
 import { Button } from "@/components/shadcn/button";
@@ -63,6 +63,7 @@ import {
 	operationReadsOutsideRepeat,
 	repeatFieldDecls,
 } from "./formFieldScope";
+import { caseTypePhrase } from "./operationSentence";
 import { dependencyLine } from "./refusalCopy";
 import {
 	actionChangeLosses,
@@ -96,6 +97,11 @@ export function CaseOperationInspectorBody({
 	readonly operationUuid: Uuid;
 }) {
 	const view = useCaseOperations(formUuid);
+	/* Destructured so each memo below names the ONE member it reads. The view
+	 * is memoized, so depending on the whole object is no longer free-for-all
+	 * recomputation — but it still turns over whenever any of its fifteen
+	 * members does, and a verdict memo has no reason to care about the rest. */
+	const { editVerdict } = view;
 	const navigate = useNavigate();
 	const canEdit = useCanEdit();
 	const [refusal, setRefusal] = useState<string | undefined>(undefined);
@@ -150,7 +156,115 @@ export function CaseOperationInspectorBody({
 		[fieldEntries, operation?.forEach?.repeat],
 	);
 
-	if (operation === undefined) return null;
+	const existingTargetFallbacks = useMemo(() => {
+		const fallbacks: {
+			readonly target: CaseTarget;
+			readonly caseType: string;
+		}[] = [];
+		if (rollingSessionCaseType !== undefined) {
+			fallbacks.push({
+				target: { kind: "session" },
+				caseType: rollingSessionCaseType,
+			});
+		}
+		for (const create of priorCreates) {
+			fallbacks.push({
+				target: { kind: "op", opUuid: create.uuid },
+				caseType: create.caseType,
+			});
+		}
+		return fallbacks;
+	}, [rollingSessionCaseType, priorCreates]);
+
+	/* Every entry asks the real mutation planner and the commit gate, so this
+	 * is three gate runs — not a shape to rebuild on every keystroke in a
+	 * sibling control. It depends on the destructured `editVerdict` rather than
+	 * `view`, so an unrelated member of the view turning over cannot trigger
+	 * them. */
+	const actionChoices = useMemo(() => {
+		if (operation === undefined) return undefined;
+		return Object.fromEntries(
+			(["create", "update", "close"] as const).map((action) => {
+				if (action === operation.action) {
+					return [action, { next: operation } satisfies ActionChoice];
+				}
+				if (action === "create") {
+					const next = reshapeForAction(
+						operation,
+						action,
+						{ kind: "new" },
+						operation.caseType,
+					);
+					const verdict = editVerdict(next);
+					return [
+						action,
+						verdict.ok ? { next } : { reason: verdict.reason },
+					] as const;
+				}
+				if (operation.target.kind !== "new") {
+					const next = reshapeForAction(
+						operation,
+						action,
+						operation.target,
+						operation.caseType,
+					);
+					const verdict = editVerdict(next);
+					return [
+						action,
+						verdict.ok ? { next } : { reason: verdict.reason },
+					] as const;
+				}
+				let firstReason: string | undefined;
+				for (const fallback of existingTargetFallbacks) {
+					const next = reshapeForAction(
+						operation,
+						action,
+						fallback.target,
+						fallback.caseType,
+					);
+					const verdict = editVerdict(next);
+					if (verdict.ok) {
+						return [action, { next } satisfies ActionChoice] as const;
+					}
+					firstReason ??= verdict.reason;
+				}
+				return [
+					action,
+					{
+						reason:
+							firstReason ??
+							`${sessionUnavailableReason ?? "There is no compatible case in hand"}. Add an earlier case change first.`,
+					} satisfies ActionChoice,
+				] as const;
+			}),
+		) as Record<CaseOperationAction, ActionChoice>;
+	}, [
+		operation,
+		editVerdict,
+		existingTargetFallbacks,
+		sessionUnavailableReason,
+	]);
+
+	/* Stable for the same reason `CaseOperationsCanvas` stabilizes its own:
+	 * `CaseTypePickerContent` memoizes its whole verdict map on this callback,
+	 * asks once per offered case type, and re-renders on every keystroke in its
+	 * create-new box. A fresh closure per render defeats that memo. */
+	const caseTypeVerdict = useCallback(
+		(caseType: string) =>
+			operation === undefined
+				? { ok: true as const }
+				: editVerdict({ ...operation, caseType }),
+		[operation, editVerdict],
+	);
+	const retypeVerdict = useCallback(
+		(retype: string) =>
+			operation === undefined
+				? { ok: true as const }
+				: editVerdict({ ...operation, retype }),
+		[operation, editVerdict],
+	);
+
+	if (operation === undefined || actionChoices === undefined) return null;
 
 	const authoringVerdict = view.authoringVerdict(operation.uuid);
 	const operationCanEdit = canEdit && authoringVerdict.ok;
@@ -166,79 +280,6 @@ export function CaseOperationInspectorBody({
 			precedingOperations,
 			initialSessionCaseType,
 		);
-
-	const existingTargetFallbacks: {
-		readonly target: CaseTarget;
-		readonly caseType: string;
-	}[] = [];
-	if (rollingSessionCaseType !== undefined) {
-		existingTargetFallbacks.push({
-			target: { kind: "session" },
-			caseType: rollingSessionCaseType,
-		});
-	}
-	for (const create of priorCreates) {
-		existingTargetFallbacks.push({
-			target: { kind: "op", opUuid: create.uuid },
-			caseType: create.caseType,
-		});
-	}
-
-	const actionChoices = Object.fromEntries(
-		(["create", "update", "close"] as const).map((action) => {
-			if (action === operation.action) {
-				return [action, { next: operation } satisfies ActionChoice];
-			}
-			if (action === "create") {
-				const next = reshapeForAction(
-					operation,
-					action,
-					{ kind: "new" },
-					operation.caseType,
-				);
-				const verdict = view.editVerdict(next);
-				return [
-					action,
-					verdict.ok ? { next } : { reason: verdict.reason },
-				] as const;
-			}
-			if (operation.target.kind !== "new") {
-				const next = reshapeForAction(
-					operation,
-					action,
-					operation.target,
-					operation.caseType,
-				);
-				const verdict = view.editVerdict(next);
-				return [
-					action,
-					verdict.ok ? { next } : { reason: verdict.reason },
-				] as const;
-			}
-			let firstReason: string | undefined;
-			for (const fallback of existingTargetFallbacks) {
-				const next = reshapeForAction(
-					operation,
-					action,
-					fallback.target,
-					fallback.caseType,
-				);
-				const verdict = view.editVerdict(next);
-				if (verdict.ok) {
-					return [action, { next } satisfies ActionChoice] as const;
-				}
-				firstReason ??= verdict.reason;
-			}
-			return [
-				action,
-				{
-					reason:
-						firstReason ??
-						`${sessionUnavailableReason ?? "There is no compatible case in hand"}. Add an earlier case change first.`,
-				} satisfies ActionChoice,
-			] as const;
-		}),
-	) as Record<CaseOperationAction, ActionChoice>;
 
 	return (
 		<div className="space-y-5" data-case-operation-inspector={operation.uuid}>
@@ -306,9 +347,7 @@ export function CaseOperationInspectorBody({
 						disabled={!operationCanEdit}
 						exclude={RESERVED_CASE_OPERATION_TYPES}
 						ariaLabel="Kind of case"
-						choiceVerdict={(caseType) =>
-							view.editVerdict({ ...operation, caseType })
-						}
+						choiceVerdict={caseTypeVerdict}
 						onChange={(caseType) => commit({ ...operation, caseType })}
 					/>
 				</Row>
@@ -417,9 +456,7 @@ export function CaseOperationInspectorBody({
 							exclude={RESERVED_CASE_OPERATION_TYPES}
 							placeholder="Leave the type alone"
 							ariaLabel="Change the case's type"
-							choiceVerdict={(retype) =>
-								view.editVerdict({ ...operation, retype })
-							}
+							choiceVerdict={retypeVerdict}
 							clearLabel="Keep the current type"
 							clearVerdict={view.editVerdict({
 								...operation,
@@ -538,6 +575,19 @@ function ActionMenu({
 
 	if (pending !== null) {
 		const losses = actionChangeLosses(operation, pending);
+		const choice = choices[pending];
+		/* The panel reads the LIVE choice rather than the one that opened it. A
+		 * peer edit — or this author's own undo — can refuse the pending action
+		 * while the panel sits open, and confirming a change that then silently
+		 * does nothing is the one outcome this surface never allows. */
+		const refused = !("next" in choice);
+		/* Losing the target is not the whole story: an update or close needs an
+		 * existing case, so a create's `{kind:"new"}` target is replaced by the
+		 * first fallback that passes — which may be a DIFFERENT kind of case,
+		 * and the writes travel to it, declaring their properties there. */
+		const nextCaseType = "next" in choice ? choice.next.caseType : undefined;
+		const retargets =
+			nextCaseType !== undefined && nextCaseType !== operation.caseType;
 		return (
 			<div
 				ref={panelRef}
@@ -545,9 +595,30 @@ function ActionMenu({
 				className="space-y-3 rounded-xl border border-nova-amber/30 bg-nova-amber/[0.05] p-3 outline-none"
 			>
 				<p className="text-[13px] leading-relaxed text-nova-text-secondary">
-					Make this {ACTION_LABEL[pending].toLocaleLowerCase()}? A {pending}{" "}
-					change cannot carry {listPhrase(losses)}, so it will be removed. You
-					can undo this.
+					{refused ? (
+						<>
+							This change cannot become{" "}
+							{ACTION_LABEL[pending].toLocaleLowerCase()} any more.{" "}
+							{choice.reason}
+						</>
+					) : (
+						<>
+							Make this {ACTION_LABEL[pending].toLocaleLowerCase()}?{" "}
+							{losses.length > 0 && (
+								<>
+									It cannot carry {listPhrase(losses)}, so that will be removed.{" "}
+								</>
+							)}
+							{retargets && nextCaseType !== undefined && (
+								<>
+									It will act on the {caseTypePhrase(nextCaseType)} case instead
+									of the {caseTypePhrase(operation.caseType)} case, and
+									everything it saves moves with it.{" "}
+								</>
+							)}
+							You can undo this.
+						</>
+					)}
 				</p>
 				<div className="flex flex-wrap gap-2">
 					<Button
@@ -556,20 +627,21 @@ function ActionMenu({
 						size="xl"
 						onClick={() => setPending(null)}
 					>
-						Cancel
+						{refused ? "Close" : "Cancel"}
 					</Button>
-					<Button
-						type="button"
-						variant="warning"
-						size="xl"
-						onClick={() => {
-							const choice = choices[pending];
-							if ("next" in choice) onChange(choice.next);
-							setPending(null);
-						}}
-					>
-						Change it
-					</Button>
+					{!refused && (
+						<Button
+							type="button"
+							variant="warning"
+							size="xl"
+							onClick={() => {
+								if ("next" in choice) onChange(choice.next);
+								setPending(null);
+							}}
+						>
+							Change it
+						</Button>
+					)}
 				</div>
 			</div>
 		);

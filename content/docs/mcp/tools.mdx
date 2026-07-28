@@ -128,7 +128,7 @@ CommCare has four form types: `registration` creates a new case, `followup` upda
 
 Most forms save their answers onto their primary case through their fields. Case operations cover additional ordered effects: create another case, update or close a known case, connect cases, rename or retype one, assign an owner, or repeat an effect for every row in a repeating section.
 
-These tools use author identities throughout: module, form, and operation slug ids, plus field paths such as `visits/outcome`. They never ask for or return storage UUIDs. A later operation in one add call can target an earlier create from that call by its operation id; the whole list is checked and saved atomically.
+Each of these tools names the form it acts on by `moduleUuid` and `formUuid`, both of which `get_module` and `search_blueprint` return. Everything inside an operation is author vocabulary: the operation's own id, and field paths such as `visits/outcome`. A later operation in one add call can target an earlier create from that call by its operation id; the whole list is checked and saved atomically.
 
 Operation ids and link identifiers contain letters, numbers, and underscores
 and start with a letter or underscore. Write-property names use the same

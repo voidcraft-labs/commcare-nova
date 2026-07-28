@@ -73,7 +73,15 @@ export function CaseOperationRow({
 	onSelect,
 }: CaseOperationRowProps) {
 	const sentence = operationSentence(operation, context);
-	const spoken = operationSentenceText(sentence);
+	/* The guard clause has to be IN the accessible name, not merely on screen
+	 * beside it: an `aria-label` REPLACES the name computed from the button's
+	 * contents, so without this the one signal that a change is conditional on
+	 * an earlier one — the only place the list shows it — reaches nobody using
+	 * a screen reader, and they are told it runs on every submission. */
+	const spoken =
+		inheritedGuards.length > 0
+			? `${operationSentenceText(sentence)}. Also only when ${listSentence(inheritedGuards)} runs`
+			: operationSentenceText(sentence);
 
 	const body = (
 		<span className="min-w-0 flex-1">

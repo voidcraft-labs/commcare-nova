@@ -44,6 +44,7 @@ import {
 	RESERVED_CASE_OPERATION_TYPES,
 } from "@/lib/domain";
 import { storageAssignmentConstraint } from "@/lib/domain/predicate";
+import { useRemovedRowFocus } from "@/lib/ui/hooks/useRemovedRowFocus";
 import { CaseTargetPicker, type TargetChoiceContext } from "./CaseTargetPicker";
 import { RUNTIME_TARGET_OPERATION_SCOPE } from "./editorScope";
 import { nextLinkIdentifier, seedCaseOperationLink } from "./seeds";
@@ -115,12 +116,23 @@ export function CaseOperationLinks({
 		nextLinkIdentifier(identifiers),
 		defaultTargetType,
 	);
+	/* The Remove button unmounts with the row it removes, so focus goes to the
+	 * next connection, then the previous, then Connect to another case. */
+	const rowFocus = useRemovedRowFocus(links.length);
 	const addVerdict = canEdit
 		? editVerdict([...links, addedLink])
 		: ({ ok: true } as const);
 
 	return (
 		<div className="space-y-3">
+			{/* Without this the card is a heading and a description over an empty
+			 *  div for a viewer, or for a read-only change: "connects to nothing"
+			 *  and "this panel failed to load" look identical. */}
+			{links.length === 0 && !canEdit && (
+				<p className="text-[13px] leading-relaxed text-nova-text-muted">
+					This change connects to no other cases.
+				</p>
+			)}
 			{links.map((link, index) => (
 				<LinkRow
 					key={link.identifier}
@@ -144,7 +156,9 @@ export function CaseOperationLinks({
 						)
 					}
 					onChange={(next) => replace(index, next)}
+					removeRef={rowFocus.register(index)}
 					onRemove={() => {
+						rowFocus.onRemoved(index);
 						const remaining = links.filter((_, i) => i !== index);
 						onChange(remaining.length === 0 ? undefined : remaining);
 					}}
@@ -152,6 +166,7 @@ export function CaseOperationLinks({
 			))}
 			{canEdit && (
 				<Button
+					ref={rowFocus.addRef}
 					type="button"
 					variant="outline"
 					size="xl"
@@ -187,7 +202,9 @@ function LinkRow({
 	linkVerdict,
 	onChange,
 	onRemove,
+	removeRef,
 }: {
+	readonly removeRef?: React.Ref<HTMLButtonElement>;
 	readonly link: CaseOperationLink;
 	readonly siblings: ReadonlySet<string>;
 	readonly targetContext: LinkTargetContext;
@@ -252,10 +269,12 @@ function LinkRow({
 				</div>
 				{canEdit && (
 					<Button
+						ref={removeRef}
 						type="button"
 						variant="ghost"
 						size="xl"
 						onClick={onRemove}
+						aria-label={`Remove the connection “${link.identifier}”`}
 						className="px-3 text-sm text-nova-rose not-disabled:hover:bg-nova-rose/[0.08] not-disabled:hover:text-nova-rose"
 					>
 						<Icon icon={tablerTrash} width="14" height="14" />

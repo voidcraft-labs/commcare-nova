@@ -80,7 +80,14 @@ export function useActiveInspector(): ActiveInspector | null {
 			kicker: "Case change",
 			title: operation.title,
 			body: (
+				/* Keyed by the change for the same reason the detail canvas is
+				 * (`PreviewShell`): this body holds per-change confirmation state —
+				 * an armed removal, an armed action change — and Previous / Next
+				 * changes only `operationUuid`, so an unkeyed instance would be
+				 * reconciled in place and one Enter would commit a confirmation the
+				 * author armed for the change they just left. */
 				<CaseOperationInspectorBody
+					key={operation.operationUuid}
 					moduleUuid={operation.moduleUuid}
 					formUuid={operation.formUuid}
 					operationUuid={operation.operationUuid}

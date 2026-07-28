@@ -274,6 +274,21 @@ carries a selection, because a form can hold twenty changes and "look at this
 one" has to be sendable. The form-settings panel's **Case changes** row states
 the count and hands off; Preview from either URL runs the owning form.
 
+**The list and one change's detail are mutually exclusive screens on that one
+URL, at every width** — `PreviewShell` picks between them on `operationUuid`
+alone. That is a decision, not a missing reflow: no width shows both, so adding
+a master/detail mode would be a second layout rather than a responsive tune.
+The cost is that walking a long sequence rests on Previous / Next and Back
+rather than a visible list, which is what the 20-change end-to-end journey
+exercises.
+
+**The rail body is KEYED by the change** (`activeInspector.tsx`), and it is the
+only rail body that has to be: it holds per-change confirmation state (an armed
+removal, an armed action change), and Previous / Next changes only the
+`operationUuid`, so an unkeyed instance is reconciled in place and one Enter
+commits a confirmation the author armed for the change they just left. The
+canvas siblings in `PreviewShell` key for the same reason.
+
 **The list is the screen the platform never had.** Each row is a sentence
 (`operationSentence.ts`) — a display projection with no semantics of its own,
 same discipline as the display-condition summary printer — and shows the

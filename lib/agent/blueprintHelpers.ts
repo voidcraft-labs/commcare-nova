@@ -1052,16 +1052,18 @@ export function updateFieldMutations<K extends FieldKind>(
 
 // ── Private helpers ─────────────────────────────────────────────────────
 
-/** Derive a module's semantic id slug from its display name. Keeps us from
- *  having to surface a separate slug input at every creation site. The slug
- *  rule itself lives in `lib/domain/idSlug.ts` so the SA and the builder's
- *  in-tree scaffolds derive ids identically. */
+/** Derive a module's semantic id slug from its display name.
+ *
+ *  DISPLAY ONLY. Nothing addresses a module or a form by this slug any more —
+ *  the case-operation tools were the last consumer and now take uuids — so it
+ *  is not unique, is not maintained through a rename, and must not become a
+ *  key again. The slug rule lives in `lib/domain/idSlug.ts`. */
 function slugifyModuleId(name: string): string {
 	return slugifyId(name, "module");
 }
 
-/** Derive a form's semantic id slug from its display name. Same shared rule
- *  as the module slug, defaulting to "form" if sanitizing strips everything. */
+/** Derive a form's semantic id slug from its display name. Same rule and the
+ *  same display-only status as the module slug. */
 function slugifyFormId(name: string): string {
 	return slugifyId(name, "form");
 }
