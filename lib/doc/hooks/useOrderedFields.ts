@@ -1,4 +1,4 @@
-import { sameSequenceByIdentity } from "@/lib/doc/sequenceEquality";
+"use client";
 
 /**
  * Return the ordered child UUIDs of a form or group/repeat.
@@ -20,8 +20,7 @@ import { sameSequenceByIdentity } from "@/lib/doc/sequenceEquality";
  * unchanged — stable enough for `React.memo` without spurious churn.
  */
 
-("use client");
-
+import { sameSequenceByIdentity } from "@/lib/doc/sequenceEquality";
 import type { Uuid } from "@/lib/domain";
 import { useBlueprintDocEq } from "./useBlueprintDoc";
 
