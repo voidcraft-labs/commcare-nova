@@ -91,8 +91,17 @@ const SOURCE_B = {
 
 /**
  * Frozen origin/main-compatible subset used by every payload in this matrix.
- * The important constraint is nested strictness: Results/Details order keys
- * are unknown inside an origin column and therefore fail instead of stripping.
+ * The important constraint is nested strictness: an unknown key inside an
+ * origin column or config FAILS rather than stripping.
+ *
+ * `listColumnOrder` / `detailColumnOrder` are the one deliberate exception to
+ * this file's premise. Sequence moved from per-entity keys to the config's two
+ * arrays as a MAINTENANCE CUTOVER, not a rolling deploy: the blocking migration
+ * runs while the old revision still serves, and a document carrying the two
+ * arrays is unreadable to it. There is no fallback spelling to test, because
+ * there is no window in which both shapes are live — so the origin schema here
+ * is the post-cutover one, and every other slot in this file keeps its rolling
+ * story.
  */
 const legacyColumnSchema = z
 	.object({
@@ -116,6 +125,8 @@ const legacyColumnSchema = z
 const legacyCaseListConfigSchema = z
 	.object({
 		columns: z.array(legacyColumnSchema),
+		listColumnOrder: z.array(z.string()),
+		detailColumnOrder: z.array(z.string()),
 		searchInputs: z.array(z.unknown()),
 	})
 	.strict();
@@ -1133,12 +1144,9 @@ describe("mutation rolling compatibility", () => {
 		}
 
 		const {
-			add,
 			content,
-			visibility,
 			sort,
 			replaceConfig,
-			addModule,
 			ownerOnly,
 			addModuleOwnerOnly,
 			searchSetting,
@@ -1155,32 +1163,20 @@ describe("mutation rolling compatibility", () => {
 			replaceTiledConfig,
 			addTiledModule,
 		} = payloads();
-		expect(add).not.toHaveProperty("column.listOrder");
-		expect(add).not.toHaveProperty("column.detailOrder");
-		expect(content).not.toHaveProperty("column.listOrder");
-		expect(content).not.toHaveProperty("column.detailOrder");
-		expect(visibility).not.toHaveProperty("column.listOrder");
-		expect(visibility).not.toHaveProperty("column.detailOrder");
 		expect(content).toHaveProperty("preserveSort", true);
 		expect(sort).toHaveProperty("sortPatch", {
 			direction: "desc",
 			priority: 0,
 		});
-		expect(replaceConfig).not.toHaveProperty(
-			"patch.caseListConfig.columns.0.listOrder",
-		);
-		expect(replaceConfig).not.toHaveProperty(
-			"patch.caseListConfig.columns.0.detailOrder",
+		// Sequence rides the config's two arrays, so a wholesale config
+		// replacement carries both and no column body carries a place.
+		expect(replaceConfig).toHaveProperty(
+			"patch.caseListConfig.listColumnOrder",
+			[COLUMN],
 		);
 		expect(replaceConfig).toHaveProperty(
-			"columnSurfaceOrders.0.listOrder",
-			"list-a",
-		);
-		expect(addModule).not.toHaveProperty(
-			"module.caseListConfig.columns.0.listOrder",
-		);
-		expect(addModule).not.toHaveProperty(
-			"module.caseListConfig.columns.0.detailOrder",
+			"patch.caseListConfig.detailColumnOrder",
+			[COLUMN],
 		);
 		expect(ownerOnly).not.toHaveProperty(
 			"patch.caseSearchConfig.searchActionEnabled",

@@ -120,8 +120,12 @@ function makeModule(args: {
 		...(args.caseType !== undefined && { caseType: args.caseType }),
 		caseListConfig: resolveCaseListConfig({
 			columns: args.columns.map((c) => c.column),
-			...(args.listColumnOrder !== undefined && {}),
-			...(args.detailColumnOrder !== undefined && {}),
+			...(args.listColumnOrder !== undefined && {
+				listColumnOrder: [...args.listColumnOrder],
+			}),
+			...(args.detailColumnOrder !== undefined && {
+				detailColumnOrder: [...args.detailColumnOrder],
+			}),
 			searchInputs: [],
 		}),
 	};
@@ -310,6 +314,8 @@ describe("buildSortDirectives — tie-break to Results order", () => {
 			],
 			// Results shows B first; Details shows A first. The tie-break must
 			// follow Results and be blind to Details.
+			listColumnOrder: [colB.uuid, colA.uuid],
+			detailColumnOrder: [colA.uuid, colB.uuid],
 		});
 		const doc = buildDoc({
 			module: mod,

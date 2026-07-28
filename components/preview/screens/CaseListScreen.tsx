@@ -81,6 +81,7 @@ import {
 	DEFAULT_CASE_SEARCH_BUTTON_LABEL,
 	DEFAULT_CASE_SEARCH_TITLE,
 	effectiveCaseSearchConfig,
+	orderedColumns,
 	SEARCH_INPUT_RUNTIME_VALUE_TYPES,
 } from "@/lib/domain";
 import { formTypeIcons } from "@/lib/domain/formTypeIcons";
@@ -618,10 +619,11 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		focusFirstSearchControl();
 	};
 
-	// Results and Details are independent compositions. Each consumes its own
-	// fractional order key (falling back to legacy `order`) so rearranging one
-	// running-app screen cannot silently rearrange the other.
-	const listOrderedColumns = [...(config?.columns ?? [])].sort();
+	// Results and Details are independent compositions: each reads its OWN
+	// sequence, so rearranging one running-app screen cannot silently
+	// rearrange the other.
+	const listOrderedColumns =
+		config === undefined ? [] : orderedColumns(config, "list");
 	const visibleColumns = listOrderedColumns.filter(
 		(col) => col.visibleInList ?? true,
 	);
@@ -638,9 +640,9 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	 * a config whose columns are all gone. */
 	const tileActive =
 		config?.tile !== undefined && tileProjection.cells.length > 0;
-	const detailColumns = [...(config?.columns ?? [])].filter(
-		(col) => col.visibleInDetail !== false,
-	);
+	const detailColumns = (
+		config === undefined ? [] : orderedColumns(config, "detail")
+	).filter((col) => col.visibleInDetail !== false);
 	const queryActive = searchRun.queryActive;
 	const draftActive = searchRun.draftActive;
 	const loadedRows = state.kind === "rows" ? state.rows : [];

@@ -50,6 +50,7 @@ import {
 	phoneColumn,
 	plainColumn,
 	simpleSearchInputDef,
+	type Uuid,
 } from "@/lib/domain";
 import type { Predicate, ValueExpression } from "@/lib/domain/predicate";
 import {
@@ -235,6 +236,9 @@ function renderCaseListScreen(opts: {
 			? X
 			: never
 		: never;
+	/** Override either screen's sequence; omit for the written column order. */
+	listColumnOrder?: readonly Uuid[];
+	detailColumnOrder?: readonly Uuid[];
 	filter?: Predicate;
 	searchScreenTitle?: string;
 	searchButtonLabel?: string;
@@ -297,9 +301,15 @@ function renderCaseListScreen(opts: {
 								caseListConfig: {
 									columns: opts.columns,
 									// Both screens show the columns the test supplied, in the
-									// order it supplied them.
-									listColumnOrder: opts.columns.map((c) => c.uuid),
-									detailColumnOrder: opts.columns.map((c) => c.uuid),
+									// order it supplied them, unless it says otherwise.
+									listColumnOrder: [
+										...(opts.listColumnOrder ??
+											opts.columns.map((c) => c.uuid)),
+									],
+									detailColumnOrder: [
+										...(opts.detailColumnOrder ??
+											opts.columns.map((c) => c.uuid)),
+									],
 									searchInputs: opts.searchInputs ?? [],
 									...(opts.filter !== undefined && { filter: opts.filter }),
 								},
@@ -1059,6 +1069,8 @@ describe("CaseListScreen — per-surface field order", () => {
 				plainColumn(COL_NAME_UUID, "name", "Name", {}),
 				plainColumn(COL_AGE_UUID, "age", "Age", {}),
 			],
+			// Results shows Age above Name; Details keeps the written order.
+			listColumnOrder: [COL_AGE_UUID, COL_NAME_UUID],
 		});
 
 		const rowAction = await screen.findByRole("button", { name: /Alice/ });
