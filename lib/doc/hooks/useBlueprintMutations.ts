@@ -626,7 +626,8 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 			 * VALIDATED CANDIDATE commits directly (`commitDoc`) with the
 			 * candidate run's own reducer results — one reducer run per
 			 * dispatch, and the committed doc is exactly the doc the gate
-			 * validated. */
+			 * validated. The batch is then RECORDED: it is the author's
+			 * un-persisted intent until the reconciler PUTs it. */
 			const guardedApply = (
 				mutations: Mutation[],
 			):
@@ -657,7 +658,10 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 					if (announce) notifyRejectedCommit(lines);
 					return { ok: false, messages: lines };
 				}
-				store.getState().commitDoc(verdict.nextDoc);
+				// The candidate commits, and the batch that produced it is kept
+				// verbatim. Persistence replays exactly these commands rather than
+				// re-deriving them by diffing the committed document against a base.
+				store.getState().commitDoc(verdict.nextDoc, mutations);
 				return { ok: true, results: verdict.results };
 			};
 

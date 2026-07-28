@@ -1954,7 +1954,12 @@ describe("reconciler", () => {
 				mutations: [{ kind: "setAppName", name: "Mid" }],
 				seq: 2,
 			});
+			// The SA's own write streams inside an agent bracket, which is what
+			// keeps it off the author's command queue: the chat route persists it
+			// server-side, so replaying it here would double-apply.
+			h.docStore.getState().beginAgentWrite();
 			h.docStore.getState().applyMany([{ kind: "setAppName", name: "Mid" }]);
+			h.docStore.getState().endAgentWrite();
 
 			// data-done carries the final doc at seq 2.
 			const finalDoc = makeDoc("Final");

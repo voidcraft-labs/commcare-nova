@@ -90,7 +90,32 @@ export type BlueprintDocState = BlueprintDoc & {
 	 * by the same reducer). See the implementation note for why this
 	 * exists instead of a second `applyMany` run.
 	 */
-	commitDoc: (next: BlueprintDoc) => void;
+	commitDoc: (next: BlueprintDoc, commands?: readonly Mutation[]) => void;
+	/**
+	 * The commands dispatched since the last take, in order, and clear them.
+	 *
+	 * The builder already KNOWS what the author did — every write surface hands
+	 * the store the exact `Mutation[]`. The store keeps it instead of throwing
+	 * it away and re-deriving it later by diffing two documents, which is what
+	 * persistence used to do.
+	 *
+	 * A write only enters the queue when it is the AUTHOR's: a suppression
+	 * bracket is open for every other writer (an agent stream, an inbound
+	 * remote frame, a reload reseed, the birth pause), which is the same signal
+	 * the undo stack uses. Recording behind that one flag is why no call site
+	 * has to remember to record, and why the queue and the undo stack cannot
+	 * disagree about what an edit was.
+	 */
+	/**
+	 * The commands dispatched since the last take, in order, and clear them.
+	 *
+	 * The reconciler takes the queue when it PUTs: from that moment the batch
+	 * is its business, tracked in `sentPending` until the server echoes it.
+	 */
+	takeCommands: () => Mutation[];
+	/** The queue without clearing it — for deciding whether there is anything
+	 *  to save. */
+	peekCommands: () => readonly Mutation[];
 	/**
 	 * Replace the entire doc from a `PersistableDoc` (the persisted shape that
 	 * omits `fieldParent`).
@@ -247,6 +272,14 @@ export function createBlueprintDocStore() {
 	// bracket close), so undo works after a build without a page reload.
 	let suppressionDepth = 1;
 	let openBrackets = 0;
+	/**
+	 * The commands the author has dispatched but not yet persisted.
+	 *
+	 * Session-scoped closure state rather than a doc field: it is not part of
+	 * the blueprint, it must not reach an undo snapshot, and it must not
+	 * serialize. `load` clears it — a hydration is not an author's intent.
+	 */
+	let pendingCommands: Mutation[] = [];
 	let birthPauseReleased = false;
 	let pendingStartTracking = false;
 
@@ -307,6 +340,20 @@ export function createBlueprintDocStore() {
 		}
 	}
 
+	/**
+	 * Queue a write as the author's un-persisted intent — unless a suppression
+	 * bracket is open, in which case some OTHER writer produced it.
+	 *
+	 * The bracket is the same signal the undo stack reads, so "what the author
+	 * did" has one definition rather than two that can drift.
+	 */
+	function recordIfAuthored(mutations: readonly Mutation[]): void {
+		if (suppressionDepth > 0 || mutations.length === 0) return;
+		for (const mutation of mutations) {
+			pendingCommands.push(structuredClone(mutation));
+		}
+	}
+
 	const store = create<BlueprintDocState>()(
 		devtools(
 			temporal(
@@ -350,6 +397,7 @@ export function createBlueprintDocStore() {
 									muts,
 								);
 							});
+							recordIfAuthored(muts);
 							return results;
 						},
 
@@ -377,11 +425,20 @@ export function createBlueprintDocStore() {
 						 * other writer routes through `applyMany` so the reducer
 						 * stays the one mutation interpreter.
 						 */
-						commitDoc: (next: BlueprintDoc): void => {
+						commitDoc: (next: BlueprintDoc, commands = []): void => {
 							set((draft) => {
 								overlayDoc(draft as unknown as Record<string, unknown>, next);
 							});
+							recordIfAuthored(commands);
 						},
+
+						takeCommands: (): Mutation[] => {
+							const taken = pendingCommands;
+							pendingCommands = [];
+							return taken;
+						},
+
+						peekCommands: (): readonly Mutation[] => pendingCommands,
 
 						/**
 						 * Hydrate the store from a normalized `BlueprintDoc`.
@@ -408,12 +465,14 @@ export function createBlueprintDocStore() {
 									"BlueprintDoc.load() called inside an open suppression bracket — reseed via commitDoc instead so the depth counter stays coherent.",
 								);
 							}
+							// A load replaces the document, so any command still waiting to
+							// persist describes an edit to a document that no longer exists.
+							pendingCommands = [];
 							// The single hydration chokepoint: fieldParent rebuilt +
-							// deterministic `order`/option-`uuid` backfill of a legacy doc,
-							// on a deep clone so `doc` is never mutated. Position-seeded, so
-							// this client and the server agree on the same legacy doc and a
-							// diff against it never disagrees on an entity's position or an
-							// option's identity.
+							// deterministic option-`uuid` backfill of a legacy doc, on a deep
+							// clone so `doc` is never mutated. Position-seeded, so this client
+							// and the server agree on the same legacy doc and an edit against
+							// it never disagrees on which option it addressed.
 							const hydrated = hydratePersistedBlueprint(doc);
 							set((draft) => {
 								// Overlay EVERY doc field in one pass, blanking data keys the

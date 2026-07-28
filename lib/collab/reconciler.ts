@@ -445,29 +445,39 @@ export function createReconciler(
 		return foldBatches(confirmedDoc, pendingBatches());
 	}
 
-	/** The human delta not yet in `sentPending` — the difference between the
-	 *  displayed doc and `localBase()`. */
-	function humanUncommitted(): Mutation[] {
-		return diffDocsToMutations(
-			toPersistableDoc(localBase()) as BlueprintDoc,
-			toPersistableDoc(displayed()) as BlueprintDoc,
-		);
+	/**
+	 * The commands the author has dispatched but not yet PUT.
+	 *
+	 * The builder already built these — every gated dispatch records the exact
+	 * `Mutation[]` it committed. Reading them back is what makes a reorder
+	 * persist as the move the author made, rather than as whatever two
+	 * documents happened to differ by.
+	 *
+	 * Peeking is non-destructive on purpose: this is called to DECIDE things
+	 * (is there anything to save, is there an unsaved delta to warn about) far
+	 * more often than to send, and only the send takes the queue.
+	 */
+	function humanUncommitted(): readonly Mutation[] {
+		return docStore.getState().peekCommands();
 	}
 
 	/** Re-fold `confirmedDoc ⊕ sentPending ⊕ humanUncommitted` onto the store's
 	 *  displayed doc inside a remote-apply bracket (off the undo stack, and
 	 *  gating the auto-save re-PUT). Called after every `confirmedDoc` advance
-	 *  so the invariant holds. The humanUncommitted delta is captured BEFORE
-	 *  the fold (from the store's current displayed doc) so a concurrent local
-	 *  edit isn't lost. */
-	function refoldDisplayed(humanDelta: Mutation[]): void {
+	 *  so the invariant holds. The human commands are REPLAYED onto the new
+	 *  base — the author's own edits land on top of the peer's, which is what
+	 *  makes the merge their edit rather than a re-derived approximation of
+	 *  it. They stay queued: the fold does not persist them. */
+	function refoldDisplayed(humanDelta: readonly Mutation[]): void {
 		const target = produce(localBase(), (draft) => {
-			applyBatch(draft, humanDelta);
+			applyBatch(draft, [...humanDelta]);
 		});
 		// Short-circuit when the fold already equals the displayed doc — the solo
 		// hot path (an echo with no pending peer edit + no human delta) owes
 		// nothing, so skip the whole-doc `commitDoc` (which would churn the store
-		// subscriber + the auto-save watermark for no change).
+		// subscriber + the auto-save watermark for no change). The diff here is
+		// an EQUALITY CHECK, not a batch anyone sends: what persists is the
+		// author's recorded commands.
 		const delta = diffDocsToMutations(
 			toPersistableDoc(displayed()) as BlueprintDoc,
 			toPersistableDoc(target) as BlueprintDoc,
@@ -560,8 +570,11 @@ export function createReconciler(
 				effectiveObserver?.({ kind: "tooLarge" });
 			return undefined;
 		}
-		const mutations = humanUncommitted();
-		if (mutations.length === 0) return undefined;
+		if (humanUncommitted().length === 0) return undefined;
+		// Taking the queue hands the batch to `sentPending`: from here it is
+		// tracked until the server echoes it, and a new author edit starts a
+		// fresh queue behind it.
+		const mutations = docStore.getState().takeCommands();
 		const batchId = crypto.randomUUID();
 		const batch: SentBatch = {
 			batchId,
@@ -1031,9 +1044,12 @@ export function createReconciler(
 	/** Overlay the current `confirmedDoc ⊕ sentPending ⊕ humanDelta` onto the
 	 *  store inside a remote-apply bracket, optionally clearing the undo stacks
 	 *  (a reload / data-done reseed is a new baseline). */
-	function reseedConfirmed(humanDelta: Mutation[], clearUndo: boolean): void {
+	function reseedConfirmed(
+		humanDelta: readonly Mutation[],
+		clearUndo: boolean,
+	): void {
 		const target = produce(localBase(), (draft) => {
-			applyBatch(draft, humanDelta);
+			applyBatch(draft, [...humanDelta]);
 		});
 		reseedStore(target, clearUndo);
 	}
