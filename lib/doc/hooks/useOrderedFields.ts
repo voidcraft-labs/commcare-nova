@@ -1,3 +1,5 @@
+"use client";
+
 /**
  * Return the ordered child UUIDs of a form or group/repeat.
  *
@@ -18,10 +20,8 @@
  * unchanged — stable enough for `React.memo` without spurious churn.
  */
 
-"use client";
-
+import { sameSequenceByIdentity } from "@/lib/doc/sequenceEquality";
 import type { Uuid } from "@/lib/domain";
-import { bySortKey, sameSequenceByIdentity } from "../order/compare";
 import { useBlueprintDocEq } from "./useBlueprintDoc";
 
 /**
@@ -41,14 +41,10 @@ export function useOrderedFields(parentUuid: Uuid): readonly Uuid[] {
 	return useBlueprintDocEq((s) => {
 		const order = s.fieldOrder[parentUuid];
 		if (!order || order.length === 0) return EMPTY_ORDER;
-		// Visual sequence is `sort-by-(order, uuid)`, not array position — a
-		// same-parent reorder leaves the membership array untouched and only
-		// changes a field's `order`, so the canvas re-sequences because this
-		// hook sorts. The identity equality below keeps the reference stable
-		// when the sorted order is unchanged.
-		const fields = s.fields;
-		return [...order].sort((a, b) =>
-			bySortKey(fields[a] ?? {}, fields[b] ?? {}),
-		);
+		// The membership array IS the visual sequence, so there is nothing to
+		// derive. The identity equality below still keeps the reference stable
+		// when an unrelated edit leaves this sequence untouched, so `React.memo`
+		// consumers don't churn.
+		return [...order];
 	}, sameSequenceByIdentity);
 }

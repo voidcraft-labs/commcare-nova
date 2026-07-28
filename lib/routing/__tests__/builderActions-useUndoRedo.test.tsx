@@ -110,7 +110,7 @@ function makeStore() {
 			],
 		}),
 	);
-	store.temporal.getState().resume();
+	store.getState().startTracking();
 	return store;
 }
 
@@ -146,7 +146,7 @@ describe("useUndoRedo", () => {
 
 	it("undo no-ops when pastStates is empty (fresh load)", () => {
 		const store = makeStore();
-		store.temporal.getState().clear();
+		store.getState().clearHistory();
 
 		const countBefore = Object.keys(store.getState().fields).length;
 		const { result } = renderHook(() => useUndoRedo(), {
@@ -160,7 +160,7 @@ describe("useUndoRedo", () => {
 
 	it("redo no-ops when futureStates is empty", () => {
 		const store = makeStore();
-		store.temporal.getState().clear();
+		store.getState().clearHistory();
 
 		const countBefore = Object.keys(store.getState().fields).length;
 		const { result } = renderHook(() => useUndoRedo(), {
@@ -180,7 +180,7 @@ describe("useUndoRedo", () => {
 			store.getState().applyMany([{ kind: "removeField", uuid: qaUuid }]);
 		});
 		expect(store.getState().fields[qaUuid]).toBeUndefined();
-		expect(store.temporal.getState().pastStates.length).toBeGreaterThan(0);
+		expect(store.getState().canUndo ? 1 : 0).toBeGreaterThan(0);
 
 		const { result } = renderHook(() => useUndoRedo(), {
 			wrapper: wrap(store),

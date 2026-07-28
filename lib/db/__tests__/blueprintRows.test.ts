@@ -109,7 +109,6 @@ describe("blueprint entity-row round trip", () => {
 					uuid: moduleUuid,
 					id: "visits",
 					name: "Visits",
-					order: "a0",
 				},
 			},
 			forms: {
@@ -118,7 +117,6 @@ describe("blueprint entity-row round trip", () => {
 					id: "visit",
 					name: "Visit",
 					type: "survey",
-					order: "a0",
 				},
 			},
 			fields: {
@@ -127,7 +125,6 @@ describe("blueprint entity-row round trip", () => {
 					id: "status",
 					kind: "single_select",
 					label: "Status",
-					order: "a0",
 					options: [
 						{ value: "active", label: "Active" },
 						{ value: "closed", label: "Closed" },
@@ -205,7 +202,6 @@ describe("the user collections", () => {
 				kind: "addUserProperty",
 				property: {
 					uuid: PROPERTY,
-					order: "a0",
 					slug: "region",
 					label: "Region",
 					choices: ["north", "south"],
@@ -215,7 +211,6 @@ describe("the user collections", () => {
 				kind: "addUserType",
 				userType: {
 					uuid: TYPE,
-					order: "a0",
 					name: "CHW",
 					values: { [PROPERTY]: "north" },
 				},
@@ -224,7 +219,6 @@ describe("the user collections", () => {
 				kind: "addPersona",
 				persona: {
 					uuid: PERSONA,
-					order: "a0",
 					name: "Asha",
 					userTypeUuid: TYPE,
 					values: { [PROPERTY]: "south" },
@@ -458,6 +452,7 @@ describe("the user collections", () => {
 						userProperties: Object.fromEntries([
 							[uuid, { uuid, slug: "region", label: "Region" }],
 						]),
+						userPropertyOrder: [uuid],
 					},
 					record: (doc) => doc.userProperties,
 				},
@@ -466,6 +461,7 @@ describe("the user collections", () => {
 					doc: {
 						...emptyDoc(`rt-${identity}-type`),
 						userTypes: Object.fromEntries([[uuid, { uuid, name: "Worker" }]]),
+						userTypeOrder: [uuid],
 					},
 					record: (doc) => doc.userTypes,
 				},
@@ -474,6 +470,7 @@ describe("the user collections", () => {
 					doc: {
 						...emptyDoc(`rt-${identity}-persona`),
 						personas: Object.fromEntries([[uuid, { uuid, name: "Asha" }]]),
+						personaOrder: [uuid],
 					},
 					record: (doc) => doc.personas,
 				},

@@ -870,31 +870,6 @@ describe("commitGuardedBatch (Postgres)", () => {
 		expect(await readSeq(appId)).toBe(0);
 	});
 
-	it("rejects raw duplicateField as a typed commit rejection without writing", async () => {
-		const doc = minDoc();
-		const appId = await seedApp(doc, { projectId: PROJECT });
-		const target = Object.values(doc.fields)[0];
-		if (target === undefined) throw new Error("fixture has no field");
-
-		await expect(
-			commitGuardedBatch({
-				appId,
-				expectedProjectId: PROJECT,
-				batchId: crypto.randomUUID(),
-				mutations: [{ kind: "duplicateField", uuid: target.uuid }],
-				actorUserId: OWNER,
-				kind: "autosave",
-			}),
-		).rejects.toMatchObject({
-			name: "BlueprintCommitRejectedError",
-			message: expect.stringContaining("duplicateField is UI-only"),
-		});
-		expect(await readSeq(appId)).toBe(0);
-		expect(await readStream(appId)).toEqual([]);
-	});
-});
-
-describe("appendSyntheticBatch (Postgres)", () => {
 	it("derives a deterministic batch and advances seq + migration stream atomically", async () => {
 		const doc = minDoc();
 		const appId = await seedApp(doc);

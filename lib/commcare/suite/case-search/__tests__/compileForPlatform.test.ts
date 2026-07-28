@@ -24,6 +24,7 @@
 // branches.
 
 import { describe, expect, it } from "vitest";
+import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
 	asUuid,
 	type CaseListConfig,
@@ -53,31 +54,31 @@ import type { PlatformContext, WireShape } from "../types";
 const SEARCH_CONFIG: CaseSearchConfig = {};
 
 /** Empty case list — no columns, no filter, no search inputs. */
-const EMPTY_LIST_CONFIG: CaseListConfig = {
+const EMPTY_LIST_CONFIG: CaseListConfig = resolveCaseListConfig({
 	columns: [],
 	searchInputs: [],
-};
+});
 
 /** Case list with an effective (non-`match-all`) filter and zero
  *  search inputs. Triggers skip-to-results on the web branch. */
-const FILTER_ONLY_CONFIG: CaseListConfig = {
+const FILTER_ONLY_CONFIG: CaseListConfig = resolveCaseListConfig({
 	columns: [],
 	filter: eq(prop("patient", "is_active"), literal(true)),
 	searchInputs: [],
-};
+});
 
 /** Case list with a `match-all` filter and zero search inputs.
  *  `match-all` is the boolean-algebra identity element; it must not
  *  trip skip-to-results because it does not narrow the case list. */
-const MATCH_ALL_FILTER_CONFIG: CaseListConfig = {
+const MATCH_ALL_FILTER_CONFIG: CaseListConfig = resolveCaseListConfig({
 	columns: [],
 	filter: matchAll(),
 	searchInputs: [],
-};
+});
 
 /** Case list with one search input and no filter. Inputs present
  *  blocks skip-to-results. */
-const INPUTS_ONLY_CONFIG: CaseListConfig = {
+const INPUTS_ONLY_CONFIG: CaseListConfig = resolveCaseListConfig({
 	columns: [],
 	searchInputs: [
 		simpleSearchInputDef(
@@ -88,12 +89,12 @@ const INPUTS_ONLY_CONFIG: CaseListConfig = {
 			"name",
 		),
 	],
-};
+});
 
 /** Case list with both an effective filter AND search inputs.
  *  Inputs-present blocks skip-to-results even when the filter is
  *  set. */
-const FILTER_AND_INPUTS_CONFIG: CaseListConfig = {
+const FILTER_AND_INPUTS_CONFIG: CaseListConfig = resolveCaseListConfig({
 	columns: [],
 	filter: eq(prop("patient", "is_active"), literal(true)),
 	searchInputs: [
@@ -105,7 +106,7 @@ const FILTER_AND_INPUTS_CONFIG: CaseListConfig = {
 			"name",
 		),
 	],
-};
+});
 
 const ANDROID: PlatformContext = { platform: "android" };
 const WEB: PlatformContext = { platform: "web" };
@@ -202,11 +203,11 @@ describe("compileForPlatform — web skip-to-results vs list-first", () => {
 		// and trip skip-to-results for a query that emits nothing; the
 		// shared `effectiveFilterForEmission` keeps this decision in sync
 		// with what the emitter actually produces.
-		const reducesToMatchAll: CaseListConfig = {
+		const reducesToMatchAll: CaseListConfig = resolveCaseListConfig({
 			columns: [],
 			filter: and(matchAll(), matchAll()),
 			searchInputs: [],
-		};
+		});
 		expect(compileForPlatform(reducesToMatchAll, SEARCH_CONFIG, WEB)).toEqual(
 			LIST_FIRST_SHAPE,
 		);

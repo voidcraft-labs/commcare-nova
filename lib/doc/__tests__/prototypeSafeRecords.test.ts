@@ -397,7 +397,7 @@ describe("prototype-safe normalized blueprint records", () => {
 					kind: "moveField",
 					uuid: "__proto__",
 					toParentUuid: "constructor",
-					toIndex: 0,
+					after: null,
 				},
 			]),
 		);

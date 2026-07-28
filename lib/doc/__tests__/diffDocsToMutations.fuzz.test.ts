@@ -51,12 +51,7 @@ import {
 } from "@/lib/doc/fieldWalk";
 import { applyMutations } from "@/lib/doc/mutations";
 import { findContainingForm } from "@/lib/doc/mutations/helpers";
-import {
-	backfillOptionUuids,
-	backfillOrderKeys,
-} from "@/lib/doc/order/backfill";
-import { bySortKey } from "@/lib/doc/order/compare";
-import { keyBetween } from "@/lib/doc/order/keys";
+import { backfillOptionUuids } from "@/lib/doc/optionIdentity";
 import { type Mutation, mutationSchema } from "@/lib/doc/types";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { eq, literal, prop } from "@/lib/domain/predicate";
@@ -479,33 +474,22 @@ function mintUuid(): string {
 }
 
 /**
- * The absolute fractional `order` key for an entity landing at `opIndex` among
- * `members` (a uuid list resolved to entities + sorted by `bySortKey`),
- * excluding `excludeUuid` (the moved entity). Mirrors the builder gesture's
- * `orderKeyForFieldSlot` so the fuzz drives the SAME order-key path the diff
- * detects (an array-position move would be invisible to the order-key diff).
+ * The sibling a move should land after, drawn from the destination sequence.
+ *
+ * A move names an anchor rather than an index, so the op's numeric pick has to
+ * resolve against the destination: `0` means first (`null`), any other value
+ * picks an existing member, and the moved entity is excluded because it is
+ * spliced out before it is spliced back in.
  */
-function orderKeyAt(
+function anchorAt(
 	members: readonly Uuid[],
-	orderOf: (uuid: Uuid) => string | undefined,
-	opIndex: number,
+	pick: number,
 	excludeUuid?: Uuid,
-): string {
+): Uuid | null {
 	const sibs = members.filter((u) => u !== excludeUuid);
-	const index = Math.max(0, Math.min(opIndex, sibs.length));
-	const before = index > 0 ? (orderOf(sibs[index - 1]) ?? null) : null;
-	const after = index < sibs.length ? (orderOf(sibs[index]) ?? null) : null;
-	return keyBetween(before, after);
-}
-
-/** Append `order` key after the last member of `parentUuid`'s sorted children —
- *  what a fuzz `addField`/`addForm`/`addModule` stamps so every entity is keyed. */
-function appendFieldOrder(doc: BlueprintDoc, parentUuid: Uuid): string {
-	return orderKeyAt(
-		orderedFieldUuids(doc, parentUuid),
-		(u) => doc.fields[u]?.order,
-		Number.MAX_SAFE_INTEGER,
-	);
+	if (sibs.length === 0) return null;
+	const slot = pick % (sibs.length + 1);
+	return slot === 0 ? null : sibs[slot - 1];
 }
 
 const FORM_TYPES = ["registration", "followup", "close", "survey"] as const;
@@ -541,13 +525,7 @@ function lower(doc: BlueprintDoc, op: FuzzOp): Mutation[] {
 						),
 						...(caseProp && { case_property_on: caseProp }),
 					} as never);
-			// Stamp an append `order` so every fuzz-added field is keyed — the
-			// builder gestures do the same, and it keeps the order-key diff total.
-			const ordered = {
-				...(field as Record<string, unknown>),
-				order: appendFieldOrder(doc, parentUuid),
-			};
-			return [{ kind: "addField", parentUuid, field: ordered as never }];
+			return [{ kind: "addField", parentUuid, field }];
 		}
 		case "removeField": {
 			const uuid = pickField(doc, op.fieldPick);
@@ -563,13 +541,12 @@ function lower(doc: BlueprintDoc, op: FuzzOp): Mutation[] {
 			const uuid = pickField(doc, op.fieldPick);
 			const toParentUuid = pickParent(doc, op.parentPick);
 			if (!uuid || !toParentUuid) return [];
-			const order = orderKeyAt(
+			const after = anchorAt(
 				orderedFieldUuids(doc, toParentUuid),
-				(u) => doc.fields[u]?.order,
 				op.index,
 				uuid,
 			);
-			return [{ kind: "moveField", uuid, toParentUuid, order }];
+			return [{ kind: "moveField", uuid, toParentUuid, after }];
 		}
 		case "convertField": {
 			const uuid = pickField(doc, op.fieldPick);
@@ -636,11 +613,6 @@ function lower(doc: BlueprintDoc, op: FuzzOp): Mutation[] {
 						id: "fuzz_form",
 						name: "Fuzz form",
 						type: FORM_TYPES[op.ftype],
-						order: orderKeyAt(
-							orderedFormUuids(doc, moduleUuid),
-							(u) => doc.forms[u]?.order,
-							Number.MAX_SAFE_INTEGER,
-						),
 					} as never,
 				},
 			];
@@ -653,13 +625,12 @@ function lower(doc: BlueprintDoc, op: FuzzOp): Mutation[] {
 			const uuid = pickForm(doc, op.formPick);
 			const toModuleUuid = pickModule(doc, op.modulePick);
 			if (!uuid || !toModuleUuid) return [];
-			const order = orderKeyAt(
+			const after = anchorAt(
 				orderedFormUuids(doc, toModuleUuid),
-				(u) => doc.forms[u]?.order,
 				op.index,
 				uuid,
 			);
-			return [{ kind: "moveForm", uuid, toModuleUuid, order }];
+			return [{ kind: "moveForm", uuid, toModuleUuid, after }];
 		}
 		case "renameForm": {
 			const uuid = pickForm(doc, op.formPick);
@@ -712,11 +683,6 @@ function lower(doc: BlueprintDoc, op: FuzzOp): Mutation[] {
 						id: "fuzz_module",
 						name: NAME_POOL[op.namePick],
 						...(caseType && { caseType }),
-						order: orderKeyAt(
-							orderedModuleUuids(doc),
-							(u) => doc.modules[u]?.order,
-							Number.MAX_SAFE_INTEGER,
-						),
 					} as never,
 				},
 			];
@@ -728,13 +694,13 @@ function lower(doc: BlueprintDoc, op: FuzzOp): Mutation[] {
 		case "moveModule": {
 			const uuid = pickModule(doc, op.modulePick);
 			if (!uuid) return [];
-			const order = orderKeyAt(
-				orderedModuleUuids(doc),
-				(u) => doc.modules[u]?.order,
-				op.index,
-				uuid,
-			);
-			return [{ kind: "moveModule", uuid, order }];
+			return [
+				{
+					kind: "moveModule",
+					uuid,
+					after: anchorAt(orderedModuleUuids(doc), op.index, uuid),
+				},
+			];
 		}
 		case "renameModule": {
 			const uuid = pickModule(doc, op.modulePick);
@@ -829,75 +795,39 @@ function assertRoundTrip(prev: BlueprintDoc, next: BlueprintDoc): void {
 	const replayed = produce(prev, (draft) => {
 		applyMutations(draft, reparsed as Mutation[]);
 	});
-	// Compare on DISPLAY equivalence, not raw array position. The membership
-	// arrays (`moduleOrder` / `formOrder[m]` / `fieldOrder[p]` / `columns` /
-	// `searchInputs` / `options`) are sets whose internal position is NOT
-	// authoritative — sequence is `sort-by-(order, uuid)`. A cross-parent move /
-	// add legitimately lands at a different array slot than `next` while the
-	// `order` keys (which the comparison still checks inside the entity objects)
-	// match exactly, so canonicalize both docs to display order first.
-	expect(normalizeOrder(toPersistableDoc(replayed))).toEqual(
-		normalizeOrder(toPersistableDoc(next)),
+	// Membership arrays compare RAW: array position IS the sequence, so
+	// canonicalizing one would erase exactly what the round trip is checking.
+	// The case-type CATALOG is the one exception — it is name-keyed, its array
+	// position is not authoritative, and the catalog diff is therefore a no-op
+	// on a reorder-only delta.
+	expect(withSortedCatalog(toPersistableDoc(replayed))).toEqual(
+		withSortedCatalog(toPersistableDoc(next)),
 	);
 }
 
-/**
- * Canonicalize every membership array to DISPLAY order (`sort-by-(order,
- * uuid)`) so a round-trip comparison checks display-equivalence + content, not
- * the non-authoritative raw array position. The entity objects (carrying the
- * `order` keys) are compared unchanged, so order keys must still match exactly.
- */
-function normalizeOrder<T extends ReturnType<typeof toPersistableDoc>>(
+/** Sort the name-keyed case-type catalog (types, then each type's properties)
+ *  so a catalog reorder isn't read as a content difference. */
+function withSortedCatalog<T extends ReturnType<typeof toPersistableDoc>>(
 	doc: T,
 ): T {
 	return produce(doc, (draft) => {
 		const d = draft as unknown as BlueprintDoc;
-		d.moduleOrder = orderedModuleUuids(d);
-		for (const m of Object.keys(d.formOrder)) {
-			d.formOrder[m] = orderedFormUuids(d, m as Uuid);
-		}
-		for (const p of Object.keys(d.fieldOrder)) {
-			d.fieldOrder[p] = orderedFieldUuids(d, p as Uuid);
-		}
-		for (const mod of Object.values(d.modules)) {
-			const config = mod.caseListConfig;
-			if (config) {
-				config.columns = [...config.columns].sort(bySortKey);
-				config.searchInputs = [...config.searchInputs].sort(bySortKey);
-			}
-		}
-		for (const field of Object.values(d.fields)) {
-			if ("options" in field && Array.isArray(field.options)) {
-				field.options = [...field.options].sort(bySortKey);
-			}
-		}
-		// The case-type catalog is name-keyed (properties carry no order key), so
-		// its array order is non-authoritative — the catalog diff is a no-op on a
-		// reorder-only delta. Canonicalize types + properties by name.
-		if (d.caseTypes) {
-			d.caseTypes = [...d.caseTypes]
-				.sort((a, b) => a.name.localeCompare(b.name))
-				.map((ct) => ({
-					...ct,
-					properties: [...ct.properties].sort((a, b) =>
-						a.name.localeCompare(b.name),
-					),
-				}));
-		}
+		if (!d.caseTypes) return;
+		d.caseTypes = [...d.caseTypes]
+			.sort((a, b) => a.name.localeCompare(b.name))
+			.map((caseType) => ({
+				...caseType,
+				properties: [...caseType.properties].sort((a, b) =>
+					a.name.localeCompare(b.name),
+				),
+			}));
 	});
 }
 
-/** Reverse the DISPLAY order of `formUuid`'s direct children by swapping their
- *  `order` keys — a same-parent reorder leaves the membership array untouched. */
+/** Reverse a form's visual order. The membership array IS that order, so
+ *  reversing it is the whole gesture. */
 function reverseDisplayOrder(doc: BlueprintDoc, formUuid: Uuid): void {
-	const sorted = orderedFieldUuids(doc, formUuid);
-	const keys = sorted.map((u) => doc.fields[u]?.order);
-	const reversed = [...keys].reverse();
-	sorted.forEach((u, i) => {
-		const field = doc.fields[u];
-		const key = reversed[i];
-		if (field && key !== undefined) field.order = key;
-	});
+	doc.fieldOrder[formUuid] = [...orderedFieldUuids(doc, formUuid)].reverse();
 }
 
 // ── The property ──────────────────────────────────────────────────────
@@ -916,7 +846,6 @@ describe("diffDocsToMutations — diff(prev, next) replayed on prev ≡ next", (
 					// hydration boundary does this in production); the fuzz's adds +
 					// order-key moves then keep prev/next consistently keyed.
 					const seed = produce(SEEDS[seedPick](), (draft) => {
-						backfillOrderKeys(draft);
 						backfillOptionUuids(draft);
 					});
 					const prev = applyOps(seed, batchA);
@@ -960,20 +889,16 @@ describe("diffDocsToMutations — explicit cases", () => {
 	});
 
 	it("pure field reorder within a form", () => {
-		const prev = produce(singleModuleDoc(), (d) => {
-			backfillOrderKeys(d);
-		});
+		const prev = singleModuleDoc();
 		const formUuid = prev.moduleOrder
 			.flatMap((m) => prev.formOrder[m] ?? [])
 			.at(0);
-		// A same-parent reorder is an ORDER-KEY change, not an array shuffle — the
-		// membership array stays put; reverse DISPLAY order by reversing keys.
 		const next = produce(prev, (draft) => {
 			if (!formUuid) return;
 			reverseDisplayOrder(draft as unknown as BlueprintDoc, formUuid);
 		});
 		const diff = diffDocsToMutations(prev, next);
-		expect(diff.some((m) => m.kind === "moveField" && "order" in m)).toBe(true);
+		expect(diff.some((m) => m.kind === "moveField")).toBe(true);
 		assertRoundTrip(prev, next);
 	});
 
@@ -1022,9 +947,7 @@ describe("diffDocsToMutations — explicit cases", () => {
 			],
 		});
 		expect(prev.caseTypes).not.toBeNull();
-		const backfilled = produce(prev, (d) => {
-			backfillOrderKeys(d);
-		});
+		const backfilled = prev;
 		const formUuid = backfilled.moduleOrder
 			.flatMap((m) => backfilled.formOrder[m] ?? [])
 			.at(0);

@@ -46,8 +46,6 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
-import { appendOrderKey } from "@/lib/doc/order/append";
-import { bySortKey } from "@/lib/doc/order/compare";
 import type {
 	CasePropertyDataType,
 	CaseType,
@@ -57,7 +55,9 @@ import type {
 } from "@/lib/domain";
 import {
 	authorableCaseProperties,
+	type CaseListConfig,
 	canonicalCasePropertyName,
+	orderedColumns,
 } from "@/lib/domain";
 import { effectiveDataType } from "@/lib/domain/casePropertyTypes";
 import { checkExpression } from "@/lib/domain/predicate";
@@ -67,6 +67,9 @@ import { seedColumnForProperty } from "./seeds";
 import { resolveSortedColumns } from "./sortPriority";
 
 export interface CaseOrderingComposerProps {
+	/** The whole config, because both lists this composer shows are Results
+	 *  sequences — the sorted carriers and the fields still available to add. */
+	readonly config: CaseListConfig;
 	readonly value: readonly Column[];
 	readonly caseType?: CaseType;
 	readonly caseTypes?: readonly CaseType[];
@@ -87,6 +90,7 @@ type OrderChoice =
  * "First … Then …".
  */
 export function CaseOrderingComposer({
+	config,
 	value,
 	caseType,
 	caseTypes = caseType === undefined ? [] : [caseType],
@@ -103,10 +107,15 @@ export function CaseOrderingComposer({
 	} | null>(null);
 	const composerRef = useRef<HTMLDivElement | null>(null);
 	const addRuleTriggerRef = useRef<HTMLButtonElement | null>(null);
-	const sorted = useMemo(() => resolveSortedColumns(value), [value]);
+	const sorted = useMemo(() => resolveSortedColumns(config), [config]);
+	// Unsorted fields are offered in Results order, which is the order the
+	// author sees them on the screen they came from.
 	const unsorted = useMemo(
-		() => value.filter((column) => column.sort === undefined).sort(bySortKey),
-		[value],
+		() =>
+			orderedColumns(config, "list").filter(
+				(column) => column.sort === undefined,
+			),
+		[config],
 	);
 	const orderChoices = useMemo<readonly SearchableChoice<OrderChoice>[]>(() => {
 		const choices: SearchableChoice<OrderChoice>[] = [];
@@ -349,14 +358,13 @@ export function CaseOrderingComposer({
 								visibleInList: false,
 								visibleInDetail: false,
 							}),
-							order: appendOrderKey(value),
 						};
 			applyRuleSequence([
 				...sorted,
 				{ ...column, sort: { direction: "asc", priority: sorted.length } },
 			]);
 		},
-		[applyRuleSequence, canEdit, sorted, value],
+		[applyRuleSequence, canEdit, sorted],
 	);
 
 	return (

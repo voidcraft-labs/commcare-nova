@@ -32,6 +32,7 @@ import {
 	type Module,
 	plainColumn,
 	rewriteSlotValues,
+	type UserCollections,
 	type Uuid,
 	type XPathExpression,
 } from "@/lib/domain";
@@ -126,6 +127,44 @@ export interface FormSpec {
 	fields?: FieldSpec[];
 }
 
+/**
+ * A case-list config as a FIXTURE writes one: the two ordering arrays are
+ * optional, and a config that omits them means "both screens show the columns
+ * in the order I wrote them".
+ *
+ * The domain type requires both arrays, because in a real doc a sequence that
+ * is merely absent would mean "derive it somehow" — the ambiguity array
+ * position exists to remove. A fixture is not a real doc: it writes the
+ * columns in visual order because that's how a person reads a test. So the
+ * spec accepts the shorthand and `buildDoc` resolves it to the real shape,
+ * which keeps the derivation in ONE place instead of in every fixture.
+ */
+export type CaseListConfigSpec = Omit<
+	NonNullable<Module["caseListConfig"]>,
+	"listColumnOrder" | "detailColumnOrder"
+> &
+	Partial<
+		Pick<
+			NonNullable<Module["caseListConfig"]>,
+			"listColumnOrder" | "detailColumnOrder"
+		>
+	>;
+
+/**
+ * Resolve a fixture's case-list config to the domain shape, filling either
+ * ordering array it left out with the written column order.
+ */
+export function resolveCaseListConfig(
+	spec: CaseListConfigSpec,
+): NonNullable<Module["caseListConfig"]> {
+	const written = spec.columns.map((column) => column.uuid);
+	return {
+		...spec,
+		listColumnOrder: spec.listColumnOrder ?? written,
+		detailColumnOrder: spec.detailColumnOrder ?? [...written],
+	};
+}
+
 /** A spec for a single module. Forms are nested; case-list columns are optional. */
 export interface ModuleSpec {
 	uuid?: string;
@@ -135,7 +174,7 @@ export interface ModuleSpec {
 	caseListOnly?: boolean;
 	purpose?: string;
 	displayCondition?: Module["displayCondition"];
-	caseListConfig?: Module["caseListConfig"];
+	caseListConfig?: CaseListConfigSpec;
 	caseSearchConfig?: Module["caseSearchConfig"];
 	forms?: FormSpec[];
 }
@@ -156,11 +195,45 @@ export interface ModuleSpec {
 export function caseListConfig(
 	columns: ReadonlyArray<{ field: string; header: string }>,
 ): NonNullable<Module["caseListConfig"]> {
+	const built = columns.map((c) =>
+		plainColumn(nextUuid("col"), c.field, c.header),
+	);
+	// Both screens show the columns in the order the fixture wrote them. A
+	// column belongs to Results and Details from birth, so a config cannot be
+	// built with one missing from either.
+	const sequence = built.map((column) => column.uuid);
 	return {
-		columns: columns.map((c) =>
-			plainColumn(nextUuid("col"), c.field, c.header),
-		),
+		columns: built,
+		listColumnOrder: sequence,
+		detailColumnOrder: [...sequence],
 		searchInputs: [],
+	};
+}
+
+/**
+ * Give a doc's three user collections the ordering arrays their records imply,
+ * in whatever order the fixture wrote the record's keys.
+ *
+ * A real doc's record and its sequence cannot disagree — `assembleBlueprint`
+ * throws on exactly that — but a fixture assembles the doc by hand, so a
+ * record written without its array reads back as an EMPTY collection and the
+ * test silently exercises nothing. This is the one place to spell the pairing,
+ * so a fixture can keep writing just the records.
+ */
+export function withUserSequences<T extends UserCollections>(doc: T): T {
+	const sequenceOf = (record: Record<string, unknown> | undefined) =>
+		Object.keys(record ?? {}) as Uuid[];
+	return {
+		...doc,
+		...(doc.userProperties !== undefined && {
+			userPropertyOrder: sequenceOf(doc.userProperties),
+		}),
+		...(doc.userTypes !== undefined && {
+			userTypeOrder: sequenceOf(doc.userTypes),
+		}),
+		...(doc.personas !== undefined && {
+			personaOrder: sequenceOf(doc.personas),
+		}),
 	};
 }
 
@@ -210,7 +283,7 @@ export function buildDoc(spec: DocSpec = {}): BlueprintDoc {
 				displayCondition: modSpec.displayCondition,
 			}),
 			...(modSpec.caseListConfig !== undefined && {
-				caseListConfig: modSpec.caseListConfig,
+				caseListConfig: resolveCaseListConfig(modSpec.caseListConfig),
 			}),
 			...(modSpec.caseSearchConfig !== undefined && {
 				caseSearchConfig: modSpec.caseSearchConfig,

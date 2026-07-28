@@ -54,7 +54,6 @@ import render from "dom-serializer";
 import type { Element } from "domhandler";
 import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
-import { byListColumnOrder } from "@/lib/doc/order/compare";
 import type {
 	BlueprintDoc,
 	CasePropertyDataType,
@@ -64,6 +63,7 @@ import type {
 	SortType,
 	Uuid,
 } from "@/lib/domain";
+import { orderedColumns } from "@/lib/domain";
 import {
 	ANY_TYPE,
 	type CheckError,
@@ -414,7 +414,7 @@ export function buildSortDirectives(
 		readonly index: number;
 	};
 	const survivors: Survivor[] = [];
-	const sortedColumns = [...config.columns].sort(byListColumnOrder);
+	const sortedColumns = orderedColumns(config, "list");
 	for (let i = 0; i < sortedColumns.length; i++) {
 		const column = sortedColumns[i];
 		if (column.sort === undefined) continue;

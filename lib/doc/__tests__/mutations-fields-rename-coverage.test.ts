@@ -16,7 +16,10 @@
  */
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
-import { resolveDocExpressions } from "@/lib/__tests__/docHelpers";
+import {
+	resolveCaseListConfig,
+	resolveDocExpressions,
+} from "@/lib/__tests__/docHelpers";
 import { applyMutation } from "@/lib/doc/mutations";
 import type { FieldRenameMeta } from "@/lib/doc/mutations/fields";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
@@ -481,7 +484,7 @@ describe("moveField re-anchors form-level wiring", () => {
 				kind: "moveField",
 				uuid: Q("s"),
 				toParentUuid: Q("grp"),
-				toIndex: 0,
+				after: null,
 			});
 		});
 		const movedCondition = next.forms[F("1")]?.formLinks?.[0]?.condition;
@@ -577,11 +580,11 @@ describe("case-property cascade rewrites module predicate-AST slots", () => {
 	it("rewrites a matching PropertyRef in caseListConfig.filter", () => {
 		const start = cascadeDoc({
 			x: {
-				caseListConfig: {
+				caseListConfig: resolveCaseListConfig({
 					columns: [],
 					searchInputs: [],
 					filter: eq(prop("patient", "age"), literal("1")),
-				},
+				}),
 			},
 		});
 		const { next, meta } = rename(start, Q("src"), "years");
@@ -594,12 +597,12 @@ describe("case-property cascade rewrites module predicate-AST slots", () => {
 	it("does NOT rewrite a PropertyRef on a different case type", () => {
 		const start = cascadeDoc({
 			y: {
-				caseListConfig: {
+				caseListConfig: resolveCaseListConfig({
 					columns: [],
 					searchInputs: [],
 					// household's own `age` property — same name, different type.
 					filter: eq(prop("household", "age"), literal("1")),
-				},
+				}),
 			},
 		});
 		const { next, meta } = rename(start, Q("src"), "years");
@@ -615,14 +618,14 @@ describe("case-property cascade rewrites module predicate-AST slots", () => {
 		// rename must follow it.
 		const start = cascadeDoc({
 			y: {
-				caseListConfig: {
+				caseListConfig: resolveCaseListConfig({
 					columns: [],
 					searchInputs: [],
 					filter: eq(
 						prop("household", "age", subcasePath("parent", "patient")),
 						literal("1"),
 					),
-				},
+				}),
 			},
 		});
 		const { next } = rename(start, Q("src"), "years");
@@ -641,7 +644,7 @@ describe("case-property cascade rewrites module predicate-AST slots", () => {
 		// the walk's destination, where the property actually lives.
 		const base = cascadeDoc({
 			x: {
-				caseListConfig: {
+				caseListConfig: resolveCaseListConfig({
 					columns: [],
 					searchInputs: [],
 					filter: eq(
@@ -652,7 +655,7 @@ describe("case-property cascade rewrites module predicate-AST slots", () => {
 						),
 						literal("north"),
 					),
-				},
+				}),
 			},
 		});
 		const start: BlueprintDoc = {
@@ -685,14 +688,14 @@ describe("case-property cascade rewrites module predicate-AST slots", () => {
 		// is the renamed one, so it must leave the ref alone.
 		const base = cascadeDoc({
 			x: {
-				caseListConfig: {
+				caseListConfig: resolveCaseListConfig({
 					columns: [],
 					searchInputs: [],
 					filter: eq(
 						prop("patient", "region", ancestorPath(relationStep("parent"))),
 						literal("north"),
 					),
-				},
+				}),
 			},
 		});
 		const start: BlueprintDoc = {
@@ -718,7 +721,7 @@ describe("case-property cascade rewrites module predicate-AST slots", () => {
 	it("rewrites calculated column expressions", () => {
 		const start = cascadeDoc({
 			x: {
-				caseListConfig: {
+				caseListConfig: resolveCaseListConfig({
 					columns: [
 						{
 							uuid: C("calc"),
@@ -728,7 +731,7 @@ describe("case-property cascade rewrites module predicate-AST slots", () => {
 						},
 					],
 					searchInputs: [],
-				},
+				}),
 			},
 		});
 		const { next, meta } = rename(start, Q("src"), "years");
@@ -754,16 +757,16 @@ describe("case-property cascade rewrites module predicate-AST slots", () => {
 		});
 		const start = cascadeDoc({
 			x: {
-				caseListConfig: {
+				caseListConfig: resolveCaseListConfig({
 					columns: [],
 					searchInputs: [inputDef(S("x"))],
-				},
+				}),
 			},
 			y: {
-				caseListConfig: {
+				caseListConfig: resolveCaseListConfig({
 					columns: [],
 					searchInputs: [inputDef(S("y"))],
-				},
+				}),
 			},
 		});
 		const { next } = rename(start, Q("src"), "years");
@@ -780,7 +783,7 @@ describe("case-property cascade rewrites module predicate-AST slots", () => {
 		// subcase walk with an explicit destination type.
 		const start = cascadeDoc({
 			y: {
-				caseListConfig: {
+				caseListConfig: resolveCaseListConfig({
 					columns: [],
 					searchInputs: [
 						{
@@ -793,7 +796,7 @@ describe("case-property cascade rewrites module predicate-AST slots", () => {
 							via: subcasePath("parent", "patient"),
 						},
 					],
-				},
+				}),
 			},
 		});
 		const { next } = rename(start, Q("src"), "years");
@@ -804,7 +807,7 @@ describe("case-property cascade rewrites module predicate-AST slots", () => {
 	it("rewrites advanced search-input predicates and input defaults", () => {
 		const start = cascadeDoc({
 			x: {
-				caseListConfig: {
+				caseListConfig: resolveCaseListConfig({
 					columns: [],
 					searchInputs: [
 						{
@@ -817,7 +820,7 @@ describe("case-property cascade rewrites module predicate-AST slots", () => {
 							default: term(prop("patient", "age")),
 						},
 					],
-				},
+				}),
 			},
 		});
 		const { next, meta } = rename(start, Q("src"), "years");

@@ -18,7 +18,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
-import { backfillOrderKeys } from "@/lib/doc/order/backfill";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { makeStubToolContext } from "../../__tests__/fixtures";
@@ -68,7 +67,6 @@ function makeDoc(): BlueprintDoc {
 			},
 		],
 	});
-	backfillOrderKeys(doc);
 	return doc;
 }
 
@@ -249,7 +247,6 @@ describe("moveField — parentId placement", () => {
 				},
 			],
 		});
-		backfillOrderKeys(twinDoc);
 		const { ctx } = makeStubToolContext();
 		const nested = Object.values(twinDoc.fields).find(
 			(fld) => fld.id === "dup" && "label" in fld && fld.label === "Nested dup",
@@ -309,7 +306,6 @@ describe("moveField — refusals", () => {
 				},
 			],
 		});
-		backfillOrderKeys(twin);
 		const { ctx } = makeStubToolContext();
 		const result = await moveFieldTool.execute(
 			{

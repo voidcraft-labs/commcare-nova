@@ -9,13 +9,13 @@
  * store imports from both `mutations/` and `fieldParent`.
  */
 
+import { backfillOptionUuids } from "@/lib/doc/optionIdentity";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
 import {
 	hasOwnRecordKey,
 	type PersistableDoc,
 	recordFromEntries,
 } from "@/lib/domain";
-import { backfillOptionUuids, backfillOrderKeys } from "./order/backfill";
 import { normalizeBlueprintOwnRecords } from "./ownRecords";
 
 /**
@@ -101,7 +101,6 @@ export function hydratePersistedBlueprint(
 	const doc = structuredClone(persisted) as unknown as BlueprintDoc;
 	doc.fieldParent = recordFromEntries([]) as Record<Uuid, Uuid | null>;
 	normalizeBlueprintOwnRecords(doc);
-	backfillOrderKeys(doc);
 	backfillOptionUuids(doc);
 	rebuildFieldParent(doc);
 	return doc;

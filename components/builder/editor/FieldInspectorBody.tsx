@@ -14,7 +14,7 @@
  *     are still direct children of this div, so they get the same `space-y-4`
  *     + `first:` divider treatment as the case-list inspector's sections.
  *   - the delegated `onFocus` — tracks which `[data-field-id]` element holds
- *     focus so zundo snapshots capture the right field even for blur-triggered
+ *     focus so the history entry captures the right field even for blur-triggered
  *     saves (where `document.activeElement` has already moved).
  */
 "use client";

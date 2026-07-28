@@ -1,4 +1,5 @@
 import type { Draft } from "immer";
+import { spliceAfter } from "@/lib/doc/mutations/sequence";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import { cascadeDeleteForm } from "./helpers";
 
@@ -15,6 +16,28 @@ import { cascadeDeleteForm } from "./helpers";
  * wholesale kind and stays focused on a single fine-grained operation
  * per case.
  */
+/**
+ * Reorder one case operation within the form's sequence.
+ *
+ * `caseOperations` is the sequence, so this is `spliceAfter` over objects
+ * rather than uuids. Total for the same reason every reducer is: an `after`
+ * naming an operation a peer removed appends instead of throwing, because
+ * historical replay must not be able to fail.
+ */
+function spliceOperation<T extends { uuid: string }>(
+	operations: readonly T[],
+	uuid: string,
+	after: string | null,
+): T[] {
+	const moving = operations.find((op) => op.uuid === uuid);
+	if (moving === undefined) return [...operations];
+	const rest = operations.filter((op) => op.uuid !== uuid);
+	if (after === null) return [moving, ...rest];
+	const at = rest.findIndex((op) => op.uuid === after);
+	if (at < 0) return [...rest, moving];
+	return [...rest.slice(0, at + 1), moving, ...rest.slice(at + 1)];
+}
+
 export function applyFormMutation(
 	draft: Draft<BlueprintDoc>,
 	mut: Extract<
@@ -34,13 +57,16 @@ export function applyFormMutation(
 		case "addForm": {
 			if (draft.modules[mut.moduleUuid] === undefined) return;
 			const { uuid } = mut.form;
-			draft.forms[uuid] = mut.form;
+			// Cloned: `updateForm` edits the stored form in place, so the payload
+			// must not be the object it edits — same reason `addModule` clones.
+			draft.forms[uuid] = structuredClone(mut.form);
 			draft.fieldOrder[uuid] = [];
-			const order = draft.formOrder[mut.moduleUuid] ?? [];
-			const index = mut.index ?? order.length;
-			const clamped = Math.max(0, Math.min(index, order.length));
-			order.splice(clamped, 0, uuid);
-			draft.formOrder[mut.moduleUuid] = order;
+			// The membership array IS the sequence, so the add splices.
+			draft.formOrder[mut.moduleUuid] = spliceAfter(
+				draft.formOrder[mut.moduleUuid] ?? [],
+				uuid,
+				mut.after,
+			);
 			return;
 		}
 		case "removeForm": {
@@ -61,45 +87,22 @@ export function applyFormMutation(
 			const form = draft.forms[mut.uuid];
 			if (form === undefined) return;
 			if (draft.modules[mut.toModuleUuid] === undefined) return;
-			// New emission: write the fractional `order` verbatim. A same-module
-			// reorder leaves every membership array untouched; a cross-module move
-			// also relocates the form's membership (position arbitrary — the
-			// `order` key, not array position, decides display sequence).
-			if (mut.order !== undefined) {
-				form.order = mut.order;
-				let currentModule: string | undefined;
-				for (const [modUuid, formList] of Object.entries(draft.formOrder)) {
-					if (formList.includes(mut.uuid)) {
-						currentModule = modUuid;
-						break;
-					}
-				}
-				if (currentModule !== mut.toModuleUuid) {
-					if (currentModule !== undefined) {
-						const src = draft.formOrder[currentModule];
-						const idx = src.indexOf(mut.uuid);
-						if (idx !== -1) src.splice(idx, 1);
-					}
-					const dest = draft.formOrder[mut.toModuleUuid] ?? [];
-					if (!dest.includes(mut.uuid)) dest.push(mut.uuid);
-					draft.formOrder[mut.toModuleUuid] = dest;
-				}
-				return;
-			}
-			// Legacy replay: an array-position move (pre-`order` events).
-			if (mut.toIndex === undefined) return;
+			// A form a peer removed is not moved back into existence.
+			if (draft.forms[mut.uuid] === undefined) return;
+			// Leave whatever module currently holds it, then land in the target's
+			// sequence at the named placement. Same-module and cross-module are one
+			// path: the source removal is a no-op when the source IS the target,
+			// because `spliceAfter` removes the uuid before re-inserting it.
 			for (const [modUuid, formList] of Object.entries(draft.formOrder)) {
+				if (modUuid === mut.toModuleUuid) continue;
 				const idx = formList.indexOf(mut.uuid);
-				if (idx !== -1) {
-					formList.splice(idx, 1);
-					draft.formOrder[modUuid as keyof typeof draft.formOrder] = formList;
-					break;
-				}
+				if (idx !== -1) formList.splice(idx, 1);
 			}
-			const destOrder = draft.formOrder[mut.toModuleUuid] ?? [];
-			const clamped = Math.max(0, Math.min(mut.toIndex, destOrder.length));
-			destOrder.splice(clamped, 0, mut.uuid);
-			draft.formOrder[mut.toModuleUuid] = destOrder;
+			draft.formOrder[mut.toModuleUuid] = spliceAfter(
+				draft.formOrder[mut.toModuleUuid] ?? [],
+				mut.uuid,
+				mut.after,
+			);
 			return;
 		}
 		case "renameForm": {
@@ -166,7 +169,14 @@ export function applyFormMutation(
 							0,
 							Math.min(semantic.index ?? writes.length, writes.length),
 						);
-						writes.splice(index, 0, semantic.value);
+						// CLONE, never alias. A mutation is a durable event that is
+						// applied more than once — the saga derives a prospective doc
+						// and the guarded commit re-applies the same batch onto the
+						// fresh one. Splicing the payload object itself in makes it
+						// part of a produced state, which Immer freezes; the next
+						// apply's `update-write` then assigns to a frozen object and
+						// the whole save 500s.
+						writes.splice(index, 0, structuredClone(semantic.value));
 						current.writes = writes;
 						form.caseOperations = operations;
 						return;
@@ -210,7 +220,10 @@ export function applyFormMutation(
 							0,
 							Math.min(semantic.index ?? links.length, links.length),
 						);
-						links.splice(index, 0, semantic.value);
+						// Cloned for the same reason `add-write` clones: the payload
+						// must not become part of a frozen produced state that a later
+						// apply of this same batch then tries to edit in place.
+						links.splice(index, 0, structuredClone(semantic.value));
 						current.links = links;
 						form.caseOperations = operations;
 						return;
@@ -249,9 +262,12 @@ export function applyFormMutation(
 					case "move": {
 						const current = operation(semantic.uuid);
 						if (current === undefined) return;
-						if (semantic.order === null) delete current.order;
-						else current.order = semantic.order;
-						form.caseOperations = operations;
+						// `caseOperations` IS the sequence, so the move reorders it.
+						form.caseOperations = spliceOperation(
+							operations,
+							semantic.uuid,
+							semantic.after,
+						);
 						return;
 					}
 				}
@@ -266,7 +282,16 @@ export function applyFormMutation(
 							(operation) => operation.uuid === change.value.uuid,
 						)
 					) {
-						operations.push(change.value);
+						// CLONE, never alias. This batch is applied more than once —
+						// the saga derives a prospective document and the guarded
+						// commit re-applies onto the freshly loaded one — and Immer
+						// freezes what `produce` returns. Pushing the payload itself
+						// makes the durable event part of a frozen document, so the
+						// SECOND apply's granular edits assign to a frozen object and
+						// the save 500s. Worse, the first apply's later mutations write
+						// THROUGH the alias into the event: the stored `add` ends up
+						// carrying links and writes it never authored.
+						operations.push(structuredClone(change.value));
 						form.caseOperations = operations;
 					}
 					return;
@@ -275,7 +300,7 @@ export function applyFormMutation(
 						(operation) => operation.uuid === change.uuid,
 					);
 					if (index === -1) return;
-					operations[index] = change.value;
+					operations[index] = structuredClone(change.value);
 					form.caseOperations = operations;
 					return;
 				}
@@ -293,8 +318,11 @@ export function applyFormMutation(
 						(candidate) => candidate.uuid === change.uuid,
 					);
 					if (current === undefined) return;
-					current.order = change.order;
-					form.caseOperations = operations;
+					form.caseOperations = spliceOperation(
+						operations,
+						change.uuid,
+						change.after,
+					);
 					return;
 				}
 			}

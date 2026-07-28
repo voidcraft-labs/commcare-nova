@@ -264,7 +264,6 @@ function create(patch: Partial<CaseOperation> = {}): CaseOperation {
 	return {
 		uuid: CREATE,
 		id: "create_visit",
-		order: "a",
 		action: "create",
 		caseType: "visit",
 		target: { kind: "new" },
@@ -277,7 +276,6 @@ function update(patch: Partial<CaseOperation> = {}): CaseOperation {
 	return {
 		uuid: SECOND,
 		id: "update_patient",
-		order: "b",
 		action: "update",
 		caseType: "patient",
 		target: { kind: "session" },
@@ -461,10 +459,9 @@ describe("case-operation activation and identity", () => {
 				update({
 					uuid: THIRD,
 					id: "update_each_row",
-					order: "a",
 					forEach: { repeat: REPEAT_A },
 				}),
-				update({ order: "b" }),
+				update(),
 			]),
 		).toContain("CASE_OPERATION_EXECUTION_ORDER");
 
@@ -473,16 +470,15 @@ describe("case-operation activation and identity", () => {
 				update({
 					uuid: THIRD,
 					id: "update_rows_b",
-					order: "a",
 					forEach: { repeat: REPEAT_B },
 				}),
-				update({ order: "b", forEach: { repeat: REPEAT_A } }),
+				update({ forEach: { repeat: REPEAT_A } }),
 			]),
 		).toContain("CASE_OPERATION_EXECUTION_ORDER");
 
 		expectCode("CASE_OPERATION_EXECUTION_ORDER", [
-			update({ order: "a" }),
-			create({ order: "b", target: { kind: "new", idFrom: TEXT } }),
+			update(),
+			create({ target: { kind: "new", idFrom: TEXT } }),
 		]);
 
 		expectCode("CASE_OPERATION_EXECUTION_ORDER", [
@@ -808,12 +804,12 @@ describe("case-operation target and dependency safety", () => {
 
 	it("requires op/id-of references to name an earlier create of the expected type", () => {
 		expectCode("CASE_OPERATION_REFERENCE_ORDER", [
-			update({ order: "a", target: { kind: "op", opUuid: CREATE } }),
-			create({ order: "b" }),
+			update({ target: { kind: "op", opUuid: CREATE } }),
+			create(),
 		]);
 		expectCode("CASE_OPERATION_REFERENCE_ORDER", [
-			update({ order: "a", owner: idOf(CREATE) }),
-			create({ order: "b" }),
+			update({ owner: idOf(CREATE) }),
+			create(),
 		]);
 		expectCode("CASE_OPERATION_TARGET_TYPE_MISMATCH", [
 			create(),
@@ -873,7 +869,6 @@ describe("case-operation target and dependency safety", () => {
 			update({
 				uuid: THIRD,
 				id: "update_client",
-				order: "c",
 				caseType: "client",
 				target: { kind: "op", opUuid: CREATE },
 			}),
@@ -886,7 +881,6 @@ describe("case-operation target and dependency safety", () => {
 			update({
 				uuid: THIRD,
 				id: "stale_visit_update",
-				order: "c",
 				caseType: "visit",
 				target: { kind: "op", opUuid: CREATE },
 			}),
@@ -894,11 +888,10 @@ describe("case-operation target and dependency safety", () => {
 
 		expect(
 			codesFor([
-				update({ order: "a", retype: "visit" }),
+				update({ retype: "visit" }),
 				update({
 					uuid: THIRD,
 					id: "update_retyped_session_case",
-					order: "b",
 					caseType: "visit",
 				}),
 			]),
@@ -907,14 +900,12 @@ describe("case-operation target and dependency safety", () => {
 		expect(
 			codesFor([
 				update({
-					order: "a",
 					retype: "visit",
 					condition: { kind: "match-all" },
 				}),
 				update({
 					uuid: THIRD,
 					id: "update_conditionally_retyped_case",
-					order: "b",
 					caseType: "visit",
 				}),
 			]),
@@ -923,11 +914,10 @@ describe("case-operation target and dependency safety", () => {
 
 	it("rejects runtime target aliases that could bypass rolling retype state", () => {
 		const errors = errorsFor([
-			update({ order: "a", retype: "visit" }),
+			update({ retype: "visit" }),
 			update({
 				uuid: THIRD,
 				id: "stale_snapshot_alias",
-				order: "b",
 				target: { kind: "expression", expr: term(prop("patient", "case_id")) },
 			}),
 		]);
@@ -945,7 +935,6 @@ describe("case-operation target and dependency safety", () => {
 		expect(
 			codesFor([
 				update({
-					order: "a",
 					target: {
 						kind: "expression",
 						expr: term(literal("patient-a")),
@@ -955,7 +944,6 @@ describe("case-operation target and dependency safety", () => {
 				update({
 					uuid: THIRD,
 					id: "different_patient",
-					order: "b",
 					target: {
 						kind: "expression",
 						expr: term(literal("patient-b")),
@@ -965,11 +953,10 @@ describe("case-operation target and dependency safety", () => {
 		).not.toContain("CASE_OPERATION_TARGET_TYPE_MISMATCH");
 
 		expectCode("CASE_OPERATION_TARGET_TYPE_MISMATCH", [
-			update({ order: "a", retype: "visit" }),
+			update({ retype: "visit" }),
 			update({
 				uuid: THIRD,
 				id: "link_stale_snapshot_alias",
-				order: "b",
 				caseType: "visit",
 				links: [
 					{
@@ -1044,14 +1031,12 @@ describe("case-operation target and dependency safety", () => {
 		mapFieldToCaseType(built.doc, TEXT, "nickname", "patient");
 		(built.doc.forms[built.formUuid] as Form).caseOperations = [
 			update({
-				order: "a",
 				retype: "visit",
 				condition: eq(formField(TEXT), literal("transition")),
 			}),
 			update({
 				uuid: THIRD,
 				id: "restore_patient",
-				order: "b",
 				caseType: "visit",
 				retype: "patient",
 				condition: eq(formField(NUMBER), literal(1)),
@@ -1134,7 +1119,6 @@ describe("case-operation target and dependency safety", () => {
 				create({
 					uuid: SECOND,
 					id: "create_distinct_namespaced_case",
-					order: "b",
 					target: { kind: "new", idFrom: HIDDEN_ID },
 				}),
 			]),
@@ -1297,7 +1281,6 @@ describe("case-operation target and dependency safety", () => {
 			update({
 				uuid: THIRD,
 				id: "write_mixed_as_text",
-				order: "c",
 				writes: [{ property: "mixed", value: term(literal("seven")) }],
 			}),
 		]);

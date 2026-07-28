@@ -1,3 +1,5 @@
+import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
+import { emptyCaseListConfig } from "@/lib/domain";
 // @vitest-environment happy-dom
 
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -209,10 +211,7 @@ describe("AddSearchFieldControl", () => {
 
 describe("seedSearchInputForProperty", () => {
 	it("keeps established widget and match defaults after explicit selection", () => {
-		const text = seedSearchInputForProperty(
-			{ columns: [], searchInputs: [] },
-			COMMUNITY,
-		);
+		const text = seedSearchInputForProperty(emptyCaseListConfig(), COMMUNITY);
 		expect(text).toMatchObject({
 			kind: "simple",
 			property: "community",
@@ -222,7 +221,7 @@ describe("seedSearchInputForProperty", () => {
 		});
 
 		const date = seedSearchInputForProperty(
-			{ columns: [], searchInputs: [] },
+			emptyCaseListConfig(),
 			DATE_OF_BIRTH,
 		);
 		expect(date).toMatchObject({
@@ -238,11 +237,11 @@ describe("seedSearchInputForProperty", () => {
 
 	it("canonicalizes legacy choices and keeps repeated internal names unique", () => {
 		const first = seedSearchInputForProperty(
-			{ columns: [], searchInputs: [] },
+			emptyCaseListConfig(),
 			LEGACY_NAME,
 		);
 		const second = seedSearchInputForProperty(
-			{ columns: [], searchInputs: [first] },
+			resolveCaseListConfig({ columns: [], searchInputs: [first] }),
 			LEGACY_NAME,
 		);
 

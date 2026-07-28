@@ -243,7 +243,6 @@ export const caseOperationSchema = z
 	.object({
 		uuid: uuidSchema,
 		id: z.string(),
-		order: z.string().optional(),
 		action: z.enum(CASE_OPERATION_ACTIONS),
 		caseType: z.string(),
 		target: caseTargetSchema,
@@ -259,20 +258,18 @@ export const caseOperationSchema = z
 	.strict();
 export type CaseOperation = z.infer<typeof caseOperationSchema>;
 
-/** Canonical operation sequence: fractional order, then immutable identity. */
+/**
+ * The operation sequence — which is simply the array, copied so callers can
+ * sort or splice it without reaching into the form.
+ *
+ * `caseOperations` is ordered, so there is nothing to derive and this reads as
+ * a no-op. It stays because every emitter and planner names the sequence
+ * through it: one seam means no two of them can order a form differently.
+ */
 export function orderedCaseOperations(form: {
 	readonly caseOperations?: readonly CaseOperation[];
 }): CaseOperation[] {
-	return [...(form.caseOperations ?? [])].sort((left, right) => {
-		if (left.order !== undefined && right.order !== undefined) {
-			if (left.order < right.order) return -1;
-			if (left.order > right.order) return 1;
-			return left.uuid.localeCompare(right.uuid);
-		}
-		if (left.order !== undefined) return -1;
-		if (right.order !== undefined) return 1;
-		return left.uuid.localeCompare(right.uuid);
-	});
+	return [...(form.caseOperations ?? [])];
 }
 
 // Connect config. Each sub-config's `id` stays `z.string().optional()` on
@@ -346,11 +343,6 @@ export const formSchema = z
 		uuid: uuidSchema,
 		id: z.string(),
 		name: z.string(),
-		// Absolute fractional sort key (`lib/doc/order`): form sequence is
-		// `sort-by-(order, uuid)`, not `formOrder[module]` array position.
-		// Optional (legacy forms predate it, backfilled at hydration); never
-		// reaches CommCare.
-		order: z.string().optional(),
 		type: z.enum(FORM_TYPES),
 		purpose: z.string().optional(),
 		/**

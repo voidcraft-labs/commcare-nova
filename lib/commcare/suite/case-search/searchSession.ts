@@ -10,7 +10,6 @@
 import render from "dom-serializer";
 import type { Element } from "domhandler";
 import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
-import { bySortKey } from "@/lib/doc/order/compare";
 import {
 	type CaseListConfig,
 	type CaseSearchConfig,
@@ -184,7 +183,7 @@ export function buildSearchSession(args: {
 	// `<prompt>`s render in DISPLAY order (`sort-by-(order, uuid)`); the
 	// instance accumulation below is order-independent (a Set).
 	const promptEmission = buildSearchPrompts(
-		[...caseListConfig.searchInputs].sort(bySortKey),
+		[...caseListConfig.searchInputs],
 		moduleId,
 		buildRuntimeCsqlPromptValidations(xpathQueryEmission),
 		args.typeContext ?? {},

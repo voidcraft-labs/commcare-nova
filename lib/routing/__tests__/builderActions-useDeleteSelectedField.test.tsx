@@ -114,7 +114,7 @@ function makeStore() {
 			],
 		}),
 	);
-	store.temporal.getState().resume();
+	store.getState().startTracking();
 	return store;
 }
 

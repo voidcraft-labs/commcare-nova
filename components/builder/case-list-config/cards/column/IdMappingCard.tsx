@@ -55,8 +55,6 @@ export function IdMappingCard({ value, onChange, errors }: IdMappingCardProps) {
 		sort: value.sort,
 		visibleInList: value.visibleInList,
 		visibleInDetail: value.visibleInDetail,
-		listOrder: value.listOrder,
-		detailOrder: value.detailOrder,
 	};
 	const setField = (next: string) =>
 		onChange(

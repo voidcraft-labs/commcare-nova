@@ -15,27 +15,6 @@ import type { CaseListConfig, Column, Module, Uuid } from "@/lib/domain";
 type AddModuleMutation = Extract<Mutation, { kind: "addModule" }>;
 type UpdateModuleMutation = Extract<Mutation, { kind: "updateModule" }>;
 
-function columnSurfaceOrders(
-	columns: readonly Column[],
-): NonNullable<AddModuleMutation["columnSurfaceOrders"]> {
-	return columns.flatMap((column) => {
-		if (column.listOrder === undefined && column.detailOrder === undefined) {
-			return [];
-		}
-		return [
-			{
-				uuid: column.uuid,
-				...(column.listOrder !== undefined && {
-					listOrder: column.listOrder,
-				}),
-				...(column.detailOrder !== undefined && {
-					detailOrder: column.detailOrder,
-				}),
-			},
-		];
-	});
-}
-
 function columnTileCells(
 	columns: readonly Column[],
 ): NonNullable<AddModuleMutation["columnTileCells"]> {
@@ -63,7 +42,6 @@ export function updateModuleMutation(
 	if (config === null || config === undefined) {
 		return { kind: "updateModule", uuid, patch };
 	}
-	const surfaceOrders = columnSurfaceOrders(config.columns);
 	const tileCells = columnTileCells(config.columns);
 	return {
 		kind: "updateModule",
@@ -72,7 +50,6 @@ export function updateModuleMutation(
 			...patch,
 			caseListConfig: legacyCompatibleCaseListConfig(config),
 		},
-		...(surfaceOrders.length > 0 && { columnSurfaceOrders: surfaceOrders }),
 		...(tileCells.length > 0 && { columnTileCells: tileCells }),
 		...(config.tile !== undefined && { caseListTile: config.tile }),
 	};
@@ -80,10 +57,9 @@ export function updateModuleMutation(
 
 export function addModuleMutation(
 	module: Module,
-	index?: number,
+	after?: Uuid | null,
 ): AddModuleMutation {
 	const columns = module.caseListConfig?.columns ?? [];
-	const surfaceOrders = columnSurfaceOrders(columns);
 	const tileCells = columnTileCells(columns);
 	const caseListTile = module.caseListConfig?.tile;
 
@@ -104,8 +80,7 @@ export function addModuleMutation(
 	return {
 		kind: "addModule",
 		module: fallbackModule,
-		...(index !== undefined && { index }),
-		...(surfaceOrders.length > 0 && { columnSurfaceOrders: surfaceOrders }),
+		...(after !== undefined && { after }),
 		...(tileCells.length > 0 && { columnTileCells: tileCells }),
 		...(caseListTile !== undefined && { caseListTile }),
 		...(desiredOwnerOnly !== undefined && {

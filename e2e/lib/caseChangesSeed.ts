@@ -132,6 +132,14 @@ export function buildCaseChangesBlueprint(
 							"Last note",
 						),
 					],
+					listColumnOrder: [
+						CASE_CHANGES_SEED.columns.patientName,
+						CASE_CHANGES_SEED.columns.patientNote,
+					],
+					detailColumnOrder: [
+						CASE_CHANGES_SEED.columns.patientName,
+						CASE_CHANGES_SEED.columns.patientNote,
+					],
 					searchInputs: [],
 				},
 				forms: [
@@ -189,6 +197,16 @@ export function buildCaseChangesBlueprint(
 							),
 						),
 					],
+					listColumnOrder: [
+						CASE_CHANGES_SEED.columns.archivedName,
+						CASE_CHANGES_SEED.columns.archivedSource,
+						CASE_CHANGES_SEED.columns.archivedPatient,
+					],
+					detailColumnOrder: [
+						CASE_CHANGES_SEED.columns.archivedName,
+						CASE_CHANGES_SEED.columns.archivedSource,
+						CASE_CHANGES_SEED.columns.archivedPatient,
+					],
 					searchInputs: [],
 				},
 			},
@@ -226,7 +244,6 @@ function caseOperations(
 		{
 			uuid: CASE_CHANGES_SEED.operations.create,
 			id: CASE_CHANGES_SEED.ids.create,
-			order: "a0",
 			action: "create",
 			caseType: "referral",
 			target: { kind: "new" },
@@ -235,7 +252,6 @@ function caseOperations(
 		{
 			uuid: CASE_CHANGES_SEED.operations.retype,
 			id: CASE_CHANGES_SEED.ids.retype,
-			order: "a1",
 			action: "update",
 			caseType: "referral",
 			target: { kind: "op", opUuid: CASE_CHANGES_SEED.operations.create },
@@ -244,7 +260,6 @@ function caseOperations(
 		{
 			uuid: CASE_CHANGES_SEED.operations.note,
 			id: CASE_CHANGES_SEED.ids.note,
-			order: "a2",
 			action: "update",
 			caseType: "patient",
 			target: { kind: "session" },
@@ -253,7 +268,6 @@ function caseOperations(
 		{
 			uuid: CASE_CHANGES_SEED.operations.file,
 			id: CASE_CHANGES_SEED.ids.file,
-			order: "a3",
 			action: "update",
 			caseType: CASE_CHANGES_SEED.archivedCaseType,
 			target: { kind: "op", opUuid: CASE_CHANGES_SEED.operations.create },
@@ -276,7 +290,6 @@ function caseOperations(
 					{
 						uuid: CASE_CHANGES_SEED.operations.dormant,
 						id: CASE_CHANGES_SEED.ids.dormant,
-						order: "a4",
 						action: "update" as const,
 						caseType: "patient",
 						target: { kind: "session" as const },

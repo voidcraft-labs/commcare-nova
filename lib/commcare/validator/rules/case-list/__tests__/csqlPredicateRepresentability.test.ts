@@ -90,6 +90,8 @@ function docWithFilter(
 				caseType: "patient",
 				caseListConfig: {
 					columns: [plainColumn(asUuid("column-name"), "case_name", "Name")],
+					listColumnOrder: [asUuid("column-name")],
+					detailColumnOrder: [asUuid("column-name")],
 					filter,
 					searchInputs: [],
 				},
@@ -117,6 +119,8 @@ function docWithAdvancedPredicate(predicate: Predicate) {
 				caseType: "patient",
 				caseListConfig: {
 					columns: [plainColumn(asUuid("column-name"), "case_name", "Name")],
+					listColumnOrder: [asUuid("column-name")],
+					detailColumnOrder: [asUuid("column-name")],
 					searchInputs: [
 						advancedSearchInputDef(
 							asUuid("input-condition"),
@@ -435,6 +439,8 @@ describe("csqlPredicateRepresentability", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("column-name"), "case_name", "Name")],
+						listColumnOrder: [asUuid("column-name")],
+						detailColumnOrder: [asUuid("column-name")],
 						filter: eq(prop("patient", "age"), prop("patient", "score")),
 						searchInputs: [
 							advancedSearchInputDef(

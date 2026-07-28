@@ -4,6 +4,7 @@ import { applyMutation } from "@/lib/doc/mutations";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
 import { asUuid } from "@/lib/doc/types";
 import type { Field, Form, Module } from "@/lib/domain";
+import { emptyCaseListConfig } from "@/lib/domain";
 
 const M = (s: string) => asUuid(`mod${s}-0000-0000-0000-000000000000`);
 const F = (s: string) => asUuid(`frm${s}-0000-0000-0000-000000000000`);
@@ -45,7 +46,7 @@ describe("addModule", () => {
 		expect(next.modules[M("A")]?.name).toBe("A");
 	});
 
-	it("inserts at index when provided", () => {
+	it("inserts after the module it names", () => {
 		const start: BlueprintDoc = {
 			...emptyDoc(),
 			modules: {
@@ -59,7 +60,7 @@ describe("addModule", () => {
 			applyMutation(d, {
 				kind: "addModule",
 				module: module_(M("B"), "B"),
-				index: 1,
+				after: M("A"),
 			});
 		});
 		expect(next.moduleOrder).toEqual([M("A"), M("B"), M("C")]);
@@ -121,12 +122,12 @@ describe("moveModule", () => {
 			formOrder: { [M("A")]: [], [M("B")]: [], [M("C")]: [] },
 		};
 		const next = produce(start, (d) => {
-			applyMutation(d, { kind: "moveModule", uuid: M("A"), toIndex: 2 });
+			applyMutation(d, { kind: "moveModule", uuid: M("A"), after: M("C") });
 		});
 		expect(next.moduleOrder).toEqual([M("B"), M("C"), M("A")]);
 	});
 
-	it("clamps toIndex to valid range", () => {
+	it("appends when the anchor is gone", () => {
 		const start: BlueprintDoc = {
 			...emptyDoc(),
 			modules: {
@@ -137,14 +138,16 @@ describe("moveModule", () => {
 			formOrder: { [M("A")]: [], [M("B")]: [] },
 		};
 		const next = produce(start, (d) => {
-			applyMutation(d, { kind: "moveModule", uuid: M("A"), toIndex: 999 });
+			// A peer removed the anchor before this move replayed. Appending keeps
+			// the reducer total, so historical replay never fails.
+			applyMutation(d, { kind: "moveModule", uuid: M("A"), after: M("gone") });
 		});
 		expect(next.moduleOrder).toEqual([M("B"), M("A")]);
 	});
 
 	it("is a no-op when the module isn't in moduleOrder", () => {
 		const next = produce(emptyDoc(), (d) => {
-			applyMutation(d, { kind: "moveModule", uuid: M("missing"), toIndex: 0 });
+			applyMutation(d, { kind: "moveModule", uuid: M("missing"), after: null });
 		});
 		expect(next.moduleOrder).toEqual([]);
 	});
@@ -225,14 +228,11 @@ describe("updateModule.ensureCaseListConfig", () => {
 			applyMutation(d, {
 				kind: "updateModule",
 				uuid: M("A"),
-				patch: { caseListConfig: { columns: [], searchInputs: [] } },
+				patch: { caseListConfig: emptyCaseListConfig() },
 				ensureCaseListConfig: true,
 			});
 		});
-		expect(next.modules[M("A")]?.caseListConfig).toEqual({
-			columns: [],
-			searchInputs: [],
-		});
+		expect(next.modules[M("A")]?.caseListConfig).toEqual(emptyCaseListConfig());
 	});
 
 	it("is idempotent and preserves a peer-populated config", () => {
@@ -245,6 +245,8 @@ describe("updateModule.ensureCaseListConfig", () => {
 					header: "Name",
 				},
 			],
+			listColumnOrder: [Q("col")],
+			detailColumnOrder: [Q("col")],
 			searchInputs: [],
 			filter: { kind: "match-all" as const },
 		};
@@ -260,10 +262,81 @@ describe("updateModule.ensureCaseListConfig", () => {
 			applyMutation(d, {
 				kind: "updateModule",
 				uuid: M("A"),
-				patch: { caseListConfig: { columns: [], searchInputs: [] } },
+				patch: { caseListConfig: emptyCaseListConfig() },
 				ensureCaseListConfig: true,
 			});
 		});
 		expect(next.modules[M("A")]?.caseListConfig).toEqual(existing);
+	});
+});
+
+describe("case-list column membership", () => {
+	/** A module whose case list holds two columns, both on both screens. */
+	function moduleWithColumns(): BlueprintDoc {
+		const first = Q("col1");
+		const second = Q("col2");
+		return {
+			...emptyDoc(),
+			modules: {
+				[M("A")]: {
+					...module_(M("A"), "A"),
+					caseType: "patient",
+					caseListConfig: {
+						columns: [
+							{
+								uuid: first,
+								kind: "plain",
+								field: "case_name",
+								header: "Name",
+							},
+							{ uuid: second, kind: "plain", field: "age", header: "Age" },
+						],
+						listColumnOrder: [first, second],
+						detailColumnOrder: [second, first],
+						searchInputs: [],
+					},
+				} as Module,
+			},
+			moduleOrder: [M("A")],
+			formOrder: { [M("A")]: [] },
+		};
+	}
+
+	it("addColumn lands the column where each surface said", () => {
+		const added = Q("col3");
+		const next = produce(moduleWithColumns(), (d) => {
+			applyMutation(d, {
+				kind: "addColumn",
+				moduleUuid: M("A"),
+				column: {
+					uuid: added,
+					kind: "plain",
+					field: "village",
+					header: "Village",
+				},
+				afterInList: null,
+				afterInDetail: Q("col2"),
+			});
+		});
+		const config = next.modules[M("A")]?.caseListConfig;
+		expect(config?.listColumnOrder).toEqual([added, Q("col1"), Q("col2")]);
+		expect(config?.detailColumnOrder).toEqual([Q("col2"), added, Q("col1")]);
+	});
+
+	it("removeColumn takes the column out of BOTH sequences", () => {
+		// A uuid left in a sequence is a member of neither screen and a member of
+		// both orders — the disagreement `assembleBlueprint` refuses to persist,
+		// and an anchor a later add could name.
+		const next = produce(moduleWithColumns(), (d) => {
+			applyMutation(d, {
+				kind: "removeColumn",
+				moduleUuid: M("A"),
+				uuid: Q("col2"),
+			});
+		});
+		const config = next.modules[M("A")]?.caseListConfig;
+		expect(config?.columns.map((column) => column.uuid)).toEqual([Q("col1")]);
+		expect(config?.listColumnOrder).toEqual([Q("col1")]);
+		expect(config?.detailColumnOrder).toEqual([Q("col1")]);
 	});
 });

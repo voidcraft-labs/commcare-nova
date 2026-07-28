@@ -12,7 +12,6 @@
  * this tree in one walk. The engine builds the tree once at construction
  * / schema refresh and uses it for every internal traversal.
  */
-import { bySortKey } from "@/lib/doc/order/compare";
 import type { Field, Uuid } from "@/lib/domain";
 
 /** A single node in the rose-tree representation of a field subtree. */
@@ -40,9 +39,7 @@ export function buildFieldTree(
 	// Sequence is derived as `sort-by-(order, uuid)`, not array position — a
 	// same-parent reorder leaves the membership array untouched, so the running
 	// form re-sequences only because the walk sorts here.
-	const order = [...(fieldOrder[parentUuid] ?? [])].sort((a, b) =>
-		bySortKey(fields[a] ?? {}, fields[b] ?? {}),
-	);
+	const order = [...(fieldOrder[parentUuid] ?? [])];
 	const nodes: FieldTreeNode[] = [];
 	for (const uuid of order) {
 		const field = fields[uuid];

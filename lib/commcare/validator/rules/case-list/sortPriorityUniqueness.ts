@@ -17,7 +17,13 @@
  * `sort` slot — collisions are trivially absent.
  */
 
-import type { BlueprintDoc, Column, Module, Uuid } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	type Column,
+	type Module,
+	orderedColumns,
+	type Uuid,
+} from "@/lib/domain";
 import { type ValidationError, validationError } from "../../errors";
 
 export function sortPriorityUniqueness(
@@ -25,7 +31,11 @@ export function sortPriorityUniqueness(
 	moduleUuid: Uuid,
 	_doc: BlueprintDoc,
 ): ValidationError[] {
-	const columns = mod.caseListConfig?.columns ?? [];
+	const config = mod.caseListConfig;
+	// In RESULTS order, because that is the tie-break the runtime applies and
+	// the position the author counts — "column #2" has to name the second
+	// column on screen, not the second one written to the document.
+	const columns = config === undefined ? [] : orderedColumns(config, "list");
 	if (columns.length === 0) return [];
 
 	// Walk the column list once, tracking the first column index at

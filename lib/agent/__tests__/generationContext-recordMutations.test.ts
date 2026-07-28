@@ -226,7 +226,7 @@ describe("GenerationContext.recordMutations", () => {
 			kind: "moveField",
 			uuid: asUuid("field-uuid"),
 			toParentUuid: asUuid("form-uuid"),
-			order: "a0",
+			after: null,
 		};
 
 		await ctx.recordMutations([move], DOC);

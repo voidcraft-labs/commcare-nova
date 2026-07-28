@@ -21,7 +21,12 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
-import type { CaseTileLayout, Column, TileCell, Uuid } from "@/lib/domain";
+import type {
+	CaseListConfig,
+	CaseTileLayout,
+	TileCell,
+	Uuid,
+} from "@/lib/domain";
 import { TileGridEditor } from "./TileGridEditor";
 import { tileMembership, tileMemberUuids } from "./tileModel";
 import {
@@ -32,7 +37,7 @@ import {
 } from "./tilePresets";
 
 export interface TileLayoutCanvasProps {
-	readonly columns: readonly Column[];
+	readonly config: CaseListConfig;
 	readonly tile: CaseTileLayout;
 	readonly selectedUuid: string | null;
 	readonly issues: ReadonlyMap<Uuid, readonly string[]>;
@@ -45,7 +50,7 @@ export interface TileLayoutCanvasProps {
 }
 
 export function TileLayoutCanvas({
-	columns,
+	config,
 	tile,
 	selectedUuid,
 	issues,
@@ -56,8 +61,8 @@ export function TileLayoutCanvas({
 	onApplyPreset,
 	onPersistOnFormsChange,
 }: TileLayoutCanvasProps) {
-	const memberCount = tileMemberUuids(columns).length;
-	const { placed } = tileMembership(columns);
+	const memberCount = tileMemberUuids(config).length;
+	const { placed } = tileMembership(config);
 	const current =
 		placed.length === memberCount
 			? matchingTilePreset(placed.map((entry) => entry.cell))
@@ -76,7 +81,7 @@ export function TileLayoutCanvas({
 			)}
 
 			<TileGridEditor
-				columns={columns}
+				config={config}
 				selectedUuid={selectedUuid}
 				issues={issues}
 				canEdit={canEdit}

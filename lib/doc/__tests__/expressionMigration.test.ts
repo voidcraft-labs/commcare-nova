@@ -37,6 +37,7 @@ import type { BlueprintDoc } from "@/lib/doc/types";
 import type { Form, ReferenceSlot } from "@/lib/domain";
 import {
 	asUuid,
+	emptyCaseListConfig,
 	FIELD_REFERENCE_SLOTS,
 	FORM_REFERENCE_SLOTS,
 	isXPathExpression,
@@ -66,7 +67,7 @@ function richDoc(): BlueprintDoc {
 			{
 				name: "Patients",
 				caseType: "patient",
-				caseListConfig: { columns: [], searchInputs: [] },
+				caseListConfig: emptyCaseListConfig(),
 				forms: [
 					{
 						name: "Register",

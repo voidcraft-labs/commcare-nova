@@ -97,7 +97,7 @@ describe("useModule / useForm / useField", () => {
 			{ wrapper },
 		);
 		const initialRenders = renderCount;
-		store.temporal.getState().resume();
+		store.getState().startTracking();
 		act(() => {
 			store.getState().applyMany([{ kind: "setAppName", name: "Changed" }]);
 		});
@@ -125,7 +125,7 @@ describe("useModuleIds / useOrderedModules", () => {
 		const { store, wrapper } = setup();
 		const { result } = renderHook(() => useOrderedModules(), { wrapper });
 		const first = result.current;
-		store.temporal.getState().resume();
+		store.getState().startTracking();
 		act(() => {
 			store.getState().applyMany([{ kind: "setAppName", name: "Different" }]);
 		});
@@ -183,7 +183,7 @@ describe("useOrderedFields", () => {
 			{ wrapper },
 		);
 		const initial = renderCount;
-		store.temporal.getState().resume();
+		store.getState().startTracking();
 		act(() => {
 			// Add a second field under the same form — fieldOrder changes, so
 			// re-render is expected. This asserts the hook DOES respond to real

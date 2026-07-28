@@ -23,6 +23,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import { ReconcilerContext } from "@/lib/collab/context";
 import type { CaseListConfig, CaseType } from "@/lib/domain";
 import { literal, matchAll, term } from "@/lib/domain/predicate";
@@ -455,11 +456,11 @@ describe("useCases query constraints", () => {
 			);
 			await waitFor(() => expect(loadCasesAction).toHaveBeenCalledTimes(1));
 
-			caseListConfig = {
+			caseListConfig = resolveCaseListConfig({
 				columns: [],
 				searchInputs: [],
 				filter: matchAll(),
-			};
+			});
 			excludedOwnerIdsExpression = term(literal("owner-a"));
 			caseTypes = [PATIENT];
 			hook.rerender();

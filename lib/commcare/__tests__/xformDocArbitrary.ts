@@ -30,6 +30,7 @@
  */
 
 import * as fc from "fast-check";
+import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
 	asUuid,
 	type BlueprintDoc,
@@ -1068,12 +1069,12 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 			id: `m${mIdx}`,
 			name: `Module ${mIdx}`,
 			caseType: modSpec.caseType,
-			caseListConfig: {
+			caseListConfig: resolveCaseListConfig({
 				columns: modSpec.caseListColumns.map((field) =>
 					plainColumn(minter.uuid("col"), field, field),
 				),
 				searchInputs: [],
-			},
+			}),
 			...(moduleIcon ? { icon: moduleIcon } : {}),
 			...(moduleAudio ? { audioLabel: moduleAudio } : {}),
 		};
@@ -1192,10 +1193,10 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 			name: `View ${childType}`,
 			caseType: childType,
 			caseListOnly: true,
-			caseListConfig: {
+			caseListConfig: resolveCaseListConfig({
 				columns: [plainColumn(minter.uuid("col"), "case_name", "Name")],
 				searchInputs: [],
-			},
+			}),
 		};
 	}
 

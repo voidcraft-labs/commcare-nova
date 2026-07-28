@@ -54,7 +54,7 @@ export function DetailCanvas({
 	onRepairColumn,
 }: DetailCanvasProps) {
 	const canEdit = useCanEdit();
-	const projection = projectCaseWorkspaceColumns(config.columns);
+	const projection = projectCaseWorkspaceColumns(config);
 	const availableProperties = unrepresentedColumnProperties(config, caseType);
 	const repeatableProperties = representedColumnProperties(config, caseType);
 	const selectedColumnUuid =

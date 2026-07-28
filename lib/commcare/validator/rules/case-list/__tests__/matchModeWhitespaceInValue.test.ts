@@ -52,6 +52,8 @@ describe("matchModeWhitespaceInValue", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [asUuid("c-1")],
+						detailColumnOrder: [asUuid("c-1")],
 						filter: match(prop("patient", "case_name"), "Alice Smith", "fuzzy"),
 						searchInputs: [],
 					},
@@ -78,6 +80,8 @@ describe("matchModeWhitespaceInValue", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [asUuid("c-1")],
+						detailColumnOrder: [asUuid("c-1")],
 						filter: match(
 							prop("patient", "case_name"),
 							"John  Doe",
@@ -106,6 +110,8 @@ describe("matchModeWhitespaceInValue", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [asUuid("c-1")],
+						detailColumnOrder: [asUuid("c-1")],
 						filter: match(prop("patient", "case_name"), "Alice", "fuzzy"),
 						searchInputs: [],
 					},
@@ -129,6 +135,8 @@ describe("matchModeWhitespaceInValue", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [asUuid("c-1")],
+						detailColumnOrder: [asUuid("c-1")],
 						filter: match(
 							prop("patient", "case_name"),
 							"Alice Smith",
@@ -165,6 +173,8 @@ describe("matchModeWhitespaceInValue", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [asUuid("c-1")],
+						detailColumnOrder: [asUuid("c-1")],
 						filter: multiSelectAny(
 							prop("patient", "case_name"),
 							literal("Alice Smith"),
@@ -194,6 +204,8 @@ describe("matchModeWhitespaceInValue", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [asUuid("c-1")],
+						detailColumnOrder: [asUuid("c-1")],
 						filter: multiSelectAll(
 							prop("patient", "case_name"),
 							literal("Big Apple"),
@@ -220,6 +232,8 @@ describe("matchModeWhitespaceInValue", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [asUuid("c-1")],
+						detailColumnOrder: [asUuid("c-1")],
 						filter: multiSelectAny(
 							prop("patient", "case_name"),
 							literal("Alice"),

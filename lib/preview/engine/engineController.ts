@@ -10,7 +10,7 @@
  * Two Zustand stores with a unidirectional flow: blueprint → runtime.
  *
  * - **Blueprint store** (existing): normalized entities, Immer structural
- *   sharing, zundo undo tracking. Source of truth for form structure.
+ *   sharing, undo history. Source of truth for form structure.
  * - **Runtime store** (owned by this controller): UUID-keyed per-field
  *   computed state (visibility, required, validation, resolved labels).
  *   Ephemeral — never persisted, never in undo history.

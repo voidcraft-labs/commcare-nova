@@ -45,7 +45,6 @@ import {
 	type MediaAttachExpectation,
 } from "@/lib/media/attachVerdicts";
 import {
-	assertPersistenceSafeMutationIdentities,
 	describeIntroducedErrors,
 	evaluatePreparedMutationCandidate,
 	exportReadinessFindings,
@@ -616,21 +615,6 @@ export async function deleteMediaAssetForChatRun(args: {
 	});
 }
 
-/** Map a replay-unsafe payload to the commit rejection shape wire callers know. */
-function assertDeterministicPersistedMutations(
-	mutations: readonly Mutation[],
-): void {
-	try {
-		assertPersistenceSafeMutationIdentities(mutations);
-	} catch (error) {
-		throw new BlueprintCommitRejectedError(
-			error instanceof Error
-				? error.message
-				: "This mutation batch cannot be persisted deterministically.",
-		);
-	}
-}
-
 // ── Concurrency Guard ─────────────────────────────────────────────
 
 /**
@@ -789,7 +773,6 @@ export async function createApp(
 	// transaction closure, so the template callback and reducer must stay out of
 	// it. The prepared value is deterministic and safe to evaluate repeatedly.
 	const seedMutations = opts?.seedMutations?.(emptyDoc) ?? [];
-	assertDeterministicPersistedMutations(seedMutations);
 	const prepared = prepareMutationCandidate(emptyDoc, seedMutations);
 	const candidateTargets = extractLookupReferenceTargets(prepared.nextDoc);
 	const persistable = toPersistableDoc(prepared.nextDoc);
@@ -1146,7 +1129,6 @@ export async function commitGuardedBatch(
 			}
 			// Rebuild the fresh doc, reject a concurrent-delete target, re-verdict.
 			const freshDoc = hydratePersistedBlueprint(freshPersistable);
-			assertDeterministicPersistedMutations(mutations);
 			if (batchTargetsMissing(freshDoc, mutations)) {
 				throw new BlueprintCommitRejectedError(
 					"This app changed while you were editing — something your change " +
@@ -1421,7 +1403,6 @@ export async function appendSyntheticBatch(
 		);
 		const previousDoc = hydratePersistedBlueprint(previousPersistable);
 		const mutations = diffDocsToMutations(previousDoc, requestedTarget);
-		assertDeterministicPersistedMutations(mutations);
 		const prepared = prepareMutationCandidate(previousDoc, mutations);
 		const replayed = toPersistableDoc(prepared.nextDoc);
 		const requested = toPersistableDoc(requestedTarget);
@@ -1921,7 +1902,6 @@ export async function commitAppProjectMoveInTransaction(
 				)
 			: previousDoc;
 	const mutations = diffDocsToMutations(previousDoc, requestedCandidate);
-	assertDeterministicPersistedMutations(mutations);
 	const prepared = prepareMutationCandidate(previousDoc, mutations);
 	if (
 		!deepEqual(

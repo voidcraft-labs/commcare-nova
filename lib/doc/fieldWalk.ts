@@ -15,41 +15,24 @@
 
 import type { BlueprintDoc, Field, Uuid } from "@/lib/domain";
 import { isContainer, ownRecordValue } from "@/lib/domain";
-import { bySortKey } from "./order/compare";
 
 /**
- * The membership arrays (`moduleOrder` / `formOrder[m]` / `fieldOrder[p]`) are
- * NOT the authoritative sequence — display/wire/preview/SA order is derived as
- * `sort-by-(order, uuid)`. These three helpers resolve each uuid to its entity
- * and return the membership in that derived order, so every consumer that
- * walks a level as a SEQUENCE sorts through one comparator (a same-parent
- * reorder, which leaves the membership array untouched, still re-sequences).
+ * The membership arrays (`moduleOrder` / `formOrder[m]` / `fieldOrder[p]`) ARE
+ * the sequence — display, wire, preview, and SA order all read them directly.
+ * There is nothing to sort and no key to compare, so these three helpers are
+ * just a copy: they exist to name the intent at the call site, and so that
+ * "the forms of this module, in order" has one spelling instead of thirty.
  */
 export function orderedModuleUuids(doc: BlueprintDoc): Uuid[] {
-	return [...doc.moduleOrder].sort((a, b) =>
-		bySortKey(
-			ownRecordValue(doc.modules, a) ?? {},
-			ownRecordValue(doc.modules, b) ?? {},
-		),
-	);
+	return [...doc.moduleOrder];
 }
 
 export function orderedFormUuids(doc: BlueprintDoc, moduleUuid: Uuid): Uuid[] {
-	return [...(ownRecordValue(doc.formOrder, moduleUuid) ?? [])].sort((a, b) =>
-		bySortKey(
-			ownRecordValue(doc.forms, a) ?? {},
-			ownRecordValue(doc.forms, b) ?? {},
-		),
-	);
+	return [...(ownRecordValue(doc.formOrder, moduleUuid) ?? [])];
 }
 
 export function orderedFieldUuids(doc: BlueprintDoc, parentUuid: Uuid): Uuid[] {
-	return [...(ownRecordValue(doc.fieldOrder, parentUuid) ?? [])].sort((a, b) =>
-		bySortKey(
-			ownRecordValue(doc.fields, a) ?? {},
-			ownRecordValue(doc.fields, b) ?? {},
-		),
-	);
+	return [...(ownRecordValue(doc.fieldOrder, parentUuid) ?? [])];
 }
 
 /**

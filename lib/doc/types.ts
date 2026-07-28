@@ -261,7 +261,8 @@ function caseOperationChangeSchemaFor(
 			.object({
 				operation: z.literal("move"),
 				uuid: uuidSchema,
-				order: z.string(),
+				/** The uuid this operation now follows, or `null` for first. */
+				after: uuidSchema.nullable(),
 			})
 			.strict(),
 	]);
@@ -284,7 +285,6 @@ function caseOperationPatchSchemaFor(
 		// own `uuid` is the addressing key, and `.strict()` rejects a second
 		// one outright. Do not add a runtime guard for it.
 		.omit({
-			order: true,
 			writes: true,
 			links: true,
 		})
@@ -369,13 +369,15 @@ function caseOperationPatchSchemaFor(
 			.object({
 				operation: z.literal("move"),
 				uuid: uuidSchema,
-				order: z.string().nullable(),
 				/**
-				 * Optional current-writer placement intent. The fractional key is
-				 * still the deterministic replay value; the guarded writer uses this
-				 * rank only to reject a peer-shifted placement on its fresh doc.
+				 * The uuid this operation now follows, or `null` for first.
+				 *
+				 * The anchor is the whole placement — there is no separate rank for
+				 * the authoritative writer to fence. A placement named by a
+				 * neighbouring uuid cannot be shifted by a peer: the anchor either
+				 * still exists, or it does not and the move appends.
 				 */
-				index: z.number().int().nonnegative().optional(),
+				after: uuidSchema.nullable(),
 			})
 			.strict(),
 	]);
@@ -760,13 +762,18 @@ function reportCaseOperationPatchIntegrity(
 	const issue = (path: readonly (string | number)[], message: string): void => {
 		ctx.addIssue({ code: "custom", path: [...path], message });
 	};
+	// A move is the one pairing whose fallback is also a `move`: both views name
+	// the operation and the uuid it now follows, and both slots are required, so
+	// agreement is exact identity on the pair. Comparing anything less would let
+	// through an event whose two views disagree about where the move landed,
+	// which replays to two different documents.
 	if (
 		semantic?.operation === "move" &&
 		fallback?.operation === "move" &&
 		typeof semantic.uuid === "string" &&
 		fallback.uuid === semantic.uuid &&
-		semantic.order !== null &&
-		fallback.order === semantic.order
+		(typeof semantic.after === "string" || semantic.after === null) &&
+		fallback.after === semantic.after
 	) {
 		return;
 	}
@@ -956,24 +963,10 @@ function createMutationSchema({
 				// nested slots travel in top-level extensions so old PUT handlers can
 				// parse this established discriminator and safely degrade.
 				module: mutationModuleSchema,
-				index: z.number().int().nonnegative().optional(),
-				columnSurfaceOrders: z
-					.array(
-						z
-							.object({
-								uuid: uuidSchema,
-								listOrder: z.string().optional(),
-								detailOrder: z.string().optional(),
-							})
-							.strict()
-							.refine(
-								(value) =>
-									value.listOrder !== undefined ||
-									value.detailOrder !== undefined,
-								{ message: "A column surface-order entry cannot be empty." },
-							),
-					)
-					.optional(),
+				/** The module this one now follows, or `null` for first. Absent
+				 *  appends — the common case, and distinct from `null` so "add at
+				 *  the top" stays expressible across the JSON wire. */
+				after: uuidSchema.nullable().optional(),
 				// Per-column tile placement and the case list's tile layout are both
 				// current-only slots on a strict nested schema, so they travel here and
 				// the fallback module stays tile-free. An old reducer applies a
@@ -1006,36 +999,6 @@ function createMutationSchema({
 					new Set(columns.map((column) => column.uuid)),
 					ctx,
 				);
-				for (const [index, column] of columns.entries()) {
-					for (const key of ["listOrder", "detailOrder"] as const) {
-						if (column[key] !== undefined) {
-							ctx.addIssue({
-								code: "custom",
-								path: ["module", "caseListConfig", "columns", index, key],
-								message:
-									"Column surface order must use addModule.columnSurfaceOrders so the strict pre-deploy module schema can parse the fallback.",
-							});
-						}
-					}
-				}
-				const columnUuids = new Set(columns.map((column) => column.uuid));
-				const seenSurfaceOrders = new Set<string>();
-				for (const [index, entry] of (
-					mutation.columnSurfaceOrders ?? []
-				).entries()) {
-					if (
-						!columnUuids.has(entry.uuid) ||
-						seenSurfaceOrders.has(entry.uuid)
-					) {
-						ctx.addIssue({
-							code: "custom",
-							path: ["columnSurfaceOrders", index, "uuid"],
-							message:
-								"Each column surface-order entry must name one unique column in the fallback module.",
-						});
-					}
-					seenSurfaceOrders.add(entry.uuid);
-				}
 
 				const desiredSearch = mutation.caseSearchConfigValue;
 				const fallbackSearch = mutation.module.caseSearchConfig;
@@ -1096,8 +1059,8 @@ function createMutationSchema({
 		z.object({
 			kind: z.literal("moveModule"),
 			uuid: uuidSchema,
-			order: z.string().optional(),
-			toIndex: z.number().int().nonnegative().optional(),
+			/** The uuid this module now follows, or `null` for first. */
+			after: uuidSchema.nullable(),
 		}),
 		z.object({
 			kind: z.literal("renameModule"),
@@ -1128,23 +1091,6 @@ function createMutationSchema({
 				// A full case-list replacement carries old-shape nested columns in the
 				// patch and reconstructs current-only surface keys from this top-level
 				// extension. Origin/main strips the extension and accepts the fallback.
-				columnSurfaceOrders: z
-					.array(
-						z
-							.object({
-								uuid: uuidSchema,
-								listOrder: z.string().optional(),
-								detailOrder: z.string().optional(),
-							})
-							.strict()
-							.refine(
-								(value) =>
-									value.listOrder !== undefined ||
-									value.detailOrder !== undefined,
-								{ message: "A column surface-order entry cannot be empty." },
-							),
-					)
-					.optional(),
 				// Search presence and final-input cleanup are likewise semantic edits on
 				// the origin/main-known `updateModule` discriminator. The patch retains
 				// the locally projected `caseSearchConfig` as an old-reducer fallback;
@@ -1200,39 +1146,6 @@ function createMutationSchema({
 					new Set(fallbackColumns.map((column) => column.uuid)),
 					ctx,
 				);
-				for (const [index, column] of fallbackColumns.entries()) {
-					for (const key of ["listOrder", "detailOrder"] as const) {
-						if (column[key] !== undefined) {
-							ctx.addIssue({
-								code: "custom",
-								path: ["patch", "caseListConfig", "columns", index, key],
-								message:
-									"Surface order must use updateModule.columnSurfaceOrders so the strict pre-deploy nested schema can parse the fallback.",
-							});
-						}
-					}
-				}
-				const fallbackColumnUuids = new Set(
-					fallbackColumns.map((column) => column.uuid),
-				);
-				const seenSurfaceOrders = new Set<string>();
-				for (const [index, entry] of (
-					mutation.columnSurfaceOrders ?? []
-				).entries()) {
-					if (
-						!fallbackColumnUuids.has(entry.uuid) ||
-						seenSurfaceOrders.has(entry.uuid)
-					) {
-						ctx.addIssue({
-							code: "custom",
-							path: ["columnSurfaceOrders", index, "uuid"],
-							message:
-								"Each column surface-order entry must name one unique column in the fallback case-list config.",
-						});
-					}
-					seenSurfaceOrders.add(entry.uuid);
-				}
-
 				if (mutation.ensureCaseListConfig) {
 					const fallback = mutation.patch.caseListConfig;
 					const hasOnlyRequiredEmptySlots =
@@ -1240,8 +1153,14 @@ function createMutationSchema({
 						fallback !== undefined &&
 						fallback.columns.length === 0 &&
 						fallback.searchInputs.length === 0 &&
+						fallback.listColumnOrder.length === 0 &&
+						fallback.detailColumnOrder.length === 0 &&
 						Object.keys(fallback).every(
-							(key) => key === "columns" || key === "searchInputs",
+							(key) =>
+								key === "columns" ||
+								key === "searchInputs" ||
+								key === "listColumnOrder" ||
+								key === "detailColumnOrder",
 						);
 					if (!hasOnlyRequiredEmptySlots) {
 						ctx.addIssue({
@@ -1406,18 +1325,20 @@ function createMutationSchema({
 			kind: z.literal("addForm"),
 			moduleUuid: uuidSchema,
 			form: mutationFormSchema,
-			index: z.number().int().nonnegative().optional(),
+			/** The form this one now follows within the module, or `null` for
+			 *  first. Absent appends. */
+			after: uuidSchema.nullable().optional(),
 		}),
 		z.object({ kind: z.literal("removeForm"), uuid: uuidSchema }),
-		// `order` is the gesture-computed fractional key (written verbatim);
-		// `toIndex` is kept optional for legacy replay only. A same-module reorder
-		// sets only `order`; a cross-module move also updates membership.
+		// A same-module reorder splices within the module's membership array; a
+		// cross-module move splices into the destination's.
 		z.object({
 			kind: z.literal("moveForm"),
 			uuid: uuidSchema,
 			toModuleUuid: uuidSchema,
-			order: z.string().optional(),
-			toIndex: z.number().int().nonnegative().optional(),
+			/** The uuid this form now follows within the target module, or `null`
+			 *  for first. A cross-module move names a sibling in the DESTINATION. */
+			after: uuidSchema.nullable(),
 		}),
 		z.object({
 			kind: z.literal("renameForm"),
@@ -1460,7 +1381,10 @@ function createMutationSchema({
 				// remains strict and carrier-blind. Current source intent travels in
 				// the optional top-level extension below.
 				field: carrierBlindFieldSchema,
-				index: z.number().int().nonnegative().optional(),
+				/** The sibling this field follows under `parentUuid`, or `null` for
+				 *  first. Absent appends — the common case, and distinct from `null`
+				 *  so "add at the top" stays expressible. */
+				after: uuidSchema.nullable().optional(),
 				optionsSource: lookupOptionsSourceSchema.optional(),
 			})
 			.superRefine((mutation, ctx) => {
@@ -1478,16 +1402,16 @@ function createMutationSchema({
 				}
 			}),
 		z.object({ kind: z.literal("removeField"), uuid: uuidSchema }),
-		// `order` is the gesture-computed fractional key (written verbatim);
-		// `toIndex` is kept optional for legacy replay only. A same-parent reorder
-		// sets only `order` (membership untouched); a cross-parent move also updates
-		// membership and re-anchors references.
+		// A same-parent reorder splices the field to a new position in its
+		// parent's membership array; a cross-parent move splices it into the
+		// destination's array and re-anchors references.
 		z.object({
 			kind: z.literal("moveField"),
 			uuid: uuidSchema,
 			toParentUuid: uuidSchema,
-			order: z.string().optional(),
-			toIndex: z.number().int().nonnegative().optional(),
+			/** The uuid this field now follows under the target parent, or `null`
+			 *  for first. A cross-parent move names a sibling in the DESTINATION. */
+			after: uuidSchema.nullable(),
 		}),
 		z.object({
 			kind: z.literal("renameField"),
@@ -1495,7 +1419,6 @@ function createMutationSchema({
 			// See renameModule — reject empty ids at the schema boundary.
 			newId: z.string().min(1),
 		}),
-		z.object({ kind: z.literal("duplicateField"), uuid: uuidSchema }),
 		// `updateField` is itself a per-`targetKind` discriminated union — see
 		// `updateFieldArms` above. Zod v4 supports nesting one
 		// `discriminatedUnion` inside another, which keeps both layers as
@@ -1588,6 +1511,7 @@ function createMutationSchema({
 		z.object({
 			kind: z.literal("addUserProperty"),
 			property: userPropertySchema,
+			after: uuidSchema.nullable().optional(),
 		}),
 		z.object({
 			kind: z.literal("updateUserProperty"),
@@ -1595,7 +1519,11 @@ function createMutationSchema({
 			patch: userPropertyUpdatePatchSchema.default(() => ({})),
 		}),
 		z.object({ kind: z.literal("removeUserProperty"), uuid: uuidSchema }),
-		z.object({ kind: z.literal("addUserType"), userType: userTypeSchema }),
+		z.object({
+			kind: z.literal("addUserType"),
+			userType: userTypeSchema,
+			after: uuidSchema.nullable().optional(),
+		}),
 		z.object({
 			kind: z.literal("updateUserType"),
 			uuid: uuidSchema,
@@ -1608,7 +1536,11 @@ function createMutationSchema({
 			valuePatch: userDataValuePatchSchema.optional(),
 		}),
 		z.object({ kind: z.literal("removeUserType"), uuid: uuidSchema }),
-		z.object({ kind: z.literal("addPersona"), persona: personaSchema }),
+		z.object({
+			kind: z.literal("addPersona"),
+			persona: personaSchema,
+			after: uuidSchema.nullable().optional(),
+		}),
 		z.object({
 			kind: z.literal("updatePersona"),
 			uuid: uuidSchema,
@@ -1632,32 +1564,22 @@ function createMutationSchema({
 			.object({
 				kind: z.literal("addColumn"),
 				moduleUuid: uuidSchema,
-				// Origin/main's nested column schema is strict and predates the two
-				// surface keys, so the fallback column must remain in the old shape.
 				column: mutationColumnSchema,
-				surfaceOrders: z
-					.object({
-						listOrder: z.string().optional(),
-						detailOrder: z.string().optional(),
-					})
-					.strict()
-					.optional(),
+				/**
+				 * Where the column lands in each surface — the uuid it follows, or
+				 * `null` for first. A column belongs to BOTH sequences from birth
+				 * regardless of visibility, so both placements are required: an
+				 * absent one would mean "somewhere", which is the ambiguity this
+				 * whole model removes.
+				 */
+				afterInList: uuidSchema.nullable(),
+				afterInDetail: uuidSchema.nullable(),
 				// Placement on the tile grid for a column added into a tile-laid-out
-				// case list. Top-level for the same reason as `surfaceOrders`: origin's
-				// nested column schema is strict and predates the slot.
+				// case list. Top-level because origin's nested column schema is strict
+				// and predates the slot.
 				tileCell: tileCellSchema.optional(),
 			})
 			.superRefine((mutation, ctx) => {
-				for (const key of ["listOrder", "detailOrder"] as const) {
-					if (mutation.column[key] !== undefined) {
-						ctx.addIssue({
-							code: "custom",
-							path: ["column", key],
-							message:
-								"Surface order must use addColumn.surfaceOrders so the strict pre-deploy column schema can parse the fallback.",
-						});
-					}
-				}
 				if (mutation.column.tile !== undefined) {
 					ctx.addIssue({
 						code: "custom",
@@ -1698,16 +1620,6 @@ function createMutationSchema({
 					.optional(),
 			})
 			.superRefine((mutation, ctx) => {
-				for (const key of ["listOrder", "detailOrder"] as const) {
-					if (mutation.column[key] !== undefined) {
-						ctx.addIssue({
-							code: "custom",
-							path: ["column", key],
-							message:
-								"Surface order keys must stay out of the strict pre-deploy updateColumn fallback.",
-						});
-					}
-				}
 				if (mutation.column.tile !== undefined) {
 					ctx.addIssue({
 						code: "custom",
@@ -1793,41 +1705,26 @@ function createMutationSchema({
 			moduleUuid: uuidSchema,
 			uuid: uuidSchema,
 		}),
-		z
-			.object({
-				kind: z.literal("moveColumn"),
-				moduleUuid: uuidSchema,
-				uuid: uuidSchema,
-				// Pre-deploy fallback: old reducers move the legacy shared order key.
-				order: z.string(),
-				// New reducers use the named surface key instead. Keeping this optional
-				// on the existing discriminator lets both old open tabs and old servers
-				// accept the payload; a string value must agree with the legacy fallback.
-				surfaceOrderPatch: z
-					.object({
-						surface: z.enum(["list", "detail"]),
-						// `null` clears the override and restores the generic fallback.
-						order: z.string().nullable(),
-					})
-					.strict()
-					.optional(),
-			})
-			.superRefine((mutation, ctx) => {
-				const semanticOrder = mutation.surfaceOrderPatch?.order;
-				if (semanticOrder === undefined || semanticOrder === null) return;
-				if (semanticOrder !== mutation.order) {
-					ctx.addIssue({
-						code: "custom",
-						path: ["order"],
-						message:
-							"The legacy column-order fallback must agree with the surface order patch.",
-					});
-				}
-			}),
+		/**
+		 * Move a column within ONE surface. Results and Details are independent
+		 * sequences, so a move names which one it is reordering; the other is
+		 * untouched, which is what lets two authors reorder the two surfaces at
+		 * once without either losing the other's change.
+		 */
+		z.object({
+			kind: z.literal("moveColumn"),
+			moduleUuid: uuidSchema,
+			uuid: uuidSchema,
+			surface: z.enum(["list", "detail"]),
+			/** The uuid this column now follows, or `null` for first. */
+			after: uuidSchema.nullable(),
+		}),
 		z.object({
 			kind: z.literal("addSearchInput"),
 			moduleUuid: uuidSchema,
 			searchInput: mutationSearchInputSchema,
+			/** The uuid this input now follows; `null` first, absent appends. */
+			after: uuidSchema.nullable().optional(),
 		}),
 		z
 			.object({
@@ -1862,7 +1759,8 @@ function createMutationSchema({
 			kind: z.literal("moveSearchInput"),
 			moduleUuid: uuidSchema,
 			uuid: uuidSchema,
-			order: z.string(),
+			/** The uuid this input now follows, or `null` for first. */
+			after: uuidSchema.nullable(),
 		}),
 		// Presence-only Search transitions and final-input cleanup are the semantic
 		// `updateModule` extension above. Keeping their fallback on the established
@@ -1892,15 +1790,17 @@ function createMutationSchema({
 		}),
 		// ─── Granular select options ─────────────────────────────────────────
 		//
-		// A select field's `options` array is a membership set keyed by per-option
-		// `uuid`; sequence is `sort-by-(order, uuid)`. The reducers mutate `options`
-		// IN PLACE and never re-parse the field through `fieldSchema`, so a
-		// `removeOption` dropping below two options reaches the commit gate as a
-		// sub-2 candidate (`SELECT_TOO_FEW_OPTIONS`).
+		// A select field's `options` array IS the sequence, keyed by per-option
+		// `uuid` for identity. The reducers rewrite `options` on the draft and
+		// never re-parse the field through `fieldSchema`, so a `removeOption`
+		// dropping below two options reaches the commit gate as a sub-2 candidate
+		// (`SELECT_TOO_FEW_OPTIONS`).
 		z.object({
 			kind: z.literal("addOption"),
 			fieldUuid: uuidSchema,
 			option: selectOptionSchema,
+			/** The uuid this option now follows; `null` first, absent appends. */
+			after: uuidSchema.nullable().optional(),
 		}),
 		z.object({
 			kind: z.literal("updateOption"),
@@ -1917,7 +1817,8 @@ function createMutationSchema({
 			kind: z.literal("moveOption"),
 			fieldUuid: uuidSchema,
 			uuid: uuidSchema,
-			order: z.string(),
+			/** The uuid this option now follows, or `null` for first. */
+			after: uuidSchema.nullable(),
 		}),
 		// ─── Media slots — dedicated clear-safe kinds ────────────────────────
 		//

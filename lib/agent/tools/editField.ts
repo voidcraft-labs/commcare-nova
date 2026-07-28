@@ -1,3 +1,4 @@
+import { reconciledOptions } from "@/lib/doc/optionIdentity";
 /**
  * SA tool: `editField` — update properties on an existing field.
  *
@@ -50,7 +51,6 @@ import { parseXPathForField } from "@/lib/doc/expressionText";
 import { renameFieldIdVerdict } from "@/lib/doc/identifierVerdicts";
 import { planKindConversion } from "@/lib/doc/kindConversionCascade";
 import { findContainingForm } from "@/lib/doc/mutations/helpers";
-import { reconciledOptions } from "@/lib/doc/order/options";
 import { declareCaseTypeMutations } from "@/lib/doc/scaffolds";
 import type { Mutation } from "@/lib/doc/types";
 import type {

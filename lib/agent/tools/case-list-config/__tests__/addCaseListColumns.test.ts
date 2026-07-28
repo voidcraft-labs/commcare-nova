@@ -20,11 +20,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import {
-	byDetailColumnOrder,
-	byListColumnOrder,
-	bySortKey,
-} from "@/lib/doc/order/compare";
+import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
 	asUuid,
 	type BlueprintDoc,
@@ -136,11 +132,11 @@ describe("addCaseListColumns", () => {
 			modules: {
 				[MOD_A]: {
 					...baseDoc.modules[MOD_A],
-					caseListConfig: {
+					caseListConfig: resolveCaseListConfig({
 						columns: [],
 						searchInputs: [seededInput],
 						filter: seededFilter,
-					},
+					}),
 				},
 			},
 		};
@@ -171,7 +167,10 @@ describe("addCaseListColumns", () => {
 			modules: {
 				[MOD_A]: {
 					...baseDoc.modules[MOD_A],
-					caseListConfig: { columns: [existing], searchInputs: [] },
+					caseListConfig: resolveCaseListConfig({
+						columns: [existing],
+						searchInputs: [],
+					}),
 				},
 			},
 		};
@@ -198,28 +197,28 @@ describe("addCaseListColumns", () => {
 				asUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
 				"first",
 				"First",
-				{ listOrder: "z", detailOrder: "a" },
 			),
-			order: "a",
 		};
 		const second = {
 			...plainColumn(
 				asUuid("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
 				"second",
 				"Second",
-				{ listOrder: "a", detailOrder: "z" },
 			),
-			order: "b",
 		};
 		const docWithConfig: BlueprintDoc = {
 			...baseDoc,
 			modules: {
 				[MOD_A]: {
 					...baseDoc.modules[MOD_A],
-					caseListConfig: {
+					caseListConfig: resolveCaseListConfig({
 						columns: [first, second],
+						// The two screens disagree; an append still lands at the end
+						// of BOTH.
+						listColumnOrder: [second.uuid, first.uuid],
+						detailColumnOrder: [first.uuid, second.uuid],
 						searchInputs: [],
-					},
+					}),
 				},
 			},
 		};
@@ -237,13 +236,9 @@ describe("addCaseListColumns", () => {
 			(column) => column.uuid !== first.uuid && column.uuid !== second.uuid,
 		);
 
-		expect([...columns].sort(bySortKey).at(-1)?.uuid).toBe(added?.uuid);
-		expect([...columns].sort(byListColumnOrder).at(-1)?.uuid).toBe(added?.uuid);
-		expect([...columns].sort(byDetailColumnOrder).at(-1)?.uuid).toBe(
-			added?.uuid,
-		);
-		expect(added?.listOrder).toBeTruthy();
-		expect(added?.detailOrder).toBeTruthy();
+		const config = result.newDoc.modules[MOD_A]?.caseListConfig;
+		expect(config?.listColumnOrder.at(-1)).toBe(added?.uuid);
+		expect(config?.detailColumnOrder.at(-1)).toBe(added?.uuid);
 	});
 
 	it("round-trips every Column kind without corruption", async () => {

@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, f, resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import { buildFieldTree } from "@/lib/doc/fieldWalk";
 import {
 	advancedSearchInputDef,
 	asUuid,
 	type CaseOperation,
 	calculatedColumn,
+	emptyCaseListConfig,
 	type LookupColumnId,
 	type LookupOptionsSource,
 	type LookupTableId,
@@ -71,10 +72,7 @@ function lookupCarrierDoc() {
 				caseType: "person",
 				caseListConfig: {
 					columns: [
-						plainColumn(SAFE_COLUMN, "name", "Name", {
-							listOrder: "a",
-							detailOrder: "a",
-						}),
+						plainColumn(SAFE_COLUMN, "name", "Name", {}),
 						calculatedColumn(
 							LOOKUP_COLUMN,
 							"Lookup-derived",
@@ -410,7 +408,7 @@ describe("shared read tools — dormant lookup carriers", () => {
 
 	it("uses existing absent/null forms when a whole optional carrier-owned surface is hidden", async () => {
 		const doc = lookupCarrierDoc();
-		doc.modules[MODULE].caseListConfig = {
+		doc.modules[MODULE].caseListConfig = resolveCaseListConfig({
 			columns: [
 				calculatedColumn(LOOKUP_COLUMN, "Lookup-derived", deepLookupExpression),
 			],
@@ -423,7 +421,7 @@ describe("shared read tools — dormant lookup carriers", () => {
 					deepLookupPredicate,
 				),
 			],
-		};
+		});
 		doc.modules[MODULE].caseSearchConfig = {
 			excludedOwnerIds: deepLookupExpression,
 			// Legacy/editor objects can retain present-with-undefined optional
@@ -473,10 +471,7 @@ describe("shared read tools — dormant lookup carriers", () => {
 					"This case change uses lookup-table logic that Nova preserves but cannot safely edit from this surface.",
 			},
 		});
-		expect(moduleRead.data.case_list_config).toEqual({
-			columns: [],
-			searchInputs: [],
-		});
+		expect(moduleRead.data.case_list_config).toEqual(emptyCaseListConfig());
 		expect(moduleRead.data.case_search_config).toBeNull();
 		expect(moduleRead.data.results_column_order).toEqual([]);
 		expect(moduleRead.data.details_column_order).toEqual([]);

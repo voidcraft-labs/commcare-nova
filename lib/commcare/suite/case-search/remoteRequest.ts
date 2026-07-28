@@ -16,6 +16,7 @@ import {
 	type CaseListConfig,
 	type CaseSearchConfig,
 	DEFAULT_CASE_SEARCH_BUTTON_LABEL,
+	emptyCaseListConfig,
 	type Module,
 } from "@/lib/domain";
 import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
@@ -99,10 +100,8 @@ export function buildRemoteRequest(args: {
 
 	const caseType: string = mod.caseType;
 	const caseSearchConfig: CaseSearchConfig = mod.caseSearchConfig;
-	const caseListConfig: CaseListConfig = mod.caseListConfig ?? {
-		columns: [],
-		searchInputs: [],
-	};
+	const caseListConfig: CaseListConfig =
+		mod.caseListConfig ?? emptyCaseListConfig();
 
 	const wire = compileForPlatform(
 		caseListConfig,

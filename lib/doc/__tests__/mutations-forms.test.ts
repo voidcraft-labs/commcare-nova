@@ -73,7 +73,7 @@ describe("addForm", () => {
 				kind: "addForm",
 				moduleUuid: M("A"),
 				form: form_(F("2"), "B"),
-				index: 1,
+				after: F("1"),
 			});
 		});
 		expect(next.formOrder[M("A")]).toEqual([F("1"), F("2"), F("3")]);
@@ -138,7 +138,7 @@ describe("moveForm", () => {
 				kind: "moveForm",
 				uuid: F("1"),
 				toModuleUuid: M("A"),
-				toIndex: 1,
+				after: F("2"),
 			});
 		});
 		expect(next.formOrder[M("A")]).toEqual([F("2"), F("1")]);
@@ -166,7 +166,7 @@ describe("moveForm", () => {
 				kind: "moveForm",
 				uuid: F("1"),
 				toModuleUuid: M("Y"),
-				toIndex: 0,
+				after: null,
 			});
 		});
 		expect(next.formOrder[M("X")]).toEqual([]);
@@ -185,7 +185,7 @@ describe("moveForm", () => {
 				kind: "moveForm",
 				uuid: F("1"),
 				toModuleUuid: M("missing"),
-				toIndex: 0,
+				after: null,
 			});
 		});
 		expect(next.formOrder[M("A")]).toEqual([F("1")]);

@@ -9,6 +9,7 @@ import {
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { settleBaseUiTransitions } from "@/__tests__/helpers/baseUiInteractions";
+import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
 	advancedSearchInputDef,
 	asUuid,
@@ -16,6 +17,7 @@ import {
 	type CaseType,
 	type Column,
 	caseSearchConfigAfterFinalInputRemoval,
+	emptyCaseListConfig,
 	fuzzyDateMode,
 	multiSelectContainsMode,
 	rangeMode,
@@ -297,7 +299,7 @@ describe("case workspace chrome", () => {
 	it("keeps Details focused on composition instead of an arbitrary case", () => {
 		render(
 			<DetailCanvas
-				config={{ columns: [NAME], searchInputs: [] }}
+				config={resolveCaseListConfig({ columns: [NAME], searchInputs: [] })}
 				caseType={undefined}
 				brokenColumns={new Set()}
 				selection={null}
@@ -323,7 +325,7 @@ describe("case workspace chrome", () => {
 		session.canEdit = false;
 		render(
 			<DetailCanvas
-				config={{ columns: [], searchInputs: [] }}
+				config={emptyCaseListConfig()}
 				caseType={undefined}
 				brokenColumns={new Set()}
 				selection={null}
@@ -363,7 +365,7 @@ describe("case workspace chrome", () => {
 		render(
 			<CaseListCanvas
 				{...ROW_LAYOUT_PROPS}
-				config={{ columns: [NAME], searchInputs: [] }}
+				config={resolveCaseListConfig({ columns: [NAME], searchInputs: [] })}
 				caseType={patient}
 				caseTypes={[patient]}
 				brokenColumns={new Set()}
@@ -411,7 +413,7 @@ describe("case workspace chrome", () => {
 		render(
 			<CaseListCanvas
 				{...ROW_LAYOUT_PROPS}
-				config={{ columns: [], searchInputs: [] }}
+				config={emptyCaseListConfig()}
 				caseType={{ name: "patient", properties: [] }}
 				caseTypes={[]}
 				brokenColumns={new Set()}
@@ -457,7 +459,10 @@ describe("case workspace chrome", () => {
 		render(
 			<CaseListCanvas
 				{...ROW_LAYOUT_PROPS}
-				config={{ columns: [sortedName], searchInputs: [] }}
+				config={resolveCaseListConfig({
+					columns: [sortedName],
+					searchInputs: [],
+				})}
 				caseType={patient}
 				caseTypes={[patient]}
 				brokenColumns={new Set()}

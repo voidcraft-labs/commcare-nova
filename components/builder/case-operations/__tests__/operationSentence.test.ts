@@ -35,7 +35,6 @@ function op(patch: Partial<CaseOperation> = {}): CaseOperation {
 	return {
 		uuid: asUuid("44444444-4444-4444-8444-444444444444"),
 		id: "do_thing",
-		order: "a",
 		action: "create",
 		caseType: "referral",
 		target: { kind: "new" },

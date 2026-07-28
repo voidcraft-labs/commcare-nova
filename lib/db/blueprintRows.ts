@@ -36,10 +36,9 @@ export interface EntityRow {
  *
  * The first three carry the runnable app and encode their hierarchy in
  * `(parent_uuid, ordinal)`. The last three are the flat user collections
- * (`lib/domain/users.ts`): they have no parent and no membership array, so
- * they persist with a null parent and a constant ordinal, and their
- * sequence lives entirely in each entity's fractional `order` key — the
- * same derived-sequence model every other collection follows.
+ * (`lib/domain/users.ts`): they have no parent, so they persist with a null
+ * parent, but their `ordinal` is real — it IS their sequence, the same as
+ * every other collection.
  */
 export type EntityRowKind =
 	| "module"
@@ -51,12 +50,13 @@ export type EntityRowKind =
 
 /** Which doc slot each flat user collection round-trips through. */
 const FLAT_COLLECTIONS = [
-	["user_property", "userProperties"],
-	["user_type", "userTypes"],
-	["persona", "personas"],
+	["user_property", "userProperties", "userPropertyOrder"],
+	["user_type", "userTypes", "userTypeOrder"],
+	["persona", "personas", "personaOrder"],
 ] as const satisfies readonly (readonly [
 	EntityRowKind,
 	"userProperties" | "userTypes" | "personas",
+	"userPropertyOrder" | "userTypeOrder" | "personaOrder",
 ])[];
 
 /** The `apps`-row scalar slice of the doc (everything that isn't an entity). */
@@ -197,16 +197,35 @@ export function decomposeBlueprint(doc: PersistableDoc): EntityRow[] {
 			});
 		}
 	}
-	for (const [kind, slot] of FLAT_COLLECTIONS) {
-		for (const [uuid, entity] of Object.entries(doc[slot] ?? {})) {
+	for (const [kind, slot, orderSlot] of FLAT_COLLECTIONS) {
+		const record = doc[slot] ?? {};
+		const sequence = doc[orderSlot] ?? [];
+		// The same guard the hierarchical collections carry: an entity the
+		// membership array does not name has no position, and persisting it would
+		// silently drop it from the sequence on the way back in.
+		const placed = new Set<string>(sequence);
+		for (const uuid of Object.keys(record)) {
+			if (!placed.has(uuid)) {
+				throw new Error(
+					`[decomposeBlueprint] ${kind} ${uuid} is in \`${slot}\` but absent from \`${orderSlot}\` — refusing to persist a doc that would lose its place.`,
+				);
+			}
+		}
+		sequence.forEach((uuid, ordinal) => {
+			const entity = ownRecordValue(
+				record as Readonly<Record<string, unknown>>,
+				uuid,
+			);
+			if (entity === undefined) return;
 			rows.push({
 				uuid,
 				kind,
 				parent_uuid: null,
-				ordinal: 0,
+				// The array position IS the sequence, so it is what persists.
+				ordinal,
 				data: entity as unknown as Record<string, unknown>,
 			});
-		}
+		});
 	}
 	const seen = new Map<string, EntityRowKind>();
 	for (const row of rows) {
@@ -242,7 +261,13 @@ export function assembleBlueprint(
 	const flat: Record<string, Record<string, unknown>> = Object.fromEntries(
 		FLAT_COLLECTIONS.map(([, slot]) => [slot, {}]),
 	);
-	const flatSlotByKind = new Map<string, string>(FLAT_COLLECTIONS);
+	const flatSlotByKind = new Map<string, string>(
+		FLAT_COLLECTIONS.map(([kind, slot]) => [kind, slot]),
+	);
+	/* Rows per flat kind, kept so the membership arrays rebuild from the stored
+	 * `ordinal` exactly as `moduleOrder` and `formOrder` do. The record alone
+	 * cannot carry sequence — that is the whole reason the array exists. */
+	const flatRowsBySlot = new Map<string, EntityRow[]>();
 	const moduleRows: EntityRow[] = [];
 	const formsByModule = new Map<string, EntityRow[]>();
 	const fieldsByParent = new Map<string, EntityRow[]>();
@@ -261,6 +286,9 @@ export function assembleBlueprint(
 					row.uuid,
 					row.data,
 				);
+				const list = flatRowsBySlot.get(flatSlot) ?? [];
+				list.push(row);
+				flatRowsBySlot.set(flatSlot, list);
 			}
 		} else if (row.kind === "module") {
 			modules = recordWithValue<unknown>(modules, row.uuid, row.data);
@@ -351,6 +379,20 @@ export function assembleBlueprint(
 			Object.entries(flat).filter(
 				([, collection]) => Object.keys(collection).length > 0,
 			),
+		),
+		/* The membership array rebuilds from the stored `ordinal`, the same way
+		 * `moduleOrder` does above — the record's key iteration order is not a
+		 * sequence and must never be mistaken for one. Omitted alongside its
+		 * record when the collection is empty. */
+		...Object.fromEntries(
+			FLAT_COLLECTIONS.flatMap(([, slot, orderSlot]) => {
+				const flatRows = flatRowsBySlot.get(slot) ?? [];
+				if (flatRows.length === 0) return [];
+				const sequence = [...flatRows]
+					.sort((a, b) => a.ordinal - b.ordinal)
+					.map((row) => row.uuid);
+				return [[orderSlot, sequence] as const];
+			}),
 		),
 	});
 }

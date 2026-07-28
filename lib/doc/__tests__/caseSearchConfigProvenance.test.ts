@@ -12,6 +12,7 @@ import {
 	type BlueprintDoc,
 	type CaseSearchConfig,
 	effectiveCaseSearchConfig,
+	emptyCaseListConfig,
 	isOwnerOnlyCaseSearchConfig,
 	normalizeOwnerOnlyCaseSearchConfig,
 } from "@/lib/domain";
@@ -39,7 +40,7 @@ function docWith(config: CaseSearchConfig): BlueprintDoc {
 				id: "patients",
 				name: "Patients",
 				caseType: "patient",
-				caseListConfig: { columns: [], searchInputs: [] },
+				caseListConfig: emptyCaseListConfig(),
 				caseSearchConfig: config,
 			},
 		},

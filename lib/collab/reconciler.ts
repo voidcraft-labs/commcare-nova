@@ -30,11 +30,11 @@
  * user share a single `actorId`, so an `actorId`-only match would make one
  * tab's autosave look like a self-echo of the other.
  *
- * An echo advances `confirmedDoc`, drops its batch from `sentPending`, and
- * does NOT rebase the undo stacks (the change is already reflected in
- * `displayed`). A remote frame advances `confirmedDoc`, re-folds the remaining
- * `sentPending`, and folds the peer's batch through the undo/redo stacks so an
- * undo target still carries the merge in.
+ * An echo advances `confirmedDoc` and drops its batch from `sentPending`; a
+ * remote frame advances `confirmedDoc` and re-folds the remaining
+ * `sentPending`. Neither touches the undo history: an entry is a command batch
+ * whose placements are anchors, so a peer's change cannot move where an undo
+ * lands, and undo reaches only what this author did.
  *
  * ## Reload reconciliation
  *
@@ -445,29 +445,39 @@ export function createReconciler(
 		return foldBatches(confirmedDoc, pendingBatches());
 	}
 
-	/** The human delta not yet in `sentPending` — the difference between the
-	 *  displayed doc and `localBase()`. */
-	function humanUncommitted(): Mutation[] {
-		return diffDocsToMutations(
-			toPersistableDoc(localBase()) as BlueprintDoc,
-			toPersistableDoc(displayed()) as BlueprintDoc,
-		);
+	/**
+	 * The commands the author has dispatched but not yet PUT.
+	 *
+	 * The builder already built these — every gated dispatch records the exact
+	 * `Mutation[]` it committed. Reading them back is what makes a reorder
+	 * persist as the move the author made, rather than as whatever two
+	 * documents happened to differ by.
+	 *
+	 * Peeking is non-destructive on purpose: this is called to DECIDE things
+	 * (is there anything to save, is there an unsaved delta to warn about) far
+	 * more often than to send, and only the send takes the queue.
+	 */
+	function humanUncommitted(): readonly Mutation[] {
+		return docStore.getState().peekCommands();
 	}
 
 	/** Re-fold `confirmedDoc ⊕ sentPending ⊕ humanUncommitted` onto the store's
 	 *  displayed doc inside a remote-apply bracket (off the undo stack, and
 	 *  gating the auto-save re-PUT). Called after every `confirmedDoc` advance
-	 *  so the invariant holds. The humanUncommitted delta is captured BEFORE
-	 *  the fold (from the store's current displayed doc) so a concurrent local
-	 *  edit isn't lost. */
-	function refoldDisplayed(humanDelta: Mutation[]): void {
+	 *  so the invariant holds. The human commands are REPLAYED onto the new
+	 *  base — the author's own edits land on top of the peer's, which is what
+	 *  makes the merge their edit rather than a re-derived approximation of
+	 *  it. They stay queued: the fold does not persist them. */
+	function refoldDisplayed(humanDelta: readonly Mutation[]): void {
 		const target = produce(localBase(), (draft) => {
-			applyBatch(draft, humanDelta);
+			applyBatch(draft, [...humanDelta]);
 		});
 		// Short-circuit when the fold already equals the displayed doc — the solo
 		// hot path (an echo with no pending peer edit + no human delta) owes
 		// nothing, so skip the whole-doc `commitDoc` (which would churn the store
-		// subscriber + the auto-save watermark for no change).
+		// subscriber + the auto-save watermark for no change). The diff here is
+		// an EQUALITY CHECK, not a batch anyone sends: what persists is the
+		// author's recorded commands.
 		const delta = diffDocsToMutations(
 			toPersistableDoc(displayed()) as BlueprintDoc,
 			toPersistableDoc(target) as BlueprintDoc,
@@ -560,8 +570,11 @@ export function createReconciler(
 				effectiveObserver?.({ kind: "tooLarge" });
 			return undefined;
 		}
-		const mutations = humanUncommitted();
-		if (mutations.length === 0) return undefined;
+		if (humanUncommitted().length === 0) return undefined;
+		// Taking the queue hands the batch to `sentPending`: from here it is
+		// tracked until the server echoes it, and a new author edit starts a
+		// fresh queue behind it.
+		const mutations = docStore.getState().takeCommands();
 		const batchId = crypto.randomUUID();
 		const batch: SentBatch = {
 			batchId,
@@ -854,22 +867,18 @@ export function createReconciler(
 		refoldDisplayed(humanDelta);
 	}
 
-	/** A remote frame advances confirmedDoc, re-folds sentPending + the human
-	 *  delta onto it, and folds the peer's batch through the undo/redo stacks so
-	 *  an undo target still carries the merge. */
+	/** A remote frame advances confirmedDoc and re-folds sentPending + the human
+	 *  delta onto it.
+	 *
+	 *  The undo history needs nothing here: an entry is a command batch whose
+	 *  placements are anchors ("put X after Y"), so a peer's change cannot move
+	 *  where it lands, and undoing reaches only what this author did. */
 	function applyRemote(frame: MutationFrame): void {
 		const humanDelta = humanUncommitted();
 		confirmedDoc = produce(confirmedDoc, (draft) => {
 			applyBatch(draft, frame.mutations);
 		});
 		baseSeq = frame.seq;
-		// Fold the remote batch through the undo history: a past/future recorded
-		// state gains the peer's change so undo doesn't snap it back out.
-		docStore.getState().rebaseHistory((state) =>
-			produce(state, (draft) => {
-				applyBatch(draft, frame.mutations);
-			}),
-		);
 		refoldDisplayed(humanDelta);
 	}
 
@@ -1022,7 +1031,7 @@ export function createReconciler(
 		store.beginRemoteApply();
 		try {
 			store.commitDoc(target);
-			if (clearUndo) docStore.temporal.getState().clear();
+			if (clearUndo) store.clearHistory();
 		} finally {
 			store.endRemoteApply();
 		}
@@ -1031,9 +1040,12 @@ export function createReconciler(
 	/** Overlay the current `confirmedDoc ⊕ sentPending ⊕ humanDelta` onto the
 	 *  store inside a remote-apply bracket, optionally clearing the undo stacks
 	 *  (a reload / data-done reseed is a new baseline). */
-	function reseedConfirmed(humanDelta: Mutation[], clearUndo: boolean): void {
+	function reseedConfirmed(
+		humanDelta: readonly Mutation[],
+		clearUndo: boolean,
+	): void {
 		const target = produce(localBase(), (draft) => {
-			applyBatch(draft, humanDelta);
+			applyBatch(draft, [...humanDelta]);
 		});
 		reseedStore(target, clearUndo);
 	}
@@ -1101,7 +1113,7 @@ export function createReconciler(
 	function onDataDone(args: { doc: PersistableDoc; seq: number }): void {
 		// Same drop-then-refold a reload runs (drop every batch acked at or below
 		// the carried seq), but reseed via a SUPPRESSED commitDoc inside a
-		// remote-apply bracket + temporal clear — NOT load(), which trips the
+		// remote-apply bracket + history clear — NOT load(), which trips the
 		// "load() illegal inside an open bracket" assert (the agent suppression
 		// bracket is still open at data-done; endAgentWrite runs only on stream
 		// close).
@@ -1110,7 +1122,7 @@ export function createReconciler(
 		// reconciler yet, or a build that emitted no `data-app-id`): there is no
 		// stream, no `sentPending`, and `baseSeq` is meaningless — but the store
 		// must still reconcile to the run's final snapshot. Do it BRACKET-SAFE (a
-		// suppressed `commitDoc` + temporal clear, never `load()` — the agent
+		// suppressed `commitDoc` + history clear, never `load()` — the agent
 		// suppression bracket is still open at data-done, and `load()` asserts
 		// inside an open bracket).
 		if (dormant) {

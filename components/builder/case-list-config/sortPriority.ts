@@ -2,8 +2,7 @@
 //
 // Sort-priority resolution for the canvas-owned Default order editor.
 
-import { byListColumnOrder } from "@/lib/doc/order/compare";
-import type { Column } from "@/lib/domain";
+import { type CaseListConfig, type Column, orderedColumns } from "@/lib/domain";
 
 /**
  * Resolve the sorted columns ordered by `sort.priority` ascending.
@@ -21,10 +20,10 @@ import type { Column } from "@/lib/domain";
  * the editor's drag handler renumbers to a clean 0..N-1.
  */
 export function resolveSortedColumns(
-	columns: readonly Column[],
+	config: CaseListConfig,
 ): readonly Column[] {
 	const sorted: { column: Column; priority: number; index: number }[] = [];
-	const resultsOrdered = [...columns].sort(byListColumnOrder);
+	const resultsOrdered = orderedColumns(config, "list");
 	for (let i = 0; i < resultsOrdered.length; i++) {
 		const col = resultsOrdered[i];
 		if (col === undefined) continue;

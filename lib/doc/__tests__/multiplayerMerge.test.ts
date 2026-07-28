@@ -1,4 +1,5 @@
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { backfillOptionUuids } from "@/lib/doc/optionIdentity";
 /**
  * Phase 2 — merge-by-construction state-model tests.
  *
@@ -35,14 +36,6 @@ import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import { applyMutations } from "@/lib/doc/mutations";
 import {
-	backfillOptionUuids,
-	backfillOrderKeys,
-} from "@/lib/doc/order/backfill";
-import { columnSurfaceMoveMutation } from "@/lib/doc/order/columnSurface";
-import { byListColumnOrder, bySortKey } from "@/lib/doc/order/compare";
-import { keyBetween } from "@/lib/doc/order/keys";
-import { searchInputMoveMutation } from "@/lib/doc/order/searchInput";
-import {
 	declareCaseTypeForField,
 	formScaffoldMutations,
 } from "@/lib/doc/scaffolds";
@@ -53,6 +46,7 @@ import {
 	asUuid,
 	type BlueprintDoc,
 	calculatedColumn,
+	emptyCaseListConfig,
 	type Field,
 	type Module,
 	simpleSearchInputDef,
@@ -89,18 +83,15 @@ function applyWithLegacyColumnReducer(
 				(column) => column.uuid === mutation.uuid,
 			);
 			if (!config || index === undefined || index < 0) continue;
-			const current = config.columns[index];
-			const replacement = { ...mutation.column, uuid: mutation.uuid };
-			if (current.order === undefined) delete replacement.order;
-			else replacement.order = current.order;
-			config.columns[index] = replacement;
+			// Sequence lives in the config's two ordering arrays, so replacing a
+			// column's BODY leaves its place alone with nothing to preserve.
+			config.columns[index] = { ...mutation.column, uuid: mutation.uuid };
 		}
 	});
 }
 
 function backfilled(doc: BlueprintDoc): BlueprintDoc {
 	return produce(doc, (d) => {
-		backfillOrderKeys(d);
 		backfillOptionUuids(d);
 	});
 }
@@ -177,12 +168,12 @@ describe("concurrent disjoint reorders converge", () => {
 		const a2 = byId(doc, "a2").uuid;
 		const b2 = byId(doc, "b2").uuid;
 		// Member 1 moves a2 to the front of FA; member 2 moves b2 to the front
-		// of FB — disjoint order-key edits.
+		// of FB — disjoint sequences, so neither move can see the other.
 		const batchA: Mutation[] = [
-			{ kind: "moveField", uuid: a2, toParentUuid: formA, order: "0" },
+			{ kind: "moveField", uuid: a2, toParentUuid: formA, after: null },
 		];
 		const batchB: Mutation[] = [
-			{ kind: "moveField", uuid: b2, toParentUuid: formB, order: "0" },
+			{ kind: "moveField", uuid: b2, toParentUuid: formB, after: null },
 		];
 		const ab = apply(doc, batchA, batchB);
 		const ba = apply(doc, batchB, batchA);
@@ -193,20 +184,21 @@ describe("concurrent disjoint reorders converge", () => {
 		expect(fieldDisplayIds(ba, formB)).toEqual(fieldDisplayIds(ab, formB));
 	});
 
-	it("a same-position order-key-only reorder is emitted by the diff and persists", () => {
+	it("a reorder is emitted by the diff and persists", () => {
 		const { doc, formUuid } = twoFieldForm();
-		// Move q3 to the very front by keying it strictly before q1.
-		const q1Order = byId(doc, "q1").order ?? null;
+		// Move q3 to the very front by putting it first in the membership array,
+		// which IS the sequence.
+		const q3 = byId(doc, "q3").uuid;
 		const next = produce(doc, (draft) => {
-			const q3 = Object.values(draft.fields).find((fl) => fl.id === "q3");
-			if (q3) q3.order = keyBetween(null, q1Order);
+			draft.fieldOrder[formUuid] = [
+				q3,
+				...draft.fieldOrder[formUuid].filter((uuid) => uuid !== q3),
+			];
 		});
-		// The membership array is UNCHANGED — only the order key moved.
-		expect(next.fieldOrder[formUuid]).toEqual(doc.fieldOrder[formUuid]);
 		const diff = diffDocsToMutations(doc, next);
 		const move = diff.find((m) => m.kind === "moveField");
 		expect(move).toBeDefined();
-		expect(move && "order" in move).toBe(true);
+		expect(move && "after" in move && move.after).toBe(null);
 		// Replaying the diff reproduces the new DISPLAY order.
 		const replayed = apply(doc, diff);
 		expect(fieldDisplayIds(replayed, formUuid)).toEqual(
@@ -700,7 +692,7 @@ describe("disjoint collection edits merge", () => {
 	});
 
 	it("Results and Details reorders commute and survive a stale content edit", () => {
-		const { doc, moduleUuid, colA } = moduleWithTwoColumns();
+		const { doc, moduleUuid, colA, colB } = moduleWithTwoColumns();
 		const original = doc.modules[moduleUuid].caseListConfig?.columns.find(
 			(c) => c.uuid === colA,
 		);
@@ -711,17 +703,17 @@ describe("disjoint collection edits merge", () => {
 				kind: "moveColumn",
 				moduleUuid,
 				uuid: colA,
-				order: "list-z",
-				surfaceOrderPatch: { surface: "list", order: "list-z" },
+				surface: "list",
+				after: colB,
 			},
 		];
 		const moveDetail: Mutation[] = [
 			{
 				kind: "moveColumn",
 				moduleUuid,
-				uuid: colA,
-				order: "detail-a",
-				surfaceOrderPatch: { surface: "detail", order: "detail-a" },
+				uuid: colB,
+				surface: "detail",
+				after: null,
 			},
 		];
 		const staleContentEdit: Mutation[] = [
@@ -729,7 +721,9 @@ describe("disjoint collection edits merge", () => {
 				kind: "updateColumn",
 				moduleUuid,
 				uuid: colA,
-				// Captured before either reorder: it carries neither new surface key.
+				// Captured before either reorder. Sequence lives in the config's
+				// ordering arrays rather than on the column, so a stale BODY has
+				// nothing to say about where either surface shows it.
 				column: legacyCompatibleColumnSnapshot({
 					...original,
 					header: "Patient",
@@ -740,57 +734,46 @@ describe("disjoint collection edits merge", () => {
 		const listThenDetail = apply(doc, moveList, moveDetail, staleContentEdit);
 		const detailThenList = apply(doc, staleContentEdit, moveDetail, moveList);
 		for (const merged of [listThenDetail, detailThenList]) {
-			const column = merged.modules[moduleUuid].caseListConfig?.columns.find(
-				(c) => c.uuid === colA,
+			const config = merged.modules[moduleUuid].caseListConfig;
+			expect(config?.columns.find((c) => c.uuid === colA)?.header).toBe(
+				"Patient",
 			);
-			expect(column?.header).toBe("Patient");
-			expect(column?.order).toBe(original.order);
-			expect(column?.listOrder).toBe("list-z");
-			expect(column?.detailOrder).toBe("detail-a");
+			expect(config?.listColumnOrder).toEqual([colB, colA]);
+			expect(config?.detailColumnOrder).toEqual([colB, colA]);
 		}
 	});
 
 	it("two same-Results gestures write one moved row each and commute", () => {
 		const { doc, moduleUuid, colA, colB } = moduleWithTwoColumns();
-		const columns = doc.modules[moduleUuid].caseListConfig?.columns ?? [];
-		const moveA = columnSurfaceMoveMutation({
-			moduleUuid,
-			columns,
-			surface: "list",
-			uuid: colA,
-			toIndex: 1,
-		});
-		const moveB = columnSurfaceMoveMutation({
-			moduleUuid,
-			columns,
-			surface: "list",
-			uuid: colB,
-			toIndex: 0,
-		});
-		if (moveA === undefined || moveB === undefined) {
-			throw new Error("expected both gestures to plan a move");
-		}
-
-		// This is the regression: the old workspace resequenced BOTH rows for
-		// either gesture, so each autosave batch overwrote its peer's order key.
-		expect(moveA).toMatchObject({
+		// A move names ONE uuid and ONE anchor, so it writes only the row it
+		// moved. Two authors dragging different rows on the same screen
+		// therefore commute — neither batch can reach the other's row.
+		const moveA: Mutation = {
 			kind: "moveColumn",
+			moduleUuid,
 			uuid: colA,
-			surfaceOrderPatch: { surface: "list" },
-		});
-		expect(moveB).toMatchObject({
+			surface: "list",
+			after: colB,
+		};
+		const moveB: Mutation = {
 			kind: "moveColumn",
+			moduleUuid,
 			uuid: colB,
-			surfaceOrderPatch: { surface: "list" },
-		});
+			surface: "list",
+			after: null,
+		};
 
 		const aThenB = apply(doc, [moveA], [moveB]);
 		const bThenA = apply(doc, [moveB], [moveA]);
 		expect(aThenB).toEqual(bThenA);
-		const visible = [
-			...(aThenB.modules[moduleUuid].caseListConfig?.columns ?? []),
-		].sort(byListColumnOrder);
-		expect(visible.map((column) => column.uuid)).toEqual([colB, colA]);
+		expect(aThenB.modules[moduleUuid].caseListConfig?.listColumnOrder).toEqual([
+			colB,
+			colA,
+		]);
+		// Details never heard about either gesture.
+		expect(
+			aThenB.modules[moduleUuid].caseListConfig?.detailColumnOrder,
+		).toEqual([colA, colB]);
 	});
 
 	it("two search-order gestures write one moved field each and commute", () => {
@@ -831,111 +814,52 @@ describe("disjoint collection edits merge", () => {
 			}),
 		);
 		const moduleUuid = doc.moduleOrder[0];
-		const inputs = doc.modules[moduleUuid].caseListConfig?.searchInputs ?? [];
-		const moveA = searchInputMoveMutation({
-			moduleUuid,
-			inputs,
-			uuid: inputA.uuid,
-			toIndex: 1,
-		});
-		const moveB = searchInputMoveMutation({
-			moduleUuid,
-			inputs,
-			uuid: inputB.uuid,
-			toIndex: 0,
-		});
-		if (moveA === undefined || moveB === undefined) {
-			throw new Error("expected both search gestures to plan a move");
-		}
-
-		expect(moveA).toMatchObject({
+		const moveA: Mutation = {
 			kind: "moveSearchInput",
+			moduleUuid,
 			uuid: inputA.uuid,
-		});
-		expect(moveB).toMatchObject({
+			after: inputB.uuid,
+		};
+		const moveB: Mutation = {
 			kind: "moveSearchInput",
+			moduleUuid,
 			uuid: inputB.uuid,
-		});
+			after: null,
+		};
 
 		const aThenB = apply(doc, [moveA], [moveB]);
 		const bThenA = apply(doc, [moveB], [moveA]);
 		expect(aThenB).toEqual(bThenA);
-		const ordered = [
-			...(aThenB.modules[moduleUuid].caseListConfig?.searchInputs ?? []),
-		].sort(bySortKey);
-		expect(ordered.map((input) => input.uuid)).toEqual([
-			inputB.uuid,
-			inputA.uuid,
-		]);
+		expect(
+			aThenB.modules[moduleUuid].caseListConfig?.searchInputs.map(
+				(input) => input.uuid,
+			),
+		).toEqual([inputB.uuid, inputA.uuid]);
 	});
 
 	it("diff emits independent surface moves without a content update", () => {
-		const { doc, moduleUuid, colA } = moduleWithTwoColumns();
+		const { doc, moduleUuid, colA, colB } = moduleWithTwoColumns();
 		const next = produce(doc, (draft) => {
-			const column = draft.modules[moduleUuid].caseListConfig?.columns.find(
-				(c) => c.uuid === colA,
-			);
-			if (column) {
-				column.listOrder = "list-z";
-				column.detailOrder = "detail-a";
+			const config = draft.modules[moduleUuid].caseListConfig;
+			if (config) {
+				config.listColumnOrder = [colB, colA];
+				config.detailColumnOrder = [colB, colA];
 			}
 		});
 
 		const diff = diffDocsToMutations(doc, next);
 		expect(
-			diff.filter(
-				(m) =>
-					m.kind === "moveColumn" && m.surfaceOrderPatch?.surface === "list",
-			),
+			diff.filter((m) => m.kind === "moveColumn" && m.surface === "list"),
 		).toHaveLength(1);
 		expect(
-			diff.filter(
-				(m) =>
-					m.kind === "moveColumn" && m.surfaceOrderPatch?.surface === "detail",
-			),
+			diff.filter((m) => m.kind === "moveColumn" && m.surface === "detail"),
 		).toHaveLength(1);
 		expect(diff.some((m) => m.kind === "updateColumn")).toBe(false);
 
 		const replayed = apply(doc, diff);
-		const replayedColumn = replayed.modules[
-			moduleUuid
-		].caseListConfig?.columns.find((c) => c.uuid === colA);
-		expect(replayedColumn?.listOrder).toBe("list-z");
-		expect(replayedColumn?.detailOrder).toBe("detail-a");
-
-		// Undo/reset removes the optional overrides so each surface falls back to
-		// generic `order`. The diff must carry explicit nulls across JSON; omitting
-		// these moves would leave the confirmed/server doc stuck on stale keys.
-		const reset = produce(next, (draft) => {
-			const column = draft.modules[moduleUuid].caseListConfig?.columns.find(
-				(c) => c.uuid === colA,
-			);
-			if (column) {
-				delete column.listOrder;
-				delete column.detailOrder;
-			}
-		});
-		const resetDiff = diffDocsToMutations(next, reset);
-		expect(
-			resetDiff.find(
-				(m) =>
-					m.kind === "moveColumn" && m.surfaceOrderPatch?.surface === "list",
-			),
-		).toMatchObject({
-			surfaceOrderPatch: { order: null },
-		});
-		expect(
-			resetDiff.find(
-				(m) =>
-					m.kind === "moveColumn" && m.surfaceOrderPatch?.surface === "detail",
-			),
-		).toMatchObject({ surfaceOrderPatch: { order: null } });
-		const resetReplayed = apply(next, resetDiff);
-		const resetColumn = resetReplayed.modules[
-			moduleUuid
-		].caseListConfig?.columns.find((c) => c.uuid === colA);
-		expect(resetColumn?.listOrder).toBeUndefined();
-		expect(resetColumn?.detailOrder).toBeUndefined();
+		const config = replayed.modules[moduleUuid].caseListConfig;
+		expect(config?.listColumnOrder).toEqual([colB, colA]);
+		expect(config?.detailColumnOrder).toEqual([colB, colA]);
 	});
 
 	it("two members editing different options of one field merge", () => {
@@ -1159,7 +1083,7 @@ describe("setCaseListMeta on a peer-removed config", () => {
 			{
 				kind: "updateModule",
 				uuid: moduleUuid,
-				patch: { caseListConfig: { columns: [], searchInputs: [] } },
+				patch: { caseListConfig: emptyCaseListConfig() },
 				ensureCaseListConfig: true,
 			},
 			{
@@ -1167,6 +1091,8 @@ describe("setCaseListMeta on a peer-removed config", () => {
 				moduleUuid,
 				column: caseListConfig([{ field: "case_name", header: "Name" }])
 					.columns[0],
+				afterInList: null,
+				afterInDetail: null,
 			},
 			{
 				kind: "setCaseListMeta",
@@ -1189,16 +1115,13 @@ describe("diff — case-list presence transition", () => {
 		);
 		const moduleUuid = prev.moduleOrder[0];
 		const next = produce(prev, (draft) => {
-			draft.modules[moduleUuid].caseListConfig = {
-				columns: [],
-				searchInputs: [],
-			};
+			draft.modules[moduleUuid].caseListConfig = emptyCaseListConfig();
 		});
 		const diff = diffDocsToMutations(prev, next);
 		expect(diff).toContainEqual({
 			kind: "updateModule",
 			uuid: moduleUuid,
-			patch: { caseListConfig: { columns: [], searchInputs: [] } },
+			patch: { caseListConfig: emptyCaseListConfig() },
 			ensureCaseListConfig: true,
 		});
 		expect(apply(prev, diff).modules[moduleUuid].caseListConfig).toEqual(
@@ -1225,6 +1148,8 @@ describe("diff — case-list presence transition", () => {
 						header: "Name",
 					},
 				],
+				listColumnOrder: [localColumnUuid],
+				detailColumnOrder: [localColumnUuid],
 				searchInputs: [],
 				filter: { kind: "match-all" },
 			};
@@ -1233,7 +1158,7 @@ describe("diff — case-list presence transition", () => {
 		expect(localBatch).toContainEqual({
 			kind: "updateModule",
 			uuid: moduleUuid,
-			patch: { caseListConfig: { columns: [], searchInputs: [] } },
+			patch: { caseListConfig: emptyCaseListConfig() },
 			ensureCaseListConfig: true,
 		});
 
@@ -1247,6 +1172,8 @@ describe("diff — case-list presence transition", () => {
 					field: "external_id",
 					header: "External ID",
 				},
+				afterInList: null,
+				afterInDetail: null,
 			},
 		]);
 		expect(batchTargetsMissing(peerFresh, localBatch)).toBe(false);
@@ -2616,10 +2543,9 @@ describe("diff — evacuation into a same-diff-added container", () => {
 					id: "g",
 					kind: "group",
 					label: "G",
-					order: "zz",
 				} as Field,
 			},
-			{ kind: "moveField", uuid: xUuid, toParentUuid: G, order: "a1" },
+			{ kind: "moveField", uuid: xUuid, toParentUuid: G, after: null },
 			{ kind: "removeField", uuid: hUuid },
 		]);
 
@@ -2670,6 +2596,7 @@ describe("user-data value multiplayer convergence", () => {
 					label: "Cadre",
 				},
 			},
+			userPropertyOrder: [propertyA, propertyB],
 			userTypes: {
 				[roleUuid]: {
 					uuid: roleUuid,
@@ -2677,6 +2604,7 @@ describe("user-data value multiplayer convergence", () => {
 					values: { [propertyA]: "north", [propertyB]: "community" },
 				},
 			},
+			userTypeOrder: [roleUuid],
 		};
 		const left = apply(
 			base,

@@ -102,7 +102,6 @@ import {
 	SchemaChangePhaseBError,
 	withSchemaContext,
 } from "@/lib/case-store";
-import { assertPersistenceSafeMutationIdentities } from "@/lib/doc/commitVerdicts";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
 import type {
@@ -123,7 +122,6 @@ import {
 	classifyCaseTypeChanges,
 	type RenameExpectation,
 } from "./classifyCaseTypeChanges";
-import { BlueprintCommitRejectedError } from "./commitGuard";
 import { getAppDb } from "./pg";
 import { isTransientDbError } from "./schemaSyncRetry";
 import type { AcceptedMutationDoc } from "./types";
@@ -295,19 +293,6 @@ export async function applyBlueprintChange(
 	if (latch) {
 		return { seq: Number(latch.seq) };
 	}
-	// Admission applies only to a new batch. An existing latch is authoritative
-	// history and must remain replay-idempotent even if today's admission rules
-	// would reject its original payload.
-	try {
-		assertPersistenceSafeMutationIdentities(guard.mutations);
-	} catch (error) {
-		throw new BlueprintCommitRejectedError(
-			error instanceof Error
-				? error.message
-				: "This mutation batch cannot be persisted deterministically.",
-		);
-	}
-
 	const priorBlueprint = await resolvePriorBlueprint(args);
 	/* Derive the saga's prospective exclusively from the deterministic mutation
 	 * batch. A caller-supplied whole document is advisory and cannot cause

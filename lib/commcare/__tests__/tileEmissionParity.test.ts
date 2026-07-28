@@ -23,9 +23,8 @@ import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import { projectCaseListForHq } from "@/lib/commcare/hqJson/caseList";
-import { byListColumnOrder } from "@/lib/doc/order/compare";
 import type { BlueprintDoc } from "@/lib/domain";
-import { tileCell } from "@/lib/domain";
+import { orderedColumns, tileCell } from "@/lib/domain";
 import { projectTileGrid } from "@/lib/preview/caseTileLayout";
 import { tileResultsColumns } from "@/lib/preview/caseTileRendering";
 
@@ -156,7 +155,7 @@ describe("the three emission paths agree about which columns hold a square", () 
 
 		// (3) The preview projection.
 		const carried = tileResultsColumns(
-			[...config.columns].sort(byListColumnOrder),
+			orderedColumns(config, "list"),
 			config.tile,
 		);
 		const projection = projectTileGrid(carried.map((entry) => entry.column));

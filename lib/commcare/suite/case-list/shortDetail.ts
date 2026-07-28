@@ -79,11 +79,11 @@ import render from "dom-serializer";
 import type { Element } from "domhandler";
 import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
-import { byListColumnOrder } from "@/lib/doc/order/compare";
 import {
 	type BlueprintDoc,
 	effectiveCaseTypes,
 	type Module,
+	orderedColumns,
 	userPropertySlugsByUuid,
 } from "@/lib/domain";
 import { simplifyForEmission } from "@/lib/domain/predicate";
@@ -234,7 +234,7 @@ export function buildShortDetail(args: {
 	// CCHQ's header-locale suffix keys off the column's position in that array.
 	// `sortKeys` consumes this same list order; long detail deliberately uses
 	// its independent Details order instead.
-	const sortedColumns = [...config.columns].sort(byListColumnOrder);
+	const sortedColumns = orderedColumns(config, "list");
 	for (let i = 0; i < sortedColumns.length; i++) {
 		const column = sortedColumns[i];
 		// An off-screen definition normally emits nothing. If it still owns a

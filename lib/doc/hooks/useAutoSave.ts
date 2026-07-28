@@ -67,6 +67,10 @@ const IDLE_STATE: SaveState = { status: "idle", savedAt: null };
  * mutation has landed. This MUST list every persisted, user-editable
  * top-level field: a field omitted here is invisible to the save
  * subscription, so a change touching ONLY that field never dispatches.
+ *
+ * The membership arrays carry that risk directly, because sequence lives in
+ * them: a reorder changes ONLY an ordering array, so omitting one would let a
+ * reorder apply locally and silently never save.
  * `setAppLogo` mutates only `s.logo`, so `logo` belongs here; entity maps
  * (`modules` / `forms` / `fields`) cover their nested media, so the standalone
  * top-level slots are the ones to watch.
@@ -89,8 +93,11 @@ export function projectSaveSlice(s: BlueprintDoc) {
 		caseTypes: s.caseTypes,
 		logo: s.logo,
 		userProperties: s.userProperties,
+		userPropertyOrder: s.userPropertyOrder,
 		userTypes: s.userTypes,
+		userTypeOrder: s.userTypeOrder,
 		personas: s.personas,
+		personaOrder: s.personaOrder,
 	};
 }
 

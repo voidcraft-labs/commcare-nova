@@ -51,11 +51,10 @@ function form(operations: readonly CaseOperation[]): Form {
 	} as Form;
 }
 
-function create(uuid: Uuid, order: string, id: string): CaseOperation {
+function create(uuid: Uuid, id: string): CaseOperation {
 	return {
 		uuid,
 		id,
-		order,
 		action: "create",
 		caseType: "visit",
 		target: { kind: "new" },
@@ -68,7 +67,6 @@ function everySlotConsumer(): CaseOperation {
 	return {
 		uuid: CONSUMER,
 		id: "tag_visit",
-		order: "z",
 		action: "update",
 		caseType: "visit",
 		target: { kind: "op", opUuid: CREATE },
@@ -97,7 +95,7 @@ function everySlotConsumer(): CaseOperation {
 
 describe("caseOperationDependencyOccurrences", () => {
 	it("names every slot that holds the reference", () => {
-		const f = form([create(CREATE, "a", "create_visit"), everySlotConsumer()]);
+		const f = form([create(CREATE, "create_visit"), everySlotConsumer()]);
 		const [dependency] = caseOperationDependencyOccurrences(f, CREATE);
 		expect(dependency.operationUuid).toBe(CONSUMER);
 		expect(dependency.slots).toEqual([
@@ -113,8 +111,8 @@ describe("caseOperationDependencyOccurrences", () => {
 
 	it("reports nothing for an operation nobody consumes", () => {
 		const f = form([
-			create(CREATE, "a", "create_visit"),
-			create(SECOND, "b", "create_other"),
+			create(CREATE, "create_visit"),
+			create(SECOND, "create_other"),
 		]);
 		expect(caseOperationDependencyOccurrences(f, SECOND)).toEqual([]);
 	});
@@ -123,7 +121,7 @@ describe("caseOperationDependencyOccurrences", () => {
 		// A self-referencing shape is invalid, but the walk must not claim a
 		// dependency that would make its own row un-removable.
 		const selfish: CaseOperation = {
-			...create(CREATE, "a", "create_visit"),
+			...create(CREATE, "create_visit"),
 			writes: [{ property: "own", value: idOf(CREATE) }],
 		};
 		expect(caseOperationDependencyOccurrences(form([selfish]), CREATE)).toEqual(
@@ -136,15 +134,14 @@ describe("caseOperationDependencyOccurrences", () => {
 			...everySlotConsumer(),
 			uuid: SECOND,
 			id: "late",
-			order: "z",
 		};
 		const early: CaseOperation = {
 			...everySlotConsumer(),
 			uuid: CONSUMER,
 			id: "early",
-			order: "b",
 		};
-		const f = form([create(CREATE, "a", "c"), late, early]);
+		// Execution order is the order the form holds them.
+		const f = form([create(CREATE, "c"), early, late]);
 		expect(
 			caseOperationDependencyOccurrences(f, CREATE).map(
 				(dependency) => dependency.operationUuid,
@@ -205,7 +202,7 @@ describe("caseOperationDependencyOccurrences", () => {
 			},
 		];
 		for (const shape of shapes) {
-			const f = form([create(CREATE, "a", "create_visit"), shape]);
+			const f = form([create(CREATE, "create_visit"), shape]);
 			const canonical = caseOperationDependencyUuids(shape).has(CREATE);
 			const named = caseOperationDependencyOccurrences(f, CREATE).length > 0;
 			expect(named).toBe(canonical);
@@ -264,7 +261,6 @@ function retypeChain(): { doc: BlueprintDoc; formUuid: Uuid } {
 		{
 			uuid: RETYPE,
 			id: "make_referral",
-			order: "a",
 			action: "update",
 			caseType: "visit",
 			target: { kind: "session" },
@@ -273,7 +269,6 @@ function retypeChain(): { doc: BlueprintDoc; formUuid: Uuid } {
 		{
 			uuid: LATER,
 			id: "update_referral",
-			order: "b",
 			action: "update",
 			caseType: "referral",
 			target: { kind: "session" },
@@ -294,9 +289,9 @@ function retypeChain(): { doc: BlueprintDoc; formUuid: Uuid } {
 describe("caseOperationMoveVerdicts", () => {
 	it("answers for every candidate position, and never disagrees with the planner", () => {
 		const operations = [
-			create(CREATE, "a", "create_visit"),
-			create(SECOND, "b", "create_other"),
-			{ ...everySlotConsumer(), order: "c" },
+			create(CREATE, "create_visit"),
+			create(SECOND, "create_other"),
+			everySlotConsumer(),
 		];
 		const { doc, formUuid } = docWithOperations(operations);
 		const ordered = orderedCaseOperations(doc.forms[formUuid]);
@@ -328,8 +323,8 @@ describe("caseOperationMoveVerdicts", () => {
 
 	it("refuses moving a consumed create past its consumer, and names it", () => {
 		const { doc, formUuid } = docWithOperations([
-			create(CREATE, "a", "create_visit"),
-			{ ...everySlotConsumer(), order: "b" },
+			create(CREATE, "create_visit"),
+			everySlotConsumer(),
 		]);
 		const verdicts = caseOperationMoveVerdicts(doc, formUuid, CREATE);
 		const afterConsumer = verdicts.get(1);
@@ -343,7 +338,7 @@ describe("caseOperationMoveVerdicts", () => {
 
 	it("returns an empty map for an unknown form or operation", () => {
 		const { doc, formUuid } = docWithOperations([
-			create(CREATE, "a", "create_visit"),
+			create(CREATE, "create_visit"),
 		]);
 		expect(caseOperationMoveVerdicts(doc, formUuid, SECOND).size).toBe(0);
 		expect(
@@ -354,8 +349,8 @@ describe("caseOperationMoveVerdicts", () => {
 
 	it("carries which kind of dependency refused, so the copy need not guess", () => {
 		const { doc, formUuid } = docWithOperations([
-			create(CREATE, "a", "create_visit"),
-			{ ...everySlotConsumer(), order: "b" },
+			create(CREATE, "create_visit"),
+			everySlotConsumer(),
 		]);
 		const verdict = caseOperationMoveVerdicts(doc, formUuid, CREATE).get(1);
 		expect(verdict).toEqual({
@@ -395,8 +390,8 @@ describe("caseOperationMoveVerdicts", () => {
 describe("caseOperationRemovalBlockers", () => {
 	it("names each consumer with the slots holding its reference", () => {
 		const { doc, formUuid } = docWithOperations([
-			create(CREATE, "a", "create_visit"),
-			{ ...everySlotConsumer(), order: "b" },
+			create(CREATE, "create_visit"),
+			everySlotConsumer(),
 		]);
 		const blockers = caseOperationRemovalBlockers(doc, formUuid, CREATE);
 		expect(blockers).toHaveLength(1);
@@ -417,8 +412,8 @@ describe("caseOperationRemovalBlockers", () => {
 
 	it("is never empty while the planner refuses", () => {
 		const references = docWithOperations([
-			create(CREATE, "a", "create_visit"),
-			{ ...everySlotConsumer(), order: "b" },
+			create(CREATE, "create_visit"),
+			everySlotConsumer(),
 		]);
 		const types = retypeChain();
 		for (const [{ doc, formUuid }, uuid] of [
@@ -435,7 +430,7 @@ describe("caseOperationRemovalBlockers", () => {
 
 	it("reports nothing when removal is allowed, and for an unknown form", () => {
 		const { doc, formUuid } = docWithOperations([
-			create(CREATE, "a", "create_visit"),
+			create(CREATE, "create_visit"),
 		]);
 		expect(caseOperationRemovalBlockers(doc, formUuid, CREATE)).toEqual([]);
 		expect(

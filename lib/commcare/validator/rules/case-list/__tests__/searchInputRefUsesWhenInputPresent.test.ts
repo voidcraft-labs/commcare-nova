@@ -61,6 +61,8 @@ describe("searchInputRefUsesWhenInputPresent", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("col-1"), "case_name", "Name")],
+						listColumnOrder: [asUuid("col-1")],
+						detailColumnOrder: [asUuid("col-1")],
 						filter: eq(prop("patient", "case_name"), input("name_q")),
 						searchInputs: [
 							simpleSearchInputDef(
@@ -97,6 +99,8 @@ describe("searchInputRefUsesWhenInputPresent", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("col-1"), "case_name", "Name")],
+						listColumnOrder: [asUuid("col-1")],
+						detailColumnOrder: [asUuid("col-1")],
 						filter: whenInput(
 							input("name_q"),
 							eq(prop("patient", "case_name"), input("name_q")),
@@ -134,6 +138,8 @@ describe("searchInputRefUsesWhenInputPresent", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("col-1"), "case_name", "Name")],
+						listColumnOrder: [asUuid("col-1")],
+						detailColumnOrder: [asUuid("col-1")],
 						filter: whenInput(
 							input("name_q"),
 							eq(prop("patient", "case_name"), input("other_q")),
@@ -180,6 +186,8 @@ describe("searchInputRefUsesWhenInputPresent", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("col-1"), "case_name", "Name")],
+						listColumnOrder: [asUuid("col-1")],
+						detailColumnOrder: [asUuid("col-1")],
 						filter: whenInput(
 							input("name_q"),
 							// Body has NO input refs — just a property equality.
@@ -215,6 +223,8 @@ describe("searchInputRefUsesWhenInputPresent", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("col-1"), "case_name", "Name")],
+						listColumnOrder: [asUuid("col-1")],
+						detailColumnOrder: [asUuid("col-1")],
 						searchInputs: [
 							advancedSearchInputDef(
 								asUuid("si-adv"),
@@ -247,6 +257,8 @@ describe("searchInputRefUsesWhenInputPresent", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("col-1"), "case_name", "Name")],
+						listColumnOrder: [asUuid("col-1")],
+						detailColumnOrder: [asUuid("col-1")],
 						searchInputs: [
 							advancedSearchInputDef(
 								asUuid("si-adv"),
@@ -277,6 +289,8 @@ describe("searchInputRefUsesWhenInputPresent", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("col-1"), "case_name", "Name")],
+						listColumnOrder: [asUuid("col-1")],
+						detailColumnOrder: [asUuid("col-1")],
 						filter: and(
 							eq(prop("patient", "case_name"), input("first_q")),
 							eq(prop("patient", "case_name"), input("second_q")),
@@ -323,6 +337,8 @@ describe("searchInputRefUsesWhenInputPresent", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [asUuid("c-1")],
+						detailColumnOrder: [asUuid("c-1")],
 						searchInputs: [
 							{
 								...simpleSearchInputDef(
@@ -367,6 +383,8 @@ describe("searchInputRefUsesWhenInputPresent", () => {
 								expression: { kind: "term", term: input("query") },
 							},
 						],
+						listColumnOrder: [asUuid("c-1")],
+						detailColumnOrder: [asUuid("c-1")],
 						searchInputs: [
 							simpleSearchInputDef(
 								asUuid("si-1"),
@@ -400,6 +418,8 @@ describe("searchInputRefUsesWhenInputPresent", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [asUuid("c-1")],
+						detailColumnOrder: [asUuid("c-1")],
 						searchInputs: [
 							simpleSearchInputDef(
 								asUuid("si-1"),
@@ -439,6 +459,8 @@ describe("searchInputRefUsesWhenInputPresent", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [asUuid("c-1")],
+						detailColumnOrder: [asUuid("c-1")],
 						searchInputs: [
 							simpleSearchInputDef(
 								asUuid("si-1"),

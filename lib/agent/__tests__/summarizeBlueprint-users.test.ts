@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { buildDoc, withUserSequences } from "@/lib/__tests__/docHelpers";
 import { asUuid, type BlueprintDoc } from "@/lib/domain";
 import { summarizeBlueprint } from "../summarizeBlueprint";
 
@@ -8,7 +8,7 @@ describe("summarizeBlueprint users projection", () => {
 		const propertyUuid = asUuid("property-region");
 		const roleUuid = asUuid("role-chw");
 		const personaUuid = asUuid("persona-asha");
-		const doc: BlueprintDoc = {
+		const doc: BlueprintDoc = withUserSequences({
 			...buildDoc(),
 			userProperties: {
 				[propertyUuid]: {
@@ -35,7 +35,7 @@ describe("summarizeBlueprint users projection", () => {
 					values: { [propertyUuid]: "south" },
 				},
 			},
-		};
+		});
 
 		const summary = summarizeBlueprint(doc);
 		expect(summary).toContain(`region: "Region" [uuid ${propertyUuid}]`);

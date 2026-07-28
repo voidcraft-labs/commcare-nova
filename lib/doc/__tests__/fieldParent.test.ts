@@ -23,6 +23,7 @@
 
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { duplicateFieldMutations } from "@/lib/doc/duplicateFieldMutations";
 import type { BlueprintDocStoreApi } from "@/lib/doc/store";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { Mutation } from "@/lib/doc/types";
@@ -84,7 +85,7 @@ function assertFieldParentInvariants(doc: BlueprintDoc): void {
 function storeFrom(doc: BlueprintDoc): BlueprintDocStoreApi {
 	const store = createBlueprintDocStore();
 	store.getState().load(doc);
-	store.temporal.getState().resume();
+	store.getState().startTracking();
 	return store;
 }
 
@@ -115,7 +116,7 @@ const NESTED = asUuid("nst0-0000-0000-0000-000000000000");
 // ── addField ─────────────────────────────────────────────────────────────────
 
 describe("after addField", () => {
-	it("top of form (index 0)", () => {
+	it("top of form (after: null)", () => {
 		const doc = buildDoc({
 			modules: [
 				{
@@ -142,7 +143,7 @@ describe("after addField", () => {
 					id: "first",
 					label: "First",
 				} as BlueprintDoc["fields"][Uuid],
-				index: 0,
+				after: null,
 			},
 		]);
 		assertFieldParentInvariants(result);
@@ -150,7 +151,7 @@ describe("after addField", () => {
 		expect(result.fieldParent[FLD_A]).toBe(formUuid);
 	});
 
-	it("end of form (no index = append)", () => {
+	it("end of form (no anchor = append)", () => {
 		const doc = buildDoc({
 			modules: [
 				{
@@ -186,7 +187,7 @@ describe("after addField", () => {
 		expect(result.fieldParent[FLD_A]).toBe(formUuid);
 	});
 
-	it("middle of form (index 1 with 2 existing fields)", () => {
+	it("middle of form (after the first of 2 existing fields)", () => {
 		const doc = buildDoc({
 			modules: [
 				{
@@ -216,7 +217,7 @@ describe("after addField", () => {
 					id: "middle",
 					label: "Middle",
 				} as BlueprintDoc["fields"][Uuid],
-				index: 1,
+				after: Object.keys(doc.fields)[0] as Uuid,
 			},
 		]);
 		assertFieldParentInvariants(result);
@@ -437,7 +438,7 @@ describe("after moveField", () => {
 		const store = storeFrom(doc);
 		const formUuid = Object.keys(doc.forms)[0] as Uuid;
 		const result = applyBatch(store, [
-			{ kind: "moveField", uuid: FLD_A, toParentUuid: formUuid, toIndex: 2 },
+			{ kind: "moveField", uuid: FLD_A, toParentUuid: formUuid, after: FLD_C },
 		]);
 		assertFieldParentInvariants(result);
 		// After reorder, parent for the moved field should still be the form.
@@ -465,7 +466,7 @@ describe("after moveField", () => {
 		const store = storeFrom(doc);
 		const formUuid = Object.keys(doc.forms)[0] as Uuid;
 		const result = applyBatch(store, [
-			{ kind: "moveField", uuid: FLD_B, toParentUuid: formUuid, toIndex: 0 },
+			{ kind: "moveField", uuid: FLD_B, toParentUuid: formUuid, after: null },
 		]);
 		assertFieldParentInvariants(result);
 		expect(result.fieldParent[FLD_B]).toBe(formUuid);
@@ -496,7 +497,7 @@ describe("after moveField", () => {
 		});
 		const store = storeFrom(doc);
 		const result = applyBatch(store, [
-			{ kind: "moveField", uuid: FLD_A, toParentUuid: GRP, toIndex: 0 },
+			{ kind: "moveField", uuid: FLD_A, toParentUuid: GRP, after: null },
 		]);
 		assertFieldParentInvariants(result);
 		// Parent must now be the group, not the form.
@@ -530,7 +531,7 @@ describe("after moveField", () => {
 		const store = storeFrom(doc);
 		const formUuid = Object.keys(doc.forms)[0] as Uuid;
 		const result = applyBatch(store, [
-			{ kind: "moveField", uuid: FLD_A, toParentUuid: formUuid, toIndex: 1 },
+			{ kind: "moveField", uuid: FLD_A, toParentUuid: formUuid, after: GRP },
 		]);
 		assertFieldParentInvariants(result);
 		expect(result.fieldParent[FLD_A]).toBe(formUuid);
@@ -568,7 +569,7 @@ describe("after moveField", () => {
 		});
 		const store = storeFrom(doc);
 		const result = applyBatch(store, [
-			{ kind: "moveField", uuid: FLD_A, toParentUuid: GRP2, toIndex: 0 },
+			{ kind: "moveField", uuid: FLD_A, toParentUuid: GRP2, after: null },
 		]);
 		assertFieldParentInvariants(result);
 		expect(result.fieldParent[FLD_A]).toBe(GRP2);
@@ -633,9 +634,9 @@ describe("after renameField / updateField (structural noop)", () => {
 	});
 });
 
-// ── duplicateField ────────────────────────────────────────────────────────────
+// ── duplicate ─────────────────────────────────────────────────────────────────
 
-describe("after duplicateField", () => {
+describe("after a planned duplicate", () => {
 	it("leaf field: new uuid appears in fieldParent pointing at same parent as source", () => {
 		const doc = buildDoc({
 			modules: [
@@ -656,7 +657,10 @@ describe("after duplicateField", () => {
 		});
 		const store = storeFrom(doc);
 		const formUuid = Object.keys(doc.forms)[0] as Uuid;
-		const result = applyBatch(store, [{ kind: "duplicateField", uuid: FLD_A }]);
+		const result = applyBatch(
+			store,
+			duplicateFieldMutations(doc, FLD_A)?.mutations ?? [],
+		);
 		assertFieldParentInvariants(result);
 		// The source must still point at the form.
 		expect(result.fieldParent[FLD_A]).toBe(formUuid);
@@ -697,7 +701,10 @@ describe("after duplicateField", () => {
 		});
 		const store = storeFrom(doc);
 		const formUuid = Object.keys(doc.forms)[0] as Uuid;
-		const result = applyBatch(store, [{ kind: "duplicateField", uuid: GRP }]);
+		const result = applyBatch(
+			store,
+			duplicateFieldMutations(doc, GRP)?.mutations ?? [],
+		);
 		assertFieldParentInvariants(result);
 
 		// Original group + 2 children are still intact.
@@ -857,7 +864,7 @@ describe("after applyMany batches", () => {
 					label: "New Q",
 				} as BlueprintDoc["fields"][Uuid],
 			},
-			{ kind: "moveField", uuid: FLD_B, toParentUuid: GRP, toIndex: 0 },
+			{ kind: "moveField", uuid: FLD_B, toParentUuid: GRP, after: null },
 			{ kind: "removeField", uuid: FLD_B },
 		]);
 		assertFieldParentInvariants(result);

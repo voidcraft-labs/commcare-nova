@@ -65,7 +65,7 @@ function makeDoc(
 function createLoadedStore(doc: PersistableDoc = makeDoc()) {
 	const store = createBlueprintDocStore();
 	store.getState().load(doc);
-	store.temporal.getState().resume();
+	store.getState().startTracking();
 	return store;
 }
 
@@ -274,7 +274,7 @@ describe("EngineController", () => {
 			orphanDoc.formOrder = { [MODULE_UUID]: [] };
 			const store = createBlueprintDocStore();
 			store.getState().load(orphanDoc);
-			store.temporal.getState().resume();
+			store.getState().startTracking();
 
 			const ctrl = new EngineController();
 			ctrl.setDocStore(store);
@@ -601,7 +601,7 @@ describe("EngineController", () => {
 			};
 			const store = createBlueprintDocStore();
 			store.getState().load(doc);
-			store.temporal.getState().resume();
+			store.getState().startTracking();
 
 			const ctrl = new EngineController();
 			ctrl.setDocStore(store);
@@ -1074,7 +1074,7 @@ describe("EngineController", () => {
 					kind: "moveField",
 					uuid: captureUuid,
 					toParentUuid: repeatParentUuid,
-					toIndex: 0,
+					after: null,
 				},
 			]);
 			expect(ctrl.getPath(captureUuid)).toBe("/data/rounds[0]/photo");
@@ -1085,7 +1085,7 @@ describe("EngineController", () => {
 					kind: "moveField",
 					uuid: captureUuid,
 					toParentUuid: groupUuid,
-					toIndex: 0,
+					after: null,
 				},
 			]);
 			expect(ctrl.getPath(captureUuid)).toBe("/data/visit/photo");
@@ -1173,7 +1173,7 @@ describe("EngineController", () => {
 					kind: "moveField",
 					uuid: ancestorUuid,
 					toParentUuid: repeatParentUuid,
-					toIndex: 0,
+					after: null,
 				},
 			]);
 			expect(ctrl.getPath(captureUuid)).toBe("/data/rounds[0]/visit/photo");
@@ -1184,7 +1184,7 @@ describe("EngineController", () => {
 					kind: "moveField",
 					uuid: ancestorUuid,
 					toParentUuid: FORM_UUID,
-					toIndex: 1,
+					after: null,
 				},
 			]);
 			expect(ctrl.getPath(captureUuid)).toBe("/data/visit/photo");
@@ -1554,7 +1554,7 @@ describe("EngineController", () => {
 			};
 			const store = createBlueprintDocStore();
 			store.getState().load(doc);
-			store.temporal.getState().resume();
+			store.getState().startTracking();
 
 			const ctrl = new EngineController();
 			ctrl.setDocStore(store);

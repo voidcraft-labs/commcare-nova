@@ -122,6 +122,8 @@ describe("canonical case-property aliases in case-list validation", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("name-column"), "case_name", "Name")],
+						listColumnOrder: [asUuid("name-column")],
+						detailColumnOrder: [asUuid("name-column")],
 						searchInputs: [
 							simpleSearchInputDef(
 								asUuid("external-id-search"),

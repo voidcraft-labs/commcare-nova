@@ -1,6 +1,6 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, f, withUserSequences } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import { parseXPathForForm } from "@/lib/doc/expressionText";
@@ -29,7 +29,7 @@ function fold(doc: BlueprintDoc, ...batches: Mutation[][]): BlueprintDoc {
 }
 
 function userDoc(): BlueprintDoc {
-	return {
+	return withUserSequences({
 		...buildDoc(),
 		userProperties: ownRecord([
 			[PROPERTY_A, { uuid: PROPERTY_A, slug: "__proto__", label: "Prototype" }],
@@ -62,7 +62,7 @@ function userDoc(): BlueprintDoc {
 				},
 			],
 		]),
-	};
+	});
 }
 
 function valueUpdate(
@@ -365,7 +365,7 @@ describe("user collection mutations", () => {
 describe("user collection diff", () => {
 	it("treats an inherited-name UUID as absent unless it is an own record key", () => {
 		const before = buildDoc();
-		const after: BlueprintDoc = {
+		const after: BlueprintDoc = withUserSequences({
 			...before,
 			userTypes: ownRecord([
 				[
@@ -373,10 +373,11 @@ describe("user collection diff", () => {
 					{ uuid: asUuid("constructor"), name: "Constructor role" },
 				],
 			]),
-		};
+		});
 
 		expect(diffDocsToMutations(before, after)).toEqual([
 			{
+				after: null,
 				kind: "addUserType",
 				userType: { uuid: asUuid("constructor"), name: "Constructor role" },
 			},
@@ -388,7 +389,7 @@ describe("user collection diff", () => {
 
 	it("emits one semantic mutation per changed value key", () => {
 		const before = userDoc();
-		const after: BlueprintDoc = {
+		const after: BlueprintDoc = withUserSequences({
 			...before,
 			userTypes: ownRecord([
 				[
@@ -404,7 +405,7 @@ describe("user collection diff", () => {
 					},
 				],
 			]),
-		};
+		});
 
 		const updates = diffDocsToMutations(before, after).filter(
 			(mutation) => mutation.kind === "updateUserType",

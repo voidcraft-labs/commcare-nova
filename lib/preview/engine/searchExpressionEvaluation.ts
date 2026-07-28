@@ -13,7 +13,6 @@
 
 import { emitOnDeviceExpression } from "@/lib/commcare/expression/onDeviceEmitter";
 import { emitCaseListFilter } from "@/lib/commcare/predicate";
-import { bySortKey } from "@/lib/doc/order/compare";
 import { ownRecordValue, type SearchInputDef } from "@/lib/domain";
 import type {
 	Predicate,
@@ -189,7 +188,7 @@ export function resolveSearchInputDefaults(
 	lookupData?: PreviewLookupData,
 ): SearchInputValues {
 	const values = new Map<string, string>();
-	for (const input of [...searchInputs].sort(bySortKey)) {
+	for (const input of [...searchInputs]) {
 		if (input.default === undefined || input.type === "date-range") continue;
 		/* A default whose carriers the held snapshot doesn't COVER (not
 		 * loaded yet, or a valid edit the stale-while-revalidate snapshot

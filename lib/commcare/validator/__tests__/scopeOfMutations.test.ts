@@ -390,7 +390,7 @@ describe("scopeOfMutations", () => {
 				kind: "moveForm",
 				uuid: formUuid,
 				toModuleUuid: doc.moduleOrder[1],
-				toIndex: 0,
+				after: null,
 			},
 			{ kind: "setConnectType", connectType: "learn" },
 			{ kind: "setCaseTypes", caseTypes: null },
@@ -456,7 +456,7 @@ describe("scopeOfMutations", () => {
 				kind: "moveField",
 				uuid: writer.uuid,
 				toParentUuid: formUuid as never,
-				toIndex: 1,
+				after: null,
 			},
 		]);
 		expectScope(scope);
@@ -473,7 +473,7 @@ describe("scopeOfMutations", () => {
 					kind: "moveField",
 					uuid: writer.uuid,
 					toParentUuid: targetForm,
-					toIndex: 0,
+					after: null,
 				},
 			]),
 		).toBe("full");
@@ -482,7 +482,11 @@ describe("scopeOfMutations", () => {
 	it("moveModule is an app-rules-only (empty) scope, not full", () => {
 		const doc = twoTypeDoc();
 		const scope = scopeOfMutations(doc, [
-			{ kind: "moveModule", uuid: doc.moduleOrder[0], toIndex: 2 },
+			{
+				kind: "moveModule",
+				uuid: doc.moduleOrder[0],
+				after: doc.moduleOrder[2],
+			},
 		]);
 		expectScope(scope);
 		expect(scope.moduleUuids?.size).toBe(0);
@@ -498,7 +502,7 @@ describe("scopeOfMutations", () => {
 				kind: "moveField",
 				uuid: notes.uuid,
 				toParentUuid: targetForm,
-				toIndex: 0,
+				after: null,
 			},
 		]);
 		expectScope(scope);

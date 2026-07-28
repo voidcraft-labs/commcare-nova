@@ -746,7 +746,7 @@ describe("BuilderSession connect stash", () => {
 				learn_module: { name: "Form A", description: "d", time_estimate: 5 },
 			},
 		});
-		const before = doc.temporal.getState().pastStates.length;
+		const before = doc.getState().canUndo ? 1 : 0;
 
 		/* Re-apply the doc's current state verbatim — no field changed. */
 		const current = doc.getState().forms[formA]?.connect;
@@ -755,7 +755,7 @@ describe("BuilderSession connect stash", () => {
 		});
 
 		expect(outcome.ok).toBe(true);
-		expect(doc.temporal.getState().pastStates.length).toBe(before);
+		expect(doc.getState().canUndo ? 1 : 0).toBe(before);
 	});
 
 	it("12. enabling a mode from OFF sets lastConnectType to THAT mode, not a stale prior", () => {
@@ -835,8 +835,9 @@ describe("generation lifecycle", () => {
 
 		expect(s.events).toEqual([]);
 		expect(s.runCompletedAt).toBeUndefined();
-		/* Doc undo paused — zundo isTracking=false. */
-		expect(doc.temporal.getState().isTracking).toBe(false);
+		/* The run's writes are one step, so an edit inside it records none. */
+		doc.getState().applyMany([{ kind: "setAppName", name: "InRun" }]);
+		expect(doc.getState().canUndo).toBe(false);
 	});
 
 	it("beginRun captures runStartedWithData from the doc by default", () => {
@@ -879,7 +880,9 @@ describe("generation lifecycle", () => {
 
 		expect(s.events).toEqual([]);
 		expect(s.runCompletedAt).toBeUndefined();
-		expect(doc.temporal.getState().isTracking).toBe(true);
+		/* Outside a run, an edit is its own step. */
+		doc.getState().applyMany([{ kind: "setAppName", name: "Edited" }]);
+		expect(doc.getState().canUndo).toBe(true);
 	});
 
 	it("markRunCompleted stamps runCompletedAt without clearing events", () => {

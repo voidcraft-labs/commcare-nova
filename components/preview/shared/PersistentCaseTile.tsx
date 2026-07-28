@@ -17,8 +17,8 @@ import { useMemo } from "react";
 import { ContentFrame } from "@/components/builder/ContentFrame";
 import { Button } from "@/components/shadcn/button";
 import { Skeleton } from "@/components/shadcn/skeleton";
-import { byListColumnOrder } from "@/lib/doc/order/compare";
 import type { CaseListConfig, CaseProperty, CaseType } from "@/lib/domain";
+import { orderedColumns } from "@/lib/domain";
 import { projectTileGrid } from "@/lib/preview/caseTileLayout";
 import { tileResultsColumns } from "@/lib/preview/caseTileRendering";
 import { useCaseData } from "@/lib/preview/hooks/useCaseDataBinding";
@@ -63,12 +63,8 @@ export function PersistentCaseTile({
 		fallbackProperties,
 	);
 	const tileColumns = useMemo(
-		() =>
-			tileResultsColumns(
-				[...config.columns].sort(byListColumnOrder),
-				config.tile,
-			),
-		[config.columns, config.tile],
+		() => tileResultsColumns(orderedColumns(config, "list"), config.tile),
+		[config.columns, config.tile, config],
 	);
 	const projection = useMemo(
 		() => projectTileGrid(tileColumns.map((entry) => entry.column)),

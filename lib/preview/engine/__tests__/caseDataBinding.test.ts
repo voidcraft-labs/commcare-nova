@@ -29,6 +29,7 @@
 
 import type { Kysely } from "kysely";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
 	buildCaseTypeMap,
 	CaptureSubmissionRejectedError,
@@ -58,6 +59,7 @@ import {
 	type CaseOperation,
 	type CaseType,
 	calculatedColumn,
+	emptyCaseListConfig,
 	exactMode,
 	type LookupColumnId,
 	type LookupTableId,
@@ -795,12 +797,10 @@ describe("readCases", () => {
 			appId: APP_ID,
 			caseType: "patient",
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
-			caseListConfig: {
+			caseListConfig: resolveCaseListConfig({
 				columns: [
 					plainColumn(NAME_COLUMN_UUID, "name", "Name", {
 						sort: { direction: "asc", priority: 0 },
-						listOrder: "a",
-						detailOrder: "b",
 					}),
 					plainColumn(
 						asUuid("10000000-0000-0000-0000-000000000003"),
@@ -808,13 +808,11 @@ describe("readCases", () => {
 						"Age",
 						{
 							sort: { direction: "asc", priority: 0 },
-							listOrder: "b",
-							detailOrder: "a",
 						},
 					),
 				],
 				searchInputs: [],
-			},
+			}),
 		});
 
 		expect(result.kind).toBe("rows");
@@ -877,7 +875,7 @@ describe("readCases", () => {
 			caseType: "patient",
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
 			bindings,
-			caseListConfig: {
+			caseListConfig: resolveCaseListConfig({
 				columns: [
 					calculatedColumn(regionUuid, "Region", term(sessionUser("region")), {
 						visibleInList: true,
@@ -886,7 +884,7 @@ describe("readCases", () => {
 				],
 				searchInputs: [],
 				filter: eq(prop("patient", "owner_id"), sessionContext("userid")),
-			},
+			}),
 			page: { offset: 0, limit: 50 },
 		});
 
@@ -971,7 +969,7 @@ describe("readCases — running-app search-input composition", () => {
 			appId: APP_ID,
 			caseType: "patient",
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
-			caseListConfig: { columns: [], searchInputs: [] },
+			caseListConfig: emptyCaseListConfig(),
 			excludedOwnerIds: ["excluded-owner"],
 		});
 
@@ -1016,12 +1014,12 @@ describe("readCases — running-app search-input composition", () => {
 			appId: APP_ID,
 			caseType: "patient",
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
-			caseListConfig: {
+			caseListConfig: resolveCaseListConfig({
 				columns: [],
 				searchInputs: [],
 				// `age > 30` — only Bob matches the always-on filter.
 				filter: gt(prop("patient", "age"), literal(30)),
-			},
+			}),
 			// Even with `inputValues` defined, the helper must skip
 			// `composeRuntimeFilter` because `searchInputs.length === 0`.
 			inputValues: new Map(),
@@ -1064,7 +1062,7 @@ describe("readCases — running-app search-input composition", () => {
 			appId: APP_ID,
 			caseType: "patient",
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
-			caseListConfig: {
+			caseListConfig: resolveCaseListConfig({
 				columns: [],
 				searchInputs: [
 					simpleSearchInputDef(
@@ -1076,7 +1074,7 @@ describe("readCases — running-app search-input composition", () => {
 						{ mode: exactMode() },
 					),
 				],
-			},
+			}),
 			inputValues: new Map([["name", "Alice"]]),
 		});
 		expect(result.kind).toBe("rows");
@@ -1122,7 +1120,7 @@ describe("readCases — running-app search-input composition", () => {
 			appId: APP_ID,
 			caseType: "patient",
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
-			caseListConfig: {
+			caseListConfig: resolveCaseListConfig({
 				columns: [],
 				searchInputs: [
 					advancedSearchInputDef(
@@ -1139,7 +1137,7 @@ describe("readCases — running-app search-input composition", () => {
 						},
 					),
 				],
-			},
+			}),
 			inputValues: new Map([["name_prefix", "Al"]]),
 		});
 		expect(result.kind).toBe("rows");
@@ -1172,7 +1170,7 @@ describe("readCases — running-app search-input composition", () => {
 				properties: { name: "Bob", age: 40 },
 			},
 		});
-		const caseListConfig: CaseListConfig = {
+		const caseListConfig: CaseListConfig = resolveCaseListConfig({
 			columns: [],
 			searchInputs: [
 				advancedSearchInputDef(
@@ -1187,7 +1185,7 @@ describe("readCases — running-app search-input composition", () => {
 				input("name_filter"),
 				eq(prop("patient", "name"), input("name_filter")),
 			),
-		};
+		});
 
 		const present = await readCases(store, {
 			appId: APP_ID,
@@ -1260,7 +1258,7 @@ describe("readCases — running-app search-input composition", () => {
 			appId: APP_ID,
 			caseType: "patient",
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
-			caseListConfig: {
+			caseListConfig: resolveCaseListConfig({
 				columns: [],
 				searchInputs: [
 					// `name` starts-with — text-mode input the widget
@@ -1286,7 +1284,7 @@ describe("readCases — running-app search-input composition", () => {
 						{ mode: exactMode() },
 					),
 				],
-			},
+			}),
 			// `name=Al, status=open` — the intersection is Alice
 			// alone.
 			inputValues: new Map([
@@ -1335,7 +1333,7 @@ describe("readCases — running-app search-input composition", () => {
 			appId: APP_ID,
 			caseType: "patient",
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
-			caseListConfig: {
+			caseListConfig: resolveCaseListConfig({
 				columns: [],
 				searchInputs: [
 					simpleSearchInputDef(
@@ -1348,7 +1346,7 @@ describe("readCases — running-app search-input composition", () => {
 				],
 				// Filter only — `age > 30`. Bob alone survives.
 				filter: gt(prop("patient", "age"), literal(30)),
-			},
+			}),
 			// Empty values bag — no runtime contribution. The
 			// constructed predicate must equal the filter-only path.
 			inputValues: new Map() satisfies SearchInputValues,
@@ -1391,7 +1389,7 @@ describe("readCases — running-app search-input composition", () => {
 			appId: APP_ID,
 			caseType: "patient",
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
-			caseListConfig: {
+			caseListConfig: resolveCaseListConfig({
 				columns: [],
 				searchInputs: [
 					simpleSearchInputDef(
@@ -1404,7 +1402,7 @@ describe("readCases — running-app search-input composition", () => {
 					),
 				],
 				filter: eq(prop("patient", "name"), literal("Bob")),
-			},
+			}),
 			inputValues: new Map([["name", "Bob"]]),
 		});
 		expect(result.kind).toBe("rows");
@@ -1416,7 +1414,7 @@ describe("readCases — running-app search-input composition", () => {
 			appId: APP_ID,
 			caseType: "patient",
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
-			caseListConfig: {
+			caseListConfig: resolveCaseListConfig({
 				columns: [],
 				searchInputs: [
 					simpleSearchInputDef(
@@ -1429,7 +1427,7 @@ describe("readCases — running-app search-input composition", () => {
 					),
 				],
 				filter: eq(prop("patient", "name"), literal("Bob")),
-			},
+			}),
 			inputValues: new Map([["name", "Alice"]]),
 		});
 		expect(noMatch).toEqual({
@@ -1491,7 +1489,7 @@ describe("readCases — running-app search-input composition", () => {
 			appId: APP_ID,
 			caseType: "patient",
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
-			caseListConfig: {
+			caseListConfig: resolveCaseListConfig({
 				columns: [],
 				searchInputs: [
 					simpleSearchInputDef(
@@ -1503,7 +1501,7 @@ describe("readCases — running-app search-input composition", () => {
 						{ mode: multiSelectContainsMode("any") },
 					),
 				],
-			},
+			}),
 			inputValues: new Map([["tags", "vip"]]),
 		});
 		expect(result.kind).toBe("rows");
@@ -1567,7 +1565,7 @@ describe("readCases — running-app search-input composition", () => {
 				appId: APP_ID,
 				caseType: "patient",
 				caseTypeSchemas,
-				caseListConfig: {
+				caseListConfig: resolveCaseListConfig({
 					columns: [],
 					searchInputs: [
 						simpleSearchInputDef(
@@ -1578,7 +1576,7 @@ describe("readCases — running-app search-input composition", () => {
 							property,
 						),
 					],
-				},
+				}),
 				inputValues,
 			});
 
@@ -1699,7 +1697,7 @@ describe("readCaseData", () => {
 			},
 		});
 		const calculatedUuid = asUuid("00000000-0000-0000-0000-000000000d01");
-		const caseListConfig: CaseListConfig = {
+		const caseListConfig: CaseListConfig = resolveCaseListConfig({
 			columns: [
 				calculatedColumn(
 					calculatedUuid,
@@ -1712,7 +1710,7 @@ describe("readCaseData", () => {
 			// This filter deliberately excludes Alice. Identity-backed Details
 			// enriches the selected row but must never inherit Results filtering.
 			filter: matchNone(),
-		};
+		});
 
 		const result = await readCaseData(store, {
 			appId: APP_ID,
@@ -1749,7 +1747,7 @@ describe("readCaseData", () => {
 			caseType: "patient",
 			caseId: ALICE_CASE_ID,
 			ancestorDepth: 0,
-			caseListConfig: {
+			caseListConfig: resolveCaseListConfig({
 				columns: [
 					calculatedColumn(
 						calculatedUuid,
@@ -1759,7 +1757,7 @@ describe("readCaseData", () => {
 					),
 				],
 				searchInputs: [],
-			},
+			}),
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
 			bindings: {
 				sessionUser: new Map(),
@@ -2712,11 +2710,11 @@ describe("mapPopulateSampleCasesError", () => {
 function makeCaseListConfig(
 	overrides: Partial<CaseListConfig> = {},
 ): CaseListConfig {
-	return {
+	return resolveCaseListConfig({
 		columns: [],
 		searchInputs: [],
 		...overrides,
-	};
+	});
 }
 
 /**
@@ -4795,7 +4793,7 @@ describe("loadCasesAction", () => {
 		await loadCasesAction({
 			appId: APP_ID,
 			caseType: "patient",
-			caseListConfig: {
+			caseListConfig: resolveCaseListConfig({
 				columns: [
 					calculatedColumn(
 						columnUuid,
@@ -4804,7 +4802,7 @@ describe("loadCasesAction", () => {
 					),
 				],
 				searchInputs: [],
-			},
+			}),
 			caseTypes: [PATIENT_CASE_TYPE],
 		});
 
@@ -5045,7 +5043,7 @@ describe("loadCasesAction", () => {
 			appId: APP_ID,
 			caseType: "patient",
 			caseTypes: [PATIENT_CASE_TYPE],
-			caseListConfig: {
+			caseListConfig: resolveCaseListConfig({
 				columns: [],
 				searchInputs: [
 					advancedSearchInputDef(
@@ -5056,7 +5054,7 @@ describe("loadCasesAction", () => {
 						predicate,
 					),
 				],
-			},
+			}),
 			inputValues: { months: "1.5" },
 		});
 
@@ -5211,7 +5209,10 @@ describe("loadCasesAction", () => {
 			appId: APP_ID,
 			caseType: "patient",
 			caseTypes: [FORMATTED_PROPS_CASE_TYPE],
-			caseListConfig: { columns: [], searchInputs: [rangeInput] },
+			caseListConfig: resolveCaseListConfig({
+				columns: [],
+				searchInputs: [rangeInput],
+			}),
 			inputValues: {
 				"visit_dates:from": "2025-01-02",
 				"visit_dates:to": "2025-03-04",
@@ -5278,7 +5279,10 @@ describe("loadCasesAction", () => {
 			appId: APP_ID,
 			caseType: "patient",
 			caseTypes: [FORMATTED_PROPS_CASE_TYPE],
-			caseListConfig: { columns: [], searchInputs: [rangeInput] },
+			caseListConfig: resolveCaseListConfig({
+				columns: [],
+				searchInputs: [rangeInput],
+			}),
 			inputValues: { "visit_dates:from": "2025-01-02" },
 		});
 
@@ -5702,7 +5706,7 @@ describe("loadCaseDataAction session projection", () => {
 			"patient",
 			ALICE_CASE_ID,
 			0,
-			{
+			resolveCaseListConfig({
 				columns: [
 					calculatedColumn(
 						calculatedUuid,
@@ -5712,7 +5716,7 @@ describe("loadCaseDataAction session projection", () => {
 					),
 				],
 				searchInputs: [],
-			},
+			}),
 			[PATIENT_CASE_TYPE],
 		);
 
@@ -5797,7 +5801,7 @@ describe("loadCaseDataAction session projection", () => {
 			"patient",
 			ALICE_CASE_ID,
 			0,
-			{
+			resolveCaseListConfig({
 				columns: [
 					calculatedColumn(
 						columnUuid,
@@ -5807,7 +5811,7 @@ describe("loadCaseDataAction session projection", () => {
 					),
 				],
 				searchInputs: [],
-			},
+			}),
 			[PATIENT_CASE_TYPE],
 			undefined,
 			undefined,
@@ -6320,7 +6324,7 @@ describe("loadFilterPreviewAction", () => {
 			appId: APP_ID,
 			caseType: "patient",
 			blueprint: candidate,
-			caseListConfig: {
+			caseListConfig: resolveCaseListConfig({
 				columns: [
 					calculatedColumn(
 						asUuid("candidate-worker-column"),
@@ -6329,7 +6333,7 @@ describe("loadFilterPreviewAction", () => {
 					),
 				],
 				searchInputs: [],
-			},
+			}),
 		});
 
 		const bindings = vi.mocked(store.query).mock.calls[0]?.[0].bindings;

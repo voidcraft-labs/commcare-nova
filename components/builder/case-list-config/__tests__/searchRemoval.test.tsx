@@ -1,3 +1,4 @@
+import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 // @vitest-environment happy-dom
 
@@ -19,6 +20,7 @@ import {
 	advancedSearchInputDef,
 	asUuid,
 	type BlueprintDoc,
+	type CaseListConfig,
 	type CaseSearchConfig,
 	type CaseType,
 	type Column,
@@ -54,11 +56,7 @@ interface MutableWorkspaceModule {
 	name: string;
 	caseType: string;
 	caseListOnly: boolean;
-	caseListConfig: {
-		columns: Column[];
-		searchInputs: SearchInputDef[];
-		filter?: Predicate;
-	};
+	caseListConfig: CaseListConfig;
 	caseSearchConfig?: CaseSearchConfig;
 }
 
@@ -436,7 +434,7 @@ function makeModule(
 		name: "Clients",
 		caseType: "client",
 		caseListOnly: false,
-		caseListConfig: { columns, searchInputs, filter },
+		caseListConfig: resolveCaseListConfig({ columns, searchInputs, filter }),
 		caseSearchConfig,
 	};
 }
@@ -462,11 +460,11 @@ function workspaceDoc(args: {
 				uuid: MODULE_UUID,
 				name: "Clients",
 				caseType: "client",
-				caseListConfig: {
+				caseListConfig: resolveCaseListConfig({
 					columns: [...(args.columns ?? [])],
 					searchInputs: [...(args.searchInputs ?? [])],
 					...(args.filter !== undefined && { filter: args.filter }),
-				},
+				}),
 				...(args.caseSearchConfig !== undefined && {
 					caseSearchConfig: args.caseSearchConfig,
 				}),
@@ -715,11 +713,11 @@ describe("Search field removal", () => {
 				{
 					name: "Clients",
 					caseType: "client",
-					caseListConfig: {
+					caseListConfig: resolveCaseListConfig({
 						columns: [NAME_COLUMN],
 						searchInputs: [first, second],
 						filter,
-					},
+					}),
 					caseSearchConfig: {},
 					forms: [
 						{

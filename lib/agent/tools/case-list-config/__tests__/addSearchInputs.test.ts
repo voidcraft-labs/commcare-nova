@@ -16,9 +16,11 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
 	asUuid,
 	type BlueprintDoc,
+	emptyCaseListConfig,
 	type Module,
 	plainColumn,
 } from "@/lib/domain";
@@ -185,11 +187,11 @@ describe("addSearchInputs", () => {
 			modules: {
 				[MOD_A]: {
 					...baseDoc.modules[MOD_A],
-					caseListConfig: {
+					caseListConfig: resolveCaseListConfig({
 						columns: [seededColumn],
 						searchInputs: [],
 						filter: seededFilter,
-					},
+					}),
 				},
 			},
 		};
@@ -224,7 +226,7 @@ describe("addSearchInputs", () => {
 			modules: {
 				[MOD_A]: {
 					...baseDoc.modules[MOD_A],
-					caseListConfig: { columns: [], searchInputs: [] },
+					caseListConfig: emptyCaseListConfig(),
 					caseSearchConfig: {
 						searchActionEnabled: false,
 						excludedOwnerIds: owner,

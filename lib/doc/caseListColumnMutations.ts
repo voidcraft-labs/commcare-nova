@@ -6,23 +6,19 @@
  */
 
 import { deepEqual } from "@/lib/doc/deepEqual";
-import { columnSurfaceOrderMutation } from "@/lib/doc/order/columnSurface";
 import type { Mutation, Uuid } from "@/lib/doc/types";
 import type { Column } from "@/lib/domain";
 
 /**
- * Origin/main's strict nested `columnSchema` predates the two surface-order
- * keys and the tile cell. Keep every fallback snapshot parseable by an old PUT
- * handler; the new keys travel only in optional top-level extensions on known
- * mutation kinds.
+ * Origin/main's strict nested `columnSchema` predates the tile cell, so a
+ * fallback snapshot must stay parseable by an old PUT handler; the cell travels
+ * as an optional top-level extension on known mutation kinds instead.
+ *
+ * A column's place is not among the slots a snapshot carries: it lives in the
+ * config's two ordering arrays, not on the column.
  */
 export function legacyCompatibleColumnSnapshot(column: Column): Column {
-	const {
-		listOrder: _listOrder,
-		detailOrder: _detailOrder,
-		tile: _tile,
-		...legacyColumn
-	} = column;
+	const { tile: _tile, ...legacyColumn } = column;
 	return legacyColumn as Column;
 }
 
@@ -30,23 +26,17 @@ export function legacyCompatibleColumnSnapshot(column: Column): Column {
 export function columnAddMutation(
 	moduleUuid: Uuid,
 	column: Column,
+	placement: {
+		readonly afterInList: Uuid | null;
+		readonly afterInDetail: Uuid | null;
+	},
 ): Extract<Mutation, { kind: "addColumn" }> {
-	const surfaceOrders =
-		column.listOrder === undefined && column.detailOrder === undefined
-			? undefined
-			: {
-					...(column.listOrder !== undefined && {
-						listOrder: column.listOrder,
-					}),
-					...(column.detailOrder !== undefined && {
-						detailOrder: column.detailOrder,
-					}),
-				};
 	return {
 		kind: "addColumn",
 		moduleUuid,
 		column: legacyCompatibleColumnSnapshot(column),
-		...(surfaceOrders !== undefined && { surfaceOrders }),
+		afterInList: placement.afterInList,
+		afterInDetail: placement.afterInDetail,
 		...(column.tile !== undefined && { tileCell: column.tile }),
 	};
 }
@@ -169,26 +159,9 @@ export function columnSnapshotMutations(
 	mutations.push(...columnVisibilityMutations(current, next, moduleUuid));
 	mutations.push(...columnSortMutations(current, next, moduleUuid));
 	mutations.push(...columnTileMutations(current, next, moduleUuid));
-	if (current.listOrder !== next.listOrder) {
-		mutations.push(
-			columnSurfaceOrderMutation({
-				moduleUuid,
-				column: current,
-				surface: "list",
-				order: next.listOrder ?? null,
-			}),
-		);
-	}
-	if (current.detailOrder !== next.detailOrder) {
-		mutations.push(
-			columnSurfaceOrderMutation({
-				moduleUuid,
-				column: current,
-				surface: "detail",
-				order: next.detailOrder ?? null,
-			}),
-		);
-	}
+	// No order arm: a column snapshot carries no place, so a content edit cannot
+	// express a move and cannot clobber a concurrent one. Reordering is
+	// `moveColumn` against the config's arrays, and nothing else.
 	return mutations;
 }
 
@@ -215,9 +188,6 @@ export function columnSnapshotBatchMutations(
 
 function stripGranularSlots(column: Column): unknown {
 	const {
-		order: _order,
-		listOrder: _listOrder,
-		detailOrder: _detailOrder,
 		sort: _sort,
 		visibleInList: _visibleInList,
 		visibleInDetail: _visibleInDetail,

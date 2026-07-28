@@ -6,7 +6,14 @@
 // a placement or a stated refusal; the canvas only draws the answer.
 
 import { describe, expect, it } from "vitest";
-import { asUuid, type Column, plainColumn, tileCell } from "@/lib/domain";
+import {
+	asUuid,
+	type CaseListConfig,
+	type Column,
+	emptyCaseListConfig,
+	plainColumn,
+	tileCell,
+} from "@/lib/domain";
 import {
 	describeTileCell,
 	describeTilePlace,
@@ -37,16 +44,30 @@ function column(
 }
 
 const NAME = column("name", "Patient name", {
-	listOrder: "a",
 	tile: tileCell(0, 0, 6, 1),
 });
 const VILLAGE = column("village", "Village", {
-	listOrder: "b",
 	tile: tileCell(6, 0, 6, 1),
 });
 
+/**
+ * A case list showing exactly these columns, in the order written.
+ *
+ * Results order is the config's `listColumnOrder` rather than a per-column
+ * slot, so a fixture that wants a particular arrangement writes the columns
+ * in that arrangement.
+ */
+function config(columns: readonly Column[]): CaseListConfig {
+	return {
+		...emptyCaseListConfig(),
+		columns: [...columns],
+		listColumnOrder: columns.map((entry) => entry.uuid),
+		detailColumnOrder: columns.map((entry) => entry.uuid),
+	};
+}
+
 function membershipOf(columns: readonly Column[]) {
-	return tileMembership(columns).placed;
+	return tileMembership(config(columns)).placed;
 }
 
 describe("tileShowsColumn", () => {
@@ -76,8 +97,8 @@ describe("tileShowsColumn", () => {
 
 describe("tileMembership", () => {
 	it("splits members by whether they hold a place, in Results order", () => {
-		const later = column("later", "Later", { listOrder: "c" });
-		const { placed, unplaced } = tileMembership([later, VILLAGE, NAME]);
+		const later = column("later", "Later");
+		const { placed, unplaced } = tileMembership(config([NAME, VILLAGE, later]));
 		expect(placed.map((entry) => entry.label)).toEqual([
 			"Patient name",
 			"Village",
@@ -90,7 +111,7 @@ describe("tileMembership", () => {
 			visibleInList: false,
 			tile: tileCell(0, 5, 2, 1),
 		});
-		expect(tileMemberUuids([NAME, detailOnly])).toEqual([NAME.uuid]);
+		expect(tileMemberUuids(config([NAME, detailOnly]))).toEqual([NAME.uuid]);
 	});
 });
 
@@ -122,7 +143,6 @@ describe("planTilePlacement", () => {
 
 	it("accepts a move into free space and keeps the presentation slots", () => {
 		const styled = column("styled", "Styled", {
-			listOrder: "a",
 			tile: tileCell(0, 0, 2, 1, { fontSize: "large", showBorder: true }),
 		});
 		const verdict = planTilePlacement(
@@ -198,7 +218,6 @@ describe("planTilePlacement", () => {
 
 	it("ignores a hidden field's stored cell — nothing is drawn there", () => {
 		const hidden = column("order", "Registered on", {
-			listOrder: "b",
 			visibleInList: false,
 			sort: { direction: "asc", priority: 1 },
 			tile: tileCell(6, 0, 6, 1),
@@ -228,7 +247,6 @@ describe("planTileMove and planTileResize", () => {
 
 	it("refuses to shrink a field below one column", () => {
 		const narrow = column("narrow", "Age", {
-			listOrder: "a",
 			tile: tileCell(0, 0, 1, 1),
 		});
 		const verdict = planTileResize(membershipOf([narrow]), narrow.uuid, -1, 0);
@@ -239,7 +257,6 @@ describe("planTileMove and planTileResize", () => {
 
 	it("refuses to shrink a field below one row", () => {
 		const short = column("short", "Age", {
-			listOrder: "a",
 			tile: tileCell(0, 0, 2, 1),
 		});
 		const verdict = planTileResize(membershipOf([short]), short.uuid, 0, -1);
@@ -323,13 +340,12 @@ describe("free space", () => {
 describe("placementForJoiningTile", () => {
 	it("keeps a saved place that still fits and is still free", () => {
 		const hidden = column("hidden", "Age", {
-			listOrder: "b",
 			visibleInList: false,
 			tile: tileCell(0, 4, 3, 1),
 		});
-		expect(placementForJoiningTile([NAME, VILLAGE, hidden], hidden)).toEqual(
-			tileCell(0, 4, 3, 1),
-		);
+		expect(
+			placementForJoiningTile(config([NAME, VILLAGE, hidden]), hidden),
+		).toEqual(tileCell(0, 4, 3, 1));
 	});
 
 	it("moves a saved place another field took while it was hidden", () => {
@@ -337,16 +353,18 @@ describe("placementForJoiningTile", () => {
 		// square, something else lands there, and handing the cell straight
 		// back would refuse the author's own reveal at the gate.
 		const taken = column("taken", "Age", {
-			listOrder: "b",
 			visibleInList: false,
 			tile: tileCell(0, 0, 6, 1),
 		});
-		const place = placementForJoiningTile([NAME, VILLAGE, taken], taken);
+		const place = placementForJoiningTile(
+			config([NAME, VILLAGE, taken]),
+			taken,
+		);
 		expect(place).not.toBeNull();
 		if (place === null) return;
 		expect(
 			planColumnTilePlacement({
-				columns: [NAME, VILLAGE, taken],
+				config: config([NAME, VILLAGE, taken]),
 				column: taken,
 				geometry: place,
 			}).ok,
@@ -355,29 +373,32 @@ describe("placementForJoiningTile", () => {
 
 	it("keeps the size the author chose when it moves", () => {
 		const taken = column("taken", "Age", {
-			listOrder: "b",
 			visibleInList: false,
 			tile: tileCell(0, 0, 3, 2),
 		});
-		const place = placementForJoiningTile([NAME, VILLAGE, taken], taken);
+		const place = placementForJoiningTile(
+			config([NAME, VILLAGE, taken]),
+			taken,
+		);
 		expect(place?.width).toBe(3);
 		expect(place?.height).toBe(2);
 	});
 
 	it("gives a field with no saved place the first free line", () => {
-		const fresh = column("fresh", "Age", { listOrder: "c" });
-		expect(placementForJoiningTile([NAME, VILLAGE, fresh], fresh)).toEqual(
-			tileCell(0, 1, 12, 1),
-		);
+		const fresh = column("fresh", "Age");
+		expect(
+			placementForJoiningTile(config([NAME, VILLAGE, fresh]), fresh),
+		).toEqual(tileCell(0, 1, 12, 1));
 	});
 
 	it("reports no room on a full tile instead of a doomed placement", () => {
 		const full = column("full", "Patient name", {
-			listOrder: "a",
 			tile: tileCell(0, 0, 12, 12),
 		});
-		const joining = column("joining", "Age", { listOrder: "b" });
-		expect(placementForJoiningTile([full, joining], joining)).toBeNull();
+		const joining = column("joining", "Age");
+		expect(
+			placementForJoiningTile(config([full, joining]), joining),
+		).toBeNull();
 	});
 });
 
@@ -390,7 +411,7 @@ describe("planColumnTilePlacement", () => {
 			tile: tileCell(0, 6, 2, 1),
 		});
 		const refused = planColumnTilePlacement({
-			columns: [NAME, VILLAGE, inert],
+			config: config([NAME, VILLAGE, inert]),
 			column: inert,
 			geometry: { x: 0, y: 0, width: 2, height: 1 },
 		});
@@ -399,7 +420,7 @@ describe("planColumnTilePlacement", () => {
 		);
 
 		const accepted = planColumnTilePlacement({
-			columns: [NAME, VILLAGE, inert],
+			config: config([NAME, VILLAGE, inert]),
 			column: inert,
 			geometry: { x: 0, y: 4, width: 2, height: 1 },
 		});
@@ -410,8 +431,7 @@ describe("planColumnTilePlacement", () => {
 describe("tileLayoutIssues", () => {
 	function issues(columns: readonly Column[], tileOn: boolean) {
 		return tileLayoutIssues({
-			columns: [...columns],
-			searchInputs: [],
+			...config(columns),
 			...(tileOn ? { tile: {} } : {}),
 		});
 	}
@@ -424,7 +444,6 @@ describe("tileLayoutIssues", () => {
 		// Checking a stored cell continuously is what guarantees that
 		// switching the tile back on is always accepted.
 		const escaping = column("wide", "Photo", {
-			listOrder: "a",
 			tile: tileCell(8, 0, 6, 1),
 		});
 		for (const tileOn of [true, false]) {
@@ -438,7 +457,6 @@ describe("tileLayoutIssues", () => {
 
 	it("names both overflowing axes when a cell escapes in both", () => {
 		const escaping = column("both", "Photo", {
-			listOrder: "a",
 			tile: tileCell(10, 10, 5, 5),
 		});
 		expect(issues([escaping], true)[0]?.message).toContain(
@@ -448,7 +466,6 @@ describe("tileLayoutIssues", () => {
 
 	it("marks BOTH fields of an overlapping pair", () => {
 		const clashing = column("clash", "Village", {
-			listOrder: "b",
 			tile: tileCell(2, 0, 6, 1),
 		});
 		const found = issues([NAME, clashing], true);
@@ -459,7 +476,7 @@ describe("tileLayoutIssues", () => {
 	});
 
 	it("reports coverage only while the layout is on", () => {
-		const unplaced = column("unplaced", "Age", { listOrder: "b" });
+		const unplaced = column("unplaced", "Age");
 		expect(issues([NAME, unplaced], false)).toEqual([]);
 		const found = issues([NAME, unplaced], true);
 		expect(found.map((issue) => issue.kind)).toEqual(["not-placed"]);
@@ -471,7 +488,6 @@ describe("tileLayoutIssues", () => {
 	it("asks for no place from a hidden field that only sets the order", () => {
 		// It reaches the wire as the zero-width carrier and draws nothing.
 		const sorter = column("sorter", "Registered on", {
-			listOrder: "b",
 			visibleInList: false,
 			sort: { direction: "asc", priority: 1 },
 		});
@@ -480,7 +496,6 @@ describe("tileLayoutIssues", () => {
 
 	it("leaves a Details-only field alone — its cell renders nowhere", () => {
 		const detailOnly = column("detail", "Notes", {
-			listOrder: "b",
 			visibleInList: false,
 		});
 		expect(issues([NAME, detailOnly], true)).toEqual([]);

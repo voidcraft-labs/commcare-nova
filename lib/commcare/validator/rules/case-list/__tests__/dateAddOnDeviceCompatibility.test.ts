@@ -77,6 +77,8 @@ function errorsFor(
 				caseType: "patient",
 				caseListConfig: {
 					columns: [plainColumn(asUuid("column-name"), "case_name", "Name")],
+					listColumnOrder: [asUuid("column-name")],
+					detailColumnOrder: [asUuid("column-name")],
 					searchInputs: [],
 					...caseListPatch,
 				},

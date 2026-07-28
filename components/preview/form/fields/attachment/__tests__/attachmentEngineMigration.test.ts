@@ -58,7 +58,7 @@ function makeDoc(
 function loadedController(doc: PersistableDoc) {
 	const store = createBlueprintDocStore();
 	store.getState().load(doc);
-	store.temporal.getState().resume();
+	store.getState().startTracking();
 	const controller = new EngineController();
 	controller.setDocStore(store);
 	controller.activateForm(FORM_UUID);
@@ -349,7 +349,7 @@ describe("engine-to-attachment migration boundary", () => {
 				kind: "moveField",
 				uuid: captureUuid,
 				toParentUuid: rightUuid,
-				toIndex: 0,
+				after: null,
 			},
 		]);
 		await Promise.all(wired.pending);
@@ -441,7 +441,7 @@ describe("engine-to-attachment migration boundary", () => {
 				kind: "moveField",
 				uuid: innerUuid,
 				toParentUuid: outerUuid,
-				toIndex: 0,
+				after: null,
 			},
 		]);
 		await Promise.all(wired.pending);

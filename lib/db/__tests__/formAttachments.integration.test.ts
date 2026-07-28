@@ -8,7 +8,7 @@
 
 import { sql } from "kysely";
 import { describe, expect, it } from "vitest";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, f, withUserSequences } from "@/lib/__tests__/docHelpers";
 import { asUuid } from "@/lib/domain";
 import { resolveAuthorizedAppSnapshot } from "../appAccess";
 import {
@@ -140,7 +140,7 @@ describe("form submission authorization snapshot", () => {
 				},
 			],
 		});
-		const doc = {
+		const doc = withUserSequences({
 			...base,
 			userTypes: {
 				[userTypeUuid]: {
@@ -157,7 +157,7 @@ describe("form submission authorization snapshot", () => {
 					values: {},
 				},
 			},
-		};
+		});
 		const appId = await h.seedAppWithBlueprint(doc, {
 			id: "capture-replay-deleted-topology-app",
 			owner: "capture-replay-deleted-topology-owner",

@@ -31,7 +31,7 @@ groups) plus one `blueprint_entities` row per entity. Six kinds share that table
 (`EntityRowKind`): `module` / `form` / `field` encode their hierarchy in
 `(parent_uuid, ordinal)`, while `user_property` / `user_type` / `persona` are
 flat — no parent, constant ordinal, sequence living entirely in each entity's
-fractional `order` key. **Every kind branches explicitly in the assembler**: its
+position in its parent's sequence. **Every kind branches explicitly in the assembler**: its
 shape is `if module / else if form / else field`, so a new kind that falls
 through is read as a field, fails `blueprintDocSchema`, and stops the whole app
 from loading rather than losing one row. The three flat collections' doc slots
@@ -57,9 +57,19 @@ System repair/migration writers use a named `system:<task>` actor; user-driven
 synthetic writes retain the actual user id. `UNIQUE (app_id, batch_id)` is the idempotency latch (the guarded
 commit reads it under the app row lock; a concurrent same-batch retry that
 races past the read is caught by the constraint and converges on the deduped
-result). Future blueprint-shape migrations must migrate the STORED MUTATIONS
-alongside the entity rows or historical folds stop reproducing state — the
-scan script's fold check is the tripwire.
+result). A blueprint-shape migration must either migrate the STORED MUTATIONS
+alongside the entity rows, or MOVE THE FOLD HORIZON by appending one
+`kind: "migration"` batch per app — historical folds otherwise stop reproducing
+state, and a live client whose stream cursor predates the change replays
+old-vocabulary payloads into a new reducer. The sequence-is-array-position
+cutover took the second route deliberately (see its migration's header): a
+fractional order key only means anything against the sibling keys of its own
+moment, so rewriting one in place would take a per-app fold through a reducer
+that still understands both vocabularies — the parallel machinery that change
+existed to delete. Its marker carries EMPTY mutations because the document did
+not change, only where its sequence is written down. Folds for every app
+therefore start at that marker, exactly as an app seeded from a snapshot starts
+at the snapshot's seq.
 
 **Realtime pokes ride LISTEN/NOTIFY.** `writeCommittedBatch` calls
 `pg_notify('nova_app_stream', {appId, seq})` INSIDE the commit transaction

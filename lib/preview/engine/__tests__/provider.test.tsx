@@ -94,7 +94,7 @@ const DOC: PersistableDoc = {
 function makeWrapper() {
 	const docStore = createBlueprintDocStore();
 	docStore.getState().load(DOC);
-	docStore.temporal.getState().resume();
+	docStore.getState().startTracking();
 
 	/* The session provider is in the real stack above this one and the
 	 * provider now reads it: the acting identity is "Preview as me" or a
@@ -164,7 +164,7 @@ describe("BuilderFormEngineProvider", () => {
 	it("doc store is bound before child effects run on first mount", () => {
 		const docStore = createBlueprintDocStore();
 		docStore.getState().load(DOC);
-		docStore.temporal.getState().resume();
+		docStore.getState().startTracking();
 
 		let captured: EngineController | null = null;
 
@@ -197,7 +197,7 @@ describe("BuilderFormEngineProvider", () => {
 	it("binds a warm preview identity before child effects run", () => {
 		const docStore = createBlueprintDocStore();
 		docStore.getState().load(DOC);
-		docStore.temporal.getState().resume();
+		docStore.getState().startTracking();
 		const setIdentity = vi.spyOn(
 			EngineController.prototype,
 			"setPreviewIdentity",
@@ -235,7 +235,7 @@ describe("BuilderFormEngineProvider", () => {
 	it("refuses to activate a form while the selected persona is unavailable", () => {
 		const docStore = createBlueprintDocStore();
 		docStore.getState().load(DOC);
-		docStore.temporal.getState().resume();
+		docStore.getState().startTracking();
 		const sessionStore: BuilderSessionStoreApi = createBuilderSessionStore();
 		sessionStore.getState().setPreviewPersonaUuid("removed-persona");
 		const Wrapper = ({ children }: { children: ReactNode }) => (
@@ -257,7 +257,7 @@ describe("BuilderFormEngineProvider", () => {
 	it("preserves one entry through a real same-Project refresh and rotates it only after confirmed boundaries", async () => {
 		const docStore = createBlueprintDocStore();
 		docStore.getState().load(DOC);
-		docStore.temporal.getState().resume();
+		docStore.getState().startTracking();
 		const sessionStore = createBuilderSessionStore({
 			appId: DOC.appId,
 			projectId: "project-source",

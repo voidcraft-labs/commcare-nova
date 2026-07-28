@@ -5,7 +5,7 @@
 // is workspace-local UI state (not URL state — case-list entities
 // have no standalone screens the way fields do).
 
-import type { ColumnSurface } from "@/lib/doc/order/columnSurface";
+import type { CaseDisplaySurface } from "./workspaceProjection";
 
 export type WorkspaceSelection =
 	/** A shared field definition selected from a Results or Details row. Each
@@ -21,7 +21,7 @@ export type WorkspaceSelection =
 			 * requested reveal atomically with the successful repair.
 			 */
 			readonly reveal?: {
-				readonly surface: ColumnSurface;
+				readonly surface: CaseDisplaySurface;
 				readonly messages: readonly string[];
 			};
 	  }

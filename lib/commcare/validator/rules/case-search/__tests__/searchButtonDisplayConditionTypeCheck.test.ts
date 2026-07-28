@@ -34,6 +34,8 @@ describe("searchButtonDisplayConditionTypeCheck", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [asUuid("col-name")],
+						detailColumnOrder: [asUuid("col-name")],
 						searchInputs: [],
 					},
 					caseSearchConfig: {
@@ -90,6 +92,8 @@ describe("searchButtonDisplayConditionTypeCheck", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [asUuid("col-name")],
+						detailColumnOrder: [asUuid("col-name")],
 						searchInputs: [],
 					},
 					caseSearchConfig: {
@@ -144,6 +148,8 @@ describe("searchButtonDisplayConditionTypeCheck", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [asUuid("col-name")],
+						detailColumnOrder: [asUuid("col-name")],
 						searchInputs: [],
 					},
 					caseSearchConfig: {
@@ -196,6 +202,8 @@ describe("searchButtonDisplayConditionTypeCheck", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [asUuid("col-name")],
+						detailColumnOrder: [asUuid("col-name")],
 						searchInputs: [
 							simpleSearchInputDef(
 								asUuid("si-name"),
@@ -251,6 +259,8 @@ describe("searchButtonDisplayConditionTypeCheck", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [asUuid("col-name")],
+						detailColumnOrder: [asUuid("col-name")],
 						searchInputs: [],
 					},
 					caseSearchConfig: {
@@ -302,6 +312,8 @@ describe("searchButtonDisplayConditionTypeCheck", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [asUuid("col-name")],
+						detailColumnOrder: [asUuid("col-name")],
 						searchInputs: [],
 					},
 					forms: [
@@ -346,6 +358,8 @@ describe("searchButtonDisplayConditionTypeCheck", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [asUuid("col-name")],
+						detailColumnOrder: [asUuid("col-name")],
 						searchInputs: [],
 					},
 					caseSearchConfig: {},

@@ -7,6 +7,7 @@
 // preview pauses ONLY for the ASTs the SQL compiler consumes.
 
 import { describe, expect, it } from "vitest";
+import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
 	advancedSearchInputDef,
 	type CaseListConfig,
@@ -42,7 +43,7 @@ const CASE_TYPES: CaseType[] = [
 ];
 
 function config(partial: Partial<CaseListConfig>): CaseListConfig {
-	return { columns: [], searchInputs: [], ...partial };
+	return resolveCaseListConfig({ columns: [], searchInputs: [], ...partial });
 }
 
 function verdicts(partial: Partial<CaseListConfig>) {

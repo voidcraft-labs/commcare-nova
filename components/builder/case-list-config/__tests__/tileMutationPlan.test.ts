@@ -8,7 +8,14 @@
 
 import { describe, expect, it } from "vitest";
 import type { Mutation } from "@/lib/doc/types";
-import { asUuid, type Column, plainColumn, tileCell } from "@/lib/domain";
+import {
+	asUuid,
+	type CaseListConfig,
+	type Column,
+	emptyCaseListConfig,
+	plainColumn,
+	tileCell,
+} from "@/lib/domain";
 import {
 	planTileLayoutDisable,
 	planTileLayoutEnable,
@@ -29,6 +36,22 @@ function column(
 	return { ...plainColumn(asUuid(id), id, header), ...slots } as Column;
 }
 
+/**
+ * A case list showing exactly these columns, in the order written.
+ *
+ * The plans read a whole `CaseListConfig` because Results order is the
+ * config's `listColumnOrder`, not a per-column slot — so a fixture that
+ * wants a particular arrangement writes the columns in that arrangement.
+ */
+function config(columns: readonly Column[]): CaseListConfig {
+	return {
+		...emptyCaseListConfig(),
+		columns: [...columns],
+		listColumnOrder: columns.map((entry) => entry.uuid),
+		detailColumnOrder: columns.map((entry) => entry.uuid),
+	};
+}
+
 /** The placement each `updateColumn` in a batch writes, keyed by field. */
 function placements(mutations: readonly Mutation[]) {
 	const written = new Map<string, unknown>();
@@ -47,10 +70,10 @@ describe("planTileLayoutEnable", () => {
 	it("seeds every field and switches the layout on in one batch", () => {
 		const plan = planTileLayoutEnable({
 			moduleUuid: MODULE,
-			columns: [
-				column("name", "Patient name", { listOrder: "a" }),
-				column("village", "Village", { listOrder: "b" }),
-			],
+			config: config([
+				column("name", "Patient name"),
+				column("village", "Village"),
+			]),
 		});
 		expect(plan.ok).toBe(true);
 		if (!plan.ok) return;
@@ -77,13 +100,12 @@ describe("planTileLayoutEnable", () => {
 	it("keeps places an author already drew and only fills the gaps", () => {
 		const plan = planTileLayoutEnable({
 			moduleUuid: MODULE,
-			columns: [
+			config: config([
 				column("name", "Patient name", {
-					listOrder: "a",
 					tile: tileCell(0, 3, 6, 2, { fontSize: "large" }),
 				}),
-				column("village", "Village", { listOrder: "b" }),
-			],
+				column("village", "Village"),
+			]),
 		});
 		expect(plan.ok).toBe(true);
 		if (!plan.ok) return;
@@ -97,14 +119,13 @@ describe("planTileLayoutEnable", () => {
 		// it needs no square on the tile.
 		const plan = planTileLayoutEnable({
 			moduleUuid: MODULE,
-			columns: [
-				column("name", "Patient name", { listOrder: "a" }),
+			config: config([
+				column("name", "Patient name"),
 				column("registered", "Registered on", {
-					listOrder: "b",
 					visibleInList: false,
 					sort: { direction: "asc", priority: 1 },
 				}),
-			],
+			]),
 		});
 		expect(plan.ok).toBe(true);
 		if (!plan.ok) return;
@@ -114,10 +135,10 @@ describe("planTileLayoutEnable", () => {
 	it("leaves a Details-only field alone — the tile does not carry it", () => {
 		const plan = planTileLayoutEnable({
 			moduleUuid: MODULE,
-			columns: [
-				column("name", "Patient name", { listOrder: "a" }),
-				column("notes", "Notes", { listOrder: "b", visibleInList: false }),
-			],
+			config: config([
+				column("name", "Patient name"),
+				column("notes", "Notes", { visibleInList: false }),
+			]),
 		});
 		expect(plan.ok).toBe(true);
 		if (!plan.ok) return;
@@ -125,7 +146,10 @@ describe("planTileLayoutEnable", () => {
 	});
 
 	it("refuses an empty Results screen with a reason, not an empty grid", () => {
-		const plan = planTileLayoutEnable({ moduleUuid: MODULE, columns: [] });
+		const plan = planTileLayoutEnable({
+			moduleUuid: MODULE,
+			config: emptyCaseListConfig(),
+		});
 		expect(plan.ok).toBe(false);
 		expect(plan.ok === false && plan.reason).toBe(
 			"Add information to Results before turning on the tile — a tile needs at least one field to lay out.",
@@ -134,11 +158,12 @@ describe("planTileLayoutEnable", () => {
 
 	it("refuses more fields than a tile can hold, and says how many", () => {
 		const columns = Array.from({ length: 145 }, (_unused, index) =>
-			column(`c${index}`, `Field ${index}`, {
-				listOrder: String(index).padStart(4, "0"),
-			}),
+			column(`c${index}`, `Field ${index}`),
 		);
-		const plan = planTileLayoutEnable({ moduleUuid: MODULE, columns });
+		const plan = planTileLayoutEnable({
+			moduleUuid: MODULE,
+			config: config(columns),
+		});
 		expect(plan.ok).toBe(false);
 		expect(plan.ok === false && plan.reason).toBe(
 			"A tile has room for 144 fields, and Results shows 145. Hide some information from Results first.",
@@ -148,13 +173,12 @@ describe("planTileLayoutEnable", () => {
 	it("refuses to squeeze a field into a tile a prior drawing already filled", () => {
 		const plan = planTileLayoutEnable({
 			moduleUuid: MODULE,
-			columns: [
+			config: config([
 				column("name", "Patient name", {
-					listOrder: "a",
 					tile: tileCell(0, 0, 12, 12),
 				}),
-				column("village", "Village", { listOrder: "b" }),
-			],
+				column("village", "Village"),
+			]),
 		});
 		expect(plan.ok).toBe(false);
 		expect(plan.ok === false && plan.reason).toBe(
@@ -212,16 +236,15 @@ describe("planTilePreset", () => {
 		if (preset === undefined) return;
 		const plan = planTilePreset({
 			moduleUuid: MODULE,
-			columns: [
+			config: config([
 				column("name", "Patient name", {
-					listOrder: "a",
 					tile: tileCell(0, 4, 3, 1, {
 						fontSize: "large",
 						horizontalAlign: "center",
 					}),
 				}),
-				column("village", "Village", { listOrder: "b" }),
-			],
+				column("village", "Village"),
+			]),
 			preset,
 		});
 		expect(plan.ok).toBe(true);
@@ -241,15 +264,20 @@ describe("planTilePreset", () => {
 		expect(layoutWrites(plan.mutations)).toHaveLength(0);
 	});
 
-	it("arranges in Results order, not array order", () => {
+	it("arranges in Results order, not Details order", () => {
 		expect(preset).toBeDefined();
 		if (preset === undefined) return;
+		const second = column("second", "Village");
+		const first = column("first", "Patient name");
 		const plan = planTilePreset({
 			moduleUuid: MODULE,
-			columns: [
-				column("second", "Village", { listOrder: "b" }),
-				column("first", "Patient name", { listOrder: "a" }),
-			],
+			config: {
+				...config([second, first]),
+				// Results shows first then second; Details disagrees, and the
+				// preset must not hear it.
+				listColumnOrder: [first.uuid, second.uuid],
+				detailColumnOrder: [second.uuid, first.uuid],
+			},
 			preset,
 		});
 		expect(plan.ok).toBe(true);
@@ -267,7 +295,7 @@ describe("planTilePreset", () => {
 		if (preset === undefined) return;
 		const plan = planTilePreset({
 			moduleUuid: MODULE,
-			columns: [column("only", "Patient name", { listOrder: "a" })],
+			config: config([column("only", "Patient name")]),
 			preset,
 		});
 		expect(plan.ok).toBe(false);
@@ -281,13 +309,12 @@ describe("planTilePlaceField", () => {
 	it("drops the field into the first free space", () => {
 		const plan = planTilePlaceField({
 			moduleUuid: MODULE,
-			columns: [
+			config: config([
 				column("name", "Patient name", {
-					listOrder: "a",
 					tile: tileCell(0, 0, 12, 1),
 				}),
-				column("village", "Village", { listOrder: "b" }),
-			],
+				column("village", "Village"),
+			]),
 			uuid: asUuid("village"),
 		});
 		expect(plan.ok).toBe(true);
@@ -300,13 +327,12 @@ describe("planTilePlaceField", () => {
 	it("refuses when the tile is full", () => {
 		const plan = planTilePlaceField({
 			moduleUuid: MODULE,
-			columns: [
+			config: config([
 				column("name", "Patient name", {
-					listOrder: "a",
 					tile: tileCell(0, 0, 12, 12),
 				}),
-				column("village", "Village", { listOrder: "b" }),
-			],
+				column("village", "Village"),
+			]),
 			uuid: asUuid("village"),
 		});
 		expect(plan.ok).toBe(false);
@@ -318,7 +344,7 @@ describe("planTilePlaceField", () => {
 
 describe("tileCellMutations", () => {
 	it("writes a placement as its own mergeable slot", () => {
-		const source = column("name", "Patient name", { listOrder: "a" });
+		const source = column("name", "Patient name");
 		const [mutation] = tileCellMutations(MODULE, source, tileCell(1, 2, 3, 4));
 		expect(mutation).toMatchObject({
 			kind: "updateColumn",
@@ -330,7 +356,6 @@ describe("tileCellMutations", () => {
 
 	it("clears a placement with an explicit null so the clear survives JSON", () => {
 		const source = column("name", "Patient name", {
-			listOrder: "a",
 			tile: tileCell(0, 0, 6, 1),
 		});
 		const [mutation] = tileCellMutations(MODULE, source, undefined);
@@ -339,7 +364,6 @@ describe("tileCellMutations", () => {
 
 	it("plans nothing when the placement is unchanged", () => {
 		const source = column("name", "Patient name", {
-			listOrder: "a",
 			tile: tileCell(0, 0, 6, 1),
 		});
 		expect(tileCellMutations(MODULE, source, tileCell(0, 0, 6, 1))).toEqual([]);

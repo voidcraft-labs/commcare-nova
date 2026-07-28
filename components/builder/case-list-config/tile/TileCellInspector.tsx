@@ -44,6 +44,7 @@ import {
 } from "@/components/shadcn/dropdown-menu";
 import { Input } from "@/components/shadcn/input";
 import {
+	type CaseListConfig,
 	type Column,
 	TILE_GRID_COLUMNS,
 	TILE_GRID_ROWS,
@@ -65,7 +66,7 @@ export interface TileCellInspectorProps {
 	readonly column: Column;
 	/** Every case-list column — the tile's members are what a placement
 	 *  is adjudicated against. */
-	readonly columns: readonly Column[];
+	readonly config: CaseListConfig;
 	/** Whether the case list is currently laid out as a tile. */
 	readonly tileOn: boolean;
 	/** This field's tile problems, in the words the canvas shows. */
@@ -83,7 +84,7 @@ type FontSizeChoice = TileFontSize | typeof INHERIT_FONT_SIZE;
 
 export function TileCellInspector({
 	column,
-	columns,
+	config,
 	tileOn,
 	issues,
 	canEdit,
@@ -130,7 +131,7 @@ export function TileCellInspector({
 		return (
 			<SavedPlaceSection
 				column={column}
-				columns={columns}
+				config={config}
 				cell={cell}
 				issues={issues}
 				canEdit={canEdit}
@@ -145,9 +146,9 @@ export function TileCellInspector({
 		);
 	}
 
-	const members = new Set(tileMemberUuids(columns));
+	const members = new Set(tileMemberUuids(config));
 	const projection = projectTileGrid(
-		columns.filter(
+		config.columns.filter(
 			(candidate) =>
 				members.has(candidate.uuid) && candidate.tile !== undefined,
 		),
@@ -161,7 +162,7 @@ export function TileCellInspector({
 			<InspectorSection label="Place on the tile">
 				<PlacementFields
 					column={column}
-					columns={columns}
+					config={config}
 					cell={cell}
 					canEdit={canEdit}
 					autoFocus={focusPlaceOnMount}
@@ -272,7 +273,7 @@ export function TileCellInspector({
 
 function SavedPlaceSection({
 	column,
-	columns,
+	config,
 	cell,
 	issues,
 	canEdit,
@@ -281,7 +282,7 @@ function SavedPlaceSection({
 	onClearPlace,
 }: {
 	readonly column: Column;
-	readonly columns: readonly Column[];
+	readonly config: CaseListConfig;
 	readonly cell: TileCell;
 	readonly issues: readonly string[];
 	readonly canEdit: boolean;
@@ -304,7 +305,7 @@ function SavedPlaceSection({
 				<>
 					<PlacementFields
 						column={column}
-						columns={columns}
+						config={config}
 						cell={cell}
 						canEdit={canEdit}
 						onPlace={onPlace}
@@ -475,14 +476,14 @@ function TileIssueList({ issues }: { readonly issues: readonly string[] }) {
  */
 function PlacementFields({
 	column,
-	columns,
+	config,
 	cell,
 	canEdit,
 	autoFocus = false,
 	onPlace,
 }: {
 	readonly column: Column;
-	readonly columns: readonly Column[];
+	readonly config: CaseListConfig;
 	readonly cell: TileCell;
 	readonly canEdit: boolean;
 	/** Take focus on mount — set when the action that revealed these
@@ -495,7 +496,7 @@ function PlacementFields({
 
 	const commit = (patch: Partial<TileGeometry>): boolean => {
 		const verdict = planColumnTilePlacement({
-			columns,
+			config,
 			column,
 			geometry: {
 				x: cell.x,

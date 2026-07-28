@@ -111,6 +111,8 @@ function errorsFor(args: FixtureArgs) {
 						plainColumn(asUuid("column-name"), "case_name", "Name"),
 						...(args.columns ?? []),
 					],
+					listColumnOrder: [asUuid("column-name")],
+					detailColumnOrder: [asUuid("column-name")],
 					...(args.filter !== undefined ? { filter: args.filter } : {}),
 					searchInputs: args.searchInputs ?? [],
 				},

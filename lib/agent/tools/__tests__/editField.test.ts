@@ -276,7 +276,7 @@ function makeSelectDoc(): BlueprintDoc {
 }
 
 describe("editField — wholesale options replacement keeps identity", () => {
-	it("carries surviving values' uuids forward and keys every option", async () => {
+	it("carries surviving values' uuids forward and identifies every option", async () => {
 		const { ctx } = makeStubToolContext();
 		// The SA replaces the whole list (its wire carries NO uuid/order):
 		// "yes" survives with a new label, "no" is dropped, "maybe" is new.
@@ -314,16 +314,13 @@ describe("editField — wholesale options replacement keeps identity", () => {
 		// edit to it is visible to the per-uuid option diff.
 		expect(options[0]).toMatchObject({ label: "Yes, agreed", value: "yes" });
 		expect(options[0]?.uuid).toBe(OPT_YES);
-		// The new option minted a fresh uuid; EVERY option carries an order key
-		// (a uuid-less/key-less option committed mid-session is invisible to the
-		// per-uuid diff until a reload's backfill — the silent-loss class).
+		// The new option minted a fresh uuid (a uuid-less option committed
+		// mid-session is invisible to the per-uuid diff until a reload's
+		// backfill — the silent-loss class).
 		expect(options[1]?.uuid).toBeDefined();
 		expect(options[1]?.uuid).not.toBe(OPT_NO);
 		for (const opt of options) {
 			expect(opt.uuid).toBeDefined();
-			expect(opt.order).toBeDefined();
 		}
-		// The SA's list order is authoritative: fresh ascending keys.
-		expect(String(options[0]?.order) < String(options[1]?.order)).toBe(true);
 	});
 });
