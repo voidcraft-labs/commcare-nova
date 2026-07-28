@@ -200,10 +200,12 @@ export function buildCaseChangesBlueprint(
 					listColumnOrder: [
 						CASE_CHANGES_SEED.columns.archivedName,
 						CASE_CHANGES_SEED.columns.archivedSource,
+						CASE_CHANGES_SEED.columns.archivedPatient,
 					],
 					detailColumnOrder: [
 						CASE_CHANGES_SEED.columns.archivedName,
 						CASE_CHANGES_SEED.columns.archivedSource,
+						CASE_CHANGES_SEED.columns.archivedPatient,
 					],
 					searchInputs: [],
 				},

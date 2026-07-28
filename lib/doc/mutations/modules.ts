@@ -1,5 +1,5 @@
 import type { Draft } from "immer";
-import { spliceAfter } from "@/lib/doc/mutations/sequence";
+import { spliceAfter, withoutEntry } from "@/lib/doc/mutations/sequence";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import {
 	type CaseListConfig,
@@ -389,6 +389,15 @@ export function applyModuleMutation(
 			if (!config) return;
 			const idx = config.columns.findIndex((c) => c.uuid === mut.uuid);
 			if (idx !== -1) config.columns.splice(idx, 1);
+			// The column leaves BOTH sequences with the set. A uuid left behind is
+			// a member of neither screen and a member of both orders — `assemble`
+			// refuses that document, and a later add naming the ghost as its anchor
+			// would land somewhere nobody asked for.
+			config.listColumnOrder = withoutEntry(config.listColumnOrder, mut.uuid);
+			config.detailColumnOrder = withoutEntry(
+				config.detailColumnOrder,
+				mut.uuid,
+			);
 			return;
 		}
 		case "moveColumn": {

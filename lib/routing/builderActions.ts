@@ -26,6 +26,7 @@ import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { flattenFieldRefs } from "@/lib/doc/navigation";
 import { BlueprintDocContext } from "@/lib/doc/provider";
+import type { Mutation } from "@/lib/doc/types";
 import { asUuid, type BlueprintDoc } from "@/lib/doc/types";
 import { findFieldElement, flashUndoHighlight } from "@/lib/routing/domQueries";
 import { useLocation, useSelect } from "@/lib/routing/hooks";
@@ -74,8 +75,16 @@ import { useActiveFieldId, useSetFocusHint } from "@/lib/session/hooks";
  * `localBase` is the reconciler's `localBase()`; it equals `displayed` when
  * there is no reconciler (replay) or no un-acked pending. On a finding it
  * returns `{ ok: false, message }` (the caller refuses — no `temporal.undo`, no
- * PUT); on a pass, `{ ok: true }` and the caller restores + lets autosave emit
- * the one PUT.
+ * PUT); on a pass it returns `{ ok: true, batch }` — the caller restores, then
+ * RECORDS that batch as the commands persistence sends.
+ *
+ * The batch has to be handed back rather than re-derived, because a restore is
+ * the one edit with no commands to record: `temporal.undo()` replaces the
+ * document wholesale, so nothing reaches the store's write path and nothing
+ * queues itself. An undo asks for a previous STATE, and the commands that reach
+ * it are derived — this is the one place that derivation is the honest answer,
+ * and doing it once here keeps the verdicted batch and the persisted batch the
+ * same object rather than two diffs that could disagree.
  *
  * Pure of React + the store so it is exercised as a state model. `targetState`
  * is the recorded temporal state (`pastStates[last]` / `futureStates[last]`).
@@ -84,7 +93,7 @@ export function undoRedoGateVerdict(
 	displayed: BlueprintDoc,
 	targetState: Partial<BlueprintDoc>,
 	localBase: BlueprintDoc,
-): { ok: true } | { ok: false; message: string } {
+): { ok: true; batch: Mutation[] } | { ok: false; message: string } {
 	// The recorded state carries the full doc data; merge it over the current
 	// displayed doc so derived slots (fieldParent/refIndex) and any unrecorded
 	// key stay coherent — this is the doc the store lands on after the restore.
@@ -102,7 +111,7 @@ export function undoRedoGateVerdict(
 		batch,
 		LOOKUP_CONTEXT_UNAVAILABLE,
 	);
-	if (verdict.ok) return { ok: true };
+	if (verdict.ok) return { ok: true, batch };
 	return { ok: false, message: describeIntroducedErrors(verdict.introduced) };
 }
 
@@ -151,6 +160,11 @@ export function useUndoRedo(): { undo: () => void; redo: () => void } {
 			flushSync(() => {
 				if (action === "undo") temporal.undo();
 				else temporal.redo();
+				// The restore replaced the document without passing through the
+				// store's write path, so the commands that reach it are recorded
+				// explicitly — otherwise persistence would have nothing to send
+				// and the undo would look applied while never saving.
+				docStore.getState().recordCommands(verdict.batch);
 			});
 
 			const selectedUuid = loc.kind === "form" ? loc.selectedUuid : undefined;

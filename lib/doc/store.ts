@@ -92,6 +92,16 @@ export type BlueprintDocState = BlueprintDoc & {
 	 */
 	commitDoc: (next: BlueprintDoc, commands?: readonly Mutation[]) => void;
 	/**
+	 * Record commands for a write that could not record itself.
+	 *
+	 * Exactly one caller: the undo/redo restore, which replaces the document
+	 * wholesale through zundo's temporal rather than through `applyMany` /
+	 * `commitDoc`, so nothing passes the recorder below. Every other writer
+	 * records implicitly and must NOT call this — a second record would send
+	 * the same edit twice.
+	 */
+	recordCommands: (mutations: readonly Mutation[]) => void;
+	/**
 	 * The commands dispatched since the last take, in order, and clear them.
 	 *
 	 * The builder already KNOWS what the author did — every write surface hands
@@ -102,12 +112,9 @@ export type BlueprintDocState = BlueprintDoc & {
 	 * A write only enters the queue when it is the AUTHOR's: a suppression
 	 * bracket is open for every other writer (an agent stream, an inbound
 	 * remote frame, a reload reseed, the birth pause), which is the same signal
-	 * the undo stack uses. Recording behind that one flag is why no call site
-	 * has to remember to record, and why the queue and the undo stack cannot
-	 * disagree about what an edit was.
-	 */
-	/**
-	 * The commands dispatched since the last take, in order, and clear them.
+	 * the undo stack uses. Recording behind that one flag is why no ordinary
+	 * call site has to remember to record, and why the queue and the undo stack
+	 * cannot disagree about what an authored edit was.
 	 *
 	 * The reconciler takes the queue when it PUTs: from that moment the batch
 	 * is its business, tracked in `sentPending` until the server echoes it.
@@ -430,6 +437,10 @@ export function createBlueprintDocStore() {
 								overlayDoc(draft as unknown as Record<string, unknown>, next);
 							});
 							recordIfAuthored(commands);
+						},
+
+						recordCommands: (mutations: readonly Mutation[]): void => {
+							recordIfAuthored(mutations);
 						},
 
 						takeCommands: (): Mutation[] => {

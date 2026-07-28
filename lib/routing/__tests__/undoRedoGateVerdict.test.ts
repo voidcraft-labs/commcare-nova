@@ -64,9 +64,15 @@ describe("undoRedoGateVerdict", () => {
 			{ uuid: "q-b", kind: "text", id: "b", label: "B" },
 		]);
 		// No pending → localBase equals displayed.
-		expect(undoRedoGateVerdict(displayed, target, displayed)).toEqual({
-			ok: true,
-		});
+		const verdict = undoRedoGateVerdict(displayed, target, displayed);
+		expect(verdict.ok).toBe(true);
+		// The batch comes back so the caller can RECORD it: a restore replaces
+		// the document without passing the store's write path, so without this
+		// the undo would apply locally and never persist.
+		if (!verdict.ok) return;
+		expect(verdict.batch).toEqual([
+			expect.objectContaining({ kind: "updateField", uuid: "q-a" }),
+		]);
 	});
 
 	it("refuses a target that would introduce a finding (an empty form)", () => {
@@ -90,8 +96,10 @@ describe("undoRedoGateVerdict", () => {
 		const displayed = docWithFields([
 			{ uuid: "q-a", kind: "text", id: "a", label: "A" },
 		]);
+		// An empty batch: nothing to persist, and nothing to introduce.
 		expect(undoRedoGateVerdict(displayed, displayed, displayed)).toEqual({
 			ok: true,
+			batch: [],
 		});
 	});
 

@@ -269,3 +269,74 @@ describe("updateModule.ensureCaseListConfig", () => {
 		expect(next.modules[M("A")]?.caseListConfig).toEqual(existing);
 	});
 });
+
+describe("case-list column membership", () => {
+	/** A module whose case list holds two columns, both on both screens. */
+	function moduleWithColumns(): BlueprintDoc {
+		const first = Q("col1");
+		const second = Q("col2");
+		return {
+			...emptyDoc(),
+			modules: {
+				[M("A")]: {
+					...module_(M("A"), "A"),
+					caseType: "patient",
+					caseListConfig: {
+						columns: [
+							{
+								uuid: first,
+								kind: "plain",
+								field: "case_name",
+								header: "Name",
+							},
+							{ uuid: second, kind: "plain", field: "age", header: "Age" },
+						],
+						listColumnOrder: [first, second],
+						detailColumnOrder: [second, first],
+						searchInputs: [],
+					},
+				} as Module,
+			},
+			moduleOrder: [M("A")],
+			formOrder: { [M("A")]: [] },
+		};
+	}
+
+	it("addColumn lands the column where each surface said", () => {
+		const added = Q("col3");
+		const next = produce(moduleWithColumns(), (d) => {
+			applyMutation(d, {
+				kind: "addColumn",
+				moduleUuid: M("A"),
+				column: {
+					uuid: added,
+					kind: "plain",
+					field: "village",
+					header: "Village",
+				},
+				afterInList: null,
+				afterInDetail: Q("col2"),
+			});
+		});
+		const config = next.modules[M("A")]?.caseListConfig;
+		expect(config?.listColumnOrder).toEqual([added, Q("col1"), Q("col2")]);
+		expect(config?.detailColumnOrder).toEqual([Q("col2"), added, Q("col1")]);
+	});
+
+	it("removeColumn takes the column out of BOTH sequences", () => {
+		// A uuid left in a sequence is a member of neither screen and a member of
+		// both orders — the disagreement `assembleBlueprint` refuses to persist,
+		// and an anchor a later add could name.
+		const next = produce(moduleWithColumns(), (d) => {
+			applyMutation(d, {
+				kind: "removeColumn",
+				moduleUuid: M("A"),
+				uuid: Q("col2"),
+			});
+		});
+		const config = next.modules[M("A")]?.caseListConfig;
+		expect(config?.columns.map((column) => column.uuid)).toEqual([Q("col1")]);
+		expect(config?.listColumnOrder).toEqual([Q("col1")]);
+		expect(config?.detailColumnOrder).toEqual([Q("col1")]);
+	});
+});
