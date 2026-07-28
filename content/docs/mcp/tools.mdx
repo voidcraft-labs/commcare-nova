@@ -9,6 +9,8 @@ These are the tools the Nova MCP server exposes. You don't call them directly �
 
 `get_agent_prompt` returns the same instructions Nova's own web builder follows when it builds apps. Tell your agent to call it on its first turn (with `mode: "build"` for a new app or `mode: "edit"` for an existing one) and follow the text it returns. You don't have to do this — your agent can drive the tools however it wants — but starting from the instructions Nova already tunes for these tools is the fastest path to good results.
 
+It's a long result — a whole system prompt. Some agent frameworks cap how much of a tool result they pass through and quietly hand your agent a truncated copy, which reads as a normal short prompt and produces apps that are valid but conventionally off. So the text always ends with the line `NOVA-PROMPT-END`. Have your agent check for it and stop if it's missing, rather than building on a fragment.
+
 ## Browsing apps
 
 | Tool | What it does |

@@ -71,6 +71,45 @@ import type { BlueprintDoc } from "@/lib/domain";
 export type PromptMode = "build" | "autonomous_build" | "edit";
 
 /**
+ * Terminal marker on every rendered prompt — the proof-of-delivery the
+ * plugin's bootstrap checks before it builds anything.
+ *
+ * The prompt reaches its executor as an MCP *tool result*, and tool
+ * results are size-capped by rules the server can't observe. When a
+ * result overruns, the host replaces it with a short preview plus a
+ * path to the full text on disk; the autonomous subagent's tool
+ * allowlist is MCP tools only, so it cannot open that file and proceeds
+ * on the preview. `MAX_DELIVERABLE_PROMPT_CHARS` keeps us clear of the
+ * cap, but a cap we don't control can move, so the marker is what makes
+ * a short delivery *loud*: the bootstrap refuses to build without it
+ * rather than silently running on a fraction of its instructions.
+ *
+ * Anything appended after this constant is invisible to that check, so
+ * it stays last in `renderAgentPrompt` — including after the edit-mode
+ * app-state block.
+ */
+export const PROMPT_END_MARKER = "NOVA-PROMPT-END";
+
+/**
+ * Char budget for a rendered prompt, enforced by
+ * `lib/mcp/__tests__/promptDeliveryBudget.test.ts`.
+ *
+ * Two independent host limits sit above this number, and overrunning
+ * either one strands the prompt in a file the autonomous subagent
+ * cannot read:
+ *
+ *   - a per-tool-result char cap, which `get_agent_prompt` raises for
+ *     itself (see `MAX_RESULT_SIZE_CHARS` in `tools/getAgentPrompt.ts`);
+ *   - an MCP-wide token cap of roughly this magnitude in chars, which
+ *     nothing server-side can raise.
+ *
+ * The second is the real ceiling, so the budget is set below it with
+ * room for the edit-mode blueprint summary — which scales with the
+ * app and is appended after this file's own content.
+ */
+export const MAX_DELIVERABLE_PROMPT_CHARS = 80_000;
+
+/**
  * Per-mode interaction-policy text appended to the system prompt. Both
  * blocks lead with `\n\n` so the `## Interaction Mode` heading lands
  * after a blank line (markdown idiom); `buildSolutionsArchitectPrompt`'s
@@ -137,5 +176,12 @@ export function renderAgentPrompt(
 	const appStateBlock = isEditableDoc(editDoc)
 		? `\n\n---\n\n## Current app state\n\n${summarizeBlueprint(editDoc)}`
 		: "";
-	return `${baseSystem}${interactivityBlock}${appStateBlock}`;
+	/* `PROMPT_END_MARKER` is last by contract — it proves the executor
+	 * received the whole text, so anything after it would be outside
+	 * what the check covers. The app-state block precedes it for the
+	 * same reason it exists at all: it is the largest and most
+	 * app-specific section, so it is the first thing a truncated
+	 * delivery loses, and the marker is what turns that loss into a
+	 * refusal instead of a quietly worse app. */
+	return `${baseSystem}${interactivityBlock}${appStateBlock}\n\n${PROMPT_END_MARKER}`;
 }
