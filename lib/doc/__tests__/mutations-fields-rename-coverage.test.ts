@@ -721,7 +721,7 @@ describe("case-property cascade rewrites module predicate-AST slots", () => {
 	it("rewrites calculated column expressions", () => {
 		const start = cascadeDoc({
 			x: {
-				caseListConfig: {
+				caseListConfig: resolveCaseListConfig({
 					columns: [
 						{
 							uuid: C("calc"),
@@ -730,10 +730,8 @@ describe("case-property cascade rewrites module predicate-AST slots", () => {
 							expression: term(prop("patient", "age")),
 						},
 					],
-					listColumnOrder: [C("calc")],
-					detailColumnOrder: [C("calc")],
 					searchInputs: [],
-				},
+				}),
 			},
 		});
 		const { next, meta } = rename(start, Q("src"), "years");

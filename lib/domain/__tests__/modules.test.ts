@@ -443,8 +443,6 @@ describe("Column.sort — column-level sort directive", () => {
 					sort: { direction: "asc", priority: 0 },
 				}),
 			],
-			listColumnOrder: [u(1)],
-			detailColumnOrder: [u(1)],
 			searchInputs: [],
 		};
 		const parsed = caseListConfigSchema.safeParse(config);
@@ -816,8 +814,6 @@ describe("caseListConfigSchema — populated round-trip", () => {
 					"OVERDUE",
 				),
 			],
-			listColumnOrder: [u(1)],
-			detailColumnOrder: [u(1)],
 			filter: { kind: "match-all" } as const,
 			searchInputs: [
 				simpleSearchInputDef(

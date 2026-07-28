@@ -1193,12 +1193,10 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 			name: `View ${childType}`,
 			caseType: childType,
 			caseListOnly: true,
-			caseListConfig: {
+			caseListConfig: resolveCaseListConfig({
 				columns: [plainColumn(minter.uuid("col"), "case_name", "Name")],
-				listColumnOrder: [minter.uuid("col")],
-				detailColumnOrder: [minter.uuid("col")],
 				searchInputs: [],
-			},
+			}),
 		};
 	}
 

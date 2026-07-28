@@ -80,8 +80,6 @@ function lookupCarrierDoc() {
 							{ listOrder: "b", detailOrder: "b" },
 						),
 					],
-					listColumnOrder: [SAFE_COLUMN],
-					detailColumnOrder: [SAFE_COLUMN],
 					filter: deepLookupPredicate,
 					searchInputs: [
 						simpleSearchInputDef(SAFE_INPUT, "name", "Name", "text", "name", {
@@ -348,8 +346,6 @@ describe("shared read tools — dormant lookup carriers", () => {
 					name: "Clean",
 					caseListConfig: {
 						columns: [plainColumn(SAFE_COLUMN, "name", "Name")],
-						listColumnOrder: [SAFE_COLUMN],
-						detailColumnOrder: [SAFE_COLUMN],
 						searchInputs: [
 							simpleSearchInputDef(SAFE_INPUT, "name", "Name", "text", "name", {
 								default: term(literal("Ada")),

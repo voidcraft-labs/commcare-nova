@@ -69,8 +69,6 @@ describe("caseListConfigVerdicts", () => {
 				plainColumn(asUuid("c1"), "name", "Name"),
 				dateColumn(asUuid("c2"), "dob", "DOB", "%d/%m/%Y"),
 			],
-			listColumnOrder: [asUuid("c1")],
-			detailColumnOrder: [asUuid("c1")],
 			filter: {
 				kind: "neq",
 				left: term(prop("patient", "name")),

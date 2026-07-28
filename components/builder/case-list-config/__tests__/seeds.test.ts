@@ -285,8 +285,6 @@ describe("seedColumn", () => {
 							header: "Legacy",
 						},
 					],
-					listColumnOrder: [newUuid()],
-					detailColumnOrder: [newUuid()],
 				}),
 				properties,
 			);
@@ -318,8 +316,6 @@ describe("chooser-first display fields", () => {
 							header: "External ID",
 						},
 					],
-					listColumnOrder: [asUuid("20000000-0000-4000-8000-000000000000")],
-					detailColumnOrder: [asUuid("20000000-0000-4000-8000-000000000000")],
 				}),
 				surface,
 				seed,
@@ -367,8 +363,6 @@ describe("chooser-first display fields", () => {
 						header: "Client",
 					},
 				],
-				listColumnOrder: [newUuid()],
-				detailColumnOrder: [newUuid()],
 			}),
 			caseType("client", [
 				prop("name"),

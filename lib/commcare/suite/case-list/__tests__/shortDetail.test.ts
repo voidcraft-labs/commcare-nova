@@ -640,12 +640,10 @@ describe("emitShortDetail — search-action emission", () => {
 	const moduleWithName = (caseType: string): Module =>
 		makeModule({
 			caseType,
-			caseListConfig: {
+			caseListConfig: resolveCaseListConfig({
 				columns: [plainColumn(COL(1), "full_name", "Name")],
-				listColumnOrder: [COL(1)],
-				detailColumnOrder: [COL(1)],
 				searchInputs: [],
-			},
+			}),
 		});
 
 	it("emits no <action> element when searchAction is undefined", () => {

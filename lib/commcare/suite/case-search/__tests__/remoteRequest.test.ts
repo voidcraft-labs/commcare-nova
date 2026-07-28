@@ -467,8 +467,6 @@ describe("emitRemoteRequest — Nova-shaped end-to-end composition", () => {
 							"Name",
 						),
 					],
-					listColumnOrder: [asUuid("00000000-0000-4000-8000-aaaa00000000")],
-					detailColumnOrder: [asUuid("00000000-0000-4000-8000-aaaa00000000")],
 					filter,
 					searchInputs: [
 						simpleSearchInputDef(

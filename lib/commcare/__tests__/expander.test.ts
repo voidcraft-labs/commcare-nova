@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	buildDoc,
+	type CaseListConfigSpec,
 	caseListConfig,
 	f,
 	resolveCaseListConfig,
@@ -2418,10 +2419,10 @@ describe("case detail (long) view", () => {
 				{
 					name: "M",
 					caseType: "c",
-					caseListConfig: {
+					caseListConfig: resolveCaseListConfig({
 						columns: [caseNameCol, ageCol, dobCol],
 						searchInputs: [],
-					},
+					}),
 					forms: [
 						{
 							name: "F",
@@ -3892,7 +3893,7 @@ const HQ_PROJECTION_PATIENT_CASE_TYPE = {
  * expander's `hasCases` gate admits the projected search config.
  */
 function buildHqProjectionDoc(
-	caseListConfig: Module["caseListConfig"],
+	caseListConfig: CaseListConfigSpec,
 	caseSearchConfig?: Module["caseSearchConfig"],
 ) {
 	return buildDoc({
@@ -3938,8 +3939,6 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 					"Name",
 				),
 			],
-			listColumnOrder: [asUuid("00000000-0000-4000-8000-000000010001")],
-			detailColumnOrder: [asUuid("00000000-0000-4000-8000-000000010001")],
 			searchInputs: [],
 		});
 		const shortCols = expandDoc(doc).modules[0].case_details.short.columns;
@@ -3958,8 +3957,6 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 					"Tags",
 				),
 			],
-			listColumnOrder: [asUuid("00000000-0000-4000-8000-000000010013")],
-			detailColumnOrder: [asUuid("00000000-0000-4000-8000-000000010013")],
 			searchInputs: [],
 		});
 		const [column] = expandDoc(doc).modules[0].case_details.short.columns;
@@ -4153,8 +4150,6 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 					{ visibleInList: false },
 				),
 			],
-			listColumnOrder: [asUuid("00000000-0000-4000-8000-000000010008")],
-			detailColumnOrder: [asUuid("00000000-0000-4000-8000-000000010008")],
 			searchInputs: [],
 		});
 		const details = expandDoc(doc).modules[0].case_details;
@@ -4183,8 +4178,6 @@ describe("expandDoc HQ JSON projection — sort_elements", () => {
 					{ sort: { direction: "desc", priority: 0 } },
 				),
 			],
-			listColumnOrder: [asUuid("00000000-0000-4000-8000-000000020001")],
-			detailColumnOrder: [asUuid("00000000-0000-4000-8000-000000020001")],
 			searchInputs: [],
 		});
 		const sortElements =
@@ -4293,8 +4286,6 @@ describe("expandDoc HQ JSON projection — sort_elements", () => {
 					{ sort: { direction: "asc", priority: 0 } },
 				),
 			],
-			listColumnOrder: [asUuid("00000000-0000-4000-8000-000000020005")],
-			detailColumnOrder: [asUuid("00000000-0000-4000-8000-000000020005")],
 			searchInputs: [],
 		});
 		const details = expandDoc(doc).modules[0].case_details;
@@ -4353,8 +4344,6 @@ describe("expandDoc HQ JSON projection — sort_elements", () => {
 					{ visibleInList: false, sort: { direction: "asc", priority: 0 } },
 				),
 			],
-			listColumnOrder: [asUuid("00000000-0000-4000-8000-000000020008")],
-			detailColumnOrder: [asUuid("00000000-0000-4000-8000-000000020008")],
 			searchInputs: [],
 		});
 		const details = expandDoc(doc).modules[0].case_details;
@@ -4374,8 +4363,6 @@ describe("expandDoc HQ JSON projection — sort_elements", () => {
 					"Name",
 				),
 			],
-			listColumnOrder: [asUuid("00000000-0000-4000-8000-000000020004")],
-			detailColumnOrder: [asUuid("00000000-0000-4000-8000-000000020004")],
 			searchInputs: [],
 		});
 		expect(expandDoc(doc).modules[0].case_details.short.sort_elements).toEqual(
@@ -4401,8 +4388,6 @@ describe("expandDoc HQ JSON projection — case_list_filter", () => {
 					"Name",
 				),
 			],
-			listColumnOrder: [asUuid("00000000-0000-4000-8000-000000030001")],
-			detailColumnOrder: [asUuid("00000000-0000-4000-8000-000000030001")],
 			filter: eq(prop("patient", "region"), literal("North")),
 			searchInputs: [],
 		});
@@ -4419,8 +4404,6 @@ describe("expandDoc HQ JSON projection — case_list_filter", () => {
 					"Name",
 				),
 			],
-			listColumnOrder: [asUuid("00000000-0000-4000-8000-000000030002")],
-			detailColumnOrder: [asUuid("00000000-0000-4000-8000-000000030002")],
 			searchInputs: [],
 		});
 		expect(expandDoc(doc).modules[0].case_details.short.filter).toBeNull();
@@ -4436,8 +4419,6 @@ describe("expandDoc HQ JSON projection — case_list_filter", () => {
 						"Name",
 					),
 				],
-				listColumnOrder: [asUuid("00000000-0000-4000-8000-000000030003")],
-				detailColumnOrder: [asUuid("00000000-0000-4000-8000-000000030003")],
 				searchInputs: [],
 			},
 			{
@@ -4467,8 +4448,6 @@ describe("expandDoc HQ JSON projection — case_list_filter", () => {
 						"Name",
 					),
 				],
-				listColumnOrder: [asUuid("00000000-0000-4000-8000-000000030004")],
-				detailColumnOrder: [asUuid("00000000-0000-4000-8000-000000030004")],
 				filter: eq(prop("patient", "region"), literal("North")),
 				searchInputs: [],
 			},
@@ -4495,8 +4474,6 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 						"Name",
 					),
 				],
-				listColumnOrder: [asUuid("00000000-0000-4000-8000-000000040099")],
-				detailColumnOrder: [asUuid("00000000-0000-4000-8000-000000040099")],
 				searchInputs: [],
 			},
 			{},
@@ -4524,8 +4501,6 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 					"Name",
 				),
 			],
-			listColumnOrder: [asUuid("00000000-0000-4000-8000-000000040000")],
-			detailColumnOrder: [asUuid("00000000-0000-4000-8000-000000040000")],
 			// Property-to-property equality is valid for the on-device list
 			// evaluator but intentionally outside CCHQ's server query language.
 			// With search disabled it belongs only on the short detail filter.
@@ -4553,8 +4528,6 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 						"Name",
 					),
 				],
-				listColumnOrder: [asUuid("00000000-0000-4000-8000-000000040001")],
-				detailColumnOrder: [asUuid("00000000-0000-4000-8000-000000040001")],
 				searchInputs: [],
 			},
 			{
@@ -4595,8 +4568,6 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 						"Name",
 					),
 				],
-				listColumnOrder: [asUuid("00000000-0000-4000-8000-000000040002")],
-				detailColumnOrder: [asUuid("00000000-0000-4000-8000-000000040002")],
 				searchInputs: [],
 			},
 			{
@@ -4623,8 +4594,6 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 					"Name",
 				),
 			],
-			listColumnOrder: [asUuid("00000000-0000-4000-8000-000000040003")],
-			detailColumnOrder: [asUuid("00000000-0000-4000-8000-000000040003")],
 			searchInputs: [
 				simpleSearchInputDef(
 					asUuid("00000000-0000-4000-8000-000000040011"),
@@ -4672,8 +4641,6 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 					"Name",
 				),
 			],
-			listColumnOrder: [asUuid("00000000-0000-4000-8000-000000040014")],
-			detailColumnOrder: [asUuid("00000000-0000-4000-8000-000000040014")],
 			searchInputs: [
 				simpleSearchInputDef(
 					asUuid("00000000-0000-4000-8000-000000040015"),
@@ -4702,8 +4669,6 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 					"Name",
 				),
 			],
-			listColumnOrder: [asUuid("00000000-0000-4000-8000-0000000400a1")],
-			detailColumnOrder: [asUuid("00000000-0000-4000-8000-0000000400a1")],
 			searchInputs: [
 				simpleSearchInputDef(
 					asUuid("00000000-0000-4000-8000-0000000400a2"),
@@ -4775,8 +4740,6 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 					"Name",
 				),
 			],
-			listColumnOrder: [asUuid("00000000-0000-4000-8000-0000000400f1")],
-			detailColumnOrder: [asUuid("00000000-0000-4000-8000-0000000400f1")],
 			searchInputs: [
 				simpleSearchInputDef(
 					asUuid("00000000-0000-4000-8000-0000000400f2"),
@@ -4825,8 +4788,6 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 					"Name",
 				),
 			],
-			listColumnOrder: [asUuid("00000000-0000-4000-8000-000000040004")],
-			detailColumnOrder: [asUuid("00000000-0000-4000-8000-000000040004")],
 			// The baseline region rule AND-composes with every advanced-arm
 			// predicate before emission.
 			filter: eq(prop("patient", "region"), literal("North")),
@@ -4872,8 +4833,6 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 					"Name",
 				),
 			],
-			listColumnOrder: [asUuid("00000000-0000-4000-8000-000000040005")],
-			detailColumnOrder: [asUuid("00000000-0000-4000-8000-000000040005")],
 			searchInputs: [],
 		});
 		const defaults = expandDoc(doc).modules[0].search_config.default_properties;
@@ -4902,8 +4861,6 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 					"Name",
 				),
 			],
-			listColumnOrder: [asUuid("00000000-0000-4000-8000-000000040006")],
-			detailColumnOrder: [asUuid("00000000-0000-4000-8000-000000040006")],
 			searchInputs: [
 				advancedSearchInputDef(
 					asUuid("00000000-0000-4000-8000-000000040016"),
@@ -4970,8 +4927,6 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 								"Name",
 							),
 						],
-						listColumnOrder: [asUuid("00000000-0000-4000-8000-000000040007")],
-						detailColumnOrder: [asUuid("00000000-0000-4000-8000-000000040007")],
 						searchInputs: [],
 						// Filter reads `region` on the patient's
 						// `household` ancestor — without the lift
@@ -5072,8 +5027,6 @@ describe("expandDoc HQ JSON projection — case-search integration", () => {
 						{ sort: { direction: "desc", priority: 0 } },
 					),
 				],
-				listColumnOrder: [asUuid("00000000-0000-4000-8000-000000050001")],
-				detailColumnOrder: [asUuid("00000000-0000-4000-8000-000000050001")],
 				filter: eq(prop("patient", "region"), literal("North")),
 				searchInputs: [
 					simpleSearchInputDef(
@@ -5165,8 +5118,6 @@ describe("expandDoc HQ JSON projection — case-search integration", () => {
 					"Name",
 				),
 			],
-			listColumnOrder: [asUuid("00000000-0000-4000-8000-000000060001")],
-			detailColumnOrder: [asUuid("00000000-0000-4000-8000-000000060001")],
 			searchInputs: [
 				simpleSearchInputDef(
 					asUuid("00000000-0000-4000-8000-000000060011"),
@@ -5222,8 +5173,6 @@ describe("expandDoc HQ JSON projection — case-search integration", () => {
 					"Name",
 				),
 			],
-			listColumnOrder: [asUuid("00000000-0000-4000-8000-000000060002")],
-			detailColumnOrder: [asUuid("00000000-0000-4000-8000-000000060002")],
 			searchInputs: [
 				simpleSearchInputDef(
 					asUuid("00000000-0000-4000-8000-000000060021"),
@@ -5289,8 +5238,6 @@ describe("expandDoc HQ JSON projection — case-search integration", () => {
 					"Name",
 				),
 			],
-			listColumnOrder: [asUuid("00000000-0000-4000-8000-000000060030")],
-			detailColumnOrder: [asUuid("00000000-0000-4000-8000-000000060030")],
 			searchInputs: [
 				simpleSearchInputDef(
 					asUuid("00000000-0000-4000-8000-000000060031"),
@@ -5332,8 +5279,6 @@ describe("expandDoc HQ JSON projection — case-search integration", () => {
 					"Name",
 				),
 			],
-			listColumnOrder: [asUuid("00000000-0000-4000-8000-000000060040")],
-			detailColumnOrder: [asUuid("00000000-0000-4000-8000-000000060040")],
 			searchInputs: [
 				simpleSearchInputDef(
 					asUuid("00000000-0000-4000-8000-000000060041"),
