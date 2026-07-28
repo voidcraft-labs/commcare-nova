@@ -1743,9 +1743,11 @@ export class PostgresCaseStore implements CaseStore {
 		// pair atomic at the name level. `DROP INDEX CONCURRENTLY`
 		// avoids `ACCESS EXCLUSIVE` for the drop's duration; `IF
 		// EXISTS` makes the drop idempotent against a half-completed
-		// prior run.
+		// prior run. The name is schema-qualified from the catalog read
+		// so the drop targets the entry the diff decided on rather than
+		// whatever a bare name resolves to on the search path.
 		for (const drop of drops) {
-			await sql`DROP INDEX CONCURRENTLY IF EXISTS ${sql.id(drop.name)}`.execute(
+			await sql`DROP INDEX CONCURRENTLY IF EXISTS ${sql.id(drop.schema, drop.name)}`.execute(
 				this.db,
 			);
 		}
@@ -4065,9 +4067,15 @@ export interface DesiredIndex {
  * (`https://www.postgresql.org/docs/current/catalog-pg-index.html`).
  * The diff treats INVALID entries as "drop and recreate" so the
  * next call converges idempotently.
+ *
+ * `schema` is the namespace the index actually lives in (an index
+ * always lands in its table's schema), so a drop names the exact
+ * catalog entry the read found instead of re-resolving a bare name
+ * through the search path.
  */
 interface LiveIndex {
 	name: string;
+	schema: string;
 	isValid: boolean;
 }
 
@@ -4363,8 +4371,7 @@ function assertSafeIdentifierFragment(
  * comes from the fixed-width tag, so the diff never reads or parses
  * the partial predicate.
  *
- * The query joins `pg_index` + `pg_class` (twice — once for the
- * index, once for the underlying table) + `pg_namespace` rather
+ * The query joins `pg_index` + `pg_class` + `pg_namespace` rather
  * than reading the simpler `pg_indexes` view because `pg_indexes`
  * does not expose `indisvalid`. Capturing the validity flag lets
  * `diffIndexSets` emit a drop-and-recreate pair for an INVALID
@@ -4378,8 +4385,18 @@ async function readLiveIndexSet(
 	appId: string,
 	caseType: string,
 ): Promise<Map<string, LiveIndex>> {
-	// `n.nspname = current_schema()` matches `pg_indexes`'s implicit
-	// scoping; `t.relname = 'cases'` pins the underlying table.
+	// `to_regclass('cases')` pins the table by SEARCH-PATH resolution —
+	// the same resolution `emitCreateIndex`'s unqualified `ON cases`
+	// performs, so the read and the DDL can never disagree about which
+	// table they mean. Matching `current_schema()` instead reads the
+	// FIRST schema on the path, which production's privilege
+	// convergence makes the wrong one: it moves `cases` into
+	// `nova_case_runtime` while the connection's path stays
+	// `public,nova_case_runtime` (`postgres/connection.ts`), so a
+	// `current_schema()` match returns zero rows for every scope. An
+	// empty live set makes the diff re-`CREATE` every desired index —
+	// `already exists` on the second sync of a case type — and emit no
+	// drops at all.
 	//
 	// Underscores in the prefix are LIKE single-char wildcards on
 	// `_`; the `ESCAPE '\\'` form treats `\_` as a literal underscore
@@ -4390,19 +4407,19 @@ async function readLiveIndexSet(
 	const prefix = `cases\\_${indexScopeTag(appId, caseType)}\\_%`;
 	const result = await sql<{
 		indexname: string;
+		indexschema: string;
 		isvalid: boolean;
-	}>`SELECT c.relname AS indexname, i.indisvalid AS isvalid
+	}>`SELECT c.relname AS indexname, n.nspname AS indexschema, i.indisvalid AS isvalid
 		FROM pg_index i
 		JOIN pg_class c ON c.oid = i.indexrelid
-		JOIN pg_class t ON t.oid = i.indrelid
-		JOIN pg_namespace n ON n.oid = t.relnamespace
-		WHERE n.nspname = current_schema()
-		  AND t.relname = 'cases'
+		JOIN pg_namespace n ON n.oid = c.relnamespace
+		WHERE i.indrelid = to_regclass('cases')
 		  AND c.relname LIKE ${prefix} ESCAPE '\\'`.execute(executor);
 	const live = new Map<string, LiveIndex>();
 	for (const row of result.rows) {
 		live.set(row.indexname, {
 			name: row.indexname,
+			schema: row.indexschema,
 			isValid: row.isvalid,
 		});
 	}
