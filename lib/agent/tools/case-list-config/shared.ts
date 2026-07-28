@@ -118,17 +118,12 @@ const [
 ] = columnSchema.options;
 
 /**
- * Per-arm `Column` schema with identity + all order-key slots omitted.
- * Surface the SA passes when adding or updating a column — the uuid is owned
- * by the tool (minted on add, looked up by `columnUuid` on update) and the
- * fractional order keys are computed by the reorder/diff layer.
+ * Per-arm `Column` schema with identity omitted — the surface the SA passes
+ * when adding or updating a column. The uuid is the tool's (minted on add,
+ * looked up by `columnUuid` on update), and position is not the column's to
+ * carry at all: it lives in the config's two ordering arrays.
  */
-const columnToolOwnedSlots = {
-	uuid: true,
-	order: true,
-	listOrder: true,
-	detailOrder: true,
-} as const;
+const columnToolOwnedSlots = { uuid: true } as const;
 
 /* The per-arm omits are bound to named consts rather than mapped over
  * `columnSchema.options`, for the same reason the positional destructure above
@@ -317,17 +312,17 @@ const saSearchInputType = z
 	);
 
 /**
- * Per-arm `SearchInputDef` schema with the `uuid` and `order` slots omitted
- * and the `type` enum narrowed to the SA-authorable widget kinds.
+ * Per-arm `SearchInputDef` schema with `uuid` omitted and the `type` enum
+ * narrowed to the SA-authorable widget kinds.
  * Mirrors `columnInputSchema` for the search-input add / update tools.
  */
 export const searchInputDefInputSchema = z
 	.discriminatedUnion("kind", [
-		simpleSearchInputArm.omit({ uuid: true, order: true }).extend({
+		simpleSearchInputArm.omit({ uuid: true }).extend({
 			type: saSearchInputType,
 			default: carrierBlindValueExpressionInputSchema.optional(),
 		}),
-		advancedSearchInputArm.omit({ uuid: true, order: true }).extend({
+		advancedSearchInputArm.omit({ uuid: true }).extend({
 			type: saSearchInputType,
 			default: carrierBlindValueExpressionInputSchema.optional(),
 			predicate: carrierBlindPredicateInputSchema,

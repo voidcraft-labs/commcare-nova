@@ -32,8 +32,8 @@ import {
 } from "@/lib/doc/expressionText";
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import { fieldIdVerdict } from "@/lib/doc/identifierVerdicts";
+import { spliceAfter } from "@/lib/doc/mutations/sequence";
 import { withOptionUuids } from "@/lib/doc/optionIdentity";
-import { keyBetween, keysForSlot } from "@/lib/doc/order/keys";
 import { declareCaseTypeMutations } from "@/lib/doc/scaffolds";
 import type { Mutation } from "@/lib/doc/types";
 import type {
@@ -321,12 +321,9 @@ export function assembleFieldMutations(
 		// — fields nested under their own parentId, or any field when no
 		// anchor was given — appends.
 		if (topLevelNextIndex !== undefined && parentUuid === batchInsertParent) {
-			mutations.push({
-				kind: "addField",
-				parentUuid,
-				field,
-				index: topLevelNextIndex,
-			});
+			// Placement is filled in below, once every field in the batch exists
+			// and each can name the one it follows.
+			mutations.push({ kind: "addField", parentUuid, field });
 			topLevelNextIndex += 1;
 		} else {
 			mutations.push({ kind: "addField", parentUuid, field });
@@ -339,53 +336,41 @@ export function assembleFieldMutations(
 	const resolve = fieldPathResolver(overlay, formUuid);
 	const resolveUserProperty = resolvableUserPropertySlug(overlay);
 	resolveBatchExpressions(resolve, resolveUserProperty, landed);
-	// Mint an `order` key for every born field. An ANCHORED batch (a top-level
-	// block placed at `beforeFieldId` / `afterFieldId`) keys its fields BETWEEN
-	// the anchor's DISPLAY neighbors — the same neighbor bounds the builder's
-	// `orderKeyForFieldSlot` uses — so the insert lands AT the anchor in display
-	// order, not appended. Every other field (nested under its own parentId, or
-	// any field when no anchor was given) appends after its parent's existing
-	// fields, advancing per field so the batch's fields to one parent keep their
-	// authored order. A field born keyless would sort ahead of / behind a later
-	// keyed sibling until a reload's backfill, so the key is assigned at
-	// construction. A minted container parent (added earlier in this same batch)
-	// has no existing doc fields, so its children seed a fresh sequence.
-	let anchorKeys: string[] | undefined;
-	if (anchorStartIndex !== undefined) {
-		const siblingKeys = orderedFieldUuids(doc, batchInsertParent)
-			.map((u) => doc.fields[u]?.order)
-			.filter((o): o is string => o !== undefined);
-		const anchoredCount = mutations.filter(
-			(m) => m.kind === "addField" && m.parentUuid === batchInsertParent,
-		).length;
-		anchorKeys = keysForSlot(siblingKeys, anchorStartIndex, anchoredCount);
+	// Place every born field. An ANCHORED batch (a top-level block placed at
+	// `beforeFieldId` / `afterFieldId`) lands AT the anchor rather than at the
+	// end, so its first field follows the anchor's predecessor and each
+	// subsequent one follows its own predecessor in the batch. Every other field
+	// appends under its parent, and a chain of `after` through the batch is what
+	// keeps fields written to one parent in the order they were authored.
+	//
+	// A minted container parent, added earlier in this same batch, has no fields
+	// in the document yet — its children simply append, which now needs no
+	// special case at all.
+	const anchorAfter =
+		anchorStartIndex === undefined
+			? undefined
+			: (() => {
+					const siblings = orderedFieldUuids(doc, batchInsertParent);
+					const at = Math.max(0, Math.min(anchorStartIndex, siblings.length));
+					return at === 0 ? null : (siblings[at - 1] as Uuid);
+				})();
+	const lastPlacedByParent = new Map<string, Uuid | null | undefined>();
+	if (anchorAfter !== undefined) {
+		lastPlacedByParent.set(batchInsertParent, anchorAfter);
 	}
-	const lastOrderByParent = new Map<string, string | null>();
-	let anchorCursor = 0;
 	for (const mut of mutations) {
 		if (mut.kind !== "addField") continue;
-		let order: string;
-		if (anchorKeys !== undefined && mut.parentUuid === batchInsertParent) {
-			order = anchorKeys[anchorCursor];
-			anchorCursor += 1;
-		} else {
-			let last = lastOrderByParent.get(mut.parentUuid);
-			if (last === undefined) {
-				const keys = orderedFieldUuids(doc, mut.parentUuid)
-					.map((u) => doc.fields[u]?.order)
-					.filter((o): o is string => o !== undefined);
-				last = keys.at(-1) ?? null;
-			}
-			order = keyBetween(last, null);
-			lastOrderByParent.set(mut.parentUuid, order);
-		}
-		// A select field's born options also need identity + a sort key: the
-		// per-uuid option diff skips a keyless option, so an edit to an
-		// SA-authored option before a reload's backfill would be lost.
+		const after = lastPlacedByParent.get(mut.parentUuid);
+		if (after !== undefined) mut.after = after;
+		lastPlacedByParent.set(mut.parentUuid, mut.field.uuid as Uuid);
+		// A select field's born options need identity so a later edit can address
+		// one; their sequence is the array they arrive in.
 		const opts = withOptionUuids(
 			(mut.field as { options?: SelectOption[] }).options,
 		);
-		mut.field = { ...mut.field, order, ...(opts && { options: opts }) };
+		if (opts) {
+			mut.field = { ...mut.field, options: opts } as typeof mut.field;
+		}
 	}
 	// Declaration chokepoint: a field writing to a type absent from the catalog
 	// declares it (granular `declareCaseType`) — the reducer no longer
@@ -435,13 +420,11 @@ function buildBatchOverlay(
 	for (const mut of mutations) {
 		if (mut.kind !== "addField") continue;
 		fields[mut.field.uuid] = mut.field;
-		const order = fieldOrder[mut.parentUuid] ?? [];
-		const index =
-			mut.index === undefined
-				? order.length
-				: Math.max(0, Math.min(mut.index, order.length));
-		order.splice(index, 0, mut.field.uuid);
-		fieldOrder[mut.parentUuid] = order;
+		fieldOrder[mut.parentUuid] = spliceAfter(
+			fieldOrder[mut.parentUuid] ?? [],
+			mut.field.uuid as Uuid,
+			mut.after,
+		);
 		if (mut.field.kind === "group" || mut.field.kind === "repeat") {
 			fieldOrder[mut.field.uuid] ??= [];
 		}
