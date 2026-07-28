@@ -23,6 +23,36 @@ export function withOptionUuids(
 }
 
 /**
+ * Reconcile a WHOLESALE option replacement (the SA's `edit_field` sends a full
+ * uuid-less list — identity is off its wire) against the field's CURRENT
+ * options: an incoming option whose `value` matches an existing one (first
+ * unconsumed match) KEEPS that option's `uuid` and the rest mint fresh ones.
+ * The incoming list order IS the SA's intended sequence, and the patch replaces
+ * the whole array, so the sequence needs nothing else said about it.
+ *
+ * Without the uuid carry-forward the committed doc holds identity-less options
+ * mid-session (backfill runs only at hydration boundaries), and the per-uuid
+ * option diff SKIPS a uuid-less option — so a collaborator's (or the same
+ * user's) next builder edit to one of them silently never persists. Preserving
+ * the uuid also keeps a peer's concurrent granular `updateOption` /
+ * `moveOption` addressed at a surviving option valid instead of conflicting.
+ */
+export function reconciledOptions(
+	incoming: readonly SelectOption[],
+	existing: readonly SelectOption[] | undefined,
+): SelectOption[] {
+	const pool = [...(existing ?? [])];
+	return incoming.map((option) => {
+		const at = pool.findIndex((entry) => entry.value === option.value);
+		const prior = at >= 0 ? pool.splice(at, 1)[0] : undefined;
+		return {
+			...option,
+			uuid: prior?.uuid ?? option.uuid ?? asUuid(crypto.randomUUID()),
+		};
+	});
+}
+
+/**
  * Give every select option in a document a uuid, in place.
  *
  * Runs at each hydration boundary because a mutation addresses an option by

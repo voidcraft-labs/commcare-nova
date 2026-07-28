@@ -74,10 +74,10 @@ describe("reorderCaseListColumns", () => {
 		const config = result.newDoc.modules[MOD_A]?.caseListConfig;
 		expect(config?.listColumnOrder).toEqual([C, A, B]);
 		expect(config?.detailColumnOrder).toEqual(detailsBefore);
-		expect(result.mutations).toHaveLength(3);
+		// The plan is the moves the new arrangement actually needs, not one per
+		// row: [A, B, C] becomes [C, A, B] by moving C alone.
+		expect(result.mutations).toHaveLength(1);
 		expect(result.mutations.map((mutation) => mutation.kind)).toEqual([
-			"moveColumn",
-			"moveColumn",
 			"moveColumn",
 		]);
 		expect(result.mutations).toEqual(

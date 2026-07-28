@@ -23,6 +23,7 @@ import type {
 } from "@/lib/domain";
 import {
 	isContainer,
+	orderedColumns,
 	orderedPersonas,
 	orderedUserProperties,
 	orderedUserTypes,
@@ -128,10 +129,13 @@ function summarizeCaseList(mod: Module): string | undefined {
 			`      layout: tile${config.tile.persistOnForms === true ? " (kept above every form)" : ""}`,
 		);
 	}
-	const results = config.columns.filter(
+	// Each screen reads its OWN sequence: the summary is what the SA reasons
+	// about arrangement from, so a storage-order read would have it move the
+	// wrong row.
+	const results = orderedColumns(config, "list").filter(
 		(column) => column.visibleInList !== false,
 	);
-	const details = config.columns.filter(
+	const details = orderedColumns(config, "detail").filter(
 		(column) => column.visibleInDetail !== false,
 	);
 	if (results.length > 0) {

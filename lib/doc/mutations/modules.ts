@@ -312,8 +312,16 @@ export function applyModuleMutation(
 			if (mut.tileCell !== undefined) column.tile = { ...mut.tileCell };
 			config.columns.push(column);
 			// The column joins BOTH sequences, at the placement each one named.
-			spliceAfter(config.listColumnOrder, mut.column.uuid, mut.afterInList);
-			spliceAfter(config.detailColumnOrder, mut.column.uuid, mut.afterInDetail);
+			config.listColumnOrder = spliceAfter(
+				config.listColumnOrder,
+				mut.column.uuid,
+				mut.afterInList,
+			);
+			config.detailColumnOrder = spliceAfter(
+				config.detailColumnOrder,
+				mut.column.uuid,
+				mut.afterInDetail,
+			);
 			return;
 		}
 		case "updateColumn": {

@@ -93,7 +93,6 @@ describe("editField — convert to single_select", () => {
 		// peer's granular option edits address them immediately.
 		for (const opt of options) {
 			expect(opt.uuid).toBeTruthy();
-			expect(opt.order).toBeTruthy();
 		}
 
 		// The options were CONSUMED into the convertField mutation — one

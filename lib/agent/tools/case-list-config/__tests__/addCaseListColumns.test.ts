@@ -197,7 +197,6 @@ describe("addCaseListColumns", () => {
 				asUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
 				"first",
 				"First",
-				{ listOrder: "z", detailOrder: "a" },
 			),
 		};
 		const second = {
@@ -205,7 +204,6 @@ describe("addCaseListColumns", () => {
 				asUuid("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
 				"second",
 				"Second",
-				{ listOrder: "a", detailOrder: "z" },
 			),
 		};
 		const docWithConfig: BlueprintDoc = {
@@ -215,6 +213,10 @@ describe("addCaseListColumns", () => {
 					...baseDoc.modules[MOD_A],
 					caseListConfig: resolveCaseListConfig({
 						columns: [first, second],
+						// The two screens disagree; an append still lands at the end
+						// of BOTH.
+						listColumnOrder: [second.uuid, first.uuid],
+						detailColumnOrder: [first.uuid, second.uuid],
 						searchInputs: [],
 					}),
 				},

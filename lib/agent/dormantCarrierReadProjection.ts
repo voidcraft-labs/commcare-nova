@@ -196,13 +196,21 @@ function carrierBlindSearchInput(
 export function carrierBlindCaseListConfig(
 	config: CaseListConfig,
 ): CaseListConfig {
+	const columns = config.columns.flatMap((column) =>
+		column.kind === "calculated" && containsDormantLookupAst(column.expression)
+			? []
+			: [{ ...column }],
+	);
+	// A column withheld from the projection leaves both sequences too. A
+	// sequence naming a column the read does not show would have the SA place
+	// something after a row it cannot see.
+	const shown = new Set(columns.map((column) => column.uuid));
 	const projected: CaseListConfig = {
 		...config,
-		columns: config.columns.flatMap((column) =>
-			column.kind === "calculated" &&
-			containsDormantLookupAst(column.expression)
-				? []
-				: [{ ...column }],
+		columns,
+		listColumnOrder: config.listColumnOrder.filter((uuid) => shown.has(uuid)),
+		detailColumnOrder: config.detailColumnOrder.filter((uuid) =>
+			shown.has(uuid),
 		),
 		searchInputs: config.searchInputs
 			.map(carrierBlindSearchInput)

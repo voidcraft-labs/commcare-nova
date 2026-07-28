@@ -35,6 +35,7 @@ import type {
 	FormType,
 	Uuid,
 } from "@/lib/domain";
+import { orderedColumns } from "@/lib/domain";
 import { resolveModuleUuid } from "../blueprintHelpers";
 import {
 	carrierBlindCaseListConfig,
@@ -125,7 +126,16 @@ export const getModuleTool = {
 			mod.caseSearchConfig === undefined
 				? undefined
 				: carrierBlindCaseSearchConfig(mod.caseSearchConfig);
-		const columns = caseListConfig?.columns ?? [];
+		// Each screen's own sequence — the SA addresses a column by naming the
+		// one it should follow, so a storage-order read would misplace it.
+		const resultsColumns =
+			caseListConfig === undefined
+				? []
+				: orderedColumns(caseListConfig, "list");
+		const detailsColumns =
+			caseListConfig === undefined
+				? []
+				: orderedColumns(caseListConfig, "detail");
 		return {
 			kind: "read",
 			data: {
@@ -135,13 +145,11 @@ export const getModuleTool = {
 				icon: mod.icon ?? null,
 				audio_label: mod.audioLabel ?? null,
 				case_list_config: caseListConfig ?? null,
-				results_column_order: [...columns]
+				results_column_order: resultsColumns
 					.filter((column) => column.visibleInList !== false)
-
 					.map((column) => column.uuid),
-				details_column_order: [...columns]
+				details_column_order: detailsColumns
 					.filter((column) => column.visibleInDetail !== false)
-
 					.map((column) => column.uuid),
 				case_search_config: caseSearchConfig ?? null,
 				forms: formUuids.map((fUuid, i) => {

@@ -28,8 +28,12 @@ function independentlyArrangedFixture() {
 								visibleInList: false,
 							}),
 						],
-						listColumnOrder: [A],
-						detailColumnOrder: [A],
+						// Two independent arrangements over one set: Results shows
+						// Phone above Patient, Details shows Patient above Date of
+						// birth. Every column is a member of BOTH sequences —
+						// visibility is what decides which of them draws.
+						listColumnOrder: [B, A, C],
+						detailColumnOrder: [A, C, B],
 						searchInputs: [],
 					},
 				},
@@ -86,8 +90,8 @@ describe("case-list read projections", () => {
 									tile: tileCell(0, 1, 6, 2),
 								}),
 							],
-							listColumnOrder: [A],
-							detailColumnOrder: [A],
+							listColumnOrder: [A, B],
+							detailColumnOrder: [A, B],
 							tile: { persistOnForms: true as const },
 						},
 					},
@@ -155,8 +159,12 @@ describe("case-list read projections", () => {
 								tile: tileCell(4, 0, 8, 2),
 							}),
 						],
-						listColumnOrder: [A],
-						detailColumnOrder: [A],
+						// Two independent arrangements over one set: Results shows
+						// Phone above Patient, Details shows Patient above Date of
+						// birth. Every column is a member of BOTH sequences —
+						// visibility is what decides which of them draws.
+						listColumnOrder: [B, A, C],
+						detailColumnOrder: [A, C, B],
 						...(tile === undefined ? {} : { tile }),
 					},
 				},
