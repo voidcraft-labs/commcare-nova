@@ -73,13 +73,6 @@ import { useEffectiveCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useCaseWorkspaceBoundaryVerdicts } from "@/lib/doc/hooks/useCaseWorkspaceVerdicts";
 import { useModule } from "@/lib/doc/hooks/useEntity";
 import { useUserProperties } from "@/lib/doc/hooks/useUserCollections";
-import { appendOrderKey } from "@/lib/doc/order/append";
-import {
-	type ColumnSurface,
-	orderedColumnsOnSurface,
-	resolvedColumnSurfaceOrder,
-} from "@/lib/doc/order/columnSurface";
-import { bySortKey } from "@/lib/doc/order/compare";
 import { searchInputUpdateMutation } from "@/lib/doc/searchInputMutations";
 import type { Mutation, Uuid } from "@/lib/doc/types";
 import {
@@ -90,6 +83,7 @@ import {
 	caseSearchConfigAfterFinalInputRemoval,
 	DEFAULT_CASE_SEARCH_TITLE,
 	effectiveCaseSearchConfig,
+	emptyCaseListConfig,
 	isOwnerOnlyCaseSearchConfig,
 	normalizeOwnerOnlyCaseSearchConfig,
 	type SearchInputDef,
@@ -149,6 +143,7 @@ import {
 } from "./tile/tileMutationPlan";
 import { TILE_PRESETS, type TilePresetId } from "./tile/tilePresets";
 import {
+	type CaseDisplaySurface,
 	projectCaseWorkspaceColumns,
 	pruneStoppedSortOrphans,
 	removeColumnFromDisplay,
@@ -263,7 +258,7 @@ const PROPERTYLESS_HINT = "Add case information before adding fields";
 
 /** Stable empty config for modules whose `caseListConfig` slot is
  *  still absent — first edit persists the seeded shape. */
-const EMPTY_CONFIG: CaseListConfig = { columns: [], searchInputs: [] };
+const EMPTY_CONFIG: CaseListConfig = emptyCaseListConfig();
 
 /** Stable empty tile-issue list — a fresh array per render would defeat
  *  the inspector body's memoization. */
@@ -318,20 +313,6 @@ function authoredSearchActionSettings(
 		.map((key) => SEARCH_ACTION_SETTING_LABELS[key]);
 }
 
-/** Append to the active surface's resolved sequence, including legacy columns
- * that still use the shared `order` fallback. */
-function appendSurfaceOrderKey(
-	columns: readonly Column[],
-	surface: ColumnSurface,
-): string {
-	return appendOrderKey(
-		orderedColumnsOnSurface(columns, surface).map((column) => ({
-			uuid: column.uuid,
-			order: resolvedColumnSurfaceOrder(column, surface),
-		})),
-	);
-}
-
 /** The friendly name used when a display field moves on or off a surface. */
 function columnDisplayLabel(column: Column): string {
 	return (
@@ -342,7 +323,9 @@ function columnDisplayLabel(column: Column): string {
 	);
 }
 
-function surfaceDisplayName(surface: ColumnSurface): "Results" | "Details" {
+function surfaceDisplayName(
+	surface: CaseDisplaySurface,
+): "Results" | "Details" {
 	return surface === "list" ? "Results" : "Details";
 }
 
@@ -418,7 +401,7 @@ function useController(
 	// ── Selection ──
 	const [sel, setSel] = useState<WorkspaceSelection | null>(null);
 	const [workspaceAnnouncement, setWorkspaceAnnouncement] = useState("");
-	const pendingCanvasFocusRef = useRef<ColumnSurface | null>(null);
+	const pendingCanvasFocusRef = useRef<CaseDisplaySurface | null>(null);
 	const pendingSearchFocusRef = useRef<SearchInputDef["uuid"] | "add" | null>(
 		null,
 	);
@@ -826,7 +809,7 @@ function useController(
 	};
 
 	const routeColumnToRepair = (
-		surface: ColumnSurface,
+		surface: CaseDisplaySurface,
 		column: Column,
 		messages: readonly string[] = [],
 	) => {
@@ -861,12 +844,10 @@ function useController(
 		const repairedColumns = config.columns.map((column) =>
 			column.uuid === uuid ? replacement : column,
 		);
-		const order = appendSurfaceOrderKey(repairedColumns, repair.surface);
 		const revealed = showColumnOnDisplay(
 			repairedColumns,
 			replacement.uuid,
 			repair.surface,
-			order,
 		).find((column) => column.uuid === replacement.uuid);
 		if (revealed === undefined) return;
 		const revealTarget =
@@ -908,7 +889,7 @@ function useController(
 			},
 		});
 	};
-	const addSeededColumn = (surface: ColumnSurface, seedColumn: Column) => {
+	const addSeededColumn = (surface: CaseDisplaySurface, seedColumn: Column) => {
 		const seed = surface === "list" ? placedForResults(seedColumn) : seedColumn;
 		if (seed === null) {
 			setWorkspaceAnnouncement(TILE_FULL_REASON);
@@ -923,7 +904,7 @@ function useController(
 			setSel({ type: "column", uuid: seed.uuid });
 		}
 	};
-	const addColumn = (surface: ColumnSurface, property: CaseProperty) => {
+	const addColumn = (surface: CaseDisplaySurface, property: CaseProperty) => {
 		// The center-canvas chooser owns the property decision. Creation only
 		// turns that explicit choice into a working display definition; it never
 		// advances through system properties behind the author's back.
@@ -937,7 +918,7 @@ function useController(
 			),
 		);
 	};
-	const addCalculatedColumn = (surface: ColumnSurface) => {
+	const addCalculatedColumn = (surface: CaseDisplaySurface) => {
 		addSeededColumn(
 			surface,
 			seedCalculatedColumn(
@@ -948,7 +929,7 @@ function useController(
 		);
 	};
 	const moveColumn = (
-		surface: ColumnSurface,
+		surface: CaseDisplaySurface,
 		uuid: Column["uuid"],
 		toIndex: number,
 	) => moveColumnOnSurface(moduleUuid, uuid, surface, toIndex);
@@ -961,8 +942,11 @@ function useController(
 			),
 		);
 	};
-	const hideColumnFromSurface = (surface: ColumnSurface, column: Column) => {
-		const visible = projectCaseWorkspaceColumns(config.columns);
+	const hideColumnFromSurface = (
+		surface: CaseDisplaySurface,
+		column: Column,
+	) => {
+		const visible = projectCaseWorkspaceColumns(config);
 		if (surface === "list" && visible.listVisible.length <= 1) return;
 		const label = columnDisplayLabel(column);
 		const hidden = removeColumnFromDisplay(
@@ -981,7 +965,7 @@ function useController(
 		);
 		deselect();
 	};
-	const deleteColumn = (surface: ColumnSurface, column: Column) => {
+	const deleteColumn = (surface: CaseDisplaySurface, column: Column) => {
 		const displayedOn = [
 			...(column.visibleInList !== false ? ["Results"] : []),
 			...(column.visibleInDetail !== false ? ["Details"] : []),
@@ -996,19 +980,17 @@ function useController(
 		);
 		deselect();
 	};
-	const showColumn = (surface: ColumnSurface, column: Column) => {
+	const showColumn = (surface: CaseDisplaySurface, column: Column) => {
 		/* A definition already known to need attention never touches the gate.
 		 * Open its source/formatting controls while it remains off-screen. */
 		if (brokenColumns.has(column.uuid)) {
 			routeColumnToRepair(surface, column);
 			return;
 		}
-		const order = appendSurfaceOrderKey(config.columns, surface);
 		const shown = showColumnOnDisplay(
 			config.columns,
 			column.uuid,
 			surface,
-			order,
 		).find((candidate) => candidate.uuid === column.uuid);
 		if (shown === undefined) return;
 		const target = surface === "list" ? placedForResults(shown) : shown;
@@ -1049,7 +1031,7 @@ function useController(
 		]);
 	};
 	const removeInput = (uuid: SearchInputDef["uuid"]) => {
-		const orderedInputs = [...config.searchInputs].sort(bySortKey);
+		const orderedInputs = [...config.searchInputs];
 		const removedIndex = orderedInputs.findIndex(
 			(input) => input.uuid === uuid,
 		);
@@ -1199,15 +1181,14 @@ function useController(
 		// working input with a unique internal name, a matching widget, and the
 		// established per-type match default.
 		const seed = seedSearchInputForProperty(config, property);
-		const seeded = { ...seed, order: appendOrderKey(config.searchInputs) };
 		const outcome = commitMany([
 			enableCaseSearchMutation(moduleUuid, searchConfig),
-			{ kind: "addSearchInput", moduleUuid, searchInput: seeded },
+			{ kind: "addSearchInput", moduleUuid, searchInput: seed },
 		]);
 		// Never select an identity the gate refused to create. The gate can still
 		// reject a concurrent structural edit even though the seed was valid when
 		// this interaction began.
-		if (outcome.ok) setSel({ type: "input", uuid: seeded.uuid });
+		if (outcome.ok) setSel({ type: "input", uuid: seed.uuid });
 	};
 	const moveInput = (uuid: SearchInputDef["uuid"], toIndex: number) =>
 		moveSearchInputToIndex(moduleUuid, uuid, toIndex);
@@ -1978,8 +1959,11 @@ interface ResolveInspectorArgs {
 	readonly onEditInputCondition: (uuid: SearchInputDef["uuid"]) => void;
 	readonly onEditSearchButtonCondition: (focusNewCondition?: boolean) => void;
 	readonly searchSettingsHasError: boolean;
-	readonly onHideColumn: (surface: ColumnSurface, column: Column) => void;
-	readonly onDeleteColumn: (surface: ColumnSurface, column: Column) => void;
+	readonly onHideColumn: (surface: CaseDisplaySurface, column: Column) => void;
+	readonly onDeleteColumn: (
+		surface: CaseDisplaySurface,
+		column: Column,
+	) => void;
 	readonly onRemoveInput: (uuid: SearchInputDef["uuid"]) => void;
 	readonly inputRemovalReview: SearchInputRemovalReviewSession | null;
 	readonly onStartInputRemovalReview: (input: SearchInputDef) => void;
@@ -2011,10 +1995,10 @@ function resolveInspector(args: ResolveInspectorArgs): {
 
 	switch (sel.type) {
 		case "column": {
-			const sortedCols = [...config.columns].sort(bySortKey);
+			const sortedCols = [...config.columns];
 			const column = sortedCols.find((c) => c.uuid === sel.uuid);
 			if (column === undefined) return null;
-			const projection = projectCaseWorkspaceColumns(config.columns);
+			const projection = projectCaseWorkspaceColumns(config);
 			const surface =
 				sel.reveal?.surface ??
 				(args.activeTab === "list"
@@ -2065,7 +2049,7 @@ function resolveInspector(args: ResolveInspectorArgs): {
 		case "input": {
 			// DISPLAY position + DISPLAY-ordered siblings (`sort-by-(order, uuid)`),
 			// not array position.
-			const sortedInputs = [...config.searchInputs].sort(bySortKey);
+			const sortedInputs = [...config.searchInputs];
 			const index = sortedInputs.findIndex((s) => s.uuid === sel.uuid);
 			const input = sortedInputs[index];
 			if (input === undefined) return null;
@@ -2184,7 +2168,7 @@ function ColumnInspectorBody({
 	/** The whole case list — a tile placement is adjudicated against the
 	 * other fields on the tile, so the rail needs more than one column. */
 	readonly columns: readonly Column[];
-	readonly surface: ColumnSurface;
+	readonly surface: CaseDisplaySurface;
 	readonly visibleCount: number;
 	readonly listVisibleCount: number;
 	readonly caseTypes: ReturnType<typeof useEffectiveCaseTypes>;

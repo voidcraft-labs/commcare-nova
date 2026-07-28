@@ -217,8 +217,6 @@ export function preservedColumnSwap(
 		sort: currentValue.sort,
 		visibleInList: currentValue.visibleInList,
 		visibleInDetail: currentValue.visibleInDetail,
-		listOrder: currentValue.listOrder,
-		detailOrder: currentValue.detailOrder,
 	};
 	// Field source: the current value's field if the source has one;
 	// otherwise the target schema's default-picked field.
@@ -533,8 +531,6 @@ function restoreColumnDraft(draft: Column, current: Column): Column {
 		sort: current.sort,
 		visibleInList: current.visibleInList,
 		visibleInDetail: current.visibleInDetail,
-		listOrder: current.listOrder,
-		detailOrder: current.detailOrder,
 	} as Column;
 }
 
