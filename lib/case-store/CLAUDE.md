@@ -422,6 +422,19 @@ its own conflict.
    failed CONCURRENTLY build flows through both `drops` and
    `creates` so a retry rebuilds it from scratch.
 
+   That catalog read pins the table with `to_regclass('cases')` —
+   SEARCH-PATH resolution, the same resolution the unqualified
+   `ON cases` in the DDL performs. Keying it on `current_schema()`
+   instead is wrong under privilege convergence, which moves `cases`
+   into `nova_case_runtime` while the path stays
+   `public,nova_case_runtime`: the read then matches nothing, the
+   diff re-`CREATE`s every desired index (`already exists` on a case
+   type's second sync, with every create queued behind it skipped)
+   and emits no drops at all. Local databases keep `cases` in
+   `public`, so only production shows it — the regression test in
+   `postgres/__tests__/store.test.ts` moves the table to reproduce
+   the converged shape.
+
 ### Why two phases, not one transaction
 
 PostgreSQL's `CREATE INDEX` (non-`CONCURRENTLY`) heap-scans with
