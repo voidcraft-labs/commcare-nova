@@ -52,31 +52,8 @@ import {
 } from "../errors";
 import { loadAppBlueprint } from "../loadApp";
 import { type PromptMode, renderAgentPrompt } from "../prompts";
+import { LARGE_RESULT_META } from "../resultSize";
 import type { ToolContext } from "../types";
-
-/**
- * Per-tool result-size declaration, published in this tool's `_meta` at
- * `tools/list` time.
- *
- * Hosts cap how large a single tool result may be before they swap it
- * for a short preview plus a path to the full text on disk. That
- * fallback assumes the reader can open files; the plugin's autonomous
- * subagent is allowlisted to MCP tools only, so for it a persisted
- * result is simply a lost one — it reads the preview and builds anyway.
- * Claude Code's default cap sits below the rendered prompt's length,
- * which is how a ~57,000-char prompt was arriving as its first ~2,000
- * chars: the identity and voice sections, and none of the engineering.
- *
- * Declaring a larger size here opts this tool out of that default. The
- * key is host-specific and other MCP clients ignore it, which is the
- * intended degradation — `_meta` is defined for exactly this kind of
- * out-of-band hint. It is not a guarantee either: an MCP-wide token cap
- * still sits above it, and a host is free to stop honoring the key. So
- * the prompt also carries `PROMPT_END_MARKER`, and the plugin's
- * bootstrap refuses to build when it doesn't arrive — this field
- * prevents the truncation, that marker prevents it from being silent.
- */
-const MAX_RESULT_SIZE_CHARS = 100_000;
 
 /**
  * Register the two-argument `get_agent_prompt` tool on an `McpServer`.
@@ -108,12 +85,11 @@ export function registerGetAgentPrompt(
 		{
 			description:
 				"Return the current nova-architect operating instructions for the given mode. The plugin's bootstrap subagent / skills call this as their first tool use and follow the returned text as their full system prompt for the rest of the run. Edit mode requires `app_id` so the inlined blueprint summary mirrors the web flow's edit-mode prompt at boot. The returned text ends with the line `NOVA-PROMPT-END`; if yours does not, you received a partial prompt — stop and report that rather than acting on it.",
-			/* Read at `tools/list` time, before any call — see
-			 * `MAX_RESULT_SIZE_CHARS`. This tool returns a whole system
-			 * prompt, an order of magnitude past what a typical tool
-			 * result carries, so it declares its own size rather than
-			 * inheriting a default tuned for ordinary payloads. */
-			_meta: { "anthropic/maxResultSizeChars": MAX_RESULT_SIZE_CHARS },
+			/* This tool returns a whole system prompt, an order of
+			 * magnitude past what a typical tool result carries, so it
+			 * declares its own size rather than inheriting a default
+			 * tuned for ordinary payloads. See `../resultSize`. */
+			_meta: LARGE_RESULT_META,
 			/* Raw-shape Zod object — `registerTool` composes the object
 			 * validator around it. Wrapping in `z.object(...)` would
 			 * register the wrong shape: `{ schema: z.object }` rather

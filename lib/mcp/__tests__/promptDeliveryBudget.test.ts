@@ -91,6 +91,42 @@ function fixturePopulatedDoc(): BlueprintDoc {
 }
 
 /**
+ * An app large enough that its summary cannot be inlined — the shape
+ * production's biggest apps have. Built by repeating the fixture's
+ * module rather than by hand, so it stays honest if `summarizeBlueprint`
+ * changes what it emits per module: the test wants "too big to fit",
+ * not a specific byte count.
+ */
+function fixtureOversizedDoc(): BlueprintDoc {
+	const base = fixturePopulatedDoc();
+	const modules: BlueprintDoc["modules"] = {};
+	const formOrder: BlueprintDoc["formOrder"] = {};
+	const moduleOrder: BlueprintDoc["moduleOrder"] = [];
+	const baseModUuid = base.moduleOrder[0];
+	if (!baseModUuid) throw new Error("fixture lost its module");
+	const baseMod = base.modules[baseModUuid];
+	if (!baseMod) throw new Error("fixture lost its module record");
+
+	/* Enough modules to clear the budget with the base prompt already
+	 * past 51,000 chars, with margin so the test doesn't sit on the
+	 * boundary it is asserting about. */
+	for (let i = 0; i < 400; i++) {
+		const uuid = asUuid(
+			`44444444-4444-4444-4444-${String(i).padStart(12, "0")}`,
+		);
+		modules[uuid] = {
+			...baseMod,
+			uuid,
+			id: `patients_${i}`,
+			name: `Patients ${i} — a module name long enough to carry real weight`,
+		};
+		moduleOrder.push(uuid);
+		formOrder[uuid] = base.formOrder[baseModUuid] ?? [];
+	}
+	return { ...base, modules, moduleOrder, formOrder };
+}
+
+/**
  * The three shapes `get_agent_prompt` can return, named as the wire
  * `mode` values so a failure points straight at the affected caller.
  */
@@ -124,17 +160,36 @@ describe("served prompt delivery budget", () => {
 		).toBe(true);
 	});
 
-	it("edit mode leaves room for a real app's blueprint summary", () => {
-		/* The fixture's summary is a few hundred chars; a production app
-		 * runs far larger, and it lands after everything else. Asserting
-		 * the fixed part alone clears the budget would pass right up
-		 * until the moment a real app arrived, so the assertion is on
-		 * the headroom that remains for the variable part. */
+	it("edit mode inlines the blueprint summary when it fits", () => {
+		/* The common case, and the one worth protecting: an app small
+		 * enough to carry gets its structure in the prompt, so the agent
+		 * starts knowing what it is editing. Production measurement at
+		 * the time of writing: 338 of 384 editable apps. */
 		const rendered = renderAgentPrompt(true, fixturePopulatedDoc());
-		const headroom = MAX_DELIVERABLE_PROMPT_CHARS - rendered.length;
-		expect(
-			headroom,
-			`The fixed part of the edit prompt leaves only ${headroom} chars for the inlined blueprint summary, which grows with the app. A large app would overrun the budget and lose its summary — the one section edit mode exists to deliver.`,
-		).toBeGreaterThan(20_000);
+		expect(rendered).toContain("## Current app state");
+		expect(rendered).toContain("Vaccine Tracker");
+		expect(rendered).not.toContain("too large to include here");
+	});
+
+	it("edit mode points at the read tools instead of inlining an app that will not fit", () => {
+		/* An app whose summary would overrun the budget must not be
+		 * inlined and must not be cut down: half a structural summary
+		 * reads exactly like a whole one, and an agent that believes it
+		 * has seen the app will edit the part it cannot see.
+		 *
+		 * The fixture is inflated with enough modules to blow the budget
+		 * on its own, which is what production's largest apps do — the
+		 * biggest renders 73,534 chars of summary against a base prompt
+		 * already past 51,000. */
+		const rendered = renderAgentPrompt(true, fixtureOversizedDoc());
+
+		expect(rendered).toContain("too large to include here");
+		/* The remedy has to name the tools, or the agent is told what it
+		 * cannot do without being told what it can. */
+		expect(rendered).toContain("get_app");
+		/* Still deliverable and still provable — the fallback is not
+		 * allowed to trade one delivery failure for another. */
+		expect(rendered.length).toBeLessThanOrEqual(MAX_DELIVERABLE_PROMPT_CHARS);
+		expect(rendered.endsWith(PROMPT_END_MARKER)).toBe(true);
 	});
 });

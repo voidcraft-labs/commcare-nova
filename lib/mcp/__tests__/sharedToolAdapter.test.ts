@@ -51,6 +51,7 @@ import {
 	registerSharedTool,
 	type SharedToolModule,
 } from "../adapters/sharedToolAdapter";
+import { MAX_RESULT_SIZE_CHARS } from "../resultSize";
 import type { ToolContext } from "../types";
 import { makeFakeServer } from "./fakeServer";
 
@@ -225,6 +226,42 @@ beforeEach(() => {
 });
 
 /* --- Tests ----------------------------------------------------------- */
+
+describe("registerSharedTool — result-size declaration", () => {
+	it("declares a raised result size for every tool on the surface", () => {
+		/* The shared tools return what a model reads — a module, a form,
+		 * a set of matches — and production apps already exceed the
+		 * host's default result cap (the largest renders a 73,534-char
+		 * summary). Past the cap the result becomes a preview plus a
+		 * file path, which the autonomous subagent has no tool to open,
+		 * so the tools that lose most are exactly the ones it needs.
+		 *
+		 * Declaring it once on the adapter is what makes this true for
+		 * the whole surface rather than for whichever tools someone
+		 * remembered, so the assertion belongs here rather than on any
+		 * individual tool. It is only observable on the registration
+		 * config: `_meta` is published at `tools/list` and never reaches
+		 * the handler. */
+		const tool: SharedToolModule = {
+			description: "echo",
+			inputSchema: z.object({ q: z.string() }),
+			async execute() {
+				return { kind: "read", data: {} };
+			},
+		};
+		const { server, captureConfig } = makeFakeServer();
+		registerSharedTool(server, "echo_tool", tool, toolCtx, "edit");
+
+		const declared = (
+			captureConfig()._meta as Record<string, unknown> | undefined
+		)?.["anthropic/maxResultSizeChars"];
+
+		expect(
+			typeof declared === "number" ? declared : 0,
+			"Shared tools must declare a raised result size — without it the host truncates any result past its default and the autonomous subagent, which has no filesystem access, cannot recover the rest.",
+		).toBeGreaterThanOrEqual(MAX_RESULT_SIZE_CHARS);
+	});
+});
 
 describe("registerSharedTool — read tools", () => {
 	it("wraps a read-tool return verbatim in the MCP text envelope", async () => {

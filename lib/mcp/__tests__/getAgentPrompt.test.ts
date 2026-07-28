@@ -38,7 +38,8 @@ import type { BlueprintDoc } from "@/lib/domain";
 import { asUuid } from "@/lib/domain";
 import { type LoadedApp, loadAppBlueprint } from "../loadApp";
 import { McpAccessError } from "../ownership";
-import { MAX_DELIVERABLE_PROMPT_CHARS, renderAgentPrompt } from "../prompts";
+import { renderAgentPrompt } from "../prompts";
+import { MAX_RESULT_SIZE_CHARS } from "../resultSize";
 import { registerGetAgentPrompt } from "../tools/getAgentPrompt";
 import type { ToolContext } from "../types";
 import { makeFakeServer } from "./fakeServer";
@@ -196,7 +197,7 @@ describe("registerGetAgentPrompt — result-size declaration", () => {
 		expect(
 			typeof declared === "number" ? declared : 0,
 			"get_agent_prompt must declare its own result size — without it the host applies a default tuned for ordinary payloads, truncates the prompt, and the autonomous subagent has no way to recover the rest.",
-		).toBeGreaterThanOrEqual(MAX_DELIVERABLE_PROMPT_CHARS);
+		).toBeGreaterThanOrEqual(MAX_RESULT_SIZE_CHARS);
 	});
 });
 
