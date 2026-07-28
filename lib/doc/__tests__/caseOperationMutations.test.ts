@@ -157,16 +157,20 @@ describe("case-operation mutation planning", () => {
 		expect(next.forms[formUuid].caseOperations).toHaveLength(1);
 	});
 
-	it("preserves the existing order when an update omits it", () => {
+	it("leaves an operation where it sits when an update only changes content", () => {
 		const { doc, formUuid } = fixture();
-		(doc.forms[formUuid] as Form).caseOperations = [createOperation()];
+		(doc.forms[formUuid] as Form).caseOperations = [
+			createOperation(),
+			consumerOperation(),
+		];
 		const mutations = updateCaseOperationMutations(doc, formUuid, {
 			...createOperation(),
-			order: undefined,
 			name: term(literal("Renamed")),
 		});
 		const next = apply(doc, mutations);
-		expect(next.forms[formUuid].caseOperations?.[0].order).toBe("a");
+		expect(
+			next.forms[formUuid].caseOperations?.map((operation) => operation.uuid),
+		).toEqual([CREATE, CONSUMER]);
 		expect(next.forms[formUuid].caseOperations?.[0].name).toEqual(
 			term(literal("Renamed")),
 		);
@@ -511,33 +515,24 @@ describe("case-operation mutation planning", () => {
 		if (!plan.ok) return;
 		const next = apply(doc, plan.mutations);
 		expect(
-			next.forms[formUuid].caseOperations?.find((op) => op.uuid === OTHER)
-				?.order,
-		).toBeDefined();
-		expect(
 			orderedCaseOperations(next.forms[formUuid]).map(
 				(operation) => operation.uuid,
 			),
 		).toEqual([OTHER, CREATE, CONSUMER]);
 	});
 
-	it("does not rewrite a fractional key for an already-placed operation", () => {
+	it("plans nothing for a move to where the operation already is", () => {
 		const { doc, formUuid } = fixture();
-		const current = createOperation({ order: "a" });
+		const current = createOperation();
 		(doc.forms[formUuid] as Form).caseOperations = [
 			current,
-			consumerOperation({ order: "c" }),
+			consumerOperation(),
 		];
 
 		expect(moveCaseOperationMutation(doc, formUuid, current.uuid, 0)).toEqual({
 			ok: true,
 			mutations: [],
 		});
-		expect(
-			doc.forms[formUuid].caseOperations?.find(
-				(operation) => operation.uuid === current.uuid,
-			)?.order,
-		).toBe("a");
 	});
 
 	it("rejects a move across multiplicity scopes when the wire cannot preserve it", () => {
@@ -788,7 +783,7 @@ describe("case-operation builder choice verdict", () => {
 			caseType: "patient",
 			target: { kind: "session" },
 		};
-		const generated = createOperation({ order: "b" });
+		const generated = createOperation();
 		(doc.forms[formUuid] as Form).caseOperations = [earlier, generated];
 
 		expect(caseOperationEditVerdict(doc, formUuid, generated)).toEqual({
@@ -972,7 +967,7 @@ describe("case-operation persistence and reference participation", () => {
 		const changed = produce(next, (draft) => {
 			const operations = draft.forms[formUuid].caseOperations ?? [];
 			operations[0].name = term(literal("Visit record"));
-			operations[1].order = "z";
+			operations.reverse();
 		});
 		const changeKinds = diffDocsToMutations(next, changed)
 			.filter(
@@ -1015,13 +1010,12 @@ describe("case-operation persistence and reference participation", () => {
 			),
 		).toBe(true);
 
-		const orderCleared = produce(next, (draft) => {
-			const operation = draft.forms[formUuid].caseOperations?.[0];
-			if (operation !== undefined) delete operation.order;
+		const reordered = produce(next, (draft) => {
+			draft.forms[formUuid].caseOperations?.reverse();
 		});
-		const clearDiff = diffDocsToMutations(next, orderCleared);
-		expect(toPersistableDoc(apply(next, clearDiff))).toEqual(
-			toPersistableDoc(orderCleared),
+		const reorderDiff = diffDocsToMutations(next, reordered);
+		expect(toPersistableDoc(apply(next, reorderDiff))).toEqual(
+			toPersistableDoc(reordered),
 		);
 	});
 
@@ -1051,6 +1045,7 @@ describe("case-operation persistence and reference participation", () => {
 				caseOperationChange: {
 					operation: "move",
 					uuid: CREATE,
+					after: null,
 				},
 			},
 		]);

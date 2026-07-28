@@ -56,11 +56,11 @@ describe("mutationSchema round-trip", () => {
 			expectRoundTrip({ kind: "addModule", module: module_ });
 		});
 
-		it("addModule with index", () => {
-			expectRoundTrip({ kind: "addModule", module: module_, index: 2 });
+		it("addModule naming the module it follows", () => {
+			expectRoundTrip({ kind: "addModule", module: module_, after: null });
 		});
 
-		it("addModule with backward-compatible column surface orders", () => {
+		it("addModule carrying a case list", () => {
 			const columnUuid = asUuid("66666666-6666-6666-6666-666666666666");
 			expectRoundTrip({
 				kind: "addModule",
@@ -80,9 +80,6 @@ describe("mutationSchema round-trip", () => {
 						searchInputs: [],
 					},
 				},
-				columnSurfaceOrders: [
-					{ uuid: columnUuid, listOrder: "list-a", detailOrder: "detail-z" },
-				],
 			});
 		});
 
@@ -169,7 +166,7 @@ describe("mutationSchema round-trip", () => {
 			});
 		});
 
-		it("updateModule carries full-config surface orders outside its strict legacy patch", () => {
+		it("updateModule replaces a whole case list, sequences included", () => {
 			const columnUuid = asUuid("66666666-6666-6666-6666-666666666666");
 			expectRoundTrip({
 				kind: "updateModule",
@@ -189,36 +186,7 @@ describe("mutationSchema round-trip", () => {
 						searchInputs: [],
 					},
 				},
-				columnSurfaceOrders: [
-					{ uuid: columnUuid, listOrder: "list-a", detailOrder: "detail-z" },
-				],
 			});
-		});
-
-		it("rejects current-only surface orders nested in a full module patch", () => {
-			expect(
-				mutationSchema.safeParse({
-					kind: "updateModule",
-					uuid: moduleUuid,
-					patch: {
-						caseListConfig: {
-							columns: [
-								{
-									uuid: asUuid("66666666-6666-6666-6666-666666666666"),
-									kind: "plain",
-									field: "case_name",
-									header: "Name",
-								},
-							],
-							listColumnOrder: [asUuid("66666666-6666-6666-6666-666666666666")],
-							detailColumnOrder: [
-								asUuid("66666666-6666-6666-6666-666666666666"),
-							],
-							searchInputs: [],
-						},
-					},
-				}).success,
-			).toBe(false);
 		});
 
 		it("rejects a case-list ensure without its legacy empty fallback", () => {
@@ -242,12 +210,12 @@ describe("mutationSchema round-trip", () => {
 			});
 		});
 
-		it("addForm with index", () => {
+		it("addForm naming the form it follows", () => {
 			expectRoundTrip({
 				kind: "addForm",
 				moduleUuid,
 				form: form_,
-				index: 0,
+				after: null,
 			});
 		});
 
@@ -321,7 +289,7 @@ describe("mutationSchema round-trip", () => {
 				kind: "addField",
 				parentUuid: formUuid,
 				field: field_,
-				index: 3,
+				after: null,
 			});
 		});
 
@@ -411,15 +379,6 @@ describe("mutationSchema round-trip", () => {
 			field: "case_name",
 			header: "Name",
 		};
-
-		it("addColumn carries surface orders outside its strict legacy fallback", () => {
-			expectRoundTrip({
-				kind: "addColumn",
-				moduleUuid,
-				column,
-				surfaceOrders: { listOrder: "list-a", detailOrder: "detail-z" },
-			});
-		});
 
 		it("rejects add/update fallbacks with nested current-only surface keys", () => {
 			for (const kind of ["addColumn", "updateColumn"] as const) {
@@ -517,39 +476,20 @@ describe("mutationSchema round-trip", () => {
 			},
 		);
 
-		it("moveColumn with a Results surface patch", () => {
+		it("moveColumn names the surface it reorders and the column it follows", () => {
 			expectRoundTrip({
 				kind: "moveColumn",
 				moduleUuid,
 				uuid: columnUuid,
-				surfaceOrderPatch: { surface: "list", order: "list-a" },
+				surface: "list",
+				after: null,
 			});
-		});
-
-		it("moveColumn clears a Results override with a generic fallback", () => {
 			expectRoundTrip({
 				kind: "moveColumn",
 				moduleUuid,
 				uuid: columnUuid,
-				surfaceOrderPatch: { surface: "list", order: null },
-			});
-		});
-
-		it("moveColumn with a Details surface patch", () => {
-			expectRoundTrip({
-				kind: "moveColumn",
-				moduleUuid,
-				uuid: columnUuid,
-				surfaceOrderPatch: { surface: "detail", order: "detail-z" },
-			});
-		});
-
-		it("moveColumn clears a Details override with a generic fallback", () => {
-			expectRoundTrip({
-				kind: "moveColumn",
-				moduleUuid,
-				uuid: columnUuid,
-				surfaceOrderPatch: { surface: "detail", order: null },
+				surface: "detail",
+				after: columnUuid,
 			});
 		});
 

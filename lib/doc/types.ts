@@ -1149,8 +1149,14 @@ function createMutationSchema({
 						fallback !== undefined &&
 						fallback.columns.length === 0 &&
 						fallback.searchInputs.length === 0 &&
+						fallback.listColumnOrder.length === 0 &&
+						fallback.detailColumnOrder.length === 0 &&
 						Object.keys(fallback).every(
-							(key) => key === "columns" || key === "searchInputs",
+							(key) =>
+								key === "columns" ||
+								key === "searchInputs" ||
+								key === "listColumnOrder" ||
+								key === "detailColumnOrder",
 						);
 					if (!hasOnlyRequiredEmptySlots) {
 						ctx.addIssue({
