@@ -1,4 +1,5 @@
 import type { Draft } from "immer";
+import { spliceAfter } from "@/lib/doc/mutations/sequence";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import {
 	type CaseListConfig,
@@ -29,19 +30,20 @@ import {
  * dedicated slug in the blueprint schema; `name` is the user-visible
  * identifier. The mutation's `newId` is the target display name.
  *
- * `moveModule` is order-key-aware: a new emission carries the gesture-computed
- * fractional `order` and the reducer writes it verbatim (sequence is
- * `sort-by-(order, uuid)`, so the `moduleOrder` membership array is left
- * untouched); a legacy event carrying only `toIndex` still replays as an
- * array-position move.
+ * `moveModule` splices `moduleOrder`, because that array IS the sequence.
  *
- * The collection reducers key on the item uuid so two members editing
- * different columns / inputs merge. `add` is idempotent on uuid; a column
- * `update` replaces content but PRESERVES its current generic, Results, and
- * Details order keys. New content emitters opt into preserving both visibility
- * slots too (so a stale edit cannot clobber a concurrent hide/show); legacy
- * events retain their historical full-body behavior. Each move or visibility
- * edit writes only its named surface slot and leaves membership untouched.
+ * The collection reducers key on the item uuid so two members editing different
+ * columns / inputs merge. `add` is idempotent on uuid. A column `update` no
+ * longer has to protect the column's position: place lives in the config's two
+ * ordering arrays, which a content edit never touches — so the clobbering that
+ * `preserve*` flags existed to prevent is structurally gone for order, and
+ * survives only for visibility.
+ *
+ * Case-list columns are the one collection whose sequence is not its membership
+ * array. Results and Details are two sequences over the same columns, so the
+ * config carries `listColumnOrder` and `detailColumnOrder`, and a `moveColumn`
+ * names which surface it reorders. The other is untouched, which is what lets
+ * one author reorder Results while another reorders Details.
  */
 export function applyModuleMutation(
 	draft: Draft<BlueprintDoc>,
@@ -79,16 +81,6 @@ export function applyModuleMutation(
 				const columnByUuid = new Map(
 					columns.map((column) => [column.uuid, column]),
 				);
-				for (const surfaceOrders of mut.columnSurfaceOrders ?? []) {
-					const column = columnByUuid.get(surfaceOrders.uuid);
-					if (column === undefined) continue;
-					if (surfaceOrders.listOrder !== undefined) {
-						column.listOrder = surfaceOrders.listOrder;
-					}
-					if (surfaceOrders.detailOrder !== undefined) {
-						column.detailOrder = surfaceOrders.detailOrder;
-					}
-				}
 				applyColumnTileCells(columnByUuid, mut.columnTileCells);
 			}
 			if (
@@ -121,25 +113,8 @@ export function applyModuleMutation(
 			return;
 		}
 		case "moveModule": {
-			const { uuid } = mut;
-			// New emission: write the fractional `order` verbatim; the
-			// `moduleOrder` membership array is not the authoritative sequence,
-			// so it is left untouched.
-			if (mut.order !== undefined) {
-				const mod = draft.modules[uuid];
-				if (mod) mod.order = mut.order;
-				return;
-			}
-			// Legacy replay: an array-position move (pre-`order` events).
-			if (mut.toIndex === undefined) return;
-			const from = draft.moduleOrder.indexOf(uuid);
-			if (from === -1) return;
-			draft.moduleOrder.splice(from, 1);
-			const clamped = Math.max(
-				0,
-				Math.min(mut.toIndex, draft.moduleOrder.length),
-			);
-			draft.moduleOrder.splice(clamped, 0, uuid);
+			// The membership array IS the sequence, so a move is a splice.
+			draft.moduleOrder = spliceAfter(draft.moduleOrder, mut.uuid, mut.after);
 			return;
 		}
 		case "renameModule": {
@@ -171,16 +146,6 @@ export function applyModuleMutation(
 					const columnByUuid = new Map(
 						config.columns.map((column) => [column.uuid, column]),
 					);
-					for (const surfaceOrders of mut.columnSurfaceOrders ?? []) {
-						const column = columnByUuid.get(surfaceOrders.uuid);
-						if (column === undefined) continue;
-						if (surfaceOrders.listOrder !== undefined) {
-							column.listOrder = surfaceOrders.listOrder;
-						}
-						if (surfaceOrders.detailOrder !== undefined) {
-							column.detailOrder = surfaceOrders.detailOrder;
-						}
-					}
 					applyColumnTileCells(columnByUuid, mut.columnTileCells);
 					if (mut.caseListTile !== undefined) {
 						config.tile = structuredClone(mut.caseListTile);
@@ -340,14 +305,11 @@ export function applyModuleMutation(
 			// Idempotent on uuid (a re-applied add is a no-op).
 			if (config.columns.some((c) => c.uuid === mut.column.uuid)) return;
 			const column = { ...mut.column };
-			if (mut.surfaceOrders?.listOrder !== undefined) {
-				column.listOrder = mut.surfaceOrders.listOrder;
-			}
-			if (mut.surfaceOrders?.detailOrder !== undefined) {
-				column.detailOrder = mut.surfaceOrders.detailOrder;
-			}
 			if (mut.tileCell !== undefined) column.tile = { ...mut.tileCell };
 			config.columns.push(column);
+			// The column joins BOTH sequences, at the placement each one named.
+			spliceAfter(config.listColumnOrder, mut.column.uuid, mut.afterInList);
+			spliceAfter(config.detailColumnOrder, mut.column.uuid, mut.afterInDetail);
 			return;
 		}
 		case "updateColumn": {
@@ -386,11 +348,10 @@ export function applyModuleMutation(
 			// this same event dropped the cell from its own copy, so its next content
 			// edit would arrive here cell-free. Preserving on every content update is
 			// what stops that round trip from silently un-placing a column.
+			// A content edit no longer has to protect the column's position: its
+			// place lives in the config's two ordering arrays, which this replacement
+			// never touches. That whole class of clobbering is gone with the keys.
 			const replacement = { ...mut.column, uuid: mut.uuid };
-			for (const key of ["order", "listOrder", "detailOrder"] as const) {
-				if (current[key] === undefined) delete replacement[key];
-				else replacement[key] = current[key];
-			}
 			if (current.tile === undefined) delete replacement.tile;
 			// `current` is an Immer draft, whose Proxy `structuredClone` rejects.
 			// A tile cell is a flat value object, so a shallow copy detaches it.
@@ -420,18 +381,21 @@ export function applyModuleMutation(
 		}
 		case "moveColumn": {
 			const config = draft.modules[mut.moduleUuid]?.caseListConfig;
-			const col = config?.columns.find((c) => c.uuid === mut.uuid);
-			if (col) {
-				const surfacePatch = mut.surfaceOrderPatch;
-				if (surfacePatch === undefined) {
-					// Persisted/pre-extension event: retain the historical generic move.
-					col.order = mut.order;
-					return;
-				}
-				const key =
-					surfacePatch.surface === "list" ? "listOrder" : "detailOrder";
-				if (surfacePatch.order === null) delete col[key];
-				else col[key] = surfacePatch.order;
+			if (!config) return;
+			// Only the named surface moves. The other keeps its sequence, which is
+			// what lets one author reorder Results while another reorders Details.
+			if (mut.surface === "list") {
+				config.listColumnOrder = spliceAfter(
+					config.listColumnOrder,
+					mut.uuid,
+					mut.after,
+				);
+			} else {
+				config.detailColumnOrder = spliceAfter(
+					config.detailColumnOrder,
+					mut.uuid,
+					mut.after,
+				);
 			}
 			return;
 		}

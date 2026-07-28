@@ -1,4 +1,5 @@
 import type { Draft } from "immer";
+import { spliceAfter } from "@/lib/doc/mutations/sequence";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import {
 	ownRecordValue,
@@ -207,19 +208,6 @@ const ORDER_SLOT = {
  * Idempotent on the uuid: an entity already in the sequence is moved rather
  * than duplicated, so replaying a batch twice cannot double an entry.
  */
-function spliceAfter<Id extends string>(
-	sequence: readonly Id[] | undefined,
-	uuid: Id,
-	after: Id | null | undefined,
-): Id[] {
-	const without = (sequence ?? []).filter((entry) => entry !== uuid);
-	if (after === null) return [uuid, ...without];
-	if (after === undefined) return [...without, uuid];
-	const at = without.indexOf(after);
-	if (at < 0) return [...without, uuid];
-	return [...without.slice(0, at + 1), uuid, ...without.slice(at + 1)];
-}
-
 function dropEntry(
 	draft: Draft<BlueprintDoc>,
 	slot: "userProperties" | "userTypes" | "personas",

@@ -1083,8 +1083,8 @@ function createMutationSchema({
 		z.object({
 			kind: z.literal("moveModule"),
 			uuid: uuidSchema,
-			order: z.string().optional(),
-			toIndex: z.number().int().nonnegative().optional(),
+			/** The uuid this module now follows, or `null` for first. */
+			after: uuidSchema.nullable(),
 		}),
 		z.object({
 			kind: z.literal("renameModule"),
@@ -1616,19 +1616,19 @@ function createMutationSchema({
 			.object({
 				kind: z.literal("addColumn"),
 				moduleUuid: uuidSchema,
-				// Origin/main's nested column schema is strict and predates the two
-				// surface keys, so the fallback column must remain in the old shape.
 				column: mutationColumnSchema,
-				surfaceOrders: z
-					.object({
-						listOrder: z.string().optional(),
-						detailOrder: z.string().optional(),
-					})
-					.strict()
-					.optional(),
+				/**
+				 * Where the column lands in each surface — the uuid it follows, or
+				 * `null` for first. A column belongs to BOTH sequences from birth
+				 * regardless of visibility, so both placements are required: an
+				 * absent one would mean "somewhere", which is the ambiguity this
+				 * whole model removes.
+				 */
+				afterInList: uuidSchema.nullable(),
+				afterInDetail: uuidSchema.nullable(),
 				// Placement on the tile grid for a column added into a tile-laid-out
-				// case list. Top-level for the same reason as `surfaceOrders`: origin's
-				// nested column schema is strict and predates the slot.
+				// case list. Top-level because origin's nested column schema is strict
+				// and predates the slot.
 				tileCell: tileCellSchema.optional(),
 			})
 			.superRefine((mutation, ctx) => {
@@ -1757,37 +1757,20 @@ function createMutationSchema({
 			moduleUuid: uuidSchema,
 			uuid: uuidSchema,
 		}),
-		z
-			.object({
-				kind: z.literal("moveColumn"),
-				moduleUuid: uuidSchema,
-				uuid: uuidSchema,
-				// Pre-deploy fallback: old reducers move the legacy shared order key.
-				order: z.string(),
-				// New reducers use the named surface key instead. Keeping this optional
-				// on the existing discriminator lets both old open tabs and old servers
-				// accept the payload; a string value must agree with the legacy fallback.
-				surfaceOrderPatch: z
-					.object({
-						surface: z.enum(["list", "detail"]),
-						// `null` clears the override and restores the generic fallback.
-						order: z.string().nullable(),
-					})
-					.strict()
-					.optional(),
-			})
-			.superRefine((mutation, ctx) => {
-				const semanticOrder = mutation.surfaceOrderPatch?.order;
-				if (semanticOrder === undefined || semanticOrder === null) return;
-				if (semanticOrder !== mutation.order) {
-					ctx.addIssue({
-						code: "custom",
-						path: ["order"],
-						message:
-							"The legacy column-order fallback must agree with the surface order patch.",
-					});
-				}
-			}),
+		/**
+		 * Move a column within ONE surface. Results and Details are independent
+		 * sequences, so a move names which one it is reordering; the other is
+		 * untouched, which is what lets two authors reorder the two surfaces at
+		 * once without either losing the other's change.
+		 */
+		z.object({
+			kind: z.literal("moveColumn"),
+			moduleUuid: uuidSchema,
+			uuid: uuidSchema,
+			surface: z.enum(["list", "detail"]),
+			/** The uuid this column now follows, or `null` for first. */
+			after: uuidSchema.nullable(),
+		}),
 		z.object({
 			kind: z.literal("addSearchInput"),
 			moduleUuid: uuidSchema,
