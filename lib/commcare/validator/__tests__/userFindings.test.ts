@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { buildDoc, withUserSequences } from "@/lib/__tests__/docHelpers";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { asUuid, type BlueprintDoc } from "@/lib/domain";
 import { eq, literal, sessionUserProperty } from "@/lib/domain/predicate";
@@ -28,7 +28,7 @@ function userDoc(): BlueprintDoc {
 	const roleTwoUuid = asUuid("role-two");
 	const personaOneUuid = asUuid("persona-one");
 	const personaTwoUuid = asUuid("persona-two");
-	return {
+	return withUserSequences({
 		...buildDoc(),
 		userProperties: {
 			[propertyUuid]: {
@@ -76,7 +76,7 @@ function userDoc(): BlueprintDoc {
 				values: { [propertyUuid]: "south" },
 			},
 		},
-	};
+	});
 }
 
 describe("user finding identity and scoping", () => {
@@ -84,7 +84,7 @@ describe("user finding identity and scoping", () => {
 		"rejects the XML-unsafe worker-property slug %s",
 		(slug) => {
 			const propertyUuid = asUuid(`property-${slug}`);
-			const doc: BlueprintDoc = {
+			const doc: BlueprintDoc = withUserSequences({
 				...buildDoc(),
 				userProperties: {
 					[propertyUuid]: {
@@ -93,7 +93,7 @@ describe("user finding identity and scoping", () => {
 						label: "Invalid worker information",
 					},
 				},
-			};
+			});
 
 			expect(
 				runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)
@@ -180,6 +180,9 @@ describe("user finding identity and scoping", () => {
 			{ uuid: asUuid("persona-b"), name: " amina " },
 			{ uuid: asUuid("persona-c"), name: "AMINA" },
 		] as const;
+		// `reverse` flips the RECORDS' key order while every sequence stays put:
+		// the sequence decides what the author sees, so the findings must not
+		// move when the storage map happens to enumerate the other way.
 		const make = (reverse: boolean): BlueprintDoc => ({
 			...buildDoc(),
 			userProperties: Object.fromEntries(
@@ -188,18 +191,21 @@ describe("user finding identity and scoping", () => {
 					property,
 				]),
 			),
+			userPropertyOrder: properties.map((property) => property.uuid),
 			userTypes: Object.fromEntries(
 				(reverse ? [...roles].reverse() : roles).map((role) => [
 					role.uuid,
 					role,
 				]),
 			),
+			userTypeOrder: roles.map((role) => role.uuid),
 			personas: Object.fromEntries(
 				(reverse ? [...personas].reverse() : personas).map((persona) => [
 					persona.uuid,
 					persona,
 				]),
 			),
+			personaOrder: personas.map((persona) => persona.uuid),
 		});
 		const identities = (doc: BlueprintDoc) =>
 			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)
@@ -212,63 +218,26 @@ describe("user finding identity and scoping", () => {
 				)
 				.map(errorIdentity);
 
+		// Every member of the group is reported, in the sequence the author
+		// sees them in.
 		const expected = [
-			`USER_PROPERTY_SLUG_DUPLICATE|userProperty=${properties[1].uuid}`,
-			`USER_PROPERTY_SLUG_DUPLICATE|userProperty=${properties[2].uuid}`,
-			`USER_PROPERTY_SLUG_DUPLICATE|userProperty=${properties[0].uuid}`,
-			`USER_TYPE_NAME_DUPLICATE|userType=${roles[1].uuid}`,
-			`USER_TYPE_NAME_DUPLICATE|userType=${roles[2].uuid}`,
-			`USER_TYPE_NAME_DUPLICATE|userType=${roles[0].uuid}`,
-			`PERSONA_NAME_DUPLICATE|persona=${personas[1].uuid}`,
-			`PERSONA_NAME_DUPLICATE|persona=${personas[2].uuid}`,
-			`PERSONA_NAME_DUPLICATE|persona=${personas[0].uuid}`,
+			...properties.map(
+				(property) =>
+					`USER_PROPERTY_SLUG_DUPLICATE|userProperty=${property.uuid}`,
+			),
+			...roles.map((role) => `USER_TYPE_NAME_DUPLICATE|userType=${role.uuid}`),
+			...personas.map(
+				(persona) => `PERSONA_NAME_DUPLICATE|persona=${persona.uuid}`,
+			),
 		];
 		expect(identities(make(false))).toEqual(expected);
 		expect(identities(make(true))).toEqual(expected);
 	});
 
-	it("orders legacy missing-order duplicate findings by uuid", () => {
-		const properties = [
-			{
-				uuid: asUuid("property-c"),
-				slug: "REGION",
-				label: "Region C",
-			},
-			{
-				uuid: asUuid("property-a"),
-				slug: "Region",
-				label: "Region A",
-			},
-			{
-				uuid: asUuid("property-b"),
-				slug: "region",
-				label: "Region B",
-			},
-		] as const;
-		const make = (
-			values: readonly (typeof properties)[number][],
-		): BlueprintDoc => ({
-			...buildDoc(),
-			userProperties: Object.fromEntries(
-				values.map((property) => [property.uuid, property]),
-			),
-		});
-		const identities = (doc: BlueprintDoc) =>
-			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)
-				.filter((finding) => finding.code === "USER_PROPERTY_SLUG_DUPLICATE")
-				.map(errorIdentity);
-		const expected = ["property-a", "property-b", "property-c"].map(
-			(uuid) => `USER_PROPERTY_SLUG_DUPLICATE|userProperty=${uuid}`,
-		);
-
-		expect(identities(make(properties))).toEqual(expected);
-		expect(identities(make([...properties].reverse()))).toEqual(expected);
-	});
-
 	it("requires references to resolve through own record membership", () => {
 		const roleUuid = asUuid("role");
 		const personaUuid = asUuid("persona");
-		const doc: BlueprintDoc = {
+		const doc: BlueprintDoc = withUserSequences({
 			...buildDoc(),
 			userTypes: {
 				[roleUuid]: {
@@ -284,7 +253,7 @@ describe("user finding identity and scoping", () => {
 					userTypeUuid: asUuid("constructor"),
 				},
 			},
-		};
+		});
 
 		const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(
@@ -303,7 +272,7 @@ describe("user finding identity and scoping", () => {
 
 	it("gives duplicate accepted values a stable property finding", () => {
 		const propertyUuid = asUuid("property-choices");
-		const doc: BlueprintDoc = {
+		const doc: BlueprintDoc = withUserSequences({
 			...buildDoc(),
 			userProperties: {
 				[propertyUuid]: {
@@ -313,7 +282,7 @@ describe("user finding identity and scoping", () => {
 					choices: ["north", "south", "north"],
 				},
 			},
-		};
+		});
 
 		const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
 			(finding) => finding.code === "USER_PROPERTY_CHOICES_DUPLICATE",
@@ -326,7 +295,7 @@ describe("user finding identity and scoping", () => {
 	it("does not read an inherited prototype member as a persona choice value", () => {
 		const propertyUuid = asUuid("constructor");
 		const personaUuid = asUuid("persona");
-		const doc: BlueprintDoc = {
+		const doc: BlueprintDoc = withUserSequences({
 			...buildDoc(),
 			userProperties: Object.fromEntries([
 				[
@@ -345,7 +314,7 @@ describe("user finding identity and scoping", () => {
 					name: "Asha",
 				},
 			},
-		};
+		});
 
 		expect(() => runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).not.toThrow();
 		expect(

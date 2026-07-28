@@ -32,6 +32,7 @@ import {
 	type Module,
 	plainColumn,
 	rewriteSlotValues,
+	type UserCollections,
 	type Uuid,
 	type XPathExpression,
 } from "@/lib/domain";
@@ -206,6 +207,33 @@ export function caseListConfig(
 		listColumnOrder: sequence,
 		detailColumnOrder: [...sequence],
 		searchInputs: [],
+	};
+}
+
+/**
+ * Give a doc's three user collections the ordering arrays their records imply,
+ * in whatever order the fixture wrote the record's keys.
+ *
+ * A real doc's record and its sequence cannot disagree — `assembleBlueprint`
+ * throws on exactly that — but a fixture assembles the doc by hand, so a
+ * record written without its array reads back as an EMPTY collection and the
+ * test silently exercises nothing. This is the one place to spell the pairing,
+ * so a fixture can keep writing just the records.
+ */
+export function withUserSequences<T extends UserCollections>(doc: T): T {
+	const sequenceOf = (record: Record<string, unknown> | undefined) =>
+		Object.keys(record ?? {}) as Uuid[];
+	return {
+		...doc,
+		...(doc.userProperties !== undefined && {
+			userPropertyOrder: sequenceOf(doc.userProperties),
+		}),
+		...(doc.userTypes !== undefined && {
+			userTypeOrder: sequenceOf(doc.userTypes),
+		}),
+		...(doc.personas !== undefined && {
+			personaOrder: sequenceOf(doc.personas),
+		}),
 	};
 }
 
