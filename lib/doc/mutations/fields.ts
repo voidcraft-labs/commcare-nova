@@ -190,11 +190,13 @@ export function applyFieldMutation(
 				}
 				field = parsedField.data;
 			}
-			const order = draft.fieldOrder[mut.parentUuid] ?? [];
-			const index = mut.index ?? order.length;
-			const clamped = Math.max(0, Math.min(index, order.length));
-			order.splice(clamped, 0, field.uuid);
-			draft.fieldOrder[mut.parentUuid] = order;
+			// `after` absent appends, `null` puts it first — the two are distinct
+			// so "add at the top" survives the wire, where JSON drops `undefined`.
+			draft.fieldOrder[mut.parentUuid] = spliceAfter(
+				draft.fieldOrder[mut.parentUuid] ?? [],
+				field.uuid,
+				mut.after,
+			);
 			draft.fields[field.uuid] = field;
 			// If the new field is a group/repeat, pre-seed its order slot
 			// so child insertions have a valid parent to target immediately.

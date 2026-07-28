@@ -43,6 +43,7 @@
 "use client";
 
 import { useContext, useMemo } from "react";
+import type { CaseDisplaySurface } from "@/components/builder/case-list-config/workspaceProjection";
 import {
 	type CaseTypeRetirement,
 	planCaseTypeRetirementOnRemove,
@@ -50,18 +51,13 @@ import {
 } from "@/lib/doc/caseTypeRetirement";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import type { FieldPath } from "@/lib/doc/fieldPath";
+import { fieldSlotAfter } from "@/lib/doc/fieldSlot";
 import { findRenameSiblingConflict } from "@/lib/doc/identifierVerdicts";
 import { planKindConversion } from "@/lib/doc/kindConversionCascade";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { modulePatchMutations } from "@/lib/doc/modulePatchMutations";
 import { notifyRejectedCommit } from "@/lib/doc/mutations/notify";
-import {
-	type ColumnSurface,
-	columnSurfaceMoveMutation,
-} from "@/lib/doc/order/columnSurface";
-import { orderKeyForFieldSlot } from "@/lib/doc/order/fieldSlot";
-import { keyedOptions } from "@/lib/doc/order/options";
-import { searchInputMoveMutation } from "@/lib/doc/order/searchInput";
+import { withOptionUuids } from "@/lib/doc/optionIdentity";
 import {
 	BlueprintDocContext,
 	BlueprintEditableContext,
@@ -342,7 +338,7 @@ export interface BlueprintMutations {
 	moveColumnOnSurface: (
 		moduleUuid: Uuid,
 		uuid: Uuid,
-		surface: ColumnSurface,
+		surface: CaseDisplaySurface,
 		toIndex: number,
 	) => CommitOutcome;
 	/**
@@ -682,11 +678,9 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 						return NOOP_REJECTION;
 					}
 
-					// Resolve the new field's absolute fractional `order` from the
-					// requested slot (atIndex / beforeUuid / afterUuid, default
-					// append) against the parent's DISPLAY sequence — sequence is the
-					// `order` key, not array position.
-					const fieldOrder = orderKeyForFieldSlot(doc, parentUuid, {
+					// Resolve the requested slot (atIndex / beforeUuid / afterUuid,
+					// default append) to the uuid the new field follows.
+					const fieldAfter = fieldSlotAfter(doc, parentUuid, {
 						index: opts?.atIndex,
 						beforeUuid: opts?.beforeUuid,
 						afterUuid: opts?.afterUuid,
@@ -706,18 +700,19 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 					// option, so a picker-created select (whose starter options
 					// carry neither) would lose them. Same minting the SA assembly
 					// uses.
-					const bornOptions = keyedOptions(
+					const bornOptions = withOptionUuids(
 						(field as { options?: SelectOption[] }).options,
 					);
 					// Field is a discriminated union; the narrowed generic input is a
-					// specific variant's Omit — we stamp the uuid + order and cast via
+					// specific variant's Omit — we stamp the uuid and cast via
 					// `unknown` because the distributive Omit shape doesn't round-trip
 					// back to the full union narrowly (TS limitation around Omit +
-					// discriminated unions).
+					// discriminated unions). Placement rides the mutation, not the
+					// entity: where a field goes is the gesture's business, not the
+					// field's.
 					const entity = {
 						...field,
 						uuid,
-						order: fieldOrder,
 						...(bornOptions && { options: bornOptions }),
 					} as unknown as Field;
 
@@ -734,6 +729,7 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 							kind: "addField",
 							parentUuid,
 							field: entity,
+							after: fieldAfter,
 						},
 					]);
 					if (!applied.ok) return applied;
@@ -852,11 +848,10 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 					const toParentUuid =
 						opts.toParentUuid ?? doc.fieldParent[uuid] ?? uuid;
 
-					// Compute the absolute fractional `order` for the requested slot in
-					// the destination parent's DISPLAY sequence, excluding the moved
-					// field from the neighbor set (a same-parent reorder keys between
-					// the OTHER siblings). The reducer writes it verbatim.
-					const order = orderKeyForFieldSlot(
+					// Resolve the requested slot to a landing in the destination
+					// parent's sequence, excluding the moved field from the neighbour
+					// set — a same-parent reorder places it among the OTHER siblings.
+					const after = fieldSlotAfter(
 						doc,
 						toParentUuid,
 						{
@@ -874,7 +869,7 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 					// and the Immer draft — fallback to a zeroed result so callers
 					// always see a valid `MoveFieldResult`.
 					const applied = guardedApply([
-						{ kind: "moveField", uuid, toParentUuid, order },
+						{ kind: "moveField", uuid, toParentUuid, after },
 					]);
 					if (!applied.ok) return {};
 					return (applied.results[0] as MoveFieldResult | undefined) ?? {};
@@ -972,7 +967,8 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 						doc,
 						field,
 						toKind,
-						mintOptions: () => keyedOptions([...DEFAULT_SELECT_OPTIONS]) ?? [],
+						mintOptions: () =>
+							withOptionUuids([...DEFAULT_SELECT_OPTIONS]) ?? [],
 					});
 					if (!plan.ok) {
 						const message =
@@ -1126,17 +1122,34 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 						});
 						return NOOP_REJECTION;
 					}
-					const mutation = columnSurfaceMoveMutation({
-						moduleUuid,
-						columns: config.columns,
-						surface,
-						uuid,
-						toIndex,
+					// The requested index counts the surface's VISIBLE rows, which is
+					// what the author sees; the sequence holds hidden ones too, so the
+					// landing is expressed against the full sequence.
+					const sequence =
+						surface === "list"
+							? config.listColumnOrder
+							: config.detailColumnOrder;
+					const visible = sequence.filter((columnUuid) => {
+						const column = config.columns.find((c) => c.uuid === columnUuid);
+						if (column === undefined) return false;
+						return surface === "list"
+							? column.visibleInList !== false
+							: column.visibleInDetail !== false;
 					});
-					// The row is already at the requested slot (or is omitted from this
-					// surface). No mutation means no undo/autosave entry.
-					if (mutation === undefined) return COMMITTED;
-					return toOutcome(guardedApply([mutation]));
+					const others = visible.filter((columnUuid) => columnUuid !== uuid);
+					const clamped = Math.max(0, Math.min(toIndex, others.length));
+					const after = clamped === 0 ? null : (others[clamped - 1] ?? null);
+					// Already there: no mutation, so no undo or autosave entry.
+					const currentAfter = (() => {
+						const at = sequence.indexOf(uuid);
+						return at <= 0 ? null : sequence[at - 1];
+					})();
+					if (after === currentAfter) return COMMITTED;
+					return toOutcome(
+						guardedApply([
+							{ kind: "moveColumn", moduleUuid, uuid, surface, after },
+						]),
+					);
 				},
 
 				moveSearchInputToIndex(moduleUuid, uuid, toIndex) {
@@ -1146,14 +1159,19 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 						warnUnresolved("moveSearchInputToIndex", { moduleUuid, uuid });
 						return NOOP_REJECTION;
 					}
-					const mutation = searchInputMoveMutation({
-						moduleUuid,
-						inputs,
-						uuid,
-						toIndex,
-					});
-					if (mutation === undefined) return COMMITTED;
-					return toOutcome(guardedApply([mutation]));
+					const others = inputs
+						.map((input) => input.uuid)
+						.filter((inputUuid) => inputUuid !== uuid);
+					const clamped = Math.max(0, Math.min(toIndex, others.length));
+					const after = clamped === 0 ? null : (others[clamped - 1] ?? null);
+					const at = inputs.findIndex((input) => input.uuid === uuid);
+					const currentAfter = at <= 0 ? null : inputs[at - 1].uuid;
+					if (after === currentAfter) return COMMITTED;
+					return toOutcome(
+						guardedApply([
+							{ kind: "moveSearchInput", moduleUuid, uuid, after },
+						]),
+					);
 				},
 
 				setModuleMedia(uuid, media) {

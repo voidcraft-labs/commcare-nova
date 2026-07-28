@@ -32,8 +32,8 @@ import {
 } from "@/lib/doc/expressionText";
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import { fieldIdVerdict } from "@/lib/doc/identifierVerdicts";
+import { withOptionUuids } from "@/lib/doc/optionIdentity";
 import { keyBetween, keysForSlot } from "@/lib/doc/order/keys";
-import { keyedOptions } from "@/lib/doc/order/options";
 import { declareCaseTypeMutations } from "@/lib/doc/scaffolds";
 import type { Mutation } from "@/lib/doc/types";
 import type {
@@ -382,7 +382,7 @@ export function assembleFieldMutations(
 		// A select field's born options also need identity + a sort key: the
 		// per-uuid option diff skips a keyless option, so an edit to an
 		// SA-authored option before a reload's backfill would be lost.
-		const opts = keyedOptions(
+		const opts = withOptionUuids(
 			(mut.field as { options?: SelectOption[] }).options,
 		);
 		mut.field = { ...mut.field, order, ...(opts && { options: opts }) };

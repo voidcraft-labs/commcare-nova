@@ -46,7 +46,7 @@
  */
 
 import { z } from "zod";
-import { orderKeyForFieldSlot } from "@/lib/doc/order/fieldSlot";
+import { fieldSlotAfter } from "@/lib/doc/fieldSlot";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, Field, Uuid } from "@/lib/domain";
 import { isContainer } from "@/lib/domain";
@@ -219,7 +219,7 @@ export const moveFieldTool = {
 			// of the same gesture land the same key. The moved field is
 			// excluded from the neighbor set so a same-parent reorder keys
 			// between the OTHER siblings.
-			const order = orderKeyForFieldSlot(
+			const order = fieldSlotAfter(
 				doc,
 				destParentUuid,
 				anchor

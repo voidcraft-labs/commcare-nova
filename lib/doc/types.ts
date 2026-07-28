@@ -1367,7 +1367,10 @@ function createMutationSchema({
 				// remains strict and carrier-blind. Current source intent travels in
 				// the optional top-level extension below.
 				field: carrierBlindFieldSchema,
-				index: z.number().int().nonnegative().optional(),
+				/** The sibling this field follows under `parentUuid`, or `null` for
+				 *  first. Absent appends — the common case, and distinct from `null`
+				 *  so "add at the top" stays expressible. */
+				after: uuidSchema.nullable().optional(),
 				optionsSource: lookupOptionsSourceSchema.optional(),
 			})
 			.superRefine((mutation, ctx) => {
