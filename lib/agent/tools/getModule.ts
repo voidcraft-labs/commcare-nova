@@ -28,10 +28,6 @@
 
 import { z } from "zod";
 import { countFieldsUnder, orderedFormUuids } from "@/lib/doc/fieldWalk";
-import {
-	byDetailColumnOrder,
-	byListColumnOrder,
-} from "@/lib/doc/order/compare";
 import type {
 	BlueprintDoc,
 	CaseListConfig,
@@ -141,11 +137,11 @@ export const getModuleTool = {
 				case_list_config: caseListConfig ?? null,
 				results_column_order: [...columns]
 					.filter((column) => column.visibleInList !== false)
-					.sort(byListColumnOrder)
+
 					.map((column) => column.uuid),
 				details_column_order: [...columns]
 					.filter((column) => column.visibleInDetail !== false)
-					.sort(byDetailColumnOrder)
+
 					.map((column) => column.uuid),
 				case_search_config: caseSearchConfig ?? null,
 				forms: formUuids.map((fUuid, i) => {

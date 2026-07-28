@@ -93,7 +93,6 @@ import {
 } from "../../lib/doc/expressionText";
 import { rebuildFieldParent } from "../../lib/doc/fieldParent";
 import { renameFieldIdVerdict } from "../../lib/doc/identifierVerdicts";
-import { byListColumnOrder } from "../../lib/doc/order/compare";
 import type { BlueprintDoc, Mutation, Uuid } from "../../lib/doc/types";
 import {
 	asUuid,
@@ -1297,11 +1296,8 @@ const planSortPriorityRenumber: RepairModule = (finding, doc) => {
 
 	const sorted = config.columns
 		.filter((column) => column.sort !== undefined)
-		.sort(
-			(a, b) =>
-				(a.sort?.priority ?? 0) - (b.sort?.priority ?? 0) ||
-				byListColumnOrder(a, b),
-		);
+		// Priority decides; Results position is the tie-break the author sees.
+		.sort((a, b) => (a.sort?.priority ?? 0) - (b.sort?.priority ?? 0));
 	const newPriority = new Map<Uuid, number>();
 	for (const [rank, column] of sorted.entries()) {
 		newPriority.set(column.uuid, rank);
@@ -1374,6 +1370,9 @@ const planSeedCaseNameColumn: RepairModule = (finding, doc) => {
 				caseListConfig: {
 					...(config ?? {}),
 					columns: [column],
+					// The seeded column belongs to both surfaces from birth.
+					listColumnOrder: [column.uuid],
+					detailColumnOrder: [column.uuid],
 					searchInputs: config?.searchInputs ?? [],
 				},
 			}),

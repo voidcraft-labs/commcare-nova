@@ -794,7 +794,7 @@ function useController(
 	const tileHasRoom =
 		config.tile === undefined ||
 		nextFreeTilePlacement(
-			tileMembership(config.columns).placed.map((entry) => entry.cell),
+			tileMembership(config).placed.map((entry) => entry.cell),
 		) !== null;
 	const addResultsDisabledReason =
 		addDisabledReason ?? (tileHasRoom ? undefined : TILE_FULL_REASON);
@@ -804,7 +804,7 @@ function useController(
 	 *  showing rows. */
 	const placedForResults = (column: Column): Column | null => {
 		if (config.tile === undefined) return column;
-		const place = placementForJoiningTile(config.columns, column);
+		const place = placementForJoiningTile(config, column);
 		return place === null ? null : ({ ...column, tile: place } as Column);
 	};
 
@@ -1227,9 +1227,9 @@ function useController(
 	// drawing comes back intact.
 	const tileDisabledReason = useMemo(() => {
 		if (config.tile !== undefined) return undefined;
-		const plan = planTileLayoutEnable({ moduleUuid, columns: config.columns });
+		const plan = planTileLayoutEnable({ moduleUuid, config });
 		return plan.ok ? undefined : plan.reason;
-	}, [config.columns, config.tile, moduleUuid]);
+	}, [config, moduleUuid]);
 
 	const setArrangement = useCallback(
 		(next: CaseListArrangement) => {
@@ -1237,7 +1237,7 @@ function useController(
 				if (config.tile !== undefined) return;
 				const plan = planTileLayoutEnable({
 					moduleUuid,
-					columns: config.columns,
+					config,
 				});
 				if (!plan.ok) {
 					setWorkspaceAnnouncement(plan.reason);
@@ -1263,7 +1263,7 @@ function useController(
 				);
 			}
 		},
-		[commitMany, config.columns, config.tile, moduleUuid],
+		[commitMany, config.columns, config.tile, moduleUuid, config],
 	);
 
 	const placeTileCell = useCallback(
@@ -1298,7 +1298,7 @@ function useController(
 		(uuid: Column["uuid"]) => {
 			const plan = planTilePlaceField({
 				moduleUuid,
-				columns: config.columns,
+				config,
 				uuid,
 			});
 			if (!plan.ok) {
@@ -1315,7 +1315,7 @@ function useController(
 				setSel({ type: "column", uuid });
 			}
 		},
-		[commitMany, config.columns, moduleUuid],
+		[commitMany, config.columns, moduleUuid, config],
 	);
 
 	const applyTilePreset = useCallback(
@@ -1326,7 +1326,7 @@ function useController(
 			if (preset === undefined) return;
 			const plan = planTilePreset({
 				moduleUuid,
-				columns: config.columns,
+				config,
 				preset,
 			});
 			if (!plan.ok) {
@@ -1337,7 +1337,7 @@ function useController(
 				setWorkspaceAnnouncement(`Tile rearranged as ${preset.label}`);
 			}
 		},
-		[commitMany, config.columns, moduleUuid],
+		[commitMany, config.columns, moduleUuid, config],
 	);
 
 	const setTilePersistOnForms = useCallback(
@@ -2020,7 +2020,7 @@ function resolveInspector(args: ResolveInspectorArgs): {
 						<ColumnInspectorBody
 							key={column.uuid}
 							column={column}
-							columns={config.columns}
+							config={config}
 							surface={surface}
 							visibleCount={
 								surface === "list"
@@ -2147,7 +2147,7 @@ function resolveInspector(args: ResolveInspectorArgs): {
 
 function ColumnInspectorBody({
 	column,
-	columns,
+	config,
 	surface,
 	visibleCount,
 	listVisibleCount,
@@ -2165,9 +2165,9 @@ function ColumnInspectorBody({
 	onDelete,
 }: {
 	readonly column: Column;
+	readonly config: CaseListConfig;
 	/** The whole case list — a tile placement is adjudicated against the
 	 * other fields on the tile, so the rail needs more than one column. */
-	readonly columns: readonly Column[];
 	readonly surface: CaseDisplaySurface;
 	readonly visibleCount: number;
 	readonly listVisibleCount: number;
@@ -2244,7 +2244,7 @@ function ColumnInspectorBody({
 			 * where the author has no way forward. */}
 			<TileCellInspector
 				column={column}
-				columns={columns}
+				config={config}
 				tileOn={tileOn}
 				issues={tileIssues}
 				canEdit={canEdit}

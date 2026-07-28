@@ -15,7 +15,6 @@
 
 import type { BlueprintDoc, Field, Uuid } from "@/lib/domain";
 import { isContainer, ownRecordValue } from "@/lib/domain";
-import { bySortKey } from "./order/compare";
 
 /**
  * The membership arrays (`moduleOrder` / `formOrder[m]` / `fieldOrder[p]`) are
@@ -26,30 +25,15 @@ import { bySortKey } from "./order/compare";
  * reorder, which leaves the membership array untouched, still re-sequences).
  */
 export function orderedModuleUuids(doc: BlueprintDoc): Uuid[] {
-	return [...doc.moduleOrder].sort((a, b) =>
-		bySortKey(
-			ownRecordValue(doc.modules, a) ?? {},
-			ownRecordValue(doc.modules, b) ?? {},
-		),
-	);
+	return [...doc.moduleOrder];
 }
 
 export function orderedFormUuids(doc: BlueprintDoc, moduleUuid: Uuid): Uuid[] {
-	return [...(ownRecordValue(doc.formOrder, moduleUuid) ?? [])].sort((a, b) =>
-		bySortKey(
-			ownRecordValue(doc.forms, a) ?? {},
-			ownRecordValue(doc.forms, b) ?? {},
-		),
-	);
+	return [...(ownRecordValue(doc.formOrder, moduleUuid) ?? [])];
 }
 
 export function orderedFieldUuids(doc: BlueprintDoc, parentUuid: Uuid): Uuid[] {
-	return [...(ownRecordValue(doc.fieldOrder, parentUuid) ?? [])].sort((a, b) =>
-		bySortKey(
-			ownRecordValue(doc.fields, a) ?? {},
-			ownRecordValue(doc.fields, b) ?? {},
-		),
-	);
+	return [...(ownRecordValue(doc.fieldOrder, parentUuid) ?? [])];
 }
 
 /**

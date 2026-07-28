@@ -27,7 +27,7 @@ import tablerPlus from "@iconify-icons/tabler/plus";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/shadcn/button";
 import {
-	type Column,
+	type CaseListConfig,
 	TILE_GRID_COLUMNS,
 	TILE_GRID_ROWS,
 	type TileCell,
@@ -51,7 +51,7 @@ import {
 } from "./tileModel";
 
 export interface TileGridEditorProps {
-	readonly columns: readonly Column[];
+	readonly config: CaseListConfig;
 	readonly selectedUuid: string | null;
 	/** Tile problems, keyed by field, in the words the canvas shows. */
 	readonly issues: ReadonlyMap<Uuid, readonly string[]>;
@@ -74,7 +74,7 @@ interface DragState {
 }
 
 export function TileGridEditor({
-	columns,
+	config,
 	selectedUuid,
 	issues,
 	canEdit,
@@ -98,7 +98,7 @@ export function TileGridEditor({
 			?.focus();
 	});
 
-	const { placed, unplaced } = tileMembership(columns);
+	const { placed, unplaced } = tileMembership(config);
 	// A place outside the grid can't be drawn on it — CSS would grow
 	// implicit tracks and the canvas would stop being 12 x 12. Those
 	// fields move to the attention strip below, where their reason and
@@ -111,7 +111,7 @@ export function TileGridEditor({
 	const offGrid = placed.filter((entry) => !drawable.includes(entry));
 	const drawableUuids = new Set(drawable.map((entry) => entry.uuid));
 	const extent = projectTileGrid(
-		[...columns].filter((column) => drawableUuids.has(column.uuid)),
+		config.columns.filter((column) => drawableUuids.has(column.uuid)),
 	);
 	const needsAPlace: ReadonlyArray<{
 		readonly uuid: Uuid;

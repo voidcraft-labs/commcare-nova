@@ -123,7 +123,7 @@ export function CaseListCanvas({
 	onTilePersistOnFormsChange,
 }: CaseListCanvasProps) {
 	const canEdit = useCanEdit();
-	const projection = projectCaseWorkspaceColumns(config.columns);
+	const projection = projectCaseWorkspaceColumns(config);
 	const availableProperties = unrepresentedColumnProperties(config, caseType);
 	const repeatableProperties = representedColumnProperties(config, caseType);
 	const selectedColumnUuid =
@@ -194,7 +194,7 @@ export function CaseListCanvas({
 							</div>
 						) : tile !== undefined ? (
 							<TileLayoutCanvas
-								columns={config.columns}
+								config={config}
 								tile={tile}
 								selectedUuid={selectedColumnUuid}
 								issues={tileIssues}
@@ -284,6 +284,7 @@ export function CaseListCanvas({
 
 						<div className="overflow-hidden rounded-2xl border border-white/[0.08] bg-nova-surface/20">
 							<CaseOrderingComposer
+								config={config}
 								value={config.columns}
 								caseType={caseType}
 								caseTypes={caseTypes}

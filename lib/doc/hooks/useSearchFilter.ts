@@ -24,7 +24,6 @@
 import { useMemo } from "react";
 import { type FieldPath, fpath } from "@/lib/doc/fieldPath";
 import { useBlueprintDocShallow } from "@/lib/doc/hooks/useBlueprintDoc";
-import { bySortKey } from "@/lib/doc/order/compare";
 import type { Field, Form, Module, Uuid } from "@/lib/domain";
 import type { MatchIndices } from "@/lib/filterTree";
 
@@ -131,9 +130,7 @@ export function useSearchFilter(query: string): SearchResult | null {
 		// from the sorted `useModuleIds` / `useFormIds`) look up as `m${idx}` /
 		// `f${mIdx}_${fIdx}` and `visibleModuleIndices` — align with the rendered
 		// positions, not the `moduleOrder` array order.
-		const sortedModules = [...moduleOrder].sort((a, b) =>
-			bySortKey(modules[a] ?? {}, modules[b] ?? {}),
-		);
+		const sortedModules = [...moduleOrder];
 		for (let mIdx = 0; mIdx < sortedModules.length; mIdx++) {
 			const moduleId = sortedModules[mIdx];
 			const mod = modules[moduleId];
@@ -144,9 +141,7 @@ export function useSearchFilter(query: string): SearchResult | null {
 			const modIndices = findMatchIndices(mod.name, q);
 			if (modIndices) matchMap.set(moduleKey, modIndices);
 
-			const formIds = [...(formOrder[moduleId] ?? [])].sort((a, b) =>
-				bySortKey(forms[a] ?? {}, forms[b] ?? {}),
-			);
+			const formIds = [...(formOrder[moduleId] ?? [])];
 			let moduleHasMatch = !!modIndices;
 
 			for (let fIdx = 0; fIdx < formIds.length; fIdx++) {

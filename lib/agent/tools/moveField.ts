@@ -219,7 +219,7 @@ export const moveFieldTool = {
 			// of the same gesture land the same key. The moved field is
 			// excluded from the neighbor set so a same-parent reorder keys
 			// between the OTHER siblings.
-			const order = fieldSlotAfter(
+			const after = fieldSlotAfter(
 				doc,
 				destParentUuid,
 				anchor
@@ -235,7 +235,7 @@ export const moveFieldTool = {
 					kind: "moveField",
 					uuid: moved.uuid,
 					toParentUuid: destParentUuid,
-					order,
+					after,
 				},
 			];
 			const commit = await guardedMutate(
@@ -257,7 +257,14 @@ export const moveFieldTool = {
 			const postField = newDoc.fields[moved.uuid];
 			const landedInDest =
 				newDoc.fieldOrder[destParentUuid]?.includes(moved.uuid) ?? false;
-			if (!postField || !landedInDest || postField.order !== order) {
+			// The landing is the sequence, so proving it means checking the
+			// field sits where the move asked — not that it carries a key.
+			const landedAfter = (() => {
+				const seq = newDoc.fieldOrder[destParentUuid] ?? [];
+				const at = seq.indexOf(moved.uuid);
+				return at <= 0 ? null : seq[at - 1];
+			})();
+			if (!postField || !landedInDest || landedAfter !== after) {
 				return fail(
 					`The move of "${moved.id}" didn't land: a collaborator's edit changed the form while it was in flight (the field or its destination was moved or removed). Re-read the form with getForm and re-issue against its current shape.`,
 				);

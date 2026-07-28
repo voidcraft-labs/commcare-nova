@@ -419,7 +419,6 @@ export function applyModuleMutation(
 			const freshName = current.name;
 			const fallbackName = mut.searchInput.name;
 			const desiredName = mut.renamedTo ?? fallbackName;
-			const order = current.order;
 			const replacement = structuredClone(mut.searchInput);
 			// A rename's origin-compatible row retains the old declaration name,
 			// including any self-reference in its own default/predicate. Rewrite that
@@ -446,7 +445,6 @@ export function applyModuleMutation(
 				...replacement,
 				uuid: mut.uuid,
 				name: desiredName,
-				...(order !== undefined && { order }),
 			};
 			// References to the fresh target name are identity-safe: they were rewritten
 			// when this same uuid was renamed by a peer, so always carry them forward.

@@ -170,6 +170,16 @@ export function buildCaseWorkspaceBlueprint(appId: string): BlueprintDoc {
 							{ visibleInList: false, visibleInDetail: true },
 						),
 					],
+					listColumnOrder: [
+						ids.columns.patientName,
+						ids.columns.patientId,
+						ids.columns.village,
+					],
+					detailColumnOrder: [
+						ids.columns.patientName,
+						ids.columns.patientId,
+						ids.columns.village,
+					],
 					searchInputs: [
 						simpleSearchInputDef(
 							ids.searchInputs.patientName,
@@ -281,6 +291,20 @@ export function buildCaseWorkspaceBlueprint(appId: string): BlueprintDoc {
 								tile: tileCell(0, 2, 6, 1, { fontSize: "small" }),
 							},
 						),
+					],
+					listColumnOrder: [
+						ids.columns.patientName,
+						ids.columns.patientId,
+						ids.columns.village,
+						ids.tile.columns.patientName,
+						ids.tile.columns.village,
+					],
+					detailColumnOrder: [
+						ids.columns.patientName,
+						ids.columns.patientId,
+						ids.columns.village,
+						ids.tile.columns.patientName,
+						ids.tile.columns.village,
 					],
 					searchInputs: [],
 				},

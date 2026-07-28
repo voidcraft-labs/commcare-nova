@@ -1597,6 +1597,33 @@ export function emptyCaseListConfig(): CaseListConfig {
 	};
 }
 
+/**
+ * The case list's columns in one surface's order.
+ *
+ * Results and Details are two sequences over one set of columns, so reading
+ * either means resolving that surface's array against the set. Every consumer —
+ * the wire emitters, the authoring canvases, the running preview — goes through
+ * here so no two of them can order the same screen differently.
+ *
+ * A column named by the sequence but absent from the set is skipped rather than
+ * throwing: the two disagreeing is a state `assembleBlueprint` refuses to
+ * persist, so tolerating it here would only hide it.
+ */
+export function orderedColumns(
+	config: CaseListConfig,
+	surface: "list" | "detail",
+): Column[] {
+	const sequence =
+		surface === "list" ? config.listColumnOrder : config.detailColumnOrder;
+	const byUuid = new Map(config.columns.map((column) => [column.uuid, column]));
+	const out: Column[] = [];
+	for (const uuid of sequence) {
+		const column = byUuid.get(uuid);
+		if (column !== undefined) out.push(column);
+	}
+	return out;
+}
+
 // ── CaseSearchConfig ─────────────────────────────────────────────
 //
 // Search-action configuration plus one legacy owner-availability slot:

@@ -12,11 +12,6 @@ import {
 	orderedFormUuids,
 	orderedModuleUuids,
 } from "@/lib/doc/fieldWalk";
-import {
-	byDetailColumnOrder,
-	byListColumnOrder,
-	bySortKey,
-} from "@/lib/doc/order/compare";
 import { unwrittenProperties } from "@/lib/doc/unwrittenProperties";
 import type {
 	BlueprintDoc,
@@ -133,12 +128,12 @@ function summarizeCaseList(mod: Module): string | undefined {
 			`      layout: tile${config.tile.persistOnForms === true ? " (kept above every form)" : ""}`,
 		);
 	}
-	const results = config.columns
-		.filter((column) => column.visibleInList !== false)
-		.sort(byListColumnOrder);
-	const details = config.columns
-		.filter((column) => column.visibleInDetail !== false)
-		.sort(byDetailColumnOrder);
+	const results = config.columns.filter(
+		(column) => column.visibleInList !== false,
+	);
+	const details = config.columns.filter(
+		(column) => column.visibleInDetail !== false,
+	);
 	if (results.length > 0) {
 		lines.push("      results:");
 		for (const col of results) {
@@ -161,11 +156,9 @@ function summarizeCaseList(mod: Module): string | undefined {
 	}
 	const sortedColumns = config.columns
 		.filter((column) => column.sort !== undefined)
-		.sort(
-			(a, b) =>
-				(a.sort?.priority ?? 0) - (b.sort?.priority ?? 0) ||
-				byListColumnOrder(a, b),
-		);
+		// Priority decides the order; Results position breaks a tie, which is
+		// what the author sees when two carriers share a priority.
+		.sort((a, b) => (a.sort?.priority ?? 0) - (b.sort?.priority ?? 0));
 	if (sortedColumns.length > 0) {
 		lines.push("      default_order:");
 		for (const col of sortedColumns) {
@@ -176,7 +169,7 @@ function summarizeCaseList(mod: Module): string | undefined {
 	}
 	if (config.searchInputs.length > 0) {
 		lines.push("      search_inputs:");
-		for (const input of [...config.searchInputs].sort(bySortKey)) {
+		for (const input of [...config.searchInputs]) {
 			lines.push(`        - ${formatSearchInput(input)}`);
 		}
 	}

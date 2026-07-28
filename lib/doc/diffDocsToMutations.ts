@@ -735,7 +735,6 @@ function diffCaseOperations(
 	// lets the move commit unfenced. The builder's own gesture keeps its
 	// fence: `useCaseOperations` dispatches the semantic move directly
 	// with the rank it actually requested.
-	const nextRanks = new Map<Uuid, number>();
 	const before = new Map(
 		(prev.caseOperations ?? []).map((operation) => [operation.uuid, operation]),
 	);
@@ -770,12 +769,7 @@ function diffCaseOperations(
 		const prior = before.get(uuid);
 		if (prior === undefined) continue;
 		mutations.push(
-			...caseOperationChangesForUpdate(
-				formUuid,
-				prior,
-				cloneEntity(operation),
-				nextRanks.get(uuid),
-			),
+			...caseOperationChangesForUpdate(formUuid, prior, cloneEntity(operation)),
 		);
 	}
 	return mutations;

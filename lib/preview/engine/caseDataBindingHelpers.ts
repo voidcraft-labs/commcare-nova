@@ -60,7 +60,6 @@ import {
 	lookupReferenceTargetsFromOccurrences,
 	PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
 } from "@/lib/doc/lookupReferences";
-import { byListColumnOrder } from "@/lib/doc/order/compare";
 import {
 	type BlueprintDoc,
 	type CaseListConfig,
@@ -70,6 +69,7 @@ import {
 	caseListColumnHasRuntimeRole,
 	isCaptureFieldKind,
 	orderedCaseOperations,
+	orderedColumns,
 	ownRecordValue,
 	type PersistableDoc,
 	personasOf,
@@ -674,7 +674,7 @@ function buildCaseStoreSortKeys(
 	// Results order — the same independent surface sequence the short-detail
 	// wire emitter walks, so equal-priority sort rules break ties identically
 	// without coupling the running list to Details rearrangement.
-	const sortedColumns = [...caseListConfig.columns].sort(byListColumnOrder);
+	const sortedColumns = orderedColumns(caseListConfig, "list");
 	for (let i = 0; i < sortedColumns.length; i++) {
 		const column = sortedColumns[i];
 		if (column.sort === undefined) continue;

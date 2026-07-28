@@ -40,11 +40,6 @@
 //     `PROMPT_ATTRIBUTE_MAPPINGS` table.
 
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
-import {
-	byDetailColumnOrder,
-	byListColumnOrder,
-	bySortKey,
-} from "@/lib/doc/order/compare";
 import type {
 	BlueprintDoc,
 	CaseListConfig,
@@ -581,7 +576,7 @@ function projectSearchProperties(
 	const out: CaseSearchProperty[] = [];
 	// DISPLAY order (`sort-by-(order, uuid)`) — the search prompts render in
 	// this sequence.
-	for (const input of [...searchInputs].sort(bySortKey)) {
+	for (const input of [...searchInputs]) {
 		out.push(
 			projectSearchInput(
 				input,
@@ -833,9 +828,9 @@ export function projectCaseListForHq(
 	const shortSourceColumns = hqShortSourceColumns(
 		caseListConfig?.columns ?? [],
 	);
-	const longSourceColumns = [...(caseListConfig?.columns ?? [])]
-		.filter((column) => column.visibleInDetail !== false)
-		.sort(byDetailColumnOrder);
+	const longSourceColumns = [...(caseListConfig?.columns ?? [])].filter(
+		(column) => column.visibleInDetail !== false,
+	);
 
 	const shortColumns = shortSourceColumns.map((c) =>
 		projectColumnForShortDetail(
@@ -962,11 +957,9 @@ function applyTileLayoutToShortDetail(
  * sort carriers required to retain Default order. Useless hidden definitions
  * stay out of HQ JSON just as they stay out of the direct suite. */
 function hqShortSourceColumns(columns: readonly Column[]): Column[] {
-	return columns
-		.filter(
-			(column) => column.visibleInList !== false || column.sort !== undefined,
-		)
-		.sort(byListColumnOrder);
+	return columns.filter(
+		(column) => column.visibleInList !== false || column.sort !== undefined,
+	);
 }
 
 // Re-export the per-column projection so tests can pin per-kind

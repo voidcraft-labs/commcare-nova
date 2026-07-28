@@ -10,7 +10,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { bySortKey, sameSequenceByIdentity } from "@/lib/doc/sequenceEquality";
+import { sameSequenceByIdentity } from "@/lib/doc/sequenceEquality";
 import type { Uuid } from "@/lib/doc/types";
 import type { Form, FormType, Module } from "@/lib/domain";
 import { isCaseFirstModule } from "@/lib/domain";
@@ -27,13 +27,7 @@ import {
  * unchanged.
  */
 export function useModuleIds(): Uuid[] {
-	return useBlueprintDocEq(
-		(s) =>
-			[...s.moduleOrder].sort((a, b) =>
-				bySortKey(s.modules[a] ?? {}, s.modules[b] ?? {}),
-			),
-		sameSequenceByIdentity,
-	);
+	return useBlueprintDocEq((s) => [...s.moduleOrder], sameSequenceByIdentity);
 }
 
 /** Modules in DISPLAY sequence. Reference-stable when the sequence (by entity
@@ -43,8 +37,7 @@ export function useOrderedModules(): Module[] {
 		(s) =>
 			[...s.moduleOrder]
 				.map((uuid) => s.modules[uuid])
-				.filter((m): m is Module => m !== undefined)
-				.sort(bySortKey),
+				.filter((m): m is Module => m !== undefined),
 		sameSequenceByIdentity,
 	);
 }
@@ -55,11 +48,7 @@ export function useFormIds(moduleUuid: Uuid): Uuid[] | undefined {
 	return useBlueprintDocEq(
 		(s) => {
 			const order = s.formOrder[moduleUuid];
-			return order === undefined
-				? undefined
-				: [...order].sort((a, b) =>
-						bySortKey(s.forms[a] ?? {}, s.forms[b] ?? {}),
-					);
+			return order === undefined ? undefined : [...order];
 		},
 		(a, b) =>
 			a === b ||
@@ -75,8 +64,7 @@ export function useOrderedForms(moduleUuid: Uuid): Form[] {
 		(s) =>
 			(s.formOrder[moduleUuid] ?? [])
 				.map((uuid) => s.forms[uuid])
-				.filter((f): f is Form => f !== undefined)
-				.sort(bySortKey),
+				.filter((f): f is Form => f !== undefined),
 		sameSequenceByIdentity,
 	);
 }

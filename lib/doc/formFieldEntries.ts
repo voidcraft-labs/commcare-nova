@@ -15,7 +15,6 @@ import {
 	type FieldKind,
 	type Uuid,
 } from "@/lib/domain";
-import { bySortKey } from "./order/compare";
 
 export interface FormFieldEntry {
 	readonly uuid: Uuid;
@@ -46,9 +45,7 @@ export function formFieldEntriesFor(
 ): readonly FormFieldEntry[] {
 	const found: FormFieldEntry[] = [];
 	const walk = (parent: Uuid, repeat: Uuid | undefined) => {
-		const children = [...(fieldOrder[parent] ?? [])].sort((a, b) =>
-			bySortKey(fields[a] ?? {}, fields[b] ?? {}),
-		);
+		const children = [...(fieldOrder[parent] ?? [])];
 		for (const uuid of children) {
 			const field = fields[uuid];
 			if (field === undefined) continue;

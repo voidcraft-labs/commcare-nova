@@ -59,11 +59,11 @@ import render from "dom-serializer";
 import type { Element } from "domhandler";
 import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
-import { byDetailColumnOrder } from "@/lib/doc/order/compare";
 import {
 	type BlueprintDoc,
 	effectiveCaseTypes,
 	type Module,
+	orderedColumns,
 	type Uuid,
 	userPropertySlugsByUuid,
 } from "@/lib/domain";
@@ -160,7 +160,7 @@ export function buildLongDetail(args: {
 	// independently of Results. Position is 1-based against the complete long-
 	// detail sequence, including fields hidden from this surface, because CCHQ's
 	// header-locale suffix keys off the column's position in that array.
-	const sortedColumns = [...config.columns].sort(byDetailColumnOrder);
+	const sortedColumns = orderedColumns(config, "detail");
 	for (let i = 0; i < sortedColumns.length; i++) {
 		const column = sortedColumns[i];
 		// Visibility filter: absent slot ≡ visible. The schema

@@ -7,7 +7,6 @@ import { resolveCloseFieldRef } from "@/lib/doc/expressionText";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useForm } from "@/lib/doc/hooks/useEntity";
 import { useFieldsAndOrder } from "@/lib/doc/hooks/useFieldsAndOrder";
-import { bySortKey } from "@/lib/doc/order/compare";
 import { asUuid } from "@/lib/doc/types";
 import { InlineField } from "./InlineField";
 import { SelectMenu, type SelectMenuOption } from "./SelectMenu";
@@ -81,7 +80,7 @@ export function CloseConditionSection({ formUuid }: FormSettingsSectionProps) {
 		return "options" in closeField &&
 			closeField.options &&
 			closeField.options.length > 0
-			? [...closeField.options].sort(bySortKey)
+			? [...closeField.options]
 			: undefined;
 	}, [closeField]);
 

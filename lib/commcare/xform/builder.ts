@@ -80,7 +80,6 @@ import {
 import { isCountReferencePath } from "@/lib/commcare/xform/countReference";
 import { FormPath } from "@/lib/commcare/xform/formPath";
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
-import { bySortKey } from "@/lib/doc/order/compare";
 import {
 	type BlueprintDoc,
 	type Field,
@@ -742,7 +741,7 @@ function readOptions(
 	// at the one accessor, keeps the per-option index keys consistent between
 	// the itext-registration pass and the `<item>`-emission pass — sorting only
 	// one would dangle a `<label ref>`. `order` never reaches the wire.
-	return [...(value as SelectOption[])].sort(bySortKey);
+	return [...(value as SelectOption[])];
 }
 
 /**

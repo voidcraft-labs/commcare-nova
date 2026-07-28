@@ -1,3 +1,4 @@
+import { withOptionUuids } from "@/lib/doc/optionIdentity";
 /**
  * SA tool: `editField` — update properties on an existing field.
  *
@@ -50,7 +51,6 @@ import { parseXPathForField } from "@/lib/doc/expressionText";
 import { renameFieldIdVerdict } from "@/lib/doc/identifierVerdicts";
 import { planKindConversion } from "@/lib/doc/kindConversionCascade";
 import { findContainingForm } from "@/lib/doc/mutations/helpers";
-import { reconciledOptions } from "@/lib/doc/order/options";
 import { declareCaseTypeMutations } from "@/lib/doc/scaffolds";
 import type { Mutation } from "@/lib/doc/types";
 import type {
@@ -153,7 +153,6 @@ type EditUpdatesPatch = Omit<
 function editPatchToFieldPatch(
 	updates: EditUpdatesPatch,
 	parseExpr: (text: string) => XPathExpression,
-	existingOptions: readonly SelectOption[] | undefined,
 ): FieldPatchFor<FieldKind> {
 	const patch: Record<string, unknown> = {};
 	// Plain scalars: SA passes a new value, `null` to clear, or omits to
@@ -205,9 +204,7 @@ function editPatchToFieldPatch(
 		// persist until a reload's backfill. A `null` passes through verbatim
 		// (a clear — on a kind that requires options, the commit gate rejects).
 		patch.options =
-			updates.options === null
-				? null
-				: reconciledOptions(updates.options, existingOptions);
+			updates.options === null ? null : withOptionUuids(updates.options);
 	}
 	// Nested `validate: { expr, msg? }` config. SA passes:
 	//   - object → replace; flatten back to schema's `validate` +
@@ -366,7 +363,7 @@ export const editFieldTool = {
 						};
 					}
 					const seed = seedInput;
-					mintOptions = () => reconciledOptions(seed, undefined);
+					mintOptions = () => withOptionUuids(seed) ?? [];
 					// Consumed by the convert — the patch stage must not apply
 					// it a second time against the already-seeded options.
 					delete fieldUpdates.options;
@@ -577,10 +574,8 @@ export const editFieldTool = {
 				// Expression text resolves against the doc as the patch will
 				// see it (post-convert/rename stages), scoped to the field's
 				// containing form.
-				const patch = editPatchToFieldPatch(
-					fieldUpdates,
-					(text) => parseXPathForField(workingDoc, fieldUuid, text),
-					(currentField as { options?: SelectOption[] }).options,
+				const patch = editPatchToFieldPatch(fieldUpdates, (text) =>
+					parseXPathForField(workingDoc, fieldUuid, text),
 				);
 				if (Object.keys(patch).length > 0) {
 					// Declaration chokepoint: a patch RE-TARGETING `case_property_on`

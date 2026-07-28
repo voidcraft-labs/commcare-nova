@@ -112,7 +112,6 @@ function carrierBlindCaseOperation(
 	return {
 		uuid: operation.uuid,
 		id: operation.id,
-		...(operation.order !== undefined && { order: operation.order }),
 		action: operation.action,
 		caseType: operation.caseType,
 		unavailable: {

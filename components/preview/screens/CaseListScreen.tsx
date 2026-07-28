@@ -72,10 +72,6 @@ import {
 	useOrderedForms,
 	useOrderedModules,
 } from "@/lib/doc/hooks/useModuleIds";
-import {
-	byDetailColumnOrder,
-	byListColumnOrder,
-} from "@/lib/doc/order/compare";
 import type { Uuid } from "@/lib/doc/types";
 import {
 	CASE_LOADING_FORM_TYPES,
@@ -625,9 +621,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	// Results and Details are independent compositions. Each consumes its own
 	// fractional order key (falling back to legacy `order`) so rearranging one
 	// running-app screen cannot silently rearrange the other.
-	const listOrderedColumns = [...(config?.columns ?? [])].sort(
-		byListColumnOrder,
-	);
+	const listOrderedColumns = [...(config?.columns ?? [])].sort();
 	const visibleColumns = listOrderedColumns.filter(
 		(col) => col.visibleInList ?? true,
 	);
@@ -644,9 +638,9 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	 * a config whose columns are all gone. */
 	const tileActive =
 		config?.tile !== undefined && tileProjection.cells.length > 0;
-	const detailColumns = [...(config?.columns ?? [])]
-		.sort(byDetailColumnOrder)
-		.filter((col) => col.visibleInDetail !== false);
+	const detailColumns = [...(config?.columns ?? [])].filter(
+		(col) => col.visibleInDetail !== false,
+	);
 	const queryActive = searchRun.queryActive;
 	const draftActive = searchRun.draftActive;
 	const loadedRows = state.kind === "rows" ? state.rows : [];

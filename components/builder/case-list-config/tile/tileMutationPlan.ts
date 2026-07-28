@@ -19,6 +19,7 @@
 import { columnTileMutations } from "@/lib/doc/caseListColumnMutations";
 import type { Mutation, Uuid } from "@/lib/doc/types";
 import {
+	type CaseListConfig,
 	type CaseTileLayout,
 	type Column,
 	type TileCell,
@@ -66,10 +67,10 @@ export function tileCellMutations(
  */
 export function planTileLayoutEnable(args: {
 	readonly moduleUuid: Uuid;
-	readonly columns: readonly Column[];
+	readonly config: CaseListConfig;
 }): TilePlanOutcome {
-	const { moduleUuid, columns } = args;
-	const { placed, unplaced } = tileMembership(columns);
+	const { moduleUuid, config } = args;
+	const { placed, unplaced } = tileMembership(config);
 	const memberCount = placed.length + unplaced.length;
 
 	if (memberCount === 0) {
@@ -80,7 +81,7 @@ export function planTileLayoutEnable(args: {
 		};
 	}
 
-	const byUuid = new Map(columns.map((column) => [column.uuid, column]));
+	const byUuid = new Map(config.columns.map((column) => [column.uuid, column]));
 	const mutations: Mutation[] = [];
 
 	if (placed.length === 0) {
@@ -169,11 +170,11 @@ export function planTilePersistOnForms(
  */
 export function planTilePreset(args: {
 	readonly moduleUuid: Uuid;
-	readonly columns: readonly Column[];
+	readonly config: CaseListConfig;
 	readonly preset: TilePreset;
 }): TilePlanOutcome {
-	const { moduleUuid, columns, preset } = args;
-	const members = tileMemberUuids(columns);
+	const { moduleUuid, config, preset } = args;
+	const members = tileMemberUuids(config);
 	const arrangement = preset.arrange(members.length);
 	if (arrangement === null) {
 		return {
@@ -182,7 +183,7 @@ export function planTilePreset(args: {
 		};
 	}
 
-	const byUuid = new Map(columns.map((column) => [column.uuid, column]));
+	const byUuid = new Map(config.columns.map((column) => [column.uuid, column]));
 	const mutations: Mutation[] = [];
 	for (const [uuid, geometry] of assignTileArrangement(members, arrangement)) {
 		const column = byUuid.get(uuid);
@@ -199,11 +200,11 @@ export function planTilePreset(args: {
 /** Give one field a place on the tile, in the first free space. */
 export function planTilePlaceField(args: {
 	readonly moduleUuid: Uuid;
-	readonly columns: readonly Column[];
+	readonly config: CaseListConfig;
 	readonly uuid: Uuid;
 }): TilePlanOutcome {
-	const { moduleUuid, columns, uuid } = args;
-	const column = columns.find((candidate) => candidate.uuid === uuid);
+	const { moduleUuid, config, uuid } = args;
+	const column = config.columns.find((candidate) => candidate.uuid === uuid);
 	if (column === undefined) {
 		return {
 			ok: false,
@@ -211,7 +212,7 @@ export function planTilePlaceField(args: {
 				"That field is no longer in this case list. Reopen Results to see what it shows now.",
 		};
 	}
-	const occupied = tileMembership(columns)
+	const occupied = tileMembership(config)
 		.placed.filter((entry) => entry.uuid !== uuid)
 		.map((entry) => entry.cell);
 	const free = nextFreeTilePlacement(occupied);

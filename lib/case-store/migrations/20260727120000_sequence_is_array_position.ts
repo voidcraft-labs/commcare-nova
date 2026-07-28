@@ -215,9 +215,7 @@ function migrateNested(kind: string, data: Record<string, unknown>): boolean {
 				inputs !== undefined &&
 				!alreadyMigrated(inputs as LegacySortable[])
 			) {
-				config.searchInputs = [...inputs].sort((a, b) =>
-					bySortKey(a as LegacySortable, b as LegacySortable),
-				);
+				config.searchInputs = [...inputs];
 				for (const input of config.searchInputs as Record<string, unknown>[]) {
 					stripKeys(input);
 				}
@@ -251,9 +249,7 @@ function migrateNested(kind: string, data: Record<string, unknown>): boolean {
 			options !== undefined &&
 			!alreadyMigrated(options as LegacySortable[])
 		) {
-			data.options = [...options].sort((a, b) =>
-				bySortKey(a as LegacySortable, b as LegacySortable),
-			);
+			data.options = [...options];
 			for (const option of data.options as Record<string, unknown>[]) {
 				stripKeys(option);
 			}
