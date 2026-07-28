@@ -73,7 +73,7 @@ describe("addForm", () => {
 				kind: "addForm",
 				moduleUuid: M("A"),
 				form: form_(F("2"), "B"),
-				index: 1,
+				after: F("1"),
 			});
 		});
 		expect(next.formOrder[M("A")]).toEqual([F("1"), F("2"), F("3")]);

@@ -11,7 +11,7 @@ import { BlueprintDocContext, BlueprintDocProvider } from "@/lib/doc/provider";
 import { asUuid, simpleSearchInputDef } from "@/lib/domain";
 
 describe("useBlueprintMutations.moveColumnOnSurface", () => {
-	it("one gesture commits exactly one moved column key", () => {
+	it("one gesture commits exactly one moved column", () => {
 		const initial = buildDoc({
 			caseTypes: [
 				{
@@ -87,21 +87,21 @@ describe("useBlueprintMutations.moveColumnOnSurface", () => {
 			kind: "moveColumn",
 			moduleUuid,
 			uuid: movedUuid,
-			surfaceOrderPatch: { surface: "list" },
+			surface: "list",
+			after: null,
 		});
 
-		const afterColumns =
-			after.modules[moduleUuid].caseListConfig?.columns ?? [];
-		expect([...afterColumns].sort(byListColumnOrder)[0]?.uuid).toBe(movedUuid);
+		const config = after.modules[moduleUuid].caseListConfig;
+		expect(config?.listColumnOrder[0]).toBe(movedUuid);
 		// Details did not move with Results.
-		expect(
-			[...afterColumns].sort(byDetailColumnOrder).map((c) => c.uuid),
-		).toEqual([...initialColumns].sort(byDetailColumnOrder).map((c) => c.uuid));
+		expect(config?.detailColumnOrder).toEqual(
+			initial.modules[moduleUuid].caseListConfig?.detailColumnOrder,
+		);
 	});
 });
 
 describe("useBlueprintMutations.moveSearchInputToIndex", () => {
-	it("one gesture commits exactly one moved search-field key", () => {
+	it("one gesture commits exactly one moved search field", () => {
 		const first = simpleSearchInputDef(
 			asUuid("00000000-0000-4000-8000-000000000331"),
 			"case_name",
@@ -170,7 +170,7 @@ describe("useBlueprintMutations.moveSearchInputToIndex", () => {
 			uuid: first.uuid,
 		});
 		const inputs = after.modules[moduleUuid].caseListConfig?.searchInputs ?? [];
-		expect([...inputs].sort(bySortKey).map((input) => input.uuid)).toEqual([
+		expect(inputs.map((input) => input.uuid)).toEqual([
 			second.uuid,
 			first.uuid,
 		]);

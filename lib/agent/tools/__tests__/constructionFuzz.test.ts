@@ -1165,55 +1165,28 @@ function assertIndexParity(doc: BlueprintDoc, context: string): void {
 }
 
 /**
- * The order-key invariant — the construction-side analog of the read-side
- * `orderSequenceSweep` tripwire. A doc grown from birth purely through the
- * tools has NO legacy members, so every ordered member (module, form, field,
- * case-list column, search input, select option) must carry an `order` key and
- * every option a `uuid` — a key-less member sorts ahead of its keyed siblings
- * under `bySortKey` until a reload's backfill, and a uuid-less option is
- * invisible to the per-uuid option diff. This fails LOUDLY the next time any
- * construction path forgets to mint one.
+ * The option-identity invariant. A doc grown from birth purely through the
+ * tools has NO legacy members, so every select option must carry a `uuid` — a
+ * uuid-less option is invisible to the per-uuid option diff, so an edit to it
+ * silently lands on nothing. This fails LOUDLY the next time any construction
+ * path forgets to mint one.
+ *
+ * Sequence needs no equivalent check: it is the array the member sits in, so
+ * a member that exists is a member that is placed.
  */
-function assertEveryMemberKeyed(doc: BlueprintDoc, context: string): void {
+function assertEveryOptionIdentified(doc: BlueprintDoc, context: string): void {
 	const missing: string[] = [];
-	for (const mod of Object.values(doc.modules)) {
-		if (mod.order === undefined)
-			missing.push(`module "${mod.name}" (no order)`);
-		const config = mod.caseListConfig;
-		if (!config) continue;
-		for (const col of config.columns) {
-			if (col.order === undefined) {
-				missing.push(`column ${col.uuid} on "${mod.name}" (no order)`);
-			}
-		}
-		for (const input of config.searchInputs) {
-			if (input.order === undefined) {
-				missing.push(`search input ${input.uuid} on "${mod.name}" (no order)`);
-			}
-		}
-	}
-	for (const form of Object.values(doc.forms)) {
-		if (form.order === undefined)
-			missing.push(`form "${form.name}" (no order)`);
-	}
 	for (const field of Object.values(doc.fields)) {
-		if (field.order === undefined) {
-			missing.push(`field "${field.id}" (no order)`);
-		}
-		if ("options" in field && Array.isArray(field.options)) {
-			field.options.forEach((opt, i) => {
-				if (opt.order === undefined) {
-					missing.push(`option #${i} on field "${field.id}" (no order)`);
-				}
-				if (opt.uuid === undefined) {
-					missing.push(`option #${i} on field "${field.id}" (no uuid)`);
-				}
-			});
-		}
+		if (!("options" in field) || !Array.isArray(field.options)) continue;
+		field.options.forEach((option, index) => {
+			if (option.uuid === undefined) {
+				missing.push(`option #${index} on field "${field.id}"`);
+			}
+		});
 	}
 	if (missing.length > 0) {
 		throw new Error(
-			`a tool-grown doc has an unkeyed member (${context}): ${missing.join("; ")}`,
+			`a tool-grown doc has an option with no uuid (${context}): ${missing.join("; ")}`,
 		);
 	}
 }
@@ -1671,7 +1644,7 @@ describe("construction fuzz — a tool-grown doc carries zero findings", () => {
 					assertZeroFindings(doc, "standard prelude");
 					assertIndexParity(doc, "standard prelude");
 					assertPersistedShapeParses(doc, "standard prelude");
-					assertEveryMemberKeyed(doc, "standard prelude");
+					assertEveryOptionIdentified(doc, "standard prelude");
 					for (const [i, op] of ops.entries()) {
 						const next = await applyOp(doc, ctx, op);
 						const committed = next !== doc;
@@ -1681,7 +1654,7 @@ describe("construction fuzz — a tool-grown doc carries zero findings", () => {
 						assertZeroFindings(doc, `standard op#${i} ${op.type}`);
 						assertIndexParity(doc, `standard op#${i} ${op.type}`);
 						assertPersistedShapeParses(doc, `standard op#${i} ${op.type}`);
-						assertEveryMemberKeyed(doc, `standard op#${i} ${op.type}`);
+						assertEveryOptionIdentified(doc, `standard op#${i} ${op.type}`);
 					}
 				},
 			),
@@ -1731,7 +1704,7 @@ describe("construction fuzz — a tool-grown doc carries zero findings", () => {
 					assertZeroFindings(doc, "connect prelude");
 					assertIndexParity(doc, "connect prelude");
 					assertPersistedShapeParses(doc, "connect prelude");
-					assertEveryMemberKeyed(doc, "connect prelude");
+					assertEveryOptionIdentified(doc, "connect prelude");
 					for (const [i, op] of ops.entries()) {
 						const next = await applyOp(doc, ctx, op);
 						if (next !== doc) {
@@ -1762,7 +1735,7 @@ describe("construction fuzz — a tool-grown doc carries zero findings", () => {
 						assertZeroFindings(doc, `connect op#${i} ${op.type}`);
 						assertIndexParity(doc, `connect op#${i} ${op.type}`);
 						assertPersistedShapeParses(doc, `connect op#${i} ${op.type}`);
-						assertEveryMemberKeyed(doc, `connect op#${i} ${op.type}`);
+						assertEveryOptionIdentified(doc, `connect op#${i} ${op.type}`);
 					}
 				},
 			),

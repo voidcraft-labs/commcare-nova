@@ -115,7 +115,7 @@ const NESTED = asUuid("nst0-0000-0000-0000-000000000000");
 // ── addField ─────────────────────────────────────────────────────────────────
 
 describe("after addField", () => {
-	it("top of form (index 0)", () => {
+	it("top of form (after: null)", () => {
 		const doc = buildDoc({
 			modules: [
 				{
@@ -142,7 +142,7 @@ describe("after addField", () => {
 					id: "first",
 					label: "First",
 				} as BlueprintDoc["fields"][Uuid],
-				index: 0,
+				after: null,
 			},
 		]);
 		assertFieldParentInvariants(result);
@@ -150,7 +150,7 @@ describe("after addField", () => {
 		expect(result.fieldParent[FLD_A]).toBe(formUuid);
 	});
 
-	it("end of form (no index = append)", () => {
+	it("end of form (no anchor = append)", () => {
 		const doc = buildDoc({
 			modules: [
 				{
@@ -186,7 +186,7 @@ describe("after addField", () => {
 		expect(result.fieldParent[FLD_A]).toBe(formUuid);
 	});
 
-	it("middle of form (index 1 with 2 existing fields)", () => {
+	it("middle of form (after the first of 2 existing fields)", () => {
 		const doc = buildDoc({
 			modules: [
 				{
@@ -216,7 +216,7 @@ describe("after addField", () => {
 					id: "middle",
 					label: "Middle",
 				} as BlueprintDoc["fields"][Uuid],
-				index: 1,
+				after: Object.keys(doc.fields)[0] as Uuid,
 			},
 		]);
 		assertFieldParentInvariants(result);

@@ -155,7 +155,7 @@ describe("addField", () => {
 				kind: "addField",
 				parentUuid: F("1"),
 				field: field_(Q("b"), "b"),
-				index: 1,
+				after: Q("a"),
 			});
 		});
 		expect(next.fieldOrder[F("1")]).toEqual([Q("a"), Q("b"), Q("c")]);

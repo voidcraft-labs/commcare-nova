@@ -46,7 +46,7 @@ describe("addModule", () => {
 		expect(next.modules[M("A")]?.name).toBe("A");
 	});
 
-	it("inserts at index when provided", () => {
+	it("inserts after the module it names", () => {
 		const start: BlueprintDoc = {
 			...emptyDoc(),
 			modules: {
@@ -60,7 +60,7 @@ describe("addModule", () => {
 			applyMutation(d, {
 				kind: "addModule",
 				module: module_(M("B"), "B"),
-				index: 1,
+				after: M("A"),
 			});
 		});
 		expect(next.moduleOrder).toEqual([M("A"), M("B"), M("C")]);
