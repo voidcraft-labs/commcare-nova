@@ -1,4 +1,18 @@
-// lib/doc/order/keys.ts
+// lib/lookup/orderKeys.ts
+//
+// Fractional order keys, kept for LOOKUP TABLE COLUMNS AND ROWS only.
+//
+// The blueprint used to order everything this way and no longer does — sequence
+// there is array position, and the whole apparatus that grew around these keys
+// (slot widening, ranked moves, backfill, the comparators) is gone with it.
+// Lookup data is the one place a key is still the right answer: its columns and
+// rows are persisted per-row in Postgres behind a CHECK on `order_key`, so
+// position is a stored column rather than a document array, and a fractional key
+// is what lets a row insert without renumbering its neighbours.
+//
+// It lives here rather than in `lib/doc` because `lib/lookup` is its only
+// consumer, and leaving it next to the model that abandoned it would invite a
+// blueprint surface to reach for it again.
 //
 // Total fractional-key primitives. An `order` key is a string over the
 // BASE_62 digit alphabet, compared LEXICOGRAPHICALLY, that names an

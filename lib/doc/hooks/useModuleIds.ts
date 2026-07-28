@@ -10,7 +10,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { bySortKey, sameSequenceByIdentity } from "@/lib/doc/order/compare";
+import { bySortKey, sameSequenceByIdentity } from "@/lib/doc/sequenceEquality";
 import type { Uuid } from "@/lib/doc/types";
 import type { Form, FormType, Module } from "@/lib/domain";
 import { isCaseFirstModule } from "@/lib/domain";
