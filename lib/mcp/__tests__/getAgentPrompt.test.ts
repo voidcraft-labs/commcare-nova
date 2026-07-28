@@ -39,6 +39,7 @@ import { asUuid } from "@/lib/domain";
 import { type LoadedApp, loadAppBlueprint } from "../loadApp";
 import { McpAccessError } from "../ownership";
 import { renderAgentPrompt } from "../prompts";
+import { MAX_RESULT_SIZE_CHARS } from "../resultSize";
 import { registerGetAgentPrompt } from "../tools/getAgentPrompt";
 import type { ToolContext } from "../types";
 import { makeFakeServer } from "./fakeServer";
@@ -174,6 +175,31 @@ beforeEach(() => {
 });
 
 /* --- Tests ----------------------------------------------------------- */
+
+describe("registerGetAgentPrompt — result-size declaration", () => {
+	/* The prompt is roughly an order of magnitude larger than an
+	 * ordinary tool result, and a host that applies its default cap
+	 * replaces it with a preview plus a file path. The autonomous
+	 * subagent's allowlist has no file access, so it would then build
+	 * from a fraction of its instructions and report nothing wrong —
+	 * which is exactly what happened once already. The declaration is
+	 * published at `tools/list`, never at call time, so the handler
+	 * cannot be used to prove it is there; the registration config is
+	 * the only place it is observable. */
+	it("declares a result size large enough to carry a whole prompt", () => {
+		const { server, captureConfig } = makeFakeServer();
+		registerGetAgentPrompt(server, toolCtx);
+
+		const declared = (
+			captureConfig()._meta as Record<string, unknown> | undefined
+		)?.["anthropic/maxResultSizeChars"];
+
+		expect(
+			typeof declared === "number" ? declared : 0,
+			"get_agent_prompt must declare its own result size — without it the host applies a default tuned for ordinary payloads, truncates the prompt, and the autonomous subagent has no way to recover the rest.",
+		).toBeGreaterThanOrEqual(MAX_RESULT_SIZE_CHARS);
+	});
+});
 
 describe("registerGetAgentPrompt — build modes", () => {
 	/* Build modes cover the trivial path: no `app_id`, no app load,

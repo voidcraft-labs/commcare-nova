@@ -52,6 +52,7 @@ import {
 } from "../errors";
 import { loadAppBlueprint } from "../loadApp";
 import { type PromptMode, renderAgentPrompt } from "../prompts";
+import { LARGE_RESULT_META } from "../resultSize";
 import type { ToolContext } from "../types";
 
 /**
@@ -83,7 +84,12 @@ export function registerGetAgentPrompt(
 		"get_agent_prompt",
 		{
 			description:
-				"Return the current nova-architect operating instructions for the given mode. The plugin's bootstrap subagent / skills call this as their first tool use and follow the returned text as their full system prompt for the rest of the run. Edit mode requires `app_id` so the inlined blueprint summary mirrors the web flow's edit-mode prompt at boot.",
+				"Return the current nova-architect operating instructions for the given mode. The plugin's bootstrap subagent / skills call this as their first tool use and follow the returned text as their full system prompt for the rest of the run. Edit mode requires `app_id` so the inlined blueprint summary mirrors the web flow's edit-mode prompt at boot. The returned text ends with the line `NOVA-PROMPT-END`; if yours does not, you received a partial prompt — stop and report that rather than acting on it.",
+			/* This tool returns a whole system prompt, an order of
+			 * magnitude past what a typical tool result carries, so it
+			 * declares its own size rather than inheriting a default
+			 * tuned for ordinary payloads. See `../resultSize`. */
+			_meta: LARGE_RESULT_META,
 			/* Raw-shape Zod object — `registerTool` composes the object
 			 * validator around it. Wrapping in `z.object(...)` would
 			 * register the wrong shape: `{ schema: z.object }` rather

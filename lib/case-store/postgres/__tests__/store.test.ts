@@ -1348,6 +1348,104 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 	});
 
 	// -----------------------------------------------------------
+	// The catalog read resolves `cases` through the search path
+	// -----------------------------------------------------------
+
+	it("keeps diffing when `cases` lives outside `current_schema()` (production's converged schema)", async () => {
+		// Production's privilege convergence moves `cases` into an
+		// isolated schema (`nova_case_runtime`) so the runtime role holds
+		// `CREATE` nowhere else, while every connection keeps the search
+		// path `public,<isolated>` — `public` first, so fixed/auth objects
+		// still resolve and get created there. `current_schema()` is
+		// therefore `public`, and `cases` is NOT in it.
+		//
+		// A catalog read keyed on `current_schema()` returns zero rows
+		// under that shape, which makes the live set look empty: the diff
+		// re-`CREATE`s every desired index (the second sync of a case type
+		// dies on `already exists`, and every create queued behind it is
+		// skipped) and never emits a drop. This test reproduces the
+		// production shape locally so the read stays keyed on the same
+		// search-path resolution the DDL uses.
+		const isolated = "nova_case_runtime";
+		await dbHandle.pool.query(`CREATE SCHEMA ${isolated}`);
+		await dbHandle.pool.query(
+			`ALTER TABLE public.cases SET SCHEMA ${isolated}`,
+		);
+		// Session-level for the connection in hand and database-level for
+		// any reconnect — the pool holds one connection, but an idle
+		// recycle mid-test must not silently restore the default path.
+		await dbHandle.pool.query(
+			`ALTER DATABASE ${dbHandle.databaseName} SET search_path TO public, ${isolated}`,
+		);
+		await dbHandle.pool.query(`SET search_path TO public, ${isolated}`);
+
+		// The precondition IS the scenario: assert it rather than trust
+		// the DDL above, so a future engine/helper change that leaves
+		// `cases` on `current_schema()` fails here instead of passing the
+		// whole test vacuously.
+		const placement = await dbHandle.pool.query<{
+			current: string;
+			cases_schema: string;
+		}>(
+			`SELECT current_schema() AS current,
+			        (SELECT n.nspname FROM pg_class c
+			           JOIN pg_namespace n ON n.oid = c.relnamespace
+			          WHERE c.oid = to_regclass('cases')) AS cases_schema`,
+		);
+		expect(placement.rows[0]?.current).toBe("public");
+		expect(placement.rows[0]?.cases_schema).toBe(isolated);
+
+		const store = makeStore(OWNER_A);
+		await store.applySchemaChange({
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas: buildSchemaMap({
+				name: "patient",
+				properties: [{ name: "name", label: "Name", data_type: "text" }],
+			}),
+		});
+
+		// Second sync of the SAME case type. With a blind read this throws
+		// `already exists` re-creating `name`'s index, and `age` never gets
+		// one because the create loop aborts on the first duplicate.
+		await store.applySchemaChange({
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas: buildSchemaMap({
+				name: "patient",
+				properties: [
+					{ name: "name", label: "Name", data_type: "text" },
+					{ name: "age", label: "Age", data_type: "int" },
+				],
+			}),
+		});
+		expect(
+			(await readPropertyIndexes(dbHandle.pool, APP_ID, "patient"))
+				.map((i) => i.name)
+				.sort(),
+		).toEqual([
+			idxName(APP_ID, "patient", "age", "int"),
+			idxName(APP_ID, "patient", "name", "fuzzy"),
+		]);
+
+		// The drop half of the diff: an empty live set emits no drops at
+		// all, so a removed property's index would survive forever.
+		await store.applySchemaChange({
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas: buildSchemaMap({
+				name: "patient",
+				properties: [{ name: "age", label: "Age", data_type: "int" }],
+			}),
+		});
+		expect(
+			(await readPropertyIndexes(dbHandle.pool, APP_ID, "patient")).map(
+				(i) => i.name,
+			),
+		).toEqual([idxName(APP_ID, "patient", "age", "int")]);
+	});
+
+	// -----------------------------------------------------------
 	// Additive (no-`change`) call still emits indexes
 	// -----------------------------------------------------------
 
