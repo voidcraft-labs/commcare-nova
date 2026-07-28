@@ -317,8 +317,6 @@ describe("shared read tools — dormant lookup carriers", () => {
 		expect(moduleRead.data.case_list_config).toMatchObject({
 			icon: "asset-case-list",
 			columns: [expect.objectContaining({ uuid: SAFE_COLUMN, header: "Name" })],
-			listColumnOrder: [SAFE_COLUMN],
-			detailColumnOrder: [SAFE_COLUMN],
 		});
 		expect(moduleRead.data.case_list_config?.filter).toBeUndefined();
 		expect(moduleRead.data.case_list_config?.searchInputs).toEqual([

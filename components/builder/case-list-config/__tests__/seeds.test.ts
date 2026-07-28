@@ -393,8 +393,6 @@ describe("chooser-first display fields", () => {
 					header: "Client",
 				},
 			],
-			listColumnOrder: [newUuid()],
-			detailColumnOrder: [newUuid()],
 		});
 		expect(
 			representedColumnProperties(current, appCaseType).map(

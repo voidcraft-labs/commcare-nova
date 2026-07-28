@@ -176,8 +176,6 @@ describe("buildSortDirectives — sortable-column collection", () => {
 					),
 				},
 			],
-			listColumnOrder: [asUuid("00000000-0000-4000-8000-aaaa00000001")],
-			detailColumnOrder: [asUuid("00000000-0000-4000-8000-aaaa00000001")],
 		});
 		const doc = buildDoc({
 			module: mod,
@@ -218,8 +216,6 @@ describe("buildSortDirectives — sortable-column collection", () => {
 				{ uuid: "a", column: sorted },
 				{ uuid: "b", column: unsorted },
 			],
-			listColumnOrder: ["a"],
-			detailColumnOrder: ["a"],
 		});
 		const doc = buildDoc({
 			module: mod,
@@ -263,8 +259,6 @@ describe("buildSortDirectives — priority ordering", () => {
 				{ uuid: "c", column: colC },
 				{ uuid: "a", column: colA },
 			],
-			listColumnOrder: ["b"],
-			detailColumnOrder: ["b"],
 		});
 		const doc = buildDoc({
 			module: mod,
@@ -308,8 +302,6 @@ describe("buildSortDirectives — tie-break to Results order", () => {
 				{ uuid: "a", column: colA },
 				{ uuid: "b", column: colB },
 			],
-			listColumnOrder: ["a"],
-			detailColumnOrder: ["a"],
 		});
 		const doc = buildDoc({
 			module: mod,
@@ -353,8 +345,6 @@ describe("buildSortDirectives — tie-break to Results order", () => {
 				{ uuid: "b", column: colB },
 				{ uuid: "c", column: colC },
 			],
-			listColumnOrder: ["a"],
-			detailColumnOrder: ["a"],
 		});
 		const doc = buildDoc({
 			module: mod,
@@ -400,8 +390,6 @@ describe("buildSortDirectives — tie-break to Results order", () => {
 				{ uuid: "b", column: colB },
 				{ uuid: "c", column: colC },
 			],
-			listColumnOrder: ["a"],
-			detailColumnOrder: ["a"],
 		});
 		const doc = buildDoc({
 			module: mod,
@@ -434,8 +422,6 @@ describe("buildSortDirectives — comparator type derivation", () => {
 		const mod = makeModule({
 			caseType: "patient",
 			columns: [{ uuid: "a", column: col }],
-			listColumnOrder: ["a"],
-			detailColumnOrder: ["a"],
 		});
 		const doc = buildDoc({
 			module: mod,
@@ -456,8 +442,6 @@ describe("buildSortDirectives — comparator type derivation", () => {
 		const mod = makeModule({
 			caseType: "patient",
 			columns: [{ uuid: "a", column: col }],
-			listColumnOrder: ["a"],
-			detailColumnOrder: ["a"],
 		});
 		const doc = buildDoc({
 			module: mod,
@@ -478,8 +462,6 @@ describe("buildSortDirectives — comparator type derivation", () => {
 		const mod = makeModule({
 			caseType: "patient",
 			columns: [{ uuid: "a", column: col }],
-			listColumnOrder: ["a"],
-			detailColumnOrder: ["a"],
 		});
 		const doc = buildDoc({
 			module: mod,
@@ -501,8 +483,6 @@ describe("buildSortDirectives — comparator type derivation", () => {
 		const mod = makeModule({
 			caseType: "patient",
 			columns: [{ uuid: "a", column: col }],
-			listColumnOrder: ["a"],
-			detailColumnOrder: ["a"],
 		});
 		const doc = buildDoc({
 			module: mod,
@@ -523,8 +503,6 @@ describe("buildSortDirectives — comparator type derivation", () => {
 		const mod = makeModule({
 			caseType: "patient",
 			columns: [{ uuid: "a", column: col }],
-			listColumnOrder: ["a"],
-			detailColumnOrder: ["a"],
 		});
 		const doc = buildDoc({
 			module: mod,
@@ -545,8 +523,6 @@ describe("buildSortDirectives — comparator type derivation", () => {
 		const mod = makeModule({
 			caseType: "patient",
 			columns: [{ uuid: "a", column: col }],
-			listColumnOrder: ["a"],
-			detailColumnOrder: ["a"],
 		});
 		// Doc declares no `phantom` property — the resolver returns
 		// undefined and the comparator collapses to plain.
@@ -583,8 +559,6 @@ describe("buildSortDirectives — calculated column happy path", () => {
 		const mod = makeModule({
 			caseType: "patient",
 			columns: [{ uuid: "a", column: col }],
-			listColumnOrder: ["a"],
-			detailColumnOrder: ["a"],
 		});
 		const doc = buildDoc({
 			module: mod,
@@ -608,8 +582,6 @@ describe("buildSortDirectives — calculated column happy path", () => {
 		const mod = makeModule({
 			caseType: "patient",
 			columns: [{ uuid: "a", column: col }],
-			listColumnOrder: ["a"],
-			detailColumnOrder: ["a"],
 		});
 		const doc = buildDoc({
 			module: mod,
@@ -638,8 +610,6 @@ describe("buildSortDirectives — calc fallback: undefined result type", () => {
 		const mod = makeModule({
 			caseType: "patient",
 			columns: [{ uuid: "a", column: col }],
-			listColumnOrder: ["a"],
-			detailColumnOrder: ["a"],
 		});
 		// No `phantom` property declared on the case type.
 		const doc = buildDoc({
@@ -666,8 +636,6 @@ describe("buildSortDirectives — calc fallback: ANY_TYPE result type", () => {
 		const mod = makeModule({
 			caseType: "patient",
 			columns: [{ uuid: "a", column: col }],
-			listColumnOrder: ["a"],
-			detailColumnOrder: ["a"],
 		});
 		const doc = buildDoc({
 			module: mod,
@@ -695,8 +663,6 @@ describe("buildSortDirectives — calc fallback: unmapped ResolvedType", () => {
 		const mod = makeModule({
 			caseType: "patient",
 			columns: [{ uuid: "a", column: col }],
-			listColumnOrder: ["a"],
-			detailColumnOrder: ["a"],
 		});
 		const doc = buildDoc({
 			module: mod,

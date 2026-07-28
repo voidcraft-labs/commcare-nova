@@ -188,8 +188,6 @@ describe("dateAddOnDeviceCompatibility", () => {
 					},
 				),
 			],
-			listColumnOrder: [asUuid("column-name")],
-			detailColumnOrder: [asUuid("column-name")],
 		});
 		expect(hits).toHaveLength(1);
 		expect(hits[0].details).toMatchObject({
@@ -213,8 +211,6 @@ describe("dateAddOnDeviceCompatibility", () => {
 					{ visibleInList: false, visibleInDetail: false },
 				),
 			],
-			listColumnOrder: [asUuid("column-name")],
-			detailColumnOrder: [asUuid("column-name")],
 		});
 		expect(hits).toEqual([]);
 	});

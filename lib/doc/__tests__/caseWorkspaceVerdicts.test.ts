@@ -158,8 +158,6 @@ describe("caseWorkspaceBoundaryVerdicts", () => {
 					unwrapList(term(prop("client", "tags"))),
 				),
 			],
-			listColumnOrder: [asUuid("name-column")],
-			detailColumnOrder: [asUuid("name-column")],
 		});
 
 		const verdict = caseWorkspaceBoundaryVerdicts(
@@ -184,8 +182,6 @@ describe("caseWorkspaceBoundaryVerdicts", () => {
 					idMappingEntry("", "Blank"),
 				]),
 			],
-			listColumnOrder: [asUuid("name-column")],
-			detailColumnOrder: [asUuid("name-column")],
 		});
 
 		expect(
@@ -207,8 +203,6 @@ describe("caseWorkspaceBoundaryVerdicts", () => {
 					imageMapEntry("open", "asset-b"),
 				]),
 			],
-			listColumnOrder: [asUuid("name-column")],
-			detailColumnOrder: [asUuid("name-column")],
 		});
 
 		expect(

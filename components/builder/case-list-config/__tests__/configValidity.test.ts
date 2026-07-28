@@ -378,8 +378,6 @@ describe("caseListConfigVerdicts", () => {
 				{ ...plainColumn(asUuid("c1"), "name", "Name"), tile: TOP_LEFT },
 				{ ...plainColumn(asUuid("c2"), "age", "Age"), tile: TOP_RIGHT },
 			],
-			listColumnOrder: [asUuid("c1")],
-			detailColumnOrder: [asUuid("c1")],
 		});
 		expect(v.errorAreas).toEqual(CLEAN);
 		expect(v.tileIssues.size).toBe(0);
@@ -394,8 +392,6 @@ describe("caseListConfigVerdicts", () => {
 					tile: { x: 8, y: 0, width: 6, height: 1 },
 				},
 			],
-			listColumnOrder: [asUuid("c1")],
-			detailColumnOrder: [asUuid("c1")],
 		});
 		expect(v.errorAreas).toEqual({ search: false, list: true, detail: false });
 		expect(v.tileIssues.get(asUuid("c1"))?.[0]).toContain(
@@ -413,8 +409,6 @@ describe("caseListConfigVerdicts", () => {
 					tile: { x: 8, y: 0, width: 6, height: 1 },
 				},
 			],
-			listColumnOrder: [asUuid("c1")],
-			detailColumnOrder: [asUuid("c1")],
 		});
 		expect(v.errorAreas.list).toBe(true);
 		expect(v.tileIssues.size).toBe(1);
@@ -430,8 +424,6 @@ describe("caseListConfigVerdicts", () => {
 					tile: { x: 3, y: 0, width: 6, height: 1 },
 				},
 			],
-			listColumnOrder: [asUuid("c1")],
-			detailColumnOrder: [asUuid("c1")],
 		});
 		expect([...v.tileIssues.keys()].sort()).toEqual([
 			asUuid("c1"),
@@ -448,8 +440,6 @@ describe("caseListConfigVerdicts", () => {
 					tile: { x: 8, y: 0, width: 6, height: 1 },
 				},
 			],
-			listColumnOrder: [asUuid("c1")],
-			detailColumnOrder: [asUuid("c1")],
 		});
 		expect(v.errorAreas.detail).toBe(false);
 		expect(v.brokenColumns.size).toBe(0);
@@ -481,8 +471,6 @@ describe("caseListConfigVerdicts", () => {
 					sort: { direction: "asc" as const, priority: 1 },
 				},
 			],
-			listColumnOrder: [asUuid("c1")],
-			detailColumnOrder: [asUuid("c1")],
 		});
 		expect(v.errorAreas).toEqual(CLEAN);
 		expect(v.tileIssues.size).toBe(0);
