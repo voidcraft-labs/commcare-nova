@@ -52,7 +52,6 @@
 
 import { z } from "zod";
 import { orderedModuleUuids } from "@/lib/doc/fieldWalk";
-import { sequenceOrderKeys } from "@/lib/doc/order/append";
 import type { BlueprintDoc, ConnectConfig } from "@/lib/domain";
 import { asUuid, FORM_TYPES, USER_FACING_DESTINATIONS } from "@/lib/domain";
 import { addFormMutations, addModuleMutations } from "../blueprintHelpers";
@@ -215,23 +214,25 @@ export const createModuleTool = {
 			// mutations apply. Downstream consumers that need the index read
 			// it from the post-mutation `moduleOrder`.
 			const moduleUuid = asUuid(crypto.randomUUID());
-			// Stamp each born column with a uuid AND an ascending `order` key —
-			// a member born keyless would sort ahead of (or behind) a later keyed
-			// sibling until a reload's backfill, so mint the key at construction.
-			const columnKeys = sequenceOrderKeys((case_list_columns ?? []).length);
-			const columns = (case_list_columns ?? []).map((c, i) => ({
-				...stampColumnUuid(c, newUuid()),
-				order: columnKeys[i],
-			}));
+			// Stamp each born column with a uuid. Position is the array they sit
+			// in, so writing them in order is all it takes.
+			const columns = (case_list_columns ?? []).map((c) =>
+				stampColumnUuid(c, newUuid()),
+			);
 			const mutations = [
-				...addModuleMutations(doc, {
+				...addModuleMutations({
 					uuid: moduleUuid,
 					name,
 					...(case_type && { caseType: case_type }),
 					...(case_list_only && { caseListOnly: case_list_only }),
 					...(purpose != null && { purpose }),
 					...(columns.length > 0 && {
-						caseListConfig: { columns, searchInputs: [] },
+						caseListConfig: {
+							columns,
+							listColumnOrder: columns.map((column) => column.uuid),
+							detailColumnOrder: columns.map((column) => column.uuid),
+							searchInputs: [],
+						},
 					}),
 				}),
 			];
@@ -244,11 +245,9 @@ export const createModuleTool = {
 			// same slug. No exclusion — none of this call's forms exist in the
 			// doc yet.
 			const takenConnectIds = collectConnectIds(doc);
-			// The module + all its forms land in ONE batch, so none of these
-			// forms is in `doc` yet — pre-mint a sequential `order` run here
-			// (they can't derive keys off each other) and hand each form its key.
-			const formKeys = sequenceOrderKeys((forms ?? []).length);
-			let formIdx = 0;
+			// The module + all its forms land in ONE batch. Each `addForm`
+			// appends, so emitting them in order is what orders them — they no
+			// longer need to derive keys off each other.
 			for (const formInput of forms ?? []) {
 				const formUuid = asUuid(crypto.randomUUID());
 				// Assembled BEFORE the connect block so the block's XPath
@@ -332,7 +331,6 @@ export const createModuleTool = {
 							uuid: formUuid,
 							name: formInput.name,
 							type: formInput.type,
-							order: formKeys[formIdx],
 							...(formInput.purpose != null && {
 								purpose: formInput.purpose,
 							}),
@@ -355,7 +353,6 @@ export const createModuleTool = {
 					(m) => m.kind === "addField",
 				).length;
 				skipped.push(...assembly.skipped);
-				formIdx += 1;
 			}
 
 			const commit = await guardedMutate(ctx, doc, mutations, "module:create");

@@ -45,21 +45,7 @@ import {
 	computeFieldPath,
 	findContainingForm,
 } from "@/lib/doc/mutations/helpers";
-import { sequenceOrderKeys, sortedOrderKeys } from "@/lib/doc/order/append";
-import {
-	type ColumnSurface,
-	columnSurfaceOrderMutation,
-	resolvedColumnSurfaceOrder,
-} from "@/lib/doc/order/columnSurface";
-import {
-	byDetailColumnOrder,
-	byListColumnOrder,
-} from "@/lib/doc/order/compare";
-import { keysBetween } from "@/lib/doc/order/keys";
-import {
-	formOrderKeyAtIndex,
-	moduleOrderKeyAtIndex,
-} from "@/lib/doc/scaffolds";
+import { sequenceMovesTo } from "@/lib/doc/mutations/sequence";
 import { searchInputUpdateMutation as planSearchInputUpdate } from "@/lib/doc/searchInputMutations";
 import type { Mutation } from "@/lib/doc/types";
 import type {
@@ -428,7 +414,6 @@ export interface NewModuleInput {
  *  `addField` in the reducer. Accepts an optional `index` for ordered
  *  insertion; omit to append at the end. */
 export function addModuleMutations(
-	doc: BlueprintDoc,
 	input: NewModuleInput,
 	opts?: { index?: number },
 ): Mutation[] {
@@ -444,11 +429,6 @@ export function addModuleMutations(
 		// absent so round-tripping through the store stays consistent.
 		id: input.id ?? slugifyModuleId(input.name),
 		name: input.name,
-		// A born module needs an `order` key at the requested slot (append when
-		// none) — same key the builder's `moduleOrderKeyAtIndex` mints — or an
-		// order-less SA module sorts ahead of every keyed sibling until a
-		// reload's backfill.
-		order: moduleOrderKeyAtIndex(doc, opts?.index),
 		...(input.caseType !== undefined && { caseType: input.caseType }),
 		...(input.caseListOnly !== undefined && {
 			caseListOnly: input.caseListOnly,
@@ -619,34 +599,21 @@ export function addColumnsMutation(
 	mod: Module,
 	columns: readonly Column[],
 ): CaseListMutationOk {
-	const existing = mod.caseListConfig?.columns ?? [];
-	const keys = sortedOrderKeys(existing);
-	const listKeys = [...existing]
-		.sort(byListColumnOrder)
-		.map((column) => resolvedColumnSurfaceOrder(column, "list"))
-		.filter((order): order is string => order !== undefined);
-	const detailKeys = [...existing]
-		.sort(byDetailColumnOrder)
-		.map((column) => resolvedColumnSurfaceOrder(column, "detail"))
-		.filter((order): order is string => order !== undefined);
-	// One ascending run of fractional keys after the last existing column
-	// (`hi = null` ≡ a clean append), minted in one call by the shared
-	// `keysBetween` primitive rather than a hand-rolled place-after chain.
-	const orders = keysBetween(keys.at(-1) ?? null, null, columns.length);
-	const listOrders = keysBetween(listKeys.at(-1) ?? null, null, columns.length);
-	const detailOrders = keysBetween(
-		detailKeys.at(-1) ?? null,
-		null,
-		columns.length,
-	);
-	const mutations: Mutation[] = columns.map((column, i) =>
-		columnAddMutation(mod.uuid, {
-			...column,
-			order: orders[i],
-			listOrder: listOrders[i],
-			detailOrder: detailOrders[i],
-		}),
-	);
+	const config = mod.caseListConfig;
+	// Each column appends to BOTH surfaces, after whatever the previous one in
+	// this same batch landed on. Threading the running tail is what makes a
+	// multi-column add arrive in the order it was written rather than reversed.
+	let listTail = config?.listColumnOrder.at(-1) ?? null;
+	let detailTail = config?.detailColumnOrder.at(-1) ?? null;
+	const mutations: Mutation[] = columns.map((column) => {
+		const mutation = columnAddMutation(mod.uuid, column, {
+			afterInList: listTail,
+			afterInDetail: detailTail,
+		});
+		listTail = column.uuid;
+		detailTail = column.uuid;
+		return mutation;
+	});
 	return { ok: true, mutations };
 }
 
@@ -732,7 +699,7 @@ export function removeColumnMutation(
 export function reorderColumnsMutation(
 	mod: Module,
 	order: readonly Uuid[],
-	surface: ColumnSurface,
+	surface: "list" | "detail",
 ): CaseListMutationResult {
 	const columns = mod.caseListConfig?.columns ?? [];
 	const visible = columns.filter((column) =>
@@ -746,19 +713,27 @@ export function reorderColumnsMutation(
 		`${surface === "list" ? "Results" : "Details"} field`,
 	);
 	if ("error" in op) return { error: op.error };
-	const keys = sequenceOrderKeys(order.length);
-	const visibleByUuid = new Map(visible.map((column) => [column.uuid, column]));
-	const mutations: Mutation[] = order.map((uuid, i) => {
-		const column = visibleByUuid.get(uuid);
-		if (column === undefined) {
-			throw new Error("Validated column reorder lost a visible field.");
-		}
-		return columnSurfaceOrderMutation({
+	// The request names the VISIBLE columns only, so the target sequence is the
+	// current one with those repositioned — a hidden column keeps its place
+	// rather than being shoved to the end by a reorder that never mentioned it.
+	const current =
+		surface === "list"
+			? (mod.caseListConfig?.listColumnOrder ?? [])
+			: (mod.caseListConfig?.detailColumnOrder ?? []);
+	const requested = [...order];
+	const target = current.map((uuid) =>
+		visible.some((column) => column.uuid === uuid)
+			? (requested.shift() ?? uuid)
+			: uuid,
+	);
+	const mutations: Mutation[] = sequenceMovesTo(current, target).map((move) => {
+		return {
+			kind: "moveColumn",
 			moduleUuid: mod.uuid,
-			column,
+			uuid: move.uuid,
 			surface,
-			order: keys[i],
-		});
+			after: move.after,
+		} satisfies Mutation;
 	});
 	return {
 		ok: true,
@@ -772,14 +747,11 @@ export function addSearchInputsMutation(
 	mod: Module,
 	searchInputs: readonly SearchInputDef[],
 ): CaseListMutationOk {
-	const keys = sortedOrderKeys(mod.caseListConfig?.searchInputs ?? []);
-	// One ascending run after the last existing input (`hi = null` ≡ append) —
-	// the same `keysBetween` primitive `addColumnsMutation` uses.
-	const orders = keysBetween(keys.at(-1) ?? null, null, searchInputs.length);
-	const mutations: Mutation[] = searchInputs.map((searchInput, i) => ({
+	// Each add appends, so emitting them in order lands them in order.
+	const mutations: Mutation[] = searchInputs.map((searchInput) => ({
 		kind: "addSearchInput",
 		moduleUuid: mod.uuid,
-		searchInput: { ...searchInput, order: orders[i] },
+		searchInput,
 	}));
 	if (
 		mod.caseSearchConfig === undefined ||
@@ -861,14 +833,16 @@ export function reorderSearchInputsMutation(
 		"search input",
 	);
 	if ("error" in op) return { error: op.error };
-	const keys = sequenceOrderKeys(order.length);
+	// `reorderByUuid` has already proven the request is a permutation of the
+	// current inputs, so the requested sequence IS the target.
+	const current = (mod.caseListConfig?.searchInputs ?? []).map((i) => i.uuid);
 	return {
 		ok: true,
-		mutations: order.map((uuid, i) => ({
+		mutations: sequenceMovesTo(current, order).map((move) => ({
 			kind: "moveSearchInput",
 			moduleUuid: mod.uuid,
-			uuid,
-			order: keys[i],
+			uuid: move.uuid,
+			after: move.after,
 		})),
 	};
 }
@@ -921,11 +895,6 @@ export function addFormMutations(
 		id: input.id ?? slugifyFormId(input.name),
 		name: input.name,
 		type: input.type,
-		// A born form needs an `order` key: an explicit one from a batch that
-		// pre-minted a sequential run (`createModule`), else derived at the
-		// requested slot (append) from the module's existing forms — same key
-		// the builder's `formOrderKeyAtIndex` mints.
-		order: input.order ?? formOrderKeyAtIndex(doc, moduleUuid, opts?.index),
 		...(input.purpose !== undefined && { purpose: input.purpose }),
 		...(input.closeCondition !== undefined && {
 			closeCondition: input.closeCondition,
