@@ -12,6 +12,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import { asUuid, type BlueprintDoc, plainColumn } from "@/lib/domain";
 import { removeCaseListColumnTool } from "../removeCaseListColumn";
 import { MOD_A, makeCaseListFixture } from "./fixtures";
@@ -40,10 +41,10 @@ function fixtureWithColumns(): BlueprintDoc {
 		modules: {
 			[MOD_A]: {
 				...doc.modules[MOD_A],
-				caseListConfig: {
+				caseListConfig: resolveCaseListConfig({
 					columns: [target, sibling],
 					searchInputs: [],
-				},
+				}),
 			},
 		},
 	};

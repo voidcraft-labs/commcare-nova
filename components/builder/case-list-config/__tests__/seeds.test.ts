@@ -302,12 +302,9 @@ describe("seedColumn", () => {
 });
 
 describe("chooser-first display fields", () => {
-	it.each([
-		["list", "listOrder"],
-		["detail", "detailOrder"],
-	] as const)(
-		"encodes a center-canvas %s add outside the strict nested fallback",
-		(surface, orderKey) => {
+	it.each(["list", "detail"] as const)(
+		"places a center-canvas %s add at the end of that screen",
+		(surface) => {
 			const moduleUuid = asUuid("10000000-0000-4000-8000-000000000000");
 			const seed = seedColumnForProperty(prop("case_name"));
 			const mutation = seededColumnAddMutation(
@@ -328,9 +325,12 @@ describe("chooser-first display fields", () => {
 				seed,
 			);
 
-			expect(mutation.column).not.toHaveProperty("listOrder");
-			expect(mutation.column).not.toHaveProperty("detailOrder");
-			expect(mutation.surfaceOrders?.[orderKey]).toEqual(expect.any(String));
+			const existing = asUuid("20000000-0000-4000-8000-000000000000");
+			// The add lands after the column already on that screen, and joins
+			// the other screen at its end too — a column belongs to both from
+			// birth whatever surface the author was looking at.
+			expect(mutation.afterInList).toBe(existing);
+			expect(mutation.afterInDetail).toBe(existing);
 			expect(mutationSchema.safeParse(mutation).success).toBe(true);
 		},
 	);

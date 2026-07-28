@@ -82,8 +82,8 @@ function catalogProps(
 const addField = (
 	parentUuid: Uuid,
 	field: Field,
-	index?: number,
-): Mutation => ({ kind: "addField", parentUuid, field, index });
+	after?: Uuid | null,
+): Mutation => ({ kind: "addField", parentUuid, field, after });
 
 describe("addField catalog sync", () => {
 	it("appends the (case_type, field id) pair with the kind-derived data_type on a declared type", () => {

@@ -53,7 +53,6 @@ import { emitLongDetail } from "@/lib/commcare/suite/case-list/longDetail";
 import { emitShortDetail } from "@/lib/commcare/suite/case-list/shortDetail";
 import { buildSortDirectives } from "@/lib/commcare/suite/case-list/sortKeys";
 import { runValidation } from "@/lib/commcare/validator/runner";
-import { byListColumnOrder, bySortKey } from "@/lib/doc/order/compare";
 import {
 	asUuid,
 	type BlueprintDoc,
@@ -62,10 +61,12 @@ import {
 	calculatedColumn,
 	caseListConfigSchema,
 	dateColumn,
+	emptyCaseListConfig,
 	idMappingColumn,
 	idMappingEntry,
 	intervalColumn,
 	type Module,
+	orderedColumns,
 	plainColumn,
 	rangeMode,
 	simpleSearchInputDef,
@@ -481,10 +482,14 @@ describe("SA tool path — column atomic ops", () => {
 		if ("error" in reorderResult.result) {
 			throw new Error(`reorder failed: ${reorderResult.result.error}`);
 		}
-		const reorderedColumns = collectColumns(reorderResult.newDoc).sort(
-			byListColumnOrder,
+		const reorderedColumns = orderedColumns(
+			configOf(reorderResult.newDoc),
+			"list",
 		);
-		expect(reorderedColumns.map((c) => c.uuid)).toEqual([ageUuid, nameUuid]);
+		expect(reorderedColumns.map((column) => column.uuid)).toEqual([
+			ageUuid,
+			nameUuid,
+		]);
 
 		// 5. Remove the original first column — still keyed by uuid
 		// so the address survives the prior reorder.
@@ -926,7 +931,7 @@ describe("search-input rename — orphan reference surfaces validator error", ()
 					id: "patients",
 					name: "Patients",
 					caseType: "patient",
-					caseListConfig: {
+					caseListConfig: resolveCaseListConfig({
 						columns: [
 							plainColumn(
 								asUuid("00000000-0000-4000-8000-aaaa00000001"),
@@ -945,7 +950,7 @@ describe("search-input rename — orphan reference surfaces validator error", ()
 								"name",
 							),
 						],
-					},
+					}),
 				},
 			},
 			forms: {
@@ -1132,13 +1137,13 @@ describe("sort-priority collision tie-breaks to display order at every layer", (
 				{
 					name: "Patients",
 					caseType: "patient",
-					caseListConfig: {
+					caseListConfig: resolveCaseListConfig({
 						columns: [
 							plainColumn(colFirstUuid, "case_name", "Patient"),
 							plainColumn(colSecondUuid, "age", "Age"),
 						],
 						searchInputs: [],
-					},
+					}),
 				},
 			],
 			caseTypes: [
@@ -1372,11 +1377,14 @@ describe("preview rendering (PostgresCaseStore.query against v2 caseListConfig)"
 // invoke them after each call to assert the post-mutation shape
 // without re-walking `moduleOrder` / `modules` at every site.
 
+function configOf(doc: BlueprintDoc): CaseListConfig {
+	return (
+		doc.modules[doc.moduleOrder[0]]?.caseListConfig ?? emptyCaseListConfig()
+	);
+}
+
 function collectColumns(doc: BlueprintDoc): Column[] {
-	const moduleUuid = doc.moduleOrder[0];
-	const mod = doc.modules[moduleUuid];
-	if (!mod?.caseListConfig) return [];
-	return [...mod.caseListConfig.columns].sort(bySortKey);
+	return [...configOf(doc).columns];
 }
 
 function collectSearchInputs(

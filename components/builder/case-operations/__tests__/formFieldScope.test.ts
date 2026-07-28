@@ -250,13 +250,8 @@ describe("canonical picker order", () => {
 		expect(uuids(repeatFieldDecls(entries))).toEqual([REPEAT]);
 	});
 
-	it("responds to order-key-only reorders without rewriting membership arrays", () => {
-		const reordered: BlueprintDoc["fields"] = {
-			...fields,
-			[ROOT_A]: { ...fields[ROOT_A], order: "0" },
-			[CHILD_B]: { ...fields[CHILD_B], order: "0" },
-		};
-		const entries = formFieldEntriesFor(reordered, fieldOrder, FORM);
+	it("reads the fields in the order their membership arrays hold them", () => {
+		const entries = formFieldEntriesFor(fields, fieldOrder, FORM);
 
 		expect(uuids(operationFormFieldDecls(entries, undefined))).toEqual([
 			ROOT_A,

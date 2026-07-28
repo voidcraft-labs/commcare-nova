@@ -750,6 +750,8 @@ const GUARD_COVERAGE = {
 							field: "ghost",
 							header: "Ghost",
 						},
+						afterInList: null,
+						afterInDetail: null,
 					},
 				],
 			};
@@ -810,7 +812,8 @@ const GUARD_COVERAGE = {
 						kind: "moveColumn",
 						moduleUuid: asUuid("mod-patients"),
 						uuid: col.uuid,
-						surfaceOrderPatch: { surface: "list", order: "V" },
+						surface: "list",
+						after: null,
 					},
 				],
 			};

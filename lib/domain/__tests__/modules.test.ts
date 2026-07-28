@@ -511,33 +511,6 @@ describe("Column.visibleInList / visibleInDetail — visibility flags", () => {
 	});
 });
 
-describe("Column.listOrder / detailOrder — surface order keys", () => {
-	it("round-trips both independent order keys through the shared schema", () => {
-		const input = plainColumn(u(1), "name", "Name", {});
-		const parsed = columnSchema.safeParse(input);
-		expect(parsed.success).toBe(true);
-		if (parsed.success) {
-			expect(parsed.data.listOrder).toBe("list-a");
-			expect(parsed.data.detailOrder).toBe("detail-z");
-			expect(parsed.data).toEqual(input);
-		}
-	});
-
-	it("preserves absence so consumers can fall back to legacy order", () => {
-		const parsed = columnSchema.safeParse({
-			uuid: u(1),
-			kind: "plain",
-			field: "name",
-			header: "Name",
-		});
-		expect(parsed.success).toBe(true);
-		if (parsed.success) {
-			expect(parsed.data.listOrder).toBeUndefined();
-			expect(parsed.data.detailOrder).toBeUndefined();
-		}
-	});
-});
-
 describe("Column builders — helper construction", () => {
 	it("plainColumn → schema round-trip", () => {
 		const built = plainColumn(u(1), "name", "Name");

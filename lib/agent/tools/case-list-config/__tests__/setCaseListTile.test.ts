@@ -17,6 +17,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
 	asUuid,
 	type BlueprintDoc,
@@ -55,7 +56,7 @@ function docWithColumns(columns: Column[]): {
 		modules: {
 			[MOD_A]: {
 				...baseDoc.modules[MOD_A],
-				caseListConfig: { columns, searchInputs: [] },
+				caseListConfig: resolveCaseListConfig({ columns, searchInputs: [] }),
 			} as Module,
 		},
 	};
@@ -236,12 +237,12 @@ describe("setCaseListTile", () => {
 			modules: {
 				[MOD_A]: {
 					...baseDoc.modules[MOD_A],
-					caseListConfig: {
+					caseListConfig: resolveCaseListConfig({
 						...baseDoc.modules[MOD_A].caseListConfig,
 						columns: placedColumns(),
 						searchInputs: [],
 						tile: {},
-					},
+					}),
 				} as Module,
 			},
 		};
@@ -296,11 +297,11 @@ describe("setCaseListTile", () => {
 			modules: {
 				[MOD_A]: {
 					...baseDoc.modules[MOD_A],
-					caseListConfig: {
+					caseListConfig: resolveCaseListConfig({
 						columns: placedColumns(),
 						searchInputs: [],
 						tile: { persistOnForms: true },
-					},
+					}),
 				} as Module,
 			},
 		};
@@ -359,11 +360,11 @@ describe("setCaseListTile", () => {
 			modules: {
 				[MOD_A]: {
 					...baseDoc.modules[MOD_A],
-					caseListConfig: {
+					caseListConfig: resolveCaseListConfig({
 						columns: placedColumns(),
 						searchInputs: [],
 						tile: {},
-					},
+					}),
 				} as Module,
 			},
 		};

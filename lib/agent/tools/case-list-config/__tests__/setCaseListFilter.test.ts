@@ -19,6 +19,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
 	asUuid,
 	type BlueprintDoc,
@@ -127,11 +128,11 @@ describe("setCaseListFilter", () => {
 			modules: {
 				[MOD_A]: {
 					...baseDoc.modules[MOD_A],
-					caseListConfig: {
+					caseListConfig: resolveCaseListConfig({
 						columns: [],
 						filter: matchAll(),
 						searchInputs: [],
-					},
+					}),
 				},
 			},
 		};
@@ -207,10 +208,10 @@ describe("setCaseListFilter", () => {
 			modules: {
 				[MOD_A]: {
 					...baseDoc.modules[MOD_A],
-					caseListConfig: {
+					caseListConfig: resolveCaseListConfig({
 						columns: [seededColumn],
 						searchInputs: [seededInput],
-					},
+					}),
 				},
 			},
 		};

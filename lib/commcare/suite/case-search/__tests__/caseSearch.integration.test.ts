@@ -1,3 +1,4 @@
+import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 // lib/commcare/suite/case-search/__tests__/caseSearch.integration.test.ts
 //
@@ -903,11 +904,11 @@ describe("case-search integration — platform decision tree", () => {
 		// The third branch — author intent unambiguous: filter
 		// narrows the case list and there is nothing to type. The
 		// runtime executes the search immediately on screen entry.
-		const config = {
+		const config = resolveCaseListConfig({
 			columns: [],
 			filter: eq(prop("patient", "active"), literal("yes")),
 			searchInputs: [],
-		};
+		});
 		const searchConfig = {};
 		const wire = compileForPlatform(config, searchConfig, {
 			platform: "web",

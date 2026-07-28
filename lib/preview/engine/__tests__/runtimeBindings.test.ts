@@ -33,6 +33,7 @@ import {
 	PostgresQueryCompiler,
 } from "kysely";
 import { describe, expect, it } from "vitest";
+import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import { compilePredicate, type Database } from "@/lib/case-store/sql";
 import { composeXPathQueryEmission } from "@/lib/commcare/suite/case-search/xpathQuery";
 import {
@@ -1155,10 +1156,10 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 			"text",
 			eq(prop(PATIENT, "status"), literal("active")),
 		);
-		const config = {
+		const config = resolveCaseListConfig({
 			columns: [],
 			searchInputs: [advanced],
-		} satisfies CaseListConfig;
+		}) satisfies CaseListConfig;
 
 		expect(composeRuntimeFilter([advanced], new Map(), PATIENT)).toEqual(
 			eq(prop(PATIENT, "status"), literal("active")),
@@ -1183,10 +1184,10 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 			"text",
 			"region",
 		);
-		const config = {
+		const config = resolveCaseListConfig({
 			columns: [],
 			searchInputs: [advanced, region],
-		} satisfies CaseListConfig;
+		}) satisfies CaseListConfig;
 
 		expect(
 			composeRuntimeFilter(

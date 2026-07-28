@@ -1216,7 +1216,6 @@ describe("useBlueprintMutations", () => {
 			expect(options.map((o) => o.value)).toEqual(["option_1", "option_2"]);
 			for (const opt of options) {
 				expect(opt.uuid).toBeTruthy();
-				expect(opt.order).toBeTruthy();
 			}
 		});
 

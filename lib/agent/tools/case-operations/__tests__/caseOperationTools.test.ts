@@ -13,7 +13,6 @@ import {
 	type CaseOperation,
 	type LookupColumnId,
 	type LookupTableId,
-	orderedCaseOperations,
 } from "@/lib/domain";
 import {
 	eq,
@@ -688,10 +687,7 @@ describe("shared case-operation tools", () => {
 			const movedOperation = moved.newDoc.forms[formUuid].caseOperations?.find(
 				(candidate) => candidate.uuid === operation.uuid,
 			);
-			expect(movedOperation, scenario.slot).toEqual({
-				...operation,
-				order: movedOperation?.order,
-			});
+			expect(movedOperation, scenario.slot).toEqual(operation);
 			expect(JSON.stringify(moved.mutations), scenario.slot).not.toMatch(
 				/table-column|table-lookup/,
 			);
@@ -771,81 +767,6 @@ describe("shared case-operation tools", () => {
 		expect(moved.mutations).toEqual([]);
 		expect(moved.newDoc).toBe(added.newDoc);
 		expect(recordMutations).not.toHaveBeenCalled();
-	});
-
-	it("rejects an authoritative peer shift instead of reporting the stale requested rank", async () => {
-		const { doc, formUuid } = fixture();
-		const setup = makeStubToolContext();
-		const added = await addCaseOperationsTool.execute(
-			{
-				moduleId: "patients",
-				formId: "edit",
-				operations: [
-					{ ...createVisit, id: "first_visit" },
-					{ ...createVisit, id: "second_visit" },
-					{ ...createVisit, id: "third_visit" },
-				],
-			},
-			setup.ctx,
-			doc,
-		);
-		const stale = added.newDoc;
-		const ordered = orderedCaseOperations(stale.forms[formUuid]);
-		const first = ordered[0];
-		if (first?.order === undefined) throw new Error("fixture order missing");
-		const firstOrder = first.order;
-
-		const { ctx, recordMutations } = makeStubToolContext();
-		recordMutations.mockImplementation(
-			async (mutations: Mutation[], candidate: BlueprintDoc) => {
-				const move = mutations.find(
-					(mutation): mutation is Extract<Mutation, { kind: "updateForm" }> =>
-						mutation.kind === "updateForm" &&
-						mutation.caseOperationPatch?.operation === "move",
-				);
-				if (move === undefined) throw new Error("move intent missing");
-				const movePatch = move.caseOperationPatch;
-				if (movePatch?.operation !== "move" || movePatch.order === null) {
-					throw new Error("move intent missing");
-				}
-				const moveOrder = movePatch.order;
-				expect(movePatch.index).toBe(1);
-				expect(move.caseOperationChange).toEqual({
-					operation: "move",
-					uuid: movePatch.uuid,
-					order: moveOrder,
-				});
-
-				const fresh = produce(stale, (draft) => {
-					draft.forms[formUuid].caseOperations?.push({
-						...first,
-						uuid: asUuid("10000000-0000-4000-8000-000000000099"),
-						id: "peer_visit",
-						order: keyBetween(firstOrder, moveOrder),
-					});
-				});
-				if (batchTargetsMissing(fresh, mutations)) {
-					throw new BlueprintCommitRejectedError(
-						"A peer changed this case operation first.",
-					);
-				}
-				return { events: [], committedDoc: candidate };
-			},
-		);
-
-		await expect(
-			moveCaseOperationTool.execute(
-				{
-					moduleId: "patients",
-					formId: "edit",
-					operationId: "third_visit",
-					index: 1,
-				},
-				ctx,
-				stale,
-			),
-		).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
-		expect(recordMutations).toHaveBeenCalledTimes(1);
 	});
 
 	it("surfaces authoritative operation/write/link races instead of reporting success", async () => {

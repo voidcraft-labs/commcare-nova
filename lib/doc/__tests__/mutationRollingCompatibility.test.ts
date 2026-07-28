@@ -955,7 +955,7 @@ function payloads(): {
 					searchInputs: [],
 				}),
 			},
-			1,
+			null,
 		),
 		searchEnable: enableCaseSearchMutation(MODULE, undefined),
 		searchDisable: disableUnusedCaseSearchMutation(MODULE),
@@ -983,7 +983,7 @@ function payloads(): {
 					excludedOwnerIds: OWNER_RULE,
 				},
 			},
-			2,
+			null,
 		),
 		searchSetting: onlyBatchMutation(
 			caseSearchConfigPatchMutations(
@@ -1066,7 +1066,7 @@ function payloads(): {
 					tile: { persistOnForms: true },
 				}),
 			},
-			3,
+			null,
 		),
 	};
 }

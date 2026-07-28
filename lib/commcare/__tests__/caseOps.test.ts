@@ -416,7 +416,7 @@ describe("case-operation XForm emission", () => {
 		];
 		const xml = emit(
 			[
-				createOperation({ order: "a" }),
+				createOperation(),
 				{
 					uuid: UPDATE,
 					id: "tag_each_visit",

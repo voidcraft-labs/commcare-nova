@@ -73,7 +73,7 @@ function baseDoc(field = selectField()): BlueprintDoc {
 		connectType: null,
 		caseTypes: null,
 		modules: {
-			[MODULE]: { uuid: MODULE, id: "visits", name: "Visits", order: "a0" },
+			[MODULE]: { uuid: MODULE, id: "visits", name: "Visits" },
 		},
 		forms: {
 			[FORM]: {
