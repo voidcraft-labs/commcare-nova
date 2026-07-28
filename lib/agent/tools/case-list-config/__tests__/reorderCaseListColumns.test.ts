@@ -49,8 +49,8 @@ function fixtureWithThreeColumns(): BlueprintDoc {
 						plainColumn(B, "beta", "Beta", {}),
 						plainColumn(C, "charlie", "Charlie", {}),
 					],
-					listColumnOrder: [A],
-					detailColumnOrder: [A],
+					listColumnOrder: [A, B, C],
+					detailColumnOrder: [A, B, C],
 					searchInputs: [],
 				},
 			},
@@ -62,11 +62,8 @@ describe("reorderCaseListColumns", () => {
 	it("reorders Results without changing Details or generic order", async () => {
 		const { ctx } = makeCaseListFixture();
 		const doc = fixtureWithThreeColumns();
-		const before = doc.modules[MOD_A]?.caseListConfig?.columns ?? [];
-		const genericBefore = [...before].sort(bySortKey).map((c) => c.uuid);
-		const detailsBefore = [...before]
-			.sort(byDetailColumnOrder)
-			.map((c) => c.uuid);
+		const detailsBefore =
+			doc.modules[MOD_A]?.caseListConfig?.detailColumnOrder ?? [];
 
 		const result = await reorderCaseListColumnsTool.execute(
 			{ moduleIndex: 0, surface: "results", columnUuids: [C, A, B] },
@@ -74,16 +71,9 @@ describe("reorderCaseListColumns", () => {
 			doc,
 		);
 
-		const cols = result.newDoc.modules[MOD_A]?.caseListConfig?.columns ?? [];
-		expect([...cols].sort(bySortKey).map((c) => c.uuid)).toEqual(genericBefore);
-		expect([...cols].sort(byListColumnOrder).map((c) => c.uuid)).toEqual([
-			C,
-			A,
-			B,
-		]);
-		expect([...cols].sort(byDetailColumnOrder).map((c) => c.uuid)).toEqual(
-			detailsBefore,
-		);
+		const config = result.newDoc.modules[MOD_A]?.caseListConfig;
+		expect(config?.listColumnOrder).toEqual([C, A, B]);
+		expect(config?.detailColumnOrder).toEqual(detailsBefore);
 		expect(result.mutations).toHaveLength(3);
 		expect(result.mutations.map((mutation) => mutation.kind)).toEqual([
 			"moveColumn",
@@ -91,36 +81,23 @@ describe("reorderCaseListColumns", () => {
 			"moveColumn",
 		]);
 		expect(result.mutations).toEqual(
-			expect.arrayContaining([
-				expect.objectContaining({
-					surfaceOrderPatch: expect.objectContaining({ surface: "list" }),
-				}),
-			]),
+			expect.arrayContaining([expect.objectContaining({ surface: "list" })]),
 		);
 	});
 
 	it("reorders Details without changing Results", async () => {
 		const { ctx } = makeCaseListFixture();
 		const doc = fixtureWithThreeColumns();
-		const resultsBefore = [
-			...(doc.modules[MOD_A]?.caseListConfig?.columns ?? []),
-		]
-			.sort(byListColumnOrder)
-			.map((column) => column.uuid);
+		const resultsBefore =
+			doc.modules[MOD_A]?.caseListConfig?.listColumnOrder ?? [];
 		const result = await reorderCaseListColumnsTool.execute(
 			{ moduleIndex: 0, surface: "details", columnUuids: [B, C, A] },
 			ctx,
 			doc,
 		);
-		const cols = result.newDoc.modules[MOD_A]?.caseListConfig?.columns ?? [];
-		expect([...cols].sort(byDetailColumnOrder).map((c) => c.uuid)).toEqual([
-			B,
-			C,
-			A,
-		]);
-		expect([...cols].sort(byListColumnOrder).map((c) => c.uuid)).toEqual(
-			resultsBefore,
-		);
+		const config = result.newDoc.modules[MOD_A]?.caseListConfig;
+		expect(config?.detailColumnOrder).toEqual([B, C, A]);
+		expect(config?.listColumnOrder).toEqual(resultsBefore);
 	});
 
 	it("returns the new order in the structured result and the message", async () => {

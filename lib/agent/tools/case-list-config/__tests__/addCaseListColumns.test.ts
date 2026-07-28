@@ -230,13 +230,9 @@ describe("addCaseListColumns", () => {
 			(column) => column.uuid !== first.uuid && column.uuid !== second.uuid,
 		);
 
-		expect([...columns].sort(bySortKey).at(-1)?.uuid).toBe(added?.uuid);
-		expect([...columns].sort(byListColumnOrder).at(-1)?.uuid).toBe(added?.uuid);
-		expect([...columns].sort(byDetailColumnOrder).at(-1)?.uuid).toBe(
-			added?.uuid,
-		);
-		expect(added?.listOrder).toBeTruthy();
-		expect(added?.detailOrder).toBeTruthy();
+		const config = result.newDoc.modules[MOD_A]?.caseListConfig;
+		expect(config?.listColumnOrder.at(-1)).toBe(added?.uuid);
+		expect(config?.detailColumnOrder.at(-1)).toBe(added?.uuid);
 	});
 
 	it("round-trips every Column kind without corruption", async () => {
