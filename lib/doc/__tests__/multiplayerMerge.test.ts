@@ -2596,6 +2596,7 @@ describe("user-data value multiplayer convergence", () => {
 					label: "Cadre",
 				},
 			},
+			userPropertyOrder: [propertyA, propertyB],
 			userTypes: {
 				[roleUuid]: {
 					uuid: roleUuid,
@@ -2603,6 +2604,7 @@ describe("user-data value multiplayer convergence", () => {
 					values: { [propertyA]: "north", [propertyB]: "community" },
 				},
 			},
+			userTypeOrder: [roleUuid],
 		};
 		const left = apply(
 			base,

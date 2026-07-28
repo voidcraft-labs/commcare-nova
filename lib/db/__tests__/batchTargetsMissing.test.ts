@@ -751,42 +751,6 @@ describe("batchTargetsMissing — case-operation logical identities", () => {
 		).toBe(true);
 	});
 
-	it("rejects a move whose fractional key no longer lands at its requested rank", () => {
-		const { doc, formUuid } = fixture();
-		const first = operationIn(doc, formUuid);
-		const second: CaseOperation = {
-			...first,
-			uuid: OTHER_OPERATION,
-			id: "second",
-		};
-		doc.forms[formUuid].caseOperations = [first, second];
-		const move: Mutation = {
-			kind: "updateForm",
-			uuid: asUuid(formUuid),
-			patch: {},
-			caseOperationChange: {
-				operation: "move",
-				uuid: OPERATION,
-				after: OTHER_OPERATION,
-			},
-			caseOperationPatch: {
-				operation: "move",
-				uuid: OPERATION,
-				after: OTHER_OPERATION,
-			},
-		};
-
-		expect(batchTargetsMissing(doc, [move])).toBe(false);
-
-		const fresh = structuredClone(doc);
-		fresh.forms[formUuid].caseOperations?.push({
-			...first,
-			uuid: asUuid("33333333-3333-4333-8333-333333333333"),
-			id: "peer",
-		});
-		expect(batchTargetsMissing(fresh, [move])).toBe(true);
-	});
-
 	it("accepts a move whose anchor is only born later in the same batch", () => {
 		const { doc, formUuid } = fixture();
 		const first = operationIn(doc, formUuid);

@@ -637,6 +637,9 @@ describe("case-list repairs", () => {
 					sort: { direction: "desc", priority: 1 },
 				}),
 			],
+			// Results shows Village above Name; storage holds them the other way.
+			listColumnOrder: [asUuid("col-b"), asUuid("col-a")],
+			detailColumnOrder: [asUuid("col-a"), asUuid("col-b")],
 			searchInputs: [],
 		});
 		const outcome = expectRepaired(doc, "CASE_LIST_DUPLICATE_SORT_PRIORITY");

@@ -164,10 +164,13 @@ describe("useBlueprintMutations.moveSearchInputToIndex", () => {
 		if (after === undefined) throw new Error("store missing after move");
 		const diff = diffDocsToMutations(before, after);
 		expect(diff).toHaveLength(1);
+		// Moving the first input down is the same arrangement as moving the
+		// second one up, and the diff derives the shorter of the two.
 		expect(diff[0]).toMatchObject({
 			kind: "moveSearchInput",
 			moduleUuid,
-			uuid: first.uuid,
+			uuid: second.uuid,
+			after: null,
 		});
 		const inputs = after.modules[moduleUuid].caseListConfig?.searchInputs ?? [];
 		expect(inputs.map((input) => input.uuid)).toEqual([
