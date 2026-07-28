@@ -176,7 +176,19 @@ function asRecordArray(value: unknown): Record<string, unknown>[] | undefined {
  * Rewrite one entity's nested collections in place. Returns true when anything
  * changed, so the caller can write only the rows that need it.
  */
-function migrateNested(kind: string, data: Record<string, unknown>): boolean {
+/**
+ * Migrate one entity's NESTED collections in place, returning whether anything
+ * changed.
+ *
+ * Exported so a test can drive the code that actually runs rather than the scan
+ * oracle beside it: the two answer different questions, and a config whose
+ * columns were never keyed is invisible to the oracle while being exactly the
+ * case this has to get right.
+ */
+export function migrateNested(
+	kind: string,
+	data: Record<string, unknown>,
+): boolean {
 	let changed = false;
 
 	if (data.order !== undefined) {
@@ -188,25 +200,26 @@ function migrateNested(kind: string, data: Record<string, unknown>): boolean {
 		const config = data.caseListConfig as Record<string, unknown> | undefined;
 		if (config !== undefined && config !== null) {
 			const columns = asRecordArray(config.columns);
-			if (
-				columns !== undefined &&
-				config.listColumnOrder === undefined &&
-				!alreadyMigrated(columns as LegacyColumn[], [
+			// Absent arrays are the migration signal, NOT the presence of legacy
+			// keys: a config whose columns were never keyed still has to be given
+			// its two sequences, and its written array order IS that sequence.
+			// Sorting is what depends on the keys — comparators that tie on uuid
+			// would otherwise re-sort a keyless config into uuid order.
+			if (columns !== undefined && config.listColumnOrder === undefined) {
+				const keyed = !alreadyMigrated(columns as LegacyColumn[], [
 					"order",
 					"listOrder",
 					"detailOrder",
-				])
-			) {
-				config.listColumnOrder = [...columns]
-					.sort((a, b) =>
-						byColumnOrder(a as LegacyColumn, b as LegacyColumn, "listOrder"),
-					)
-					.map((c) => c.uuid);
-				config.detailColumnOrder = [...columns]
-					.sort((a, b) =>
-						byColumnOrder(a as LegacyColumn, b as LegacyColumn, "detailOrder"),
-					)
-					.map((c) => c.uuid);
+				]);
+				const inSurfaceOrder = (surface: "listOrder" | "detailOrder") =>
+					(keyed
+						? [...columns].sort((a, b) =>
+								byColumnOrder(a as LegacyColumn, b as LegacyColumn, surface),
+							)
+						: columns
+					).map((c) => c.uuid);
+				config.listColumnOrder = inSurfaceOrder("listOrder");
+				config.detailColumnOrder = inSurfaceOrder("detailOrder");
 				for (const column of columns) stripKeys(column);
 				changed = true;
 			}

@@ -15,6 +15,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+	migrateNested,
 	type StoredEntityRow,
 	sequencesFromStoredRows,
 } from "../20260727120000_sequence_is_array_position";
@@ -152,6 +153,39 @@ describe("sequencesFromStoredRows", () => {
 			{ sorted: true },
 		);
 		expect(seq.get("columns:list:m")).toEqual(["c2", "c1"]);
+	});
+
+	it("gives a NEVER-KEYED config its two sequences, in written order", () => {
+		// The columns carry no legacy key at all — an app whose case list was
+		// authored after keys stopped being minted. It still needs both
+		// sequences, and its array order is what the author sees, so nothing
+		// sorts. Skipping it (the "already migrated" reading) leaves a config
+		// the new schema cannot parse.
+		const data: Record<string, unknown> = {
+			caseListConfig: {
+				columns: [{ uuid: "c2" }, { uuid: "c1" }],
+				searchInputs: [],
+			},
+		};
+		expect(migrateNested("module", data)).toBe(true);
+		expect(data.caseListConfig).toMatchObject({
+			listColumnOrder: ["c2", "c1"],
+			detailColumnOrder: ["c2", "c1"],
+		});
+	});
+
+	it("leaves a config that already holds its sequences alone", () => {
+		const config = {
+			columns: [{ uuid: "c1" }, { uuid: "c2" }],
+			listColumnOrder: ["c2", "c1"],
+			detailColumnOrder: ["c1", "c2"],
+			searchInputs: [],
+		};
+		const data: Record<string, unknown> = {
+			caseListConfig: structuredClone(config),
+		};
+		expect(migrateNested("module", data)).toBe(false);
+		expect(data.caseListConfig).toEqual(config);
 	});
 
 	it("ties case operations by locale collation, not raw comparison", () => {
