@@ -38,8 +38,7 @@ export interface EntityRow {
  * `(parent_uuid, ordinal)`. The last three are the flat user collections
  * (`lib/domain/users.ts`): they have no parent, so they persist with a null
  * parent, but their `ordinal` is real — it IS their sequence, the same as
- * every other collection. It was a constant 0 while sequence lived on the
- * entity, which meant those rows carried no position at all.
+ * every other collection.
  */
 export type EntityRowKind =
 	| "module"
@@ -222,8 +221,7 @@ export function decomposeBlueprint(doc: PersistableDoc): EntityRow[] {
 				uuid,
 				kind,
 				parent_uuid: null,
-				// The array position IS the sequence, so it is what persists. These
-				// rows carried a constant 0 while sequence lived on the entity.
+				// The array position IS the sequence, so it is what persists.
 				ordinal,
 				data: entity as unknown as Record<string, unknown>,
 			});

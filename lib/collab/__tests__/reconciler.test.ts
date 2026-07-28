@@ -521,9 +521,7 @@ describe("reconciler", () => {
 					patch: { label: "A-local" },
 				},
 			]);
-			expect(h.docStore.temporal.getState().pastStates.length).toBeGreaterThan(
-				0,
-			);
+			expect(h.docStore.getState().canUndo ? 1 : 0).toBeGreaterThan(0);
 			// A peer edits field B — a remote frame; `rebaseHistory` must fold it
 			// through the undo stack so an undo doesn't snap the peer's change out.
 			h.reconciler.onFrame(
@@ -537,7 +535,7 @@ describe("reconciler", () => {
 				]),
 			);
 			// Undo the local A edit. The restored state must still carry B-peer.
-			h.docStore.temporal.getState().undo();
+			h.docStore.getState().undo();
 			const afterUndo = h.docStore.getState();
 			expect((afterUndo.fields[F_A] as { label: string }).label).toBe("A");
 			expect((afterUndo.fields[F_B] as { label: string }).label).toBe("B-peer");
@@ -645,7 +643,7 @@ describe("reconciler", () => {
 			// Undo the local A edit — the restored state must still carry the MCP
 			// change (an echo-classification would have skipped the rebase, and
 			// this undo would silently revert the committed MCP edit).
-			h.docStore.temporal.getState().undo();
+			h.docStore.getState().undo();
 			const afterUndo = h.docStore.getState();
 			expect((afterUndo.fields[F_A] as { label: string }).label).toBe("A");
 			expect((afterUndo.fields[F_B] as { label: string }).label).toBe("B-mcp");
@@ -1980,10 +1978,9 @@ describe("reconciler", () => {
 		});
 
 		// The author can edit the canvas while a run streams — `useAutoSave` lets
-		// those edits through deliberately. Keying the command queue on the
-		// suppression depth dropped every one of them: the edit applied on screen,
-		// autosave had nothing to send, and this reseed then wiped it off the
-		// screen too. It has to survive both.
+		// those edits through deliberately — so the edit has to survive two
+		// things: it must reach the command queue while the run's bracket is
+		// open, and it must survive the `data-done` reseed that follows.
 		it("keeps a human edit made DURING a run, and reseeds with it folded in", () => {
 			const h = harness({
 				appId: "app-1",

@@ -199,7 +199,7 @@ describe("generation lifecycle (end-to-end)", () => {
 		/* beginRun pauses doc undo. The events buffer — which drives
 		 * lifecycle derivations — is empty at this instant but will fill
 		 * as the stream dispatcher pushes events. */
-		expect(docStore.temporal.getState().isTracking).toBe(false);
+		expect(docStore.getState().canUndo).toBe(false);
 
 		// ── Schema mutation lands → foundation established ──
 		emitMutations(
@@ -267,7 +267,9 @@ describe("generation lifecycle (end-to-end)", () => {
 		expect(derivePhaseLocal(sessionStore, docStore)).toBe(
 			BuilderPhase.Completed,
 		);
-		expect(docStore.temporal.getState().isTracking).toBe(true);
+		/* Tracking is live again: a post-run edit is its own step. */
+		docStore.getState().applyMany([{ kind: "setAppName", name: "PostRun" }]);
+		expect(docStore.getState().canUndo).toBe(true);
 
 		// ── acknowledgeCompletion (celebration animation settled) ──
 		s().acknowledgeCompletion();
@@ -450,18 +452,17 @@ describe("generation lifecycle (end-to-end)", () => {
 		s().endRun();
 
 		expect(docStore.getState().appName).toBe("Health App");
-		/* Undo was paused by beginRun → resumed by endRun. User edits now
-		 * enter history; the generation itself did not. */
-		expect(docStore.temporal.getState().isTracking).toBe(true);
+		/* The generation is not a step of its own — it was bracketed. */
+		expect(docStore.getState().canUndo).toBe(false);
 
 		docStore.getState().applyMany([{ kind: "setAppName", name: "Renamed" }]);
 		expect(docStore.getState().appName).toBe("Renamed");
 
-		docStore.temporal.getState().undo();
+		docStore.getState().undo();
 		expect(docStore.getState().appName).toBe("Health App");
 
 		/* Can't undo further — generation mutations never entered history. */
-		docStore.temporal.getState().undo();
+		docStore.getState().undo();
 		expect(docStore.getState().appName).toBe("Health App");
 	});
 });

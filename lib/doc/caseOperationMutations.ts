@@ -667,10 +667,9 @@ export function addCaseOperationMutations(
 	if (form === undefined) return [];
 	const ordered = orderedCaseOperations(form);
 	const value = { ...operation };
-	// An indexed add lands the operation, then moves it into place. It needs no
-	// companion re-keying of its neighbours: a ranked landing used to be
-	// unreachable inside a run of equal keys, so the planner had to re-key the
-	// siblings to open a gap. An array index has no such run.
+	// An indexed add lands the operation, then moves it into place. Its
+	// neighbours are untouched: every position in an array is reachable by
+	// naming the operation to follow, so nothing has to be shifted to open room.
 	const at = index ?? ordered.length;
 	const previous = at > 0 ? (ordered[at - 1]?.uuid ?? null) : null;
 	return [
@@ -787,11 +786,9 @@ export function moveCaseOperationMutation(
 	// Where the operation lands: the uuid it will follow in the new sequence.
 	const after =
 		targetIndex > 0 ? (without[targetIndex - 1]?.uuid ?? null) : null;
-	// The verdicts below must see the ACTUAL landing. That used to mean carrying
-	// the mover's minted key AND every sibling the planner re-keyed to open a
-	// gap for it — a ranked destination inside a run of equal keys was
-	// unreachable by any single key. Splicing the array reaches every rank, so
-	// the prospective form is just the reordered sequence.
+	// The verdicts below must see the ACTUAL landing, so the prospective form is
+	// the reordered sequence itself — splicing the array reaches every rank, and
+	// no sibling has to move to make room.
 	const landed = [...without];
 	landed.splice(targetIndex, 0, ordered[currentIndex]);
 	const prospective: Form = { ...form, caseOperations: landed };

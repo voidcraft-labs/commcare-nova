@@ -745,9 +745,9 @@ describe("disjoint collection edits merge", () => {
 
 	it("two same-Results gestures write one moved row each and commute", () => {
 		const { doc, moduleUuid, colA, colB } = moduleWithTwoColumns();
-		// This is the regression: the old workspace resequenced BOTH rows for
-		// either gesture, so each autosave batch overwrote its peer's key. A
-		// move now names ONE uuid and ONE anchor, so it cannot touch a peer.
+		// A move names ONE uuid and ONE anchor, so it writes only the row it
+		// moved. Two authors dragging different rows on the same screen
+		// therefore commute — neither batch can reach the other's row.
 		const moveA: Mutation = {
 			kind: "moveColumn",
 			moduleUuid,

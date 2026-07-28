@@ -1368,7 +1368,7 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 				},
 
 				updateApp(patch) {
-					// Collapse the combined patch into a single `applyMany` so zundo
+					// Collapse the combined patch into a single `applyMany` so the store
 					// records exactly one undo entry. Dispatching `setAppName` and
 					// `setConnectType` individually would produce TWO undo entries per
 					// call — the user would have to hit ctrl-z twice to roll back a
@@ -1452,7 +1452,7 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 
 				applyMany(mutations) {
 					// Batch dispatch — the store's `applyMany` wraps the whole set
-					// in one `set()` call so zundo records exactly one undo entry.
+					// in one `set()` call so the whole patch is one history entry.
 					// Returns the reducer's per-mutation results in input order;
 					// surfaced here so callers can narrow specific positions. A
 					// gate rejection returns an empty array (positional reads see

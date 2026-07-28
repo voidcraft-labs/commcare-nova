@@ -50,7 +50,7 @@ describe("useAppName", () => {
 		const { store, wrapper } = setup("Initial Name");
 		const { result } = renderHook(() => useAppName(), { wrapper });
 		expect(result.current).toBe("Initial Name");
-		store.temporal.getState().resume();
+		store.getState().startTracking();
 		act(() => {
 			store.getState().applyMany([{ kind: "setAppName", name: "Renamed" }]);
 		});

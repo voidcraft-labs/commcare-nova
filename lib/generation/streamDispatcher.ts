@@ -8,7 +8,7 @@
  *   1. **Doc mutation batch** — `data-mutations`. Carries a raw
  *      `Mutation[]` for `docStore.applyMany` AND the corresponding
  *      `MutationEvent[]` envelopes for the session events buffer. One
- *      atomic `applyMany` (zundo-grouped undo entry); one `pushEvents`
+ *      atomic `applyMany` (one history entry); one `pushEvents`
  *      append (lifecycle derivation sees the stage tags).
  *
  *   2. **Conversation event** — `data-conversation-event`. Carries a
@@ -126,7 +126,7 @@ export function applyStreamEvent(
 	// ── Doc mutation batch ───────────────────────────────────────────
 	//
 	// Payload now carries both the raw `mutations` (for `applyMany` — one
-	// atomic zundo-grouped undo entry) and the `events` envelopes (for
+	// one history entry) and the `events` envelopes (for
 	// the session buffer — lifecycle derivations read the stage tags).
 	if (type === "data-mutations") {
 		const mutations = data.mutations as Mutation[] | undefined;

@@ -62,7 +62,7 @@ describe("useAppStructure", () => {
 		const { store, wrapper } = setup();
 		const { result } = renderHook(() => useAppStructure(), { wrapper });
 		const first = result.current;
-		store.temporal.getState().resume();
+		store.getState().startTracking();
 		act(() => {
 			store.getState().applyMany([{ kind: "setAppName", name: "Different" }]);
 		});

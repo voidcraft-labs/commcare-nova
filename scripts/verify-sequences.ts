@@ -8,10 +8,9 @@
  * changed nothing: for each collection the sorted reading of the stored rows
  * must equal the unsorted reading of the migrated rows.
  *
- * The first version of this script compared only whether each case list ended
- * up with two full column sequences. That is a coverage check, not the proof —
- * it reported clean while the migration was silently reverting every reordered
- * search input and select option, because it never compared the two readings.
+ * Checking only that each case list ends up with two full column sequences is
+ * a COVERAGE check, not this proof: it passes while a collection is silently
+ * reverted, because it never compares the two readings.
  */
 
 import {

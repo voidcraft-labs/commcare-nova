@@ -33,9 +33,8 @@ export function sortPriorityUniqueness(
 ): ValidationError[] {
 	const config = mod.caseListConfig;
 	// In RESULTS order, because that is the tie-break the runtime applies and
-	// the position the author counts. Walking the stored `columns` array made
-	// "column #2" name whichever column happened to be written second, which is
-	// not the one the message points at on screen.
+	// the position the author counts — "column #2" has to name the second
+	// column on screen, not the second one written to the document.
 	const columns = config === undefined ? [] : orderedColumns(config, "list");
 	if (columns.length === 0) return [];
 

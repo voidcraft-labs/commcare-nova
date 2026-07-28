@@ -85,7 +85,7 @@ function assertFieldParentInvariants(doc: BlueprintDoc): void {
 function storeFrom(doc: BlueprintDoc): BlueprintDocStoreApi {
 	const store = createBlueprintDocStore();
 	store.getState().load(doc);
-	store.temporal.getState().resume();
+	store.getState().startTracking();
 	return store;
 }
 

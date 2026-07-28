@@ -1,16 +1,15 @@
 /**
  * The sequence migration's frozen comparators, pinned.
  *
- * `20260727120000_sequence_is_array_position.ts` copies the four comparators
- * production sorted through, because the change that adds it deletes the
- * originals. A frozen copy is only useful if it stays faithful, and once the
- * originals are gone nothing else can prove that — so the behaviours worth
- * keeping are written down here.
+ * `20260727120000_sequence_is_array_position.ts` carries its own copy of the
+ * four comparators the stored keys were sorted through, because the change
+ * that adds it deletes the originals. A frozen copy is only useful while it
+ * stays faithful, and with the originals gone nothing else can prove that — so
+ * the behaviours it must keep are written down here.
  *
- * The fleet-wide proof ran BEFORE the conversion, against the live comparators
- * on real data: 380/380 production apps across 10,087 collections, and
- * 1021/1021 local apps across 12,281, with zero disagreements. That run is what
- * these cases stand in for now that its oracle no longer exists.
+ * `scripts/verify-sequences.ts` is the fleet-scale companion: it runs the same
+ * before/after comparison over every stored row, and these cases are what pin
+ * the individual behaviours that comparison depends on.
  */
 
 import { describe, expect, it } from "vitest";
@@ -118,8 +117,6 @@ describe("sequencesFromStoredRows", () => {
 								{ uuid: "c1", listOrder: "b", detailOrder: "a" },
 								{ uuid: "c2", listOrder: "a", detailOrder: "b" },
 							],
-							listColumnOrder: ["c1"],
-							detailColumnOrder: ["c1"],
 							searchInputs: [],
 						},
 					},
@@ -143,8 +140,6 @@ describe("sequencesFromStoredRows", () => {
 								{ uuid: "c1", order: "b" },
 								{ uuid: "c2", order: "a" },
 							],
-							listColumnOrder: ["c1"],
-							detailColumnOrder: ["c1"],
 							searchInputs: [],
 						},
 					},
@@ -153,6 +148,38 @@ describe("sequencesFromStoredRows", () => {
 			{ sorted: true },
 		);
 		expect(seq.get("columns:list:m")).toEqual(["c2", "c1"]);
+	});
+
+	it("reads an ALREADY-MIGRATED config's stored orders, whatever else it holds", () => {
+		// A config carrying its two orders is one the migration SKIPS, so both
+		// readings have to be those stored arrays — including the `sorted` one,
+		// which is the oracle. Deriving a comparator reading for it instead
+		// would report a disagreement against a document nothing touches, which
+		// is exactly what a re-run over migrated rows is. The legacy keys below
+		// are deliberate noise: a real migrated config has none, and the point
+		// is that their presence cannot pull the reading off the stored order.
+		const seq = sequencesFromStoredRows(
+			[
+				row({
+					uuid: "m",
+					kind: "module",
+					data: {
+						caseListConfig: {
+							columns: [
+								{ uuid: "c1", listOrder: "b", detailOrder: "a" },
+								{ uuid: "c2", listOrder: "a", detailOrder: "b" },
+							],
+							listColumnOrder: ["c1", "c2"],
+							detailColumnOrder: ["c2", "c1"],
+							searchInputs: [],
+						},
+					},
+				}),
+			],
+			{ sorted: true },
+		);
+		expect(seq.get("columns:list:m")).toEqual(["c1", "c2"]);
+		expect(seq.get("columns:detail:m")).toEqual(["c2", "c1"]);
 	});
 
 	it("gives a NEVER-KEYED config its two sequences, in written order", () => {

@@ -216,9 +216,8 @@ function useMutationsWithStore() {
 	const forms = useOrderedForms((modules[0]?.uuid ?? "") as Uuid);
 	const childUuids = useOrderedFields((forms[0]?.uuid ?? "") as Uuid);
 	const children = useMaterialize(childUuids);
-	// We read the store directly (not via hook) because zundo's temporal
-	// state isn't part of the data slice — assertions go through
-	// `store.temporal.getState().pastStates`.
+	// The store is read directly (not via a hook) so assertions can drive
+	// `undo()` / `redo()` and the birth-pause release.
 	const store = useContext(BlueprintDocContext);
 	return { mutations, children, store };
 }
@@ -555,14 +554,11 @@ describe("useBlueprintMutations", () => {
 	it("updateApp with both fields produces a single undo entry", () => {
 		const { result } = renderHook(() => useMutationsWithStore(), { wrapper });
 
-		// Resume temporal so edits after load() are tracked. `load()` inside
-		// the provider's constructor pauses temporal, but the provider then
-		// resumes it (startTracking=true default). Still double-check.
+		// The provider releases the birth pause (startTracking=true default);
+		// double-check so a change there fails here rather than silently.
 		act(() => {
-			result.current.store?.temporal.getState().resume();
+			result.current.store?.getState().startTracking();
 		});
-		const before =
-			result.current.store?.temporal.getState().pastStates.length ?? 0;
 
 		act(() => {
 			/* `null` (Connect off) so the batch introduces nothing — enabling
@@ -573,11 +569,13 @@ describe("useBlueprintMutations", () => {
 			});
 		});
 
-		const after =
-			result.current.store?.temporal.getState().pastStates.length ?? 0;
-
-		// Exactly ONE new undo entry should have been added.
-		expect(after - before).toBe(1);
+		// ONE step: a single undo takes back the whole combined patch.
+		expect(result.current.store?.getState().canUndo).toBe(true);
+		act(() => {
+			result.current.store?.getState().undo();
+		});
+		expect(result.current.store?.getState().appName).not.toBe("Combo");
+		expect(result.current.store?.getState().canUndo).toBe(false);
 	});
 
 	// ── addForm returns uuid ──────────────────────────────────────────────
@@ -997,13 +995,9 @@ describe("useBlueprintMutations", () => {
 	it("applyMany collapses two mutations into a single undo entry", () => {
 		const { result } = renderHook(() => useMutationsWithStore(), { wrapper });
 
-		// Make sure temporal is resumed (BlueprintDocProvider already does
-		// this, but it's harmless to call again).
 		act(() => {
-			result.current.store?.temporal.getState().resume();
+			result.current.store?.getState().startTracking();
 		});
-		const before =
-			result.current.store?.temporal.getState().pastStates.length ?? 0;
 
 		act(() => {
 			/* `null` keeps the batch introduction-free — flipping Connect ON
@@ -1014,15 +1008,16 @@ describe("useBlueprintMutations", () => {
 			]);
 		});
 
-		const after =
-			result.current.store?.temporal.getState().pastStates.length ?? 0;
-		// Exactly ONE new undo entry should have been added, despite two
-		// mutations dispatching.
-		expect(after - before).toBe(1);
-
 		const s = result.current.store?.getState();
 		expect(s?.appName).toBe("Batched");
 		expect(s?.connectType).toBeNull();
+
+		// ONE step, despite two mutations dispatching.
+		act(() => {
+			result.current.store?.getState().undo();
+		});
+		expect(result.current.store?.getState().appName).not.toBe("Batched");
+		expect(result.current.store?.getState().canUndo).toBe(false);
 	});
 
 	// ── moveField result metadata ────────────────────────────────────────

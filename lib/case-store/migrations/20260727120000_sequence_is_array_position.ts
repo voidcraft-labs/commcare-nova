@@ -207,11 +207,11 @@ function asRecordArray(value: unknown): Record<string, unknown>[] | undefined {
  * One case list's columns in one surface's order, as the migration reads them.
  *
  * The ONE home of that answer, because the migration and the oracle that proves
- * it both need it and drifting apart is the whole risk of a frozen comparator.
- * (They did drift: the oracle sorted unconditionally, so on a config whose
- * columns were never keyed it reported uuid order — the comparators tie on uuid
- * once both keys are absent — and every such case list read as a disagreement
- * the migration was never going to cause.)
+ * it both need it, and a frozen comparator's whole risk is the two drifting.
+ * The unkeyed guard is what they must share: comparators tie on uuid once both
+ * keys are absent, so an oracle that sorted unconditionally would report uuid
+ * order for a never-keyed case list and call it a disagreement the migration
+ * does not cause.
  */
 function columnSequence(
 	columns: readonly Record<string, unknown>[],

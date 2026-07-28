@@ -162,10 +162,9 @@ function summarizeCaseList(mod: Module): string | undefined {
 		.filter((column) => column.sort !== undefined)
 		// Priority decides the order; Results position breaks a tie, which is what
 		// the author sees when two carriers share a priority — so the walk starts
-		// in the Results sequence and leans on `sort` being stable. Read off the
-		// stored `columns` array this claimed a tie-break it wasn't making, and
-		// disagreed with the wire (`suite/case-list/sortKeys.ts`) about the order
-		// of a tied pair.
+		// in the Results sequence and leans on `sort` being stable. The wire
+		// (`suite/case-list/sortKeys.ts`) ties the same way, and a tied pair the
+		// SA reads here has to match what it emits.
 		.sort((a, b) => (a.sort?.priority ?? 0) - (b.sort?.priority ?? 0));
 	if (sortedColumns.length > 0) {
 		lines.push("      default_order:");

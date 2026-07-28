@@ -65,7 +65,7 @@ function makeDoc(
 function createLoadedStore(doc: PersistableDoc = makeDoc()) {
 	const store = createBlueprintDocStore();
 	store.getState().load(doc);
-	store.temporal.getState().resume();
+	store.getState().startTracking();
 	return store;
 }
 
@@ -274,7 +274,7 @@ describe("EngineController", () => {
 			orphanDoc.formOrder = { [MODULE_UUID]: [] };
 			const store = createBlueprintDocStore();
 			store.getState().load(orphanDoc);
-			store.temporal.getState().resume();
+			store.getState().startTracking();
 
 			const ctrl = new EngineController();
 			ctrl.setDocStore(store);
@@ -601,7 +601,7 @@ describe("EngineController", () => {
 			};
 			const store = createBlueprintDocStore();
 			store.getState().load(doc);
-			store.temporal.getState().resume();
+			store.getState().startTracking();
 
 			const ctrl = new EngineController();
 			ctrl.setDocStore(store);
@@ -1554,7 +1554,7 @@ describe("EngineController", () => {
 			};
 			const store = createBlueprintDocStore();
 			store.getState().load(doc);
-			store.temporal.getState().resume();
+			store.getState().startTracking();
 
 			const ctrl = new EngineController();
 			ctrl.setDocStore(store);

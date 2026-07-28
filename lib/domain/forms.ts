@@ -262,10 +262,9 @@ export type CaseOperation = z.infer<typeof caseOperationSchema>;
  * The operation sequence — which is simply the array, copied so callers can
  * sort or splice it without reaching into the form.
  *
- * It reads as a no-op because it now IS one: `caseOperations` is ordered, so
- * there is nothing to derive. The function survives its own emptying because
- * every emitter and planner names the sequence through it, and that is the
- * seam worth keeping even when the work behind it is gone.
+ * `caseOperations` is ordered, so there is nothing to derive and this reads as
+ * a no-op. It stays because every emitter and planner names the sequence
+ * through it: one seam means no two of them can order a form differently.
  */
 export function orderedCaseOperations(form: {
 	readonly caseOperations?: readonly CaseOperation[];

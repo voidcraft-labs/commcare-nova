@@ -8,7 +8,7 @@
  * and there's no need for a partialize allow-list.
  *
  * Middleware: `subscribeWithSelector` (targeted subscriptions) + `devtools`
- * (Redux DevTools in development). No Immer (shape is flat enough), no zundo
+ * (Redux DevTools in development). No Immer (shape is flat enough), no undo history
  * (nothing undoable).
  *
  * Actions are reducer-shaped where atomicity matters. `setPreviewing` is

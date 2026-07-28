@@ -14,9 +14,8 @@ import type { Column } from "@/lib/domain";
  * fallback snapshot must stay parseable by an old PUT handler; the cell travels
  * as an optional top-level extension on known mutation kinds instead.
  *
- * The two surface-order keys used to be stripped here too. They have no
- * snapshot to be stripped from now — a column's place lives in the config's
- * ordering arrays, not on the column.
+ * A column's place is not among the slots a snapshot carries: it lives in the
+ * config's two ordering arrays, not on the column.
  */
 export function legacyCompatibleColumnSnapshot(column: Column): Column {
 	const { tile: _tile, ...legacyColumn } = column;
@@ -160,9 +159,9 @@ export function columnSnapshotMutations(
 	mutations.push(...columnVisibilityMutations(current, next, moduleUuid));
 	mutations.push(...columnSortMutations(current, next, moduleUuid));
 	mutations.push(...columnTileMutations(current, next, moduleUuid));
-	// No order arm: a column snapshot no longer carries its place, so a content
-	// edit cannot express a move and cannot clobber a concurrent one. Reordering
-	// is `moveColumn` against the config's arrays, and nothing else.
+	// No order arm: a column snapshot carries no place, so a content edit cannot
+	// express a move and cannot clobber a concurrent one. Reordering is
+	// `moveColumn` against the config's arrays, and nothing else.
 	return mutations;
 }
 

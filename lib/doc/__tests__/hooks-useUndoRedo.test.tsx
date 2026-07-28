@@ -59,7 +59,7 @@ describe("useCanUndo", () => {
 		expect(result.current).toBe(false);
 		// Temporal starts paused — resume before mutating so the mutation
 		// actually captures a past state (matches the app's undo pause pattern).
-		store.temporal.getState().resume();
+		store.getState().startTracking();
 		act(() => {
 			store.getState().applyMany([{ kind: "setAppName", name: "After" }]);
 		});
@@ -74,7 +74,7 @@ describe("useCanRedo", () => {
 		expect(result.current).toBe(false);
 		// A fresh mutation pushes to pastStates but leaves futureStates empty,
 		// so canRedo must still be false.
-		store.temporal.getState().resume();
+		store.getState().startTracking();
 		act(() => {
 			store.getState().applyMany([{ kind: "setAppName", name: "After" }]);
 		});
@@ -84,7 +84,7 @@ describe("useCanRedo", () => {
 	it("returns true after undoing a mutation (future stack populated)", () => {
 		const { store, wrapper } = setup();
 		const { result } = renderHook(() => useCanRedo(), { wrapper });
-		store.temporal.getState().resume();
+		store.getState().startTracking();
 		act(() => {
 			store.getState().applyMany([{ kind: "setAppName", name: "After" }]);
 		});
@@ -92,7 +92,7 @@ describe("useCanRedo", () => {
 		// Undoing moves the captured state from pastStates to futureStates —
 		// canRedo should now flip to true.
 		act(() => {
-			store.temporal.getState().undo();
+			store.getState().undo();
 		});
 		expect(result.current).toBe(true);
 	});

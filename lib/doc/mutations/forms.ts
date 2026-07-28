@@ -58,8 +58,7 @@ export function applyFormMutation(
 			if (draft.modules[mut.moduleUuid] === undefined) return;
 			const { uuid } = mut.form;
 			// Cloned: `updateForm` edits the stored form in place, so the payload
-			// must not be the object it edits — see `addModule`, which has always
-			// cloned for the same reason.
+			// must not be the object it edits — same reason `addModule` clones.
 			draft.forms[uuid] = structuredClone(mut.form);
 			draft.fieldOrder[uuid] = [];
 			// The membership array IS the sequence, so the add splices.

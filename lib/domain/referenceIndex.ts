@@ -48,7 +48,7 @@
 // stale across mutations.
 //
 // Everything is plain JSON records (no Map/Set): the index is part of
-// the doc store's state, and zundo snapshots whole state.
+// the doc store's state, and the undo history records the batch that produced it.
 
 import type { Uuid } from "./uuid";
 

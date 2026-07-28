@@ -3,9 +3,8 @@
  * placement.
  *
  * Shared by the builder's add/move dispatches and the SA's `moveField` tool so
- * both surfaces resolve the same gesture to the same landing. It replaces the
- * fractional-key twin that computed an absolute sort key for the same slot; the
- * question is unchanged, the answer is now the uuid the field follows.
+ * both surfaces resolve the same gesture to the same landing — the uuid the
+ * field follows, which a peer's concurrent insert cannot shift.
  */
 
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";

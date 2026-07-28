@@ -90,7 +90,7 @@ export function pickBlueprintDoc<T extends BlueprintDoc>(
 	state: T,
 ): BlueprintDoc {
 	// `state` may carry doc-store-only extras (action methods, the
-	// `temporal` slot from zundo) on top of the persisted shape. The
+	// action methods) on top of the persisted shape. The
 	// generic narrows to `T extends BlueprintDoc`, so `pickByKeys`
 	// returns `Partial<T>` — every persisted slot is preserved by
 	// value but typed as optional after the projection. We re-assert

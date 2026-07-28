@@ -12,10 +12,9 @@
  * the same object then throws `Cannot assign to read only property`, and the
  * save 500s. The rule is simply: a reducer clones what it stores.
  *
- * The batches below are the shapes that actually reach the server now that the
- * builder persists the commands it dispatched rather than a diff of two
- * documents — an add and a later edit of the same thing land in ONE batch,
- * where a diff would have collapsed them into a single add.
+ * The batches below are the shapes that reach the server: the builder persists
+ * the commands it dispatched, so an add and a later edit of the same thing land
+ * in ONE batch.
  */
 
 import { produce } from "immer";
@@ -266,6 +265,37 @@ describe("a batch applies twice", () => {
 		const columns = doc.modules[MODULE].caseListConfig?.columns;
 		expect(columns).toHaveLength(1);
 		expect(columns?.[0].header).toBe("Patient name");
+	});
+
+	it("adds a worker property, a role, and a persona, then edits each", () => {
+		const PROPERTY = asUuid("66666666-6666-4666-8666-666666666666");
+		const ROLE = asUuid("77777777-7777-4777-8777-777777777777");
+		const PERSONA = asUuid("88888888-8888-4888-8888-888888888888");
+		const doc = applyTwice([
+			{
+				kind: "addUserProperty",
+				property: { uuid: PROPERTY, slug: "district", label: "District" },
+			},
+			{
+				kind: "updateUserProperty",
+				uuid: PROPERTY,
+				patch: { label: "Home district" },
+			},
+			{
+				kind: "addUserType",
+				userType: { uuid: ROLE, name: "Nurse", values: {} },
+			},
+			{ kind: "updateUserType", uuid: ROLE, patch: { name: "Senior nurse" } },
+			{
+				kind: "addPersona",
+				persona: { uuid: PERSONA, name: "Asha", values: {} },
+			},
+			{ kind: "updatePersona", uuid: PERSONA, patch: { name: "Asha Devi" } },
+		]);
+
+		expect(doc.userProperties?.[PROPERTY].label).toBe("Home district");
+		expect(doc.userTypes?.[ROLE].name).toBe("Senior nurse");
+		expect(doc.personas?.[PERSONA].name).toBe("Asha Devi");
 	});
 
 	it("adds a field and then edits its label", () => {

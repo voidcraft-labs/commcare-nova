@@ -7,8 +7,8 @@
  * reference when the sequence is unchanged, so a doc edit touching neither
  * membership nor position doesn't churn `React.memo` consumers.
  *
- * This is all that outlived `lib/doc/order`. It was never about order keys —
- * it is a render-stability helper that happened to live beside them.
+ * A render-stability helper, not a sequence one: it says nothing about how a
+ * sequence is derived, only whether the derived array is the same one.
  */
 export function sameSequenceByIdentity<T>(
 	a: readonly T[],

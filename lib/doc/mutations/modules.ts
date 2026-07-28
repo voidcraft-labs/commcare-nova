@@ -38,11 +38,10 @@ import {
  * `moveModule` splices `moduleOrder`, because that array IS the sequence.
  *
  * The collection reducers key on the item uuid so two members editing different
- * columns / inputs merge. `add` is idempotent on uuid. A column `update` no
- * longer has to protect the column's position: place lives in the config's two
- * ordering arrays, which a content edit never touches — so the clobbering that
- * `preserve*` flags existed to prevent is structurally gone for order, and
- * survives only for visibility.
+ * columns / inputs merge. `add` is idempotent on uuid. A column `update` does
+ * not have to protect the column's position: place lives in the config's two
+ * ordering arrays, which a content edit never touches — so `preserve*` flags
+ * are needed only for visibility, which does live on the column.
  *
  * Case-list columns are the one collection whose sequence is not its membership
  * array. Results and Details are two sequences over the same columns, so the
@@ -367,9 +366,9 @@ export function applyModuleMutation(
 			// this same event dropped the cell from its own copy, so its next content
 			// edit would arrive here cell-free. Preserving on every content update is
 			// what stops that round trip from silently un-placing a column.
-			// A content edit no longer has to protect the column's position: its
-			// place lives in the config's two ordering arrays, which this replacement
-			// never touches. That whole class of clobbering is gone with the keys.
+			// A content edit does not have to protect the column's position: its
+			// place lives in the config's two ordering arrays, which this
+			// replacement never touches.
 			const replacement = { ...structuredClone(mut.column), uuid: mut.uuid };
 			if (current.tile === undefined) delete replacement.tile;
 			// `current` is an Immer draft, whose Proxy `structuredClone` rejects.

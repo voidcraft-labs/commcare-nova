@@ -58,7 +58,7 @@ function makeDoc(
 function loadedController(doc: PersistableDoc) {
 	const store = createBlueprintDocStore();
 	store.getState().load(doc);
-	store.temporal.getState().resume();
+	store.getState().startTracking();
 	const controller = new EngineController();
 	controller.setDocStore(store);
 	controller.activateForm(FORM_UUID);

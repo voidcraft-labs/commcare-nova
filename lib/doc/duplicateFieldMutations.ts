@@ -2,15 +2,15 @@
  * Duplicating a field, planned as ordinary adds.
  *
  * A duplicate is a clone of a subtree, and every clone needs a fresh identity.
- * Minting those identities inside the reducer made `duplicateField` the one
- * mutation whose result depended on WHEN it ran: replaying the same event twice
- * produced two different documents, so it could never be persisted, and every
- * boundary that handles a batch carried a special case saying so.
+ * Minting those identities HERE, at the gesture, is what keeps the reducers
+ * deterministic: a mutation that minted identity on the way past would produce
+ * a different document on every apply, so it could never be persisted, replayed,
+ * or folded onto a peer's state, and every boundary handling a batch would need
+ * a special case saying so.
  *
- * Planning it here mints the identities ONCE, at the gesture, and hands the
- * reducer the same `addField` mutations any other creation uses. The batch is
- * then an ordinary batch: it replays to the same document, it persists, it
- * undoes by removing what it added, and no boundary needs to know it was a
+ * The reducer gets the same `addField` mutations any other creation uses, so
+ * the batch is an ordinary batch: it replays to the same document, it persists,
+ * it undoes by removing what it added, and no boundary needs to know it was a
  * duplicate.
  */
 

@@ -372,10 +372,9 @@ function caseOperationPatchSchemaFor(
 				/**
 				 * The uuid this operation now follows, or `null` for first.
 				 *
-				 * The separate `index` intent is gone with the fractional key it
-				 * guarded: it existed so the authoritative writer could reject a
-				 * placement a peer had shifted out from under the author. A placement
-				 * named by the neighbouring uuid cannot be shifted — the anchor either
+				 * The anchor is the whole placement — there is no separate rank for
+				 * the authoritative writer to fence. A placement named by a
+				 * neighbouring uuid cannot be shifted by a peer: the anchor either
 				 * still exists, or it does not and the move appends.
 				 */
 				after: uuidSchema.nullable(),
@@ -765,9 +764,9 @@ function reportCaseOperationPatchIntegrity(
 	};
 	// A move is the one pairing whose fallback is also a `move`: both views name
 	// the operation and the uuid it now follows, and both slots are required, so
-	// agreement is exact identity on the pair. (This used to compare an `order`
-	// key neither view carries any more, which made every move pass whatever its
-	// anchor said — including two views that disagreed about where it landed.)
+	// agreement is exact identity on the pair. Comparing anything less would let
+	// through an event whose two views disagree about where the move landed,
+	// which replays to two different documents.
 	if (
 		semantic?.operation === "move" &&
 		fallback?.operation === "move" &&

@@ -16,7 +16,6 @@
 "use client";
 
 import { useContext } from "react";
-import type { TemporalState } from "zundo";
 import { useStore } from "zustand";
 import { useShallow } from "zustand/react/shallow";
 import { useStoreWithEqualityFn } from "zustand/traditional";
@@ -25,7 +24,6 @@ import {
 	type BlueprintDocStore,
 } from "@/lib/doc/provider";
 import type { BlueprintDocState } from "@/lib/doc/store";
-import type { BlueprintDoc } from "@/lib/doc/types";
 
 /** Throw with a helpful message if the provider is missing. */
 function useStoreInstance(): BlueprintDocStore {
@@ -85,21 +83,4 @@ export function useBlueprintDocEq<T>(
  */
 export function useBlueprintDocApi(): BlueprintDocStore {
 	return useStoreInstance();
-}
-
-/**
- * Subscribe to zundo's temporal state (undo/redo history). Uses
- * `useStoreWithEqualityFn` (zundo's recommended API) — the default
- * `useStore` re-renders on every temporal change regardless of selector.
- */
-export function useBlueprintDocTemporal<T>(
-	selector: (t: TemporalState<BlueprintDoc>) => T,
-	equalityFn?: (a: T, b: T) => boolean,
-): T {
-	const store = useStoreInstance();
-	return useStoreWithEqualityFn(
-		store.temporal,
-		(t) => selector(t as TemporalState<BlueprintDoc>),
-		equalityFn,
-	);
 }

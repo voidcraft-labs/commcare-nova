@@ -1584,9 +1584,9 @@ export type CaseListConfig = z.infer<typeof caseListConfigSchema>;
  *
  * A factory rather than a shared constant because the two ordering arrays are
  * mutable and a shared literal would let one module's config alias another's.
- * It exists at all because an empty config now has four slots rather than two,
- * and an ordering array that is merely absent would mean "derive it somehow",
- * which is the ambiguity array position exists to remove.
+ * Both arrays are written even when empty: an ordering array that is merely
+ * absent would mean "derive it somehow", which is the ambiguity array position
+ * exists to remove.
  */
 export function emptyCaseListConfig(): CaseListConfig {
 	return {

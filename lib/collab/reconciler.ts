@@ -30,11 +30,11 @@
  * user share a single `actorId`, so an `actorId`-only match would make one
  * tab's autosave look like a self-echo of the other.
  *
- * An echo advances `confirmedDoc`, drops its batch from `sentPending`, and
- * does NOT rebase the undo stacks (the change is already reflected in
- * `displayed`). A remote frame advances `confirmedDoc`, re-folds the remaining
- * `sentPending`, and folds the peer's batch through the undo/redo stacks so an
- * undo target still carries the merge in.
+ * An echo advances `confirmedDoc` and drops its batch from `sentPending`; a
+ * remote frame advances `confirmedDoc` and re-folds the remaining
+ * `sentPending`. Neither touches the undo history: an entry is a command batch
+ * whose placements are anchors, so a peer's change cannot move where an undo
+ * lands, and undo reaches only what this author did.
  *
  * ## Reload reconciliation
  *
@@ -867,22 +867,18 @@ export function createReconciler(
 		refoldDisplayed(humanDelta);
 	}
 
-	/** A remote frame advances confirmedDoc, re-folds sentPending + the human
-	 *  delta onto it, and folds the peer's batch through the undo/redo stacks so
-	 *  an undo target still carries the merge. */
+	/** A remote frame advances confirmedDoc and re-folds sentPending + the human
+	 *  delta onto it.
+	 *
+	 *  The undo history needs nothing here: an entry is a command batch whose
+	 *  placements are anchors ("put X after Y"), so a peer's change cannot move
+	 *  where it lands, and undoing reaches only what this author did. */
 	function applyRemote(frame: MutationFrame): void {
 		const humanDelta = humanUncommitted();
 		confirmedDoc = produce(confirmedDoc, (draft) => {
 			applyBatch(draft, frame.mutations);
 		});
 		baseSeq = frame.seq;
-		// Fold the remote batch through the undo history: a past/future recorded
-		// state gains the peer's change so undo doesn't snap it back out.
-		docStore.getState().rebaseHistory((state) =>
-			produce(state, (draft) => {
-				applyBatch(draft, frame.mutations);
-			}),
-		);
 		refoldDisplayed(humanDelta);
 	}
 
@@ -1035,7 +1031,7 @@ export function createReconciler(
 		store.beginRemoteApply();
 		try {
 			store.commitDoc(target);
-			if (clearUndo) docStore.temporal.getState().clear();
+			if (clearUndo) store.clearHistory();
 		} finally {
 			store.endRemoteApply();
 		}
@@ -1117,7 +1113,7 @@ export function createReconciler(
 	function onDataDone(args: { doc: PersistableDoc; seq: number }): void {
 		// Same drop-then-refold a reload runs (drop every batch acked at or below
 		// the carried seq), but reseed via a SUPPRESSED commitDoc inside a
-		// remote-apply bracket + temporal clear — NOT load(), which trips the
+		// remote-apply bracket + history clear — NOT load(), which trips the
 		// "load() illegal inside an open bracket" assert (the agent suppression
 		// bracket is still open at data-done; endAgentWrite runs only on stream
 		// close).
@@ -1126,7 +1122,7 @@ export function createReconciler(
 		// reconciler yet, or a build that emitted no `data-app-id`): there is no
 		// stream, no `sentPending`, and `baseSeq` is meaningless — but the store
 		// must still reconcile to the run's final snapshot. Do it BRACKET-SAFE (a
-		// suppressed `commitDoc` + temporal clear, never `load()` — the agent
+		// suppressed `commitDoc` + history clear, never `load()` — the agent
 		// suppression bracket is still open at data-done, and `load()` asserts
 		// inside an open bracket).
 		if (dormant) {

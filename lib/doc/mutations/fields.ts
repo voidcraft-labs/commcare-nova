@@ -739,8 +739,8 @@ export function applyFieldMutation(
  * a `removeOption` dropping below two options must reach the commit gate as a
  * sub-2 candidate so `SELECT_TOO_FEW_OPTIONS` can reject it — a re-parse here
  * would warn-skip the reducer and the gate would see no change. `update`
- * A content `update` cannot clobber a concurrent `moveOption` any more: place
- * is the array position, which an update never touches.
+ * A content `update` cannot clobber a concurrent `moveOption`: place is the
+ * array position, which an update never touches.
  */
 function applyOptionMutation(
 	draft: Draft<BlueprintDoc>,

@@ -56,7 +56,9 @@ export function applyUserMutation(
 			draft.userProperties = recordWithValue(
 				draft.userProperties,
 				mut.property.uuid,
-				mut.property,
+				// Cloned: `update*` patches the stored entity in place, and a batch is
+				// applied more than once per save against a frozen produced state.
+				structuredClone(mut.property),
 			);
 			draft.userPropertyOrder = spliceAfter(
 				draft.userPropertyOrder,
@@ -74,7 +76,9 @@ export function applyUserMutation(
 			draft.userTypes = recordWithValue(
 				draft.userTypes,
 				mut.userType.uuid,
-				mut.userType,
+				// Cloned: `update*` patches the stored entity in place, and a batch is
+				// applied more than once per save against a frozen produced state.
+				structuredClone(mut.userType),
 			);
 			draft.userTypeOrder = spliceAfter(
 				draft.userTypeOrder,
@@ -96,7 +100,9 @@ export function applyUserMutation(
 			draft.personas = recordWithValue(
 				draft.personas,
 				mut.persona.uuid,
-				mut.persona,
+				// Cloned: `update*` patches the stored entity in place, and a batch is
+				// applied more than once per save against a frozen produced state.
+				structuredClone(mut.persona),
 			);
 			draft.personaOrder = spliceAfter(
 				draft.personaOrder,

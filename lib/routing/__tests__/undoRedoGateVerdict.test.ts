@@ -1,13 +1,13 @@
 /**
- * State-model tests for `undoRedoGateVerdict` — the pure collaborative-undo
- * gate the `useUndoRedo` hook consults before it mutates.
+ * State-model tests for `undoRedoGateVerdict` — the pure gate the `useUndoRedo`
+ * hook consults before it applies a recorded step.
  *
- * The gate diffs the rebased undo/redo target against `localBase` (the
- * confirmed⊕sentPending base the reconciler PUTs from) and runs the same commit
- * verdict every write surface runs — the SAME delta the PUT will carry after the
- * undo — so an undo/redo that would reintroduce a validator finding is REFUSED
- * before any temporal mutation or PUT (and a gate pass can't 409-surprise).
- * These tests exercise that decision purely — no hook render, no DOM.
+ * An undo is an ordinary edit: it applies the step's inverse through the same
+ * write path everything else uses, so it runs the same commit verdict. What
+ * makes the gate necessary is a peer — their committed change can make the
+ * inverse reintroduce a finding, and refusing with the reason beats letting the
+ * PUT 409 into a conflict reload. These tests exercise that decision purely —
+ * no hook render, no DOM.
  */
 
 import { describe, expect, it } from "vitest";
@@ -17,7 +17,7 @@ import {
 	toPersistableDoc,
 } from "@/lib/doc/fieldParent";
 import { buildReferenceIndex } from "@/lib/doc/referenceIndex";
-import type { BlueprintDoc } from "@/lib/doc/types";
+import { asUuid, type BlueprintDoc } from "@/lib/doc/types";
 import { undoRedoGateVerdict } from "@/lib/routing/builderActions";
 
 /** Hydrate a spec-built doc into a fully-indexed working doc (fieldParent +
@@ -53,125 +53,42 @@ function docWithFields(fields: Parameters<typeof f>[0][]): BlueprintDoc {
 }
 
 describe("undoRedoGateVerdict", () => {
-	it("passes a benign target (a field-label change) — { ok: true }", () => {
+	it("passes a benign step — taking back a label change", () => {
 		const displayed = docWithFields([
-			{ uuid: "q-a", kind: "text", id: "a", label: "A" },
-			{ uuid: "q-b", kind: "text", id: "b", label: "B" },
-		]);
-		// The target renames field A's label — a valid edit, so the verdict passes.
-		const target = docWithFields([
 			{ uuid: "q-a", kind: "text", id: "a", label: "A-renamed" },
 			{ uuid: "q-b", kind: "text", id: "b", label: "B" },
 		]);
-		// No pending → localBase equals displayed.
-		const verdict = undoRedoGateVerdict(displayed, target, displayed);
-		expect(verdict.ok).toBe(true);
-		// The batch comes back so the caller can RECORD it: a restore replaces
-		// the document without passing the store's write path, so without this
-		// the undo would apply locally and never persist.
-		if (!verdict.ok) return;
-		expect(verdict.batch).toEqual([
-			expect.objectContaining({ kind: "updateField", uuid: "q-a" }),
+		const verdict = undoRedoGateVerdict(displayed, [
+			{
+				kind: "updateField",
+				uuid: asUuid("q-a"),
+				targetKind: "text",
+				patch: { label: "A" },
+			},
 		]);
+		expect(verdict.ok).toBe(true);
 	});
 
-	it("refuses a target that would introduce a finding (an empty form)", () => {
-		// Displayed: a valid form with one field.
+	it("passes an empty step — nothing to introduce", () => {
 		const displayed = docWithFields([
 			{ uuid: "q-a", kind: "text", id: "a", label: "A" },
 		]);
-		// The rebased target strips every field — undoing to it would leave an
-		// EMPTY_FORM, a finding the gate must catch. (In practice a remote frame
-		// rebased the stacks so the recorded target no longer holds a valid state.)
-		const target = docWithFields([]);
-		const verdict = undoRedoGateVerdict(displayed, target, displayed);
+		expect(undoRedoGateVerdict(displayed, [])).toEqual({ ok: true });
+	});
+
+	it("refuses a step that would introduce a finding", () => {
+		// Taking back the add of the form's last remaining field would leave an
+		// EMPTY_FORM — the shape a peer's removals can leave an old step facing.
+		const displayed = docWithFields([
+			{ uuid: "q-a", kind: "text", id: "a", label: "A" },
+		]);
+		const verdict = undoRedoGateVerdict(displayed, [
+			{ kind: "removeField", uuid: asUuid("q-a") },
+		]);
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
 			// The message is the person-to-person rejection prose.
 			expect(verdict.message).toContain("wasn't applied");
 		}
-	});
-
-	it("passes a no-op target (identical doc) — nothing to introduce", () => {
-		const displayed = docWithFields([
-			{ uuid: "q-a", kind: "text", id: "a", label: "A" },
-		]);
-		// An empty batch: nothing to persist, and nothing to introduce.
-		expect(undoRedoGateVerdict(displayed, displayed, displayed)).toEqual({
-			ok: true,
-			batch: [],
-		});
-	});
-
-	// [4] — the gate verdicts the delta from `localBase` (NOT `displayed`) to the
-	// target, matching what the reconciler PUTs after the undo. When `localBase`
-	// differs from `displayed` (un-acked pending), the two deltas differ; a gate
-	// keyed on `displayed` would verdict the wrong batch.
-	it("verdicts the localBase→target delta, not displayed→target", () => {
-		// localBase (confirmed+pending) still has BOTH fields.
-		const localBase = docWithFields([
-			{ uuid: "q-a", kind: "text", id: "a", label: "A" },
-			{ uuid: "q-b", kind: "text", id: "b", label: "B" },
-		]);
-		// displayed has a local human edit that removed field B (not yet PUT).
-		const displayed = docWithFields([
-			{ uuid: "q-a", kind: "text", id: "a", label: "A" },
-		]);
-		// The undo target: back to only field B (field A removed). The PUT delta
-		// is localBase→target = remove A. Against localBase (which has A+B) that's
-		// a valid one-field form — passes. A gate keyed on `displayed` (only A)
-		// would instead diff displayed→target = {remove A, add B}, a different
-		// batch. Assert the gate uses the localBase delta.
-		const target = docWithFields([
-			{ uuid: "q-b", kind: "text", id: "b", label: "B" },
-		]);
-		const verdict = undoRedoGateVerdict(displayed, target, localBase);
-		// localBase→target removes A, leaving B — a valid single-field form.
-		expect(verdict.ok).toBe(true);
-	});
-
-	// The RECORDED batch is measured from `displayed`, because it is appended to a
-	// command queue that already holds everything between `localBase` and
-	// `displayed`. Measuring it from `localBase` double-counts the queue: undoing
-	// an edit the author just made diffs to nothing, the queued edit survives, and
-	// the PUT re-applies exactly what was undone.
-	it("records the displayed→target delta so the queue is not double-counted", () => {
-		// localBase: field A is still called "A" — the rename has not been PUT.
-		const localBase = docWithFields([
-			{ uuid: "q-a", kind: "text", id: "a", label: "A" },
-		]);
-		// displayed: the author renamed it, and that command is sitting in the queue.
-		const displayed = docWithFields([
-			{ uuid: "q-a", kind: "text", id: "a", label: "A-renamed" },
-		]);
-		// Undo takes the label back to where localBase already has it.
-		const verdict = undoRedoGateVerdict(displayed, localBase, localBase);
-		expect(verdict.ok).toBe(true);
-		if (!verdict.ok) return;
-		// Measured from localBase this is empty, and the queued rename would then
-		// persist an edit the screen no longer shows.
-		expect(verdict.batch).toEqual([
-			expect.objectContaining({ kind: "updateField", uuid: "q-a" }),
-		]);
-	});
-
-	// The gate REFUSES when the localBase→target delta introduces a finding, even
-	// though the displayed→target delta might not — proving it keys on localBase.
-	it("refuses when the localBase→target delta introduces a finding", () => {
-		// localBase has one field.
-		const localBase = docWithFields([
-			{ uuid: "q-a", kind: "text", id: "a", label: "A" },
-		]);
-		// displayed has a pending add of a second field.
-		const displayed = docWithFields([
-			{ uuid: "q-a", kind: "text", id: "a", label: "A" },
-			{ uuid: "q-b", kind: "text", id: "b", label: "B" },
-		]);
-		// The undo target drops to an empty form. localBase→target = remove A →
-		// EMPTY_FORM finding. (displayed→target = remove A + remove B — also a
-		// finding, but the point is the gate verdicts against localBase.)
-		const target = docWithFields([]);
-		const verdict = undoRedoGateVerdict(displayed, target, localBase);
-		expect(verdict.ok).toBe(false);
 	});
 });

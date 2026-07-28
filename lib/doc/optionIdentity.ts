@@ -3,8 +3,8 @@
  *
  * Every born-select path runs through here — the SA assembly, the builder's add
  * gesture, and its convert-to-select gesture — so an option minted on one
- * surface is addressable on all of them. It used to mint an `order` key beside
- * the uuid; sequence is the array now, so identity is all that is left.
+ * surface is addressable on all of them. Identity is the whole job: an option's
+ * place is the array position it sits in.
  */
 
 import { asUuid } from "@/lib/doc/types";
@@ -59,10 +59,8 @@ export function reconciledOptions(
  * uuid, and options authored before option identity existed have none — an edit
  * to one would otherwise resolve to nothing. Deterministic per
  * `(field uuid, option index)` so the client and the server agree on the same
- * legacy document.
- *
- * Its order-key twin retired with the keys: there is no sequence to backfill
- * when the array IS the sequence.
+ * legacy document. Only identity needs backfilling — the array a legacy option
+ * sits in already IS its sequence.
  */
 export function backfillOptionUuids(doc: {
 	fields: Record<string, unknown>;

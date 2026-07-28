@@ -29,6 +29,51 @@ function makeEmptyDoc(
 	};
 }
 
+describe("the command queue is current when the write is announced", () => {
+	// `useAutoSave` subscribes to the store and dispatches the save SYNCHRONOUSLY
+	// from the write that changed the document, so the queue has to already hold
+	// the command by then. A queue filled after the `set()` leaves every save one
+	// edit behind — the first edit's PUT sees an empty queue and sends nothing,
+	// its command riding out later on the back of a SECOND edit — and a lone
+	// edit, the last one before the author stops typing, never goes out at all.
+	function subscriberSeesQueue(
+		write: (store: ReturnType<typeof createBlueprintDocStore>) => void,
+	): number {
+		const store = createBlueprintDocStore();
+		store.getState().load(makeEmptyDoc());
+		store.getState().startTracking();
+		let seen = -1;
+		const unsubscribe = store.subscribe(() => {
+			if (seen === -1) seen = store.getState().peekCommands().length;
+		});
+		write(store);
+		unsubscribe();
+		return seen;
+	}
+
+	it("applyMany records before it notifies", () => {
+		expect(
+			subscriberSeesQueue((store) => {
+				store.getState().applyMany([{ kind: "setAppName", name: "Renamed" }]);
+			}),
+		).toBe(1);
+	});
+
+	it("commitDoc records before it notifies", () => {
+		expect(
+			subscriberSeesQueue((store) => {
+				const next = {
+					...store.getState(),
+					appName: "Renamed",
+				} as BlueprintDoc;
+				store
+					.getState()
+					.commitDoc(next, [{ kind: "setAppName", name: "Renamed" }]);
+			}),
+		).toBe(1);
+	});
+});
+
 describe("createBlueprintDocStore", () => {
 	it("starts with an empty doc", () => {
 		const store = createBlueprintDocStore();
@@ -87,22 +132,28 @@ describe("createBlueprintDocStore", () => {
 		}
 	});
 
-	it("load() does NOT populate the undo stack", () => {
+	it("load() is not a step the author can take back", () => {
 		const store = createBlueprintDocStore();
 		store.getState().load(makeEmptyDoc());
-		expect(store.temporal.getState().pastStates).toHaveLength(0);
+		expect(store.getState().canUndo).toBe(false);
 	});
 
-	it("applyMany() captures a state change in the undo stack", () => {
+	it("applyMany() records a step, and undo returns the prior value", () => {
 		const store = createBlueprintDocStore();
 		store.getState().load(makeEmptyDoc({ appName: "Before" }));
 		store.getState().startTracking();
 		store.getState().applyMany([{ kind: "setAppName", name: "After" }]);
 		expect(store.getState().appName).toBe("After");
-		expect(store.temporal.getState().pastStates.length).toBeGreaterThan(0);
+		expect(store.getState().canUndo).toBe(true);
+		store.getState().undo();
+		expect(store.getState().appName).toBe("Before");
+		expect(store.getState().canUndo).toBe(false);
+		expect(store.getState().canRedo).toBe(true);
+		store.getState().redo();
+		expect(store.getState().appName).toBe("After");
 	});
 
-	it("applyMany() batches multiple mutations into a single undo entry", () => {
+	it("applyMany() batches multiple mutations into ONE step", () => {
 		const store = createBlueprintDocStore();
 		store.getState().load(makeEmptyDoc({ appName: "A" }));
 		store.getState().startTracking();
@@ -112,36 +163,45 @@ describe("createBlueprintDocStore", () => {
 		]);
 		expect(store.getState().appName).toBe("B");
 		expect(store.getState().connectType).toBe("learn");
-		// Exactly one undo entry was added.
-		expect(store.temporal.getState().pastStates).toHaveLength(1);
+		// One undo takes back the whole batch, and there is nothing behind it.
+		store.getState().undo();
+		expect(store.getState().appName).toBe("A");
+		expect(store.getState().connectType).toBe(null);
+		expect(store.getState().canUndo).toBe(false);
 	});
 
-	it("beginAgentWrite()/endAgentWrite() pause and resume undo tracking", () => {
+	it("an agent run is one step, however many writes it streams", () => {
 		const store = createBlueprintDocStore();
 		store.getState().load(makeEmptyDoc({ appName: "A" }));
 		store.getState().startTracking();
 		store.getState().beginAgentWrite();
 		store.getState().applyMany([{ kind: "setAppName", name: "During Agent" }]);
-		expect(store.temporal.getState().pastStates).toHaveLength(0);
+		expect(store.getState().canUndo).toBe(false);
 		store.getState().endAgentWrite();
 		store.getState().applyMany([{ kind: "setAppName", name: "After Agent" }]);
-		expect(store.temporal.getState().pastStates).toHaveLength(1);
+		// Undo takes back the author's edit, not the run's.
+		store.getState().undo();
+		expect(store.getState().appName).toBe("During Agent");
+		expect(store.getState().canUndo).toBe(false);
 	});
 
-	it("startTracking() releases the birth pause once and drives depth to 0", () => {
+	it("startTracking() releases the birth pause once", () => {
 		const store = createBlueprintDocStore();
 		store.getState().load(makeEmptyDoc({ appName: "A" }));
-		// Before startTracking the store is paused (birth base) — edits invisible.
+		// Before startTracking the store is paused (birth base) — no step recorded.
 		store.getState().applyMany([{ kind: "setAppName", name: "B" }]);
-		expect(store.temporal.getState().pastStates).toHaveLength(0);
-		// Release the birth pause → tracking live.
+		expect(store.getState().canUndo).toBe(false);
 		store.getState().startTracking();
 		store.getState().applyMany([{ kind: "setAppName", name: "C" }]);
-		expect(store.temporal.getState().pastStates).toHaveLength(1);
 		// Idempotent — a second call doesn't unbalance the counter.
 		store.getState().startTracking();
 		store.getState().applyMany([{ kind: "setAppName", name: "D" }]);
-		expect(store.temporal.getState().pastStates).toHaveLength(2);
+		// Both post-release edits are their own step; the pre-release one is not.
+		store.getState().undo();
+		expect(store.getState().appName).toBe("C");
+		store.getState().undo();
+		expect(store.getState().appName).toBe("B");
+		expect(store.getState().canUndo).toBe(false);
 	});
 
 	it("undo works after a fresh build: mount paused → run → startTracking (the [4] regression)", () => {
@@ -155,15 +215,16 @@ describe("createBlueprintDocStore", () => {
 		// No startTracking at mount — a fresh build generates first.
 		store.getState().beginAgentWrite(); // beginRun
 		store.getState().applyMany([{ kind: "setAppName", name: "Generated" }]);
-		expect(store.temporal.getState().pastStates).toHaveLength(0);
+		expect(store.getState().canUndo).toBe(false);
 		store.getState().endAgentWrite(); // endRun closes the agent bracket
 		// ChatContainer calls startTracking() after endRun — bracket already closed,
 		// so it releases the birth pause immediately.
 		store.getState().startTracking();
 		// A subsequent human edit IS recorded — undo works, no page reload needed.
 		store.getState().applyMany([{ kind: "setAppName", name: "HumanEdit" }]);
-		expect(store.temporal.getState().pastStates).toHaveLength(1);
-		expect(store.temporal.getState().isTracking).toBe(true);
+		expect(store.getState().canUndo).toBe(true);
+		store.getState().undo();
+		expect(store.getState().appName).toBe("Generated");
 	});
 
 	it("startTracking() DURING an open bracket defers the birth-pause release to the bracket close", () => {
@@ -174,13 +235,12 @@ describe("createBlueprintDocStore", () => {
 		store.getState().load(makeEmptyDoc({ appName: "New" }));
 		store.getState().beginAgentWrite(); // bracket open
 		store.getState().startTracking(); // deferred — bracket still open
-		// Tracking is still paused while the bracket is open.
-		expect(store.temporal.getState().isTracking).toBe(false);
 		store.getState().applyMany([{ kind: "setAppName", name: "InBracket" }]);
-		expect(store.temporal.getState().pastStates).toHaveLength(0);
+		expect(store.getState().canUndo).toBe(false);
 		store.getState().endAgentWrite(); // bracket closes → deferred release fires
-		expect(store.temporal.getState().isTracking).toBe(true);
 		store.getState().applyMany([{ kind: "setAppName", name: "After" }]);
-		expect(store.temporal.getState().pastStates).toHaveLength(1);
+		expect(store.getState().canUndo).toBe(true);
+		store.getState().undo();
+		expect(store.getState().appName).toBe("InBracket");
 	});
 });

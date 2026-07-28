@@ -6,9 +6,8 @@
 // Both sequences name EVERY column, visible or not, which is what makes hiding
 // a genuinely reversible presentation choice: the place is held by the config's
 // ordering array, so a restored field returns exactly where the author had it.
-// Hiding used to snapshot the column's resolved sort key ONTO the column so a
-// later restore could find its way back — there is nothing to snapshot now, and
-// no way for a hidden column to lose its place.
+// Hiding writes only the visibility slot, so there is no way for a hidden
+// column to lose its place.
 
 import type { CaseListConfig, Column } from "@/lib/domain";
 
