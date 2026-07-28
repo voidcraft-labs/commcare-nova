@@ -484,7 +484,7 @@ describe("CaseOrderingComposer", () => {
 		};
 
 		expect(
-			resolveSortedColumns(configOf([laterInResults, firstInResults])).map(
+			resolveSortedColumns(configOf([firstInResults, laterInResults])).map(
 				(column) => column.uuid,
 			),
 		).toEqual([firstInResults.uuid, laterInResults.uuid]);

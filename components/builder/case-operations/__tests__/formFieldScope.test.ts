@@ -222,8 +222,7 @@ describe("canonical picker order", () => {
 			kind: "hidden",
 		},
 	};
-	// Membership arrays deliberately disagree with display order. CHILD_A and
-	// CHILD_B also collide on `order`, so their uuids must break the tie.
+	// The membership arrays ARE the order the author sees, at every level.
 	const fieldOrder: BlueprintDoc["fieldOrder"] = {
 		[FORM]: [ROOT_A, ROOT_B, REPEAT],
 		[REPEAT]: [CHILD_B, CHILD_A],
@@ -232,40 +231,21 @@ describe("canonical picker order", () => {
 	it("orders answer, repeat, and identity-key choices at every hierarchy level", () => {
 		const entries = formFieldEntriesFor(fields, fieldOrder, FORM);
 
-		expect(uuids(entries)).toEqual([REPEAT, CHILD_A, CHILD_B, ROOT_B, ROOT_A]);
+		expect(uuids(entries)).toEqual([ROOT_A, ROOT_B, REPEAT, CHILD_B, CHILD_A]);
 		expect(uuids(operationFormFieldDecls(entries, undefined))).toEqual([
-			ROOT_B,
 			ROOT_A,
+			ROOT_B,
 		]);
 		expect(uuids(operationFormFieldDecls(entries, REPEAT))).toEqual([
-			CHILD_A,
-			CHILD_B,
-			ROOT_B,
 			ROOT_A,
+			ROOT_B,
+			CHILD_B,
+			CHILD_A,
 		]);
 		expect(uuids(identityKeyFieldDecls(entries, REPEAT))).toEqual([
-			CHILD_A,
 			CHILD_B,
+			CHILD_A,
 		]);
 		expect(uuids(repeatFieldDecls(entries))).toEqual([REPEAT]);
-	});
-
-	it("reads the fields in the order their membership arrays hold them", () => {
-		const entries = formFieldEntriesFor(fields, fieldOrder, FORM);
-
-		expect(uuids(operationFormFieldDecls(entries, undefined))).toEqual([
-			ROOT_A,
-			ROOT_B,
-		]);
-		expect(uuids(operationFormFieldDecls(entries, REPEAT))).toEqual([
-			ROOT_A,
-			CHILD_B,
-			CHILD_A,
-			ROOT_B,
-		]);
-		expect(uuids(identityKeyFieldDecls(entries, REPEAT))).toEqual([
-			CHILD_B,
-			CHILD_A,
-		]);
 	});
 });

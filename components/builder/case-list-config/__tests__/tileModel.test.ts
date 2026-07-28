@@ -98,7 +98,7 @@ describe("tileShowsColumn", () => {
 describe("tileMembership", () => {
 	it("splits members by whether they hold a place, in Results order", () => {
 		const later = column("later", "Later");
-		const { placed, unplaced } = tileMembership(config([later, VILLAGE, NAME]));
+		const { placed, unplaced } = tileMembership(config([NAME, VILLAGE, later]));
 		expect(placed.map((entry) => entry.label)).toEqual([
 			"Patient name",
 			"Village",

@@ -264,15 +264,20 @@ describe("planTilePreset", () => {
 		expect(layoutWrites(plan.mutations)).toHaveLength(0);
 	});
 
-	it("arranges in Results order, not array order", () => {
+	it("arranges in Results order, not Details order", () => {
 		expect(preset).toBeDefined();
 		if (preset === undefined) return;
+		const second = column("second", "Village");
+		const first = column("first", "Patient name");
 		const plan = planTilePreset({
 			moduleUuid: MODULE,
-			config: config([
-				column("second", "Village"),
-				column("first", "Patient name"),
-			]),
+			config: {
+				...config([second, first]),
+				// Results shows first then second; Details disagrees, and the
+				// preset must not hear it.
+				listColumnOrder: [first.uuid, second.uuid],
+				detailColumnOrder: [second.uuid, first.uuid],
+			},
 			preset,
 		});
 		expect(plan.ok).toBe(true);

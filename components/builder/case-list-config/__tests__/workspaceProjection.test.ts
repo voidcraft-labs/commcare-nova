@@ -58,16 +58,16 @@ describe("projectCaseWorkspaceColumns", () => {
 
 		expect(uuids(projection.ordered)).toEqual([
 			"list-only",
-			"fully-hidden",
-			"detail-only",
 			"both",
+			"detail-only",
+			"fully-hidden",
 		]);
 		expect(uuids(projection.listVisible)).toEqual(["list-only", "both"]);
 		expect(uuids(projection.listHidden)).toEqual([
-			"fully-hidden",
 			"detail-only",
+			"fully-hidden",
 		]);
-		expect(uuids(projection.detailVisible)).toEqual(["detail-only", "both"]);
+		expect(uuids(projection.detailVisible)).toEqual(["both", "detail-only"]);
 		expect(uuids(projection.detailHidden)).toEqual([
 			"list-only",
 			"fully-hidden",
