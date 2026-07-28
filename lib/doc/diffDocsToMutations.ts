@@ -638,9 +638,12 @@ export function diffDocsToMutations(
 	}
 
 	// (5) Module order — `moduleOrder` IS the sequence, so the reorder is
-	// whatever moves turn the previous array into the next one. An add carries
-	// its own placement, so `sequenceMovesTo` skips newcomers.
-	for (const move of sequenceMovesTo(prev.moduleOrder, next.moduleOrder)) {
+	// whatever moves turn the previous array into the next one, measured against
+	// the sequence the `addModule`s have already landed in.
+	for (const move of sequenceMovesTo(
+		arrivalsProjected(prev.moduleOrder, next.moduleOrder),
+		next.moduleOrder,
+	)) {
 		orders.push({ kind: "moveModule", uuid: move.uuid, after: move.after });
 	}
 
@@ -919,15 +922,18 @@ function reconcileFormOrders(
 		}
 	}
 
-	// Everything else is a same-module reorder, which is whatever moves turn
-	// each module's previous sequence into its next one. A form that relocated
-	// already carries its placement above, and an added form carries its own,
-	// so neither needs a second move here.
+	// Everything else is a same-module reorder, which is whatever moves are still
+	// needed once the adds and the relocations above have landed — so it is
+	// measured against that projected sequence, not against `prev`. A form that
+	// relocated already carries its placement, so it is never moved twice.
 	for (const [moduleUuid, nextOrder] of Object.entries(next.formOrder)) {
 		const before = (prev.formOrder[moduleUuid] ?? []).filter(
 			(uuid) => !relocated.has(uuid as Uuid),
 		);
-		for (const move of sequenceMovesTo(before, nextOrder)) {
+		for (const move of sequenceMovesTo(
+			arrivalsProjected(before, nextOrder),
+			nextOrder,
+		)) {
 			if (relocated.has(move.uuid as Uuid)) continue;
 			rest.push({
 				kind: "moveForm",
@@ -1257,7 +1263,12 @@ function diffColumns(
 		["list", prev.listColumnOrder, next.listColumnOrder],
 		["detail", prev.detailColumnOrder, next.detailColumnOrder],
 	] as const) {
-		for (const move of sequenceMovesTo(before, after)) {
+		// Against the sequence the adds above have already landed in — a column
+		// added at the top of Results is in place before these moves run.
+		for (const move of sequenceMovesTo(
+			arrivalsProjected(before, after),
+			after,
+		)) {
 			out.push({
 				kind: "moveColumn",
 				moduleUuid,
@@ -1276,9 +1287,38 @@ function diffColumns(
 }
 
 /** The uuid an entry follows in a sequence, or `null` when it leads it. */
-function predecessorIn(sequence: readonly Uuid[], uuid: Uuid): Uuid | null {
+function predecessorIn<Id extends string>(
+	sequence: readonly Id[],
+	uuid: Id,
+): Id | null {
 	const at = sequence.indexOf(uuid);
-	return at > 0 ? (sequence[at - 1] as Uuid) : null;
+	return at > 0 ? (sequence[at - 1] as Id) : null;
+}
+
+/**
+ * `prev` with the removals dropped and the newcomers spliced in where their
+ * adds put them — the sequence that actually exists by the time the moves pass
+ * runs.
+ *
+ * Every add in this file carries an anchor read off `next`, but it applies to a
+ * document whose surviving entities have not moved yet, so it can land
+ * somewhere `next` doesn't have it. Diffing the moves against `prev` would then
+ * compute them from a state that never exists, and the reorder lands wrong.
+ * Folding the arrivals through the same `spliceAfter` the reducer runs is what
+ * lets the moves pass finish the job.
+ */
+function arrivalsProjected<Id extends string>(
+	before: readonly Id[],
+	after: readonly Id[],
+): Id[] {
+	const survives = new Set(after);
+	const held = new Set(before);
+	let projected = before.filter((uuid) => survives.has(uuid));
+	for (const uuid of after) {
+		if (held.has(uuid)) continue;
+		projected = spliceAfter(projected, uuid, predecessorIn(after, uuid));
+	}
+	return projected;
 }
 
 function diffSearchInputs(
@@ -1296,6 +1336,10 @@ function diffSearchInputs(
 				kind: "addSearchInput",
 				moduleUuid,
 				searchInput: cloneEntity(input),
+				after: predecessorIn(
+					next.map((i) => i.uuid),
+					input.uuid,
+				),
 			});
 			continue;
 		}
@@ -1304,9 +1348,13 @@ function diffSearchInputs(
 		}
 	}
 	// `searchInputs` IS the sequence, so a reorder is whatever moves turn the
-	// previous array into the next one. Adds carry their own placement.
+	// previous array into the next one — measured against the sequence the adds
+	// above have already landed in, not against `prev`.
 	for (const move of sequenceMovesTo(
-		prev.map((i) => i.uuid),
+		arrivalsProjected(
+			prev.map((i) => i.uuid),
+			next.map((i) => i.uuid),
+		),
 		next.map((i) => i.uuid),
 	)) {
 		out.push({
@@ -1484,7 +1532,15 @@ function diffOptions(
 		nextUuids.add(opt.uuid);
 		const p = prevByUuid.get(opt.uuid);
 		if (!p) {
-			out.push({ kind: "addOption", fieldUuid, option: cloneEntity(opt) });
+			out.push({
+				kind: "addOption",
+				fieldUuid,
+				option: cloneEntity(opt),
+				after: predecessorIn(
+					nextOpts.flatMap((o) => (o.uuid ? [o.uuid] : [])),
+					opt.uuid,
+				),
+			});
 			continue;
 		}
 		if (!contentEqualIgnoringOrder(p, opt)) {
@@ -1498,9 +1554,13 @@ function diffOptions(
 	}
 	// The `options` array IS the sequence. Only uuid-bearing options can be
 	// addressed by a move; a legacy option with no uuid predates option identity
-	// and rides whatever whole-field write carries it.
+	// and rides whatever whole-field write carries it. Moves run against the
+	// sequence the adds above have already landed in.
 	for (const move of sequenceMovesTo(
-		prevOpts.flatMap((o) => (o.uuid ? [o.uuid] : [])),
+		arrivalsProjected(
+			prevOpts.flatMap((o) => (o.uuid ? [o.uuid] : [])),
+			nextOpts.flatMap((o) => (o.uuid ? [o.uuid] : [])),
+		),
 		nextOpts.flatMap((o) => (o.uuid ? [o.uuid] : [])),
 	)) {
 		out.push({

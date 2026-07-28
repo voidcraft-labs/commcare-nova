@@ -482,7 +482,10 @@ export function tileLayoutIssues(config: CaseListConfig): readonly TileIssue[] {
 	// it: a hidden field's stored cell draws nothing, so two of them on one
 	// square is not something a worker can see. Showing one of them is the
 	// moment the conflict becomes the author's to fix.
-	const visible = config.columns.filter(
+	// Scanned in the Results sequence, like the geometry pass above: the pair in
+	// the message reads left-to-right the way the author sees them, and the
+	// issue list comes back in the order the fields are laid out.
+	const visible = columns.filter(
 		(column) => column.tile !== undefined && tileShowsColumn(column),
 	);
 	for (let a = 0; a < visible.length; a++) {

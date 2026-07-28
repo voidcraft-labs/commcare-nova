@@ -155,6 +155,19 @@ export function batchTargetsMissing(
 	const caseOperationsByForm = new Map<string, Set<string>>();
 	const caseOperationWrites = new Map<string, Set<string>>();
 	const caseOperationLinks = new Map<string, Set<string>>();
+	/**
+	 * Operations BORN in this batch. A same-key write/link add against one of
+	 * them is the author's own sequence, never a peer's — nobody else has seen
+	 * the operation, so there is nothing it can collide with.
+	 *
+	 * The batch is the author's command log, not a minimal diff: creating an
+	 * operation that already carries a link and then configuring that link
+	 * records both commands. The reducers are idempotent on the logical key (a
+	 * second `add-link` / `add-write` for a key that already exists returns
+	 * without touching the draft), so the batch replays to exactly the right
+	 * document — and rejecting it as a conflict fails a save that has none.
+	 */
+	const caseOperationsBornInBatch = new Set<string>();
 	const caseOperationKey = (formUuid: string, operationUuid: string) =>
 		`${formUuid}\0${operationUuid}`;
 	const seedCaseOperation = (
@@ -184,6 +197,7 @@ export function batchTargetsMissing(
 		const key = caseOperationKey(formUuid, operationUuid);
 		caseOperationWrites.delete(key);
 		caseOperationLinks.delete(key);
+		caseOperationsBornInBatch.delete(key);
 	};
 	for (const form of Object.values(doc.forms)) {
 		caseOperationsByForm.set(form.uuid, new Set());
@@ -260,11 +274,12 @@ export function batchTargetsMissing(
 					const links = caseOperationLinks.get(key) ?? new Set<string>();
 					caseOperationWrites.set(key, writes);
 					caseOperationLinks.set(key, links);
+					const born = caseOperationsBornInBatch.has(key);
 					switch (semantic.operation) {
 						case "update":
 							break;
 						case "add-write":
-							if (writes.has(semantic.value.property)) return true;
+							if (writes.has(semantic.value.property) && !born) return true;
 							writes.add(semantic.value.property);
 							break;
 						case "update-write":
@@ -275,7 +290,7 @@ export function batchTargetsMissing(
 							writes.delete(semantic.property);
 							break;
 						case "add-link":
-							if (links.has(semantic.value.identifier)) return true;
+							if (links.has(semantic.value.identifier) && !born) return true;
 							links.add(semantic.value.identifier);
 							break;
 						case "update-link":
@@ -306,6 +321,9 @@ export function batchTargetsMissing(
 					case "add":
 						if (operationUuids.has(change.value.uuid)) return true;
 						seedCaseOperation(m.uuid, change.value);
+						caseOperationsBornInBatch.add(
+							caseOperationKey(m.uuid, change.value.uuid),
+						);
 						break;
 					case "update":
 						if (!operationUuids.has(change.uuid)) return true;

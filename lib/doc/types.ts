@@ -763,13 +763,18 @@ function reportCaseOperationPatchIntegrity(
 	const issue = (path: readonly (string | number)[], message: string): void => {
 		ctx.addIssue({ code: "custom", path: [...path], message });
 	};
+	// A move is the one pairing whose fallback is also a `move`: both views name
+	// the operation and the uuid it now follows, and both slots are required, so
+	// agreement is exact identity on the pair. (This used to compare an `order`
+	// key neither view carries any more, which made every move pass whatever its
+	// anchor said — including two views that disagreed about where it landed.)
 	if (
 		semantic?.operation === "move" &&
 		fallback?.operation === "move" &&
 		typeof semantic.uuid === "string" &&
 		fallback.uuid === semantic.uuid &&
-		semantic.order !== null &&
-		fallback.order === semantic.order
+		(typeof semantic.after === "string" || semantic.after === null) &&
+		fallback.after === semantic.after
 	) {
 		return;
 	}
@@ -1719,6 +1724,8 @@ function createMutationSchema({
 			kind: z.literal("addSearchInput"),
 			moduleUuid: uuidSchema,
 			searchInput: mutationSearchInputSchema,
+			/** The uuid this input now follows; `null` first, absent appends. */
+			after: uuidSchema.nullable().optional(),
 		}),
 		z
 			.object({
@@ -1784,15 +1791,17 @@ function createMutationSchema({
 		}),
 		// ─── Granular select options ─────────────────────────────────────────
 		//
-		// A select field's `options` array is a membership set keyed by per-option
-		// `uuid`; sequence is `sort-by-(order, uuid)`. The reducers mutate `options`
-		// IN PLACE and never re-parse the field through `fieldSchema`, so a
-		// `removeOption` dropping below two options reaches the commit gate as a
-		// sub-2 candidate (`SELECT_TOO_FEW_OPTIONS`).
+		// A select field's `options` array IS the sequence, keyed by per-option
+		// `uuid` for identity. The reducers rewrite `options` on the draft and
+		// never re-parse the field through `fieldSchema`, so a `removeOption`
+		// dropping below two options reaches the commit gate as a sub-2 candidate
+		// (`SELECT_TOO_FEW_OPTIONS`).
 		z.object({
 			kind: z.literal("addOption"),
 			fieldUuid: uuidSchema,
 			option: selectOptionSchema,
+			/** The uuid this option now follows; `null` first, absent appends. */
+			after: uuidSchema.nullable().optional(),
 		}),
 		z.object({
 			kind: z.literal("updateOption"),

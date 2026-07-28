@@ -32,8 +32,10 @@
  * When a reconciler is present (every live builder session), a chat
  * `data-mutations` batch is REGISTERED in the reconciler
  * (`registerChatBatch`) before it is applied to the store, so the batch's
- * own durable-stream echo is recognized + dropped and `useAutoSave` doesn't
- * re-PUT the SA's own edit (it is already in `localBase()`). `data-done`
+ * own durable-stream echo is recognized + dropped and `localBase()` folds it.
+ * The apply itself runs inside a REPLAY bracket (`beginRemoteApply`), which is
+ * what keeps the SA's own mutations out of the author's command queue and off
+ * the next PUT — the batch was already committed server-side. `data-done`
  * reseeds the reconciler's confirmed baseline from the carried `{ doc, seq }`
  * instead of `docStore.load()` (the agent suppression bracket is still open).
  * A brand-new build's reconciler is DORMANT (no app id yet): `registerChatBatch`
@@ -133,11 +135,10 @@ export function applyStreamEvent(
 		const seq = data.seq as number | undefined;
 		if (mutations && mutations.length > 0) {
 			/* Register the SA batch in the reconciler BEFORE applying it: once
-			 * it's in `sentPending`, `localBase()` folds it, so the store
-			 * subscriber that fires synchronously from `applyMany` sees an empty
-			 * `humanUncommitted` delta and doesn't re-PUT the SA's own edit. A
-			 * dormant new-build reconciler no-ops (no app id yet); its mutations
-			 * still apply directly to the store.
+			 * it's in `sentPending`, `localBase()` folds it, so the reconciler's
+			 * view of the document accounts for the SA's edit instead of reading
+			 * it as a peer's divergence. A dormant new-build reconciler no-ops (no
+			 * app id yet); its mutations still apply directly to the store.
 			 *
 			 * `alreadyConfirmed` means the batch's /stream echo BEAT this chunk
 			 * (two independent transports) and already folded these mutations into
@@ -157,7 +158,21 @@ export function applyStreamEvent(
 					seq,
 				}));
 			}
-			if (!alreadyConfirmed) docStore.getState().applyMany(mutations);
+			/* Apply inside a REPLAY bracket. The SA's batch was committed
+			 * server-side before this frame was streamed, so it is exactly what
+			 * that bracket describes — an already-persisted write arriving from
+			 * the server. Without it the store queues the SA's own mutations as
+			 * un-persisted author intent and the next auto-save PUTs them
+			 * straight back. */
+			if (!alreadyConfirmed) {
+				const store = docStore.getState();
+				store.beginRemoteApply();
+				try {
+					store.applyMany(mutations);
+				} finally {
+					store.endRemoteApply();
+				}
+			}
 		}
 		if (events && events.length > 0) {
 			sessionStore.getState().pushEvents(events);

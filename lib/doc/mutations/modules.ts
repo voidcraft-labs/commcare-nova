@@ -1,5 +1,9 @@
 import type { Draft } from "immer";
-import { spliceAfter, withoutEntry } from "@/lib/doc/mutations/sequence";
+import {
+	spliceAfter,
+	spliceEntryAfter,
+	withoutEntry,
+} from "@/lib/doc/mutations/sequence";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import {
 	type CaseListConfig,
@@ -308,7 +312,10 @@ export function applyModuleMutation(
 			if (!config) return;
 			// Idempotent on uuid (a re-applied add is a no-op).
 			if (config.columns.some((c) => c.uuid === mut.column.uuid)) return;
-			const column = { ...mut.column };
+			// A DEEP copy, not a spread: the payload must not become part of a
+			// produced (frozen) state that a later apply of the same batch edits in
+			// place. A spread leaves `tile`, `sort`, and any expression aliased.
+			const column = structuredClone(mut.column);
 			if (mut.tileCell !== undefined) column.tile = { ...mut.tileCell };
 			config.columns.push(column);
 			// The column joins BOTH sequences, at the placement each one named.
@@ -363,7 +370,7 @@ export function applyModuleMutation(
 			// A content edit no longer has to protect the column's position: its
 			// place lives in the config's two ordering arrays, which this replacement
 			// never touches. That whole class of clobbering is gone with the keys.
-			const replacement = { ...mut.column, uuid: mut.uuid };
+			const replacement = { ...structuredClone(mut.column), uuid: mut.uuid };
 			if (current.tile === undefined) delete replacement.tile;
 			// `current` is an Immer draft, whose Proxy `structuredClone` rejects.
 			// A tile cell is a flat value object, so a shallow copy detaches it.
@@ -428,7 +435,11 @@ export function applyModuleMutation(
 			if (config.searchInputs.some((s) => s.uuid === mut.searchInput.uuid)) {
 				return;
 			}
-			config.searchInputs.push(mut.searchInput);
+			config.searchInputs = spliceEntryAfter(
+				config.searchInputs,
+				structuredClone(mut.searchInput),
+				mut.after,
+			);
 			return;
 		}
 		case "updateSearchInput": {
@@ -505,16 +516,14 @@ export function applyModuleMutation(
 			const config = draft.modules[mut.moduleUuid]?.caseListConfig;
 			if (!config) return;
 			// `searchInputs` is the sequence, so the move reorders the array itself.
+			// An input a peer removed cannot be moved back into it.
 			const input = config.searchInputs.find((s) => s.uuid === mut.uuid);
 			if (input === undefined) return;
-			const rest = config.searchInputs.filter((s) => s.uuid !== mut.uuid);
-			const at =
-				mut.after === null ? -1 : rest.findIndex((s) => s.uuid === mut.after);
-			// An `after` naming an input a peer removed appends, matching
-			// `spliceAfter` — a reducer that threw would break historical replay.
-			const target = mut.after === null ? 0 : at < 0 ? rest.length : at + 1;
-			rest.splice(target, 0, input);
-			config.searchInputs = rest;
+			config.searchInputs = spliceEntryAfter(
+				config.searchInputs,
+				input,
+				mut.after,
+			);
 			return;
 		}
 		case "setCaseListMeta": {

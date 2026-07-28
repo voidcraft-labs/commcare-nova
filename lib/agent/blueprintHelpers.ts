@@ -739,7 +739,7 @@ export function reorderColumnsMutation(
 }
 
 /** Search-input parallel of `addColumnsMutation` — one granular
- *  `addSearchInput` per input, each carrying a fresh append `order`. */
+ *  `addSearchInput` per input, each appending (no anchor). */
 export function addSearchInputsMutation(
 	mod: Module,
 	searchInputs: readonly SearchInputDef[],

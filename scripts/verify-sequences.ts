@@ -1,55 +1,98 @@
-/** Dry-run the sequence migration over PRODUCTION rows and report disagreements. */
-import { migrateNested } from "@/lib/case-store/migrations/20260727120000_sequence_is_array_position";
+/**
+ * The migration's own proof, run against real rows.
+ *
+ * `sequencesFromStoredRows` reads every ordered collection two ways: `sorted`
+ * derives it through the frozen comparators — what the migration will decide —
+ * and unsorted reads plain array position, which is what every reader does once
+ * the keys are gone. Running both AROUND the migration is the proof that it
+ * changed nothing: for each collection the sorted reading of the stored rows
+ * must equal the unsorted reading of the migrated rows.
+ *
+ * The first version of this script compared only whether each case list ended
+ * up with two full column sequences. That is a coverage check, not the proof —
+ * it reported clean while the migration was silently reverting every reordered
+ * search input and select option, because it never compared the two readings.
+ */
+
+import {
+	migrateNested,
+	type StoredEntityRow,
+	sequencesFromStoredRows,
+} from "@/lib/case-store/migrations/20260727120000_sequence_is_array_position";
 import { targetProdDb } from "./lib/prodDb";
 
-async function main() {
-	targetProdDb();
+/** Apply what `up()` applies to one row's data, in place. */
+function migrateRow(row: StoredEntityRow): void {
+	migrateNested(row.kind, row.data);
+}
+
+async function main(): Promise<void> {
+	if (process.argv.includes("--prod")) targetProdDb();
 	const { getCaseStorePool } = await import(
 		"@/lib/case-store/postgres/connection"
 	);
 	const pool = await getCaseStorePool();
-	{
-		const { rows } = await pool.query(
-			"SELECT app_id, kind, uuid, data FROM blueprint_entities",
+	const { rows } = await pool.query<StoredEntityRow>(
+		`SELECT app_id, uuid, kind, parent_uuid, ordinal, data
+		 FROM blueprint_entities
+		 ORDER BY app_id, kind, parent_uuid NULLS FIRST, ordinal, uuid`,
+	);
+
+	const byApp = new Map<string, StoredEntityRow[]>();
+	for (const row of rows) {
+		const bucket = byApp.get(row.app_id);
+		if (bucket === undefined) byApp.set(row.app_id, [row]);
+		else bucket.push(row);
+	}
+
+	let apps = 0;
+	let collections = 0;
+	let disagreements = 0;
+	for (const [appId, stored] of byApp) {
+		apps++;
+		// What the migration decides, read off the stored rows.
+		const before = sequencesFromStoredRows(stored, { sorted: true });
+		// What a reader sees afterwards: array position, no comparator.
+		const migrated = stored.map((row) => ({
+			...row,
+			data: structuredClone(row.data),
+		}));
+		for (const row of migrated) migrateRow(row);
+		// `up()` also rewrites `ordinal` to the sorted position for the top-level
+		// kinds; mirror that here so the unsorted reading sees the migrated order.
+		const order = sequencesFromStoredRows(stored, { sorted: true });
+		const rank = new Map<string, number>();
+		for (const uuids of order.values()) {
+			uuids.forEach((uuid, index) => {
+				rank.set(uuid, index);
+			});
+		}
+		for (const row of migrated) row.ordinal = rank.get(row.uuid) ?? row.ordinal;
+		migrated.sort(
+			(a, b) =>
+				a.kind.localeCompare(b.kind) ||
+				(a.parent_uuid ?? "").localeCompare(b.parent_uuid ?? "") ||
+				a.ordinal - b.ordinal ||
+				a.uuid.localeCompare(b.uuid),
 		);
-		let repaired = 0;
-		let problems = 0;
-		for (const raw of rows as unknown as {
-			app_id: string;
-			kind: string;
-			uuid: string;
-			data: Record<string, unknown>;
-		}[]) {
-			if (migrateNested(raw.kind, raw.data)) repaired++;
-			const config = raw.data.caseListConfig as
-				| {
-						columns?: { uuid: string }[];
-						listColumnOrder?: string[];
-						detailColumnOrder?: string[];
-				  }
-				| undefined;
-			if (config === undefined) continue;
-			const set = new Set((config.columns ?? []).map((c) => c.uuid));
-			for (const [name, seq] of [
-				["listColumnOrder", config.listColumnOrder],
-				["detailColumnOrder", config.detailColumnOrder],
-			] as const) {
-				if (
-					seq === undefined ||
-					seq.length !== set.size ||
-					seq.some((u) => !set.has(u))
-				) {
-					console.log(
-						`${name} wrong on module ${raw.uuid} (app ${raw.app_id})`,
-					);
-					problems++;
-				}
+		const after = sequencesFromStoredRows(migrated, { sorted: false });
+
+		for (const [key, expected] of before) {
+			collections++;
+			const got = after.get(key);
+			if (got === undefined || got.join(",") !== expected.join(",")) {
+				disagreements++;
+				console.log(
+					`app ${appId} ${key}\n  before: ${expected.join(",")}\n  after:  ${(got ?? []).join(",")}`,
+				);
 			}
 		}
-		console.log(
-			`prod rows=${rows.length} migrated=${repaired} problems=${problems}`,
-		);
 	}
+	console.log(
+		`apps=${apps} rows=${rows.length} collections=${collections} disagreements=${disagreements}`,
+	);
 	await pool.end();
+	process.exit(disagreements === 0 ? 0 : 1);
 }
+
 void main();

@@ -37,6 +37,24 @@
 // migrated and is left alone. That guard is load-bearing rather than defensive —
 // the column comparators tie on uuid when both keys are absent, so a second pass
 // without it would re-sort migrated columns into uuid order.
+//
+// THE DURABLE LOG GETS A DISCONTINUITY MARKER, not a rewrite. `accepted_mutations`
+// is permanent history, and its rows before this point speak the key vocabulary
+// in their payloads — a `moveField` carrying an `order` string, not the uuid it
+// now follows. Those cannot be rewritten in place: a fractional key only means
+// anything against the sibling keys of the moment, so converting one would take a
+// full per-app fold through a reducer that still understands both vocabularies —
+// exactly the parallel machinery this change exists to delete. So the fold
+// horizon MOVES instead: every app gets one `kind: "migration"` batch appended
+// here, which is the log's existing word for "rebuild from the snapshot rather
+// than replaying across me". Its `mutations` are empty because nothing about the
+// document changed — the proof this migration ships is that both readings of
+// every collection agree — only where the sequence is written down.
+//
+// That marker is also what protects a LIVE client. A tab whose stream cursor
+// predates the cutover reconnects to the new revision and asks for everything
+// past it; the marker makes the stream tell it to reload the whole blueprint
+// instead of replaying old-vocabulary batches into a new reducer.
 
 import { type Kysely, sql } from "kysely";
 
@@ -185,6 +203,36 @@ function asRecordArray(value: unknown): Record<string, unknown>[] | undefined {
  * columns were never keyed is invisible to the oracle while being exactly the
  * case this has to get right.
  */
+/**
+ * One case list's columns in one surface's order, as the migration reads them.
+ *
+ * The ONE home of that answer, because the migration and the oracle that proves
+ * it both need it and drifting apart is the whole risk of a frozen comparator.
+ * (They did drift: the oracle sorted unconditionally, so on a config whose
+ * columns were never keyed it reported uuid order — the comparators tie on uuid
+ * once both keys are absent — and every such case list read as a disagreement
+ * the migration was never going to cause.)
+ */
+function columnSequence(
+	columns: readonly Record<string, unknown>[],
+	surface: "listOrder" | "detailOrder",
+): string[] {
+	// An unkeyed set is already in its sequence: the written array IS the order,
+	// and sorting it would re-order it into uuid order and call that the answer.
+	const keyed = !alreadyMigrated(columns as readonly LegacyColumn[], [
+		"order",
+		"listOrder",
+		"detailOrder",
+	]);
+	return (
+		keyed
+			? [...columns].sort((a, b) =>
+					byColumnOrder(a as LegacyColumn, b as LegacyColumn, surface),
+				)
+			: columns
+	).map((column) => column.uuid as string);
+}
+
 export function migrateNested(
 	kind: string,
 	data: Record<string, unknown>,
@@ -206,20 +254,8 @@ export function migrateNested(
 			// Sorting is what depends on the keys — comparators that tie on uuid
 			// would otherwise re-sort a keyless config into uuid order.
 			if (columns !== undefined && config.listColumnOrder === undefined) {
-				const keyed = !alreadyMigrated(columns as LegacyColumn[], [
-					"order",
-					"listOrder",
-					"detailOrder",
-				]);
-				const inSurfaceOrder = (surface: "listOrder" | "detailOrder") =>
-					(keyed
-						? [...columns].sort((a, b) =>
-								byColumnOrder(a as LegacyColumn, b as LegacyColumn, surface),
-							)
-						: columns
-					).map((c) => c.uuid);
-				config.listColumnOrder = inSurfaceOrder("listOrder");
-				config.detailColumnOrder = inSurfaceOrder("detailOrder");
+				config.listColumnOrder = columnSequence(columns, "listOrder");
+				config.detailColumnOrder = columnSequence(columns, "detailOrder");
 				for (const column of columns) stripKeys(column);
 				changed = true;
 			}
@@ -228,7 +264,13 @@ export function migrateNested(
 				inputs !== undefined &&
 				!alreadyMigrated(inputs as LegacySortable[])
 			) {
-				config.searchInputs = [...inputs];
+				// SORT, then strip. A move wrote only the entity's key and left the
+				// array alone, so a reordered collection's array is the pre-drag
+				// order — copying it and dropping the keys silently reverts the
+				// author's arrangement, here and on the exported wire.
+				config.searchInputs = [...inputs].sort((a, b) =>
+					bySortKey(a as LegacySortable, b as LegacySortable),
+				);
 				for (const input of config.searchInputs as Record<string, unknown>[]) {
 					stripKeys(input);
 				}
@@ -262,7 +304,9 @@ export function migrateNested(
 			options !== undefined &&
 			!alreadyMigrated(options as LegacySortable[])
 		) {
-			data.options = [...options];
+			data.options = [...options].sort((a, b) =>
+				bySortKey(a as LegacySortable, b as LegacySortable),
+			);
 			for (const option of data.options as Record<string, unknown>[]) {
 				stripKeys(option);
 			}
@@ -366,33 +410,22 @@ export function sequencesFromStoredRows(
 				// are two sorts over the one `columns` array.
 				const listOrder = config.listColumnOrder as string[] | undefined;
 				const detailOrder = config.detailColumnOrder as string[] | undefined;
+				// A config that already carries its two orders is one the migration
+				// SKIPS, so both readings must be that stored order — including the
+				// `sorted` one. Deriving a comparator reading for it instead would
+				// report a disagreement against a document the migration does not
+				// touch, which is what a re-run over migrated rows would be.
 				out.set(
 					`columns:list:${row.uuid}`,
-					!options.sorted && listOrder !== undefined
+					listOrder !== undefined
 						? [...listOrder]
-						: [...columns]
-								.sort((a, b) =>
-									byColumnOrder(
-										a as LegacyColumn,
-										b as LegacyColumn,
-										"listOrder",
-									),
-								)
-								.map((c) => c.uuid as string),
+						: columnSequence(columns, "listOrder"),
 				);
 				out.set(
 					`columns:detail:${row.uuid}`,
-					!options.sorted && detailOrder !== undefined
+					detailOrder !== undefined
 						? [...detailOrder]
-						: [...columns]
-								.sort((a, b) =>
-									byColumnOrder(
-										a as LegacyColumn,
-										b as LegacyColumn,
-										"detailOrder",
-									),
-								)
-								.map((c) => c.uuid as string),
+						: columnSequence(columns, "detailOrder"),
 				);
 			}
 			const inputs = asRecordArray(config.searchInputs);
@@ -475,6 +508,38 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 			WHERE app_id = ${appId} AND uuid = ${uuid}
 		`.execute(db);
 	}
+
+	// Move the fold horizon (see the header). One `migration` batch per app, at
+	// that app's next seq, with the app's head advanced to match in the same
+	// statement — so the log stays contiguous and a reconnecting client is told
+	// to reload rather than replay pre-cutover payloads.
+	//
+	// Idempotent through the log's own `UNIQUE (app_id, batch_id)` latch: the
+	// batch id is a constant, so a replay conflicts on it and inserts nothing,
+	// and the head then advances for nobody. The primary key `(app_id, seq)` is
+	// free on that replay (the head already moved), so the batch-id arbiter is
+	// the one that fires.
+	await sql`
+		WITH appended AS (
+			INSERT INTO accepted_mutations
+				(app_id, seq, batch_id, run_id, actor_id, kind, mutations)
+			SELECT
+				id,
+				mutation_seq + 1,
+				'migration:sequence-is-array-position',
+				NULL,
+				'system:sequence-is-array-position',
+				'migration',
+				'[]'::jsonb
+			FROM apps
+			ON CONFLICT (app_id, batch_id) DO NOTHING
+			RETURNING app_id, seq
+		)
+		UPDATE apps
+		SET mutation_seq = appended.seq
+		FROM appended
+		WHERE apps.id = appended.app_id
+	`.execute(db);
 }
 
 export async function down(): Promise<void> {

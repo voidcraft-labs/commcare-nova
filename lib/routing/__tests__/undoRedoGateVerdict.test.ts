@@ -130,6 +130,31 @@ describe("undoRedoGateVerdict", () => {
 		expect(verdict.ok).toBe(true);
 	});
 
+	// The RECORDED batch is measured from `displayed`, because it is appended to a
+	// command queue that already holds everything between `localBase` and
+	// `displayed`. Measuring it from `localBase` double-counts the queue: undoing
+	// an edit the author just made diffs to nothing, the queued edit survives, and
+	// the PUT re-applies exactly what was undone.
+	it("records the displayed→target delta so the queue is not double-counted", () => {
+		// localBase: field A is still called "A" — the rename has not been PUT.
+		const localBase = docWithFields([
+			{ uuid: "q-a", kind: "text", id: "a", label: "A" },
+		]);
+		// displayed: the author renamed it, and that command is sitting in the queue.
+		const displayed = docWithFields([
+			{ uuid: "q-a", kind: "text", id: "a", label: "A-renamed" },
+		]);
+		// Undo takes the label back to where localBase already has it.
+		const verdict = undoRedoGateVerdict(displayed, localBase, localBase);
+		expect(verdict.ok).toBe(true);
+		if (!verdict.ok) return;
+		// Measured from localBase this is empty, and the queued rename would then
+		// persist an edit the screen no longer shows.
+		expect(verdict.batch).toEqual([
+			expect.objectContaining({ kind: "updateField", uuid: "q-a" }),
+		]);
+	});
+
 	// The gate REFUSES when the localBase→target delta introduces a finding, even
 	// though the displayed→target delta might not — proving it keys on localBase.
 	it("refuses when the localBase→target delta introduces a finding", () => {

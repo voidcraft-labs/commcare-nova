@@ -33,6 +33,30 @@ export function spliceAfter<Id extends string>(
 }
 
 /**
+ * `spliceAfter` for a collection whose ENTRIES are the sequence.
+ *
+ * `columns` has a separate array of uuids per screen, but `options` and
+ * `searchInputs` are their own order — the objects sit in the array in the
+ * order they display. Same operation, same totality and idempotence, one
+ * element type down.
+ *
+ * Entries with no uuid at all (options that predate option identity) are never
+ * the subject and never the anchor, so they simply keep their relative places.
+ */
+export function spliceEntryAfter<T extends { readonly uuid?: string }>(
+	entries: readonly T[],
+	entry: T,
+	after: string | null | undefined,
+): T[] {
+	const without = entries.filter((held) => held.uuid !== entry.uuid);
+	if (after === null) return [entry, ...without];
+	if (after === undefined) return [...without, entry];
+	const at = without.findIndex((held) => held.uuid === after);
+	if (at < 0) return [...without, entry];
+	return [...without.slice(0, at + 1), entry, ...without.slice(at + 1)];
+}
+
+/**
  * The uuid a given entry currently follows — `null` when it is first, and
  * `undefined` when the sequence does not hold it at all.
  *

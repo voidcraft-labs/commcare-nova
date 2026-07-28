@@ -57,7 +57,10 @@ export function applyFormMutation(
 		case "addForm": {
 			if (draft.modules[mut.moduleUuid] === undefined) return;
 			const { uuid } = mut.form;
-			draft.forms[uuid] = mut.form;
+			// Cloned: `updateForm` edits the stored form in place, so the payload
+			// must not be the object it edits — see `addModule`, which has always
+			// cloned for the same reason.
+			draft.forms[uuid] = structuredClone(mut.form);
 			draft.fieldOrder[uuid] = [];
 			// The membership array IS the sequence, so the add splices.
 			draft.formOrder[mut.moduleUuid] = spliceAfter(
@@ -167,7 +170,14 @@ export function applyFormMutation(
 							0,
 							Math.min(semantic.index ?? writes.length, writes.length),
 						);
-						writes.splice(index, 0, semantic.value);
+						// CLONE, never alias. A mutation is a durable event that is
+						// applied more than once — the saga derives a prospective doc
+						// and the guarded commit re-applies the same batch onto the
+						// fresh one. Splicing the payload object itself in makes it
+						// part of a produced state, which Immer freezes; the next
+						// apply's `update-write` then assigns to a frozen object and
+						// the whole save 500s.
+						writes.splice(index, 0, structuredClone(semantic.value));
 						current.writes = writes;
 						form.caseOperations = operations;
 						return;
@@ -211,7 +221,10 @@ export function applyFormMutation(
 							0,
 							Math.min(semantic.index ?? links.length, links.length),
 						);
-						links.splice(index, 0, semantic.value);
+						// Cloned for the same reason `add-write` clones: the payload
+						// must not become part of a frozen produced state that a later
+						// apply of this same batch then tries to edit in place.
+						links.splice(index, 0, structuredClone(semantic.value));
 						current.links = links;
 						form.caseOperations = operations;
 						return;
@@ -270,7 +283,16 @@ export function applyFormMutation(
 							(operation) => operation.uuid === change.value.uuid,
 						)
 					) {
-						operations.push(change.value);
+						// CLONE, never alias. This batch is applied more than once —
+						// the saga derives a prospective document and the guarded
+						// commit re-applies onto the freshly loaded one — and Immer
+						// freezes what `produce` returns. Pushing the payload itself
+						// makes the durable event part of a frozen document, so the
+						// SECOND apply's granular edits assign to a frozen object and
+						// the save 500s. Worse, the first apply's later mutations write
+						// THROUGH the alias into the event: the stored `add` ends up
+						// carrying links and writes it never authored.
+						operations.push(structuredClone(change.value));
 						form.caseOperations = operations;
 					}
 					return;
@@ -279,7 +301,7 @@ export function applyFormMutation(
 						(operation) => operation.uuid === change.uuid,
 					);
 					if (index === -1) return;
-					operations[index] = change.value;
+					operations[index] = structuredClone(change.value);
 					form.caseOperations = operations;
 					return;
 				}

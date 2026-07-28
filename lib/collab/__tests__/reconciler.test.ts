@@ -1954,12 +1954,15 @@ describe("reconciler", () => {
 				mutations: [{ kind: "setAppName", name: "Mid" }],
 				seq: 2,
 			});
-			// The SA's own write streams inside an agent bracket, which is what
-			// keeps it off the author's command queue: the chat route persists it
-			// server-side, so replaying it here would double-apply.
+			// The SA's own write, exactly as `streamDispatcher` applies it: the run's
+			// agent bracket is open for the whole stream, and each `data-mutations`
+			// frame applies inside a REPLAY bracket. The replay bracket is what
+			// keeps it off the author's command queue — the chat route persisted it
+			// server-side, so queueing it would PUT it straight back.
 			h.docStore.getState().beginAgentWrite();
+			h.docStore.getState().beginRemoteApply();
 			h.docStore.getState().applyMany([{ kind: "setAppName", name: "Mid" }]);
-			h.docStore.getState().endAgentWrite();
+			h.docStore.getState().endRemoteApply();
 
 			// data-done carries the final doc at seq 2.
 			const finalDoc = makeDoc("Final");
@@ -1970,6 +1973,55 @@ describe("reconciler", () => {
 			expect(snap.sentPending).toHaveLength(0);
 			expect(snap.confirmedDoc.appName).toBe("Final");
 			expect(h.docStore.getState().appName).toBe("Final");
+			// The agent bracket is still open (it closes at stream close) — and
+			// nothing of the SA's own is left owing.
+			h.docStore.getState().endAgentWrite();
+			expect(h.docStore.getState().peekCommands()).toEqual([]);
+		});
+
+		// The author can edit the canvas while a run streams — `useAutoSave` lets
+		// those edits through deliberately. Keying the command queue on the
+		// suppression depth dropped every one of them: the edit applied on screen,
+		// autosave had nothing to send, and this reseed then wiped it off the
+		// screen too. It has to survive both.
+		it("keeps a human edit made DURING a run, and reseeds with it folded in", () => {
+			const h = harness({
+				appId: "app-1",
+				baseSeq: 0,
+				baseDoc: makeDoc("Base"),
+				userId: "u1",
+			});
+			h.docStore.getState().startTracking();
+			// The run opens its bracket and streams one batch.
+			h.docStore.getState().beginAgentWrite();
+			h.reconciler.registerChatBatch({
+				batchId: "chat-1",
+				runId: "run-1",
+				mutations: [{ kind: "setAppName", name: "Mid" }],
+				seq: 2,
+			});
+			h.docStore.getState().beginRemoteApply();
+			h.docStore.getState().applyMany([{ kind: "setAppName", name: "Mid" }]);
+			h.docStore.getState().endRemoteApply();
+
+			// The author renames the app while that run is still streaming.
+			h.docStore.getState().applyMany([{ kind: "setAppName", name: "Mine" }]);
+			expect(h.docStore.getState().peekCommands()).toEqual([
+				{ kind: "setAppName", name: "Mine" },
+			]);
+
+			h.reconciler.onDataDone({
+				doc: toPersistableDoc(makeDoc("Final")),
+				seq: 2,
+			});
+			// The reseed folds the author's un-persisted edit over the server's
+			// snapshot instead of discarding it...
+			expect(h.docStore.getState().appName).toBe("Mine");
+			// ...and it is still owed, so the next auto-save sends it.
+			expect(h.docStore.getState().peekCommands()).toEqual([
+				{ kind: "setAppName", name: "Mine" },
+			]);
+			h.docStore.getState().endAgentWrite();
 		});
 	});
 

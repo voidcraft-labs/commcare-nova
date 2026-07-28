@@ -82,9 +82,19 @@ import { useActiveFieldId, useSetFocusHint } from "@/lib/session/hooks";
  * the one edit with no commands to record: `temporal.undo()` replaces the
  * document wholesale, so nothing reaches the store's write path and nothing
  * queues itself. An undo asks for a previous STATE, and the commands that reach
- * it are derived — this is the one place that derivation is the honest answer,
- * and doing it once here keeps the verdicted batch and the persisted batch the
- * same object rather than two diffs that could disagree.
+ * it are derived — this is the one place that derivation is the honest answer.
+ *
+ * **The recorded batch is `displayed → target`, not the verdicted
+ * `localBase → target`**, and the two differ exactly when commands are already
+ * queued. The queue is APPENDED to, and it exists to satisfy one invariant:
+ * `localBase ⊕ queue === displayed`. After the restore `displayed` IS the
+ * target, so the entry that keeps that true is the delta from the doc on screen.
+ * Recording the `localBase` delta instead would double-count everything already
+ * queued — undoing a rename the author made a moment ago diffs to nothing, the
+ * queued rename survives, and the PUT re-applies the edit that was just undone.
+ * The two diffs answer different questions and both are needed: one asks whether
+ * the end state is sound against what the server holds, the other asks what the
+ * queue still owes.
  *
  * Pure of React + the store so it is exercised as a state model. `targetState`
  * is the recorded temporal state (`pastStates[last]` / `futureStates[last]`).
@@ -102,17 +112,24 @@ export function undoRedoGateVerdict(
 	// undo target — NOT `diff(displayed, target)`, which is a different batch
 	// whenever `sentPending` is non-empty and would let the gate approve a
 	// transition whose real PUT it never verdicted.
-	const batch = diffDocsToMutations(
-		toPersistableDoc(localBase) as BlueprintDoc,
-		toPersistableDoc(rebasedTarget) as BlueprintDoc,
-	);
+	const persisted = toPersistableDoc(rebasedTarget) as BlueprintDoc;
 	const verdict = mutationCommitVerdict(
 		localBase,
-		batch,
+		diffDocsToMutations(toPersistableDoc(localBase) as BlueprintDoc, persisted),
 		LOOKUP_CONTEXT_UNAVAILABLE,
 	);
-	if (verdict.ok) return { ok: true, batch };
-	return { ok: false, message: describeIntroducedErrors(verdict.introduced) };
+	if (!verdict.ok) {
+		return { ok: false, message: describeIntroducedErrors(verdict.introduced) };
+	}
+	// What the queue still owes, which is measured from the doc on screen — see
+	// the note above on why this is not the batch that was just verdicted.
+	return {
+		ok: true,
+		batch: diffDocsToMutations(
+			toPersistableDoc(displayed) as BlueprintDoc,
+			persisted,
+		),
+	};
 }
 
 export function useUndoRedo(): { undo: () => void; redo: () => void } {

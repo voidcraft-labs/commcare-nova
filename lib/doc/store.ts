@@ -109,12 +109,18 @@ export type BlueprintDocState = BlueprintDoc & {
 	 * it away and re-deriving it later by diffing two documents, which is what
 	 * persistence used to do.
 	 *
-	 * A write only enters the queue when it is the AUTHOR's: a suppression
-	 * bracket is open for every other writer (an agent stream, an inbound
-	 * remote frame, a reload reseed, the birth pause), which is the same signal
-	 * the undo stack uses. Recording behind that one flag is why no ordinary
-	 * call site has to remember to record, and why the queue and the undo stack
-	 * cannot disagree about what an authored edit was.
+	 * A write only enters the queue when it is the AUTHOR's — which is a
+	 * narrower question than the undo stack's. Undo pauses for the WHOLE of an
+	 * SA run, because the run collapses to one undoable step; but the author can
+	 * still edit the canvas while that run streams, and those edits are theirs.
+	 * So recording is gated on the REPLAY bracket (`beginRemoteApply`) alone:
+	 * every write the author did not just make — an inbound remote frame, a
+	 * reload reseed, an SA stream frame — arrives inside one, and nothing else
+	 * does.
+	 *
+	 * The birth pause is not a replay bracket, so a write before `startTracking`
+	 * would queue. Nothing writes there: the store is loaded, not edited, and
+	 * `load` clears the queue on the way past.
 	 *
 	 * The reconciler takes the queue when it PUTs: from that moment the batch
 	 * is its business, tracked in `sentPending` until the server echoes it.
@@ -162,16 +168,21 @@ export type BlueprintDocState = BlueprintDoc & {
 	 */
 	startTracking: () => void;
 	/**
-	 * Open a remote-apply suppression bracket for one inbound reconciler
-	 * frame's write (an echo/remote apply, a reload re-fold, a `data-done`
-	 * reseed). Increments `suppressionDepth` AND sets
-	 * `remoteFrameApplyInProgress` so `useAutoSave`'s synchronous leading
-	 * edge skips re-PUTing the server-originated change. The reconciler
-	 * pairs it with `endRemoteApply()` in the same synchronous turn.
+	 * Open a remote-apply suppression bracket for one already-persisted write
+	 * arriving from the server: an echo/remote apply, a reload re-fold, a
+	 * `data-done` reseed, or an SA stream's `data-mutations` frame.
+	 *
+	 * This is the REPLAY bracket, and it is the one signal that says "the author
+	 * did not just do this". It increments `suppressionDepth` (so the write
+	 * stays off the undo stack), raises `remoteFrameApplyInProgress` so
+	 * `useAutoSave`'s synchronous leading edge skips re-PUTing the
+	 * server-originated change, and keeps the write out of the command queue so
+	 * it is never sent back. The caller pairs it with `endRemoteApply()` in the
+	 * same synchronous turn.
 	 */
 	beginRemoteApply: () => void;
-	/** Close the remote-apply bracket (decrements `suppressionDepth` and
-	 *  clears `remoteFrameApplyInProgress`). */
+	/** Close the remote-apply bracket (decrements `suppressionDepth` and the
+	 *  replay depth, and clears `remoteFrameApplyInProgress`). */
 	endRemoteApply: () => void;
 	/**
 	 * Re-key the undo/redo stacks through `fold` after a remote frame
@@ -280,6 +291,16 @@ export function createBlueprintDocStore() {
 	let suppressionDepth = 1;
 	let openBrackets = 0;
 	/**
+	 * How many replay brackets are open — writes that arrived already persisted
+	 * from the server (`beginRemoteApply`).
+	 *
+	 * Separate from `suppressionDepth` because "keep this off the undo stack"
+	 * and "this is not the author's edit" are different questions. An SA run
+	 * pauses undo for its whole duration, but the author keeps editing the
+	 * canvas while it streams, and those edits are theirs to save.
+	 */
+	let replayDepth = 0;
+	/**
 	 * The commands the author has dispatched but not yet persisted.
 	 *
 	 * Session-scoped closure state rather than a doc field: it is not part of
@@ -326,6 +347,7 @@ export function createBlueprintDocStore() {
 	function openBracket(remote: boolean): void {
 		suppressionDepth += 1;
 		openBrackets += 1;
+		if (remote) replayDepth += 1;
 		syncTracking();
 		if (remote) store.setState({ remoteFrameApplyInProgress: true });
 	}
@@ -337,6 +359,7 @@ export function createBlueprintDocStore() {
 		if (remote) store.setState({ remoteFrameApplyInProgress: false });
 		suppressionDepth = Math.max(0, suppressionDepth - 1);
 		openBrackets = Math.max(0, openBrackets - 1);
+		if (remote) replayDepth = Math.max(0, replayDepth - 1);
 		syncTracking();
 		// A `startTracking()` that arrived while a bracket was open (a fresh build's
 		// first `endRun` closes the agent bracket) releases the birth pause now that
@@ -348,14 +371,18 @@ export function createBlueprintDocStore() {
 	}
 
 	/**
-	 * Queue a write as the author's un-persisted intent — unless a suppression
-	 * bracket is open, in which case some OTHER writer produced it.
+	 * Queue a write as the author's un-persisted intent — unless a REPLAY
+	 * bracket is open, in which case the write arrived already persisted from
+	 * the server and sending it back is at best a wasted round trip.
 	 *
-	 * The bracket is the same signal the undo stack reads, so "what the author
-	 * did" has one definition rather than two that can drift.
+	 * Deliberately NOT keyed on `suppressionDepth`: that also counts the agent
+	 * bracket, which stays open for a whole SA run. The author can edit the
+	 * canvas while a run streams — `useAutoSave` lets those edits through on
+	 * purpose — so gating the queue on it silently dropped every one of them,
+	 * and the `data-done` reseed then wiped them off the screen too.
 	 */
 	function recordIfAuthored(mutations: readonly Mutation[]): void {
-		if (suppressionDepth > 0 || mutations.length === 0) return;
+		if (replayDepth > 0 || mutations.length === 0) return;
 		for (const mutation of mutations) {
 			pendingCommands.push(structuredClone(mutation));
 		}

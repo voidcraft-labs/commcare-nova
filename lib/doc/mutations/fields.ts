@@ -1,6 +1,6 @@
 import type { Draft } from "immer";
 import type { FieldPath } from "@/lib/doc/fieldPath";
-import { spliceAfter } from "@/lib/doc/mutations/sequence";
+import { spliceAfter, spliceEntryAfter } from "@/lib/doc/mutations/sequence";
 import { declarersOf, referencingCarrierUuids } from "@/lib/doc/referenceIndex";
 import type { BlueprintDoc, Mutation, Uuid } from "@/lib/doc/types";
 import {
@@ -172,7 +172,10 @@ export function applyFieldMutation(
 			// semantic extension. Accepted history can bypass the current mutation
 			// schema, so re-parsing every legacy field here would turn previously
 			// applicable events into silent no-ops.
-			let field = mut.field;
+			// Cloned: `updateField` edits the stored field in place, and the payload
+			// must not be the object it edits — a second apply of the same batch
+			// would be assigning to a frozen produced state.
+			let field = structuredClone(mut.field);
 			if (mut.optionsSource !== undefined) {
 				const parsedField = fieldSchema.safeParse({
 					...mut.field,
@@ -753,7 +756,11 @@ function applyOptionMutation(
 		case "addOption": {
 			// Idempotent on uuid (a re-applied add is a no-op).
 			if (options.some((o) => o.uuid === mut.option.uuid)) return;
-			options.push(mut.option);
+			field.options = spliceEntryAfter(
+				options,
+				structuredClone(mut.option),
+				mut.after,
+			) as typeof field.options;
 			return;
 		}
 		case "updateOption": {
@@ -771,17 +778,15 @@ function applyOptionMutation(
 			return;
 		}
 		case "moveOption": {
-			// The `options` array IS the sequence, so the move reorders it.
+			// The `options` array IS the sequence, so the move reorders it. An
+			// option a peer removed cannot be moved back into it.
 			const opt = options.find((o) => o.uuid === mut.uuid);
 			if (opt === undefined) return;
-			const rest = options.filter((o) => o.uuid !== mut.uuid);
-			const at =
-				mut.after === null ? -1 : rest.findIndex((o) => o.uuid === mut.after);
-			// An anchor a peer removed appends rather than throwing, matching
-			// `spliceAfter` — reducers replay, so they must stay total.
-			const target = mut.after === null ? 0 : at < 0 ? rest.length : at + 1;
-			rest.splice(target, 0, opt);
-			field.options = rest as typeof field.options;
+			field.options = spliceEntryAfter(
+				options,
+				opt,
+				mut.after,
+			) as typeof field.options;
 			return;
 		}
 	}

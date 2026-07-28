@@ -257,18 +257,26 @@ export const moveFieldTool = {
 			const postField = newDoc.fields[moved.uuid];
 			const landedInDest =
 				newDoc.fieldOrder[destParentUuid]?.includes(moved.uuid) ?? false;
-			// The landing is the sequence, so proving it means checking the
-			// field sits where the move asked — not that it carries a key.
+			if (!postField || !landedInDest) {
+				return fail(
+					`The move of "${moved.id}" didn't land: a collaborator's edit changed the form while it was in flight (the field or its destination was moved or removed). Re-read the form with getForm and re-issue against its current shape.`,
+				);
+			}
+			// The field IS in the destination, so the move landed. It can still have
+			// landed somewhere other than asked: `spliceAfter` appends when the
+			// anchor is gone, which is exactly what a peer removing the anchor
+			// mid-flight produces. That is a different outcome from a failure —
+			// the edit is committed, and calling it a failure would send the SA to
+			// re-issue a move it already made.
 			const landedAfter = (() => {
 				const seq = newDoc.fieldOrder[destParentUuid] ?? [];
 				const at = seq.indexOf(moved.uuid);
 				return at <= 0 ? null : seq[at - 1];
 			})();
-			if (!postField || !landedInDest || landedAfter !== after) {
-				return fail(
-					`The move of "${moved.id}" didn't land: a collaborator's edit changed the form while it was in flight (the field or its destination was moved or removed). Re-read the form with getForm and re-issue against its current shape.`,
-				);
-			}
+			const displacedNote =
+				landedAfter === after
+					? ""
+					: ` A collaborator removed the field it was meant to follow while this was in flight, so it went to the end instead — move it again if it belongs elsewhere.`;
 
 			// A cross-parent move can rename the field to keep sibling ids
 			// unique at the new level (the reducer's dedup) — read the id off
@@ -291,7 +299,7 @@ export const moveFieldTool = {
 				mutations,
 				newDoc,
 				result: {
-					message: `Moved "${moved.id}" ${placement} in "${formName}".${renameNote}`,
+					message: `Moved "${moved.id}" ${placement} in "${formName}".${renameNote}${displacedNote}`,
 					summary: {
 						location: formName,
 						subject: label || finalId,

@@ -751,6 +751,53 @@ describe("batchTargetsMissing — case-operation logical identities", () => {
 		).toBe(true);
 	});
 
+	// The three rejections above are PEER collisions: the key was already on the
+	// stored operation. A collision inside the author's OWN batch is a different
+	// fact — an operation born here has never been seen by anyone else, so its
+	// keys cannot conflict with a peer. The batch is a command log, not a
+	// minimal diff, so creating an operation that carries a link and then
+	// configuring that link records both commands; the reducers no-op on the
+	// second, and the batch replays to exactly the right document.
+	it("accepts a same-key write/link add against an operation born in this batch", () => {
+		const { doc, formUuid } = fixture();
+		const born: CaseOperation = {
+			...operationIn(doc, formUuid),
+			uuid: asUuid("55555555-5555-4555-8555-555555555555"),
+			id: "born_here",
+			writes: [{ property: "note", value: value("hello") }],
+			links: [
+				{
+					identifier: "parent",
+					targetType: "household",
+					target: null,
+					relationship: "child" as const,
+				},
+			],
+		};
+		expect(
+			batchTargetsMissing(doc, [
+				{
+					kind: "updateForm",
+					uuid: asUuid(formUuid),
+					patch: {},
+					caseOperationChange: { operation: "add", value: born },
+				},
+				granular(formUuid, born, {
+					operation: "add-write",
+					uuid: born.uuid,
+					value: { property: "note", value: value("hello") },
+					index: 0,
+				}),
+				granular(formUuid, born, {
+					operation: "add-link",
+					uuid: born.uuid,
+					value: born.links?.[0] as NonNullable<CaseOperation["links"]>[number],
+					index: 0,
+				}),
+			]),
+		).toBe(false);
+	});
+
 	it("accepts a move whose anchor is only born later in the same batch", () => {
 		const { doc, formUuid } = fixture();
 		const first = operationIn(doc, formUuid);
