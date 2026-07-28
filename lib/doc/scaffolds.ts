@@ -36,34 +36,29 @@ import {
 import { addModuleMutation, updateModuleMutation } from "./addModuleMutation";
 import type { CaseTypeRetirement } from "./caseTypeRetirement";
 import { orderedFormUuids, orderedModuleUuids } from "./fieldWalk";
-import { sequenceOrderKeys } from "./order/append";
-import { deriveKeyAtIndex, keyBetween } from "./order/keys";
 import type { Mutation } from "./types";
 
-/** The fractional `order` key for a module inserted at `index` (default
- *  append) in the app's DISPLAY sequence — so the "+" insertion renders at the
- *  requested slot under the order-key-sorted render. */
-export function moduleOrderKeyAtIndex(
+/** The module a new one inserted at `index` (default append) should follow —
+ *  `null` when it goes first. */
+export function moduleAfterAtIndex(
 	doc: BlueprintDoc,
 	index: number | undefined,
-): string {
-	const keys = orderedModuleUuids(doc)
-		.map((uuid) => doc.modules[uuid]?.order)
-		.filter((o): o is string => o !== undefined);
-	return deriveKeyAtIndex(keys, index ?? keys.length);
+): Uuid | null {
+	const sequence = orderedModuleUuids(doc);
+	const at = index ?? sequence.length;
+	return at > 0 ? (sequence[Math.min(at, sequence.length) - 1] ?? null) : null;
 }
 
-/** The fractional `order` key for a form inserted at `index` (default append)
- *  in its module's DISPLAY sequence. */
-export function formOrderKeyAtIndex(
+/** The form a new one inserted at `index` (default append) should follow within
+ *  its module — `null` when it goes first. */
+export function formAfterAtIndex(
 	doc: BlueprintDoc,
 	moduleUuid: Uuid,
 	index: number | undefined,
-): string {
-	const keys = orderedFormUuids(doc, moduleUuid)
-		.map((uuid) => doc.forms[uuid]?.order)
-		.filter((o): o is string => o !== undefined);
-	return deriveKeyAtIndex(keys, index ?? keys.length);
+): Uuid | null {
+	const sequence = orderedFormUuids(doc, moduleUuid);
+	const at = index ?? sequence.length;
+	return at > 0 ? (sequence[Math.min(at, sequence.length) - 1] ?? null) : null;
 }
 
 /**
@@ -95,14 +90,9 @@ const NAME_COLUMN_HEADER = "Name";
  *  it sorts correctly the moment a keyed column is added beside it — the
  *  `store.load` backfill is a legacy safety net, not a substitute for minting
  *  the key at construction. */
-function nameColumn() {
+function nameColumn(uuid: Uuid) {
 	return {
-		...plainColumn(
-			asUuid(crypto.randomUUID()),
-			"case_name",
-			NAME_COLUMN_HEADER,
-		),
-		order: keyBetween(null, null),
+		...plainColumn(uuid, "case_name", NAME_COLUMN_HEADER),
 	};
 }
 
@@ -110,8 +100,13 @@ function nameColumn() {
  *  config's search inputs + filter. The single home of the "born with a Name
  *  column" shape every creation/case-type path seeds. */
 function caseListConfigWithName(existing?: CaseListConfig): CaseListConfig {
+	// The column's uuid is minted here so both ordering arrays can name it — a
+	// column belongs to the Results and Details sequences from birth.
+	const uuid = asUuid(crypto.randomUUID());
 	return {
-		columns: [nameColumn()],
+		columns: [nameColumn(uuid)],
+		listColumnOrder: [uuid],
+		detailColumnOrder: [uuid],
 		searchInputs: existing?.searchInputs ?? [],
 		...(existing?.filter && { filter: existing.filter }),
 	};
@@ -277,7 +272,6 @@ export function caseListModuleMutations(
 		uuid: moduleUuid,
 		id: uniqueSlug(moduleName, "module", existingModuleIds(doc)),
 		name: moduleName,
-		order: moduleOrderKeyAtIndex(doc, index),
 		caseType,
 		caseListOnly: true,
 		caseListConfig: caseListConfigWithName(),
@@ -314,21 +308,16 @@ export function surveyModuleMutations(
 		uuid: moduleUuid,
 		id: uniqueSlug(moduleName, "module", existingModuleIds(doc)),
 		name: moduleName,
-		order: moduleOrderKeyAtIndex(doc, index),
 	};
-	// The module is brand new, so both the form (first in the module) and the
-	// field (first in the form) take the first key of a fresh order sequence.
-	const [firstKey] = sequenceOrderKeys(1);
 	const formUuid = asUuid(crypto.randomUUID());
 	const formName = formTypeLabels.survey;
 	const form: Form = {
 		uuid: formUuid,
 		id: uniqueSlug(formName, "form", existingFormIds(doc)),
 		name: formName,
-		order: firstKey,
 		type: "survey",
 	};
-	const field: TextField = { ...defaultQuestion(), order: firstKey };
+	const field: TextField = defaultQuestion();
 	return {
 		mutations: [
 			addModuleMutation(module, index),
@@ -401,7 +390,6 @@ export function formScaffoldMutations(
 		uuid: formUuid,
 		id: uniqueSlug(formName, "form", existingFormIds(doc)),
 		name: formName,
-		order: formOrderKeyAtIndex(doc, moduleUuid, index),
 		type,
 	};
 	// A registration form is born with just the `case_name` writer; every other
@@ -435,14 +423,13 @@ export function formScaffoldMutations(
 		form,
 		...(index !== undefined && { index }),
 	});
-	// The born-with fields land in ascending display order — a fresh order-key
-	// sequence (the form is new, so it seeds one).
-	const orderKeys = sequenceOrderKeys(fields.length);
+	// The born-with fields land in ascending display order, which is simply the
+	// order they are emitted in: each add appends to the form's sequence.
 	for (let i = 0; i < fields.length; i++) {
 		mutations.push({
 			kind: "addField",
 			parentUuid: formUuid,
-			field: { ...fields[i], order: orderKeys[i] },
+			field: fields[i],
 		});
 	}
 	return { mutations, formUuid };

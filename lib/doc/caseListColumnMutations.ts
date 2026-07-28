@@ -6,23 +6,20 @@
  */
 
 import { deepEqual } from "@/lib/doc/deepEqual";
-import { columnSurfaceOrderMutation } from "@/lib/doc/order/columnSurface";
 import type { Mutation, Uuid } from "@/lib/doc/types";
 import type { Column } from "@/lib/domain";
 
 /**
- * Origin/main's strict nested `columnSchema` predates the two surface-order
- * keys and the tile cell. Keep every fallback snapshot parseable by an old PUT
- * handler; the new keys travel only in optional top-level extensions on known
- * mutation kinds.
+ * Origin/main's strict nested `columnSchema` predates the tile cell, so a
+ * fallback snapshot must stay parseable by an old PUT handler; the cell travels
+ * as an optional top-level extension on known mutation kinds instead.
+ *
+ * The two surface-order keys used to be stripped here too. They have no
+ * snapshot to be stripped from now — a column's place lives in the config's
+ * ordering arrays, not on the column.
  */
 export function legacyCompatibleColumnSnapshot(column: Column): Column {
-	const {
-		listOrder: _listOrder,
-		detailOrder: _detailOrder,
-		tile: _tile,
-		...legacyColumn
-	} = column;
+	const { tile: _tile, ...legacyColumn } = column;
 	return legacyColumn as Column;
 }
 
@@ -163,26 +160,9 @@ export function columnSnapshotMutations(
 	mutations.push(...columnVisibilityMutations(current, next, moduleUuid));
 	mutations.push(...columnSortMutations(current, next, moduleUuid));
 	mutations.push(...columnTileMutations(current, next, moduleUuid));
-	if (current.listOrder !== next.listOrder) {
-		mutations.push(
-			columnSurfaceOrderMutation({
-				moduleUuid,
-				column: current,
-				surface: "list",
-				order: next.listOrder ?? null,
-			}),
-		);
-	}
-	if (current.detailOrder !== next.detailOrder) {
-		mutations.push(
-			columnSurfaceOrderMutation({
-				moduleUuid,
-				column: current,
-				surface: "detail",
-				order: next.detailOrder ?? null,
-			}),
-		);
-	}
+	// No order arm: a column snapshot no longer carries its place, so a content
+	// edit cannot express a move and cannot clobber a concurrent one. Reordering
+	// is `moveColumn` against the config's arrays, and nothing else.
 	return mutations;
 }
 
@@ -209,9 +189,6 @@ export function columnSnapshotBatchMutations(
 
 function stripGranularSlots(column: Column): unknown {
 	const {
-		order: _order,
-		listOrder: _listOrder,
-		detailOrder: _detailOrder,
 		sort: _sort,
 		visibleInList: _visibleInList,
 		visibleInDetail: _visibleInDetail,
