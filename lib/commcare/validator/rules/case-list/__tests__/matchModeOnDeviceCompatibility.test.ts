@@ -643,8 +643,6 @@ describe("matchModeOnDeviceCompatibility", () => {
 								),
 							),
 						],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
 						searchInputs: [],
 					},
 					forms: [standardForm],
@@ -689,8 +687,6 @@ describe("matchModeOnDeviceCompatibility", () => {
 								{ visibleInList: false, visibleInDetail: false },
 							),
 						],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
 						searchInputs: [],
 					},
 					forms: [standardForm],
@@ -722,8 +718,6 @@ describe("matchModeOnDeviceCompatibility", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("c-1")],
-						detailColumnOrder: [asUuid("c-1")],
 						searchInputs: [
 							simpleSearchInputDef(
 								simpleUuid,

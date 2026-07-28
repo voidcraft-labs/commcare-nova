@@ -146,8 +146,6 @@ describe("imageMapValueUnique", () => {
 								mapping: [imageMapEntry("N", "asset-c-n")],
 							},
 						],
-						listColumnOrder: [asUuid("col-region")],
-						detailColumnOrder: [asUuid("col-region")],
 						searchInputs: [],
 					},
 					forms: [standardForm],

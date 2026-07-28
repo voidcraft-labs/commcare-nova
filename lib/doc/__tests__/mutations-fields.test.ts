@@ -1,6 +1,10 @@
 import { produce } from "immer";
 import { describe, expect, it, vi } from "vitest";
-import { resolveDocExpressions, xp } from "@/lib/__tests__/docHelpers";
+import {
+	resolveCaseListConfig,
+	resolveDocExpressions,
+	xp,
+} from "@/lib/__tests__/docHelpers";
 import { duplicateFieldMutations } from "@/lib/doc/duplicateFieldMutations";
 import { applyMutation, applyMutations } from "@/lib/doc/mutations";
 import type {
@@ -1005,29 +1009,25 @@ function docWithTwoModulesAndForms(): BlueprintDoc {
 				id: "m_x",
 				name: "ModX",
 				caseType: "patient",
-				caseListConfig: {
+				caseListConfig: resolveCaseListConfig({
 					columns: [
 						{ uuid: C("xage"), kind: "plain", field: "age", header: "Age" },
 						{ uuid: C("xname"), kind: "plain", field: "name", header: "Name" },
 					],
-					listColumnOrder: [C("xage")],
-					detailColumnOrder: [C("xage")],
 					searchInputs: [],
-				},
+				}),
 			} as Module,
 			[M("Y")]: {
 				uuid: M("Y"),
 				id: "m_y",
 				name: "ModY",
 				caseType: "household",
-				caseListConfig: {
+				caseListConfig: resolveCaseListConfig({
 					columns: [
 						{ uuid: C("yage"), kind: "plain", field: "age", header: "Age" },
 					],
-					listColumnOrder: [C("yage")],
-					detailColumnOrder: [C("yage")],
 					searchInputs: [],
-				},
+				}),
 			} as Module,
 		},
 		forms: {
@@ -1322,7 +1322,7 @@ describe("renameField case-property cascade", () => {
 					id: "m_x",
 					name: "ModX",
 					caseType: "patient",
-					caseListConfig: {
+					caseListConfig: resolveCaseListConfig({
 						columns: [
 							{
 								uuid: C("xcalc"),
@@ -1340,10 +1340,8 @@ describe("renameField case-property cascade", () => {
 								header: "Age",
 							},
 						],
-						listColumnOrder: [C("xcalc")],
-						detailColumnOrder: [C("xcalc")],
 						searchInputs: [],
-					},
+					}),
 				} as Module,
 			},
 			forms: {

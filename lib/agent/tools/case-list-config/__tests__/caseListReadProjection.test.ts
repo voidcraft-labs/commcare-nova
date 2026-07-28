@@ -159,12 +159,10 @@ describe("case-list read projections", () => {
 								tile: tileCell(4, 0, 8, 2),
 							}),
 						],
-						// Two independent arrangements over one set: Results shows
-						// Phone above Patient, Details shows Patient above Date of
-						// birth. Every column is a member of BOTH sequences —
-						// visibility is what decides which of them draws.
-						listColumnOrder: [B, A, C],
-						detailColumnOrder: [A, C, B],
+						// Every column is a member of BOTH sequences whatever its
+						// visibility — that is what lets a hidden one keep its place.
+						listColumnOrder: [A, B],
+						detailColumnOrder: [A, B],
 						...(tile === undefined ? {} : { tile }),
 					},
 				},

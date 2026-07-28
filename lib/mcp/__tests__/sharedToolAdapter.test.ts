@@ -24,6 +24,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
+import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import type { ToolExecutionContext } from "@/lib/agent/toolExecutionContext";
 import type { MutatingToolResult } from "@/lib/agent/tools/common";
 import { AppAccessError, resolveAppAccess } from "@/lib/db/appAccess";
@@ -497,16 +498,14 @@ describe("registerSharedTool — dormant lookup read projection", () => {
 
 		blueprint.modules[modUuid] = {
 			...blueprint.modules[modUuid],
-			caseListConfig: {
+			caseListConfig: resolveCaseListConfig({
 				columns: [
 					plainColumn(safeColumn, "name", "Name"),
 					calculatedColumn(dormantColumn, "Lookup result", lookup),
 				],
-				listColumnOrder: [safeColumn],
-				detailColumnOrder: [safeColumn],
 				filter: eq(lookup, literal("active")),
 				searchInputs: [],
-			},
+			}),
 			caseSearchConfig: {
 				searchScreenTitle: "Find people",
 				excludedOwnerIds: lookup,

@@ -69,8 +69,6 @@ describe("canonical case-property aliases in case-list validation", () => {
 								),
 							),
 						],
-						listColumnOrder: [asUuid("name-column")],
-						detailColumnOrder: [asUuid("name-column")],
 						searchInputs: [],
 					},
 					forms: [

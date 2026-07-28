@@ -202,8 +202,6 @@ describe("strictNullPortability", () => {
 								strictNullTextExpression(),
 							),
 						],
-						listColumnOrder: [asUuid("column-name")],
-						detailColumnOrder: [asUuid("column-name")],
 						searchInputs: [],
 					},
 					forms: [standardForm],
@@ -243,8 +241,6 @@ describe("strictNullPortability", () => {
 								{ visibleInList: false, visibleInDetail: false },
 							),
 						],
-						listColumnOrder: [asUuid("column-name")],
-						detailColumnOrder: [asUuid("column-name")],
 						searchInputs: [],
 					},
 					forms: [standardForm],
@@ -270,8 +266,6 @@ describe("strictNullPortability", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("column-name"), "case_name", "Name")],
-						listColumnOrder: [asUuid("column-name")],
-						detailColumnOrder: [asUuid("column-name")],
 						searchInputs: [
 							simpleSearchInputDef(
 								inputUuid,

@@ -87,8 +87,6 @@ function seedDoc(): BlueprintDoc {
 							expression: term(prop("patient", "age")),
 						},
 					],
-					listColumnOrder: [asUuid("col00000-0000-4000-8000-000000000001")],
-					detailColumnOrder: [asUuid("col00000-0000-4000-8000-000000000001")],
 					searchInputs: [
 						{
 							uuid: asUuid("sin00000-0000-4000-8000-000000000001"),

@@ -665,8 +665,6 @@ describe("lookup type-context integration", () => {
 								lookupInt,
 							),
 						],
-						listColumnOrder: [asUuid("lookup-carrier-name")],
-						detailColumnOrder: [asUuid("lookup-carrier-name")],
 						searchInputs: [
 							simpleSearchInputDef(
 								asUuid("lookup-carrier-default"),
@@ -800,8 +798,6 @@ describe("lookup type-context integration", () => {
 								arith("+", lookupText, term(literal(1))),
 							),
 						],
-						listColumnOrder: [asUuid("typed-lookup-carrier-name")],
-						detailColumnOrder: [asUuid("typed-lookup-carrier-name")],
 						searchInputs: [
 							simpleSearchInputDef(
 								defaultInputUuid,
@@ -1081,8 +1077,6 @@ describe("lookup type-context integration", () => {
 								missingText,
 							),
 						],
-						listColumnOrder: [asUuid("missing-lookup-carrier-name")],
-						detailColumnOrder: [asUuid("missing-lookup-carrier-name")],
 						searchInputs: [],
 						filter: eq(missingText, literal("North")),
 					},

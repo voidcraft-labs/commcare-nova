@@ -314,8 +314,6 @@ describe("case-list validator — cross-rule integration", () => {
 								...dormant,
 							},
 						],
-						listColumnOrder: [asUuid("col-name")],
-						detailColumnOrder: [asUuid("col-name")],
 						searchInputs: [],
 					},
 					forms: [
