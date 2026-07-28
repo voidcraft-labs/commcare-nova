@@ -1,3 +1,4 @@
+import { withUserSequences } from "@/lib/__tests__/docHelpers";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { backfillOptionUuids } from "@/lib/doc/optionIdentity";
 /**
@@ -245,7 +246,9 @@ function usersDoc(): BlueprintDoc {
 			userTypeUuid: asUuid("ut-chw"),
 		},
 	};
-	return doc;
+	// The record and its sequence cannot disagree in a real doc; a fixture
+	// assembling one by hand has to say both.
+	return withUserSequences(doc);
 }
 
 interface RejectionProbe {

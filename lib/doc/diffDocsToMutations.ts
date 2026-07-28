@@ -720,18 +720,6 @@ function diffCaseOperations(
 	next: Form,
 	formUuid: Uuid,
 ): Mutation[] {
-	// No rank is asserted from a document diff, deliberately.
-	//
-	// A requested rank is an optimistic fence, and `commitGuard.ts` only
-	// admits ONE per authored move: a ranked move re-keys tied siblings
-	// to open its gap, and fencing a position the author never chose
-	// means any unrelated peer insert above the run shifts it and
-	// rejects the batch as a conflict it is not. Two docs cannot say
-	// which operation the author dragged — every re-keyed sibling looks
-	// identical to the mover here — so this path asserts nothing and
-	// lets the move commit unfenced. The builder's own gesture keeps its
-	// fence: `useCaseOperations` dispatches the semantic move directly
-	// with the rank it actually requested.
 	const before = new Map(
 		(prev.caseOperations ?? []).map((operation) => [operation.uuid, operation]),
 	);
@@ -768,6 +756,39 @@ function diffCaseOperations(
 		mutations.push(
 			...caseOperationChangesForUpdate(formUuid, prior, cloneEntity(operation)),
 		);
+	}
+	// Reorders last, against the PROJECTED sequence: removes have taken their
+	// operations out and adds have appended theirs, so a move computed against
+	// `prev` would name a position that never exists. Two docs cannot say which
+	// operation the author dragged, so this derives the moves that reach the
+	// target rather than reproducing a gesture.
+	const projected = [
+		...(prev.caseOperations ?? [])
+			.map((operation) => operation.uuid)
+			.filter((uuid) => after.has(uuid)),
+		...(next.caseOperations ?? [])
+			.map((operation) => operation.uuid)
+			.filter((uuid) => !before.has(uuid)),
+	];
+	for (const move of sequenceMovesTo(
+		projected,
+		(next.caseOperations ?? []).map((operation) => operation.uuid),
+	)) {
+		mutations.push({
+			kind: "updateForm",
+			uuid: formUuid,
+			patch: {},
+			caseOperationChange: {
+				operation: "move",
+				uuid: move.uuid,
+				after: move.after,
+			},
+			caseOperationPatch: {
+				operation: "move",
+				uuid: move.uuid,
+				after: move.after,
+			},
+		});
 	}
 	return mutations;
 }

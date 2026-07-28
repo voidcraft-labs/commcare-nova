@@ -140,7 +140,8 @@ describe("caseOperationDependencyOccurrences", () => {
 			uuid: CONSUMER,
 			id: "early",
 		};
-		const f = form([create(CREATE, "c"), late, early]);
+		// Execution order is the order the form holds them.
+		const f = form([create(CREATE, "c"), early, late]);
 		expect(
 			caseOperationDependencyOccurrences(f, CREATE).map(
 				(dependency) => dependency.operationUuid,
