@@ -30,23 +30,17 @@ export function legacyCompatibleColumnSnapshot(column: Column): Column {
 export function columnAddMutation(
 	moduleUuid: Uuid,
 	column: Column,
+	placement: {
+		readonly afterInList: Uuid | null;
+		readonly afterInDetail: Uuid | null;
+	},
 ): Extract<Mutation, { kind: "addColumn" }> {
-	const surfaceOrders =
-		column.listOrder === undefined && column.detailOrder === undefined
-			? undefined
-			: {
-					...(column.listOrder !== undefined && {
-						listOrder: column.listOrder,
-					}),
-					...(column.detailOrder !== undefined && {
-						detailOrder: column.detailOrder,
-					}),
-				};
 	return {
 		kind: "addColumn",
 		moduleUuid,
 		column: legacyCompatibleColumnSnapshot(column),
-		...(surfaceOrders !== undefined && { surfaceOrders }),
+		afterInList: placement.afterInList,
+		afterInDetail: placement.afterInDetail,
 		...(column.tile !== undefined && { tileCell: column.tile }),
 	};
 }

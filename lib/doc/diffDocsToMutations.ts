@@ -93,6 +93,7 @@ import {
 	orderedModuleUuids,
 } from "@/lib/doc/fieldWalk";
 import { applyMutations } from "@/lib/doc/mutations";
+import { sequenceMovesTo } from "@/lib/doc/mutations/sequence";
 import { searchInputUpdateMutation } from "@/lib/doc/searchInputMutations";
 import {
 	asUuid,
@@ -109,7 +110,6 @@ import type {
 	AssetId,
 	CaseListConfig,
 	CaseType,
-	Column,
 	Field,
 	Form,
 	Media,
@@ -120,6 +120,7 @@ import type {
 import {
 	caseSearchConfigAfterFinalInputRemoval,
 	caseSearchConfigHasAuthoredSettings,
+	emptyCaseListConfig,
 	hasOwnRecordKey,
 	ownRecordValue,
 } from "@/lib/domain";
@@ -641,17 +642,11 @@ export function diffDocsToMutations(
 		collections.push(...diffOptions(pField, nField, uuid));
 	}
 
-	// (5) Module order — a reorder is detected by an order-key change on a
-	// COMMON module (independent of `moduleOrder` array position); adds carry
-	// their own `order` on the entity.
-	for (const uuid of moduleDelta.common) {
-		const nOrder = ownRecordValue(next.modules, uuid)?.order;
-		if (
-			nOrder !== undefined &&
-			ownRecordValue(prev.modules, uuid)?.order !== nOrder
-		) {
-			orders.push({ kind: "moveModule", uuid, order: nOrder });
-		}
+	// (5) Module order — `moduleOrder` IS the sequence, so the reorder is
+	// whatever moves turn the previous array into the next one. An add carries
+	// its own placement, so `sequenceMovesTo` skips newcomers.
+	for (const move of sequenceMovesTo(prev.moduleOrder, next.moduleOrder)) {
+		orders.push({ kind: "moveModule", uuid: move.uuid, after: move.after });
 	}
 
 	// Form structural — cross-module moves (incl. forms evacuated out of
@@ -885,39 +880,54 @@ function reconcileFormOrders(
 	const prevModuleOf = buildFormModuleMap(prev);
 	const nextModuleOf = buildFormModuleMap(next);
 
+	// A form that CHANGED MODULE is a relocation: it needs a move naming its
+	// placement in the destination, and it may need to travel before the
+	// removes if the module it is leaving is itself being removed.
+	const relocated = new Set<Uuid>();
 	for (const formUuid of formDelta.common) {
 		const nextModule = nextModuleOf.get(formUuid);
 		if (nextModule === undefined) continue; // unreachable in next (shouldn't happen)
 		const prevModule = prevModuleOf.get(formUuid);
-		const nextOrder = ownRecordValue(next.forms, formUuid)?.order;
-		if (prevModule !== nextModule) {
-			const move: Mutation = {
-				kind: "moveForm",
-				uuid: formUuid,
-				toModuleUuid: nextModule,
-				...(nextOrder !== undefined && { order: nextOrder }),
-			};
-			// A form leaving a REMOVED module evacuates before the cascade.
-			if (
-				prevModule !== undefined &&
-				ownRecordValue(next.modules, prevModule) === undefined
-			) {
-				evacuations.push(move);
-			} else {
-				rest.push(move);
-			}
-		} else if (
-			nextOrder !== undefined &&
-			ownRecordValue(prev.forms, formUuid)?.order !== nextOrder
+		if (prevModule === nextModule) continue;
+		relocated.add(formUuid);
+		const destination = next.formOrder[nextModule] ?? [];
+		const at = destination.indexOf(formUuid);
+		const move: Mutation = {
+			kind: "moveForm",
+			uuid: formUuid,
+			toModuleUuid: nextModule,
+			after: at > 0 ? (destination[at - 1] as Uuid) : null,
+		};
+		// A form leaving a REMOVED module evacuates before the cascade.
+		if (
+			prevModule !== undefined &&
+			ownRecordValue(next.modules, prevModule) === undefined
 		) {
+			evacuations.push(move);
+		} else {
+			rest.push(move);
+		}
+	}
+
+	// Everything else is a same-module reorder, which is whatever moves turn
+	// each module's previous sequence into its next one. A form that relocated
+	// already carries its placement above, and an added form carries its own,
+	// so neither needs a second move here.
+	for (const [moduleUuid, nextOrder] of Object.entries(next.formOrder)) {
+		const before = (prev.formOrder[moduleUuid] ?? []).filter(
+			(uuid) => !relocated.has(uuid as Uuid),
+		);
+		for (const move of sequenceMovesTo(before, nextOrder)) {
+			if (relocated.has(move.uuid as Uuid)) continue;
 			rest.push({
 				kind: "moveForm",
-				uuid: formUuid,
-				toModuleUuid: nextModule,
-				order: nextOrder,
+				uuid: move.uuid as Uuid,
+				toModuleUuid: moduleUuid as Uuid,
+				after: move.after as Uuid | null,
 			});
 		}
 	}
+
 	return { evacuations, rest };
 }
 
@@ -994,31 +1004,42 @@ function reconcileFieldTree(
 		}
 	}
 
-	// Cross-parent moves + same-parent reorders over the common fields.
+	// Cross-parent moves first: a field that changed parent carries its
+	// placement in the DESTINATION, and evacuates ahead of the removes when the
+	// parent it is leaving is itself doomed.
 	for (const uuid of fieldDelta.common) {
 		const nextParent = nextParentMap.get(uuid);
 		if (nextParent === undefined) continue; // unreachable in next (shouldn't happen)
 		const prevParent = prevParentMap.get(uuid);
-		const nextOrder = ownRecordValue(next.fields, uuid)?.order;
-		if (prevParent !== nextParent) {
-			const move: Mutation = {
-				kind: "moveField",
-				uuid,
-				toParentUuid: nextParent,
-				...(nextOrder !== undefined && { order: nextOrder }),
-			};
-			crossParentMoved.add(uuid);
-			if (isDoomed(prevParent)) evacuations.push(move);
-			else moves.push(move);
-		} else if (
-			nextOrder !== undefined &&
-			ownRecordValue(prev.fields, uuid)?.order !== nextOrder
-		) {
+		if (prevParent === nextParent) continue;
+		const destination = next.fieldOrder[nextParent] ?? [];
+		const at = destination.indexOf(uuid);
+		const move: Mutation = {
+			kind: "moveField",
+			uuid,
+			toParentUuid: nextParent,
+			after: at > 0 ? (destination[at - 1] as Uuid) : null,
+		};
+		crossParentMoved.add(uuid);
+		if (isDoomed(prevParent)) evacuations.push(move);
+		else moves.push(move);
+	}
+
+	// Same-parent reorders are whatever moves turn each parent's previous
+	// sequence into its next one. A field that changed parent already carries
+	// its placement above and an added field carries its own, so neither is
+	// re-emitted here.
+	for (const [parentUuid, nextOrder] of Object.entries(next.fieldOrder)) {
+		const before = (prev.fieldOrder[parentUuid] ?? []).filter(
+			(uuid) => !crossParentMoved.has(uuid as Uuid),
+		);
+		for (const move of sequenceMovesTo(before, nextOrder)) {
+			if (crossParentMoved.has(move.uuid as Uuid)) continue;
 			moves.push({
 				kind: "moveField",
-				uuid,
-				toParentUuid: nextParent,
-				order: nextOrder,
+				uuid: move.uuid as Uuid,
+				toParentUuid: parentUuid as Uuid,
+				after: move.after as Uuid | null,
 			});
 		}
 	}
@@ -1138,15 +1159,15 @@ function diffCaseListConfig(
 					{
 						kind: "updateModule",
 						uuid: moduleUuid,
-						patch: { caseListConfig: { columns: [], searchInputs: [] } },
+						patch: { caseListConfig: emptyCaseListConfig() },
 						ensureCaseListConfig: true,
 					},
 				]
 			: [];
-	const prevC = prevConfig ?? { columns: [], searchInputs: [] };
+	const prevC = prevConfig ?? emptyCaseListConfig();
 	return [
 		...birth,
-		...diffColumns(prevC.columns, nextConfig.columns, moduleUuid),
+		...diffColumns(prevC, nextConfig, moduleUuid),
 		...diffSearchInputs(
 			prevC.searchInputs,
 			nextConfig.searchInputs,
@@ -1156,36 +1177,58 @@ function diffCaseListConfig(
 	];
 }
 
+/**
+ * Columns are the one collection with TWO sequences, so their diff derives both
+ * independently — a Results reorder and a Details reorder are separate moves,
+ * and an author who changed only one must not emit a move for the other.
+ */
 function diffColumns(
-	prev: readonly Column[],
-	next: readonly Column[],
+	prev: CaseListConfig,
+	next: CaseListConfig,
 	moduleUuid: Uuid,
 ): Mutation[] {
 	const out: Mutation[] = [];
-	const prevByUuid = new Map(prev.map((c) => [c.uuid, c]));
-	const nextUuids = new Set(next.map((c) => c.uuid));
-	for (const col of next) {
+	const prevByUuid = new Map(prev.columns.map((c) => [c.uuid, c]));
+	const nextUuids = new Set(next.columns.map((c) => c.uuid));
+	for (const col of next.columns) {
 		const p = prevByUuid.get(col.uuid);
 		if (!p) {
-			out.push(columnAddMutation(moduleUuid, cloneEntity(col)));
+			out.push(
+				columnAddMutation(moduleUuid, cloneEntity(col), {
+					afterInList: predecessorIn(next.listColumnOrder, col.uuid),
+					afterInDetail: predecessorIn(next.detailColumnOrder, col.uuid),
+				}),
+			);
 			continue;
 		}
 		out.push(...columnSnapshotMutations(moduleUuid, p, cloneEntity(col)));
-		if (col.order !== undefined && p.order !== col.order) {
+	}
+	for (const [surface, before, after] of [
+		["list", prev.listColumnOrder, next.listColumnOrder],
+		["detail", prev.detailColumnOrder, next.detailColumnOrder],
+	] as const) {
+		for (const move of sequenceMovesTo(before, after)) {
 			out.push({
 				kind: "moveColumn",
 				moduleUuid,
-				uuid: col.uuid,
-				order: col.order,
+				uuid: move.uuid,
+				surface,
+				after: move.after,
 			});
 		}
 	}
-	for (const col of prev) {
+	for (const col of prev.columns) {
 		if (!nextUuids.has(col.uuid)) {
 			out.push({ kind: "removeColumn", moduleUuid, uuid: col.uuid });
 		}
 	}
 	return out;
+}
+
+/** The uuid an entry follows in a sequence, or `null` when it leads it. */
+function predecessorIn(sequence: readonly Uuid[], uuid: Uuid): Uuid | null {
+	const at = sequence.indexOf(uuid);
+	return at > 0 ? (sequence[at - 1] as Uuid) : null;
 }
 
 function diffSearchInputs(
@@ -1209,14 +1252,19 @@ function diffSearchInputs(
 		if (!contentEqualIgnoringOrder(p, input)) {
 			out.push(searchInputUpdateMutation(moduleUuid, p, cloneEntity(input)));
 		}
-		if (input.order !== undefined && p.order !== input.order) {
-			out.push({
-				kind: "moveSearchInput",
-				moduleUuid,
-				uuid: input.uuid,
-				order: input.order,
-			});
-		}
+	}
+	// `searchInputs` IS the sequence, so a reorder is whatever moves turn the
+	// previous array into the next one. Adds carry their own placement.
+	for (const move of sequenceMovesTo(
+		prev.map((i) => i.uuid),
+		next.map((i) => i.uuid),
+	)) {
+		out.push({
+			kind: "moveSearchInput",
+			moduleUuid,
+			uuid: move.uuid,
+			after: move.after,
+		});
 	}
 	for (const input of prev) {
 		if (!nextUuids.has(input.uuid)) {
@@ -1397,14 +1445,20 @@ function diffOptions(
 				option: cloneEntity(opt),
 			});
 		}
-		if (opt.order !== undefined && p.order !== opt.order) {
-			out.push({
-				kind: "moveOption",
-				fieldUuid,
-				uuid: opt.uuid,
-				order: opt.order,
-			});
-		}
+	}
+	// The `options` array IS the sequence. Only uuid-bearing options can be
+	// addressed by a move; a legacy option with no uuid predates option identity
+	// and rides whatever whole-field write carries it.
+	for (const move of sequenceMovesTo(
+		prevOpts.flatMap((o) => (o.uuid ? [o.uuid] : [])),
+		nextOpts.flatMap((o) => (o.uuid ? [o.uuid] : [])),
+	)) {
+		out.push({
+			kind: "moveOption",
+			fieldUuid,
+			uuid: move.uuid,
+			after: move.after,
+		});
 	}
 	for (const o of prevOpts) {
 		if (o.uuid && !nextUuids.has(o.uuid)) {

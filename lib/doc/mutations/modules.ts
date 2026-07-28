@@ -4,6 +4,7 @@ import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import {
 	type CaseListConfig,
 	caseSearchConfigHasAuthoredSettings,
+	emptyCaseListConfig,
 	isOwnerOnlyCaseSearchConfig,
 	normalizeOwnerOnlyCaseSearchConfig,
 	type TileCell,
@@ -581,6 +582,6 @@ function ensureCaseListConfig(
 ): Draft<CaseListConfig> | undefined {
 	const mod = draft.modules[moduleUuid];
 	if (!mod) return undefined;
-	mod.caseListConfig ??= { columns: [], searchInputs: [] };
+	mod.caseListConfig ??= emptyCaseListConfig();
 	return mod.caseListConfig;
 }

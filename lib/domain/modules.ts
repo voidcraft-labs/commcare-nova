@@ -1579,6 +1579,24 @@ export const caseListConfigSchema = z
 	.strict();
 export type CaseListConfig = z.infer<typeof caseListConfigSchema>;
 
+/**
+ * A case list with no columns and no search — the shape a config is BORN with.
+ *
+ * A factory rather than a shared constant because the two ordering arrays are
+ * mutable and a shared literal would let one module's config alias another's.
+ * It exists at all because an empty config now has four slots rather than two,
+ * and an ordering array that is merely absent would mean "derive it somehow",
+ * which is the ambiguity array position exists to remove.
+ */
+export function emptyCaseListConfig(): CaseListConfig {
+	return {
+		columns: [],
+		listColumnOrder: [],
+		detailColumnOrder: [],
+		searchInputs: [],
+	};
+}
+
 // ── CaseSearchConfig ─────────────────────────────────────────────
 //
 // Search-action configuration plus one legacy owner-availability slot:
