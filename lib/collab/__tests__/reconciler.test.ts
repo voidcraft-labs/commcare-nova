@@ -26,6 +26,7 @@ import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import {
 	type BlueprintDocStoreApi,
 	createBlueprintDocStore,
+	isDocDataKey,
 } from "@/lib/doc/store";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import { asUuid } from "@/lib/doc/types";
@@ -339,9 +340,9 @@ function docData(doc: BlueprintDoc): BlueprintDoc {
 	>;
 	const clean: Record<string, unknown> = {};
 	for (const [k, v] of Object.entries(persistable)) {
-		if (typeof v === "function") continue;
-		if (k === "remoteFrameApplyInProgress") continue;
-		clean[k] = v;
+		// The SHARED definition, not a copy of it — a bookkeeping field added to
+		// one and not the other is what makes this comparison wrong.
+		if (isDocDataKey(k, v)) clean[k] = v;
 	}
 	return clean as unknown as BlueprintDoc;
 }
@@ -2138,7 +2139,9 @@ describe("reconciler", () => {
 			const snap = h.reconciler.getSnapshot();
 			const pending = snap.sentPending.map((b) => b.mutations);
 			const rebuilt = fold(snap.confirmedDoc, pending);
-			expect(docData(h.reconciler.localBase())).toEqual(rebuilt);
+			// Both sides through `docData`: either can pick up bookkeeping depending
+			// on how it was built, and neither is doc data.
+			expect(docData(h.reconciler.localBase())).toEqual(docData(rebuilt));
 		}
 
 		it("holds across a relay-first ordering (remote before local ack)", async () => {
