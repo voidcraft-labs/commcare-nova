@@ -482,8 +482,18 @@ export function applyModuleMutation(
 		}
 		case "moveSearchInput": {
 			const config = draft.modules[mut.moduleUuid]?.caseListConfig;
-			const input = config?.searchInputs.find((s) => s.uuid === mut.uuid);
-			if (input) input.order = mut.order;
+			if (!config) return;
+			// `searchInputs` is the sequence, so the move reorders the array itself.
+			const input = config.searchInputs.find((s) => s.uuid === mut.uuid);
+			if (input === undefined) return;
+			const rest = config.searchInputs.filter((s) => s.uuid !== mut.uuid);
+			const at =
+				mut.after === null ? -1 : rest.findIndex((s) => s.uuid === mut.after);
+			// An `after` naming an input a peer removed appends, matching
+			// `spliceAfter` — a reducer that threw would break historical replay.
+			const target = mut.after === null ? 0 : at < 0 ? rest.length : at + 1;
+			rest.splice(target, 0, input);
+			config.searchInputs = rest;
 			return;
 		}
 		case "setCaseListMeta": {

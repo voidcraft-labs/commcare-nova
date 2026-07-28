@@ -261,7 +261,8 @@ function caseOperationChangeSchemaFor(
 			.object({
 				operation: z.literal("move"),
 				uuid: uuidSchema,
-				order: z.string(),
+				/** The uuid this operation now follows, or `null` for first. */
+				after: uuidSchema.nullable(),
 			})
 			.strict(),
 	]);
@@ -368,13 +369,16 @@ function caseOperationPatchSchemaFor(
 			.object({
 				operation: z.literal("move"),
 				uuid: uuidSchema,
-				order: z.string().nullable(),
 				/**
-				 * Optional current-writer placement intent. The fractional key is
-				 * still the deterministic replay value; the guarded writer uses this
-				 * rank only to reject a peer-shifted placement on its fresh doc.
+				 * The uuid this operation now follows, or `null` for first.
+				 *
+				 * The separate `index` intent is gone with the fractional key it
+				 * guarded: it existed so the authoritative writer could reject a
+				 * placement a peer had shifted out from under the author. A placement
+				 * named by the neighbouring uuid cannot be shifted — the anchor either
+				 * still exists, or it does not and the move appends.
 				 */
-				index: z.number().int().nonnegative().optional(),
+				after: uuidSchema.nullable(),
 			})
 			.strict(),
 	]);
@@ -1391,8 +1395,9 @@ function createMutationSchema({
 			kind: z.literal("moveForm"),
 			uuid: uuidSchema,
 			toModuleUuid: uuidSchema,
-			order: z.string().optional(),
-			toIndex: z.number().int().nonnegative().optional(),
+			/** The uuid this form now follows within the target module, or `null`
+			 *  for first. A cross-module move names a sibling in the DESTINATION. */
+			after: uuidSchema.nullable(),
 		}),
 		z.object({
 			kind: z.literal("renameForm"),
@@ -1461,8 +1466,9 @@ function createMutationSchema({
 			kind: z.literal("moveField"),
 			uuid: uuidSchema,
 			toParentUuid: uuidSchema,
-			order: z.string().optional(),
-			toIndex: z.number().int().nonnegative().optional(),
+			/** The uuid this field now follows under the target parent, or `null`
+			 *  for first. A cross-parent move names a sibling in the DESTINATION. */
+			after: uuidSchema.nullable(),
 		}),
 		z.object({
 			kind: z.literal("renameField"),
@@ -1809,7 +1815,8 @@ function createMutationSchema({
 			kind: z.literal("moveSearchInput"),
 			moduleUuid: uuidSchema,
 			uuid: uuidSchema,
-			order: z.string(),
+			/** The uuid this input now follows, or `null` for first. */
+			after: uuidSchema.nullable(),
 		}),
 		// Presence-only Search transitions and final-input cleanup are the semantic
 		// `updateModule` extension above. Keeping their fallback on the established
@@ -1864,7 +1871,8 @@ function createMutationSchema({
 			kind: z.literal("moveOption"),
 			fieldUuid: uuidSchema,
 			uuid: uuidSchema,
-			order: z.string(),
+			/** The uuid this option now follows, or `null` for first. */
+			after: uuidSchema.nullable(),
 		}),
 		// ─── Media slots — dedicated clear-safe kinds ────────────────────────
 		//

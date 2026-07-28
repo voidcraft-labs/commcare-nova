@@ -839,8 +839,8 @@ export function applyFieldMutation(
 }
 
 /**
- * Granular select-option mutations. The `options` array is a membership set
- * keyed by per-option `uuid`; sequence is `sort-by-(order, uuid)`, so two
+ * Granular select-option mutations. The `options` array IS the sequence,
+ * keyed by per-option `uuid` for addressing, so two
  * members editing different options merge.
  *
  * These reducers mutate `field.options` IN PLACE and DELIBERATELY do not
@@ -848,8 +848,8 @@ export function applyFieldMutation(
  * a `removeOption` dropping below two options must reach the commit gate as a
  * sub-2 candidate so `SELECT_TOO_FEW_OPTIONS` can reject it — a re-parse here
  * would warn-skip the reducer and the gate would see no change. `update`
- * preserves the option's CURRENT `order` so a content edit never clobbers a
- * concurrent `moveOption`; `move` writes the new `order` verbatim.
+ * A content `update` cannot clobber a concurrent `moveOption` any more: place
+ * is the array position, which an update never touches.
  */
 function applyOptionMutation(
 	draft: Draft<BlueprintDoc>,
@@ -885,8 +885,17 @@ function applyOptionMutation(
 			return;
 		}
 		case "moveOption": {
+			// The `options` array IS the sequence, so the move reorders it.
 			const opt = options.find((o) => o.uuid === mut.uuid);
-			if (opt) opt.order = mut.order;
+			if (opt === undefined) return;
+			const rest = options.filter((o) => o.uuid !== mut.uuid);
+			const at =
+				mut.after === null ? -1 : rest.findIndex((o) => o.uuid === mut.after);
+			// An anchor a peer removed appends rather than throwing, matching
+			// `spliceAfter` — reducers replay, so they must stay total.
+			const target = mut.after === null ? 0 : at < 0 ? rest.length : at + 1;
+			rest.splice(target, 0, opt);
+			field.options = rest as typeof field.options;
 			return;
 		}
 	}

@@ -1,4 +1,5 @@
 import type { Draft } from "immer";
+import { spliceAfter } from "@/lib/doc/mutations/sequence";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import { cascadeDeleteForm } from "./helpers";
 
@@ -15,6 +16,28 @@ import { cascadeDeleteForm } from "./helpers";
  * wholesale kind and stays focused on a single fine-grained operation
  * per case.
  */
+/**
+ * Reorder one case operation within the form's sequence.
+ *
+ * `caseOperations` is the sequence, so this is `spliceAfter` over objects
+ * rather than uuids. Total for the same reason every reducer is: an `after`
+ * naming an operation a peer removed appends instead of throwing, because
+ * historical replay must not be able to fail.
+ */
+function spliceOperation<T extends { uuid: string }>(
+	operations: readonly T[],
+	uuid: string,
+	after: string | null,
+): T[] {
+	const moving = operations.find((op) => op.uuid === uuid);
+	if (moving === undefined) return [...operations];
+	const rest = operations.filter((op) => op.uuid !== uuid);
+	if (after === null) return [moving, ...rest];
+	const at = rest.findIndex((op) => op.uuid === after);
+	if (at < 0) return [...rest, moving];
+	return [...rest.slice(0, at + 1), moving, ...rest.slice(at + 1)];
+}
+
 export function applyFormMutation(
 	draft: Draft<BlueprintDoc>,
 	mut: Extract<
@@ -61,45 +84,20 @@ export function applyFormMutation(
 			const form = draft.forms[mut.uuid];
 			if (form === undefined) return;
 			if (draft.modules[mut.toModuleUuid] === undefined) return;
-			// New emission: write the fractional `order` verbatim. A same-module
-			// reorder leaves every membership array untouched; a cross-module move
-			// also relocates the form's membership (position arbitrary — the
-			// `order` key, not array position, decides display sequence).
-			if (mut.order !== undefined) {
-				form.order = mut.order;
-				let currentModule: string | undefined;
-				for (const [modUuid, formList] of Object.entries(draft.formOrder)) {
-					if (formList.includes(mut.uuid)) {
-						currentModule = modUuid;
-						break;
-					}
-				}
-				if (currentModule !== mut.toModuleUuid) {
-					if (currentModule !== undefined) {
-						const src = draft.formOrder[currentModule];
-						const idx = src.indexOf(mut.uuid);
-						if (idx !== -1) src.splice(idx, 1);
-					}
-					const dest = draft.formOrder[mut.toModuleUuid] ?? [];
-					if (!dest.includes(mut.uuid)) dest.push(mut.uuid);
-					draft.formOrder[mut.toModuleUuid] = dest;
-				}
-				return;
-			}
-			// Legacy replay: an array-position move (pre-`order` events).
-			if (mut.toIndex === undefined) return;
+			// Leave whatever module currently holds it, then land in the target's
+			// sequence at the named placement. Same-module and cross-module are one
+			// path: the source removal is a no-op when the source IS the target,
+			// because `spliceAfter` removes the uuid before re-inserting it.
 			for (const [modUuid, formList] of Object.entries(draft.formOrder)) {
+				if (modUuid === mut.toModuleUuid) continue;
 				const idx = formList.indexOf(mut.uuid);
-				if (idx !== -1) {
-					formList.splice(idx, 1);
-					draft.formOrder[modUuid as keyof typeof draft.formOrder] = formList;
-					break;
-				}
+				if (idx !== -1) formList.splice(idx, 1);
 			}
-			const destOrder = draft.formOrder[mut.toModuleUuid] ?? [];
-			const clamped = Math.max(0, Math.min(mut.toIndex, destOrder.length));
-			destOrder.splice(clamped, 0, mut.uuid);
-			draft.formOrder[mut.toModuleUuid] = destOrder;
+			draft.formOrder[mut.toModuleUuid] = spliceAfter(
+				draft.formOrder[mut.toModuleUuid] ?? [],
+				mut.uuid,
+				mut.after,
+			);
 			return;
 		}
 		case "renameForm": {
@@ -249,9 +247,12 @@ export function applyFormMutation(
 					case "move": {
 						const current = operation(semantic.uuid);
 						if (current === undefined) return;
-						if (semantic.order === null) delete current.order;
-						else current.order = semantic.order;
-						form.caseOperations = operations;
+						// `caseOperations` IS the sequence, so the move reorders it.
+						form.caseOperations = spliceOperation(
+							operations,
+							semantic.uuid,
+							semantic.after,
+						);
 						return;
 					}
 				}
@@ -293,8 +294,11 @@ export function applyFormMutation(
 						(candidate) => candidate.uuid === change.uuid,
 					);
 					if (current === undefined) return;
-					current.order = change.order;
-					form.caseOperations = operations;
+					form.caseOperations = spliceOperation(
+						operations,
+						change.uuid,
+						change.after,
+					);
 					return;
 				}
 			}
