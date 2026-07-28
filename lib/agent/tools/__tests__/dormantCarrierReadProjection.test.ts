@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, f, resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import { buildFieldTree } from "@/lib/doc/fieldWalk";
 import {
 	advancedSearchInputDef,
@@ -412,7 +412,7 @@ describe("shared read tools — dormant lookup carriers", () => {
 
 	it("uses existing absent/null forms when a whole optional carrier-owned surface is hidden", async () => {
 		const doc = lookupCarrierDoc();
-		doc.modules[MODULE].caseListConfig = {
+		doc.modules[MODULE].caseListConfig = resolveCaseListConfig({
 			columns: [
 				calculatedColumn(LOOKUP_COLUMN, "Lookup-derived", deepLookupExpression),
 			],
@@ -425,7 +425,7 @@ describe("shared read tools — dormant lookup carriers", () => {
 					deepLookupPredicate,
 				),
 			],
-		};
+		});
 		doc.modules[MODULE].caseSearchConfig = {
 			excludedOwnerIds: deepLookupExpression,
 			// Legacy/editor objects can retain present-with-undefined optional

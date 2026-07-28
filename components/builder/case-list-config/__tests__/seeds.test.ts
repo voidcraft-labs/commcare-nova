@@ -3,6 +3,7 @@
 // builds from the exact property the author chose in the canvas.
 
 import { describe, expect, it } from "vitest";
+import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import { mutationSchema } from "@/lib/doc/types";
 import type {
 	CaseListConfig,
@@ -39,7 +40,7 @@ function prop(
 }
 
 function config(overrides: Partial<CaseListConfig> = {}): CaseListConfig {
-	return { columns: [], searchInputs: [], ...overrides };
+	return resolveCaseListConfig({ columns: [], searchInputs: [], ...overrides });
 }
 
 const CLIENT = caseType("client", [

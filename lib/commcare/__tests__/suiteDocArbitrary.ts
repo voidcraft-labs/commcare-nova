@@ -45,6 +45,7 @@
  */
 
 import * as fc from "fast-check";
+import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
 	advancedSearchInputDef,
 	type BlueprintDoc,
@@ -662,7 +663,7 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 							: column,
 					);
 
-		const caseListConfig: CaseListConfig = {
+		const caseListConfig: CaseListConfig = resolveCaseListConfig({
 			columns: carrierColumns,
 			searchInputs,
 			...(filter !== undefined ? { filter } : {}),
@@ -673,7 +674,7 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 							? { persistOnForms: true as const }
 							: {},
 					}),
-		};
+		});
 
 		const caseSearchConfig: CaseSearchConfig | undefined = modSpec.searchConfig
 			.present

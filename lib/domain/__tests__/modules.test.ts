@@ -1,3 +1,4 @@
+import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import { emptyCaseListConfig } from "@/lib/domain";
 // lib/domain/__tests__/modules.test.ts
 //
@@ -985,11 +986,11 @@ describe("effectiveCaseSearchConfig", () => {
 	it("keeps an ordinary always-on case-list filter from inventing search", () => {
 		expect(
 			effectiveCaseSearchConfig({
-				caseListConfig: {
+				caseListConfig: resolveCaseListConfig({
 					columns: [],
 					searchInputs: [],
 					filter: { kind: "match-all" },
-				},
+				}),
 			}),
 		).toBeUndefined();
 	});
@@ -997,12 +998,12 @@ describe("effectiveCaseSearchConfig", () => {
 	it("gives legacy search inputs the friendly default search config", () => {
 		expect(
 			effectiveCaseSearchConfig({
-				caseListConfig: {
+				caseListConfig: resolveCaseListConfig({
 					columns: [],
 					searchInputs: [
 						simpleSearchInputDef(u(40), "name", "Name", "text", "case_name"),
 					],
-				},
+				}),
 			}),
 		).toEqual({});
 	});
@@ -1044,12 +1045,12 @@ describe("effectiveCaseSearchConfig", () => {
 	it("lets inputs override and strip stale no-action provenance", () => {
 		expect(
 			effectiveCaseSearchConfig({
-				caseListConfig: {
+				caseListConfig: resolveCaseListConfig({
 					columns: [],
 					searchInputs: [
 						simpleSearchInputDef(u(41), "name", "Name", "text", "case_name"),
 					],
-				},
+				}),
 				caseSearchConfig: {
 					searchActionEnabled: false,
 					excludedOwnerIds: term(literal("owner-a")),
@@ -1061,12 +1062,12 @@ describe("effectiveCaseSearchConfig", () => {
 	it("preserves an authored Never condition when inputs make Search explicit", () => {
 		expect(
 			effectiveCaseSearchConfig({
-				caseListConfig: {
+				caseListConfig: resolveCaseListConfig({
 					columns: [],
 					searchInputs: [
 						simpleSearchInputDef(u(42), "name", "Name", "text", "case_name"),
 					],
-				},
+				}),
 				caseSearchConfig: {
 					excludedOwnerIds: term(literal("owner-a")),
 					searchButtonDisplayCondition: { kind: "match-none" },

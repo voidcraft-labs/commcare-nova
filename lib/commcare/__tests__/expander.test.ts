@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
+import {
+	buildDoc,
+	caseListConfig,
+	f,
+	resolveCaseListConfig,
+	xp,
+} from "@/lib/__tests__/docHelpers";
 import { expandDoc } from "@/lib/commcare/expander";
 import { expandHashtags } from "@/lib/commcare/hashtags";
 import { runValidation } from "@/lib/commcare/validator/runner";
@@ -3969,17 +3975,19 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 		// `pattern` lands on `date_format`; the runtime formatter
 		// consumes it. CCHQ's default pattern is `%d/%m/%y`; an
 		// authored pattern overrides cleanly.
-		const doc = buildHqProjectionDoc({
-			columns: [
-				dateColumn(
-					asUuid("00000000-0000-4000-8000-000000010002"),
-					"last_visit",
-					"Last Visit",
-					"%Y-%m-%d",
-				),
-			],
-			searchInputs: [],
-		});
+		const doc = buildHqProjectionDoc(
+			resolveCaseListConfig({
+				columns: [
+					dateColumn(
+						asUuid("00000000-0000-4000-8000-000000010002"),
+						"last_visit",
+						"Last Visit",
+						"%Y-%m-%d",
+					),
+				],
+				searchInputs: [],
+			}),
+		);
 		const shortCols = expandDoc(doc).modules[0].case_details.short.columns;
 		expect(shortCols).toHaveLength(1);
 		expect(shortCols[0].format).toBe("date");
@@ -3988,17 +3996,19 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 	});
 
 	it("lowers semantic date presets before HQ JSON emission", () => {
-		const doc = buildHqProjectionDoc({
-			columns: [
-				dateColumn(
-					asUuid("00000000-0000-4000-8000-000000010012"),
-					"last_visit",
-					"Last Visit",
-					"long",
-				),
-			],
-			searchInputs: [],
-		});
+		const doc = buildHqProjectionDoc(
+			resolveCaseListConfig({
+				columns: [
+					dateColumn(
+						asUuid("00000000-0000-4000-8000-000000010012"),
+						"last_visit",
+						"Last Visit",
+						"long",
+					),
+				],
+				searchInputs: [],
+			}),
+		);
 		const [column] = expandDoc(doc).modules[0].case_details.short.columns;
 		expect(column.format).toBe("date");
 		expect(column.date_format).toBe("%B %e, %Y");
@@ -4010,16 +4020,18 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 		// (CCHQ's `template_form="phone"` divergence). The HQ JSON
 		// layer carries only the format token; the long-vs-short
 		// template divergence is emitted at suite-XML time.
-		const doc = buildHqProjectionDoc({
-			columns: [
-				phoneColumn(
-					asUuid("00000000-0000-4000-8000-000000010003"),
-					"phone",
-					"Phone",
-				),
-			],
-			searchInputs: [],
-		});
+		const doc = buildHqProjectionDoc(
+			resolveCaseListConfig({
+				columns: [
+					phoneColumn(
+						asUuid("00000000-0000-4000-8000-000000010003"),
+						"phone",
+						"Phone",
+					),
+				],
+				searchInputs: [],
+			}),
+		);
 		const shortCols = expandDoc(doc).modules[0].case_details.short.columns;
 		expect(shortCols[0].format).toBe("phone");
 		expect(shortCols[0].field).toBe("phone");
@@ -4030,17 +4042,19 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 		// label lifts under the `en` lang key per CCHQ's
 		// `MappingItem.value = DictProperty()` shape. The wire field
 		// stays the bare property reference.
-		const doc = buildHqProjectionDoc({
-			columns: [
-				idMappingColumn(
-					asUuid("00000000-0000-4000-8000-000000010004"),
-					"region",
-					"Region",
-					[idMappingEntry("N", "North"), idMappingEntry("S", "South")],
-				),
-			],
-			searchInputs: [],
-		});
+		const doc = buildHqProjectionDoc(
+			resolveCaseListConfig({
+				columns: [
+					idMappingColumn(
+						asUuid("00000000-0000-4000-8000-000000010004"),
+						"region",
+						"Region",
+						[idMappingEntry("N", "North"), idMappingEntry("S", "South")],
+					),
+				],
+				searchInputs: [],
+			}),
+		);
 		const shortCols = expandDoc(doc).modules[0].case_details.short.columns;
 		expect(shortCols[0].format).toBe("enum");
 		expect(shortCols[0].field).toBe("region");
@@ -4051,20 +4065,22 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 	});
 
 	it("preserves an always interval's threshold and authored text in HQ JSON", () => {
-		const doc = buildHqProjectionDoc({
-			columns: [
-				intervalColumn(
-					asUuid("00000000-0000-4000-8000-000000010005"),
-					"last_visit",
-					"Days since visit",
-					3,
-					"days",
-					"always",
-					"OVERDUE",
-				),
-			],
-			searchInputs: [],
-		});
+		const doc = buildHqProjectionDoc(
+			resolveCaseListConfig({
+				columns: [
+					intervalColumn(
+						asUuid("00000000-0000-4000-8000-000000010005"),
+						"last_visit",
+						"Days since visit",
+						3,
+						"days",
+						"always",
+						"OVERDUE",
+					),
+				],
+				searchInputs: [],
+			}),
+		);
 		const shortCols = expandDoc(doc).modules[0].case_details.short.columns;
 		expect(shortCols[0].format).toBe("calculate");
 		expect(shortCols[0].useXpathExpression).toBe(true);
@@ -4074,20 +4090,22 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 	});
 
 	it("preserves a flag interval's threshold and authored text in HQ JSON", () => {
-		const doc = buildHqProjectionDoc({
-			columns: [
-				intervalColumn(
-					asUuid("00000000-0000-4000-8000-000000010006"),
-					"last_visit",
-					"Overdue",
-					2,
-					"weeks",
-					"flag",
-					"OVERDUE",
-				),
-			],
-			searchInputs: [],
-		});
+		const doc = buildHqProjectionDoc(
+			resolveCaseListConfig({
+				columns: [
+					intervalColumn(
+						asUuid("00000000-0000-4000-8000-000000010006"),
+						"last_visit",
+						"Overdue",
+						2,
+						"weeks",
+						"flag",
+						"OVERDUE",
+					),
+				],
+				searchInputs: [],
+			}),
+		);
 		const shortCols = expandDoc(doc).modules[0].case_details.short.columns;
 		expect(shortCols[0].format).toBe("calculate");
 		expect(shortCols[0].useXpathExpression).toBe(true);
@@ -4102,16 +4120,18 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 		// and `field` carries the lowered XPath expression rather
 		// than a property name (per CCHQ's
 		// `detail_screen.py::FormattedDetailColumn.xpath` switch).
-		const doc = buildHqProjectionDoc({
-			columns: [
-				calculatedColumn(
-					asUuid("00000000-0000-4000-8000-000000010007"),
-					"Age Next Year",
-					toValueExpression(prop("patient", "age")),
-				),
-			],
-			searchInputs: [],
-		});
+		const doc = buildHqProjectionDoc(
+			resolveCaseListConfig({
+				columns: [
+					calculatedColumn(
+						asUuid("00000000-0000-4000-8000-000000010007"),
+						"Age Next Year",
+						toValueExpression(prop("patient", "age")),
+					),
+				],
+				searchInputs: [],
+			}),
+		);
 		const shortCols = expandDoc(doc).modules[0].case_details.short.columns;
 		expect(shortCols[0].format).toBe("calculate");
 		expect(shortCols[0].useXpathExpression).toBe(true);
@@ -4189,17 +4209,19 @@ describe("expandDoc HQ JSON projection — sort_elements", () => {
 		// per-column key, sibling calc sorts collide in the
 		// `sort_elements_by_field` dict and only the last directive
 		// survives.
-		const doc = buildHqProjectionDoc({
-			columns: [
-				calculatedColumn(
-					asUuid("00000000-0000-4000-8000-000000020003"),
-					"Age Next Year",
-					toValueExpression(prop("patient", "age")),
-					{ sort: { direction: "asc", priority: 0 } },
-				),
-			],
-			searchInputs: [],
-		});
+		const doc = buildHqProjectionDoc(
+			resolveCaseListConfig({
+				columns: [
+					calculatedColumn(
+						asUuid("00000000-0000-4000-8000-000000020003"),
+						"Age Next Year",
+						toValueExpression(prop("patient", "age")),
+						{ sort: { direction: "asc", priority: 0 } },
+					),
+				],
+				searchInputs: [],
+			}),
+		);
 		const sortElements =
 			expandDoc(doc).modules[0].case_details.short.sort_elements;
 		expect(sortElements).toHaveLength(1);
@@ -4215,23 +4237,25 @@ describe("expandDoc HQ JSON projection — sort_elements", () => {
 		// though Nova's local `.ccz` renders both. The synthetic
 		// `_cc_calculated_{index}` field per column is the unique
 		// key that survives the dict.
-		const doc = buildHqProjectionDoc({
-			columns: [
-				calculatedColumn(
-					asUuid("00000000-0000-4000-8000-000000020003"),
-					"Age Next Year",
-					toValueExpression(prop("patient", "age")),
-					{ sort: { direction: "asc", priority: 0 } },
-				),
-				calculatedColumn(
-					asUuid("00000000-0000-4000-8000-000000020004"),
-					"Visits Doubled",
-					toValueExpression(prop("patient", "visit_count")),
-					{ sort: { direction: "desc", priority: 1 } },
-				),
-			],
-			searchInputs: [],
-		});
+		const doc = buildHqProjectionDoc(
+			resolveCaseListConfig({
+				columns: [
+					calculatedColumn(
+						asUuid("00000000-0000-4000-8000-000000020003"),
+						"Age Next Year",
+						toValueExpression(prop("patient", "age")),
+						{ sort: { direction: "asc", priority: 0 } },
+					),
+					calculatedColumn(
+						asUuid("00000000-0000-4000-8000-000000020004"),
+						"Visits Doubled",
+						toValueExpression(prop("patient", "visit_count")),
+						{ sort: { direction: "desc", priority: 1 } },
+					),
+				],
+				searchInputs: [],
+			}),
+		);
 		const sortElements =
 			expandDoc(doc).modules[0].case_details.short.sort_elements;
 		expect(sortElements).toHaveLength(2);
@@ -4285,21 +4309,23 @@ describe("expandDoc HQ JSON projection — sort_elements", () => {
 	});
 
 	it("routes an interval column's sort through the positional calc join on the raw property", () => {
-		const doc = buildHqProjectionDoc({
-			columns: [
-				intervalColumn(
-					asUuid("00000000-0000-4000-8000-000000020007"),
-					"last_visit",
-					"Since Visit",
-					30,
-					"days",
-					"always",
-					"Overdue",
-					{ sort: { direction: "desc", priority: 0 } },
-				),
-			],
-			searchInputs: [],
-		});
+		const doc = buildHqProjectionDoc(
+			resolveCaseListConfig({
+				columns: [
+					intervalColumn(
+						asUuid("00000000-0000-4000-8000-000000020007"),
+						"last_visit",
+						"Since Visit",
+						30,
+						"days",
+						"always",
+						"Overdue",
+						{ sort: { direction: "desc", priority: 0 } },
+					),
+				],
+				searchInputs: [],
+			}),
+		);
 		const details = expandDoc(doc).modules[0].case_details;
 		expect(details.short.columns[0].useXpathExpression).toBe(true);
 		const sortElements = details.short.sort_elements;

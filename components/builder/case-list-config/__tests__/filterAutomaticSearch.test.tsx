@@ -9,6 +9,7 @@ import {
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import { settleBaseUiTransitions } from "@/__tests__/helpers/baseUiInteractions";
+import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import type {
 	CaseListConfig,
 	CaseSearchConfig,
@@ -75,10 +76,10 @@ const NORTH = eq(prop("patient", "region"), literal("North"));
 const SOUTH = eq(prop("patient", "region"), literal("South"));
 const EMPTY_REGION = eq(prop("patient", "region"), literal(""));
 
-const EMPTY_CONFIG: CaseListConfig = {
+const EMPTY_CONFIG: CaseListConfig = resolveCaseListConfig({
 	columns: [],
 	searchInputs: [],
-};
+});
 
 interface RenderComposerOptions {
 	readonly config?: CaseListConfig;

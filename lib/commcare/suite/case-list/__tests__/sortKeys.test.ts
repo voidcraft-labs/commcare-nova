@@ -30,6 +30,7 @@
 //      Nova → CCHQ translation.
 
 import { describe, expect, it } from "vitest";
+import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
 	asUuid,
 	type BlueprintDoc,
@@ -114,10 +115,10 @@ function makeModule(args: {
 		id: "test_module",
 		name: "Test Module",
 		...(args.caseType !== undefined && { caseType: args.caseType }),
-		caseListConfig: {
+		caseListConfig: resolveCaseListConfig({
 			columns: args.columns.map((c) => c.column),
 			searchInputs: [],
-		},
+		}),
 	};
 }
 

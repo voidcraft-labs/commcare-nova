@@ -47,6 +47,7 @@
 // display block) matches the fixture row-for-row.
 
 import { describe, expect, it } from "vitest";
+import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
 	advancedSearchInputDef,
 	asUuid,
@@ -118,7 +119,10 @@ describe("emitSearchPrompts — per-input-type attribute mapping", () => {
 			"text",
 			predicate,
 		);
-		const config: CaseListConfig = { columns: [], searchInputs: [inputDef] };
+		const config: CaseListConfig = resolveCaseListConfig({
+			columns: [],
+			searchInputs: [inputDef],
+		});
 		const validations = buildRuntimeCsqlPromptValidations(
 			composeXPathQueryEmission(config, "patient"),
 		);
@@ -149,7 +153,10 @@ describe("emitSearchPrompts — per-input-type attribute mapping", () => {
 			"text",
 			predicate,
 		);
-		const config: CaseListConfig = { columns: [], searchInputs: [inputDef] };
+		const config: CaseListConfig = resolveCaseListConfig({
+			columns: [],
+			searchInputs: [inputDef],
+		});
 		const validation = buildRuntimeCsqlPromptValidations(
 			composeXPathQueryEmission(config, "patient"),
 		).get("minimum");
@@ -192,13 +199,13 @@ describe("emitSearchPrompts — per-input-type attribute mapping", () => {
 				),
 			),
 		);
-		const config: CaseListConfig = {
+		const config: CaseListConfig = resolveCaseListConfig({
 			columns: [],
 			searchInputs: [
 				{ ...first, predicate: and(first.predicate, second.predicate) },
 				second,
 			],
-		};
+		});
 		const validations = buildRuntimeCsqlPromptValidations(
 			composeXPathQueryEmission(config, "patient"),
 		);
@@ -293,14 +300,14 @@ describe("emitSearchPrompts — per-input-type attribute mapping", () => {
 				eq(prop("patient", "status"), literal("active")),
 			),
 		);
-		const config: CaseListConfig = {
+		const config: CaseListConfig = resolveCaseListConfig({
 			columns: [],
 			filter: whenInput(
 				input("filter_value"),
 				eq(prop("patient", "status"), input("filter_value")),
 			),
 			searchInputs: [filterValue, sibling, owner, triggerOnly],
-		};
+		});
 
 		const validations = buildRuntimeCsqlPromptValidations(
 			composeXPathQueryEmission(config, "patient"),
@@ -331,10 +338,10 @@ describe("emitSearchPrompts — per-input-type attribute mapping", () => {
 					eq(prop("patient", "case_name"), input(inputName)),
 				),
 			);
-			const config: CaseListConfig = {
+			const config: CaseListConfig = resolveCaseListConfig({
 				columns: [],
 				searchInputs: [inputDef],
-			};
+			});
 			const validations = buildRuntimeCsqlPromptValidations(
 				composeXPathQueryEmission(config, "patient"),
 			);

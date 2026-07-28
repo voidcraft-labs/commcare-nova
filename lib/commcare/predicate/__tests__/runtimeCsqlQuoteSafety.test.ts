@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
 	advancedSearchInputDef,
 	asUuid,
@@ -98,7 +99,7 @@ describe("collectRuntimeCsqlStringInputNames", () => {
 	});
 
 	it("uses the exact effective composition across filter, advanced, and simple inputs", () => {
-		const config: CaseListConfig = {
+		const config: CaseListConfig = resolveCaseListConfig({
 			columns: [],
 			searchInputs: [
 				simpleSearchInputDef(
@@ -125,7 +126,7 @@ describe("collectRuntimeCsqlStringInputNames", () => {
 				input("filter_value"),
 				eq(prop("patient", "status"), input("filter_value")),
 			),
-		};
+		});
 		const predicate = composeXPathQueryPredicate(config, "patient");
 		expect(collectRuntimeCsqlStringInputNames(predicate)).toEqual(
 			new Set(["client_query", "sibling", "filter_value"]),
@@ -133,7 +134,7 @@ describe("collectRuntimeCsqlStringInputNames", () => {
 	});
 
 	it("does not restrict dead clauses absorbed by match-none", () => {
-		const config: CaseListConfig = {
+		const config: CaseListConfig = resolveCaseListConfig({
 			columns: [],
 			filter: matchNone(),
 			searchInputs: [
@@ -148,7 +149,7 @@ describe("collectRuntimeCsqlStringInputNames", () => {
 					),
 				),
 			],
-		};
+		});
 		expect(
 			collectRuntimeCsqlStringInputNames(
 				composeXPathQueryPredicate(config, "patient"),

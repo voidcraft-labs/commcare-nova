@@ -16,6 +16,7 @@
 // false-positive churn.
 
 import { describe, expect, it } from "vitest";
+import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
 	advancedSearchInputDef,
 	asUuid,
@@ -44,7 +45,7 @@ const MODULE_UUID = asUuid("00000000-0000-4000-8000-000000000010");
 function makeListConfig(
 	overrides: Partial<CaseListConfig> = {},
 ): CaseListConfig {
-	return { columns: [], searchInputs: [], ...overrides };
+	return resolveCaseListConfig({ columns: [], searchInputs: [], ...overrides });
 }
 
 function makeModule(args: {

@@ -33,6 +33,7 @@
 
 import AdmZip from "adm-zip";
 import { describe, expect, it } from "vitest";
+import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import {
@@ -96,11 +97,11 @@ function makeModule(args: {
 function makeListConfig(
 	overrides: Partial<CaseListConfig> = {},
 ): CaseListConfig {
-	return {
+	return resolveCaseListConfig({
 		columns: [],
 		searchInputs: [],
 		...overrides,
-	};
+	});
 }
 
 /**

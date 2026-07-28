@@ -1,6 +1,7 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import { updateColumnMutation } from "@/lib/agent/blueprintHelpers";
 import {
 	addModuleMutation,
@@ -963,7 +964,10 @@ function payloads(): {
 			order: null,
 		}),
 		replaceConfig: updateModuleMutation(MODULE, {
-			caseListConfig: { columns: [current], searchInputs: [] },
+			caseListConfig: resolveCaseListConfig({
+				columns: [current],
+				searchInputs: [],
+			}),
 		}),
 		addModule: addModuleMutation(
 			{
@@ -972,7 +976,10 @@ function payloads(): {
 				name: "New patients",
 				caseType: "patient",
 				caseListOnly: true,
-				caseListConfig: { columns: [added], searchInputs: [] },
+				caseListConfig: resolveCaseListConfig({
+					columns: [added],
+					searchInputs: [],
+				}),
 			},
 			1,
 		),
@@ -1062,11 +1069,11 @@ function payloads(): {
 		),
 		addTiledColumn: columnAddMutation(MODULE, { ...added, tile: CELL }),
 		replaceTiledConfig: updateModuleMutation(MODULE, {
-			caseListConfig: {
+			caseListConfig: resolveCaseListConfig({
 				columns: [{ ...current, tile: CELL }],
 				searchInputs: [],
 				tile: { persistOnForms: true },
-			},
+			}),
 		}),
 		addTiledModule: addModuleMutation(
 			{
@@ -1075,11 +1082,11 @@ function payloads(): {
 				name: "Tiled patients",
 				caseType: "patient",
 				caseListOnly: true,
-				caseListConfig: {
+				caseListConfig: resolveCaseListConfig({
 					columns: [{ ...added, tile: CELL }],
 					searchInputs: [],
 					tile: { persistOnForms: true },
-				},
+				}),
 			},
 			3,
 		),

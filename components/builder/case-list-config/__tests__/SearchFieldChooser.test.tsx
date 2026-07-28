@@ -1,3 +1,4 @@
+import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import { emptyCaseListConfig } from "@/lib/domain";
 // @vitest-environment happy-dom
 
@@ -240,7 +241,7 @@ describe("seedSearchInputForProperty", () => {
 			LEGACY_NAME,
 		);
 		const second = seedSearchInputForProperty(
-			{ columns: [], searchInputs: [first] },
+			resolveCaseListConfig({ columns: [], searchInputs: [first] }),
 			LEGACY_NAME,
 		);
 

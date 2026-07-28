@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import { searchInputRemovalDependencies } from "@/lib/doc/searchInputMutations";
 import {
 	advancedSearchInputDef,
@@ -39,14 +40,14 @@ describe("searchInputRemovalDependencies", () => {
 				eq(prop("client", "external_id"), input("case_name")),
 			),
 		);
-		const config: CaseListConfig = {
+		const config: CaseListConfig = resolveCaseListConfig({
 			columns: [],
 			searchInputs: [target, sibling],
 			filter: whenInput(
 				input("case_name"),
 				eq(prop("client", "case_name"), input("case_name")),
 			),
-		};
+		});
 		const searchConfig: CaseSearchConfig = {
 			excludedOwnerIds: concat(
 				term(input("case_name")),
@@ -107,10 +108,10 @@ describe("searchInputRemovalDependencies", () => {
 			),
 			default: term(input("case_name")),
 		};
-		const config: CaseListConfig = {
+		const config: CaseListConfig = resolveCaseListConfig({
 			columns: [],
 			searchInputs: [target, sibling],
-		};
+		});
 		const searchConfig: CaseSearchConfig = {
 			searchButtonDisplayCondition: whenInput(
 				input("case_name"),
@@ -152,12 +153,12 @@ describe("searchInputRemovalDependencies", () => {
 			"text",
 			"case_name",
 		);
-		const config: CaseListConfig = {
+		const config: CaseListConfig = resolveCaseListConfig({
 			columns: [
 				calculatedColumn(columnUuid, "Match note", term(input("case_name"))),
 			],
 			searchInputs: [target],
-		};
+		});
 
 		expect(
 			searchInputRemovalDependencies(config, undefined, targetUuid),
@@ -182,10 +183,10 @@ describe("searchInputRemovalDependencies", () => {
 			),
 			default: term(input("case_name")),
 		};
-		const config: CaseListConfig = {
+		const config: CaseListConfig = resolveCaseListConfig({
 			columns: [],
 			searchInputs: [target],
-		};
+		});
 
 		expect(
 			searchInputRemovalDependencies(config, undefined, targetUuid),

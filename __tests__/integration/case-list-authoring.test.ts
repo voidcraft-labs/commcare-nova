@@ -33,7 +33,7 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import AdmZip from "adm-zip";
 import type { Kysely } from "kysely";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, f, resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import { makeStubToolContext } from "@/lib/agent/__tests__/fixtures";
 import { addCaseListColumnsTool } from "@/lib/agent/tools/case-list-config/addCaseListColumns";
 import { addSearchInputsTool } from "@/lib/agent/tools/case-list-config/addSearchInputs";
@@ -157,7 +157,7 @@ const SI_VISIT_RANGE_UUID = asUuid("00000000-0000-4000-8000-000000000011");
  * range-mode search inputs, and visibility flags.
  */
 function buildWellFormedCaseListConfig(): CaseListConfig {
-	return {
+	return resolveCaseListConfig({
 		columns: [
 			plainColumn(COL_NAME_UUID, "case_name", "Patient", {
 				sort: { direction: "asc", priority: 1 },
@@ -212,7 +212,7 @@ function buildWellFormedCaseListConfig(): CaseListConfig {
 				{ mode: rangeMode() },
 			),
 		],
-	};
+	});
 }
 
 /**
@@ -605,7 +605,7 @@ describe("wire emission", () => {
 			id: "patients",
 			name: "Patients",
 			caseType: "patient",
-			caseListConfig: {
+			caseListConfig: resolveCaseListConfig({
 				columns: [
 					plainColumn(colShared, "case_name", "Name"),
 					plainColumn(colListOnly, "age", "Age", {
@@ -616,7 +616,7 @@ describe("wire emission", () => {
 					}),
 				],
 				searchInputs: [],
-			},
+			}),
 		};
 		const doc: BlueprintDoc = {
 			appId: APP_ID,
@@ -714,14 +714,14 @@ describe("calc-column comparator-type fallback", () => {
 			id: "patients",
 			name: "Patients",
 			caseType: "patient",
-			caseListConfig: {
+			caseListConfig: resolveCaseListConfig({
 				columns: [
 					calculatedColumn(calcUuid, "Calc value", expression, {
 						sort: { direction: "asc", priority: 0 },
 					}),
 				],
 				searchInputs: [],
-			},
+			}),
 		};
 		const doc: BlueprintDoc = {
 			appId: APP_ID,
@@ -1080,7 +1080,7 @@ describe("sort-priority collision tie-breaks to display order at every layer", (
 			id: "patients",
 			name: "Patients",
 			caseType: "patient",
-			caseListConfig: {
+			caseListConfig: resolveCaseListConfig({
 				columns: [
 					plainColumn(colFirstUuid, "case_name", "Patient", {
 						sort: { direction: "asc", priority: 0 },
@@ -1090,7 +1090,7 @@ describe("sort-priority collision tie-breaks to display order at every layer", (
 					}),
 				],
 				searchInputs: [],
-			},
+			}),
 		};
 		const doc: BlueprintDoc = {
 			appId: APP_ID,
