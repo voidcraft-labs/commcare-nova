@@ -434,7 +434,7 @@ describe("Column.sort — column-level sort directive", () => {
 		// not enforce uniqueness — transient editor states (undo,
 		// partial save) might transiently collide and the schema must
 		// not reject them.
-		const config = {
+		const config = resolveCaseListConfig({
 			columns: [
 				plainColumn(u(1), "a", "A", {
 					sort: { direction: "asc", priority: 0 },
@@ -444,7 +444,7 @@ describe("Column.sort — column-level sort directive", () => {
 				}),
 			],
 			searchInputs: [],
-		};
+		});
 		const parsed = caseListConfigSchema.safeParse(config);
 		expect(parsed.success).toBe(true);
 	});
@@ -787,7 +787,7 @@ describe("SearchInputDef builders — helper construction", () => {
 
 describe("caseListConfigSchema — populated round-trip", () => {
 	it("round-trips a full config with mixed column kinds + sort + visibility + searchInputs", () => {
-		const config = {
+		const config = resolveCaseListConfig({
 			columns: [
 				plainColumn(u(1), "name", "Name", {
 					sort: { direction: "asc", priority: 0 },
@@ -828,7 +828,7 @@ describe("caseListConfigSchema — populated round-trip", () => {
 					kind: "match-all",
 				}),
 			],
-		};
+		});
 		const parsed = caseListConfigSchema.safeParse(config);
 		expect(parsed.success).toBe(true);
 		if (parsed.success) expect(parsed.data).toEqual(config);

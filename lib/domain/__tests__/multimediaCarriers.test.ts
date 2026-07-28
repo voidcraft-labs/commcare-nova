@@ -153,6 +153,8 @@ describe("module schema — icon + audioLabel", () => {
 			name: "Patient registration",
 			caseListConfig: {
 				columns: [],
+				listColumnOrder: [],
+				detailColumnOrder: [],
 				searchInputs: [],
 				icon: "media-asset-3",
 				audioLabel: "media-asset-4",

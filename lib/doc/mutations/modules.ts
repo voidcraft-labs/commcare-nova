@@ -113,6 +113,10 @@ export function applyModuleMutation(
 			return;
 		}
 		case "moveModule": {
+			// A move of a module a peer removed is a no-op — replay must not
+			// resurrect it. `spliceAfter` inserts unconditionally, which is right
+			// for an add and wrong for a move.
+			if (draft.modules[mut.uuid] === undefined) return;
 			// The membership array IS the sequence, so a move is a splice.
 			draft.moduleOrder = spliceAfter(draft.moduleOrder, mut.uuid, mut.after);
 			return;
@@ -382,6 +386,8 @@ export function applyModuleMutation(
 		case "moveColumn": {
 			const config = draft.modules[mut.moduleUuid]?.caseListConfig;
 			if (!config) return;
+			// A column a peer removed cannot be moved back into a sequence.
+			if (!config.columns.some((column) => column.uuid === mut.uuid)) return;
 			// Only the named surface moves. The other keeps its sequence, which is
 			// what lets one author reorder Results while another reorders Details.
 			if (mut.surface === "list") {

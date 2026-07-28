@@ -168,6 +168,8 @@ function docWithDormantCaseListIcon() {
 				caseListOnly: false,
 				caseListConfig: {
 					columns: [],
+					listColumnOrder: [],
+					detailColumnOrder: [],
 					searchInputs: [],
 					icon: "dormant-cl-icon",
 					audioLabel: "dormant-cl-audio",

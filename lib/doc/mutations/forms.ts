@@ -85,6 +85,8 @@ export function applyFormMutation(
 			const form = draft.forms[mut.uuid];
 			if (form === undefined) return;
 			if (draft.modules[mut.toModuleUuid] === undefined) return;
+			// A form a peer removed is not moved back into existence.
+			if (draft.forms[mut.uuid] === undefined) return;
 			// Leave whatever module currently holds it, then land in the target's
 			// sequence at the named placement. Same-module and cross-module are one
 			// path: the source removal is a no-op when the source IS the target,
