@@ -93,7 +93,7 @@ function mutationArb(doc: BlueprintDoc): fc.Arbitrary<Mutation> {
 				.map((uuid): Mutation => ({ kind: "removeField", uuid })),
 			fc
 				.constantFrom(...fieldUuids)
-				.map((uuid): Mutation => ({ kind: "duplicateField", uuid })),
+				.map((uuid): Mutation => ({ kind: "removeField", uuid })),
 		);
 		if (formUuids.length > 0) {
 			arms.push(

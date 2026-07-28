@@ -326,31 +326,6 @@ describe("applyBlueprintChange — routes the guard through commitGuardedBatch",
 			}),
 		).rejects.toBeInstanceOf(CommitReauthError);
 	});
-
-	it("rejects reducer-minted identity after a latch miss but before projection, schema work, or commit", async () => {
-		const prior = minDoc();
-		const target = Object.values(prior.fields)[0];
-		if (target === undefined) throw new Error("fixture has no field");
-
-		await expect(
-			applyBlueprintChange({
-				appId: "app-1",
-				userId: "user-1",
-				expectedProjectId: null,
-				prospective: toPersistableDoc(prior),
-				batchId: "raw-duplicate",
-				kind: "autosave",
-				guard: {
-					mutations: [{ kind: "duplicateField", uuid: target.uuid }],
-				},
-			}),
-		).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
-
-		expect(latchRowMock).toHaveBeenCalledTimes(1);
-		expect(loadAppMock).not.toHaveBeenCalled();
-		expect(withSchemaContextMock).not.toHaveBeenCalled();
-		expect(commitGuardedBatchMock).not.toHaveBeenCalled();
-	});
 });
 
 describe("applyBlueprintChange — top-level batchId dedup", () => {
@@ -368,7 +343,7 @@ describe("applyBlueprintChange — top-level batchId dedup", () => {
 			batchId: "already-committed",
 			kind: "mcp",
 			guard: {
-				mutations: [{ kind: "duplicateField", uuid: target.uuid }],
+				mutations: [{ kind: "removeField", uuid: target.uuid }],
 			},
 		});
 

@@ -1,8 +1,8 @@
 import { produce } from "immer";
 import { describe, expect, it, vi } from "vitest";
 import { resolveDocExpressions, xp } from "@/lib/__tests__/docHelpers";
-import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
-import { applyMutation } from "@/lib/doc/mutations";
+import { duplicateFieldMutations } from "@/lib/doc/duplicateFieldMutations";
+import { applyMutation, applyMutations } from "@/lib/doc/mutations";
 import type {
 	FieldRenameMeta,
 	MoveFieldResult,
@@ -649,25 +649,35 @@ describe("renameField", () => {
 	});
 });
 
-describe("duplicateField", () => {
+describe("duplicateFieldMutations", () => {
+	/** Plan the duplicate and apply it, the way the builder gesture does. */
+	function duplicate(
+		doc: BlueprintDoc,
+		uuid: Uuid,
+	): { next: BlueprintDoc; cloneUuid: Uuid | undefined } {
+		const plan = duplicateFieldMutations(doc, uuid);
+		if (plan === undefined) return { next: doc, cloneUuid: undefined };
+		return {
+			next: produce(doc, (d) => {
+				applyMutations(d, plan.mutations);
+			}),
+			cloneUuid: plan.cloneUuid,
+		};
+	}
+
 	it("duplicates a leaf field with a new uuid", () => {
 		const start: BlueprintDoc = {
 			...docWithForm(),
 			fields: { [Q("a")]: field_(Q("a"), "name") },
 			fieldOrder: { [F("1")]: [Q("a")] },
+			fieldParent: { [Q("a")]: F("1") },
 		};
-		const next = produce(resolveDocExpressions(start), (d) => {
-			applyMutation(d, { kind: "duplicateField", uuid: Q("a") });
-		});
-		// Original still exists
+		const { next, cloneUuid } = duplicate(resolveDocExpressions(start), Q("a"));
 		expect(next.fields[Q("a")]).toBeDefined();
-		// Order has two entries
-		expect(next.fieldOrder[F("1")]).toHaveLength(2);
-		// Second entry is a new uuid ≠ Q("a")
-		const [, dupUuid] = next.fieldOrder[F("1")];
-		expect(dupUuid).not.toBe(Q("a"));
-		// Duplicated field has deduped id
-		expect(next.fields[dupUuid]?.id).toBe("name_2");
+		expect(next.fieldOrder[F("1")]).toEqual([Q("a"), cloneUuid]);
+		expect(cloneUuid).not.toBe(Q("a"));
+		// The clone's id is deduped against its new siblings.
+		expect(cloneUuid && next.fields[cloneUuid]?.id).toBe("name_2");
 	});
 
 	it("inserts the duplicate right after the source", () => {
@@ -678,16 +688,11 @@ describe("duplicateField", () => {
 				[Q("b")]: field_(Q("b"), "b"),
 			},
 			fieldOrder: { [F("1")]: [Q("a"), Q("b")] },
+			fieldParent: { [Q("a")]: F("1"), [Q("b")]: F("1") },
 		};
-		const next = produce(resolveDocExpressions(start), (d) => {
-			applyMutation(d, { kind: "duplicateField", uuid: Q("a") });
-		});
-		expect(next.fieldOrder[F("1")]).toHaveLength(3);
-		const [first, second, third] = next.fieldOrder[F("1")];
-		expect(first).toBe(Q("a"));
-		expect(third).toBe(Q("b"));
-		// The duplicate is at index 1
-		expect(next.fields[second]?.id).toBe("a_2");
+		const { next, cloneUuid } = duplicate(resolveDocExpressions(start), Q("a"));
+		expect(next.fieldOrder[F("1")]).toEqual([Q("a"), cloneUuid, Q("b")]);
+		expect(cloneUuid && next.fields[cloneUuid]?.id).toBe("a_2");
 	});
 
 	it("deep-clones a group with new uuids for all descendants", () => {
@@ -701,54 +706,25 @@ describe("duplicateField", () => {
 				[F("1")]: [Q("grp")],
 				[Q("grp")]: [Q("c")],
 			},
+			fieldParent: { [Q("grp")]: F("1"), [Q("c")]: Q("grp") },
 		};
-		const next = produce(resolveDocExpressions(start), (d) => {
-			applyMutation(d, { kind: "duplicateField", uuid: Q("grp") });
-		});
-		// Two top-level groups
-		expect(next.fieldOrder[F("1")]).toHaveLength(2);
-		const [, dupGrp] = next.fieldOrder[F("1")];
-		// Dup group has its own child order
-		expect(next.fieldOrder[dupGrp]).toHaveLength(1);
-		const [dupChild] = next.fieldOrder[dupGrp];
-		// Dup child is a new uuid
-		expect(dupChild).not.toBe(Q("c"));
-		// But retains the same id (within the new group, no siblings conflict)
-		expect(next.fields[dupChild]?.id).toBe("child");
+		const { next, cloneUuid } = duplicate(
+			resolveDocExpressions(start),
+			Q("grp"),
+		);
+		expect(next.fieldOrder[F("1")]).toEqual([Q("grp"), cloneUuid]);
+		const cloneChildren = cloneUuid ? next.fieldOrder[cloneUuid] : [];
+		expect(cloneChildren).toHaveLength(1);
+		const [cloneChild] = cloneChildren;
+		expect(cloneChild).not.toBe(Q("c"));
+		// The child keeps its id: inside the new group nothing conflicts.
+		expect(next.fields[cloneChild]?.id).toBe("child");
 	});
 
-	it("is a no-op when the source doesn't exist", () => {
-		const next = produce(docWithForm(), (d) => {
-			applyMutation(d, { kind: "duplicateField", uuid: Q("missing") });
-		});
-		expect(Object.keys(next.fields)).toHaveLength(0);
-	});
-
-	it("slots the clone right after the source in DISPLAY order", () => {
-		// Keyed siblings whose order keys land the clone by `order`, not array
-		// position. The clone's fresh key must sort strictly between the source
-		// and its next display-order sibling. The slot index is computed over the
-		// same keyed list `keysForSlot` receives (not a full-list position), so a
-		// keyless sibling can't shift the clone.
-		const start: BlueprintDoc = {
-			...docWithForm(),
-			fields: {
-				[Q("a")]: field_(Q("a"), "a", { order: "a" }),
-				[Q("b")]: field_(Q("b"), "b", { order: "b" }),
-				[Q("c")]: field_(Q("c"), "c", { order: "c" }),
-			},
-			fieldOrder: { [F("1")]: [Q("a"), Q("b"), Q("c")] },
-		};
-		const next = produce(resolveDocExpressions(start), (d) => {
-			applyMutation(d, { kind: "duplicateField", uuid: Q("b") });
-		});
-		const dupUuid = next.fieldOrder[F("1")].find(
-			(u) => u !== Q("a") && u !== Q("b") && u !== Q("c"),
-		) as Uuid;
-		expect(dupUuid).toBeDefined();
-		// Display order = sort by (order, uuid). The clone sits between b and c.
-		const displayed = orderedFieldUuids(next, F("1"));
-		expect(displayed).toEqual([Q("a"), Q("b"), dupUuid, Q("c")]);
+	it("plans nothing when the source doesn't exist", () => {
+		expect(
+			duplicateFieldMutations(docWithForm(), Q("missing")),
+		).toBeUndefined();
 	});
 });
 

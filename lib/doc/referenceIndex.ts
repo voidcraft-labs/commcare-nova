@@ -1065,14 +1065,15 @@ export function declarersOf(
 // ── Per-mutation maintenance ────────────────────────────────────────
 
 /**
- * The carriers a mutation can change, captured BEFORE the reducer runs
- * (removed subtrees and re-keyed-edge carriers are only knowable from
- * pre-state). `duplicated` defers clone discovery to the post-dispatch
- * step — `duplicateField` mints uuids inside the reducer.
+ * The carriers a mutation can change, captured BEFORE the reducer runs —
+ * removed subtrees and re-keyed-edge carriers are only knowable from pre-state.
+ *
+ * Every carrier is nameable here because every mutation names its own targets:
+ * a duplicate arrives as ordinary `addField`s carrying the clone uuids, so
+ * there is nothing left that the reducer discovers on the way past.
  */
 export interface ReferenceIndexMaintenance {
 	carriers: Set<string>;
-	duplicated?: { parentUuid: string; before: Set<string> };
 }
 
 const NO_MAINTENANCE: ReferenceIndexMaintenance = { carriers: new Set() };
@@ -1239,23 +1240,6 @@ export function planReferenceIndexMaintenance(
 			}
 			break;
 		}
-		case "duplicateField": {
-			addLocalCarriers(containingFormOf(mut.uuid));
-			// The clone subtree's uuids are minted inside the reducer —
-			// snapshot the parent's order so the post-dispatch step can diff
-			// them out.
-			const parentUuid = findParentOf(doc, mut.uuid);
-			if (parentUuid !== undefined) {
-				return {
-					carriers,
-					duplicated: {
-						parentUuid,
-						before: new Set(ownRecordValue(doc.fieldOrder, parentUuid) ?? []),
-					},
-				};
-			}
-			break;
-		}
 		case "convertField":
 		case "setFieldMedia":
 			carriers.add(mut.kind === "setFieldMedia" ? mut.fieldUuid : mut.uuid);
@@ -1324,7 +1308,7 @@ export function planReferenceIndexMaintenance(
 }
 
 /** The parent (form or container) whose order lists `uuid`. */
-function findParentOf(doc: BlueprintDoc, uuid: Uuid): string | undefined {
+function _findParentOf(doc: BlueprintDoc, uuid: Uuid): string | undefined {
 	for (const [parentUuid, order] of Object.entries(doc.fieldOrder)) {
 		if (order.includes(uuid)) return parentUuid;
 	}
@@ -1344,17 +1328,6 @@ export function applyReferenceIndexMaintenance(
 	const index = doc.refIndex;
 	if (!index) return;
 	const carriers = new Set(plan.carriers);
-	if (plan.duplicated) {
-		const after =
-			ownRecordValue(doc.fieldOrder, plan.duplicated.parentUuid) ?? [];
-		for (const uuid of after) {
-			if (plan.duplicated.before.has(uuid)) continue;
-			carriers.add(uuid);
-			for (const descendant of walkFormFieldUuids(doc, uuid)) {
-				carriers.add(descendant);
-			}
-		}
-	}
 	if (carriers.size === 0) return;
 	const contexts = new Map<string, CarrierContext>();
 	for (const carrier of carriers) {

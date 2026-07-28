@@ -60,10 +60,8 @@
  *      (so a property a writer add reproduces is never re-emitted, merging a
  *      concurrent add). No wholesale `setCaseTypes` is emitted on this path.
  *
- * `renameField` and `duplicateField` are never emitted: the former for its
- * cascade (id rides `updateField`), the latter because it mints a fresh
- * uuid and so can't express a diff between two fixed docs (an added field
- * travels as `addField` carrying the verbatim entity).
+ * `renameField` is never emitted: its cascade means the id rides `updateField`
+ * instead.
  *
  * The commit gate validates only the final candidate, so an intermediate
  * invalid state across the batch is fine; the one hard rule is that no

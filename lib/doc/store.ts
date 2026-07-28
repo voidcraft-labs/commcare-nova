@@ -361,9 +361,7 @@ export function createBlueprintDocStore() {
 						 * shared reducer once to build its candidate; committing
 						 * that candidate here (instead of re-running `applyMany`)
 						 * keeps every UI dispatch a single reducer run and makes
-						 * the committed doc EXACTLY the doc the gate validated —
-						 * load-bearing for `duplicateField`, whose reducer mints a
-						 * fresh clone uuid per run.
+						 * the committed doc EXACTLY the doc the gate validated.
 						 *
 						 * One `set()` call, so zundo records exactly one undo
 						 * entry, same as `applyMany`. The key walk handles the

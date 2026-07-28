@@ -2,6 +2,7 @@ import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
+import { duplicateFieldMutations } from "@/lib/doc/duplicateFieldMutations";
 import { applyMutations } from "@/lib/doc/mutations";
 import { buildReferenceIndex } from "@/lib/doc/referenceIndex";
 import { type Mutation, mutationSchema } from "@/lib/doc/types";
@@ -253,15 +254,13 @@ describe("dormant lookup options carriers", () => {
 	});
 
 	it("duplicates a receiver-preserved select as an inline-only fallback", () => {
-		const result = replay(baseDoc(selectField(SOURCE_A)), [
-			{ kind: "duplicateField", uuid: FIELD },
-		]);
-		const duplicateUuid = result.fieldOrder[FORM]?.[1];
-		expect(duplicateUuid).toBeDefined();
-		if (duplicateUuid === undefined) {
-			throw new Error("fixture: expected duplicate field identity");
-		}
-		const duplicate = result.fields[duplicateUuid];
+		const doc = baseDoc(selectField(SOURCE_A));
+		const plan = duplicateFieldMutations(doc, FIELD);
+		expect(plan).toBeDefined();
+		if (plan === undefined) throw new Error("fixture: expected a plan");
+		const result = replay(doc, plan.mutations);
+		expect(result.fieldOrder[FORM]?.[1]).toBe(plan.cloneUuid);
+		const duplicate = result.fields[plan.cloneUuid];
 		expect(duplicate?.kind).toBe("single_select");
 		expect(duplicate && "optionsSource" in duplicate).toBe(false);
 		expect(

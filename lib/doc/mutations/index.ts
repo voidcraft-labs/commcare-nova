@@ -91,7 +91,6 @@ function dispatchMutation(
 		case "removeField":
 		case "moveField":
 		case "renameField":
-		case "duplicateField":
 		case "updateField":
 		case "convertField":
 		case "setFieldMedia":

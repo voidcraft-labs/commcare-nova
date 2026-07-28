@@ -1415,7 +1415,6 @@ function createMutationSchema({
 			// See renameModule — reject empty ids at the schema boundary.
 			newId: z.string().min(1),
 		}),
-		z.object({ kind: z.literal("duplicateField"), uuid: uuidSchema }),
 		// `updateField` is itself a per-`targetKind` discriminated union — see
 		// `updateFieldArms` above. Zod v4 supports nesting one
 		// `discriminatedUnion` inside another, which keeps both layers as

@@ -222,9 +222,9 @@ export function cloneFieldSubtree(
 	| undefined {
 	// If the requested root doesn't exist, the caller can't do anything
 	// useful with a clone — return undefined instead of throwing from inside
-	// an Immer reducer. Callers (`duplicateField`) already guard on the
-	// source field existing before calling, so hitting this path means
-	// the doc is already in an inconsistent state.
+	// an Immer reducer. Callers already guard on the source field existing
+	// before calling, so hitting this path means the doc is already in an
+	// inconsistent state.
 	if (ownRecordValue(doc.fields, srcUuid) === undefined) return undefined;
 
 	const clonedFields: Record<Uuid, Field> = {};

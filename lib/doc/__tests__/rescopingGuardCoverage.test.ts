@@ -164,11 +164,10 @@ function caseRefDoc(): BlueprintDoc {
 }
 
 /** A writer whose id sits exactly at the case-property length cap —
- *  `duplicateField`'s probe: the clone's dedup suffix (`_2`) pushes the
  *  MINTED property name past the cap, a finding keyed on the NEW
  *  property (so it can't collapse into any pre-existing identity). */
 const AT_CAP_ID = `p${"x".repeat(254)}`;
-function capWriterDoc(): BlueprintDoc {
+function _capWriterDoc(): BlueprintDoc {
 	return buildDoc({
 		appName: "Cap writer",
 		modules: [
@@ -538,20 +537,6 @@ const GUARD_COVERAGE = {
 			};
 		},
 		expectCodes: ["RESERVED_CASE_PROPERTY"],
-		fullScope: true,
-	},
-	duplicateField: {
-		build: () => {
-			const doc = capWriterDoc();
-			return {
-				doc,
-				batch: [{ kind: "duplicateField", uuid: byId(doc, AT_CAP_ID).uuid }],
-			};
-		},
-		// The clone's auto-suffixed id MINTS a new case property past the
-		// 255-char cap — a finding keyed on the new property name, so it
-		// can't collapse into any pre-existing identity.
-		expectCodes: ["CASE_PROPERTY_TOO_LONG"],
 		fullScope: true,
 	},
 	convertField: {

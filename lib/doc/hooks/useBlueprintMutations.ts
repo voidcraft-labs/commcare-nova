@@ -50,6 +50,7 @@ import {
 	planCaseTypeRetirementOnRetype,
 } from "@/lib/doc/caseTypeRetirement";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { duplicateFieldMutations } from "@/lib/doc/duplicateFieldMutations";
 import type { FieldPath } from "@/lib/doc/fieldPath";
 import { fieldSlotAfter } from "@/lib/doc/fieldSlot";
 import { findRenameSiblingConflict } from "@/lib/doc/identifierVerdicts";
@@ -625,7 +626,7 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 			 * VALIDATED CANDIDATE commits directly (`commitDoc`) with the
 			 * candidate run's own reducer results — one reducer run per
 			 * dispatch, and the committed doc is exactly the doc the gate
-			 * validated (load-bearing for `duplicateField`'s minted uuid). */
+			 * validated. */
 			const guardedApply = (
 				mutations: Mutation[],
 			):
@@ -877,50 +878,29 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 
 				duplicateField(uuid) {
 					const doc = get();
-					if (!doc.fields[uuid]) {
+					const plan = duplicateFieldMutations(doc, uuid);
+					if (plan === undefined) {
 						warnUnresolved("duplicateField", { uuid });
 						return undefined;
 					}
+					if (!guardedApply(plan.mutations).ok) return undefined;
 
-					// Snapshot the parent's order BEFORE dispatch so we can diff and
-					// recover the new clone's uuid. The reducer splices the clone
-					// right after the source; the post-dispatch order will contain
-					// exactly one uuid that wasn't present before.
-					const parentUuid = doc.fieldParent[uuid] ?? undefined;
-					if (parentUuid === undefined) {
-						warnUnresolved("duplicateField", {
-							uuid,
-							reason: "no parent",
-						});
-						return undefined;
-					}
-					const beforeOrder = [...(doc.fieldOrder[parentUuid] ?? [])];
-					const beforeSet = new Set(beforeOrder);
-
-					if (!guardedApply([{ kind: "duplicateField", uuid }]).ok) {
-						return undefined;
-					}
-
-					// Diff the post-dispatch order against the snapshot to find the
-					// new clone. Only one uuid should be new.
-					const afterDoc = get();
-					const afterOrder = afterDoc.fieldOrder[parentUuid] ?? [];
-					const newUuid = afterOrder.find((u) => !beforeSet.has(u));
-					if (!newUuid) return undefined;
-
-					// Rebuild the new path: parent path (if any) + new field id.
-					// `fieldParent` is already up to date on `afterDoc` — the
-					// dispatcher rebuilds it after the reducer runs.
-					const cloneEntity = afterDoc.fields[newUuid];
-					if (!cloneEntity) return undefined;
-					const parentPath = afterDoc.forms[parentUuid]
+					// The clone's path is read AFTER the commit: the batch may have
+					// deduped its id against a sibling, and the path is what the
+					// caller navigates to.
+					const after = get();
+					const clone = after.fields[plan.cloneUuid];
+					if (clone === undefined) return undefined;
+					const parentUuid = after.fieldParent[plan.cloneUuid] ?? undefined;
+					if (parentUuid === undefined) return undefined;
+					const parentPath = after.forms[parentUuid]
 						? "" // parent is the form root
-						: (computePathForUuid(afterDoc, parentUuid) ?? "");
+						: (computePathForUuid(after, parentUuid) ?? "");
 					const newPath = (
-						parentPath ? `${parentPath}/${cloneEntity.id}` : cloneEntity.id
+						parentPath ? `${parentPath}/${clone.id}` : clone.id
 					) as FieldPath;
 
-					return { newPath, newUuid: newUuid as string };
+					return { newPath, newUuid: plan.cloneUuid as string };
 				},
 
 				convertField(uuid, toKind) {

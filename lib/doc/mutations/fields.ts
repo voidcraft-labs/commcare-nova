@@ -21,7 +21,6 @@ import {
 } from "@/lib/preview/xpath/rewrite";
 import {
 	cascadeDeleteField,
-	cloneFieldSubtree,
 	computeFieldPath,
 	dedupeSiblingId,
 	findContainingForm,
@@ -138,7 +137,6 @@ export interface FieldRenameMeta {
  *   - removeField: cascade delete subtree
  *   - moveField: cross-parent reorder + xpath rewrite + sibling dedup
  *   - renameField: id change + xpath rewrite of any referencing fields
- *   - duplicateField: deep clone with new UUIDs, dedupe sibling id
  */
 export function applyFieldMutation(
 	draft: Draft<BlueprintDoc>,
@@ -150,7 +148,6 @@ export function applyFieldMutation(
 				| "removeField"
 				| "moveField"
 				| "renameField"
-				| "duplicateField"
 				| "updateField"
 				| "convertField"
 				| "setFieldMedia"
@@ -630,83 +627,6 @@ export function applyFieldMutation(
 				cascadedAcrossForms,
 			} satisfies FieldRenameMeta;
 		}
-		case "duplicateField": {
-			const src = draft.fields[mut.uuid];
-			if (!src) return;
-			const parent = findFieldParent(
-				draft as unknown as BlueprintDoc,
-				mut.uuid,
-			);
-			if (!parent) return;
-
-			// Clone the subtree off the current draft state. `cloneFieldSubtree`
-			// returns undefined if the source or a descendant is missing — we
-			// already guarded on the source above, so undefined here means
-			// something is structurally wrong with the doc. Skip the duplicate
-			// rather than propagating a throw out of the reducer.
-			const cloned = cloneFieldSubtree(
-				draft as unknown as BlueprintDoc,
-				mut.uuid,
-			);
-			if (!cloned) return;
-			const { fields: clonedF, fieldOrder: clonedO, rootUuid } = cloned;
-
-			// Install all cloned entities into the draft.
-			for (const [uuid, f] of Object.entries(clonedF)) {
-				// Duplication is a generic builder gesture and stays
-				// carrier-blind until S09. A receiver-preserved lookup-backed
-				// select duplicates as its complete inline fallback rather than
-				// silently minting a second dormant carrier.
-				if (
-					(f.kind === "single_select" || f.kind === "multi_select") &&
-					f.optionsSource !== undefined
-				) {
-					delete f.optionsSource;
-				}
-				draft.fields[uuid as Uuid] = f;
-			}
-			for (const [parentUuid, order] of Object.entries(clonedO)) {
-				draft.fieldOrder[parentUuid as Uuid] = order;
-			}
-
-			// Dedupe the top-level clone's id against existing siblings at this
-			// parent level. Nested clones live under the new (cloned) parent and
-			// therefore can't conflict with the originals — no dedup needed there.
-			const clone = draft.fields[rootUuid];
-			if (clone) {
-				const deduped = dedupeSiblingId(
-					draft as unknown as BlueprintDoc,
-					parent.parentUuid,
-					clone.id,
-					rootUuid,
-				);
-				clone.id = deduped;
-			}
-
-			// Splice the clone into the parent's membership array (position
-			// arbitrary — sequence is the `order` key).
-			const parentOrder = draft.fieldOrder[parent.parentUuid];
-			if (parentOrder) {
-				parentOrder.splice(parent.index + 1, 0, rootUuid);
-				draft.fieldOrder[parent.parentUuid] = parentOrder;
-			}
-			// The clone already sits right after its source: the splice above put
-			// it at `parent.index + 1`. That used to be only half the job — the
-			// array said one thing and the copied sort key said another, so a
-			// fresh key had to be minted to break the tie it created. The array
-			// is the sequence now, so the splice IS the placement.
-			// Every cloned writer declares its (case type, property) pair —
-			// the deduped root clone introduces a NEW pair (suffixed id);
-			// descendant clones keep their source ids, so their sync is an
-			// idempotent re-assert. Read post-dedup state off the draft.
-			for (const uuid of Object.keys(clonedF)) {
-				const clonedField = draft.fields[uuid as Uuid];
-				if (clonedField) {
-					ensureCatalogProperty(draft as unknown as BlueprintDoc, clonedField);
-				}
-			}
-			return;
-		}
 		case "convertField": {
 			const field = draft.fields[mut.uuid];
 			if (!field) return;
@@ -906,7 +826,7 @@ interface RenameTracking {
  * declaration of that property, so every reducer arm that lands a
  * field with (or changes a field to have) a non-empty
  * `case_property_on` calls this — `addField`, `updateField`,
- * `convertField`, `duplicateField`, and `moveField`'s dedup-rename —
+ * `convertField`, and `moveField`'s dedup-rename —
  * mirroring the in-place entry rename `cascadeCasePropertyRename`
  * already performs. Reducer-side so server, client, and event-log
  * replay derive byte-identical catalogs from the same mutation.

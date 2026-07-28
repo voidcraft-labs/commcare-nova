@@ -15,10 +15,12 @@
  * (no data_type/label overwrite, no duplicates), removal never prunes,
  * and a move that doesn't rename adds nothing.
  */
+
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { validateBlueprintDeep } from "@/lib/commcare/validator";
-import { applyMutation } from "@/lib/doc/mutations";
+import { duplicateFieldMutations } from "@/lib/doc/duplicateFieldMutations";
+import { applyMutation, applyMutations } from "@/lib/doc/mutations";
 import type { BlueprintDoc, Mutation, Uuid } from "@/lib/doc/types";
 import { asUuid } from "@/lib/doc/types";
 import type { CaseProperty, Field, Form, Module } from "@/lib/domain";
@@ -302,7 +304,11 @@ describe("duplicateField catalog sync", () => {
 				d.fieldOrder[F("1")] = [Q("a")];
 			},
 		);
-		const next = apply(start, { kind: "duplicateField", uuid: Q("a") });
+		const plan = duplicateFieldMutations(start, Q("a"));
+		if (plan === undefined) throw new Error("fixture: expected a plan");
+		const next = produce(start, (d) => {
+			applyMutations(d, plan.mutations);
+		});
 		expect(catalogProps(next, "patient")).toEqual([
 			{ name: "age", label: "age", data_type: "int" },
 			{ name: "age_2", label: "age_2", data_type: "int" },

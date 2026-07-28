@@ -28,10 +28,12 @@
  * case-bound rename with a genuinely new id, and a cross-module form
  * move.
  */
+
 import * as fc from "fast-check";
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { duplicateFieldMutations } from "@/lib/doc/duplicateFieldMutations";
 import {
 	parseXPathForField,
 	parseXPathForForm,
@@ -549,7 +551,7 @@ function lower(doc: BlueprintDoc, op: FuzzOp): Mutation[] {
 		}
 		case "duplicateField": {
 			const uuid = pickField(doc, op.fieldPick);
-			return uuid ? [{ kind: "duplicateField", uuid }] : [];
+			return uuid ? (duplicateFieldMutations(doc, uuid)?.mutations ?? []) : [];
 		}
 		case "convertField": {
 			const uuid = pickField(doc, op.fieldPick);

@@ -23,11 +23,12 @@
  *
  * Pure — the candidate `nextDoc` is computed via Immer `produce` over
  * the same `applyMutations` reducer every committed batch runs through.
- * Accepting callers commit the candidate itself (the builder's
- * `commitDoc`, the MCP transactional write), so the doc the gate
- * validated IS the doc that lands — one reducer run, no
- * candidate-vs-committed divergence even for the one nondeterministic
- * reducer (`duplicateField`'s minted clone uuid).
+ * Accepting callers commit the candidate itself (the builder's `commitDoc`,
+ * the MCP transactional write), so the doc the gate validated IS the doc that
+ * lands, at one reducer run per dispatch. Every reducer is deterministic —
+ * mutations carry the identities they install rather than minting them on the
+ * way past — so re-running would reach the same document; committing the
+ * candidate is about doing the work once, not about avoiding a divergence.
  */
 
 import { produce } from "immer";
@@ -378,36 +379,6 @@ export function mutationCommitVerdict(
 		prepareMutationCandidate(prevDoc, mutations),
 		lookupContext,
 	);
-}
-
-/** A persisted mutation must carry every identity its reducer will install. */
-export type PersistenceSafeMutation = Exclude<
-	Mutation,
-	{ readonly kind: "duplicateField" }
->;
-
-/**
- * Reject reducer-minted identity mutations at persistence boundaries.
- *
- * `duplicateField` is intentionally a UI-only convenience event. The builder
- * applies it locally, then its doc diff persists explicit `addField` mutations
- * carrying the minted clone/subtree UUIDs. Replaying a raw `duplicateField`
- * in an authoritative transaction would mint a different candidate on every
- * retry and can never be an accepted-mutation wire contract. Any future
- * reducer convenience that mints identity must join this guard; persisted
- * mutations instead carry those identities in their payloads.
- */
-export function assertPersistenceSafeMutationIdentities(
-	mutations: readonly Mutation[],
-): asserts mutations is readonly PersistenceSafeMutation[] {
-	const reducerMinted = mutations.find(
-		(mutation) => mutation.kind === "duplicateField",
-	);
-	if (reducerMinted !== undefined) {
-		throw new Error(
-			"duplicateField is UI-only and cannot be persisted; persist explicit addField mutations carrying every minted UUID.",
-		);
-	}
 }
 
 /**

@@ -23,6 +23,7 @@
 
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { duplicateFieldMutations } from "@/lib/doc/duplicateFieldMutations";
 import type { BlueprintDocStoreApi } from "@/lib/doc/store";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { Mutation } from "@/lib/doc/types";
@@ -633,9 +634,9 @@ describe("after renameField / updateField (structural noop)", () => {
 	});
 });
 
-// ── duplicateField ────────────────────────────────────────────────────────────
+// ── duplicate ─────────────────────────────────────────────────────────────────
 
-describe("after duplicateField", () => {
+describe("after a planned duplicate", () => {
 	it("leaf field: new uuid appears in fieldParent pointing at same parent as source", () => {
 		const doc = buildDoc({
 			modules: [
@@ -656,7 +657,10 @@ describe("after duplicateField", () => {
 		});
 		const store = storeFrom(doc);
 		const formUuid = Object.keys(doc.forms)[0] as Uuid;
-		const result = applyBatch(store, [{ kind: "duplicateField", uuid: FLD_A }]);
+		const result = applyBatch(
+			store,
+			duplicateFieldMutations(doc, FLD_A)?.mutations ?? [],
+		);
 		assertFieldParentInvariants(result);
 		// The source must still point at the form.
 		expect(result.fieldParent[FLD_A]).toBe(formUuid);
@@ -697,7 +701,10 @@ describe("after duplicateField", () => {
 		});
 		const store = storeFrom(doc);
 		const formUuid = Object.keys(doc.forms)[0] as Uuid;
-		const result = applyBatch(store, [{ kind: "duplicateField", uuid: GRP }]);
+		const result = applyBatch(
+			store,
+			duplicateFieldMutations(doc, GRP)?.mutations ?? [],
+		);
 		assertFieldParentInvariants(result);
 
 		// Original group + 2 children are still intact.

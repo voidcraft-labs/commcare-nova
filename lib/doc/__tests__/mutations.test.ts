@@ -314,10 +314,6 @@ describe("mutationSchema round-trip", () => {
 			});
 		});
 
-		it("duplicateField", () => {
-			expectRoundTrip({ kind: "duplicateField", uuid: fieldUuid });
-		});
-
 		it("updateField", () => {
 			expectRoundTrip({
 				kind: "updateField",

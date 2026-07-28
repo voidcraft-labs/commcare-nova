@@ -290,37 +290,6 @@ describe("atomic creation", () => {
 		expect(await h.readAppRow(appId)).toBeUndefined();
 	});
 
-	it("rejects a reducer-minted seed identity as a typed error before opening the transaction", async () => {
-		let appId = "";
-		let seedCalls = 0;
-		await expect(
-			createApp(ACTOR, PROJECT_A, crypto.randomUUID(), {
-				appName: "Unsafe template",
-				status: "complete",
-				seedMutations(doc) {
-					appId = doc.appId;
-					seedCalls += 1;
-					const mutations = blankAppMutations(doc);
-					const addedField = mutations.find(
-						(mutation) => mutation.kind === "addField",
-					);
-					if (addedField?.kind !== "addField") {
-						throw new Error("blank template did not add a field");
-					}
-					return [
-						...mutations,
-						{ kind: "duplicateField", uuid: addedField.field.uuid },
-					];
-				},
-			}),
-		).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
-
-		expect(seedCalls).toBe(1);
-		expect(await h.readAppRow(appId)).toBeUndefined();
-	});
-});
-
-describe("guarded and synthetic writers", () => {
 	it("replaces stale edges exactly and persists deterministic synthetic mutations", async () => {
 		const table = await createTable(PROJECT_A, "Stale edge");
 		const appId = await createEmptyApp();

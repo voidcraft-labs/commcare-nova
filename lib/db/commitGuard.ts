@@ -333,7 +333,6 @@ export function batchTargetsMissing(
 				if (!fields.has(m.uuid) || !container(m.toParentUuid)) return true;
 				break;
 			case "renameField":
-			case "duplicateField":
 			case "updateField":
 			case "convertField":
 				if (!fields.has(m.uuid)) return true;
