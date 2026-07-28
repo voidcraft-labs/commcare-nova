@@ -461,7 +461,7 @@ describe("case-operation activation and identity", () => {
 					id: "update_each_row",
 					forEach: { repeat: REPEAT_A },
 				}),
-				update({ order: "b" }),
+				update(),
 			]),
 		).toContain("CASE_OPERATION_EXECUTION_ORDER");
 
@@ -477,7 +477,7 @@ describe("case-operation activation and identity", () => {
 		).toContain("CASE_OPERATION_EXECUTION_ORDER");
 
 		expectCode("CASE_OPERATION_EXECUTION_ORDER", [
-			update({ order: "a" }),
+			update(),
 			create({ target: { kind: "new", idFrom: TEXT } }),
 		]);
 
@@ -805,11 +805,11 @@ describe("case-operation target and dependency safety", () => {
 	it("requires op/id-of references to name an earlier create of the expected type", () => {
 		expectCode("CASE_OPERATION_REFERENCE_ORDER", [
 			update({ target: { kind: "op", opUuid: CREATE } }),
-			create({ order: "b" }),
+			create(),
 		]);
 		expectCode("CASE_OPERATION_REFERENCE_ORDER", [
 			update({ owner: idOf(CREATE) }),
-			create({ order: "b" }),
+			create(),
 		]);
 		expectCode("CASE_OPERATION_TARGET_TYPE_MISMATCH", [
 			create(),

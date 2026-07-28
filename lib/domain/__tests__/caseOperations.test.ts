@@ -85,25 +85,25 @@ describe("case-operation domain vocabulary", () => {
 		).toEqual({ kind: "unowned" });
 	});
 
-	it("orders by fractional key and then immutable UUID", () => {
+	it("reads the operations in the order the array holds them", () => {
 		const base = {
 			id: "op",
 			action: "update" as const,
 			caseType: "patient",
 			target: { kind: "session" as const },
 		};
-		const ordered = orderedCaseOperations({
-			caseOperations: [
-				{ ...base, uuid: B, order: "b" },
-				{ ...base, uuid: B, id: "second_a", order: "a" },
-				{ ...base, uuid: A, id: "first_a", order: "a" },
-			],
-		});
+		const stored = [
+			{ ...base, uuid: A, id: "first" },
+			{ ...base, uuid: B, id: "second" },
+		];
+		const ordered = orderedCaseOperations({ caseOperations: stored });
 		expect(ordered.map((operation) => operation.id)).toEqual([
-			"first_a",
-			"second_a",
-			"op",
+			"first",
+			"second",
 		]);
+		// A copy, so a caller sorting or splicing the result can't reach into
+		// the form it read from.
+		expect(ordered).not.toBe(stored);
 	});
 
 	it("includes operation writers in effective and materialized case schemas", () => {
