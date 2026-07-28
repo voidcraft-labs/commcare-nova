@@ -66,6 +66,8 @@ const TABLE_COLUMN_PREDICATE = {
 
 const EMPTY_CASE_LIST = {
 	columns: [],
+	listColumnOrder: [],
+	detailColumnOrder: [],
 	searchInputs: [],
 } as const;
 
@@ -183,8 +185,10 @@ const legacyCarrierPayloads: ReadonlyArray<readonly [string, unknown]> = [
 			kind: "addModule",
 			module: moduleWith({
 				caseListConfig: {
+					...EMPTY_CASE_LIST,
 					columns: [calculatedColumn(TABLE_LOOKUP_VALUE)],
-					searchInputs: [],
+					listColumnOrder: [COLUMN],
+					detailColumnOrder: [COLUMN],
 				},
 			}),
 		},
@@ -196,7 +200,7 @@ const legacyCarrierPayloads: ReadonlyArray<readonly [string, unknown]> = [
 			uuid: MODULE,
 			patch: {
 				caseListConfig: {
-					columns: [],
+					...EMPTY_CASE_LIST,
 					searchInputs: [advancedInput({ default: TABLE_LOOKUP_VALUE })],
 				},
 			},
@@ -375,6 +379,8 @@ const legacyCarrierPayloads: ReadonlyArray<readonly [string, unknown]> = [
 			kind: "addColumn",
 			moduleUuid: MODULE,
 			column: calculatedColumn(TABLE_LOOKUP_VALUE),
+			afterInList: null,
+			afterInDetail: null,
 		},
 	],
 	[
@@ -533,11 +539,12 @@ describe("rolling mutation lookup-carrier boundary", () => {
 			caseOperationChange: {
 				operation: "move",
 				uuid: OPERATION,
+				after: null,
 			},
 			caseOperationPatch: {
 				operation: "move",
 				uuid: OPERATION,
-				index: 0,
+				after: null,
 			},
 		};
 		const serialized = JSON.stringify(payload);
@@ -731,18 +738,6 @@ describe("rolling mutation lookup-carrier boundary", () => {
 						uuid: asUuid("a0000000-0000-4000-8000-000000000000"),
 					}),
 				},
-			},
-		],
-		[
-			"column surface-order membership",
-			{
-				kind: "addModule",
-				module: moduleWith({ caseListConfig: EMPTY_CASE_LIST }),
-				columnSurfaceOrders: [
-					{
-						uuid: COLUMN,
-					},
-				],
 			},
 		],
 	])(
