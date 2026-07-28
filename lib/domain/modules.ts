@@ -155,8 +155,6 @@ const columnCommonSlots = z
 		sort: columnSortSchema.optional(),
 		visibleInList: z.boolean().optional(),
 		visibleInDetail: z.boolean().optional(),
-		listOrder: z.string().optional(),
-		detailOrder: z.string().optional(),
 	})
 	.strict();
 
@@ -451,7 +449,6 @@ export function tileHasBoxedCells(cells: readonly TileCell[]): boolean {
 const columnBase = z
 	.object({
 		uuid: uuidSchema,
-		order: z.string().optional(),
 		tile: tileCellSchema.optional(),
 	})
 	.extend(columnCommonSlots.shape)
@@ -986,11 +983,6 @@ export type SearchInputMode = z.infer<typeof searchInputModeSchema>;
 const searchInputCommon = z
 	.object({
 		uuid: uuidSchema,
-		// Absolute fractional sort key (`lib/doc/order`): search-input
-		// sequence is `sort-by-(order, uuid)`, not `searchInputs` array
-		// position. Optional (legacy inputs predate it, backfilled at
-		// hydration); never reaches CommCare.
-		order: z.string().optional(),
 		name: z
 			.string()
 			.regex(
@@ -1540,7 +1532,23 @@ export type CaseTileLayout = z.infer<typeof caseTileLayoutSchema>;
 
 export const caseListConfigSchema = z
 	.object({
+		/**
+		 * The columns themselves — a SET, keyed by uuid. Its array position
+		 * carries no meaning, because Results and Details are two independent
+		 * sequences over these same columns and one array cannot hold both.
+		 */
 		columns: z.array(columnSchema),
+		/**
+		 * The Results sequence, and the Details sequence — each a complete
+		 * permutation of `columns` by uuid.
+		 *
+		 * Every column appears in BOTH exactly once regardless of visibility, so
+		 * hiding a column and showing it again restores its place rather than
+		 * appending it. This is the one collection whose sequence cannot be the
+		 * membership array, which is why it gets two arrays of its own instead.
+		 */
+		listColumnOrder: z.array(uuidSchema),
+		detailColumnOrder: z.array(uuidSchema),
 		filter: predicateSchema.optional(),
 		searchInputs: z.array(searchInputDefSchema),
 		/**
@@ -1747,11 +1755,6 @@ export const moduleSchema = z
 		uuid: uuidSchema,
 		id: z.string(), // semantic id (snake_case display slug)
 		name: z.string(),
-		// Absolute fractional sort key (`lib/doc/order`): module sequence is
-		// `sort-by-(order, uuid)`, not `moduleOrder` array position. Optional
-		// (legacy modules predate it, backfilled at hydration); never reaches
-		// CommCare.
-		order: z.string().optional(),
 		caseType: z.string().optional(),
 		caseListOnly: z.boolean().optional(),
 		purpose: z.string().optional(),

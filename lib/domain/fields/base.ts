@@ -73,7 +73,6 @@ export const structuralFieldBase = z
 	.object({
 		uuid: uuidSchema,
 		id: z.string(),
-		order: z.string().optional(),
 	})
 	.strict();
 
@@ -178,7 +177,6 @@ export const selectOptionSchema = z
 		label: z.string(),
 		media: mediaSchema.optional(),
 		uuid: uuidSchema.optional(),
-		order: z.string().optional(),
 	})
 	.strict();
 
