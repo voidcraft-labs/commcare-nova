@@ -1,7 +1,6 @@
 import type { Draft } from "immer";
 import type { FieldPath } from "@/lib/doc/fieldPath";
-import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
-import { keysForSlot } from "@/lib/doc/order/keys";
+import { spliceAfter } from "@/lib/doc/mutations/sequence";
 import { declarersOf, referencingCarrierUuids } from "@/lib/doc/referenceIndex";
 import type { BlueprintDoc, Mutation, Uuid } from "@/lib/doc/types";
 import {
@@ -325,21 +324,22 @@ export function applyFieldMutation(
 		case "moveField": {
 			const field = draft.fields[mut.uuid];
 			if (!field) return;
-			// New emission carrying an `order` key. A SAME-parent reorder is the
-			// hot path: it touches only the sort key, never membership, so it
-			// skips the destination / subtree / same-form guards (the field is
-			// already in a valid position) and the reference rewrites (the path
-			// is unchanged). A cross-parent move falls through to the full
-			// machinery below and sets `order` at the insertion step.
-			if (mut.order !== undefined) {
-				const currentParent = findFieldParent(
-					draft as unknown as BlueprintDoc,
+			// A SAME-parent reorder is the hot path: it splices one membership
+			// array and nothing else, so it skips the destination / subtree /
+			// same-form guards (the field is already in a valid position) and the
+			// reference rewrites (its path is unchanged). A cross-parent move
+			// falls through to the full machinery below.
+			const currentParent = findFieldParent(
+				draft as unknown as BlueprintDoc,
+				mut.uuid,
+			);
+			if (currentParent?.parentUuid === mut.toParentUuid) {
+				draft.fieldOrder[mut.toParentUuid] = spliceAfter(
+					draft.fieldOrder[mut.toParentUuid] ?? [],
 					mut.uuid,
+					mut.after,
 				);
-				if (currentParent?.parentUuid === mut.toParentUuid) {
-					field.order = mut.order;
-					return {} satisfies MoveFieldResult;
-				}
+				return {} satisfies MoveFieldResult;
 			}
 			// Destination parent must exist as either a form or a group/repeat.
 			const destIsForm = draft.forms[mut.toParentUuid] !== undefined;
@@ -471,21 +471,14 @@ export function applyFieldMutation(
 				ensureCatalogProperty(draft as unknown as BlueprintDoc, field);
 			}
 
-			// Insert at destination. A new emission carries the fractional
-			// `order` (membership position is arbitrary — append + stamp the
-			// sort key); a legacy event places by `toIndex`.
-			const destOrder = draft.fieldOrder[mut.toParentUuid] ?? [];
-			if (mut.order !== undefined) {
-				field.order = mut.order;
-				destOrder.push(mut.uuid);
-			} else {
-				const clamped = Math.max(
-					0,
-					Math.min(mut.toIndex ?? destOrder.length, destOrder.length),
-				);
-				destOrder.splice(clamped, 0, mut.uuid);
-			}
-			draft.fieldOrder[mut.toParentUuid] = destOrder;
+			// Land in the destination sequence at the named placement. `after`
+			// names a sibling in the DESTINATION, so a cross-parent move needs no
+			// separate index arm — it is the same splice as a same-parent one.
+			draft.fieldOrder[mut.toParentUuid] = spliceAfter(
+				draft.fieldOrder[mut.toParentUuid] ?? [],
+				mut.uuid,
+				mut.after,
+			);
 
 			// Rewrite absolute-path / hashtag references that now point at a
 			// stale path. Covers cross-level moves (where the prefix changes —
@@ -695,38 +688,11 @@ export function applyFieldMutation(
 				parentOrder.splice(parent.index + 1, 0, rootUuid);
 				draft.fieldOrder[parent.parentUuid] = parentOrder;
 			}
-			// The root clone must sort RIGHT AFTER the source. `cloneFieldSubtree`
-			// copied the source's `order` onto it (a collision that would
-			// tie-break arbitrarily on uuid), so assign a fresh key between the
-			// source and its next DISPLAY-order sibling. (Descendant clones keep
-			// their copied keys — they live under the new clone root, a distinct
-			// subtree, so they can't collide with the originals.)
-			if (clone) {
-				const siblings = orderedFieldUuids(
-					draft as unknown as BlueprintDoc,
-					parent.parentUuid,
-				).filter((u) => u !== rootUuid);
-				// Slot the clone right AFTER the source in display order. The slot
-				// index must be computed over the SAME keyed-only list `keysForSlot`
-				// receives — indexing a full-list position into the filtered list
-				// would mis-slot the clone whenever a keyless (un-backfilled)
-				// sibling precedes the source. Walk display order once, keeping the
-				// keyed keys and the count of keyed siblings up to and including the
-				// source. `keysForSlot` widens past a tied run at the source so a
-				// copied-order collision doesn't yield a degenerate interval.
-				const siblingKeys: string[] = [];
-				let slotIndex = -1;
-				for (const u of siblings) {
-					const order = draft.fields[u]?.order;
-					if (order !== undefined) siblingKeys.push(order);
-					if (u === mut.uuid) slotIndex = siblingKeys.length;
-				}
-				clone.order = keysForSlot(
-					siblingKeys,
-					slotIndex === -1 ? siblingKeys.length : slotIndex,
-					1,
-				)[0];
-			}
+			// The clone already sits right after its source: the splice above put
+			// it at `parent.index + 1`. That used to be only half the job — the
+			// array said one thing and the copied sort key said another, so a
+			// fresh key had to be minted to break the tie it created. The array
+			// is the sequence now, so the splice IS the placement.
 			// Every cloned writer declares its (case type, property) pair —
 			// the deduped root clone introduces a NEW pair (suffixed id);
 			// descendant clones keep their source ids, so their sync is an
@@ -871,12 +837,10 @@ function applyOptionMutation(
 		case "updateOption": {
 			const idx = options.findIndex((o) => o.uuid === mut.uuid);
 			if (idx === -1) return;
-			const order = options[idx].order;
-			options[idx] = {
-				...mut.option,
-				uuid: mut.uuid,
-				...(order !== undefined && { order }),
-			};
+			// Replace content in place. The option keeps its position because
+			// position is the index it already occupies, so there is nothing to
+			// carry across — a content edit cannot clobber a concurrent move.
+			options[idx] = { ...mut.option, uuid: mut.uuid };
 			return;
 		}
 		case "removeOption": {
