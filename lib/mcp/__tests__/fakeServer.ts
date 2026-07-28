@@ -9,11 +9,8 @@
  *
  * The fake stubs two SDK surfaces:
  *   - `registerTool(name, config, cb)` — the registration entry point
- *     every tool module calls. Both the callback and the `config` are
- *     captured: most tests only drive the handler, but a tool whose
- *     `config` carries wire-visible declarations (`_meta`, published at
- *     `tools/list`) needs `captureConfig()` to assert on them, since
- *     that half of the registration never reaches the handler.
+ *     every tool module calls. Only the callback is captured; the
+ *     `config` argument is ignored since tests never assert on it.
  *   - `server.notification` — the low-level notification sink the
  *     progress emitter dispatches on. Exposed as `notificationSpy` so
  *     tests that opt into progress inspection can query it directly.
@@ -44,15 +41,12 @@ export type CapturedToolHandler = (
 /**
  * Return shape of `makeFakeServer`. Consumers destructure `server` into
  * the tool's registration call and pull `capture()` to retrieve the
- * handler for direct invocation. `captureConfig()` returns the config
- * object the tool registered alongside it, for assertions on the
- * declaration half of registration. `notificationSpy` is exposed for the
+ * handler for direct invocation. `notificationSpy` is exposed for the
  * small number of tests that assert on progress-emitter dispatches.
  */
 export interface FakeServer {
 	server: McpServer;
 	capture(): CapturedToolHandler;
-	captureConfig(): Record<string, unknown>;
 	notificationSpy: ReturnType<typeof vi.fn>;
 }
 
@@ -65,25 +59,13 @@ export interface FakeServer {
  */
 export function makeFakeServer(): FakeServer {
 	let captured: CapturedToolHandler | null = null;
-	let capturedConfig: Record<string, unknown> | null = null;
 	const notificationSpy = vi.fn();
 	const register = (
 		_name: string,
-		configOrSchema: unknown,
+		_configOrSchema: unknown,
 		cb: CapturedToolHandler,
 	): void => {
 		captured = cb;
-		/* Tools registered through the deprecated positional overloads
-		 * pass a raw Zod shape here rather than a config object. Those
-		 * carry no `_meta`, so recording `null` for them keeps
-		 * `captureConfig()` honest instead of handing back a shape that
-		 * would silently answer `undefined` to every assertion. */
-		capturedConfig =
-			configOrSchema !== null &&
-			typeof configOrSchema === "object" &&
-			"description" in configOrSchema
-				? (configOrSchema as Record<string, unknown>)
-				: null;
 	};
 	const server = {
 		/* Primary registration entry point every tool module calls. */
@@ -96,13 +78,6 @@ export function makeFakeServer(): FakeServer {
 		capture: () => {
 			if (!captured) throw new Error("handler not captured");
 			return captured;
-		},
-		captureConfig: () => {
-			if (!capturedConfig)
-				throw new Error(
-					"no registration config captured — the tool either has not registered yet, or registered through a positional overload that carries no config object",
-				);
-			return capturedConfig;
 		},
 		notificationSpy,
 	};
