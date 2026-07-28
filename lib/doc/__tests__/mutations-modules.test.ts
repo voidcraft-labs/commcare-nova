@@ -4,6 +4,7 @@ import { applyMutation } from "@/lib/doc/mutations";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
 import { asUuid } from "@/lib/doc/types";
 import type { Field, Form, Module } from "@/lib/domain";
+import { emptyCaseListConfig } from "@/lib/domain";
 
 const M = (s: string) => asUuid(`mod${s}-0000-0000-0000-000000000000`);
 const F = (s: string) => asUuid(`frm${s}-0000-0000-0000-000000000000`);
@@ -225,14 +226,11 @@ describe("updateModule.ensureCaseListConfig", () => {
 			applyMutation(d, {
 				kind: "updateModule",
 				uuid: M("A"),
-				patch: { caseListConfig: { columns: [], searchInputs: [] } },
+				patch: { caseListConfig: emptyCaseListConfig() },
 				ensureCaseListConfig: true,
 			});
 		});
-		expect(next.modules[M("A")]?.caseListConfig).toEqual({
-			columns: [],
-			searchInputs: [],
-		});
+		expect(next.modules[M("A")]?.caseListConfig).toEqual(emptyCaseListConfig());
 	});
 
 	it("is idempotent and preserves a peer-populated config", () => {
@@ -245,6 +243,8 @@ describe("updateModule.ensureCaseListConfig", () => {
 					header: "Name",
 				},
 			],
+			listColumnOrder: [Q("col")],
+			detailColumnOrder: [Q("col")],
 			searchInputs: [],
 			filter: { kind: "match-all" as const },
 		};
@@ -260,7 +260,7 @@ describe("updateModule.ensureCaseListConfig", () => {
 			applyMutation(d, {
 				kind: "updateModule",
 				uuid: M("A"),
-				patch: { caseListConfig: { columns: [], searchInputs: [] } },
+				patch: { caseListConfig: emptyCaseListConfig() },
 				ensureCaseListConfig: true,
 			});
 		});

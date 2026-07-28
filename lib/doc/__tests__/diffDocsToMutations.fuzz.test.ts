@@ -51,12 +51,6 @@ import {
 } from "@/lib/doc/fieldWalk";
 import { applyMutations } from "@/lib/doc/mutations";
 import { findContainingForm } from "@/lib/doc/mutations/helpers";
-import {
-	backfillOptionUuids,
-	backfillOrderKeys,
-} from "@/lib/doc/order/backfill";
-import { bySortKey } from "@/lib/doc/order/compare";
-import { keyBetween } from "@/lib/doc/order/keys";
 import { type Mutation, mutationSchema } from "@/lib/doc/types";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { eq, literal, prop } from "@/lib/domain/predicate";

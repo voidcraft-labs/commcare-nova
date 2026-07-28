@@ -17,7 +17,12 @@ import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { batchTargetsMissing } from "@/lib/db/commitGuard";
 import type { Mutation } from "@/lib/doc/types";
-import { asUuid, type BlueprintDoc, type CaseOperation } from "@/lib/domain";
+import {
+	asUuid,
+	type BlueprintDoc,
+	type CaseOperation,
+	emptyCaseListConfig,
+} from "@/lib/domain";
 
 const OPERATION = asUuid("11111111-1111-4111-8111-111111111111");
 const OTHER_OPERATION = asUuid("22222222-2222-4222-8222-222222222222");
@@ -112,7 +117,6 @@ function fixture(): {
 		{
 			uuid: OPERATION,
 			id: "create_patient",
-			order: "a",
 			action: "create",
 			caseType: "patient",
 			target: { kind: "new" },
@@ -193,7 +197,7 @@ describe("batchTargetsMissing — entity kinds", () => {
 				{
 					kind: "updateModule",
 					uuid: MISSING,
-					patch: { caseListConfig: { columns: [], searchInputs: [] } },
+					patch: { caseListConfig: emptyCaseListConfig() },
 					ensureCaseListConfig: true,
 				} as unknown as Mutation,
 			]),
@@ -297,20 +301,17 @@ describe("batchTargetsMissing — granular collection kinds (item uuid)", () => 
 				kind: "moveColumn",
 				moduleUuid,
 				uuid: columnUuid,
-				order: "a1",
 			} as Mutation,
 			{
 				kind: "moveColumn",
 				moduleUuid,
 				uuid: columnUuid,
-				order: "a2",
 				surfaceOrderPatch: { surface: "list", order: "a2" },
 			} as Mutation,
 			{
 				kind: "moveColumn",
 				moduleUuid,
 				uuid: columnUuid,
-				order: "a3",
 				surfaceOrderPatch: { surface: "detail", order: "a3" },
 			} as Mutation,
 			{
@@ -330,7 +331,6 @@ describe("batchTargetsMissing — granular collection kinds (item uuid)", () => 
 				kind: "moveOption",
 				fieldUuid: selectUuid,
 				uuid: optionUuid,
-				order: "a1",
 			} as Mutation,
 		];
 		expect(batchTargetsMissing(doc, live)).toBe(false);
@@ -366,7 +366,6 @@ describe("batchTargetsMissing — granular collection kinds (item uuid)", () => 
 					kind: "moveColumn",
 					moduleUuid,
 					uuid: MISSING,
-					order: "a1",
 					surfaceOrderPatch: { surface: "list", order: "a1" },
 				} as Mutation,
 			]),
@@ -377,7 +376,6 @@ describe("batchTargetsMissing — granular collection kinds (item uuid)", () => 
 					kind: "moveColumn",
 					moduleUuid,
 					uuid: MISSING,
-					order: "a1",
 					surfaceOrderPatch: { surface: "detail", order: "a1" },
 				} as Mutation,
 			]),
@@ -397,7 +395,6 @@ describe("batchTargetsMissing — granular collection kinds (item uuid)", () => 
 					kind: "moveOption",
 					fieldUuid: selectUuid,
 					uuid: MISSING,
-					order: "a1",
 				} as Mutation,
 			]),
 		).toBe(true);
@@ -510,7 +507,7 @@ describe("batchTargetsMissing — granular collection kinds (item uuid)", () => 
 				{
 					kind: "updateModule",
 					uuid: moduleUuid,
-					patch: { caseListConfig: { columns: [], searchInputs: [] } },
+					patch: { caseListConfig: emptyCaseListConfig() },
 					ensureCaseListConfig: true,
 				} as unknown as Mutation,
 				{
@@ -561,7 +558,6 @@ describe("batchTargetsMissing — granular collection kinds (item uuid)", () => 
 				kind: "moveColumn",
 				moduleUuid,
 				uuid: newColUuid,
-				order: "a1",
 			} as Mutation,
 			{
 				kind: "addOption",
@@ -750,7 +746,6 @@ describe("batchTargetsMissing — case-operation logical identities", () => {
 			...first,
 			uuid: OTHER_OPERATION,
 			id: "second",
-			order: "c",
 		};
 		doc.forms[formUuid].caseOperations = [first, second];
 		const move: Mutation = {
@@ -760,12 +755,10 @@ describe("batchTargetsMissing — case-operation logical identities", () => {
 			caseOperationChange: {
 				operation: "move",
 				uuid: OPERATION,
-				order: "d",
 			},
 			caseOperationPatch: {
 				operation: "move",
 				uuid: OPERATION,
-				order: "d",
 				index: 1,
 			},
 		};
@@ -777,7 +770,6 @@ describe("batchTargetsMissing — case-operation logical identities", () => {
 			...first,
 			uuid: asUuid("33333333-3333-4333-8333-333333333333"),
 			id: "peer",
-			order: "b",
 		});
 		expect(batchTargetsMissing(fresh, [move])).toBe(true);
 	});
@@ -789,13 +781,11 @@ describe("batchTargetsMissing — case-operation logical identities", () => {
 			...first,
 			uuid: OTHER_OPERATION,
 			id: "second",
-			order: "b",
 		};
 		const third: CaseOperation = {
 			...first,
 			uuid: asUuid("33333333-3333-4333-8333-333333333333"),
 			id: "third",
-			order: "c",
 		};
 		doc.forms[formUuid].caseOperations = [first, second, third];
 		const move = (
@@ -825,7 +815,6 @@ describe("batchTargetsMissing — case-operation logical identities", () => {
 			...first,
 			uuid: asUuid("44444444-4444-4444-8444-444444444444"),
 			id: "same_batch_birth",
-			order: "b",
 		};
 		expect(
 			batchTargetsMissing(doc, [

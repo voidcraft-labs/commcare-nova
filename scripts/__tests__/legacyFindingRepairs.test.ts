@@ -627,11 +627,9 @@ describe("case-list repairs", () => {
 			columns: [
 				plainColumn(asUuid("col-a"), "case_name", "Name", {
 					sort: { direction: "asc", priority: 1 },
-					listOrder: "b",
 				}),
 				plainColumn(asUuid("col-b"), "village", "Village", {
 					sort: { direction: "desc", priority: 1 },
-					listOrder: "a",
 				}),
 			],
 			searchInputs: [],

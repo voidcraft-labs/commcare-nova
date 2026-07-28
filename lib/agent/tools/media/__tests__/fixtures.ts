@@ -13,10 +13,6 @@
 
 import { xp } from "@/lib/__tests__/docHelpers";
 import {
-	backfillOptionUuids,
-	backfillOrderKeys,
-} from "@/lib/doc/order/backfill";
-import {
 	asUuid,
 	type BlueprintDoc,
 	type Field,

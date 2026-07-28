@@ -114,7 +114,6 @@ describe("turning the tile on", () => {
 		const { doc, moduleUuid } = docWithColumns([
 			column("case_name", "Patient name", { listOrder: "a" }),
 			column("age", "Age", {
-				listOrder: "b",
 				visibleInList: false,
 				sort: { direction: "asc", priority: 1 },
 			}),
@@ -159,7 +158,6 @@ describe("joining Results while it is a tile", () => {
 	function tiledDoc() {
 		const { doc, moduleUuid } = docWithColumns([
 			column("case_name", "Patient name", {
-				listOrder: "a",
 				tile: { x: 0, y: 0, width: 12, height: 1 },
 			}),
 		]);
@@ -195,16 +193,13 @@ describe("joining Results while it is a tile", () => {
 		// a cell the tile no longer draws.
 		const { doc, moduleUuid } = docWithColumns([
 			column("case_name", "Patient name", {
-				listOrder: "a",
 				tile: { x: 0, y: 0, width: 12, height: 1 },
 			}),
 			column("age", "Age", {
-				listOrder: "b",
 				visibleInList: false,
 				tile: { x: 0, y: 1, width: 12, height: 1 },
 			}),
 			column("village", "Village", {
-				listOrder: "c",
 				tile: { x: 0, y: 1, width: 12, height: 1 },
 			}),
 		]);
@@ -308,11 +303,9 @@ describe("turning the tile off", () => {
 	it("lets the same drawing come straight back on", () => {
 		const { doc, moduleUuid } = docWithColumns([
 			column("case_name", "Patient name", {
-				listOrder: "a",
 				tile: { x: 0, y: 0, width: 6, height: 2 },
 			}),
 			column("village", "Village", {
-				listOrder: "b",
 				tile: { x: 6, y: 0, width: 6, height: 1 },
 			}),
 		]);

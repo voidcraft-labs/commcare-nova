@@ -23,7 +23,6 @@ import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import { projectCaseListForHq } from "@/lib/commcare/hqJson/caseList";
-import { byListColumnOrder } from "@/lib/doc/order/compare";
 import type { BlueprintDoc } from "@/lib/domain";
 import { tileCell } from "@/lib/domain";
 import { projectTileGrid } from "@/lib/preview/caseTileLayout";

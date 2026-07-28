@@ -37,6 +37,8 @@ describe("case-list validator — cross-rule integration", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [asUuid("col-name")],
+						detailColumnOrder: [asUuid("col-name")],
 						searchInputs: [
 							simpleSearchInputDef(
 								asUuid("si-name-range"),
@@ -189,6 +191,8 @@ describe("case-list validator — cross-rule integration", () => {
 								sort: { direction: "asc", priority: 0 },
 							}),
 						],
+						listColumnOrder: [asUuid("col-name")],
+						detailColumnOrder: [asUuid("col-name")],
 						searchInputs: [
 							simpleSearchInputDef(
 								asUuid("si-name-search"),
@@ -310,6 +314,8 @@ describe("case-list validator — cross-rule integration", () => {
 								...dormant,
 							},
 						],
+						listColumnOrder: [asUuid("col-name")],
+						detailColumnOrder: [asUuid("col-name")],
 						searchInputs: [],
 					},
 					forms: [

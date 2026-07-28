@@ -39,6 +39,8 @@ describe("collectConfigLookupTableIds", () => {
 					order: 1,
 				},
 			],
+			listColumnOrder: ["018f0000-0000-7000-8000-00000000d001"],
+			detailColumnOrder: ["018f0000-0000-7000-8000-00000000d001"],
 			filter: eq(lookupOf(TABLE_A), literal("v")),
 			searchInputs: [
 				{

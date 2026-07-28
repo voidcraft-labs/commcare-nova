@@ -13,7 +13,6 @@
 
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { backfillOrderKeys } from "@/lib/doc/order/backfill";
 import { buildReferenceIndex } from "@/lib/doc/referenceIndex";
 import { asUuid } from "@/lib/doc/types";
 import type { BlueprintDoc, FieldKind, Form } from "@/lib/domain";

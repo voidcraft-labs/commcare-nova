@@ -20,21 +20,16 @@ function independentlyArrangedFixture() {
 					...fixture.doc.modules[MOD_A],
 					caseListConfig: {
 						columns: [
-							plainColumn(A, "case_name", "Patient", {
-								listOrder: "z",
-								detailOrder: "a",
-							}),
+							plainColumn(A, "case_name", "Patient", {}),
 							plainColumn(B, "phone", "Phone", {
-								listOrder: "a",
-								detailOrder: "z",
 								visibleInDetail: false,
 							}),
 							plainColumn(C, "dob", "Date of birth", {
-								listOrder: "b",
-								detailOrder: "b",
 								visibleInList: false,
 							}),
 						],
+						listColumnOrder: [A],
+						detailColumnOrder: [A],
 						searchInputs: [],
 					},
 				},
@@ -84,17 +79,15 @@ describe("case-list read projections", () => {
 							searchInputs: [],
 							columns: [
 								plainColumn(A, "case_name", "Patient", {
-									listOrder: "z",
-									detailOrder: "a",
 									tile: tileCell(0, 0, 12, 1, { fontSize: "large" }),
 								}),
 								plainColumn(B, "phone", "Phone", {
-									listOrder: "a",
-									detailOrder: "z",
 									visibleInDetail: false,
 									tile: tileCell(0, 1, 6, 2),
 								}),
 							],
+							listColumnOrder: [A],
+							detailColumnOrder: [A],
 							tile: { persistOnForms: true as const },
 						},
 					},
@@ -162,6 +155,8 @@ describe("case-list read projections", () => {
 								tile: tileCell(4, 0, 8, 2),
 							}),
 						],
+						listColumnOrder: [A],
+						detailColumnOrder: [A],
 						...(tile === undefined ? {} : { tile }),
 					},
 				},

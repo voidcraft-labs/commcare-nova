@@ -116,7 +116,6 @@ function repeatScopedOperationDoc(opts: { readsVisitNote?: boolean } = {}) {
 					{
 						uuid: OPERATION_UUID,
 						id: "log_visit",
-						order: "a",
 						action: "create",
 						caseType: "visit",
 						target: { kind: "new" },

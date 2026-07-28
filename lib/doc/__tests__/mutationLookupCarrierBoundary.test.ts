@@ -497,7 +497,6 @@ describe("rolling mutation lookup-carrier boundary", () => {
 
 	it("moves a carrier-bearing case operation through the rolling envelope without serializing its hidden AST", () => {
 		const operation = operationWith({
-			order: "a",
 			condition: TABLE_COLUMN_PREDICATE,
 		}) as unknown as CaseOperation;
 		const doc: BlueprintDoc = {
@@ -534,12 +533,10 @@ describe("rolling mutation lookup-carrier boundary", () => {
 			caseOperationChange: {
 				operation: "move",
 				uuid: OPERATION,
-				order: "z",
 			},
 			caseOperationPatch: {
 				operation: "move",
 				uuid: OPERATION,
-				order: "z",
 				index: 0,
 			},
 		};
@@ -554,7 +551,6 @@ describe("rolling mutation lookup-carrier boundary", () => {
 			});
 			expect(replayed.forms[FORM].caseOperations?.[0]).toMatchObject({
 				uuid: OPERATION,
-				order: "z",
 				condition: TABLE_COLUMN_PREDICATE,
 			});
 		}
@@ -745,7 +741,6 @@ describe("rolling mutation lookup-carrier boundary", () => {
 				columnSurfaceOrders: [
 					{
 						uuid: COLUMN,
-						listOrder: "a0",
 					},
 				],
 			},

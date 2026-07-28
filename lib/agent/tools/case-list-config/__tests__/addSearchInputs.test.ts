@@ -19,6 +19,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	asUuid,
 	type BlueprintDoc,
+	emptyCaseListConfig,
 	type Module,
 	plainColumn,
 } from "@/lib/domain";
@@ -224,7 +225,7 @@ describe("addSearchInputs", () => {
 			modules: {
 				[MOD_A]: {
 					...baseDoc.modules[MOD_A],
-					caseListConfig: { columns: [], searchInputs: [] },
+					caseListConfig: emptyCaseListConfig(),
 					caseSearchConfig: {
 						searchActionEnabled: false,
 						excludedOwnerIds: owner,

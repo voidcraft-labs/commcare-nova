@@ -10,7 +10,12 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { asUuid, type BlueprintDoc, simpleSearchInputDef } from "@/lib/domain";
+import {
+	asUuid,
+	type BlueprintDoc,
+	emptyCaseListConfig,
+	simpleSearchInputDef,
+} from "@/lib/domain";
 import { removeSearchInputTool } from "../removeSearchInput";
 import { MOD_A, makeCaseListFixture } from "./fixtures";
 
@@ -104,10 +109,7 @@ describe("removeSearchInput", () => {
 					...doc.modules[MOD_A],
 					caseSearchConfig: {},
 					caseListConfig: {
-						...(doc.modules[MOD_A].caseListConfig ?? {
-							columns: [],
-							searchInputs: [],
-						}),
+						...(doc.modules[MOD_A].caseListConfig ?? emptyCaseListConfig()),
 						searchInputs: [onlyInput],
 					},
 				},
@@ -142,10 +144,7 @@ describe("removeSearchInput", () => {
 					...doc.modules[MOD_A],
 					caseSearchConfig: { searchScreenTitle: "Find a patient" },
 					caseListConfig: {
-						...(doc.modules[MOD_A].caseListConfig ?? {
-							columns: [],
-							searchInputs: [],
-						}),
+						...(doc.modules[MOD_A].caseListConfig ?? emptyCaseListConfig()),
 						searchInputs: [onlyInput],
 					},
 				},

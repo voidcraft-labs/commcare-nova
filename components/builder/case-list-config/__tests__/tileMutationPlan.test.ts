@@ -79,7 +79,6 @@ describe("planTileLayoutEnable", () => {
 			moduleUuid: MODULE,
 			columns: [
 				column("name", "Patient name", {
-					listOrder: "a",
 					tile: tileCell(0, 3, 6, 2, { fontSize: "large" }),
 				}),
 				column("village", "Village", { listOrder: "b" }),
@@ -100,7 +99,6 @@ describe("planTileLayoutEnable", () => {
 			columns: [
 				column("name", "Patient name", { listOrder: "a" }),
 				column("registered", "Registered on", {
-					listOrder: "b",
 					visibleInList: false,
 					sort: { direction: "asc", priority: 1 },
 				}),
@@ -150,7 +148,6 @@ describe("planTileLayoutEnable", () => {
 			moduleUuid: MODULE,
 			columns: [
 				column("name", "Patient name", {
-					listOrder: "a",
 					tile: tileCell(0, 0, 12, 12),
 				}),
 				column("village", "Village", { listOrder: "b" }),
@@ -214,7 +211,6 @@ describe("planTilePreset", () => {
 			moduleUuid: MODULE,
 			columns: [
 				column("name", "Patient name", {
-					listOrder: "a",
 					tile: tileCell(0, 4, 3, 1, {
 						fontSize: "large",
 						horizontalAlign: "center",
@@ -283,7 +279,6 @@ describe("planTilePlaceField", () => {
 			moduleUuid: MODULE,
 			columns: [
 				column("name", "Patient name", {
-					listOrder: "a",
 					tile: tileCell(0, 0, 12, 1),
 				}),
 				column("village", "Village", { listOrder: "b" }),
@@ -302,7 +297,6 @@ describe("planTilePlaceField", () => {
 			moduleUuid: MODULE,
 			columns: [
 				column("name", "Patient name", {
-					listOrder: "a",
 					tile: tileCell(0, 0, 12, 12),
 				}),
 				column("village", "Village", { listOrder: "b" }),
@@ -330,7 +324,6 @@ describe("tileCellMutations", () => {
 
 	it("clears a placement with an explicit null so the clear survives JSON", () => {
 		const source = column("name", "Patient name", {
-			listOrder: "a",
 			tile: tileCell(0, 0, 6, 1),
 		});
 		const [mutation] = tileCellMutations(MODULE, source, undefined);
@@ -339,7 +332,6 @@ describe("tileCellMutations", () => {
 
 	it("plans nothing when the placement is unchanged", () => {
 		const source = column("name", "Patient name", {
-			listOrder: "a",
 			tile: tileCell(0, 0, 6, 1),
 		});
 		expect(tileCellMutations(MODULE, source, tileCell(0, 0, 6, 1))).toEqual([]);

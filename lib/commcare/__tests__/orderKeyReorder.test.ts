@@ -16,12 +16,6 @@ import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { HqApplication, HqFormLink } from "@/lib/commcare";
 import { expandDoc } from "@/lib/commcare/expander";
 import { applyMutations } from "@/lib/doc/mutations";
-import {
-	backfillOptionUuids,
-	backfillOrderKeys,
-} from "@/lib/doc/order/backfill";
-import { bySortKey } from "@/lib/doc/order/compare";
-import { keyBetween } from "@/lib/doc/order/keys";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, FormLink, Uuid } from "@/lib/domain";
 import { asUuid, plainColumn } from "@/lib/domain";
@@ -176,6 +170,8 @@ describe("order-key reorder reflects on the wire", () => {
 								plainColumn(c1, "case_name", "Name"),
 								plainColumn(c2, "age", "Age"),
 							],
+							listColumnOrder: [c1],
+							detailColumnOrder: [c1],
 							searchInputs: [],
 						},
 					},

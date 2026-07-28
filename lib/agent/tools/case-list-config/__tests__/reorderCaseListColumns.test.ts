@@ -16,11 +16,6 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import {
-	byDetailColumnOrder,
-	byListColumnOrder,
-	bySortKey,
-} from "@/lib/doc/order/compare";
 import { asUuid, type BlueprintDoc, plainColumn } from "@/lib/domain";
 import { reorderCaseListColumnsTool } from "../reorderCaseListColumns";
 import { MOD_A, makeCaseListFixture } from "./fixtures";
@@ -50,19 +45,12 @@ function fixtureWithThreeColumns(): BlueprintDoc {
 				...doc.modules[MOD_A],
 				caseListConfig: {
 					columns: [
-						plainColumn(A, "alpha", "Alpha", {
-							listOrder: "c",
-							detailOrder: "b",
-						}),
-						plainColumn(B, "beta", "Beta", {
-							listOrder: "a",
-							detailOrder: "c",
-						}),
-						plainColumn(C, "charlie", "Charlie", {
-							listOrder: "b",
-							detailOrder: "a",
-						}),
+						plainColumn(A, "alpha", "Alpha", {}),
+						plainColumn(B, "beta", "Beta", {}),
+						plainColumn(C, "charlie", "Charlie", {}),
 					],
+					listColumnOrder: [A],
+					detailColumnOrder: [A],
 					searchInputs: [],
 				},
 			},

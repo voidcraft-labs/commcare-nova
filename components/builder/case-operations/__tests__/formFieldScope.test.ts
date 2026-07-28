@@ -196,14 +196,12 @@ describe("canonical picker order", () => {
 			id: "root_a",
 			label: "Root A",
 			kind: "text",
-			order: "c",
 		},
 		[ROOT_B]: {
 			uuid: ROOT_B,
 			id: "root_b",
 			label: "Root B",
 			kind: "text",
-			order: "b",
 		},
 		[REPEAT]: {
 			uuid: REPEAT,
@@ -211,20 +209,17 @@ describe("canonical picker order", () => {
 			label: "Visits",
 			kind: "repeat",
 			repeat_mode: "user_controlled",
-			order: "a",
 		},
 		[CHILD_A]: {
 			uuid: CHILD_A,
 			id: "child_a",
 			label: "Child A",
 			kind: "text",
-			order: "m",
 		},
 		[CHILD_B]: {
 			uuid: CHILD_B,
 			id: "child_b",
 			kind: "hidden",
-			order: "m",
 		},
 	};
 	// Membership arrays deliberately disagree with display order. CHILD_A and

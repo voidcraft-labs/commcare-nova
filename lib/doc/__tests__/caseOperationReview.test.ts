@@ -68,7 +68,6 @@ function everySlotConsumer(): CaseOperation {
 	return {
 		uuid: CONSUMER,
 		id: "tag_visit",
-		order: "z",
 		action: "update",
 		caseType: "visit",
 		target: { kind: "op", opUuid: CREATE },
@@ -136,13 +135,11 @@ describe("caseOperationDependencyOccurrences", () => {
 			...everySlotConsumer(),
 			uuid: SECOND,
 			id: "late",
-			order: "z",
 		};
 		const early: CaseOperation = {
 			...everySlotConsumer(),
 			uuid: CONSUMER,
 			id: "early",
-			order: "b",
 		};
 		const f = form([create(CREATE, "a", "c"), late, early]);
 		expect(
@@ -264,7 +261,6 @@ function retypeChain(): { doc: BlueprintDoc; formUuid: Uuid } {
 		{
 			uuid: RETYPE,
 			id: "make_referral",
-			order: "a",
 			action: "update",
 			caseType: "visit",
 			target: { kind: "session" },
@@ -273,7 +269,6 @@ function retypeChain(): { doc: BlueprintDoc; formUuid: Uuid } {
 		{
 			uuid: LATER,
 			id: "update_referral",
-			order: "b",
 			action: "update",
 			caseType: "referral",
 			target: { kind: "session" },

@@ -76,6 +76,8 @@ describe("mediaAssetExists", () => {
 								mapping: [{ value: "N", assetId: "row-asset" }],
 							},
 						],
+						listColumnOrder: ["col-img" as never],
+						detailColumnOrder: ["col-img" as never],
 						searchInputs: [],
 					},
 					forms: [
@@ -183,6 +185,8 @@ describe("mediaAssetExists", () => {
 								],
 							},
 						],
+						listColumnOrder: ["col-regions" as never],
+						detailColumnOrder: ["col-regions" as never],
 						searchInputs: [],
 					},
 					forms: [

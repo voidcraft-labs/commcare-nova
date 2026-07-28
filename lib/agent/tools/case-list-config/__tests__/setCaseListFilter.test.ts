@@ -22,6 +22,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	asUuid,
 	type BlueprintDoc,
+	emptyCaseListConfig,
 	type Module,
 	plainColumn,
 	simpleSearchInputDef,
@@ -60,7 +61,7 @@ describe("setCaseListFilter", () => {
 			modules: {
 				[MOD_A]: {
 					...baseMod,
-					caseListConfig: { columns: [], searchInputs: [] },
+					caseListConfig: emptyCaseListConfig(),
 				} as Module,
 			},
 		};
@@ -163,10 +164,7 @@ describe("setCaseListFilter", () => {
 				[MOD_A]: {
 					...baseDoc.modules[MOD_A],
 					caseListConfig: {
-						...(baseDoc.modules[MOD_A].caseListConfig ?? {
-							columns: [],
-							searchInputs: [],
-						}),
+						...(baseDoc.modules[MOD_A].caseListConfig ?? emptyCaseListConfig()),
 						filter: eq(prop("patient", "status"), literal("active")),
 					},
 					caseSearchConfig: {},

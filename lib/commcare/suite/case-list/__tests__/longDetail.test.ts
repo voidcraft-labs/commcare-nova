@@ -137,6 +137,8 @@ describe("emitLongDetail — empty cases", () => {
 		const mod = makeModule({
 			caseListConfig: makeConfig({
 				columns: [plainColumn(COL(1), "full_name", "Name")],
+				listColumnOrder: [COL(1)],
+				detailColumnOrder: [COL(1)],
 			}),
 		});
 		const out = emitLongDetail({
@@ -174,6 +176,8 @@ describe("emitLongDetail — per-kind goldens", () => {
 			caseType: "patient",
 			caseListConfig: makeConfig({
 				columns: [plainColumn(COL(1), "full_name", "Name")],
+				listColumnOrder: [COL(1)],
+				detailColumnOrder: [COL(1)],
 			}),
 		});
 		const out = emitLongDetail({
@@ -271,6 +275,8 @@ describe("emitLongDetail — long-detail divergences from short", () => {
 						sort: { direction: "asc", priority: 1 },
 					}),
 				],
+				listColumnOrder: [COL(2)],
+				detailColumnOrder: [COL(2)],
 			}),
 		});
 		const doc = buildDoc({
@@ -506,6 +512,8 @@ describe("emitLongDetail — multi-kind integration", () => {
 			caseType: "patient",
 			caseListConfig: makeConfig({
 				columns: [plainColumn(COL(1), "full_name", "Name")],
+				listColumnOrder: [COL(1)],
+				detailColumnOrder: [COL(1)],
 			}),
 		});
 		const out = emitLongDetail({

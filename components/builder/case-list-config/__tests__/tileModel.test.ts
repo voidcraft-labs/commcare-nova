@@ -37,11 +37,9 @@ function column(
 }
 
 const NAME = column("name", "Patient name", {
-	listOrder: "a",
 	tile: tileCell(0, 0, 6, 1),
 });
 const VILLAGE = column("village", "Village", {
-	listOrder: "b",
 	tile: tileCell(6, 0, 6, 1),
 });
 
@@ -122,7 +120,6 @@ describe("planTilePlacement", () => {
 
 	it("accepts a move into free space and keeps the presentation slots", () => {
 		const styled = column("styled", "Styled", {
-			listOrder: "a",
 			tile: tileCell(0, 0, 2, 1, { fontSize: "large", showBorder: true }),
 		});
 		const verdict = planTilePlacement(
@@ -198,7 +195,6 @@ describe("planTilePlacement", () => {
 
 	it("ignores a hidden field's stored cell — nothing is drawn there", () => {
 		const hidden = column("order", "Registered on", {
-			listOrder: "b",
 			visibleInList: false,
 			sort: { direction: "asc", priority: 1 },
 			tile: tileCell(6, 0, 6, 1),
@@ -228,7 +224,6 @@ describe("planTileMove and planTileResize", () => {
 
 	it("refuses to shrink a field below one column", () => {
 		const narrow = column("narrow", "Age", {
-			listOrder: "a",
 			tile: tileCell(0, 0, 1, 1),
 		});
 		const verdict = planTileResize(membershipOf([narrow]), narrow.uuid, -1, 0);
@@ -239,7 +234,6 @@ describe("planTileMove and planTileResize", () => {
 
 	it("refuses to shrink a field below one row", () => {
 		const short = column("short", "Age", {
-			listOrder: "a",
 			tile: tileCell(0, 0, 2, 1),
 		});
 		const verdict = planTileResize(membershipOf([short]), short.uuid, 0, -1);
@@ -323,7 +317,6 @@ describe("free space", () => {
 describe("placementForJoiningTile", () => {
 	it("keeps a saved place that still fits and is still free", () => {
 		const hidden = column("hidden", "Age", {
-			listOrder: "b",
 			visibleInList: false,
 			tile: tileCell(0, 4, 3, 1),
 		});
@@ -337,7 +330,6 @@ describe("placementForJoiningTile", () => {
 		// square, something else lands there, and handing the cell straight
 		// back would refuse the author's own reveal at the gate.
 		const taken = column("taken", "Age", {
-			listOrder: "b",
 			visibleInList: false,
 			tile: tileCell(0, 0, 6, 1),
 		});
@@ -355,7 +347,6 @@ describe("placementForJoiningTile", () => {
 
 	it("keeps the size the author chose when it moves", () => {
 		const taken = column("taken", "Age", {
-			listOrder: "b",
 			visibleInList: false,
 			tile: tileCell(0, 0, 3, 2),
 		});
@@ -373,7 +364,6 @@ describe("placementForJoiningTile", () => {
 
 	it("reports no room on a full tile instead of a doomed placement", () => {
 		const full = column("full", "Patient name", {
-			listOrder: "a",
 			tile: tileCell(0, 0, 12, 12),
 		});
 		const joining = column("joining", "Age", { listOrder: "b" });
@@ -424,7 +414,6 @@ describe("tileLayoutIssues", () => {
 		// Checking a stored cell continuously is what guarantees that
 		// switching the tile back on is always accepted.
 		const escaping = column("wide", "Photo", {
-			listOrder: "a",
 			tile: tileCell(8, 0, 6, 1),
 		});
 		for (const tileOn of [true, false]) {
@@ -438,7 +427,6 @@ describe("tileLayoutIssues", () => {
 
 	it("names both overflowing axes when a cell escapes in both", () => {
 		const escaping = column("both", "Photo", {
-			listOrder: "a",
 			tile: tileCell(10, 10, 5, 5),
 		});
 		expect(issues([escaping], true)[0]?.message).toContain(
@@ -448,7 +436,6 @@ describe("tileLayoutIssues", () => {
 
 	it("marks BOTH fields of an overlapping pair", () => {
 		const clashing = column("clash", "Village", {
-			listOrder: "b",
 			tile: tileCell(2, 0, 6, 1),
 		});
 		const found = issues([NAME, clashing], true);
@@ -471,7 +458,6 @@ describe("tileLayoutIssues", () => {
 	it("asks for no place from a hidden field that only sets the order", () => {
 		// It reaches the wire as the zero-width carrier and draws nothing.
 		const sorter = column("sorter", "Registered on", {
-			listOrder: "b",
 			visibleInList: false,
 			sort: { direction: "asc", priority: 1 },
 		});
@@ -480,7 +466,6 @@ describe("tileLayoutIssues", () => {
 
 	it("leaves a Details-only field alone — its cell renders nowhere", () => {
 		const detailOnly = column("detail", "Notes", {
-			listOrder: "b",
 			visibleInList: false,
 		});
 		expect(issues([NAME, detailOnly], true)).toEqual([]);

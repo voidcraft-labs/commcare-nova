@@ -166,6 +166,8 @@ describe("dual-detail emission — case-only modules", () => {
 			caseType: "patient",
 			caseListConfig: makeListConfig({
 				columns: [plainColumn(COL(1), "full_name", "Name")],
+				listColumnOrder: [COL(1)],
+				detailColumnOrder: [COL(1)],
 			}),
 		});
 		const doc = buildDoc({
@@ -201,6 +203,8 @@ describe("dual-detail emission — case-only modules", () => {
 						sort: { direction: "asc", priority: 0 },
 					}),
 				],
+				listColumnOrder: [COL(1)],
+				detailColumnOrder: [COL(1)],
 			}),
 		});
 		const doc = buildDoc({
@@ -240,6 +244,8 @@ describe("dual-detail emission — search-enabled modules", () => {
 					}),
 					dateColumn(COL(2), "birthdate", "Birthdate", "%d/%m/%Y"),
 				],
+				listColumnOrder: [COL(1)],
+				detailColumnOrder: [COL(1)],
 			}),
 			caseSearchConfig: makeSearchConfig(),
 		});
@@ -280,6 +286,8 @@ describe("dual-detail emission — search-enabled modules", () => {
 						sort: { direction: "asc", priority: 0 },
 					}),
 				],
+				listColumnOrder: [COL(1)],
+				detailColumnOrder: [COL(1)],
 			}),
 			caseSearchConfig: makeSearchConfig(),
 		});
@@ -328,6 +336,8 @@ describe("dual-detail emission — search-enabled modules", () => {
 						sort: { direction: "asc", priority: 0 },
 					}),
 				],
+				listColumnOrder: [COL(1)],
+				detailColumnOrder: [COL(1)],
 			}),
 			caseSearchConfig: makeSearchConfig(),
 		});
@@ -368,14 +378,8 @@ describe("dual-detail emission — search-enabled modules", () => {
 
 describe("dual-detail emission — field content identity", () => {
 	it("orders Results and Details independently without changing case/search target parity", () => {
-		const first = plainColumn(COL(1), "first", "First", {
-			listOrder: "b",
-			detailOrder: "a",
-		});
-		const second = plainColumn(COL(2), "second", "Second", {
-			listOrder: "a",
-			detailOrder: "b",
-		});
+		const first = plainColumn(COL(1), "first", "First", {});
+		const second = plainColumn(COL(2), "second", "Second", {});
 		const mod = makeModule({
 			caseType: "patient",
 			caseListConfig: makeListConfig({ columns: [first, second] }),
@@ -449,6 +453,8 @@ describe("dual-detail emission — field content identity", () => {
 					}),
 					dateColumn(COL(3), "birthdate", "Birthdate", "%d/%m/%Y"),
 				],
+				listColumnOrder: [COL(1)],
+				detailColumnOrder: [COL(1)],
 			}),
 			caseSearchConfig: makeSearchConfig(),
 		});
@@ -498,6 +504,8 @@ describe("dual-detail emission — field content identity", () => {
 			caseType: "patient",
 			caseListConfig: makeListConfig({
 				columns: [plainColumn(COL(1), "full_name", "Name"), sortOnly],
+				listColumnOrder: [COL(1)],
+				detailColumnOrder: [COL(1)],
 			}),
 		});
 		const doc = buildDoc({
@@ -542,6 +550,8 @@ describe("dual-detail emission — field content identity", () => {
 					}),
 					dateColumn(COL(3), "birthdate", "Birthdate", "%d/%m/%Y"),
 				],
+				listColumnOrder: [COL(1)],
+				detailColumnOrder: [COL(1)],
 			}),
 			caseSearchConfig: makeSearchConfig(),
 		});
@@ -596,6 +606,8 @@ describe("dual-detail emission — locale-id prefix swap", () => {
 			caseType: "patient",
 			caseListConfig: makeListConfig({
 				columns: [plainColumn(COL(1), "full_name", "Name")],
+				listColumnOrder: [COL(1)],
+				detailColumnOrder: [COL(1)],
 			}),
 			caseSearchConfig: makeSearchConfig(),
 		});
@@ -634,6 +646,8 @@ describe("dual-detail emission — locale-id prefix swap", () => {
 			caseType: "patient",
 			caseListConfig: makeListConfig({
 				columns: [plainColumn(COL(1), "full_name", "Name")],
+				listColumnOrder: [COL(1)],
+				detailColumnOrder: [COL(1)],
 			}),
 			caseSearchConfig: makeSearchConfig(),
 		});
@@ -800,6 +814,8 @@ describe("dual-detail emission — calc-xpath instance rewrite", () => {
 			caseType: "patient",
 			caseListConfig: makeListConfig({
 				columns: [plainColumn(COL(1), "full_name", "Name")],
+				listColumnOrder: [COL(1)],
+				detailColumnOrder: [COL(1)],
 			}),
 			caseSearchConfig: makeSearchConfig(),
 		});

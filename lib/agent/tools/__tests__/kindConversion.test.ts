@@ -19,7 +19,6 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { backfillOrderKeys } from "@/lib/doc/order/backfill";
 import type { BlueprintDoc, SelectOption } from "@/lib/domain";
 import { makeStubToolContext } from "../../__tests__/fixtures";
 import { editFieldTool } from "../editField";

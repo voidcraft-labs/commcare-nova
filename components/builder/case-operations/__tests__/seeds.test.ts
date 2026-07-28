@@ -179,7 +179,6 @@ describe("case-operation seeds", () => {
 			const retype: CaseOperation = {
 				uuid: asUuid("66666666-6666-4666-8666-666666666666"),
 				id: "retype_patient",
-				order: "a",
 				action: "update",
 				caseType: "patient",
 				target: { kind: "session" },
@@ -280,7 +279,6 @@ describe("the value a fresh write starts from", () => {
 		const operation: CaseOperation = {
 			uuid: asUuid("99999999-9999-4999-8999-999999999999"),
 			id: "update_patient",
-			order: "a",
 			action: "update",
 			caseType: "patient",
 			target: { kind: "session" },

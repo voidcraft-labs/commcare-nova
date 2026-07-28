@@ -101,7 +101,6 @@ function createOperation(patch: Partial<CaseOperation> = {}): CaseOperation {
 	return {
 		uuid: CREATE,
 		id: "create_visit",
-		order: "a",
 		action: "create",
 		caseType: "visit",
 		target: { kind: "new" },
@@ -114,7 +113,6 @@ function consumerOperation(patch: Partial<CaseOperation> = {}): CaseOperation {
 	return {
 		uuid: CONSUMER,
 		id: "tag_visit",
-		order: "b",
 		action: "update",
 		caseType: "visit",
 		target: { kind: "op", opUuid: CREATE },
@@ -432,7 +430,6 @@ describe("case-operation mutation planning", () => {
 		const retype: CaseOperation = {
 			uuid: CONSUMER,
 			id: "retype_visit",
-			order: "b",
 			action: "update",
 			caseType: "visit",
 			target: { kind: "op", opUuid: CREATE },
@@ -441,7 +438,6 @@ describe("case-operation mutation planning", () => {
 		const later: CaseOperation = {
 			uuid: OTHER,
 			id: "update_retyped_visit",
-			order: "c",
 			action: "update",
 			caseType: "patient",
 			target: { kind: "op", opUuid: CREATE },
@@ -475,7 +471,6 @@ describe("case-operation mutation planning", () => {
 			{
 				uuid: CONSUMER,
 				id: "update_runtime_patient",
-				order: "a",
 				action: "update",
 				caseType: "patient",
 				target: { kind: "expression", expr: term(formField(NAME)) },
@@ -483,7 +478,6 @@ describe("case-operation mutation planning", () => {
 			{
 				uuid: OTHER,
 				id: "retype_session_patient",
-				order: "b",
 				action: "update",
 				caseType: "patient",
 				target: { kind: "session" },
@@ -507,7 +501,6 @@ describe("case-operation mutation planning", () => {
 			{
 				uuid: OTHER,
 				id: "update_patient",
-				order: "c",
 				action: "update",
 				caseType: "patient",
 				target: { kind: "session" },
@@ -553,12 +546,11 @@ describe("case-operation mutation planning", () => {
 			{
 				uuid: OTHER,
 				id: "update_patient",
-				order: "a",
 				action: "update",
 				caseType: "patient",
 				target: { kind: "session" },
 			},
-			createOperation({ order: "b", forEach: { repeat: REPEAT } }),
+			createOperation({ forEach: { repeat: REPEAT } }),
 		];
 
 		expect(moveCaseOperationMutation(doc, formUuid, OTHER, 1)).toEqual({
@@ -573,7 +565,6 @@ describe("case-operation mutation planning", () => {
 		const updatePatient: CaseOperation = {
 			uuid: OTHER,
 			id: "update_patient",
-			order: "b",
 			action: "update",
 			caseType: "patient",
 			target: { kind: "session" },
@@ -730,7 +721,6 @@ describe("case-operation builder choice verdict", () => {
 		const retype: CaseOperation = {
 			uuid: CONSUMER,
 			id: "retype_patient",
-			order: "a",
 			action: "update",
 			caseType: "patient",
 			target: { kind: "session" },
@@ -739,7 +729,6 @@ describe("case-operation builder choice verdict", () => {
 		const later: CaseOperation = {
 			uuid: OTHER,
 			id: "update_visit",
-			order: "b",
 			action: "update",
 			caseType: "visit",
 			target: { kind: "session" },
@@ -763,7 +752,6 @@ describe("case-operation builder choice verdict", () => {
 		const updater: CaseOperation = {
 			uuid: OTHER,
 			id: "update_patient",
-			order: "b",
 			action: "update",
 			caseType: "patient",
 			target: { kind: "session" },
@@ -796,7 +784,6 @@ describe("case-operation builder choice verdict", () => {
 		const earlier: CaseOperation = {
 			uuid: OTHER,
 			id: "update_patient",
-			order: "a",
 			action: "update",
 			caseType: "patient",
 			target: { kind: "session" },
@@ -1064,7 +1051,6 @@ describe("case-operation persistence and reference participation", () => {
 				caseOperationChange: {
 					operation: "move",
 					uuid: CREATE,
-					order: "z",
 				},
 			},
 		]);

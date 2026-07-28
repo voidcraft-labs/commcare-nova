@@ -21,11 +21,6 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
-	byDetailColumnOrder,
-	byListColumnOrder,
-	bySortKey,
-} from "@/lib/doc/order/compare";
-import {
 	asUuid,
 	type BlueprintDoc,
 	type Module,
@@ -200,7 +195,6 @@ describe("addCaseListColumns", () => {
 				"First",
 				{ listOrder: "z", detailOrder: "a" },
 			),
-			order: "a",
 		};
 		const second = {
 			...plainColumn(
@@ -209,7 +203,6 @@ describe("addCaseListColumns", () => {
 				"Second",
 				{ listOrder: "a", detailOrder: "z" },
 			),
-			order: "b",
 		};
 		const docWithConfig: BlueprintDoc = {
 			...baseDoc,

@@ -502,6 +502,8 @@ describe("registerSharedTool — dormant lookup read projection", () => {
 					plainColumn(safeColumn, "name", "Name"),
 					calculatedColumn(dormantColumn, "Lookup result", lookup),
 				],
+				listColumnOrder: [safeColumn],
+				detailColumnOrder: [safeColumn],
 				filter: eq(lookup, literal("active")),
 				searchInputs: [],
 			},
@@ -644,7 +646,6 @@ describe("registerSharedTool — real mutating tool integration (addFields)", ()
 				{
 					uuid: asUuid("73333333-3333-4333-8333-333333333333"),
 					id: "dormant_update",
-					order: "a",
 					action: "update",
 					caseType: "patient",
 					target: { kind: "session" },
@@ -660,7 +661,6 @@ describe("registerSharedTool — real mutating tool integration (addFields)", ()
 				{
 					uuid: asUuid("74444444-4444-4444-8444-444444444444"),
 					id: "safe_peer",
-					order: "b",
 					action: "update",
 					caseType: "patient",
 					target: { kind: "session" },

@@ -58,6 +58,7 @@ import {
 	type CaseOperation,
 	type CaseType,
 	calculatedColumn,
+	emptyCaseListConfig,
 	exactMode,
 	type LookupColumnId,
 	type LookupTableId,
@@ -799,8 +800,6 @@ describe("readCases", () => {
 				columns: [
 					plainColumn(NAME_COLUMN_UUID, "name", "Name", {
 						sort: { direction: "asc", priority: 0 },
-						listOrder: "a",
-						detailOrder: "b",
 					}),
 					plainColumn(
 						asUuid("10000000-0000-0000-0000-000000000003"),
@@ -808,11 +807,11 @@ describe("readCases", () => {
 						"Age",
 						{
 							sort: { direction: "asc", priority: 0 },
-							listOrder: "b",
-							detailOrder: "a",
 						},
 					),
 				],
+				listColumnOrder: [NAME_COLUMN_UUID],
+				detailColumnOrder: [NAME_COLUMN_UUID],
 				searchInputs: [],
 			},
 		});
@@ -971,7 +970,7 @@ describe("readCases — running-app search-input composition", () => {
 			appId: APP_ID,
 			caseType: "patient",
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
-			caseListConfig: { columns: [], searchInputs: [] },
+			caseListConfig: emptyCaseListConfig(),
 			excludedOwnerIds: ["excluded-owner"],
 		});
 
@@ -5844,6 +5843,8 @@ describe("readFilterPreview", () => {
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
 			caseListConfig: makeCaseListConfig({
 				columns: [plainColumn(NAME_COLUMN_UUID, "name", "Name")],
+				listColumnOrder: [NAME_COLUMN_UUID],
+				detailColumnOrder: [NAME_COLUMN_UUID],
 			}),
 		});
 		// Single `rows` arm covers both populated and empty success
@@ -5882,6 +5883,8 @@ describe("readFilterPreview", () => {
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
 			caseListConfig: makeCaseListConfig({
 				columns: [plainColumn(NAME_COLUMN_UUID, "name", "Name")],
+				listColumnOrder: [NAME_COLUMN_UUID],
+				detailColumnOrder: [NAME_COLUMN_UUID],
 			}),
 		});
 		expect(result.kind).toBe("rows");
@@ -5925,6 +5928,8 @@ describe("readFilterPreview", () => {
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
 			caseListConfig: makeCaseListConfig({
 				columns: [plainColumn(NAME_COLUMN_UUID, "name", "Name")],
+				listColumnOrder: [NAME_COLUMN_UUID],
+				detailColumnOrder: [NAME_COLUMN_UUID],
 				filter: gt(prop("patient", "age"), literal(30)),
 			}),
 		});
@@ -5961,6 +5966,8 @@ describe("readFilterPreview", () => {
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
 			caseListConfig: makeCaseListConfig({
 				columns: [plainColumn(NAME_COLUMN_UUID, "name", "Name")],
+				listColumnOrder: [NAME_COLUMN_UUID],
+				detailColumnOrder: [NAME_COLUMN_UUID],
 				filter: and(
 					eq(prop("patient", "name"), literal("")),
 					or(
@@ -6008,6 +6015,8 @@ describe("readFilterPreview", () => {
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
 			caseListConfig: makeCaseListConfig({
 				columns: [plainColumn(NAME_COLUMN_UUID, "name", "Name")],
+				listColumnOrder: [NAME_COLUMN_UUID],
+				detailColumnOrder: [NAME_COLUMN_UUID],
 				filter: eq(prop("patient", "dob"), dateLiteral("")),
 			}),
 		});
@@ -6035,6 +6044,8 @@ describe("readFilterPreview", () => {
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
 			caseListConfig: makeCaseListConfig({
 				columns: [plainColumn(NAME_COLUMN_UUID, "name", "Name")],
+				listColumnOrder: [NAME_COLUMN_UUID],
+				detailColumnOrder: [NAME_COLUMN_UUID],
 			}),
 			excludedOwnerIds: [OWNER_A],
 		});
@@ -6074,6 +6085,8 @@ describe("readFilterPreview", () => {
 						term(literal("hello")),
 					),
 				],
+				listColumnOrder: [NAME_COLUMN_UUID],
+				detailColumnOrder: [NAME_COLUMN_UUID],
 				filter: eq(prop("patient", "name"), literal("Alice")),
 			}),
 		});
@@ -6106,6 +6119,8 @@ describe("readFilterPreview", () => {
 			},
 			caseListConfig: makeCaseListConfig({
 				columns: [plainColumn(NAME_COLUMN_UUID, "name", "Name")],
+				listColumnOrder: [NAME_COLUMN_UUID],
+				detailColumnOrder: [NAME_COLUMN_UUID],
 				filter: eq(prop("patient", "owner_id"), sessionContext("userid")),
 			}),
 		});
@@ -6282,6 +6297,8 @@ describe("loadFilterPreviewAction", () => {
 			},
 			caseListConfig: makeCaseListConfig({
 				columns: [plainColumn(NAME_COLUMN_UUID, "name", "Name")],
+				listColumnOrder: [NAME_COLUMN_UUID],
+				detailColumnOrder: [NAME_COLUMN_UUID],
 			}),
 		});
 		// Filter preview returns a single `rows` arm even when empty. The

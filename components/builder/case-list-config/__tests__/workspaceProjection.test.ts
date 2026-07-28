@@ -122,7 +122,6 @@ describe("showColumnOnDisplay", () => {
 	it("returns a Nova-hidden field to its saved Results position", () => {
 		const hidden = {
 			...column("hidden", "a", { visibleInList: false }),
-			listOrder: "saved-place",
 		};
 
 		expect(
@@ -146,7 +145,6 @@ describe("showColumnOnDisplay", () => {
 			{
 				...detailOnly,
 				visibleInList: undefined,
-				listOrder: "append-place",
 			},
 		]);
 	});

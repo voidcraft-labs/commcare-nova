@@ -109,7 +109,6 @@ describe("blueprint entity-row round trip", () => {
 					uuid: moduleUuid,
 					id: "visits",
 					name: "Visits",
-					order: "a0",
 				},
 			},
 			forms: {
@@ -118,7 +117,6 @@ describe("blueprint entity-row round trip", () => {
 					id: "visit",
 					name: "Visit",
 					type: "survey",
-					order: "a0",
 				},
 			},
 			fields: {
@@ -127,7 +125,6 @@ describe("blueprint entity-row round trip", () => {
 					id: "status",
 					kind: "single_select",
 					label: "Status",
-					order: "a0",
 					options: [
 						{ value: "active", label: "Active" },
 						{ value: "closed", label: "Closed" },

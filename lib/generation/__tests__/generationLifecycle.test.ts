@@ -232,6 +232,8 @@ describe("generation lifecycle (end-to-end)", () => {
 					header: "Name",
 				},
 			],
+			listColumnOrder: [asUuid("c0000000-0000-0000-0000-000000000001")],
+			detailColumnOrder: [asUuid("c0000000-0000-0000-0000-000000000001")],
 			searchInputs: [],
 		};
 		emitMutations(

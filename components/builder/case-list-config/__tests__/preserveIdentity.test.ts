@@ -15,9 +15,6 @@ describe("withPreservedIdentity", () => {
 	it("carries identity and every surface position onto a rebuilt body", () => {
 		const existing = {
 			uuid: "col-1",
-			order: "V",
-			listOrder: "b",
-			detailOrder: "x",
 			kind: "plain",
 			field: "a",
 			header: "A",
@@ -40,7 +37,6 @@ describe("withPreservedIdentity", () => {
 	it("overrides a re-minted uuid on the rebuilt body with the existing one", () => {
 		const existing = {
 			uuid: "s-1",
-			order: "m",
 			kind: "simple",
 			name: "by_name",
 		};

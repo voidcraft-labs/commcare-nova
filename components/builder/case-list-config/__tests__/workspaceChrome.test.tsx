@@ -16,6 +16,7 @@ import {
 	type CaseType,
 	type Column,
 	caseSearchConfigAfterFinalInputRemoval,
+	emptyCaseListConfig,
 	fuzzyDateMode,
 	multiSelectContainsMode,
 	rangeMode,
@@ -323,7 +324,7 @@ describe("case workspace chrome", () => {
 		session.canEdit = false;
 		render(
 			<DetailCanvas
-				config={{ columns: [], searchInputs: [] }}
+				config={emptyCaseListConfig()}
 				caseType={undefined}
 				brokenColumns={new Set()}
 				selection={null}
@@ -411,7 +412,7 @@ describe("case workspace chrome", () => {
 		render(
 			<CaseListCanvas
 				{...ROW_LAYOUT_PROPS}
-				config={{ columns: [], searchInputs: [] }}
+				config={emptyCaseListConfig()}
 				caseType={{ name: "patient", properties: [] }}
 				caseTypes={[]}
 				brokenColumns={new Set()}

@@ -156,32 +156,29 @@ describe("user finding identity and scoping", () => {
 		const properties = [
 			{
 				uuid: asUuid("property-a"),
-				order: "c",
 				slug: "Region",
 				label: "Region A",
 			},
 			{
 				uuid: asUuid("property-b"),
-				order: "a",
 				slug: "region",
 				label: "Region B",
 			},
 			{
 				uuid: asUuid("property-c"),
-				order: "b",
 				slug: "REGION",
 				label: "Region C",
 			},
 		] as const;
 		const roles = [
-			{ uuid: asUuid("role-a"), order: "c", name: "Nurse" },
-			{ uuid: asUuid("role-b"), order: "a", name: " nurse " },
-			{ uuid: asUuid("role-c"), order: "b", name: "NURSE" },
+			{ uuid: asUuid("role-a"), name: "Nurse" },
+			{ uuid: asUuid("role-b"), name: " nurse " },
+			{ uuid: asUuid("role-c"), name: "NURSE" },
 		] as const;
 		const personas = [
-			{ uuid: asUuid("persona-a"), order: "c", name: "Amina" },
-			{ uuid: asUuid("persona-b"), order: "a", name: " amina " },
-			{ uuid: asUuid("persona-c"), order: "b", name: "AMINA" },
+			{ uuid: asUuid("persona-a"), name: "Amina" },
+			{ uuid: asUuid("persona-b"), name: " amina " },
+			{ uuid: asUuid("persona-c"), name: "AMINA" },
 		] as const;
 		const make = (reverse: boolean): BlueprintDoc => ({
 			...buildDoc(),

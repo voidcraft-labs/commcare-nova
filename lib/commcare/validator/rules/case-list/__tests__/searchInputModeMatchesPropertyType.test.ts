@@ -33,6 +33,8 @@ describe("searchInputModeMatchesPropertyType", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [asUuid("col-name")],
+						detailColumnOrder: [asUuid("col-name")],
 						searchInputs: [
 							simpleSearchInputDef(
 								asUuid("si-name-range"),
@@ -94,6 +96,8 @@ describe("searchInputModeMatchesPropertyType", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [asUuid("col-name")],
+						detailColumnOrder: [asUuid("col-name")],
 						searchInputs: [
 							simpleSearchInputDef(
 								asUuid("si-age-fuzzy"),
@@ -153,6 +157,8 @@ describe("searchInputModeMatchesPropertyType", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [asUuid("col-name")],
+						detailColumnOrder: [asUuid("col-name")],
 						searchInputs: [
 							simpleSearchInputDef(
 								asUuid("si-age-msc"),
@@ -212,6 +218,8 @@ describe("searchInputModeMatchesPropertyType", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [asUuid("col-name")],
+						detailColumnOrder: [asUuid("col-name")],
 						searchInputs: [
 							simpleSearchInputDef(
 								asUuid("si-age-range"),
@@ -273,6 +281,8 @@ describe("searchInputModeMatchesPropertyType", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [asUuid("col-name")],
+						detailColumnOrder: [asUuid("col-name")],
 						searchInputs: [
 							simpleSearchInputDef(
 								asUuid("si-any"),
@@ -371,6 +381,8 @@ describe("searchInputModeMatchesPropertyType", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [asUuid("col-name")],
+						detailColumnOrder: [asUuid("col-name")],
 						searchInputs: [
 							advancedSearchInputDef(
 								asUuid("si-advanced"),
@@ -420,6 +432,8 @@ describe("searchInputModeMatchesPropertyType", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [asUuid("col-name")],
+						detailColumnOrder: [asUuid("col-name")],
 						searchInputs: [
 							simpleSearchInputDef(
 								asUuid("si-age-phon"),
@@ -479,6 +493,8 @@ describe("searchInputModeMatchesPropertyType", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [asUuid("col-name")],
+						detailColumnOrder: [asUuid("col-name")],
 						searchInputs: [
 							simpleSearchInputDef(
 								asUuid("si-age-starts"),
@@ -542,6 +558,8 @@ describe("searchInputModeMatchesPropertyType", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [asUuid("col-name")],
+						detailColumnOrder: [asUuid("col-name")],
 						searchInputs: [
 							simpleSearchInputDef(
 								asUuid("si-dob-fz"),
@@ -601,6 +619,8 @@ describe("searchInputModeMatchesPropertyType", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [asUuid("col-name")],
+						detailColumnOrder: [asUuid("col-name")],
 						searchInputs: [
 							simpleSearchInputDef(
 								asUuid("si-age-fz"),
@@ -663,6 +683,8 @@ describe("searchInputModeMatchesPropertyType", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [asUuid("col-name")],
+						detailColumnOrder: [asUuid("col-name")],
 						searchInputs: [
 							simpleSearchInputDef(
 								asUuid("si-ghost"),
@@ -711,6 +733,8 @@ describe("searchInputModeMatchesPropertyType", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [asUuid("col-name")],
+						detailColumnOrder: [asUuid("col-name")],
 						searchInputs: [
 							simpleSearchInputDef(
 								asUuid("si-nick-fz"),
@@ -771,6 +795,8 @@ describe("searchInputModeMatchesPropertyType", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [asUuid("col-name")],
+						detailColumnOrder: [asUuid("col-name")],
 						searchInputs: [
 							simpleSearchInputDef(
 								asUuid("si-weight-range"),
@@ -829,6 +855,8 @@ describe("searchInputModeMatchesPropertyType", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [asUuid("col-name")],
+						detailColumnOrder: [asUuid("col-name")],
 						searchInputs: [
 							simpleSearchInputDef(
 								asUuid("si-name-range"),
@@ -876,6 +904,8 @@ describe("searchInputModeMatchesPropertyType", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [asUuid("col-name")],
+						detailColumnOrder: [asUuid("col-name")],
 						searchInputs: [
 							simpleSearchInputDef(
 								asUuid("si-opened-range"),
@@ -928,6 +958,8 @@ describe("searchInputModeMatchesPropertyType", () => {
 					caseType: "visit",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [asUuid("col-name")],
+						detailColumnOrder: [asUuid("col-name")],
 						searchInputs: [
 							simpleSearchInputDef(
 								asUuid("si-patient-name-range"),

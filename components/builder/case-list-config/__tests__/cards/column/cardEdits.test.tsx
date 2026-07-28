@@ -53,8 +53,6 @@ const SURFACE_SLOTS = {
 	sort: { direction: "asc" as const, priority: 0 },
 	visibleInList: true,
 	visibleInDetail: true,
-	listOrder: "results-position",
-	detailOrder: "details-position",
 };
 
 const ORDERED_COLUMN_KINDS: readonly Column[] = [

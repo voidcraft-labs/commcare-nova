@@ -28,6 +28,8 @@ describe("calculatedColumnTypeCheck", () => {
 								),
 							),
 						],
+						listColumnOrder: [asUuid("col-name")],
+						detailColumnOrder: [asUuid("col-name")],
 						searchInputs: [],
 					},
 					forms: [
@@ -89,6 +91,8 @@ describe("calculatedColumnTypeCheck", () => {
 								),
 							),
 						],
+						listColumnOrder: [asUuid("col-name")],
+						detailColumnOrder: [asUuid("col-name")],
 						searchInputs: [],
 					},
 					forms: [
@@ -146,6 +150,8 @@ describe("calculatedColumnTypeCheck", () => {
 								term(prop("patient", "ghost")),
 							),
 						],
+						listColumnOrder: [asUuid("col-name")],
+						detailColumnOrder: [asUuid("col-name")],
 						searchInputs: [],
 					},
 					forms: [
@@ -196,6 +202,8 @@ describe("calculatedColumnTypeCheck", () => {
 								term(prop("patient", "ghost")),
 							),
 						],
+						listColumnOrder: [asUuid("col-name")],
+						detailColumnOrder: [asUuid("col-name")],
 						searchInputs: [],
 					},
 					forms: [
@@ -251,6 +259,8 @@ describe("calculatedColumnTypeCheck", () => {
 								term(prop("patient", "nickname")),
 							),
 						],
+						listColumnOrder: [asUuid("col-name")],
+						detailColumnOrder: [asUuid("col-name")],
 						searchInputs: [],
 					},
 					forms: [
@@ -308,6 +318,8 @@ describe("calculatedColumnTypeCheck", () => {
 								term(prop("patient", "case_name")),
 							),
 						],
+						listColumnOrder: [asUuid("col-name")],
+						detailColumnOrder: [asUuid("col-name")],
 						searchInputs: [],
 					},
 					forms: [
@@ -361,6 +373,8 @@ describe("calculatedColumnTypeCheck", () => {
 								),
 							),
 						],
+						listColumnOrder: [asUuid("col-name")],
+						detailColumnOrder: [asUuid("col-name")],
 						searchInputs: [],
 					},
 					forms: [

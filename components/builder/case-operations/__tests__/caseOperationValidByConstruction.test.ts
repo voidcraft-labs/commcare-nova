@@ -222,7 +222,6 @@ function priorCreate(): CaseOperation {
 	return {
 		uuid: CREATE,
 		id: "create_visit",
-		order: "a",
 		action: "create",
 		caseType: "visit",
 		target: { kind: "new" },
@@ -240,7 +239,6 @@ function subjectOperation(patch: Partial<CaseOperation> = {}): CaseOperation {
 	return {
 		uuid: SUBJECT,
 		id: "update_visit",
-		order: "b",
 		action: "update",
 		caseType: "visit",
 		target: { kind: "op", opUuid: CREATE },

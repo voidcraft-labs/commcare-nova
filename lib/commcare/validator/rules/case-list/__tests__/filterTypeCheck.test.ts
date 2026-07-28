@@ -17,6 +17,8 @@ describe("filterTypeCheck", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [asUuid("col-name")],
+						detailColumnOrder: [asUuid("col-name")],
 						searchInputs: [],
 						filter: gt(prop("patient", "name"), literal("M")),
 					},
@@ -67,6 +69,8 @@ describe("filterTypeCheck", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [asUuid("col-name")],
+						detailColumnOrder: [asUuid("col-name")],
 						searchInputs: [],
 						// `eq(prop, literal)` — text vs string literal is structurally
 						// compatible.
@@ -120,6 +124,8 @@ describe("filterTypeCheck", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [asUuid("col-name")],
+						detailColumnOrder: [asUuid("col-name")],
 						searchInputs: [],
 						filter: eq(prop("patient", "ghost"), literal("x")),
 					},
@@ -174,6 +180,8 @@ describe("filterTypeCheck", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [asUuid("col-name")],
+						detailColumnOrder: [asUuid("col-name")],
 						searchInputs: [],
 						filter: eq(prop("patient", "nickname"), literal("Al")),
 					},
@@ -225,6 +233,8 @@ describe("filterTypeCheck", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [asUuid("col-name")],
+						detailColumnOrder: [asUuid("col-name")],
 						searchInputs: [],
 						filter: eq(prop("patient", "case_name"), literal("Alice")),
 					},
@@ -267,6 +277,8 @@ describe("filterTypeCheck", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [asUuid("col-name")],
+						detailColumnOrder: [asUuid("col-name")],
 						searchInputs: [],
 						filter: eq(prop("patient", "date_opened"), literal("not-a-date")),
 					},

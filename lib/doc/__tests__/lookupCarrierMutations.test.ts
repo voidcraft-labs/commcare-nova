@@ -50,17 +50,14 @@ function selectField(optionsSource?: LookupOptionsSource) {
 		id: "status",
 		kind: "single_select" as const,
 		label: "Status",
-		order: "a0",
 		options: [
 			{
 				uuid: asUuid("40000000-0000-4000-8000-000000000000"),
-				order: "a0",
 				value: "active",
 				label: "Active",
 			},
 			{
 				uuid: asUuid("50000000-0000-4000-8000-000000000000"),
-				order: "a1",
 				value: "closed",
 				label: "Closed",
 			},
@@ -84,7 +81,6 @@ function baseDoc(field = selectField()): BlueprintDoc {
 				id: "visit",
 				name: "Visit",
 				type: "survey",
-				order: "a0",
 			},
 		},
 		fields: { [FIELD]: field },

@@ -98,6 +98,8 @@ function lookupApp() {
 							),
 						),
 					],
+					listColumnOrder: [asUuid("018f3e8a-7b2c-7def-8abc-0000000000e1")],
+					detailColumnOrder: [asUuid("018f3e8a-7b2c-7def-8abc-0000000000e1")],
 					searchInputs: [],
 				},
 				forms: [

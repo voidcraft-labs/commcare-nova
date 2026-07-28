@@ -71,6 +71,8 @@ describe("columnReferences", () => {
 								},
 							),
 						],
+						listColumnOrder: [asUuid("col-name")],
+						detailColumnOrder: [asUuid("col-name")],
 						searchInputs: [],
 					},
 					forms: [
@@ -162,6 +164,8 @@ describe("columnReferences", () => {
 								"%Y-%m-%d",
 							),
 						],
+						listColumnOrder: [asUuid("col-name")],
+						detailColumnOrder: [asUuid("col-name")],
 						searchInputs: [],
 					},
 					forms: [
@@ -211,6 +215,8 @@ describe("columnReferences", () => {
 								term(prop("patient", "case_name")),
 							),
 						],
+						listColumnOrder: [asUuid("col-name")],
+						detailColumnOrder: [asUuid("col-name")],
 						searchInputs: [],
 					},
 					forms: [

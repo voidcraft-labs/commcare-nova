@@ -727,6 +727,8 @@ describe("case-property cascade rewrites module predicate-AST slots", () => {
 							expression: term(prop("patient", "age")),
 						},
 					],
+					listColumnOrder: [C("calc")],
+					detailColumnOrder: [C("calc")],
 					searchInputs: [],
 				},
 			},

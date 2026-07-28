@@ -6,7 +6,6 @@ import {
 	BlueprintCommitRejectedError,
 	batchTargetsMissing,
 } from "@/lib/db/commitGuard";
-import { keyBetween } from "@/lib/doc/order/keys";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	asUuid,
@@ -594,7 +593,6 @@ describe("shared case-operation tools", () => {
 			const safePeer: CaseOperation = {
 				uuid: asUuid("10000000-0000-4000-8000-000000000099"),
 				id: "safe_peer",
-				order: "c",
 				action: "update",
 				caseType: "patient",
 				target: { kind: "session" },

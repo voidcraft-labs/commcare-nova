@@ -140,13 +140,11 @@ function lookupCarrierDoc() {
 								options: [
 									{
 										uuid: "40000000-0000-4000-8000-000000000000" as Uuid,
-										order: "a0",
 										value: "active",
 										label: "Active",
 									},
 									{
 										uuid: "50000000-0000-4000-8000-000000000000" as Uuid,
-										order: "a1",
 										value: "closed",
 										label: "Closed",
 									},

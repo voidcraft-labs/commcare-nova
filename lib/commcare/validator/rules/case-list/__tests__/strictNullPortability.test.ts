@@ -73,6 +73,8 @@ function buildCaseListDoc(args: {
 				caseType: "patient",
 				caseListConfig: {
 					columns: [plainColumn(asUuid("column-name"), "case_name", "Name")],
+					listColumnOrder: [asUuid("column-name")],
+					detailColumnOrder: [asUuid("column-name")],
 					...(args.filter !== undefined ? { filter: args.filter } : {}),
 					searchInputs: [],
 				},
@@ -200,6 +202,8 @@ describe("strictNullPortability", () => {
 								strictNullTextExpression(),
 							),
 						],
+						listColumnOrder: [asUuid("column-name")],
+						detailColumnOrder: [asUuid("column-name")],
 						searchInputs: [],
 					},
 					forms: [standardForm],
@@ -239,6 +243,8 @@ describe("strictNullPortability", () => {
 								{ visibleInList: false, visibleInDetail: false },
 							),
 						],
+						listColumnOrder: [asUuid("column-name")],
+						detailColumnOrder: [asUuid("column-name")],
 						searchInputs: [],
 					},
 					forms: [standardForm],
@@ -264,6 +270,8 @@ describe("strictNullPortability", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("column-name"), "case_name", "Name")],
+						listColumnOrder: [asUuid("column-name")],
+						detailColumnOrder: [asUuid("column-name")],
 						searchInputs: [
 							simpleSearchInputDef(
 								inputUuid,
@@ -334,6 +342,8 @@ describe("strictNullPortability", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("column-name"), "case_name", "Name")],
+						listColumnOrder: [asUuid("column-name")],
+						detailColumnOrder: [asUuid("column-name")],
 						searchInputs: [
 							advancedSearchInputDef(
 								asUuid("input-note"),
@@ -367,6 +377,8 @@ describe("strictNullPortability", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("column-name"), "case_name", "Name")],
+						listColumnOrder: [asUuid("column-name")],
+						detailColumnOrder: [asUuid("column-name")],
 						filter: matchNone(),
 						searchInputs: [
 							advancedSearchInputDef(
@@ -400,6 +412,8 @@ describe("strictNullPortability", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("column-name"), "case_name", "Name")],
+						listColumnOrder: [asUuid("column-name")],
+						detailColumnOrder: [asUuid("column-name")],
 						filter: isNull(prop("patient", "status_note")),
 						searchInputs: [
 							advancedSearchInputDef(

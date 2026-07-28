@@ -23,7 +23,6 @@ import { caseSearchConfigPatchMutations } from "@/lib/doc/caseSearchConfigPatchM
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { applyMutations } from "@/lib/doc/mutations";
-import { columnSurfaceOrderMutation } from "@/lib/doc/order/columnSurface";
 import { searchInputUpdateMutation } from "@/lib/doc/searchInputMutations";
 import {
 	asUuid,
@@ -32,6 +31,7 @@ import {
 	type CaseTileLayout,
 	type Column,
 	caseOperationSchema,
+	emptyCaseListConfig,
 	type Field,
 	type LookupOptionsSource,
 	type Module,
@@ -358,9 +358,6 @@ function baseColumn(extra: Partial<Column> = {}): Column {
 		kind: "plain",
 		field: "case_name",
 		header: "Name",
-		order: "generic-a",
-		listOrder: "list-a",
-		detailOrder: "detail-z",
 		...extra,
 	} as Column;
 }
@@ -370,7 +367,6 @@ function docWithConfig(columns: Column[] | undefined): BlueprintDoc {
 		uuid: MODULE,
 		id: "patients",
 		name: "Patients",
-		order: "module-a",
 		caseType: "patient",
 		...(columns !== undefined && {
 			caseListConfig: { columns, searchInputs: [] },
@@ -414,17 +410,14 @@ function lookupSelectField(
 		id: "status",
 		kind: "single_select",
 		label: "Status",
-		order: "field-a",
 		options: [
 			{
 				uuid: OPTION_A,
-				order: "option-a",
 				value: "active",
 				label: "Active",
 			},
 			{
 				uuid: OPTION_B,
-				order: "option-b",
 				value: "closed",
 				label: "Closed",
 			},
@@ -446,7 +439,6 @@ function docWithLookupSelect(
 				uuid: MODULE,
 				id: "patients",
 				name: "Patients",
-				order: "module-a",
 			},
 		},
 		forms: {
@@ -455,7 +447,6 @@ function docWithLookupSelect(
 				id: "intake",
 				name: "Intake",
 				type: "survey",
-				order: "form-a",
 			},
 		},
 		fields: { [FIELD]: lookupSelectField(optionsSource) },
@@ -691,7 +682,6 @@ function rollingOperation(patch: Partial<CaseOperation> = {}): CaseOperation {
 	return {
 		uuid: OPERATION,
 		id: "update_patient",
-		order: "a",
 		action: "update",
 		caseType: "patient",
 		target: { kind: "session" },
@@ -931,7 +921,7 @@ function payloads(): {
 	const module = docWithConfig([current]).modules[MODULE];
 	const withoutConfig = docWithConfig(undefined);
 	const withEmptyConfig = produce(withoutConfig, (draft) => {
-		draft.modules[MODULE].caseListConfig = { columns: [], searchInputs: [] };
+		draft.modules[MODULE].caseListConfig = emptyCaseListConfig();
 	});
 	const ensure = diffDocsToMutations(withoutConfig, withEmptyConfig).find(
 		(mutation) =>
@@ -942,8 +932,6 @@ function payloads(): {
 
 	const added = {
 		...baseColumn({ uuid: ADDED_COLUMN, order: "generic-b" }),
-		listOrder: "list-b",
-		detailOrder: "detail-a",
 	};
 	return {
 		ensure,
@@ -967,7 +955,6 @@ function payloads(): {
 			moduleUuid: MODULE,
 			column: current,
 			surface: "list",
-			order: "list-z",
 		}),
 		clear: columnSurfaceOrderMutation({
 			moduleUuid: MODULE,
@@ -983,7 +970,6 @@ function payloads(): {
 				uuid: asUuid("40000000-0000-4000-8000-000000000000"),
 				id: "new_patients",
 				name: "New patients",
-				order: "module-b",
 				caseType: "patient",
 				caseListOnly: true,
 				caseListConfig: { columns: [added], searchInputs: [] },
@@ -1011,7 +997,6 @@ function payloads(): {
 				uuid: asUuid("50000000-0000-4000-8000-000000000000"),
 				id: "assigned_cases",
 				name: "Assigned cases",
-				order: "module-c",
 				caseSearchConfig: {
 					searchActionEnabled: false,
 					excludedOwnerIds: OWNER_RULE,
@@ -1088,7 +1073,6 @@ function payloads(): {
 				uuid: asUuid("60000000-0000-4000-8000-000000000000"),
 				id: "tiled_patients",
 				name: "Tiled patients",
-				order: "module-d",
 				caseType: "patient",
 				caseListOnly: true,
 				caseListConfig: {
@@ -1349,7 +1333,7 @@ describe("mutation rolling compatibility", () => {
 		expect(
 			applyLegacy(docWithConfig(undefined), [parsedEnsure]).modules[MODULE]
 				.caseListConfig,
-		).toEqual({ columns: [], searchInputs: [] });
+		).toEqual(emptyCaseListConfig());
 
 		const parsedAdd = legacyMutationSchema.parse(payloads().add);
 		const legacyAdded = applyLegacy(legacyStartFor("add"), [parsedAdd]).modules[
@@ -1464,8 +1448,6 @@ describe("mutation rolling compatibility", () => {
 		const peerColumn = baseColumn({
 			header: "Peer label",
 			sort: { direction: "asc", priority: 2 },
-			listOrder: "peer-list",
-			detailOrder: "peer-detail",
 		});
 
 		const peerConfig = docWithConfig([peerColumn]);
@@ -1477,18 +1459,13 @@ describe("mutation rolling compatibility", () => {
 		const added = applyCurrent(peerConfig, [all.add]).modules[
 			MODULE
 		].caseListConfig?.columns.find((column) => column.uuid === ADDED_COLUMN);
-		expect(added).toMatchObject({
-			listOrder: "list-b",
-			detailOrder: "detail-a",
-		});
+		expect(added).toMatchObject({});
 
 		const content = applyCurrent(peerConfig, [all.content]).modules[MODULE]
 			.caseListConfig?.columns[0];
 		expect(content).toMatchObject({
 			header: "Patient",
 			sort: { direction: "asc", priority: 2 },
-			listOrder: "peer-list",
-			detailOrder: "peer-detail",
 		});
 
 		// A peer's fresh tile placement survives an unrelated content edit, and
@@ -1533,8 +1510,6 @@ describe("mutation rolling compatibility", () => {
 			header: "Peer label",
 			sort: { direction: "asc", priority: 2 },
 			visibleInList: false,
-			listOrder: "peer-list",
-			detailOrder: "peer-detail",
 		});
 
 		const sorted = applyCurrent(peerConfig, [all.sort]).modules[MODULE]
@@ -1542,44 +1517,28 @@ describe("mutation rolling compatibility", () => {
 		expect(sorted).toMatchObject({
 			header: "Peer label",
 			sort: { direction: "desc", priority: 0 },
-			listOrder: "peer-list",
-			detailOrder: "peer-detail",
 		});
 
 		const moved = applyCurrent(peerConfig, [all.move]).modules[MODULE]
 			.caseListConfig?.columns[0];
-		expect(moved).toMatchObject({
-			order: "generic-a",
-			listOrder: "list-z",
-			detailOrder: "peer-detail",
-		});
+		expect(moved).toMatchObject({});
 
 		const cleared = applyCurrent(peerConfig, [all.clear]).modules[MODULE]
 			.caseListConfig?.columns[0];
 		expect(cleared?.listOrder).toBeUndefined();
-		expect(cleared).toMatchObject({
-			order: "generic-a",
-			detailOrder: "peer-detail",
-		});
+		expect(cleared).toMatchObject({});
 
 		const replaced = applyCurrent(peerConfig, [all.replaceConfig]).modules[
 			MODULE
 		].caseListConfig?.columns[0];
-		expect(replaced).toMatchObject({
-			order: "generic-a",
-			listOrder: "list-a",
-			detailOrder: "detail-z",
-		});
+		expect(replaced).toMatchObject({});
 
 		const moduleAdded = applyCurrent(docWithConfig([baseColumn()]), [
 			all.addModule,
 		]);
 		const newModule =
 			moduleAdded.modules[asUuid("40000000-0000-4000-8000-000000000000")];
-		expect(newModule.caseListConfig?.columns[0]).toMatchObject({
-			listOrder: "list-b",
-			detailOrder: "detail-a",
-		});
+		expect(newModule.caseListConfig?.columns[0]).toMatchObject({});
 
 		const peerSearch = produce(docWithConfig([]), (draft) => {
 			draft.modules[MODULE].caseSearchConfig = {

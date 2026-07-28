@@ -75,6 +75,8 @@ describe("matchModeOnDeviceCompatibility", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [asUuid("c-1")],
+						detailColumnOrder: [asUuid("c-1")],
 						filter: match(prop("patient", "case_name"), "Alice", "fuzzy"),
 						searchInputs: [],
 					},
@@ -103,6 +105,8 @@ describe("matchModeOnDeviceCompatibility", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [asUuid("c-1")],
+						detailColumnOrder: [asUuid("c-1")],
 						filter: match(prop("patient", "case_name"), "Alice", "phonetic"),
 						searchInputs: [],
 					},
@@ -127,6 +131,8 @@ describe("matchModeOnDeviceCompatibility", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [asUuid("c-1")],
+						detailColumnOrder: [asUuid("c-1")],
 						filter: match(
 							prop("patient", "dob"),
 							dateLiteral("2020-01-15"),
@@ -155,6 +161,8 @@ describe("matchModeOnDeviceCompatibility", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [asUuid("c-1")],
+						detailColumnOrder: [asUuid("c-1")],
 						filter: match(prop("patient", "case_name"), "Ali", "starts-with"),
 						searchInputs: [],
 					},
@@ -178,6 +186,8 @@ describe("matchModeOnDeviceCompatibility", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [asUuid("c-1")],
+						detailColumnOrder: [asUuid("c-1")],
 						filter: and(
 							eq(prop("patient", "case_name"), literal("Alice")),
 							match(prop("patient", "case_name"), "Smith", "fuzzy"),
@@ -205,6 +215,8 @@ describe("matchModeOnDeviceCompatibility", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [asUuid("c-1")],
+						detailColumnOrder: [asUuid("c-1")],
 						filter: not(
 							match(prop("patient", "case_name"), "Alice", "phonetic"),
 						),
@@ -231,6 +243,8 @@ describe("matchModeOnDeviceCompatibility", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [asUuid("c-1")],
+						detailColumnOrder: [asUuid("c-1")],
 						filter: eq(
 							coalesce(
 								ifExpr(
@@ -266,6 +280,8 @@ describe("matchModeOnDeviceCompatibility", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [asUuid("c-1")],
+						detailColumnOrder: [asUuid("c-1")],
 						searchInputs: [],
 					},
 					caseSearchConfig: {
@@ -301,6 +317,8 @@ describe("matchModeOnDeviceCompatibility", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [asUuid("c-1")],
+						detailColumnOrder: [asUuid("c-1")],
 						searchInputs: [],
 					},
 					caseSearchConfig: {
@@ -334,6 +352,8 @@ describe("matchModeOnDeviceCompatibility", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [asUuid("c-1")],
+						detailColumnOrder: [asUuid("c-1")],
 						searchInputs: [
 							{
 								kind: "advanced",
@@ -370,6 +390,8 @@ describe("matchModeOnDeviceCompatibility", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [asUuid("c-1")],
+						detailColumnOrder: [asUuid("c-1")],
 						searchInputs: [
 							{
 								kind: "advanced",
@@ -415,6 +437,8 @@ describe("matchModeOnDeviceCompatibility", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [asUuid("c-1")],
+						detailColumnOrder: [asUuid("c-1")],
 						searchInputs: [
 							advancedSearchInputDef(
 								asUuid("si-count"),
@@ -453,6 +477,8 @@ describe("matchModeOnDeviceCompatibility", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [asUuid("c-1")],
+						detailColumnOrder: [asUuid("c-1")],
 						searchInputs: [
 							advancedSearchInputDef(
 								asUuid("si-count-right"),
@@ -491,6 +517,8 @@ describe("matchModeOnDeviceCompatibility", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [asUuid("c-1")],
+						detailColumnOrder: [asUuid("c-1")],
 						searchInputs: [
 							advancedSearchInputDef(
 								asUuid("si-runtime-count"),
@@ -532,6 +560,8 @@ describe("matchModeOnDeviceCompatibility", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [asUuid("c-1")],
+						detailColumnOrder: [asUuid("c-1")],
 						filter: matchNone(),
 						searchInputs: [
 							advancedSearchInputDef(
@@ -572,6 +602,8 @@ describe("matchModeOnDeviceCompatibility", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [asUuid("c-1")],
+						detailColumnOrder: [asUuid("c-1")],
 						filter: and(
 							match(prop("patient", "case_name"), "Alice", "fuzzy"),
 							match(prop("patient", "case_name"), "Bob", "phonetic"),
@@ -611,6 +643,8 @@ describe("matchModeOnDeviceCompatibility", () => {
 								),
 							),
 						],
+						listColumnOrder: [asUuid("c-1")],
+						detailColumnOrder: [asUuid("c-1")],
 						searchInputs: [],
 					},
 					forms: [standardForm],
@@ -655,6 +689,8 @@ describe("matchModeOnDeviceCompatibility", () => {
 								{ visibleInList: false, visibleInDetail: false },
 							),
 						],
+						listColumnOrder: [asUuid("c-1")],
+						detailColumnOrder: [asUuid("c-1")],
 						searchInputs: [],
 					},
 					forms: [standardForm],
@@ -686,6 +722,8 @@ describe("matchModeOnDeviceCompatibility", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [asUuid("c-1")],
+						detailColumnOrder: [asUuid("c-1")],
 						searchInputs: [
 							simpleSearchInputDef(
 								simpleUuid,
@@ -745,6 +783,8 @@ describe("matchModeOnDeviceCompatibility", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [asUuid("c-1")],
+						detailColumnOrder: [asUuid("c-1")],
 						searchInputs: [],
 					},
 					caseSearchConfig: {
@@ -781,6 +821,8 @@ describe("matchModeOnDeviceCompatibility", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [asUuid("c-1")],
+						detailColumnOrder: [asUuid("c-1")],
 						filter: dead,
 						searchInputs: [],
 					},

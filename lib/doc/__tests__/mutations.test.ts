@@ -7,6 +7,7 @@
 import { describe, expect, it } from "vitest";
 import { asUuid, type Mutation, mutationSchema } from "@/lib/doc/types";
 import type { Field, Form, Module } from "@/lib/domain";
+import { emptyCaseListConfig } from "@/lib/domain";
 import { eq, literal, sessionUser } from "@/lib/domain/predicate";
 
 // Shared fixtures — stable UUIDs so failures point at specific payloads.
@@ -72,9 +73,10 @@ describe("mutationSchema round-trip", () => {
 								kind: "plain",
 								field: "case_name",
 								header: "Name",
-								order: "generic-a",
 							},
 						],
+						listColumnOrder: [columnUuid],
+						detailColumnOrder: [columnUuid],
 						searchInputs: [],
 					},
 				},
@@ -162,7 +164,7 @@ describe("mutationSchema round-trip", () => {
 			expectRoundTrip({
 				kind: "updateModule",
 				uuid: moduleUuid,
-				patch: { caseListConfig: { columns: [], searchInputs: [] } },
+				patch: { caseListConfig: emptyCaseListConfig() },
 				ensureCaseListConfig: true,
 			});
 		});
@@ -180,9 +182,10 @@ describe("mutationSchema round-trip", () => {
 								kind: "plain",
 								field: "case_name",
 								header: "Name",
-								order: "generic-a",
 							},
 						],
+						listColumnOrder: [columnUuid],
+						detailColumnOrder: [columnUuid],
 						searchInputs: [],
 					},
 				},
@@ -205,8 +208,11 @@ describe("mutationSchema round-trip", () => {
 									kind: "plain",
 									field: "case_name",
 									header: "Name",
-									listOrder: "nested-new-key",
 								},
+							],
+							listColumnOrder: [asUuid("66666666-6666-6666-6666-666666666666")],
+							detailColumnOrder: [
+								asUuid("66666666-6666-6666-6666-666666666666"),
 							],
 							searchInputs: [],
 						},
@@ -516,7 +522,6 @@ describe("mutationSchema round-trip", () => {
 				kind: "moveColumn",
 				moduleUuid,
 				uuid: columnUuid,
-				order: "list-a",
 				surfaceOrderPatch: { surface: "list", order: "list-a" },
 			});
 		});
@@ -526,7 +531,6 @@ describe("mutationSchema round-trip", () => {
 				kind: "moveColumn",
 				moduleUuid,
 				uuid: columnUuid,
-				order: "generic-a",
 				surfaceOrderPatch: { surface: "list", order: null },
 			});
 		});
@@ -536,7 +540,6 @@ describe("mutationSchema round-trip", () => {
 				kind: "moveColumn",
 				moduleUuid,
 				uuid: columnUuid,
-				order: "detail-z",
 				surfaceOrderPatch: { surface: "detail", order: "detail-z" },
 			});
 		});
@@ -546,7 +549,6 @@ describe("mutationSchema round-trip", () => {
 				kind: "moveColumn",
 				moduleUuid,
 				uuid: columnUuid,
-				order: "generic-z",
 				surfaceOrderPatch: { surface: "detail", order: null },
 			});
 		});
@@ -557,7 +559,6 @@ describe("mutationSchema round-trip", () => {
 					kind: "moveColumn",
 					moduleUuid,
 					uuid: columnUuid,
-					order: "legacy-a",
 					surfaceOrderPatch: { surface: "list", order: "semantic-z" },
 				}).success,
 			).toBe(false);

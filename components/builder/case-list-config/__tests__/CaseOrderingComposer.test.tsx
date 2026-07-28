@@ -456,12 +456,10 @@ describe("CaseOrderingComposer", () => {
 	it("breaks equal priorities by the independent Results arrangement", () => {
 		const laterInResults = {
 			...NAME,
-			listOrder: "z",
 			sort: { direction: "asc" as const, priority: 0 },
 		};
 		const firstInResults = {
 			...AGE,
-			listOrder: "a",
 			sort: { direction: "desc" as const, priority: 0 },
 		};
 

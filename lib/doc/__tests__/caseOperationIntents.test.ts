@@ -20,7 +20,6 @@ const UNKNOWN = asUuid("10000000-0000-4000-8000-000000000099");
 const create: CaseOperation = {
 	uuid: CREATE,
 	id: "create_referral",
-	order: "a",
 	action: "create",
 	caseType: "referral",
 	target: { kind: "new" },
@@ -30,7 +29,6 @@ const create: CaseOperation = {
 const retypeCreate: CaseOperation = {
 	uuid: RETYPE_CREATE,
 	id: "archive_referral",
-	order: "b",
 	action: "update",
 	caseType: "referral",
 	target: { kind: "op", opUuid: CREATE },
@@ -40,7 +38,6 @@ const retypeCreate: CaseOperation = {
 const retypeSession: CaseOperation = {
 	uuid: RETYPE_SESSION,
 	id: "retype_patient",
-	order: "c",
 	action: "update",
 	caseType: "patient",
 	target: { kind: "session" },
@@ -87,7 +84,6 @@ describe("case-operation rolling target intent", () => {
 		const first: CaseOperation = {
 			uuid: RETYPE_CREATE,
 			id: "retype_fixed",
-			order: "a",
 			action: "update",
 			caseType: "patient",
 			target,
@@ -104,7 +100,6 @@ describe("case-operation rolling target intent", () => {
 			const operation: CaseOperation = {
 				uuid: EDITED,
 				id: `${action}_case`,
-				order: "z",
 				action,
 				caseType: "household",
 				target: { kind: "session" },

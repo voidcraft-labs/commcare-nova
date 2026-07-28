@@ -5,6 +5,7 @@ import {
 	canonicalMutationSchema,
 	mutationSchema,
 } from "@/lib/doc/types";
+import { emptyCaseListConfig } from "@/lib/domain";
 
 const MODULE = asUuid("11111111-1111-4111-8111-111111111111");
 const FORM = asUuid("22222222-2222-4222-8222-222222222222");
@@ -232,7 +233,7 @@ describe("mutation envelope strictness", () => {
 		{
 			kind: "updateModule",
 			uuid: MODULE,
-			patch: { caseListConfig: { columns: [], searchInputs: [] } },
+			patch: { caseListConfig: emptyCaseListConfig() },
 		},
 		{ kind: "addField", parentUuid: FORM, field: validTextField },
 	] as const)(
@@ -311,7 +312,6 @@ describe("mutation envelope strictness", () => {
 				value: {
 					uuid: OPERATION,
 					id: "update_visit",
-					order: "b",
 					action: "update",
 					caseType: "visit",
 					target: { kind: "session" },

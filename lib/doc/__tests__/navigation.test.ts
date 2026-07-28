@@ -189,7 +189,6 @@ describe("navigation follows display order after a same-parent reorder", () => {
 				id: "grp",
 				kind: "group",
 				parentUuid: FORM,
-				order: "a",
 				childrenOrder: [],
 			},
 			{ uuid: CHILD1, id: "c1", kind: "text", parentUuid: GRP, order: "z" },
@@ -225,7 +224,6 @@ describe("navigation follows display order after a same-parent reorder", () => {
 				id: "grp",
 				kind: "group",
 				parentUuid: FORM,
-				order: "a",
 				childrenOrder: [],
 			},
 		]);

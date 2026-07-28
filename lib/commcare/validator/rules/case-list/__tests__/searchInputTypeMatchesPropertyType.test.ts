@@ -22,6 +22,8 @@ describe("searchInputTypeMatchesPropertyType", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [asUuid("c-1")],
+						detailColumnOrder: [asUuid("c-1")],
 						searchInputs: [
 							simpleSearchInputDef(
 								asUuid("si-1"),
@@ -72,6 +74,8 @@ describe("searchInputTypeMatchesPropertyType", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [asUuid("c-1")],
+						detailColumnOrder: [asUuid("c-1")],
 						searchInputs: [
 							simpleSearchInputDef(
 								asUuid("si-1"),
@@ -123,6 +127,8 @@ describe("searchInputTypeMatchesPropertyType", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [asUuid("c-1")],
+						detailColumnOrder: [asUuid("c-1")],
 						searchInputs: [
 							simpleSearchInputDef(
 								asUuid("si-1"),
@@ -177,6 +183,8 @@ describe("searchInputTypeMatchesPropertyType", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [asUuid("c-1")],
+						detailColumnOrder: [asUuid("c-1")],
 						searchInputs: [
 							{
 								kind: "advanced",

@@ -21,6 +21,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	type BlueprintDoc,
 	caseSearchConfigSchema,
+	emptyCaseListConfig,
 	type Module,
 } from "@/lib/domain";
 import { eq, literal, matchAll, prop, term } from "@/lib/domain/predicate";
@@ -223,7 +224,7 @@ describe("setCaseSearchDisplay", () => {
 			modules: {
 				[MOD_A]: {
 					...baseDoc.modules[MOD_A],
-					caseListConfig: { columns: [], searchInputs: [] },
+					caseListConfig: emptyCaseListConfig(),
 					caseSearchConfig: {
 						searchActionEnabled: false,
 						excludedOwnerIds: owner,

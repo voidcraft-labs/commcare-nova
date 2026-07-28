@@ -119,13 +119,11 @@ function select(
 		options: [
 			{
 				uuid: asUuid("21000000-0000-7000-8000-000000000001"),
-				order: "a",
 				value: "a",
 				label: "A",
 			},
 			{
 				uuid: asUuid("21000000-0000-7000-8000-000000000002"),
-				order: "b",
 				value: "b",
 				label: "B",
 			},
@@ -161,6 +159,8 @@ function surveyDoc(
 						columns: [
 							plainColumn(asUuid("lookup-test-column"), "region", "Region"),
 						],
+						listColumnOrder: [asUuid("lookup-test-column")],
+						detailColumnOrder: [asUuid("lookup-test-column")],
 						searchInputs: [
 							simpleSearchInputDef(
 								asUuid("lookup-test-input"),
@@ -194,7 +194,6 @@ describe("lookup-backed select filter semantics", () => {
 		const doc = surveyDoc([
 			f({
 				uuid: FIELD_1,
-				order: "a",
 				kind: "hidden",
 				id: "seed",
 				default_value: "'north'",
@@ -225,7 +224,6 @@ describe("lookup-backed select filter semantics", () => {
 			// order keys force uuid to decide the effective sequence.
 			f({
 				uuid: FIELD_3,
-				order: "same",
 				kind: "text",
 				id: "late",
 				label: "Late",
@@ -241,7 +239,6 @@ describe("lookup-backed select filter semantics", () => {
 			),
 			f({
 				uuid: FIELD_1,
-				order: "same",
 				kind: "text",
 				id: "early",
 				label: "Early",
@@ -259,7 +256,6 @@ describe("lookup-backed select filter semantics", () => {
 		const doc = surveyDoc([
 			f({
 				uuid: FIELD_1,
-				order: "a",
 				kind: "label",
 				id: "instructions",
 				label: "Instructions",
@@ -289,7 +285,6 @@ describe("lookup-backed select filter semantics", () => {
 	it("carries multi-select answer types into compatible and incompatible operators", () => {
 		const multiSelect = f({
 			uuid: FIELD_3,
-			order: "a",
 			kind: "multi_select",
 			id: "many_choices",
 			label: "Many choices",
@@ -331,35 +326,30 @@ describe("lookup-backed select filter semantics", () => {
 		const valid = surveyDoc([
 			f({
 				uuid: FIELD_1,
-				order: "a",
 				kind: "text",
 				id: "root",
 				label: "Root",
 			}),
 			f({
 				uuid: FIELD_2,
-				order: "b",
 				kind: "repeat",
 				id: "outer",
 				label: "Outer",
 				children: [
 					f({
 						uuid: FIELD_3,
-						order: "a",
 						kind: "text",
 						id: "outer_value",
 						label: "Outer value",
 					}),
 					f({
 						uuid: FIELD_4,
-						order: "b",
 						kind: "repeat",
 						id: "inner",
 						label: "Inner",
 						children: [
 							f({
 								uuid: FIELD_5,
-								order: "a",
 								kind: "text",
 								id: "inner_value",
 								label: "Inner value",
@@ -384,14 +374,12 @@ describe("lookup-backed select filter semantics", () => {
 		const invalid = surveyDoc([
 			f({
 				uuid: FIELD_1,
-				order: "a",
 				kind: "repeat",
 				id: "left",
 				label: "Left",
 				children: [
 					f({
 						uuid: FIELD_2,
-						order: "a",
 						kind: "text",
 						id: "left_value",
 						label: "Left value",
@@ -407,14 +395,12 @@ describe("lookup-backed select filter semantics", () => {
 					),
 					f({
 						uuid: FIELD_4,
-						order: "b",
 						kind: "repeat",
 						id: "child",
 						label: "Child",
 						children: [
 							f({
 								uuid: FIELD_5,
-								order: "a",
 								kind: "text",
 								id: "child_value",
 								label: "Child value",
@@ -425,14 +411,12 @@ describe("lookup-backed select filter semantics", () => {
 			}),
 			f({
 				uuid: FIELD_7,
-				order: "b",
 				kind: "repeat",
 				id: "right",
 				label: "Right",
 				children: [
 					f({
 						uuid: FIELD_8,
-						order: "a",
 						kind: "text",
 						id: "right_value",
 						label: "Right value",
@@ -587,7 +571,6 @@ describe("lookup type-context integration", () => {
 			},
 			f({
 				uuid: FIELD_3,
-				order: "b",
 				kind: "text",
 				id: "later",
 				label: "Later",
@@ -692,6 +675,8 @@ describe("lookup type-context integration", () => {
 								lookupInt,
 							),
 						],
+						listColumnOrder: [asUuid("lookup-carrier-name")],
+						detailColumnOrder: [asUuid("lookup-carrier-name")],
 						searchInputs: [
 							simpleSearchInputDef(
 								asUuid("lookup-carrier-default"),
@@ -739,7 +724,6 @@ describe("lookup type-context integration", () => {
 			{
 				uuid: asUuid("lookup-carrier-create-operation"),
 				id: "create_patient",
-				order: "a",
 				action: "create",
 				caseType: "patient",
 				target: { kind: "new" },
@@ -748,7 +732,6 @@ describe("lookup type-context integration", () => {
 			{
 				uuid: asUuid("lookup-carrier-operation"),
 				id: "update_patient",
-				order: "b",
 				action: "update",
 				caseType: "patient",
 				target: { kind: "expression", expr: lookupText },
@@ -827,6 +810,8 @@ describe("lookup type-context integration", () => {
 								arith("+", lookupText, term(literal(1))),
 							),
 						],
+						listColumnOrder: [asUuid("typed-lookup-carrier-name")],
+						detailColumnOrder: [asUuid("typed-lookup-carrier-name")],
 						searchInputs: [
 							simpleSearchInputDef(
 								defaultInputUuid,
@@ -922,7 +907,6 @@ describe("lookup type-context integration", () => {
 		const lookupInt = tableLookup(TABLE_A, INT_A, matchAll());
 		const wrongPredicate = eq(lookupInt, literal("North"));
 		const baseUpdate = {
-			order: "a",
 			action: "update" as const,
 			caseType: "patient",
 			target: { kind: "session" as const },
@@ -954,7 +938,6 @@ describe("lookup type-context integration", () => {
 				operation: {
 					uuid: asUuid("typed-operation-name"),
 					id: "create_name",
-					order: "a",
 					action: "create",
 					caseType: "patient",
 					target: { kind: "new" },
@@ -1045,6 +1028,8 @@ describe("lookup type-context integration", () => {
 									"Name",
 								),
 							],
+							listColumnOrder: [asUuid("typed-operation-case-name")],
+							detailColumnOrder: [asUuid("typed-operation-case-name")],
 							searchInputs: [],
 						},
 						forms: [
@@ -1106,6 +1091,8 @@ describe("lookup type-context integration", () => {
 								missingText,
 							),
 						],
+						listColumnOrder: [asUuid("missing-lookup-carrier-name")],
+						detailColumnOrder: [asUuid("missing-lookup-carrier-name")],
 						searchInputs: [],
 						filter: eq(missingText, literal("North")),
 					},
@@ -1133,7 +1120,6 @@ describe("lookup type-context integration", () => {
 			{
 				uuid: asUuid("missing-lookup-carrier-operation"),
 				id: "update_patient",
-				order: "a",
 				action: "update",
 				caseType: "patient",
 				target: { kind: "session" },

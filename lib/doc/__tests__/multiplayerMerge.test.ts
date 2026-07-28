@@ -35,14 +35,6 @@ import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import { applyMutations } from "@/lib/doc/mutations";
 import {
-	backfillOptionUuids,
-	backfillOrderKeys,
-} from "@/lib/doc/order/backfill";
-import { columnSurfaceMoveMutation } from "@/lib/doc/order/columnSurface";
-import { byListColumnOrder, bySortKey } from "@/lib/doc/order/compare";
-import { keyBetween } from "@/lib/doc/order/keys";
-import { searchInputMoveMutation } from "@/lib/doc/order/searchInput";
-import {
 	declareCaseTypeForField,
 	formScaffoldMutations,
 } from "@/lib/doc/scaffolds";
@@ -53,6 +45,7 @@ import {
 	asUuid,
 	type BlueprintDoc,
 	calculatedColumn,
+	emptyCaseListConfig,
 	type Field,
 	type Module,
 	simpleSearchInputDef,
@@ -711,7 +704,6 @@ describe("disjoint collection edits merge", () => {
 				kind: "moveColumn",
 				moduleUuid,
 				uuid: colA,
-				order: "list-z",
 				surfaceOrderPatch: { surface: "list", order: "list-z" },
 			},
 		];
@@ -720,7 +712,6 @@ describe("disjoint collection edits merge", () => {
 				kind: "moveColumn",
 				moduleUuid,
 				uuid: colA,
-				order: "detail-a",
 				surfaceOrderPatch: { surface: "detail", order: "detail-a" },
 			},
 		];
@@ -1159,7 +1150,7 @@ describe("setCaseListMeta on a peer-removed config", () => {
 			{
 				kind: "updateModule",
 				uuid: moduleUuid,
-				patch: { caseListConfig: { columns: [], searchInputs: [] } },
+				patch: { caseListConfig: emptyCaseListConfig() },
 				ensureCaseListConfig: true,
 			},
 			{
@@ -1189,16 +1180,13 @@ describe("diff — case-list presence transition", () => {
 		);
 		const moduleUuid = prev.moduleOrder[0];
 		const next = produce(prev, (draft) => {
-			draft.modules[moduleUuid].caseListConfig = {
-				columns: [],
-				searchInputs: [],
-			};
+			draft.modules[moduleUuid].caseListConfig = emptyCaseListConfig();
 		});
 		const diff = diffDocsToMutations(prev, next);
 		expect(diff).toContainEqual({
 			kind: "updateModule",
 			uuid: moduleUuid,
-			patch: { caseListConfig: { columns: [], searchInputs: [] } },
+			patch: { caseListConfig: emptyCaseListConfig() },
 			ensureCaseListConfig: true,
 		});
 		expect(apply(prev, diff).modules[moduleUuid].caseListConfig).toEqual(
@@ -1225,6 +1213,8 @@ describe("diff — case-list presence transition", () => {
 						header: "Name",
 					},
 				],
+				listColumnOrder: [localColumnUuid],
+				detailColumnOrder: [localColumnUuid],
 				searchInputs: [],
 				filter: { kind: "match-all" },
 			};
@@ -1233,7 +1223,7 @@ describe("diff — case-list presence transition", () => {
 		expect(localBatch).toContainEqual({
 			kind: "updateModule",
 			uuid: moduleUuid,
-			patch: { caseListConfig: { columns: [], searchInputs: [] } },
+			patch: { caseListConfig: emptyCaseListConfig() },
 			ensureCaseListConfig: true,
 		});
 
@@ -2616,7 +2606,6 @@ describe("diff — evacuation into a same-diff-added container", () => {
 					id: "g",
 					kind: "group",
 					label: "G",
-					order: "zz",
 				} as Field,
 			},
 			{ kind: "moveField", uuid: xUuid, toParentUuid: G, order: "a1" },

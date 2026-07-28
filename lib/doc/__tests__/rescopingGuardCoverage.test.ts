@@ -24,7 +24,6 @@ import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
 import type { ValidationErrorCode } from "@/lib/commcare/validator/errors";
 import { scopeOfMutations } from "@/lib/commcare/validator/scopeOfMutations";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
-import { backfillOptionUuids } from "@/lib/doc/order/backfill";
 import type { Mutation } from "@/lib/doc/types";
 import { asUuid, type BlueprintDoc, type Field } from "@/lib/domain";
 
@@ -749,7 +748,6 @@ const GUARD_COVERAGE = {
 							kind: "plain",
 							field: "ghost",
 							header: "Ghost",
-							order: "V",
 						},
 					},
 				],
@@ -811,7 +809,6 @@ const GUARD_COVERAGE = {
 						kind: "moveColumn",
 						moduleUuid: asUuid("mod-patients"),
 						uuid: col.uuid,
-						order: "V",
 						surfaceOrderPatch: { surface: "list", order: "V" },
 					},
 				],
@@ -836,7 +833,6 @@ const GUARD_COVERAGE = {
 							label: "Name",
 							type: "text",
 							property: "case_name",
-							order: "V",
 						},
 					},
 				],

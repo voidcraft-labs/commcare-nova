@@ -1194,6 +1194,8 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 			caseListOnly: true,
 			caseListConfig: {
 				columns: [plainColumn(minter.uuid("col"), "case_name", "Name")],
+				listColumnOrder: [minter.uuid("col")],
+				detailColumnOrder: [minter.uuid("col")],
 				searchInputs: [],
 			},
 		};

@@ -79,6 +79,8 @@ function caseListOnlyDoc(caseListIcon?: string) {
 				forms: [],
 				caseListConfig: {
 					columns: [plainColumn(asUuid("col-1"), "case_name", "Name")],
+					listColumnOrder: [asUuid("col-1")],
+					detailColumnOrder: [asUuid("col-1")],
 					searchInputs: [],
 					...(caseListIcon !== undefined && { icon: caseListIcon }),
 				},

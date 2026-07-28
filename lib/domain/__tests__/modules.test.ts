@@ -1,3 +1,4 @@
+import { emptyCaseListConfig } from "@/lib/domain";
 // lib/domain/__tests__/modules.test.ts
 //
 // Schema-parse coverage for the `caseListConfig` shape. The schema
@@ -72,7 +73,7 @@ describe("moduleSchema — caseListConfig presence", () => {
 			id: "patients",
 			name: "Patients",
 			caseType: "patient",
-			caseListConfig: { columns: [], searchInputs: [] },
+			caseListConfig: emptyCaseListConfig(),
 		});
 		expect(parsed.success).toBe(true);
 	});
@@ -115,10 +116,7 @@ describe("moduleSchema — caseListConfig presence", () => {
 
 describe("caseListConfigSchema — three-slot shape", () => {
 	it("parses with empty columns + searchInputs", () => {
-		const parsed = caseListConfigSchema.safeParse({
-			columns: [],
-			searchInputs: [],
-		});
+		const parsed = caseListConfigSchema.safeParse(emptyCaseListConfig());
 		expect(parsed.success).toBe(true);
 	});
 
@@ -444,6 +442,8 @@ describe("Column.sort — column-level sort directive", () => {
 					sort: { direction: "asc", priority: 0 },
 				}),
 			],
+			listColumnOrder: [u(1)],
+			detailColumnOrder: [u(1)],
 			searchInputs: [],
 		};
 		const parsed = caseListConfigSchema.safeParse(config);
@@ -512,10 +512,7 @@ describe("Column.visibleInList / visibleInDetail — visibility flags", () => {
 
 describe("Column.listOrder / detailOrder — surface order keys", () => {
 	it("round-trips both independent order keys through the shared schema", () => {
-		const input = plainColumn(u(1), "name", "Name", {
-			listOrder: "list-a",
-			detailOrder: "detail-z",
-		});
+		const input = plainColumn(u(1), "name", "Name", {});
 		const parsed = columnSchema.safeParse(input);
 		expect(parsed.success).toBe(true);
 		if (parsed.success) {
@@ -531,7 +528,6 @@ describe("Column.listOrder / detailOrder — surface order keys", () => {
 			kind: "plain",
 			field: "name",
 			header: "Name",
-			order: "legacy",
 		});
 		expect(parsed.success).toBe(true);
 		if (parsed.success) {
@@ -846,6 +842,8 @@ describe("caseListConfigSchema — populated round-trip", () => {
 					"OVERDUE",
 				),
 			],
+			listColumnOrder: [u(1)],
+			detailColumnOrder: [u(1)],
 			filter: { kind: "match-all" } as const,
 			searchInputs: [
 				simpleSearchInputDef(
@@ -969,7 +967,7 @@ describe("moduleSchema — caseSearchConfig presence", () => {
 			id: "patients",
 			name: "Patients",
 			caseType: "patient",
-			caseListConfig: { columns: [], searchInputs: [] },
+			caseListConfig: emptyCaseListConfig(),
 			caseSearchConfig: {
 				searchScreenTitle: "Search for a patient",
 			},
@@ -1013,7 +1011,7 @@ describe("effectiveCaseSearchConfig", () => {
 		const config = { searchScreenTitle: "Find a patient" };
 		expect(
 			effectiveCaseSearchConfig({
-				caseListConfig: { columns: [], searchInputs: [] },
+				caseListConfig: emptyCaseListConfig(),
 				caseSearchConfig: config,
 			}),
 		).toBe(config);
@@ -1022,7 +1020,7 @@ describe("effectiveCaseSearchConfig", () => {
 	it("does not invent Search for an owner-only config born without an action", () => {
 		expect(
 			effectiveCaseSearchConfig({
-				caseListConfig: { columns: [], searchInputs: [] },
+				caseListConfig: emptyCaseListConfig(),
 				caseSearchConfig: {
 					searchActionEnabled: false,
 					excludedOwnerIds: term(literal("owner-a")),
@@ -1034,7 +1032,7 @@ describe("effectiveCaseSearchConfig", () => {
 	it("does not resurrect Search from an owner-only rolling-deploy fallback", () => {
 		expect(
 			effectiveCaseSearchConfig({
-				caseListConfig: { columns: [], searchInputs: [] },
+				caseListConfig: emptyCaseListConfig(),
 				caseSearchConfig: {
 					excludedOwnerIds: term(literal("owner-a")),
 					searchButtonDisplayCondition: { kind: "match-none" },

@@ -40,7 +40,12 @@ import {
 import { expandDoc } from "@/lib/commcare/expander";
 import type { ValidationErrorCode } from "@/lib/commcare/validator/errors";
 import { validateHqJson } from "@/lib/commcare/validator/hqJsonOracle";
-import { asUuid, calculatedColumn, plainColumn } from "@/lib/domain";
+import {
+	asUuid,
+	calculatedColumn,
+	emptyCaseListConfig,
+	plainColumn,
+} from "@/lib/domain";
 import { prop, toValueExpression } from "@/lib/domain/predicate";
 
 // ── Fixture builders ───────────────────────────────────────────────
@@ -153,8 +158,6 @@ describe("HQ-JSON oracle — clean baseline", () => {
 			toValueExpression(prop("patient", "age")),
 			{
 				sort: { direction: "asc", priority: 0 },
-				listOrder: "b",
-				detailOrder: "a",
 			},
 		);
 		const app = expandDoc(
@@ -314,10 +317,7 @@ describe("HQ-JSON oracle — clean baseline", () => {
 				{
 					name: "Patients",
 					caseType: "patient",
-					caseListConfig: {
-						columns: [],
-						searchInputs: [],
-					},
+					caseListConfig: emptyCaseListConfig(),
 					forms: [
 						{
 							name: "Register",
@@ -342,7 +342,7 @@ describe("HQ-JSON oracle — clean baseline", () => {
 				{
 					name: "Visits",
 					caseType: "visit",
-					caseListConfig: { columns: [], searchInputs: [] },
+					caseListConfig: emptyCaseListConfig(),
 					forms: [
 						{
 							name: "Visit",

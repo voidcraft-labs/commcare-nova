@@ -156,10 +156,17 @@ export interface ModuleSpec {
 export function caseListConfig(
 	columns: ReadonlyArray<{ field: string; header: string }>,
 ): NonNullable<Module["caseListConfig"]> {
+	const built = columns.map((c) =>
+		plainColumn(nextUuid("col"), c.field, c.header),
+	);
+	// Both screens show the columns in the order the fixture wrote them. A
+	// column belongs to Results and Details from birth, so a config cannot be
+	// built with one missing from either.
+	const sequence = built.map((column) => column.uuid);
 	return {
-		columns: columns.map((c) =>
-			plainColumn(nextUuid("col"), c.field, c.header),
-		),
+		columns: built,
+		listColumnOrder: sequence,
+		detailColumnOrder: [...sequence],
 		searchInputs: [],
 	};
 }

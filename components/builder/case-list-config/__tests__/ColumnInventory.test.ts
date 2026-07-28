@@ -8,7 +8,6 @@ function blankHeaderColumn(field: string): Column {
 		kind: "plain",
 		field,
 		header: "",
-		order: "a",
 	};
 }
 

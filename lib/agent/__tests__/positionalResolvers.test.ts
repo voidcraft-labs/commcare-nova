@@ -13,8 +13,6 @@ import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { applyMutations } from "@/lib/doc/mutations";
-import { backfillOrderKeys } from "@/lib/doc/order/backfill";
-import { keyBetween } from "@/lib/doc/order/keys";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
 import {

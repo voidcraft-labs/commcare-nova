@@ -6,6 +6,7 @@ import {
 	asUuid,
 	type CaseOperation,
 	calculatedColumn,
+	emptyCaseListConfig,
 	type LookupColumnId,
 	type LookupOptionsSource,
 	type LookupTableId,
@@ -71,10 +72,7 @@ function lookupCarrierDoc() {
 				caseType: "person",
 				caseListConfig: {
 					columns: [
-						plainColumn(SAFE_COLUMN, "name", "Name", {
-							listOrder: "a",
-							detailOrder: "a",
-						}),
+						plainColumn(SAFE_COLUMN, "name", "Name", {}),
 						calculatedColumn(
 							LOOKUP_COLUMN,
 							"Lookup-derived",
@@ -82,6 +80,8 @@ function lookupCarrierDoc() {
 							{ listOrder: "b", detailOrder: "b" },
 						),
 					],
+					listColumnOrder: [SAFE_COLUMN],
+					detailColumnOrder: [SAFE_COLUMN],
 					filter: deepLookupPredicate,
 					searchInputs: [
 						simpleSearchInputDef(SAFE_INPUT, "name", "Name", "text", "name", {
@@ -317,6 +317,8 @@ describe("shared read tools — dormant lookup carriers", () => {
 		expect(moduleRead.data.case_list_config).toMatchObject({
 			icon: "asset-case-list",
 			columns: [expect.objectContaining({ uuid: SAFE_COLUMN, header: "Name" })],
+			listColumnOrder: [SAFE_COLUMN],
+			detailColumnOrder: [SAFE_COLUMN],
 		});
 		expect(moduleRead.data.case_list_config?.filter).toBeUndefined();
 		expect(moduleRead.data.case_list_config?.searchInputs).toEqual([
@@ -348,6 +350,8 @@ describe("shared read tools — dormant lookup carriers", () => {
 					name: "Clean",
 					caseListConfig: {
 						columns: [plainColumn(SAFE_COLUMN, "name", "Name")],
+						listColumnOrder: [SAFE_COLUMN],
+						detailColumnOrder: [SAFE_COLUMN],
 						searchInputs: [
 							simpleSearchInputDef(SAFE_INPUT, "name", "Name", "text", "name", {
 								default: term(literal("Ada")),
@@ -473,10 +477,7 @@ describe("shared read tools — dormant lookup carriers", () => {
 					"This case change uses lookup-table logic that Nova preserves but cannot safely edit from this surface.",
 			},
 		});
-		expect(moduleRead.data.case_list_config).toEqual({
-			columns: [],
-			searchInputs: [],
-		});
+		expect(moduleRead.data.case_list_config).toEqual(emptyCaseListConfig());
 		expect(moduleRead.data.case_search_config).toBeNull();
 		expect(moduleRead.data.results_column_order).toEqual([]);
 		expect(moduleRead.data.details_column_order).toEqual([]);

@@ -48,6 +48,8 @@ function docWithExpression(
 				caseType: "patient",
 				caseListConfig: {
 					columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
+					listColumnOrder: [asUuid("col-name")],
+					detailColumnOrder: [asUuid("col-name")],
 					searchInputs: [...searchInputs],
 				},
 				...(expression === undefined

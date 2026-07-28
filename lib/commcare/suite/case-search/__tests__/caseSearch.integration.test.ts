@@ -150,6 +150,8 @@ function buildSearchBlueprint(): BlueprintDoc {
 						plainColumn(COL_NAME_UUID, "case_name", "Name"),
 						plainColumn(COL_REGION_UUID, "region", "Region"),
 					],
+					listColumnOrder: [COL_NAME_UUID],
+					detailColumnOrder: [COL_NAME_UUID],
 					// Filter on `region` — a self-walk on the patient case.
 					filter: eq(prop("patient", "region"), literal("North")),
 					searchInputs: [

@@ -66,7 +66,6 @@ function populatedBlueprint(): BlueprintDoc {
 				uuid: MODULE_UUID,
 				id: "m_module1",
 				name: "Module 1",
-				order: "a0",
 			},
 		},
 		forms: {
@@ -75,7 +74,6 @@ function populatedBlueprint(): BlueprintDoc {
 				id: "f_form1",
 				name: "Form 1",
 				type: "survey" as const,
-				order: "a0",
 				connect: CONNECT,
 				closeCondition: { field: "done", answer: "yes" },
 				postSubmit: "app_home",

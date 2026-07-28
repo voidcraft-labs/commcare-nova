@@ -7,12 +7,6 @@ import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
-import { backfillOrderKeys } from "@/lib/doc/order/backfill";
-import {
-	byDetailColumnOrder,
-	byListColumnOrder,
-	bySortKey,
-} from "@/lib/doc/order/compare";
 import { BlueprintDocContext, BlueprintDocProvider } from "@/lib/doc/provider";
 import { asUuid, simpleSearchInputDef } from "@/lib/domain";
 

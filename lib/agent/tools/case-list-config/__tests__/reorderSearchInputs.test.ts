@@ -11,7 +11,6 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { bySortKey } from "@/lib/doc/order/compare";
 import { asUuid, type BlueprintDoc, simpleSearchInputDef } from "@/lib/domain";
 import { reorderSearchInputsTool } from "../reorderSearchInputs";
 import { MOD_A, makeCaseListFixture } from "./fixtures";
