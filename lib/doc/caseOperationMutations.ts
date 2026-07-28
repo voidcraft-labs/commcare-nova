@@ -16,7 +16,6 @@ import { mutationCommitVerdict } from "./commitVerdicts";
 import { deepEqual } from "./deepEqual";
 import { caseOperationContainsDormantLookupCarrier } from "./dormantLookupCarriers";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "./lookupReferences";
-import { planRankedMove, type RankedMovePlan } from "./order/rankedMove";
 import { caseOperationCatalogMutations } from "./scaffolds";
 import type { Mutation } from "./types";
 import { offeredChoiceRefusal } from "./userFacingErrors";
@@ -86,29 +85,15 @@ function operationMutation(
 function moveOperationMutation(
 	formUuid: Uuid,
 	uuid: Uuid,
-	order: string,
-	index?: number,
+	after: Uuid | null,
 ): UpdateFormMutation {
 	return {
 		kind: "updateForm",
 		uuid: formUuid,
 		patch: {},
-		caseOperationChange: { operation: "move", uuid, order },
-		caseOperationPatch: {
-			operation: "move",
-			uuid,
-			order,
-			...(index !== undefined && { index }),
-		},
+		caseOperationChange: { operation: "move", uuid, after },
+		caseOperationPatch: { operation: "move", uuid, after },
 	};
-}
-
-/**
- * `orderedCaseOperations`' own tie-break between two equal order keys, so a
- * ranked move judges a landing rank with the comparator this document sorts by.
- */
-function compareOperationUuids(left: Uuid, right: Uuid): number {
-	return left.localeCompare(right);
 }
 
 /**
@@ -119,29 +104,6 @@ function compareOperationUuids(left: Uuid, right: Uuid): number {
  * on a document where a peer changed another therefore composes instead of
  * replacing the peer's whole operation.
  */
-/** The order-slot half of an operation diff, shared by the ordinary
- *  per-slot path and the whole-replacement fallback a reorder takes. */
-function orderChanges(
-	formUuid: Uuid,
-	before: CaseOperation,
-	after: CaseOperation,
-	moveIndex?: number,
-): Mutation[] {
-	if (deepEqual(before.order, after.order)) return [];
-	if (after.order === undefined) {
-		// The deployed move grammar cannot clear an order key. Keep the
-		// established full-operation fallback for this legacy repair-only
-		// shape; ordinary interactive moves always carry a concrete key.
-		return [
-			operationMutation(
-				formUuid,
-				{ operation: "move", uuid: before.uuid, order: null },
-				after,
-			),
-		];
-	}
-	return [moveOperationMutation(formUuid, before.uuid, after.order, moveIndex)];
-}
 
 /** Whether two keyed sequences hold the same keys in a different order.
  *  Membership changes are handled by the add/remove paths; this asks
@@ -161,7 +123,6 @@ export function caseOperationChangesForUpdate(
 	formUuid: Uuid,
 	before: CaseOperation,
 	after: CaseOperation,
-	moveIndex?: number,
 ): Mutation[] {
 	if (before.uuid !== after.uuid) return [];
 
@@ -193,7 +154,6 @@ export function caseOperationChangesForUpdate(
 					value: structuredClone(after),
 				},
 			},
-			...orderChanges(formUuid, before, after, moveIndex),
 		];
 	}
 
@@ -340,8 +300,6 @@ export function caseOperationChangesForUpdate(
 		}
 	}
 
-	mutations.push(...orderChanges(formUuid, before, after, moveIndex));
-
 	return mutations;
 }
 
@@ -434,10 +392,6 @@ function rebaseCaseOperationEdit(
 		const value = desired[key];
 		if (value === undefined) delete target[key];
 		else target[key] = structuredClone(value);
-	}
-	if (!deepEqual(base.order, desired.order)) {
-		if (desired.order === undefined) delete target.order;
-		else target.order = desired.order;
 	}
 
 	const baseWrites = new Map(
@@ -555,10 +509,7 @@ export function planCaseOperationUpdate(
 		};
 	}
 	const intentBase = base ?? current;
-	const normalizedDesired: CaseOperation = {
-		...desired,
-		order: desired.order ?? intentBase.order,
-	};
+	const normalizedDesired: CaseOperation = { ...desired };
 	if (deepEqual(intentBase, normalizedDesired)) {
 		return { ok: true, mutations: [] };
 	}
@@ -715,16 +666,13 @@ export function addCaseOperationMutations(
 	const form = doc.forms[formUuid];
 	if (form === undefined) return [];
 	const ordered = orderedCaseOperations(form);
-	const placement: RankedMovePlan<Uuid> =
-		operation.order === undefined
-			? planRankedMove(
-					ordered,
-					operation.uuid,
-					index ?? ordered.length,
-					compareOperationUuids,
-				)
-			: { order: operation.order, rekeys: [] };
-	const value = { ...operation, order: placement.order };
+	const value = { ...operation };
+	// An indexed add lands the operation, then moves it into place. It needs no
+	// companion re-keying of its neighbours: a ranked landing used to be
+	// unreachable inside a run of equal keys, so the planner had to re-key the
+	// siblings to open a gap. An array index has no such run.
+	const at = index ?? ordered.length;
+	const previous = at > 0 ? (ordered[at - 1]?.uuid ?? null) : null;
 	return [
 		...caseOperationCatalogMutations(doc, value),
 		{
@@ -733,9 +681,9 @@ export function addCaseOperationMutations(
 			patch: {},
 			caseOperationChange: { operation: "add", value },
 		},
-		...placement.rekeys.map((rekey) =>
-			moveOperationMutation(formUuid, rekey.uuid, rekey.order),
-		),
+		...(at >= ordered.length
+			? []
+			: [moveOperationMutation(formUuid, operation.uuid, previous)]),
 	];
 }
 
@@ -748,10 +696,7 @@ export function updateCaseOperationMutations(
 		(candidate) => candidate.uuid === operation.uuid,
 	);
 	if (existing === undefined) return [];
-	const value = {
-		...operation,
-		order: operation.order ?? existing.order,
-	};
+	const value = { ...operation };
 	return [
 		...caseOperationCatalogMutations(doc, value),
 		...caseOperationChangesForUpdate(formUuid, existing, value),
@@ -839,25 +784,17 @@ export function moveCaseOperationMutation(
 		// nothing the author can observe.
 		return { ok: true, mutations: [] };
 	}
-	const plan = planRankedMove(
-		without,
-		uuid,
-		targetIndex,
-		compareOperationUuids,
-	);
-	const rekeyed = new Map(
-		plan.rekeys.map((rekey) => [rekey.uuid, rekey.order] as const),
-	);
-	// The verdicts below must see the ACTUAL landing, so the prospective form
-	// carries the mover's key AND every sibling the plan re-keys around it.
-	const prospective: Form = {
-		...form,
-		caseOperations: (form.caseOperations ?? []).map((candidate) => {
-			if (candidate.uuid === uuid) return { ...candidate, order: plan.order };
-			const order = rekeyed.get(candidate.uuid);
-			return order === undefined ? candidate : { ...candidate, order };
-		}),
-	};
+	// Where the operation lands: the uuid it will follow in the new sequence.
+	const after =
+		targetIndex > 0 ? (without[targetIndex - 1]?.uuid ?? null) : null;
+	// The verdicts below must see the ACTUAL landing. That used to mean carrying
+	// the mover's minted key AND every sibling the planner re-keyed to open a
+	// gap for it — a ranked destination inside a run of equal keys was
+	// unreachable by any single key. Splicing the array reaches every rank, so
+	// the prospective form is just the reordered sequence.
+	const landed = [...without];
+	landed.splice(targetIndex, 0, ordered[currentIndex]);
+	const prospective: Form = { ...form, caseOperations: landed };
 	const broken = dependencyOrderViolations(prospective);
 	if (broken.length > 0) {
 		return {
@@ -893,12 +830,7 @@ export function moveCaseOperationMutation(
 	}
 	return {
 		ok: true,
-		mutations: [
-			moveOperationMutation(formUuid, uuid, plan.order, targetIndex),
-			...plan.rekeys.map((rekey) =>
-				moveOperationMutation(formUuid, rekey.uuid, rekey.order),
-			),
-		],
+		mutations: [moveOperationMutation(formUuid, uuid, after)],
 	};
 }
 
