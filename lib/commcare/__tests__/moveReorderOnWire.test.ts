@@ -1,13 +1,10 @@
 /**
- * Order-key reorder — the WIRE reflects a granular `moveField` / `moveOption`
- * / `moveColumn`, and colliding order keys resolve deterministically.
+ * A granular move re-sequences the WIRE — `moveField`, `moveOption`,
+ * `moveColumn`, `moveModule`.
  *
- * This is the behavioral guard the review asked for: it exercises the full
- * path (mutation → doc → wire emitter) so a consumer that read a membership
- * array's POSITION instead of the `sort-by-(order, uuid)` sequence would fail
- * here, not in prod. A same-parent reorder writes only the entity's `order` and
- * leaves the membership array untouched, so array-position emission would be
- * stale.
+ * The behavioral guard over the full path (mutation → doc → wire emitter): an
+ * emitter that walked its own copy of a sequence, or resolved a positional
+ * reference against a stale one, fails here rather than in prod.
  */
 
 import { produce } from "immer";
@@ -17,7 +14,6 @@ import type { HqApplication, HqFormLink } from "@/lib/commcare";
 import { expandDoc } from "@/lib/commcare/expander";
 import { applyMutations } from "@/lib/doc/mutations";
 import { backfillOptionUuids } from "@/lib/doc/optionIdentity";
-import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, FormLink, Uuid } from "@/lib/domain";
 import { asUuid, plainColumn } from "@/lib/domain";
 
@@ -50,7 +46,7 @@ function hydrate(doc: BlueprintDoc): BlueprintDoc {
 	return copy;
 }
 
-describe("order-key reorder reflects on the wire", () => {
+describe("a move reflects on the wire", () => {
 	it("a same-parent moveField re-sequences the emitted XForm binds", () => {
 		const doc = hydrate(
 			buildDoc({
@@ -73,21 +69,13 @@ describe("order-key reorder reflects on the wire", () => {
 			}),
 		);
 		const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
-		const [ua, , uc] = doc.fieldOrder[formUuid];
-		// Move qc to the FRONT: order before qa. The membership array is left
-		// untouched — only qc's `order` changes.
+		const [, , uc] = doc.fieldOrder[formUuid];
+		// Move qc to the FRONT.
 		const next = produce(doc, (d) => {
 			applyMutations(d, [
-				{
-					kind: "moveField",
-					uuid: uc,
-					toParentUuid: formUuid,
-					order: keyBetween(null, d.fields[ua].order ?? null),
-				} as Mutation,
+				{ kind: "moveField", uuid: uc, toParentUuid: formUuid, after: null },
 			]);
 		});
-		// Membership array unchanged; display order is qc, qa, qb.
-		expect(next.fieldOrder[formUuid]).toEqual(doc.fieldOrder[formUuid]);
 		const xml = firstFormXml(next);
 		const [ia, ib, ic] = firstIndices(xml, [
 			'nodeset="/data/qa"',
@@ -132,16 +120,10 @@ describe("order-key reorder reflects on the wire", () => {
 		const fieldUuid = doc.fieldOrder[formUuid][0];
 		const field = doc.fields[fieldUuid] as { options: { uuid?: Uuid }[] };
 		const blueUuid = field.options[2].uuid as Uuid;
-		// Move "blue" to the FRONT (order before red).
-		const redOrder = (field.options[0] as { order?: string }).order ?? null;
+		// Move "blue" to the FRONT.
 		const next = produce(doc, (d) => {
 			applyMutations(d, [
-				{
-					kind: "moveOption",
-					fieldUuid,
-					uuid: blueUuid,
-					order: keyBetween(null, redOrder),
-				} as Mutation,
+				{ kind: "moveOption", fieldUuid, uuid: blueUuid, after: null },
 			]);
 		});
 		const xml = firstFormXml(next);
@@ -170,8 +152,8 @@ describe("order-key reorder reflects on the wire", () => {
 								plainColumn(c1, "case_name", "Name"),
 								plainColumn(c2, "age", "Age"),
 							],
-							listColumnOrder: [c1],
-							detailColumnOrder: [c1],
+							listColumnOrder: [c1, c2],
+							detailColumnOrder: [c1, c2],
 							searchInputs: [],
 						},
 					},
@@ -179,18 +161,16 @@ describe("order-key reorder reflects on the wire", () => {
 			}),
 		);
 		const moduleUuid = doc.moduleOrder[0];
-		// Move "Age" (col-2) before "Name" (col-1).
-		const nameOrder =
-			doc.modules[moduleUuid].caseListConfig?.columns.find((c) => c.uuid === c1)
-				?.order ?? null;
+		// Move "Age" (col-2) before "Name" (col-1) on Results.
 		const next = produce(doc, (d) => {
 			applyMutations(d, [
 				{
 					kind: "moveColumn",
 					moduleUuid,
 					uuid: c2,
-					order: keyBetween(null, nameOrder),
-				} as Mutation,
+					surface: "list",
+					after: null,
+				},
 			]);
 		});
 		const hqMod = expandDoc(next).modules[0];
@@ -199,75 +179,6 @@ describe("order-key reorder reflects on the wire", () => {
 		);
 		// "Age" now precedes "Name" on the wire.
 		expect(headers.indexOf("Age")).toBeLessThan(headers.indexOf("Name"));
-	});
-
-	it("colliding order keys resolve deterministically (uuid tie-break) and the wire agrees", () => {
-		const doc = hydrate(
-			buildDoc({
-				modules: [
-					{
-						name: "M",
-						forms: [
-							{
-								name: "F",
-								type: "survey",
-								fields: [
-									f({
-										kind: "single_select",
-										id: "pick",
-										label: "Pick",
-										options: [{ value: "x", label: "X" }],
-									}),
-								],
-							},
-						],
-					},
-				],
-			}),
-		);
-		const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
-		const fieldUuid = doc.fieldOrder[formUuid][0];
-		// Two concurrent `addOption`s land the SAME order key (both computed
-		// "append after the single existing option" against the same base doc).
-		const existing = doc.fields[fieldUuid] as { options: { order?: string }[] };
-		const collidingKey = keyBetween(existing.options[0].order ?? null, null);
-		const optA = asUuid("opt-aaa");
-		const optB = asUuid("opt-bbb");
-		const next = produce(doc, (d) => {
-			applyMutations(d, [
-				{
-					kind: "addOption",
-					fieldUuid,
-					option: {
-						value: "a",
-						label: "A",
-						uuid: optA,
-						order: collidingKey,
-					},
-				} as Mutation,
-				{
-					kind: "addOption",
-					fieldUuid,
-					option: {
-						value: "b",
-						label: "B",
-						uuid: optB,
-						order: collidingKey,
-					},
-				} as Mutation,
-			]);
-		});
-		// bySortKey tie-breaks on uuid: "opt-aaa" < "opt-bbb", so A precedes B —
-		// deterministic regardless of which member's add applied first.
-		const opts = (next.fields[fieldUuid] as { options: { uuid?: Uuid }[] })
-			.options;
-		const displayUuids = [...opts].sort(bySortKey).map((o) => o.uuid);
-		expect(displayUuids.indexOf(optA)).toBeLessThan(displayUuids.indexOf(optB));
-		// The wire emits A before B (same tie-break the display uses).
-		const xml = firstFormXml(next);
-		expect(xml.indexOf("<value>a</value>")).toBeLessThan(
-			xml.indexOf("<value>b</value>"),
-		);
 	});
 
 	it("a form_links target survives a module reorder (points at the display-moved menu)", () => {
@@ -314,21 +225,15 @@ describe("order-key reorder reflects on the wire", () => {
 			formIndex: 0,
 		});
 
-		// Move Followup (m2) to the FRONT: only m2's `order` changes; the
-		// moduleOrder membership array is left untouched.
+		// Move Followup (m2) to the FRONT.
 		const reordered = produce(linked, (d) => {
-			applyMutations(d, [
-				{
-					kind: "moveModule",
-					uuid: m2,
-					order: keyBetween(null, d.modules[m1].order ?? null),
-				} as Mutation,
-			]);
+			applyMutations(d, [{ kind: "moveModule", uuid: m2, after: null }]);
 		});
-		expect(reordered.moduleOrder).toEqual(linked.moduleOrder);
+		expect(reordered.moduleOrder).toEqual([m2, m1]);
 
-		// The link target follows the DISPLAY move to index 0 — a raw array read
-		// would emit the stale slot 1 (Intake's own menu), navigating wrong.
+		// The link target follows the move to index 0 — an emitter resolving the
+		// reference against a stale sequence would emit slot 1 (Intake's own
+		// menu), navigating wrong.
 		expect(firstFormLinkTarget(expandDoc(reordered))).toEqual({
 			type: "form",
 			moduleIndex: 0,
