@@ -284,7 +284,6 @@ function caseOperationPatchSchemaFor(
 		// own `uuid` is the addressing key, and `.strict()` rejects a second
 		// one outright. Do not add a runtime guard for it.
 		.omit({
-			order: true,
 			writes: true,
 			links: true,
 		})
@@ -1006,18 +1005,6 @@ function createMutationSchema({
 					new Set(columns.map((column) => column.uuid)),
 					ctx,
 				);
-				for (const [index, column] of columns.entries()) {
-					for (const key of ["listOrder", "detailOrder"] as const) {
-						if (column[key] !== undefined) {
-							ctx.addIssue({
-								code: "custom",
-								path: ["module", "caseListConfig", "columns", index, key],
-								message:
-									"Column surface order must use addModule.columnSurfaceOrders so the strict pre-deploy module schema can parse the fallback.",
-							});
-						}
-					}
-				}
 				const columnUuids = new Set(columns.map((column) => column.uuid));
 				const seenSurfaceOrders = new Set<string>();
 				for (const [index, entry] of (
@@ -1200,18 +1187,6 @@ function createMutationSchema({
 					new Set(fallbackColumns.map((column) => column.uuid)),
 					ctx,
 				);
-				for (const [index, column] of fallbackColumns.entries()) {
-					for (const key of ["listOrder", "detailOrder"] as const) {
-						if (column[key] !== undefined) {
-							ctx.addIssue({
-								code: "custom",
-								path: ["patch", "caseListConfig", "columns", index, key],
-								message:
-									"Surface order must use updateModule.columnSurfaceOrders so the strict pre-deploy nested schema can parse the fallback.",
-							});
-						}
-					}
-				}
 				const fallbackColumnUuids = new Set(
 					fallbackColumns.map((column) => column.uuid),
 				);
@@ -1657,16 +1632,6 @@ function createMutationSchema({
 				tileCell: tileCellSchema.optional(),
 			})
 			.superRefine((mutation, ctx) => {
-				for (const key of ["listOrder", "detailOrder"] as const) {
-					if (mutation.column[key] !== undefined) {
-						ctx.addIssue({
-							code: "custom",
-							path: ["column", key],
-							message:
-								"Surface order must use addColumn.surfaceOrders so the strict pre-deploy column schema can parse the fallback.",
-						});
-					}
-				}
 				if (mutation.column.tile !== undefined) {
 					ctx.addIssue({
 						code: "custom",
@@ -1707,16 +1672,6 @@ function createMutationSchema({
 					.optional(),
 			})
 			.superRefine((mutation, ctx) => {
-				for (const key of ["listOrder", "detailOrder"] as const) {
-					if (mutation.column[key] !== undefined) {
-						ctx.addIssue({
-							code: "custom",
-							path: ["column", key],
-							message:
-								"Surface order keys must stay out of the strict pre-deploy updateColumn fallback.",
-						});
-					}
-				}
 				if (mutation.column.tile !== undefined) {
 					ctx.addIssue({
 						code: "custom",
