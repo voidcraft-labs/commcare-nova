@@ -93,7 +93,7 @@ import {
 	orderedModuleUuids,
 } from "@/lib/doc/fieldWalk";
 import { applyMutations } from "@/lib/doc/mutations";
-import { sequenceMovesTo } from "@/lib/doc/mutations/sequence";
+import { sequenceMovesTo, spliceAfter } from "@/lib/doc/mutations/sequence";
 import { searchInputUpdateMutation } from "@/lib/doc/searchInputMutations";
 import {
 	asUuid,
@@ -465,29 +465,26 @@ export function diffDocsToMutations(
 	const addedModuleSet = new Set(moduleDelta.added);
 	const addedFormSet = new Set(formDelta.added);
 
-	for (const uuid of next.moduleOrder) {
+	for (const [at, uuid] of next.moduleOrder.entries()) {
 		if (!addedModuleSet.has(uuid)) continue;
-		const index = next.moduleOrder.indexOf(uuid);
 		adds.push(
 			addModuleMutation(
 				cloneEntity(ownRecordValue(next.modules, uuid) as Module),
-				index,
+				at === 0 ? null : next.moduleOrder[at - 1],
 			),
 		);
 	}
 
-	// Forms: in next.formOrder order per module, so each lands at its
-	// target index relative to forms already present.
+	// Forms: in each module's sequence order, each naming the form it follows.
 	for (const moduleUuid of next.moduleOrder) {
-		const order = ownRecordValue(next.formOrder, moduleUuid) ?? [];
-		for (let index = 0; index < order.length; index++) {
-			const formUuid = order[index];
+		const sequence = ownRecordValue(next.formOrder, moduleUuid) ?? [];
+		for (const [at, formUuid] of sequence.entries()) {
 			if (!addedFormSet.has(formUuid)) continue;
 			adds.push({
 				kind: "addForm",
 				moduleUuid,
 				form: cloneEntity(ownRecordValue(next.forms, formUuid) as Form),
-				index,
+				after: at === 0 ? null : sequence[at - 1],
 			});
 		}
 	}
@@ -938,12 +935,12 @@ function buildFormModuleMap(doc: BlueprintDoc): Map<Uuid, Uuid> {
  * same-parent reorders.
  *
  * Membership (adds / cross-parent moves) is detected by parent-set comparison;
- * a REORDER is an order-key change on a common, same-parent field (independent
- * of `fieldOrder` array position). Adds are emitted parent-before-child
- * (top-down parents, sorted children) so a container lands before the fields it
- * holds; each carries the field's `order`. A cross-parent move carries `order`
- * and joins `crossParentMoved` so the field-update loop force-pins its `id`
- * (undoing any move-time sibling-id dedup).
+ * a REORDER is a changed position in a common parent's membership array, which
+ * IS the sequence. Adds are emitted parent-before-child (top-down parents, in
+ * sequence order) so a container lands before the fields it holds; each names
+ * the sibling it follows. A cross-parent move names its anchor in the
+ * DESTINATION and joins `crossParentMoved` so the field-update loop force-pins
+ * its `id` (undoing any move-time sibling-id dedup).
  *
  * Cross-parent moves out of a DOOMED parent (one removed this batch) are
  * EVACUATIONS — emitted before the removes so the cascade can't delete the
@@ -976,10 +973,15 @@ function reconcileFieldTree(
 		ownRecordValue(next.forms, parentUuid) === undefined &&
 		ownRecordValue(next.fields, parentUuid) === undefined;
 
-	// Adds — parent-before-child (top-down parents, sorted children). Each
-	// added field carries its own `order`, so no `index` is needed.
+	// Adds — parent-before-child (top-down parents, in sequence order), each
+	// naming the sibling it follows. The placement is EXPLICIT rather than
+	// implied by emission order: a field can be added above siblings that
+	// already exist, and an anchor that arrives later in the batch (a
+	// cross-parent move lands after the adds) appends now and is re-spliced
+	// when its anchor's own move applies.
 	for (const parentUuid of nextParentsTopDown(next)) {
-		for (const uuid of orderedFieldUuids(next, parentUuid)) {
+		const sequence = orderedFieldUuids(next, parentUuid);
+		for (const [at, uuid] of sequence.entries()) {
 			if (!addedFieldSet.has(uuid)) continue;
 			const field = cloneEntity(
 				ownRecordValue(next.fields, uuid) as Field,
@@ -993,6 +995,7 @@ function reconcileFieldTree(
 				kind: "addField",
 				parentUuid,
 				field,
+				after: at === 0 ? null : sequence[at - 1],
 				...(optionsSource !== undefined && { optionsSource }),
 			} as Mutation);
 		}
@@ -1019,16 +1022,50 @@ function reconcileFieldTree(
 		else moves.push(move);
 	}
 
-	// Same-parent reorders are whatever moves turn each parent's previous
-	// sequence into its next one. A field that changed parent already carries
-	// its placement above and an added field carries its own, so neither is
-	// re-emitted here.
+	// Same-parent reorders are whatever moves are still needed once everything
+	// emitted ABOVE has landed — so they diff against the PROJECTED sequence,
+	// not `prev`. An add and an arrival each carry an anchor read off `next`,
+	// but they apply against a document whose surrounding entities have not
+	// moved yet, so they can land somewhere `next` doesn't have them. Folding
+	// them through the same `spliceAfter` the reducer runs is what lets this
+	// pass finish the job instead of computing a move from a state that never
+	// exists.
+	const projected = new Map<string, Uuid[]>();
 	for (const [parentUuid, nextOrder] of Object.entries(next.fieldOrder)) {
-		const before = (prev.fieldOrder[parentUuid] ?? []).filter(
-			(uuid) => !crossParentMoved.has(uuid as Uuid),
+		const survives = new Set(nextOrder);
+		projected.set(
+			parentUuid,
+			(prev.fieldOrder[parentUuid] ?? []).filter((uuid) => survives.has(uuid)),
 		);
-		for (const move of sequenceMovesTo(before, nextOrder)) {
-			if (crossParentMoved.has(move.uuid as Uuid)) continue;
+	}
+	for (const mutation of [...evacuations, ...adds, ...moves]) {
+		if (mutation.kind === "addField") {
+			const parentUuid = mutation.parentUuid;
+			projected.set(
+				parentUuid,
+				spliceAfter(
+					projected.get(parentUuid) ?? [],
+					mutation.field.uuid,
+					mutation.after,
+				),
+			);
+		} else if (mutation.kind === "moveField") {
+			const parentUuid = mutation.toParentUuid;
+			projected.set(
+				parentUuid,
+				spliceAfter(
+					projected.get(parentUuid) ?? [],
+					mutation.uuid,
+					mutation.after,
+				),
+			);
+		}
+	}
+	for (const [parentUuid, nextOrder] of Object.entries(next.fieldOrder)) {
+		for (const move of sequenceMovesTo(
+			projected.get(parentUuid) ?? [],
+			nextOrder,
+		)) {
 			moves.push({
 				kind: "moveField",
 				uuid: move.uuid as Uuid,

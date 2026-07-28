@@ -959,7 +959,10 @@ function createMutationSchema({
 				// nested slots travel in top-level extensions so old PUT handlers can
 				// parse this established discriminator and safely degrade.
 				module: mutationModuleSchema,
-				index: z.number().int().nonnegative().optional(),
+				/** The module this one now follows, or `null` for first. Absent
+				 *  appends — the common case, and distinct from `null` so "add at
+				 *  the top" stays expressible across the JSON wire. */
+				after: uuidSchema.nullable().optional(),
 				// Per-column tile placement and the case list's tile layout are both
 				// current-only slots on a strict nested schema, so they travel here and
 				// the fallback module stays tile-free. An old reducer applies a
@@ -1312,12 +1315,13 @@ function createMutationSchema({
 			kind: z.literal("addForm"),
 			moduleUuid: uuidSchema,
 			form: mutationFormSchema,
-			index: z.number().int().nonnegative().optional(),
+			/** The form this one now follows within the module, or `null` for
+			 *  first. Absent appends. */
+			after: uuidSchema.nullable().optional(),
 		}),
 		z.object({ kind: z.literal("removeForm"), uuid: uuidSchema }),
-		// `order` is the gesture-computed fractional key (written verbatim);
-		// `toIndex` is kept optional for legacy replay only. A same-module reorder
-		// sets only `order`; a cross-module move also updates membership.
+		// A same-module reorder splices within the module's membership array; a
+		// cross-module move splices into the destination's.
 		z.object({
 			kind: z.literal("moveForm"),
 			uuid: uuidSchema,

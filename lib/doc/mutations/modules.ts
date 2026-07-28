@@ -95,9 +95,8 @@ export function applyModuleMutation(
 			}
 			draft.modules[uuid] = module;
 			draft.formOrder[uuid] = [];
-			const index = mut.index ?? draft.moduleOrder.length;
-			const clamped = Math.max(0, Math.min(index, draft.moduleOrder.length));
-			draft.moduleOrder.splice(clamped, 0, uuid);
+			// The membership array IS the sequence, so the add splices.
+			draft.moduleOrder = spliceAfter(draft.moduleOrder, uuid, mut.after);
 			return;
 		}
 		case "removeModule": {

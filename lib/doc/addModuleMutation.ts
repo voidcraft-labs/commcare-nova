@@ -57,7 +57,7 @@ export function updateModuleMutation(
 
 export function addModuleMutation(
 	module: Module,
-	index?: number,
+	after?: Uuid | null,
 ): AddModuleMutation {
 	const columns = module.caseListConfig?.columns ?? [];
 	const tileCells = columnTileCells(columns);
@@ -80,7 +80,7 @@ export function addModuleMutation(
 	return {
 		kind: "addModule",
 		module: fallbackModule,
-		...(index !== undefined && { index }),
+		...(after !== undefined && { after }),
 		...(tileCells.length > 0 && { columnTileCells: tileCells }),
 		...(caseListTile !== undefined && { caseListTile }),
 		...(desiredOwnerOnly !== undefined && {

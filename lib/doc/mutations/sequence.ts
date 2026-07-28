@@ -50,6 +50,25 @@ export function predecessorOf<Id extends string>(
 	return (sequence as readonly Id[])[at - 1];
 }
 
+/**
+ * The anchor for landing something at a DISPLAY INDEX in a sequence it is not
+ * yet part of — `null` for the top, the sibling at `index - 1` otherwise, and
+ * `undefined` (append) when the index is absent or past the end.
+ *
+ * This is the batch-building layer's translator: the SA and MCP speak display
+ * indexes ("add this module second"), while a mutation carries an anchor so it
+ * survives a peer's concurrent insert. Resolving here, once, against the live
+ * document is what keeps an index out of the durable event.
+ */
+export function anchorForIndex<Id extends string>(
+	sequence: readonly Id[],
+	index: number | undefined,
+): Id | null | undefined {
+	if (index === undefined || index >= sequence.length) return undefined;
+	if (index <= 0) return null;
+	return sequence[index - 1];
+}
+
 /** Drop an entry from a sequence, preserving the order of everything else. */
 export function withoutEntry<Id extends string>(
 	sequence: readonly Id[] | undefined,

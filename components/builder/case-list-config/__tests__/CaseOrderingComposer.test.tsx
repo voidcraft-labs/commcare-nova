@@ -12,9 +12,11 @@ import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	asUuid,
+	type CaseListConfig,
 	type CaseType,
 	type Column,
 	calculatedColumn,
+	emptyCaseListConfig,
 } from "@/lib/domain";
 import { prop, term } from "@/lib/domain/predicate";
 import { CaseOrderingComposer } from "../SortPriorityStack";
@@ -39,7 +41,6 @@ function column(
 	uuidSuffix: string,
 	field: string,
 	header: string,
-	order: string,
 	sort?: Column["sort"],
 ): Column {
 	return {
@@ -47,17 +48,31 @@ function column(
 		kind: "plain",
 		field,
 		header,
-		order,
 		...(sort === undefined ? {} : { sort }),
 	};
 }
 
-const NAME = column("1", "case_name", "Patient name", "a", {
+/**
+ * The Results screen showing exactly these columns, in the order written.
+ *
+ * The composer reads the whole config because both lists it shows — the sorted
+ * carriers and the fields still available to add — are Results sequences.
+ */
+function configOf(columns: readonly Column[]): CaseListConfig {
+	return {
+		...emptyCaseListConfig(),
+		columns: [...columns],
+		listColumnOrder: columns.map((entry) => entry.uuid),
+		detailColumnOrder: columns.map((entry) => entry.uuid),
+	};
+}
+
+const NAME = column("1", "case_name", "Patient name", {
 	direction: "asc",
 	priority: 0,
 });
-const DOB = column("2", "dob", "Date of birth", "b");
-const AGE = column("3", "age", "Age", "c", {
+const DOB = column("2", "dob", "Date of birth");
+const AGE = column("3", "age", "Age", {
 	direction: "desc",
 	priority: 1,
 });
@@ -73,6 +88,7 @@ function ControlledComposer({
 	return (
 		<CaseOrderingComposer
 			value={value}
+			config={configOf(value)}
 			caseType={PATIENT}
 			caseTypes={[PATIENT]}
 			onChange={(next) => {
@@ -190,7 +206,6 @@ describe("CaseOrderingComposer", () => {
 			visibleInDetail: false,
 			sort: { direction: "asc", priority: 1 },
 		});
-		expect(age?.order).toEqual(expect.any(String));
 		expect(next).toHaveLength(2);
 	});
 
@@ -198,6 +213,7 @@ describe("CaseOrderingComposer", () => {
 		render(
 			<CaseOrderingComposer
 				value={[DOB]}
+				config={configOf([DOB])}
 				caseType={PATIENT}
 				onChange={() => {}}
 			/>,
@@ -305,6 +321,7 @@ describe("CaseOrderingComposer", () => {
 		render(
 			<CaseOrderingComposer
 				value={[NAME, AGE]}
+				config={configOf([NAME, AGE])}
 				caseType={PATIENT}
 				onChange={() => {}}
 			/>,
@@ -328,6 +345,7 @@ describe("CaseOrderingComposer", () => {
 		const { container } = render(
 			<CaseOrderingComposer
 				value={[NAME, AGE]}
+				config={configOf([NAME, AGE])}
 				caseType={PATIENT}
 				onChange={() => {}}
 			/>,
@@ -399,6 +417,7 @@ describe("CaseOrderingComposer", () => {
 		render(
 			<CaseOrderingComposer
 				value={[score, nextVisit]}
+				config={configOf([score, nextVisit])}
 				caseType={PATIENT}
 				caseTypes={[PATIENT]}
 				onChange={() => {}}
@@ -423,12 +442,12 @@ describe("CaseOrderingComposer", () => {
 			],
 		};
 		const legacyColumns = [
-			column("101", "name", "", "a", { direction: "asc", priority: 0 }),
-			column("102", "external-id", "", "b", {
+			column("101", "name", "", { direction: "asc", priority: 0 }),
+			column("102", "external-id", "", {
 				direction: "asc",
 				priority: 1,
 			}),
-			column("103", "date-opened", "", "c", {
+			column("103", "date-opened", "", {
 				direction: "desc",
 				priority: 2,
 			}),
@@ -437,6 +456,7 @@ describe("CaseOrderingComposer", () => {
 		render(
 			<CaseOrderingComposer
 				value={legacyColumns}
+				config={configOf(legacyColumns)}
 				caseType={legacyCaseType}
 				onChange={() => {}}
 			/>,
@@ -464,7 +484,7 @@ describe("CaseOrderingComposer", () => {
 		};
 
 		expect(
-			resolveSortedColumns([laterInResults, firstInResults]).map(
+			resolveSortedColumns(configOf([laterInResults, firstInResults])).map(
 				(column) => column.uuid,
 			),
 		).toEqual([firstInResults.uuid, laterInResults.uuid]);
@@ -472,15 +492,15 @@ describe("CaseOrderingComposer", () => {
 
 	it("keeps a complex default order scannable until the author opens it", () => {
 		const extras = [
-			column("201", "one", "First extra", "d", {
+			column("201", "one", "First extra", {
 				direction: "asc",
 				priority: 2,
 			}),
-			column("202", "two", "Second extra", "e", {
+			column("202", "two", "Second extra", {
 				direction: "asc",
 				priority: 3,
 			}),
-			column("203", "three", "Third extra", "f", {
+			column("203", "three", "Third extra", {
 				direction: "asc",
 				priority: 4,
 			}),
@@ -489,6 +509,7 @@ describe("CaseOrderingComposer", () => {
 		render(
 			<CaseOrderingComposer
 				value={[NAME, AGE, ...extras]}
+				config={configOf([NAME, AGE, ...extras])}
 				caseType={PATIENT}
 				onChange={() => {}}
 			/>,
@@ -507,6 +528,7 @@ describe("CaseOrderingComposer", () => {
 		render(
 			<CaseOrderingComposer
 				value={[{ ...NAME, header: longLabel }]}
+				config={configOf([{ ...NAME, header: longLabel }])}
 				caseType={PATIENT}
 				onChange={() => {}}
 			/>,
@@ -528,6 +550,7 @@ describe("CaseOrderingComposer", () => {
 		render(
 			<CaseOrderingComposer
 				value={[NAME, { ...DOB, header: longLabel }]}
+				config={configOf([NAME, { ...DOB, header: longLabel }])}
 				caseType={PATIENT}
 				onChange={() => {}}
 			/>,
@@ -567,6 +590,7 @@ describe("CaseOrderingComposer", () => {
 		render(
 			<CaseOrderingComposer
 				value={[NAME, AGE, dateSorted]}
+				config={configOf([NAME, AGE, dateSorted])}
 				caseType={PATIENT}
 				onChange={() => {}}
 			/>,
@@ -597,6 +621,7 @@ describe("CaseOrderingComposer", () => {
 		render(
 			<CaseOrderingComposer
 				value={[NAME, AGE, viewerDate]}
+				config={configOf([NAME, AGE, viewerDate])}
 				caseType={PATIENT}
 				onChange={() => {}}
 			/>,

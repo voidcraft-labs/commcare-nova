@@ -59,11 +59,12 @@ export function applyFormMutation(
 			const { uuid } = mut.form;
 			draft.forms[uuid] = mut.form;
 			draft.fieldOrder[uuid] = [];
-			const order = draft.formOrder[mut.moduleUuid] ?? [];
-			const index = mut.index ?? order.length;
-			const clamped = Math.max(0, Math.min(index, order.length));
-			order.splice(clamped, 0, uuid);
-			draft.formOrder[mut.moduleUuid] = order;
+			// The membership array IS the sequence, so the add splices.
+			draft.formOrder[mut.moduleUuid] = spliceAfter(
+				draft.formOrder[mut.moduleUuid] ?? [],
+				uuid,
+				mut.after,
+			);
 			return;
 		}
 		case "removeForm": {

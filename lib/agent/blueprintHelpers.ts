@@ -411,12 +411,9 @@ export interface NewModuleInput {
 
 /** Build an `addModule` mutation. Mints a uuid when the caller doesn't
  *  supply one — mirrors the producer-side stamp pattern established by
- *  `addField` in the reducer. Accepts an optional `index` for ordered
- *  insertion; omit to append at the end. */
-export function addModuleMutations(
-	input: NewModuleInput,
-	opts?: { index?: number },
-): Mutation[] {
+ *  `addField` in the reducer. The module appends: the SA creates modules at
+ *  the end of the app and reorders them with `moveModule`. */
+export function addModuleMutations(input: NewModuleInput): Mutation[] {
 	const uuid = asUuid(
 		typeof input.uuid === "string" && input.uuid.length > 0
 			? input.uuid
@@ -438,7 +435,7 @@ export function addModuleMutations(
 			caseListConfig: input.caseListConfig,
 		}),
 	};
-	return [addModuleMutation(module, opts?.index)];
+	return [addModuleMutation(module)];
 }
 
 /** Remove a module (cascades forms + fields via the reducer). No-op when
@@ -879,7 +876,7 @@ export function addFormMutations(
 	doc: BlueprintDoc,
 	moduleUuid: Uuid,
 	input: NewFormInput,
-	opts?: { index?: number; moduleAddedInBatch?: boolean },
+	opts?: { moduleAddedInBatch?: boolean },
 ): Mutation[] {
 	if (!opts?.moduleAddedInBatch && doc.modules[moduleUuid] === undefined) {
 		return [];
@@ -908,12 +905,8 @@ export function addFormMutations(
 		...(input.postSubmit !== undefined && { postSubmit: input.postSubmit }),
 	};
 	return [
-		{
-			kind: "addForm",
-			moduleUuid,
-			form,
-			...(opts?.index !== undefined && { index: opts.index }),
-		},
+		// The form appends; `moveForm` is how the SA reorders one.
+		{ kind: "addForm", moduleUuid, form },
 	];
 }
 

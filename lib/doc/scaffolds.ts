@@ -16,6 +16,7 @@
 // shape the SA emits. uuids are minted here so the caller can navigate to the
 // new entity after the gated commit.
 
+import { anchorForIndex } from "@/lib/doc/mutations/sequence";
 import {
 	asUuid,
 	type BlueprintDoc,
@@ -279,7 +280,7 @@ export function caseListModuleMutations(
 	return {
 		mutations: [
 			...declareCaseTypeMutations(doc, caseType),
-			addModuleMutation(module, index),
+			addModuleMutation(module, anchorForIndex(doc.moduleOrder, index)),
 		],
 		moduleUuid,
 	};
@@ -320,7 +321,7 @@ export function surveyModuleMutations(
 	const field: TextField = defaultQuestion();
 	return {
 		mutations: [
-			addModuleMutation(module, index),
+			addModuleMutation(module, anchorForIndex(doc.moduleOrder, index)),
 			{ kind: "addForm", moduleUuid, form },
 			{ kind: "addField", parentUuid: formUuid, field },
 		],
@@ -417,11 +418,12 @@ export function formScaffoldMutations(
 		}
 		mutations.push(updateModuleMutation(moduleUuid, patch));
 	}
+	const after = anchorForIndex(doc.formOrder[moduleUuid] ?? [], index);
 	mutations.push({
 		kind: "addForm",
 		moduleUuid,
 		form,
-		...(index !== undefined && { index }),
+		...(after !== undefined && { after }),
 	});
 	// The born-with fields land in ascending display order, which is simply the
 	// order they are emitted in: each add appends to the form's sequence.
