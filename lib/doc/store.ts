@@ -271,6 +271,10 @@ const BOOKKEEPING_KEYS = new Set([
 	"canRedo",
 ]);
 
+/** How many steps back the author can reach. Bounds a long session's memory;
+ *  an entry is two mutation batches, so the whole history is small. */
+const HISTORY_LIMIT = 100;
+
 export function isDocDataKey(key: string, value: unknown): boolean {
 	if (typeof value === "function") return false;
 	return !BOOKKEEPING_KEYS.has(key);
@@ -433,6 +437,10 @@ export function createBlueprintDocStore() {
 			forward: structuredClone(forward),
 			inverse: deltaBetween(store.getState(), before),
 		});
+		// Bounded so a long session cannot grow the history without limit. The
+		// oldest step drops rather than the newest: an author reaches for the edit
+		// they just made, never the two-hundredth one back.
+		if (undoStack.length > HISTORY_LIMIT) undoStack.shift();
 		// A fresh edit forks the timeline: whatever was redoable no longer is.
 		redoStack = [];
 		syncHistoryFlags();

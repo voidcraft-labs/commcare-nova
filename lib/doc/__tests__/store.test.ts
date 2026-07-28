@@ -132,6 +132,20 @@ describe("createBlueprintDocStore", () => {
 		}
 	});
 
+	it("bounds the history, dropping the oldest step", () => {
+		const store = createBlueprintDocStore();
+		store.getState().load(makeEmptyDoc({ appName: "n0" }));
+		store.getState().startTracking();
+		// One past the cap, so exactly the first step falls off.
+		for (let i = 1; i <= 101; i++) {
+			store.getState().applyMany([{ kind: "setAppName", name: `n${i}` }]);
+		}
+		for (let i = 0; i < 100; i++) store.getState().undo();
+		// Back to the first RETAINED step's starting point, not to `n0`.
+		expect(store.getState().appName).toBe("n1");
+		expect(store.getState().canUndo).toBe(false);
+	});
+
 	it("an inbound frame's overlay leaves the history flags alone", () => {
 		// `overlayDoc` blanks every DOC key the incoming document does not carry,
 		// and an incoming document never carries bookkeeping. A bookkeeping field
