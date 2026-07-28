@@ -56,6 +56,7 @@ import {
 	DEFAULT_CASE_SEARCH_TITLE,
 	effectiveCaseSearchConfig,
 	effectiveCaseTypes,
+	orderedColumns,
 	resolveCommCareDatePattern,
 	tileCellFor,
 } from "@/lib/domain";
@@ -823,14 +824,15 @@ export function projectCaseListForHq(
 		effectiveCaseTypes(doc).find((type) => type.name === mod.caseType)
 			?.properties ?? [];
 	// CCHQ models short (Results) and long (Details) as independent ordered
-	// arrays. Preserve that distinction here; calculated-sort positional
-	// indices bind only to the short array and therefore use Results order.
+	// arrays, and so does Nova: each surface reads its OWN sequence rather than
+	// the storage array. Calculated-sort positional indices bind only to the
+	// short array and therefore use Results order.
 	const shortSourceColumns = hqShortSourceColumns(
-		caseListConfig?.columns ?? [],
+		caseListConfig === undefined ? [] : orderedColumns(caseListConfig, "list"),
 	);
-	const longSourceColumns = [...(caseListConfig?.columns ?? [])].filter(
-		(column) => column.visibleInDetail !== false,
-	);
+	const longSourceColumns = (
+		caseListConfig === undefined ? [] : orderedColumns(caseListConfig, "detail")
+	).filter((column) => column.visibleInDetail !== false);
 
 	const shortColumns = shortSourceColumns.map((c) =>
 		projectColumnForShortDetail(

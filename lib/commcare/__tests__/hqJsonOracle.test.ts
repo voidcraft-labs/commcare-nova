@@ -170,6 +170,10 @@ describe("HQ-JSON oracle — clean baseline", () => {
 						caseListOnly: true,
 						caseListConfig: {
 							columns: [name, age],
+							// Results shows Name then Age; Details shows them the other
+							// way round. Two sequences, one set of columns.
+							listColumnOrder: [name.uuid, age.uuid],
+							detailColumnOrder: [age.uuid, name.uuid],
 							searchInputs: [],
 						},
 					},
