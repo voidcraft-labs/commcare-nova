@@ -101,6 +101,7 @@ import {
 	type Field,
 	fieldCasePropertyOn,
 	formExpressionSource,
+	orderedColumns,
 	plainColumn,
 } from "../../lib/domain";
 
@@ -1294,9 +1295,10 @@ const planSortPriorityRenumber: RepairModule = (finding, doc) => {
 	const config = mod?.caseListConfig;
 	if (!mod || !config || moduleUuid === undefined) return undefined;
 
-	const sorted = config.columns
+	// Priority decides; Results position is the tie-break the author sees, so
+	// the walk starts from the Results sequence rather than the storage array.
+	const sorted = orderedColumns(config, "list")
 		.filter((column) => column.sort !== undefined)
-		// Priority decides; Results position is the tie-break the author sees.
 		.sort((a, b) => (a.sort?.priority ?? 0) - (b.sort?.priority ?? 0));
 	const newPriority = new Map<Uuid, number>();
 	for (const [rank, column] of sorted.entries()) {
