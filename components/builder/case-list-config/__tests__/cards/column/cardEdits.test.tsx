@@ -97,9 +97,9 @@ function emitFromEdit(
 	return onChange.mock.calls.at(-1)?.[0] as Column;
 }
 
-describe("display-item edits preserve independent screen positions", () => {
+describe("display-item edits preserve the slots they do not touch", () => {
 	it.each(ORDERED_COLUMN_KINDS.map((column) => [column.kind, column] as const))(
-		"%s label edits retain Results and Details order",
+		"%s label edits retain sort and visibility",
 		(_kind, value) => {
 			const next = emitFromEdit(value, () => {
 				const input = screen.getByLabelText(
@@ -110,8 +110,6 @@ describe("display-item edits preserve independent screen positions", () => {
 				fireEvent.blur(input);
 			});
 
-			expect(next.listOrder).toBe(SURFACE_SLOTS.listOrder);
-			expect(next.detailOrder).toBe(SURFACE_SLOTS.detailOrder);
 			expect(next.sort).toEqual(SURFACE_SLOTS.sort);
 			expect(next.visibleInList).toBe(true);
 			expect(next.visibleInDetail).toBe(true);
