@@ -114,16 +114,23 @@ export const blueprintDocSchema = z
 		 * the user types built on it, and the named preview personas that
 		 * act as those types.
 		 *
-		 * All three are flat UUID-keyed records with no membership array —
-		 * sequence comes from each entity's fractional `order` key — and all
-		 * three are OPTIONAL and omitted when empty, so an app that declares
+		 * Each is a UUID-keyed record paired with a membership array that IS
+		 * its sequence, the same shape `moduleOrder` / `formOrder` use. Both
+		 * slots are OPTIONAL and omitted when empty, so an app that declares
 		 * none serializes byte-identically to one authored before they
 		 * existed. Read them through `userPropertiesOf` / `userTypesOf` /
 		 * `personasOf` rather than defaulting at the call site.
+		 *
+		 * The record and its array cannot silently disagree: `assembleBlueprint`
+		 * throws on exactly that mismatch, which is the guard the hierarchical
+		 * collections have always relied on.
 		 */
 		userProperties: ownRecordSchema(z.string(), userPropertySchema).optional(),
+		userPropertyOrder: z.array(uuidSchema).optional(),
 		userTypes: ownRecordSchema(z.string(), userTypeSchema).optional(),
+		userTypeOrder: z.array(uuidSchema).optional(),
 		personas: ownRecordSchema(z.string(), personaSchema).optional(),
+		personaOrder: z.array(uuidSchema).optional(),
 
 		// fieldParent is NOT persisted — derived from fieldOrder on load.
 	})

@@ -3,40 +3,52 @@
  * catalog, the roles built on it, and the personas that act as those
  * roles.
  *
- * Each collection is a flat UUID-keyed record with no membership array,
- * so display sequence comes from each entity's fractional `order` key
- * (`byFlatEntitySortKey`). The hooks return sorted arrays because every surface
- * wants them in order; nothing reads the raw record.
+ * Each collection is a UUID-keyed record paired with a membership array that IS
+ * the sequence. The hooks resolve the array against the record because every
+ * surface wants the entities in order; nothing reads the raw record.
+ *
+ * The array is walked, never sorted. An entity the array does not name is not
+ * displayed — the two disagreeing is a state `assembleBlueprint` refuses to
+ * persist, so tolerating it here would only hide it.
  */
 "use client";
 
 import { useMemo } from "react";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
-import { byFlatEntitySortKey } from "@/lib/doc/order/compare";
-import type { Persona, UserProperty, UserType } from "@/lib/domain";
+import type { Persona, UserProperty, UserType, Uuid } from "@/lib/domain";
 
-function sorted<T extends { order?: string; uuid: string }>(
+function inOrder<T>(
 	record: Record<string, T> | undefined,
+	order: readonly Uuid[] | undefined,
 ): T[] {
-	return Object.values(record ?? {}).sort(byFlatEntitySortKey);
+	if (record === undefined) return [];
+	const out: T[] = [];
+	for (const uuid of order ?? []) {
+		const entity = record[uuid];
+		if (entity !== undefined) out.push(entity);
+	}
+	return out;
 }
 
 /** The app's worker-information catalog, in display order. */
 export function useUserProperties(): UserProperty[] {
 	const record = useBlueprintDoc((s) => s.userProperties);
-	return useMemo(() => sorted(record), [record]);
+	const order = useBlueprintDoc((s) => s.userPropertyOrder);
+	return useMemo(() => inOrder(record, order), [record, order]);
 }
 
 /** The app's roles, in display order. */
 export function useUserTypes(): UserType[] {
 	const record = useBlueprintDoc((s) => s.userTypes);
-	return useMemo(() => sorted(record), [record]);
+	const order = useBlueprintDoc((s) => s.userTypeOrder);
+	return useMemo(() => inOrder(record, order), [record, order]);
 }
 
 /** The app's personas, in display order. */
 export function usePersonas(): Persona[] {
 	const record = useBlueprintDoc((s) => s.personas);
-	return useMemo(() => sorted(record), [record]);
+	const order = useBlueprintDoc((s) => s.personaOrder);
+	return useMemo(() => inOrder(record, order), [record, order]);
 }
 
 /**

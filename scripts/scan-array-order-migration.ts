@@ -1,46 +1,55 @@
 /**
- * READ-ONLY — prove the order-key migration is invisible, fleet-wide.
+ * READ-ONLY — prove the sequence migration reproduces what every app renders.
  *
- * Ordering is moving from a fractional `order` key on each entity to plain
- * array position. That is only safe if the migrated arrays hold exactly the
- * sequence each app displays today — and today's arrays do NOT, because a
- * same-parent reorder writes only the moved entity's key and leaves the array
- * untouched. Every app that has ever been reordered therefore carries stale
- * membership arrays and stale `ordinal` values, and reinterpreting position
- * without migrating would silently reorder it on every surface, including its
- * exported CommCare artifacts.
+ * Ordering is moving from a fractional `order` key to plain array position.
+ * `lib/case-store/migrations/20260727120000_sequence_is_array_position.ts` does
+ * that rewrite, and it carries its own FROZEN copies of the comparators
+ * production sorts through today (it has to: the change that adds it deletes the
+ * originals). A frozen copy that disagrees with the original would silently
+ * reorder apps, so this compares the two on real stored data.
  *
- * This script runs the migration transform in memory and compares the result
- * against the sequence the app currently renders, read through the production
- * comparators. It reports every divergence and exits nonzero if any app has
- * one. It never writes.
+ * Two modes, because the proof has two halves:
  *
- * A clean run over the fleet is the gate the implementation is blocked behind:
- * no product code lands until this reports zero divergences.
+ *   (default)   For every app, derive each collection's sequence from RAW entity
+ *               rows using the migration's comparators, and compare it against
+ *               the sequence the live production readers derive from the loaded
+ *               document. Any disagreement is the migration being wrong. Run
+ *               this BEFORE migrating — it is the gate.
  *
- * Reads the app-state database the env provides (`NOVA_DB_LOCAL_URL` locally,
- * the Cloud SQL connector in the migrate-job image); `--prod` targets the
- * production instance over its public IP (see `./lib/prodDb.ts`). Run with
- * `--help` for flags.
+ *   --verify    Run AFTER migrating. Re-reads the rows and asserts that plain
+ *               array position now equals the sequence captured by `--capture`,
+ *               which is what every post-migration reader will do.
+ *
+ *   --capture <file>  Write the pre-migration sequences for `--verify` to read.
+ *
+ * Reads the app-state database the env provides (`NOVA_DB_LOCAL_URL` locally);
+ * `--prod` targets production over its public IP (see `./lib/prodDb.ts`).
  */
 
 import "dotenv/config";
+import { readFileSync, writeFileSync } from "node:fs";
 import { Command } from "commander";
+import { sql } from "kysely";
+// Imported from the migration itself, not re-implemented: the risk in freezing a
+// comparator is that the copy drifts from the original, so the scan has to drive
+// the code that actually runs.
+import {
+	type StoredEntityRow,
+	sequencesFromStoredRows,
+} from "@/lib/case-store/migrations/20260727120000_sequence_is_array_position";
 import { closeCaseStoreDatabase } from "@/lib/case-store/postgres/connection";
 import { loadApp } from "@/lib/db/apps";
 import { getAppDb } from "@/lib/db/pg";
 import type { BlueprintDoc } from "@/lib/domain";
-import {
-	derivedSequences,
-	migrateDocToArrayOrder,
-	sequenceDivergences,
-} from "./lib/arrayOrderMigration";
+import { derivedSequences } from "./lib/arrayOrderMigration";
 import { runMain } from "./lib/main";
 import { targetProdDb } from "./lib/prodDb";
 
 interface ScanOptions {
 	prod?: boolean;
 	app?: string;
+	verify?: boolean;
+	capture?: string;
 	verbose?: boolean;
 }
 
@@ -48,95 +57,175 @@ const program = new Command();
 program
 	.name("scan-array-order-migration")
 	.description(
-		"Read-only proof that migrating order keys to array position preserves every app's displayed sequence exactly. Exits nonzero on any divergence or unreadable blueprint.",
+		"Read-only proof that the sequence migration reproduces every app's displayed order exactly. Exits nonzero on any disagreement.",
 	)
 	.option("--prod", "read the production database (read-only)")
-	.option("--app <id>", "scan a single app instead of the whole fleet")
-	.option("--verbose", "print every collection checked, not only divergences")
+	.option("--app <id>", "check a single app instead of the whole fleet")
+	.option("--capture <file>", "write pre-migration sequences to a file")
+	.option("--verify", "assert stored array position matches a captured file")
+	.option("--verbose", "print every collection checked")
 	.parse();
 
 const opts = program.opts<ScanOptions>();
 if (opts.prod === true) targetProdDb();
 
-async function main(): Promise<void> {
+/** Every entity row, grouped by app — the migration's own input. */
+async function storedRowsByApp(
+	appId?: string,
+): Promise<Map<string, StoredEntityRow[]>> {
 	const db = await getAppDb();
+	const filter = appId === undefined ? sql`` : sql`WHERE app_id = ${appId}`;
+	const result = await sql<StoredEntityRow>`
+		SELECT app_id, uuid, kind, parent_uuid, ordinal, data
+		FROM blueprint_entities
+		${filter}
+		ORDER BY app_id, kind, parent_uuid NULLS FIRST, ordinal, uuid
+	`.execute(db);
+	const byApp = new Map<string, StoredEntityRow[]>();
+	for (const row of result.rows) {
+		const bucket = byApp.get(row.app_id);
+		if (bucket === undefined) byApp.set(row.app_id, [row]);
+		else bucket.push(row);
+	}
+	return byApp;
+}
 
-	let appQuery = db.selectFrom("apps").select("id");
-	if (opts.app !== undefined) appQuery = appQuery.where("id", "=", opts.app);
-	const appRows = await appQuery.execute();
-	if (opts.app !== undefined && appRows.length === 0) {
+function compare(
+	label: string,
+	expected: ReadonlyMap<string, readonly string[]>,
+	actual: ReadonlyMap<string, readonly string[]>,
+): string[] {
+	const problems: string[] = [];
+	for (const path of [
+		...new Set([...expected.keys(), ...actual.keys()]),
+	].sort()) {
+		const a = expected.get(path) ?? [];
+		const b = actual.get(path) ?? [];
+		if (a.length === b.length && a.every((uuid, i) => uuid === b[i])) continue;
+		problems.push(
+			`      ${path}\n        ${label} : ${a.join(", ") || "(empty)"}\n        stored   : ${b.join(", ") || "(empty)"}`,
+		);
+	}
+	return problems;
+}
+
+async function main(): Promise<void> {
+	const byApp = await storedRowsByApp(opts.app);
+	if (opts.app !== undefined && byApp.size === 0) {
 		console.error(`App ${opts.app} not found.`);
 		process.exit(1);
 	}
 
-	console.log(
-		`Checking ${appRows.length} app(s): does array position reproduce today's displayed sequence?\n`,
-	);
-
+	const captured = new Map<string, Record<string, string[]>>();
 	let clean = 0;
 	let collectionsChecked = 0;
-	const divergentApps: string[] = [];
-	const unreadableApps: string[] = [];
+	const failed: string[] = [];
+	const unreadable: string[] = [];
 
-	for (const { id } of appRows) {
-		const loaded = await loadApp(id).catch((err: unknown) => {
-			unreadableApps.push(id);
-			console.log(
-				`${id}\n  ✗ COULDN'T CHECK — the stored blueprint couldn't be assembled:\n` +
-					`      ${err instanceof Error ? err.message : String(err)}\n`,
-			);
-			return null;
-		});
-		if (loaded === null) continue;
+	if (opts.verify === true) {
+		if (opts.capture === undefined) {
+			console.error("--verify needs --capture <file> naming the captured run.");
+			process.exit(1);
+		}
+		const priorSequences = JSON.parse(
+			readFileSync(opts.capture, "utf8"),
+		) as Record<string, Record<string, string[]>>;
 
-		const doc = loaded.blueprint as unknown as BlueprintDoc;
-		const before = derivedSequences(doc);
-		collectionsChecked += before.size;
-
-		const divergences = sequenceDivergences(
-			before,
-			migrateDocToArrayOrder(doc),
+		console.log(
+			`Verifying ${byApp.size} app(s): does stored array position match what they rendered before?\n`,
 		);
-		if (divergences.length === 0) {
-			clean += 1;
-			if (opts.verbose === true) {
-				console.log(
-					`${id}\n  ✓ ${before.size} collection(s) reproduce exactly`,
+		for (const [appId, rows] of byApp) {
+			const before = priorSequences[appId];
+			if (before === undefined) {
+				console.log(`${appId}\n  ✗ no captured sequence for this app\n`);
+				failed.push(appId);
+				continue;
+			}
+			// Post-migration, array position IS the sequence — read it the way every
+			// reader now will, with no comparator involved.
+			const after = sequencesFromStoredRows(rows, { sorted: false });
+			collectionsChecked += after.size;
+			const problems = compare(
+				"rendered",
+				new Map(Object.entries(before)),
+				after,
+			);
+			if (problems.length === 0) {
+				clean += 1;
+				continue;
+			}
+			failed.push(appId);
+			console.log(
+				`${appId}\n  ✗ ${problems.length} collection(s) changed:\n${problems.join("\n")}\n`,
+			);
+		}
+	} else {
+		console.log(
+			`Checking ${byApp.size} app(s): do the migration's frozen comparators agree with production's?\n`,
+		);
+		for (const [appId, rows] of byApp) {
+			// What the migration will decide, from raw rows and its own comparators.
+			const migrationView = sequencesFromStoredRows(rows, { sorted: true });
+			collectionsChecked += migrationView.size;
+			if (opts.capture !== undefined) {
+				captured.set(
+					appId,
+					Object.fromEntries(
+						[...migrationView].map(([k, v]) => [k, [...v]]),
+					) as Record<string, string[]>,
 				);
 			}
-			continue;
-		}
 
-		divergentApps.push(id);
-		console.log(
-			`${id}\n  ✗ ${divergences.length} collection(s) would reorder:`,
-		);
-		for (const d of divergences) {
-			console.log(`      ${d.path}`);
-			console.log(
-				`        renders today : ${d.before.join(", ") || "(empty)"}`,
+			// What the app renders today, through the live production readers.
+			const loaded = await loadApp(appId).catch((err: unknown) => {
+				unreadable.push(appId);
+				console.log(
+					`${appId}\n  ✗ COULDN'T CHECK — the stored blueprint couldn't be assembled:\n      ${err instanceof Error ? err.message : String(err)}\n`,
+				);
+				return null;
+			});
+			if (loaded === null) continue;
+
+			const productionView = derivedSequences(
+				loaded.blueprint as unknown as BlueprintDoc,
 			);
+			const problems = compare("renders", productionView, migrationView);
+			if (problems.length === 0) {
+				clean += 1;
+				if (opts.verbose === true) {
+					console.log(
+						`${appId}\n  ✓ ${migrationView.size} collection(s) agree`,
+					);
+				}
+				continue;
+			}
+			failed.push(appId);
 			console.log(
-				`        after migration: ${d.after.join(", ") || "(empty)"}`,
+				`${appId}\n  ✗ ${problems.length} collection(s) disagree:\n${problems.join("\n")}\n`,
 			);
 		}
-		console.log("");
+	}
+
+	if (opts.capture !== undefined && opts.verify !== true) {
+		writeFileSync(
+			opts.capture,
+			JSON.stringify(Object.fromEntries(captured), null, "\t"),
+		);
+		console.log(`\nCaptured ${captured.size} app(s) to ${opts.capture}`);
 	}
 
 	console.log(
-		`\n${clean}/${appRows.length} app(s) reproduce exactly, across ${collectionsChecked} collection(s).`,
+		`\n${clean}/${byApp.size} app(s) reproduce exactly, across ${collectionsChecked} collection(s).`,
 	);
-	if (unreadableApps.length > 0) {
-		console.log(`${unreadableApps.length} app(s) could not be read.`);
+	if (unreadable.length > 0) {
+		console.log(`${unreadable.length} app(s) could not be read.`);
 	}
-	if (divergentApps.length > 0) {
+	if (failed.length > 0) {
 		console.log(
-			`\n${divergentApps.length} app(s) would be reordered by this migration. ` +
-				`That is the migration being wrong, not the app: the transform must ` +
-				`reproduce what each app renders today, and these do not.`,
+			`\n${failed.length} app(s) would be reordered. That is the migration being wrong, not the app.`,
 		);
 	}
-	if (divergentApps.length > 0 || unreadableApps.length > 0) process.exit(1);
+	if (failed.length > 0 || unreadable.length > 0) process.exit(1);
 }
 
 runMain(async () => {

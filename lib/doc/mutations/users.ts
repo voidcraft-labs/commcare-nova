@@ -57,6 +57,11 @@ export function applyUserMutation(
 				mut.property.uuid,
 				mut.property,
 			);
+			draft.userPropertyOrder = spliceAfter(
+				draft.userPropertyOrder,
+				mut.property.uuid,
+				mut.after,
+			);
 			return;
 		case "updateUserProperty":
 			applyPatch(ownRecordValue(draft.userProperties, mut.uuid), mut.patch);
@@ -69,6 +74,11 @@ export function applyUserMutation(
 				draft.userTypes,
 				mut.userType.uuid,
 				mut.userType,
+			);
+			draft.userTypeOrder = spliceAfter(
+				draft.userTypeOrder,
+				mut.userType.uuid,
+				mut.after,
 			);
 			return;
 		case "updateUserType":
@@ -86,6 +96,11 @@ export function applyUserMutation(
 				draft.personas,
 				mut.persona.uuid,
 				mut.persona,
+			);
+			draft.personaOrder = spliceAfter(
+				draft.personaOrder,
+				mut.persona.uuid,
+				mut.after,
 			);
 			return;
 		case "updatePersona":
@@ -173,11 +188,59 @@ function applyPatch(
  * empty, and the two shapes would otherwise diff as a spurious change on
  * every hydration boundary.
  */
+/** Which membership array carries each flat collection's sequence. */
+const ORDER_SLOT = {
+	userProperties: "userPropertyOrder",
+	userTypes: "userTypeOrder",
+	personas: "personaOrder",
+} as const;
+
+/**
+ * Place `uuid` immediately after `after` — `null` meaning first, and an anchor
+ * that is no longer present meaning append.
+ *
+ * TOTAL by construction, because historical replay must never block: a batch
+ * whose anchor a peer removed still applies, landing the entity at the end
+ * rather than throwing. The authoritative commit guard is what rejects a batch
+ * whose anchor genuinely vanished; this reducer only has to stay reducible.
+ *
+ * Idempotent on the uuid: an entity already in the sequence is moved rather
+ * than duplicated, so replaying a batch twice cannot double an entry.
+ */
+function spliceAfter<Id extends string>(
+	sequence: readonly Id[] | undefined,
+	uuid: Id,
+	after: Id | null | undefined,
+): Id[] {
+	const without = (sequence ?? []).filter((entry) => entry !== uuid);
+	if (after === null) return [uuid, ...without];
+	if (after === undefined) return [...without, uuid];
+	const at = without.indexOf(after);
+	if (at < 0) return [...without, uuid];
+	return [...without.slice(0, at + 1), uuid, ...without.slice(at + 1)];
+}
+
 function dropEntry(
 	draft: Draft<BlueprintDoc>,
 	slot: "userProperties" | "userTypes" | "personas",
 	uuid: string,
 ): void {
+	// The sequence loses the entity whether or not the record did — an array
+	// naming an entity the record no longer holds is exactly the disagreement
+	// `assembleBlueprint` refuses to persist.
+	const orderSlot = ORDER_SLOT[slot];
+	const sequence = (draft as unknown as Record<string, string[] | undefined>)[
+		orderSlot
+	];
+	if (sequence !== undefined) {
+		const remaining = sequence.filter((entry) => entry !== uuid);
+		(draft as unknown as Record<string, string[] | undefined>)[orderSlot] =
+			remaining.length === 0 ? undefined : remaining;
+		if (remaining.length === 0) {
+			delete (draft as unknown as Record<string, unknown>)[orderSlot];
+		}
+	}
+
 	const collections = draft as unknown as Record<
 		typeof slot,
 		Record<string, unknown> | undefined

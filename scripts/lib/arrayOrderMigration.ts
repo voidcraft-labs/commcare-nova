@@ -29,7 +29,6 @@
 
 import {
 	byDetailColumnOrder,
-	byFlatEntitySortKey,
 	byListColumnOrder,
 	bySortKey,
 } from "@/lib/doc/order/compare";
@@ -47,11 +46,57 @@ import { orderedCaseOperations } from "@/lib/domain";
  */
 export type DerivedSequences = ReadonlyMap<string, readonly Uuid[]>;
 
+/**
+ * The flat collections' OLD tie-break, kept here deliberately.
+ *
+ * `byFlatEntitySortKey` is deleted from the codebase — those collections now
+ * take their sequence from a membership array. But this transform reads
+ * PRE-migration documents, where they had no array and sequence lived in the
+ * key, so it has to keep understanding the shape the rest of the code no longer
+ * does. Unlike the three comparators above, which still exist and are imported
+ * precisely so their tie-breaks cannot drift from production, this one has no
+ * production counterpart left to drift from.
+ *
+ * Its semantics, verbatim: order key first; a keyed entity ahead of a keyless
+ * one; and — because a flat collection had no array to fall back on — two
+ * keyless entities tie on uuid rather than insertion order.
+ */
+function byLegacyFlatSortKey(
+	a: { uuid?: string; order?: string },
+	b: { uuid?: string; order?: string },
+): number {
+	if (a.order !== undefined && b.order !== undefined) {
+		if (a.order < b.order) return -1;
+		if (a.order > b.order) return 1;
+	} else if (a.order !== undefined) {
+		return -1;
+	} else if (b.order !== undefined) {
+		return 1;
+	}
+	const x = a.uuid ?? "";
+	const y = b.uuid ?? "";
+	if (x < y) return -1;
+	if (x > y) return 1;
+	return 0;
+}
+
+/**
+ * The sequence's uuids, in order.
+ *
+ * An entity with no `uuid` is labelled by its position BEFORE the sort. Legacy
+ * select options are the real case — they predate option uuids — and labelling
+ * them all `undefined` would make them indistinguishable from each other, so a
+ * reordering among them would compare equal to no reordering at all.
+ */
 function sortedUuids<T extends { uuid?: string; order?: string }>(
 	entities: readonly T[],
 	compare: (a: T, b: T) => number,
 ): Uuid[] {
-	return [...entities].sort(compare).map((e) => e.uuid as Uuid);
+	const labelled = entities.map((e, i) => ({
+		...e,
+		uuid: e.uuid ?? `@${i}`,
+	}));
+	return [...labelled].sort(compare).map((e) => e.uuid as Uuid);
 }
 
 function resolveAll<T>(
@@ -140,15 +185,15 @@ export function derivedSequences(doc: BlueprintDoc): DerivedSequences {
 	// only in the key, which is exactly why they need one after this.
 	out.set(
 		"userProperties",
-		sortedUuids(Object.values(doc.userProperties ?? {}), byFlatEntitySortKey),
+		sortedUuids(Object.values(doc.userProperties ?? {}), byLegacyFlatSortKey),
 	);
 	out.set(
 		"userTypes",
-		sortedUuids(Object.values(doc.userTypes ?? {}), byFlatEntitySortKey),
+		sortedUuids(Object.values(doc.userTypes ?? {}), byLegacyFlatSortKey),
 	);
 	out.set(
 		"personas",
-		sortedUuids(Object.values(doc.personas ?? {}), byFlatEntitySortKey),
+		sortedUuids(Object.values(doc.personas ?? {}), byLegacyFlatSortKey),
 	);
 
 	return out;

@@ -1749,7 +1749,6 @@ describe("user collections — the new-discriminator contract", () => {
 			kind: "addUserProperty",
 			property: {
 				uuid: PROPERTY,
-				order: "a0",
 				slug: "region",
 				label: "Region",
 			},
@@ -1758,14 +1757,13 @@ describe("user collections — the new-discriminator contract", () => {
 			kind: "addUserType",
 			userType: {
 				uuid: TYPE,
-				order: "a0",
 				name: "CHW",
 				values: { [PROPERTY]: "north" },
 			},
 		},
 		{
 			kind: "addPersona",
-			persona: { uuid: PERSONA, order: "a0", name: "Asha", userTypeUuid: TYPE },
+			persona: { uuid: PERSONA, name: "Asha", userTypeUuid: TYPE },
 		},
 		{
 			kind: "updateUserProperty",
@@ -1821,7 +1819,7 @@ describe("user collections — the new-discriminator contract", () => {
 		const after = fold(before, [
 			{
 				kind: "addPersona",
-				persona: { uuid: PERSONA, order: "a0", name: "Asha" },
+				persona: { uuid: PERSONA, name: "Asha" },
 			},
 			{ kind: "removePersona", uuid: PERSONA },
 		]);

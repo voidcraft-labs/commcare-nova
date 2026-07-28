@@ -14,7 +14,6 @@ import {
 } from "@/lib/doc/fieldWalk";
 import {
 	byDetailColumnOrder,
-	byFlatEntitySortKey,
 	byListColumnOrder,
 	bySortKey,
 } from "@/lib/doc/order/compare";
@@ -29,8 +28,10 @@ import type {
 } from "@/lib/domain";
 import {
 	isContainer,
+	orderedPersonas,
+	orderedUserProperties,
+	orderedUserTypes,
 	ownRecordValue,
-	personasOf,
 	tileCellFor,
 	userPropertiesOf,
 	userTypesOf,
@@ -313,11 +314,9 @@ export function summarizeBlueprint(doc: BlueprintDoc): string {
 		}
 	}
 
-	const userProperties = Object.values(userPropertiesOf(doc)).sort(
-		byFlatEntitySortKey,
-	);
-	const userTypes = Object.values(userTypesOf(doc)).sort(byFlatEntitySortKey);
-	const personas = Object.values(personasOf(doc)).sort(byFlatEntitySortKey);
+	const userProperties = orderedUserProperties(doc);
+	const userTypes = orderedUserTypes(doc);
+	const personas = orderedPersonas(doc);
 	if (
 		userProperties.length > 0 ||
 		userTypes.length > 0 ||

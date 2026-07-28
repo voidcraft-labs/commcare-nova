@@ -1528,10 +1528,23 @@ function diffUserCollections(
 	const out: Mutation[] = [];
 	const prevProps = prev.userProperties ?? {};
 	const nextProps = next.userProperties ?? {};
-	for (const [uuid, property] of Object.entries(nextProps)) {
+	// Walk the SEQUENCE, not the record's key order, and carry each add's
+	// placement — the uuid it follows in the target, `null` for first. A record
+	// has no order to read, so an add derived from key iteration would land
+	// wherever the object happened to enumerate.
+	for (const [index, uuid] of (next.userPropertyOrder ?? []).entries()) {
+		const property = ownRecordValue(nextProps, uuid);
+		if (property === undefined) continue;
 		const before = ownRecordValue(prevProps, uuid);
 		if (!before) {
-			out.push({ kind: "addUserProperty", property: cloneEntity(property) });
+			out.push({
+				kind: "addUserProperty",
+				property: cloneEntity(property),
+				after:
+					index === 0
+						? null
+						: asUuid(next.userPropertyOrder?.[index - 1] ?? ""),
+			});
 		} else if (!deepEqual(before, property)) {
 			out.push({
 				kind: "updateUserProperty",
@@ -1548,10 +1561,17 @@ function diffUserCollections(
 
 	const prevTypes = prev.userTypes ?? {};
 	const nextTypes = next.userTypes ?? {};
-	for (const [uuid, userType] of Object.entries(nextTypes)) {
+	for (const [index, uuid] of (next.userTypeOrder ?? []).entries()) {
+		const userType = ownRecordValue(nextTypes, uuid);
+		if (userType === undefined) continue;
 		const before = ownRecordValue(prevTypes, uuid);
 		if (!before) {
-			out.push({ kind: "addUserType", userType: cloneEntity(userType) });
+			out.push({
+				kind: "addUserType",
+				userType: cloneEntity(userType),
+				after:
+					index === 0 ? null : asUuid(next.userTypeOrder?.[index - 1] ?? ""),
+			});
 		} else if (!deepEqual(before, userType)) {
 			out.push(
 				...updateUserTypeMutations(
@@ -1570,10 +1590,17 @@ function diffUserCollections(
 
 	const prevPersonas = prev.personas ?? {};
 	const nextPersonas = next.personas ?? {};
-	for (const [uuid, persona] of Object.entries(nextPersonas)) {
+	for (const [index, uuid] of (next.personaOrder ?? []).entries()) {
+		const persona = ownRecordValue(nextPersonas, uuid);
+		if (persona === undefined) continue;
 		const before = ownRecordValue(prevPersonas, uuid);
 		if (!before) {
-			out.push({ kind: "addPersona", persona: cloneEntity(persona) });
+			out.push({
+				kind: "addPersona",
+				persona: cloneEntity(persona),
+				after:
+					index === 0 ? null : asUuid(next.personaOrder?.[index - 1] ?? ""),
+			});
 		} else if (!deepEqual(before, persona)) {
 			out.push(
 				...updatePersonaMutations(

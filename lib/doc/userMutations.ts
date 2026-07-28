@@ -20,7 +20,6 @@
  *     losing their identity.
  */
 
-import { appendOrderKey } from "@/lib/doc/order/append";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	type BlueprintDoc,
@@ -41,28 +40,37 @@ import {
 import { referencingSlotsOf } from "./referenceIndex";
 
 type UserEntityPatch<T> = {
-	[K in Exclude<keyof T, "uuid" | "order">]?: T[K] | null;
+	[K in Exclude<keyof T, "uuid">]?: T[K] | null;
 };
 
-/** Sort-key order for an entity appended to one of the flat collections. */
-function nextOrderKey(collection: Record<string, { order?: string }>): string {
-	return appendOrderKey(Object.values(collection));
+/**
+ * Where a new flat entity goes: at the end, named by the uuid it follows.
+ *
+ * Placement is the author's intent — "after this one" — not a value computed
+ * from the sequence. A computed position is a pure function of the sequence its
+ * author could see, so two people adding from the same document compute the
+ * SAME position, and nothing sorts between two equal positions. Naming a
+ * neighbour by identity has no such collision: the reducer resolves it against
+ * whatever the collection holds when the mutation actually applies.
+ *
+ * `null` means "first", which is also what an empty collection gets.
+ */
+function appendAfter(order: readonly Uuid[] | undefined): Uuid | null {
+	const sequence = order ?? [];
+	return sequence.length === 0 ? null : (sequence[sequence.length - 1] as Uuid);
 }
 
 /** Mint the `addUserProperty` for a new piece of worker information. */
 export function addUserPropertyMutations(
 	doc: BlueprintDoc,
 	uuid: Uuid,
-	property: Omit<UserProperty, "uuid" | "order">,
+	property: Omit<UserProperty, "uuid">,
 ): Mutation[] {
 	return [
 		{
 			kind: "addUserProperty",
-			property: {
-				...property,
-				uuid,
-				order: nextOrderKey(userPropertiesOf(doc)),
-			},
+			property: { ...property, uuid },
+			after: appendAfter(doc.userPropertyOrder),
 		},
 	];
 }
@@ -71,12 +79,13 @@ export function addUserPropertyMutations(
 export function addUserTypeMutations(
 	doc: BlueprintDoc,
 	uuid: Uuid,
-	userType: Omit<UserType, "uuid" | "order">,
+	userType: Omit<UserType, "uuid">,
 ): Mutation[] {
 	return [
 		{
 			kind: "addUserType",
-			userType: { ...userType, uuid, order: nextOrderKey(userTypesOf(doc)) },
+			userType: { ...userType, uuid },
+			after: appendAfter(doc.userTypeOrder),
 		},
 	];
 }
@@ -85,12 +94,13 @@ export function addUserTypeMutations(
 export function addPersonaMutations(
 	doc: BlueprintDoc,
 	uuid: Uuid,
-	persona: Omit<Persona, "uuid" | "order">,
+	persona: Omit<Persona, "uuid">,
 ): Mutation[] {
 	return [
 		{
 			kind: "addPersona",
-			persona: { ...persona, uuid, order: nextOrderKey(personasOf(doc)) },
+			persona: { ...persona, uuid },
+			after: appendAfter(doc.personaOrder),
 		},
 	];
 }

@@ -9,7 +9,6 @@
  */
 
 import { z } from "zod";
-import { byFlatEntitySortKey } from "@/lib/doc/order/compare";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	addPersonaMutations,
@@ -24,6 +23,9 @@ import {
 import {
 	asUuid,
 	type BlueprintDoc,
+	orderedPersonas,
+	orderedUserProperties,
+	orderedUserTypes,
 	ownRecordValue,
 	type Persona,
 	personasOf,
@@ -719,9 +721,8 @@ export const getUsersTool = {
 			>;
 		}>
 	> {
-		const properties = userPropertiesOf(doc);
-		const workerInformation =
-			Object.values(properties).sort(byFlatEntitySortKey);
+		const _properties = userPropertiesOf(doc);
+		const workerInformation = orderedUserProperties(doc);
 		const propertyOrder = new Map(
 			workerInformation.map((property, index) => [property.uuid, index]),
 		);
@@ -729,18 +730,14 @@ export const getUsersTool = {
 			kind: "read",
 			data: {
 				workerInformation,
-				roles: Object.values(userTypesOf(doc))
-					.sort(byFlatEntitySortKey)
-					.map(({ values, ...role }) => ({
-						...role,
-						values: valuesOutput(values, propertyOrder),
-					})),
-				personas: Object.values(personasOf(doc))
-					.sort(byFlatEntitySortKey)
-					.map(({ values, ...persona }) => ({
-						...persona,
-						values: valuesOutput(values, propertyOrder),
-					})),
+				roles: orderedUserTypes(doc).map(({ values, ...role }) => ({
+					...role,
+					values: valuesOutput(values, propertyOrder),
+				})),
+				personas: orderedPersonas(doc).map(({ values, ...persona }) => ({
+					...persona,
+					values: valuesOutput(values, propertyOrder),
+				})),
 			},
 		};
 	},

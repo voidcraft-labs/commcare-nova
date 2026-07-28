@@ -1588,6 +1588,7 @@ function createMutationSchema({
 		z.object({
 			kind: z.literal("addUserProperty"),
 			property: userPropertySchema,
+			after: uuidSchema.nullable().optional(),
 		}),
 		z.object({
 			kind: z.literal("updateUserProperty"),
@@ -1595,7 +1596,11 @@ function createMutationSchema({
 			patch: userPropertyUpdatePatchSchema.default(() => ({})),
 		}),
 		z.object({ kind: z.literal("removeUserProperty"), uuid: uuidSchema }),
-		z.object({ kind: z.literal("addUserType"), userType: userTypeSchema }),
+		z.object({
+			kind: z.literal("addUserType"),
+			userType: userTypeSchema,
+			after: uuidSchema.nullable().optional(),
+		}),
 		z.object({
 			kind: z.literal("updateUserType"),
 			uuid: uuidSchema,
@@ -1608,7 +1613,11 @@ function createMutationSchema({
 			valuePatch: userDataValuePatchSchema.optional(),
 		}),
 		z.object({ kind: z.literal("removeUserType"), uuid: uuidSchema }),
-		z.object({ kind: z.literal("addPersona"), persona: personaSchema }),
+		z.object({
+			kind: z.literal("addPersona"),
+			persona: personaSchema,
+			after: uuidSchema.nullable().optional(),
+		}),
 		z.object({
 			kind: z.literal("updatePersona"),
 			uuid: uuidSchema,
