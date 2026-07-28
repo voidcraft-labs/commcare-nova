@@ -76,11 +76,10 @@ function operationMutation(
  * operation in a replacement. This is what lets a lookup-carrier-bearing
  * operation move without putting its dormant AST inside `mutationSchema`.
  *
- * `index` is current-only intent. The authoritative writer checks that the
- * fractional key still lands at this rank on its fresh snapshot; a peer
- * insertion that changes the rank becomes a conflict instead of false success.
- * A move that re-keys tied siblings passes it only for the operation the AUTHOR
- * moved — see the trailing rank loop in `lib/db/commitGuard.ts`.
+ * `after` is the whole placement — the operation this one now follows, or
+ * `null` for first. An anchor cannot be shifted by a peer's insert, so there is
+ * no rank for the authoritative writer to fence: the anchor either still exists
+ * and the move lands behind it, or it does not and the move appends.
  */
 function moveOperationMutation(
 	formUuid: Uuid,
@@ -105,18 +104,81 @@ function moveOperationMutation(
  * replacing the peer's whole operation.
  */
 
-/** Whether two keyed sequences hold the same keys in a different order.
- *  Membership changes are handled by the add/remove paths; this asks
- *  only about ORDER, which key-wise pairing cannot see. */
+/** The keys the two sequences share, each in its own sequence's order. */
+function commonOrder<T>(
+	before: readonly T[] | undefined,
+	after: readonly T[] | undefined,
+	keyOf: (item: T) => string,
+): { readonly a: string[]; readonly b: string[] } {
+	const a = (before ?? []).map(keyOf);
+	const b = (after ?? []).map(keyOf);
+	const inA = new Set(a);
+	const inB = new Set(b);
+	return {
+		a: a.filter((key) => inB.has(key)),
+		b: b.filter((key) => inA.has(key)),
+	};
+}
+
+/** Whether two keyed sequences hold their SHARED keys in a different order.
+ *  Membership changes are handled by the add/remove paths, so the comparison
+ *  is over the shared keys alone — comparing whole lengths instead made a
+ *  reorder that ARRIVED WITH an addition invisible, and the tool then
+ *  reported success for an order it had silently discarded. */
 function sequenceChanged<T>(
 	before: readonly T[] | undefined,
 	after: readonly T[] | undefined,
 	keyOf: (item: T) => string,
 ): boolean {
-	const a = (before ?? []).map(keyOf);
-	const b = (after ?? []).map(keyOf);
-	if (a.length !== b.length) return false;
+	const { a, b } = commonOrder(before, after, keyOf);
 	return a.some((key, index) => key !== b[index]);
+}
+
+/**
+ * Reorder `rebased` to follow `desired` — but ONLY when the author actually
+ * changed the order relative to the snapshot they were looking at.
+ *
+ * This is the same rule the rest of the rebase follows (intent is what
+ * differs from `base`), applied to the sequence: an author who never touched
+ * the order must not clobber a peer's reorder, and an author who did must not
+ * have theirs silently dropped. The tool surface passes no snapshot, so
+ * `base` IS `current` there and any order it states is intent.
+ *
+ * A member `desired` never mentioned — a peer's addition landing between the
+ * snapshot and the dispatch — HOLDS ITS CURRENT INDEX. The author reordered
+ * the members they could see, so their intent permutes exactly the slots those
+ * members occupy and says nothing about anyone else's. Appending the stranger
+ * instead would move a peer's insertion the author never touched, which is the
+ * same clobber this function exists to prevent.
+ */
+function applyDesiredOrder<T>(
+	rebased: T[],
+	base: readonly T[] | undefined,
+	desired: readonly T[] | undefined,
+	keyOf: (item: T) => string,
+): void {
+	const { a, b } = commonOrder(base, desired, keyOf);
+	if (!a.some((key, index) => key !== b[index])) return;
+	const rank = new Map(
+		(desired ?? []).map((item, index) => [keyOf(item), index]),
+	);
+	// The slots the author's intent is allowed to touch, and the members that
+	// go back into them — sorted among themselves, leaving every other index
+	// holding exactly what it held.
+	const slots: number[] = [];
+	const mentioned: T[] = [];
+	for (const [index, item] of rebased.entries()) {
+		if (!rank.has(keyOf(item))) continue;
+		slots.push(index);
+		mentioned.push(item);
+	}
+	mentioned.sort(
+		(left, right) =>
+			(rank.get(keyOf(left)) ?? 0) - (rank.get(keyOf(right)) ?? 0),
+	);
+	for (const [position, index] of slots.entries()) {
+		rebased[index] = mentioned[position];
+	}
 }
 
 export function caseOperationChangesForUpdate(
@@ -141,8 +203,8 @@ export function caseOperationChangesForUpdate(
 		// A whole-operation replacement, with NO granular intent beside
 		// it: there is no per-slot spelling for "these writes now run in
 		// this order", and the established full-value change says it
-		// exactly. The order slot is still diffed below the guard, so a
-		// reorder combined with a move keeps both.
+		// exactly. It carries the reordered content too, so a reorder that
+		// arrives with edits to those same writes loses neither.
 		return [
 			{
 				kind: "updateForm",
@@ -436,6 +498,12 @@ function rebaseCaseOperationEdit(
 			else currentWrite.condition = structuredClone(write.condition);
 		}
 	}
+	applyDesiredOrder(
+		rebasedWrites,
+		base.writes,
+		desired.writes,
+		(write) => write.property,
+	);
 	if (rebasedWrites.length === 0) delete rebased.writes;
 	else rebased.writes = rebasedWrites;
 
@@ -478,6 +546,12 @@ function rebaseCaseOperationEdit(
 			currentLink[key] = structuredClone(link[key]) as never;
 		}
 	}
+	applyDesiredOrder(
+		rebasedLinks,
+		base.links,
+		desired.links,
+		(link) => link.identifier,
+	);
 	if (rebasedLinks.length === 0) delete rebased.links;
 	else rebased.links = rebasedLinks;
 

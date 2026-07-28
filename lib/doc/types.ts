@@ -929,14 +929,12 @@ function reportCaseOperationPatchIntegrity(
 			return;
 		}
 		case "move":
-			if (
-				!deepEqual(
-					desired?.order,
-					semantic.order === null ? undefined : semantic.order,
-				)
-			) {
-				mismatch(["caseOperationPatch", "order"]);
-			}
+			// Unreachable for a WELL-FORMED move: that pairing agrees on uuid
+			// and anchor and returned above. Getting here means a `move` intent
+			// arrived beside a full-operation `update` fallback — two views that
+			// replay to different documents, which is exactly what this
+			// function exists to reject.
+			mismatch(["caseOperationPatch", "operation"]);
 			return;
 	}
 }
@@ -1051,11 +1049,11 @@ function createMutationSchema({
 				}
 			}),
 		z.object({ kind: z.literal("removeModule"), uuid: uuidSchema }),
-		// A move carries the absolute fractional `order` key the gesture computed;
-		// the reducer writes it verbatim (a same-parent reorder leaves the
-		// membership array untouched). `toIndex` is kept OPTIONAL so the reducer can
-		// still replay legacy pre-`order` events (array-position moves); new
-		// emissions always carry `order` and the reducer prefers it.
+		// A move carries an ANCHOR — the module it now follows — not a position.
+		// A position is computed against the sequence its author could see, so
+		// two people moving from one document compute the same one; an anchor
+		// cannot be shifted by a peer's insert, and a peer-removed anchor
+		// appends rather than throwing.
 		z.object({
 			kind: z.literal("moveModule"),
 			uuid: uuidSchema,

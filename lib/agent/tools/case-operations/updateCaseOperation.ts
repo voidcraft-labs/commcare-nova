@@ -62,7 +62,7 @@ export const updateCaseOperationTool = {
 					mutations: [],
 					newDoc: doc,
 					result: {
-						error: `Case operation "${input.operationId}" not found in ${input.moduleId}/${input.formId}.`,
+						error: `Case operation "${input.operationId}" not found in form "${doc.forms[address.formUuid]?.name ?? input.formUuid}".`,
 					},
 				};
 			}
@@ -104,7 +104,7 @@ export const updateCaseOperationTool = {
 				ctx,
 				doc,
 				mutations,
-				`form:${input.moduleId}/${input.formId}`,
+				`form:${address.formUuid}`,
 			);
 			if (!commit.ok) {
 				return {
@@ -125,7 +125,7 @@ export const updateCaseOperationTool = {
 							: `Updated case operation "${input.operationId}"${input.operation.id === input.operationId ? "" : ` as "${input.operation.id}"`}.`,
 					operationId: input.operation.id,
 					summary: {
-						location: doc.forms[address.formUuid]?.name ?? input.formId,
+						location: doc.forms[address.formUuid]?.name ?? input.formUuid,
 						subject: input.operation.id,
 					},
 				},

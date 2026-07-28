@@ -122,7 +122,7 @@ export const addCaseOperationsTool = {
 				ctx,
 				doc,
 				mutations,
-				`form:${input.moduleId}/${input.formId}`,
+				`form:${address.formUuid}`,
 			);
 			if (!commit.ok) {
 				return {
@@ -138,10 +138,10 @@ export const addCaseOperationsTool = {
 				mutations,
 				newDoc: commit.newDoc,
 				result: {
-					message: `Added ${operationIds.length} case ${operationIds.length === 1 ? "operation" : "operations"} to ${input.moduleId}/${input.formId}: ${operationIds.join(", ")}.`,
+					message: `Added ${operationIds.length} case ${operationIds.length === 1 ? "operation" : "operations"} to form "${doc.forms[address.formUuid]?.name ?? input.formUuid}": ${operationIds.join(", ")}.`,
 					operationIds,
 					summary: {
-						location: doc.forms[address.formUuid]?.name ?? input.formId,
+						location: doc.forms[address.formUuid]?.name ?? input.formUuid,
 						count: operationIds.length,
 					},
 				},

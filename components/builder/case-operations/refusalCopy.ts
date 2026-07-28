@@ -33,6 +33,7 @@ import type {
 	CaseOperationReviewName,
 } from "@/lib/doc/caseOperationReview";
 import type { Uuid } from "@/lib/doc/types";
+import { casePropertyPhrase } from "./operationSentence";
 
 /** Join names the way a sentence would: "A", "A and B", "A, B and C". */
 export function listNames(names: readonly string[]): string {
@@ -152,9 +153,9 @@ export function referenceSlotPhrase(slot: CaseOperationReferenceSlot): string {
 		case "condition":
 			return "when it runs";
 		case "write":
-			return `the value it saves to ${slot.property}`;
+			return `the value it saves to ${casePropertyPhrase(slot.property)}`;
 		case "write-condition":
-			return `when it saves ${slot.property}`;
+			return `when it saves ${casePropertyPhrase(slot.property)}`;
 	}
 }
 

@@ -22,7 +22,11 @@
 "use client";
 
 import { useCallback, useMemo } from "react";
-import { type CaseOperation, orderedCaseOperations } from "@/lib/domain";
+import {
+	type CaseOperation,
+	type CasePropertyDataType,
+	orderedCaseOperations,
+} from "@/lib/domain";
 import {
 	addCaseOperationMutations,
 	type CaseOperationEditVerdict,
@@ -42,6 +46,7 @@ import {
 	caseOperationMoveVerdicts,
 	caseOperationRemovalBlockers,
 } from "../caseOperationReview";
+import { caseOperationWriteValueType } from "../caseOperationWriteTypes";
 import type { Uuid } from "../types";
 import { useBlueprintDoc, useBlueprintDocApi } from "./useBlueprintDoc";
 import {
@@ -77,6 +82,13 @@ export interface CaseOperationsView {
 	/** Whether this operation's full author shape is available on all editors.
 	 * Moving is separate and remains available for a read-only carrier. */
 	readonly authoringVerdict: (uuid: Uuid) => CaseOperationEditVerdict;
+	/** The type one write's value must be assignable to, or `undefined` when
+	 * this write is what establishes the property's type. */
+	readonly writeValueType: (
+		operationUuid: Uuid,
+		caseType: string,
+		property: string,
+	) => CasePropertyDataType | undefined;
 	readonly add: (operation: CaseOperation, index?: number) => CommitOutcome;
 	readonly update: (operation: CaseOperation) => CommitOutcome;
 	readonly remove: (uuid: Uuid) => CommitOutcome | undefined;
@@ -175,6 +187,18 @@ export function useCaseOperations(formUuid: Uuid): CaseOperationsView {
 				: caseOperationAuthoringVerdict(operation);
 		},
 		[operations],
+	);
+
+	const writeValueType = useCallback(
+		(operationUuid: Uuid, caseType: string, property: string) =>
+			caseOperationWriteValueType(
+				doc,
+				formUuid,
+				operationUuid,
+				caseType,
+				property,
+			),
+		[doc, formUuid],
 	);
 
 	/* Inline, not toasting: a refusal belongs beside the list it is about,
@@ -276,20 +300,45 @@ export function useCaseOperations(formUuid: Uuid): CaseOperationsView {
 		[docApi, formUuid, mutations],
 	);
 
-	return {
-		operations,
-		inheritedGuards,
-		nameOf,
-		removalBlockers,
-		dependenciesOf,
-		moveVerdicts,
-		removalPlan,
-		editVerdict,
-		addVerdict,
-		authoringVerdict,
-		add,
-		update,
-		remove,
-		move,
-	};
+	/* Memoized so the VIEW is as stable as the callbacks inside it. Every
+	 * member is already `useCallback`/`useMemo`'d per document, but a fresh
+	 * object literal made all of that invisible to a consumer: a surface that
+	 * memoizes on `view` re-ran on every render anyway, and the rail's action
+	 * choices — three commit-gate runs — were one of them. */
+	return useMemo(
+		() => ({
+			operations,
+			inheritedGuards,
+			nameOf,
+			removalBlockers,
+			dependenciesOf,
+			moveVerdicts,
+			removalPlan,
+			editVerdict,
+			addVerdict,
+			authoringVerdict,
+			writeValueType,
+			add,
+			update,
+			remove,
+			move,
+		}),
+		[
+			operations,
+			inheritedGuards,
+			nameOf,
+			removalBlockers,
+			dependenciesOf,
+			moveVerdicts,
+			removalPlan,
+			editVerdict,
+			addVerdict,
+			authoringVerdict,
+			writeValueType,
+			add,
+			update,
+			remove,
+			move,
+		],
+	);
 }

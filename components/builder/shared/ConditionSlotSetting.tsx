@@ -18,11 +18,11 @@
 
 "use client";
 
-import { useEffect, useRef } from "react";
 import { summarizeFilter } from "@/components/builder/case-list-config/predicateSummary";
 import { Button } from "@/components/shadcn/button";
 import type { CaseType } from "@/lib/domain";
 import type { Predicate } from "@/lib/domain/predicate";
+import { useClearedSlotFocus } from "@/lib/ui/hooks/useClearedSlotFocus";
 import { ClearConditionButton } from "./ClearConditionButton";
 import { firstComparisonDefault } from "./cards/comparisonSeed";
 import type { CaseDataScope } from "./editorSchemas";
@@ -79,19 +79,11 @@ export function ConditionSlotSetting({
 	caseDataScope,
 	canEdit = true,
 }: ConditionSlotSettingProps) {
-	const addButtonRef = useRef<HTMLButtonElement>(null);
-	const focusAddAfterClearRef = useRef(false);
-	/* The Clear control unmounts with the condition it removed, so the
-	 * intent to move focus has to outlive it — hence a ref consumed once
-	 * the slot re-renders empty. */
-	useEffect(() => {
-		if (value !== undefined || !focusAddAfterClearRef.current) return;
-		const frame = requestAnimationFrame(() => {
-			addButtonRef.current?.focus();
-			focusAddAfterClearRef.current = false;
-		});
-		return () => cancelAnimationFrame(frame);
-	}, [value]);
+	/* The Clear control unmounts with the condition it removed, so the intent
+	 * to move focus has to outlive it. `useClearedSlotFocus` is that rule's one
+	 * home — it started here, and the case-change canvas needs the same thing
+	 * in three more places. */
+	const { addRef: addButtonRef, onCleared } = useClearedSlotFocus(value);
 
 	const add = () => {
 		onChange(
@@ -157,7 +149,7 @@ export function ConditionSlotSetting({
 								consequence={clearConsequence}
 								finalFocus={() => addButtonRef.current}
 								onConfirm={() => {
-									focusAddAfterClearRef.current = true;
+									onCleared();
 									onChange(undefined);
 								}}
 							/>

@@ -855,6 +855,33 @@ describe("case operations — exact immediate-parent rolling envelope", () => {
 			}).success,
 		).toBe(false);
 	});
+
+	it("rejects a move intent carrying a full-operation fallback", () => {
+		// The two views replay to different documents: an immediate-parent
+		// parser strips the intent and REPLACES the whole operation, while a
+		// current parser only moves it. A well-formed move pairs with the
+		// carrier-blind move fallback, and that pairing is what agreement on
+		// `uuid` + `after` is checked against.
+		const before = rollingOperation();
+		const [event] = caseOperationChangesForUpdate(
+			FORM,
+			before,
+			rollingOperation({ id: "new_id" }),
+		);
+		if (event?.kind !== "updateForm") {
+			throw new Error("Expected one updateForm event.");
+		}
+		expect(
+			mutationSchema.safeParse({
+				...event,
+				caseOperationPatch: {
+					operation: "move",
+					uuid: before.uuid,
+					after: null,
+				},
+			}).success,
+		).toBe(false);
+	});
 });
 
 function onlyMutation(

@@ -34,8 +34,8 @@ vi.mock("@/lib/db/applyBlueprintChange", () => ({
 
 /**
  * One survey form: three top-level text fields around a group with two
- * children. Order keys are backfilled so `keysForSlot` sees the same
- * keyed siblings a hydrated doc would carry.
+ * children. Each membership array IS the sequence, so the fixture's
+ * declaration order is the order the tool moves fields within.
  *
  *   alpha, bravo, charlie, grp[ golf_one, golf_two ]
  */

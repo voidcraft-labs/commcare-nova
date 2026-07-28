@@ -46,9 +46,34 @@ function quoted(name: string): string {
 
 /** `humanizeId` returns a standalone label with an initial capital. Inside a
  * sentence, case types are common-noun phrases, so lower only that initial
- * letter while retaining the humanized separators. */
-function caseTypePhrase(name: string): string {
+ * letter while retaining the humanized separators.
+ *
+ * Exported because every author-facing sentence about a case type on these
+ * surfaces has to agree: the row, the heading, the section descriptions, and
+ * the pickers all spell one stored `archived_referral` the same way, and a
+ * second local copy is how the wire spelling leaks back into prose. */
+export function caseTypePhrase(name: string): string {
 	const label = humanizeId(name);
+	return `${label.charAt(0).toLowerCase()}${label.slice(1)}`;
+}
+
+/** A saved property's name as a STANDALONE label — a card heading, a picker
+ * item, the subject of its own line.
+ *
+ * The same reason `caseTypePhrase` exists, one dimension over: the picker
+ * offers "Visit outcome", so the card it lands and the blocker line that names
+ * it later must not read `visit_outcome`. Every author-facing spelling of a
+ * property on these surfaces comes from here or from `casePropertyPhrase`, so
+ * the wire spelling has one place it can leak from rather than four. */
+export function casePropertyLabel(name: string): string {
+	return humanizeId(name);
+}
+
+/** The same name folded INTO a sentence ("the value it saves to visit
+ * outcome"), where an initial capital would read as a proper noun. Exactly the
+ * `humanizeId` → `caseTypePhrase` relationship, for properties. */
+export function casePropertyPhrase(name: string): string {
+	const label = casePropertyLabel(name);
 	return `${label.charAt(0).toLowerCase()}${label.slice(1)}`;
 }
 

@@ -60,6 +60,8 @@ export type GetModuleInput = z.infer<typeof getModuleInputSchema>;
  */
 export interface GetModuleFormSummary {
 	formIndex: number;
+	/** Identity. The case-operation tools address this form by it. */
+	uuid: Uuid;
 	name: string;
 	type: FormType;
 	fieldCount: number;
@@ -81,6 +83,8 @@ export type GetModuleResult =
 	| { error: string }
 	| {
 			moduleIndex: number;
+			/** Identity. The case-operation tools address this menu by it. */
+			uuid: Uuid;
 			name: string;
 			case_type: string | null;
 			icon: string | null;
@@ -140,6 +144,11 @@ export const getModuleTool = {
 			kind: "read",
 			data: {
 				moduleIndex,
+				/* Identity, because the case-operation tools address a menu and
+				 * a form by it and NOTHING else returns it. A positional index
+				 * shifts under a peer's insert and a name-derived slug is a
+				 * fossil of the name at creation, so neither is an address. */
+				uuid: moduleUuid,
 				name: mod.name,
 				case_type: mod.caseType ?? null,
 				icon: mod.icon ?? null,
@@ -156,6 +165,7 @@ export const getModuleTool = {
 					const f = doc.forms[fUuid];
 					return {
 						formIndex: i,
+						uuid: fUuid,
 						name: f?.name ?? "",
 						type: f?.type ?? "survey",
 						fieldCount: countFieldsUnder(doc, fUuid),

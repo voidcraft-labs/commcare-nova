@@ -8,7 +8,7 @@
 import { describe, expect, it } from "vitest";
 import type { CaseOperationMoveVerdict } from "@/lib/doc/caseOperationReview";
 import type { Uuid } from "@/lib/doc/types";
-import { planKeyboardMove } from "../keyboardMove";
+import { type KeyboardMoveOutcome, planKeyboardMove } from "../keyboardMove";
 
 const A = "op-a" as Uuid;
 const B = "op-b" as Uuid;
@@ -21,6 +21,18 @@ const NAMES: Record<string, string> = {
 };
 const nameOf = (uuid: Uuid) => NAMES[uuid];
 
+/** The sentence an outcome carries. Only the outcomes that did NOT move have
+ *  one: a committed move is described by the canvas from the document after
+ *  the commit, so there is no sentence to plan here. */
+function announcementOf(outcome: KeyboardMoveOutcome | undefined): string {
+	if (outcome === undefined || outcome.kind === "move") {
+		throw new Error(
+			`Expected a refused or at-edge outcome, which carry words. Got ${outcome?.kind ?? "no outcome"}.`,
+		);
+	}
+	return outcome.announcement;
+}
+
 /** Every destination available. */
 function allOk(length: number): Map<number, CaseOperationMoveVerdict> {
 	return new Map(
@@ -29,7 +41,7 @@ function allOk(length: number): Map<number, CaseOperationMoveVerdict> {
 }
 
 describe("planKeyboardMove", () => {
-	it("moves and says where it landed", () => {
+	it("names the destination and nothing else", () => {
 		const outcome = planKeyboardMove({
 			order: [A, B, C],
 			index: 2,
@@ -38,11 +50,10 @@ describe("planKeyboardMove", () => {
 			nameOf,
 			dependsOn: [],
 		});
-		expect(outcome).toEqual({
-			kind: "move",
-			toIndex: 1,
-			announcement: "close_visit moved earlier, now 2 of 3.",
-		});
+		// No sentence: where a move LANDED is a fact about the committed
+		// sequence, and a peer's concurrent edit is exactly when that differs
+		// from the index requested here. The canvas says it after committing.
+		expect(outcome).toEqual({ kind: "move", toIndex: 1 });
 	});
 
 	it("Home and End travel to the ends", () => {
@@ -107,7 +118,7 @@ describe("planKeyboardMove", () => {
 		expect(outcome?.kind).toBe("refused");
 		// The name of the change that did not move leads, then the reason,
 		// then the change the reason is about.
-		expect(outcome?.announcement).toBe(
+		expect(announcementOf(outcome)).toBe(
 			"create_referral did not move earlier. “update_client” uses this change's result, so this has to stay before it.",
 		);
 	});
@@ -138,7 +149,7 @@ describe("planKeyboardMove", () => {
 			nameOf,
 			dependsOn: [A],
 		});
-		expect(outcome?.announcement).toBe(
+		expect(announcementOf(outcome)).toBe(
 			"close_visit did not move earlier. This change uses the case “create_referral” makes, so it has to stay after it.",
 		);
 	});
@@ -171,11 +182,11 @@ describe("planKeyboardMove", () => {
 			dependsOn: [C],
 		});
 		expect(outcome?.kind).toBe("refused");
-		expect(outcome?.announcement).toBe(
+		expect(announcementOf(outcome)).toBe(
 			"create_referral did not move earlier. This order would change which kind of case “update_client” acts on.",
 		);
-		expect(outcome?.announcement).not.toContain("makes");
-		expect(outcome?.announcement).not.toContain("uses");
+		expect(announcementOf(outcome)).not.toContain("makes");
+		expect(announcementOf(outcome)).not.toContain("uses");
 	});
 
 	it("names nothing rather than the wrong thing when the moved change is the only type blocker", () => {
@@ -201,7 +212,7 @@ describe("planKeyboardMove", () => {
 		});
 		// The earlier change RETYPED a case rather than making one, so the
 		// old "uses a case an earlier change makes" fallback was false here.
-		expect(outcome?.announcement).toBe(
+		expect(announcementOf(outcome)).toBe(
 			"create_referral did not move earlier. This order would change which kind of case this change acts on.",
 		);
 	});
@@ -222,9 +233,11 @@ describe("planKeyboardMove", () => {
 		expect(outcome?.kind).toBe("refused");
 		// It is a property of the submitted form, not a mistake the author
 		// made, so the wording must not blame their app.
-		expect(outcome?.announcement).toContain("The submitted form cannot carry");
-		expect(outcome?.announcement).toContain("“close_visit”");
-		expect(outcome?.announcement).not.toContain("uses this change's result");
+		expect(announcementOf(outcome)).toContain(
+			"The submitted form cannot carry",
+		);
+		expect(announcementOf(outcome)).toContain("“close_visit”");
+		expect(announcementOf(outcome)).not.toContain("uses this change's result");
 	});
 
 	// A wire-order refusal names the operation that would land wrong, and
@@ -243,7 +256,7 @@ describe("planKeyboardMove", () => {
 			nameOf,
 			dependsOn: [],
 		});
-		expect(outcome?.announcement).toBe(
+		expect(announcementOf(outcome)).toBe(
 			"create_referral did not move earlier. The submitted form cannot carry the changes in this order.",
 		);
 	});
@@ -261,8 +274,8 @@ describe("planKeyboardMove", () => {
 			nameOf,
 			dependsOn: [],
 		});
-		expect(outcome?.announcement).toContain("“close_visit”");
-		expect(outcome?.announcement).not.toContain("“create_referral”");
+		expect(announcementOf(outcome)).toContain("“close_visit”");
+		expect(announcementOf(outcome)).not.toContain("“create_referral”");
 	});
 
 	it("still reads as a sentence when a blocking change has no name", () => {
@@ -286,8 +299,8 @@ describe("planKeyboardMove", () => {
 			nameOf,
 			dependsOn: [],
 		});
-		expect(outcome?.announcement).toContain("another change");
-		expect(outcome?.announcement).not.toContain("undefined");
+		expect(announcementOf(outcome)).toContain("another change");
+		expect(announcementOf(outcome)).not.toContain("undefined");
 	});
 
 	it("returns nothing for an index that is not in the list", () => {

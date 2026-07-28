@@ -6,14 +6,18 @@
 // itself: the row refuses to open a gap. A keyboard user gets nothing
 // from a key that silently does nothing — so every refused ArrowUp
 // ANNOUNCES why, naming the operations the refusal is about. That
-// parity is the point of this file, and the reason the decision is pure:
-// the announcement and the commit come from one verdict, so the words
-// can never describe a different outcome than the one that happened.
+// parity is the point of this file.
 //
 // The verdict itself is the move planner's, read out of the same
 // `caseOperationMoveVerdicts` map the drag gate consults
 // (`lib/doc/caseOperationReview.ts`). Keyboard and drag therefore cannot
 // disagree about what is legal — they are two readings of one map.
+//
+// Only the outcomes that DID NOT move carry their own words. A committed
+// move is described by the canvas from the document after the commit,
+// because the rank the author lands at is a fact about the committed
+// sequence, not about the index this plan requested — a peer's concurrent
+// edit is exactly the case where the two differ.
 
 import type {
 	CaseOperationMoveVerdict,
@@ -25,21 +29,14 @@ import { moveRefusalReason } from "./refusalCopy";
 export type ReorderKey = "ArrowUp" | "ArrowDown" | "Home" | "End";
 
 export type KeyboardMoveOutcome =
-	/** Commit the move, then say where it landed. */
-	| {
-			readonly kind: "move";
-			readonly toIndex: number;
-			readonly announcement: string;
-	  }
+	/** Commit the move. The caller says where it landed, from the committed
+	 *  document — see the note above. */
+	| { readonly kind: "move"; readonly toIndex: number }
 	/** Already at the end it was asked to travel toward. */
 	| { readonly kind: "at-edge"; readonly announcement: string }
-	/** The planner refuses this destination. Nothing commits; the sentence
-	 *  is both spoken and shown beside the list. */
-	| {
-			readonly kind: "refused";
-			readonly announcement: string;
-			readonly message: string;
-	  };
+	/** The planner refuses this destination. Nothing commits, and the screen
+	 *  is otherwise unchanged, so the sentence is the whole feedback. */
+	| { readonly kind: "refused"; readonly announcement: string };
 
 interface KeyboardMoveArgs {
 	/** Operations in execution order. */
@@ -113,13 +110,8 @@ export function planKeyboardMove(
 			// move before the reason — on a twenty-change form the author may
 			// have arrowed several rows since they last heard a name.
 			announcement: `${name} did not move ${direction(key)}. ${message}`,
-			message,
 		};
 	}
 
-	return {
-		kind: "move",
-		toIndex,
-		announcement: `${name} moved ${direction(key)}, now ${toIndex + 1} of ${order.length}.`,
-	};
+	return { kind: "move", toIndex };
 }

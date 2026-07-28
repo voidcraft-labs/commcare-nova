@@ -1,9 +1,12 @@
 /**
  * Shared author vocabulary and identity bridge for case-operation tools.
  *
- * Tool inputs use module/form/operation slug ids and field paths. Canonical
- * storage uses UUIDs. This module is the only crossing point between those
- * shapes, so chat and MCP cannot drift or leak storage identity to authors.
+ * A form is ADDRESSED by `moduleUuid` + `formUuid`, because an address must be
+ * something a caller can learn and that survives a rename. What an author
+ * reads and writes INSIDE an operation stays author vocabulary: the operation's
+ * own slug id (unique by validator rule) and field paths. This module is the
+ * only crossing point between those shapes, so chat and MCP cannot drift or
+ * leak storage identity into an expression an author has to read.
  */
 
 import { z } from "zod";
@@ -11,7 +14,7 @@ import {
 	carrierBlindCaseOperationsProjection,
 	isDormantCaseOperationUnavailableProjection,
 } from "@/lib/agent/dormantCarrierReadProjection";
-import { orderedFormUuids, orderedModuleUuids } from "@/lib/doc/fieldWalk";
+import { orderedFormUuids } from "@/lib/doc/fieldWalk";
 import {
 	caseOperationIdVerdict,
 	caseOperationLinkIdentifierVerdict,
@@ -253,14 +256,20 @@ export type CaseOperationInput = z.infer<typeof caseOperationInputSchema>;
 
 export const operationAddressSchema = z
 	.object({
-		moduleId: z.string().min(1).describe("Module slug id"),
-		formId: z.string().min(1).describe("Form slug id inside the module"),
+		moduleUuid: z
+			.string()
+			.min(1)
+			.describe("Module uuid, from get_module or search_blueprint"),
+		formUuid: z
+			.string()
+			.min(1)
+			.describe("Form uuid, from get_module's form list or search_blueprint"),
 	})
 	.strict();
 
 export interface OperationAddress {
-	readonly moduleId: string;
-	readonly formId: string;
+	readonly moduleUuid: string;
+	readonly formUuid: string;
 }
 
 export type OperationAddressResolution =
@@ -271,26 +280,45 @@ export type OperationAddressResolution =
 	  }
 	| { readonly ok: false; readonly error: string };
 
+/**
+ * Resolve `(moduleUuid, formUuid)` to the form they name.
+ *
+ * The address is IDENTITY, not a name-derived slug. A slug is minted from the
+ * display name at creation and never touched again, so it is a fossil of that
+ * name rather than a projection of the object: after one rename it still reads
+ * as meaningful and is not. Worse, nothing enforces slug uniqueness
+ * (`lib/domain/idSlug.ts` says so outright), so two menus could carry the same
+ * one — and picking the first silently wrote to a form the caller never meant
+ * while the success message echoed the address it asked for.
+ *
+ * With uuids that whole class is unrepresentable, which is why there is no
+ * ambiguity arm here to word carefully. What remains is the ordinary miss, and
+ * the form-not-in-this-module case: a valid form uuid under the wrong module is
+ * a caller mistake worth naming rather than quietly accepting, because the two
+ * halves address different things and only the form is actually written to.
+ */
 export function resolveOperationAddress(
 	doc: BlueprintDoc,
 	address: OperationAddress,
 ): OperationAddressResolution {
-	const moduleUuid = orderedModuleUuids(doc).find(
-		(uuid) => doc.modules[uuid]?.id === address.moduleId,
-	);
-	if (moduleUuid === undefined) {
+	const moduleUuid = asUuid(address.moduleUuid);
+	if (doc.modules[moduleUuid] === undefined) {
 		return {
 			ok: false,
-			error: `Module "${address.moduleId}" not found`,
+			error: `No module with uuid "${address.moduleUuid}" is in this app. Module uuids come from get_module or search_blueprint.`,
 		};
 	}
-	const formUuid = orderedFormUuids(doc, moduleUuid).find(
-		(uuid) => doc.forms[uuid]?.id === address.formId,
-	);
-	if (formUuid === undefined) {
+	const formUuid = asUuid(address.formUuid);
+	if (doc.forms[formUuid] === undefined) {
 		return {
 			ok: false,
-			error: `Form "${address.formId}" not found in module "${address.moduleId}"`,
+			error: `No form with uuid "${address.formUuid}" is in this app. Form uuids come from get_module's form list or search_blueprint.`,
+		};
+	}
+	if (!orderedFormUuids(doc, moduleUuid).includes(formUuid)) {
+		return {
+			ok: false,
+			error: `Form "${doc.forms[formUuid]?.name ?? address.formUuid}" is not in module "${doc.modules[moduleUuid]?.name ?? address.moduleUuid}". Check which menu holds it with get_module.`,
 		};
 	}
 	return { ok: true, moduleUuid, formUuid };

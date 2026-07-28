@@ -8,21 +8,25 @@ import {
 } from "./shared";
 
 export type GetCaseOperationsInput = {
-	readonly moduleId: string;
-	readonly formId: string;
+	readonly moduleUuid: string;
+	readonly formUuid: string;
 };
 
 export type GetCaseOperationsResult =
 	| {
-			readonly moduleId: string;
-			readonly formId: string;
+			readonly moduleUuid: string;
+			readonly formUuid: string;
+			/** The form's display name — the address is identity, so the
+			 *  result carries the human handle rather than making the caller
+			 *  hold a uuid and a name it never asked for. */
+			readonly form: string;
 			readonly operations: readonly Record<string, unknown>[];
 	  }
 	| { readonly error: string };
 
 export const getCaseOperationsTool = {
 	description:
-		"List every case operation in execution order. References use operation ids and field paths; storage UUIDs are never returned. A lookup-bearing operation remains in place with explicit unavailable metadata and stays addressable by id.",
+		"List every case operation in execution order. Addressed by module and form uuid. References inside an operation use operation ids and field paths. A lookup-bearing operation remains in place with explicit unavailable metadata and stays addressable by id.",
 	inputSchema: operationAddressSchema,
 	async execute(
 		input: GetCaseOperationsInput,
@@ -36,8 +40,9 @@ export const getCaseOperationsTool = {
 		return {
 			kind: "read",
 			data: {
-				moduleId: input.moduleId,
-				formId: input.formId,
+				moduleUuid: input.moduleUuid,
+				formUuid: input.formUuid,
+				form: doc.forms[address.formUuid]?.name ?? "",
 				operations: projectedCaseOperations(doc, address.formUuid),
 			},
 		};

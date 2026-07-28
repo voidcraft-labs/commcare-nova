@@ -1,5 +1,6 @@
 /**
- * A form whose case changes already depend on one another.
+ * A form whose case changes already depend on one another, at the scale the
+ * screen was designed against.
  *
  * The reorder refusal is the part of case-change authoring that most needs
  * a real browser: it is a keyboard interaction whose whole value is what a
@@ -12,6 +13,14 @@
  * of the create is therefore refused by the move planner, and the refusal has
  * a name to say. `note_visit` depends on nothing, so it proves the same
  * keyboard path still moves what it may.
+ *
+ * The four dependent changes sit at the HEAD of a twenty-change sequence, and
+ * that length is the point rather than padding. Twenty on one form is the case
+ * the screen was designed against, and the list and one change's detail are
+ * mutually exclusive screens at every width — so at this length, finding a
+ * change and getting back to it rests entirely on the handles' "Runs N of M",
+ * the detail's position, and Previous / Next. Four changes exercise none of
+ * that: every row fits on one screen and traversal never has to carry anyone.
  */
 
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
@@ -36,6 +45,83 @@ import {
 	term,
 } from "@/lib/domain/predicate";
 import { buildUrl } from "@/lib/routing/location";
+
+/**
+ * The independent changes that carry the sequence to twenty. Each writes its
+ * own property of the session case, so none of them depends on another and
+ * none is a candidate for the refusal the journey drives — they are the
+ * SEQUENCE, not the subject. Distinct properties (rather than fifteen writes
+ * of one) keep every row's sentence distinct, which is what makes "did I get
+ * back to the change I was on?" answerable at all.
+ */
+const ROUTINE_WRITES = [
+	{ id: "record_weight", property: "weight", label: "Weight" },
+	{ id: "record_height", property: "height", label: "Height" },
+	{ id: "record_temperature", property: "temperature", label: "Temperature" },
+	{ id: "record_pulse", property: "pulse", label: "Pulse" },
+	{
+		id: "record_blood_pressure",
+		property: "blood_pressure",
+		label: "Blood pressure",
+	},
+	{
+		id: "record_respiratory_rate",
+		property: "respiratory_rate",
+		label: "Respiratory rate",
+	},
+	{
+		id: "record_oxygen_saturation",
+		property: "oxygen_saturation",
+		label: "Oxygen saturation",
+	},
+	{ id: "record_symptoms", property: "symptom_summary", label: "Symptoms" },
+	{ id: "record_triage", property: "triage_level", label: "Triage level" },
+	{
+		id: "record_medication",
+		property: "medication_given",
+		label: "Medication given",
+	},
+	{ id: "record_allergy", property: "allergy_note", label: "Allergy note" },
+	{
+		id: "record_counselling",
+		property: "counselling_note",
+		label: "Counselling note",
+	},
+	{
+		id: "record_referral_reason",
+		property: "referral_reason",
+		label: "Referral reason",
+	},
+	{
+		id: "record_next_visit",
+		property: "next_visit_note",
+		label: "Next visit note",
+	},
+	{
+		id: "record_discharge",
+		property: "discharge_note",
+		label: "Discharge note",
+	},
+] as const;
+
+/**
+ * Minted from the position rather than hand-scrambled: fifteen hand-written
+ * uuids in one file is fifteen chances to typo a duplicate, and a duplicate
+ * surfaces as `CASE_OPERATION_DUPLICATE_UUID` rather than as itself.
+ */
+export const CASE_CHANGES_ROUTINE = ROUTINE_WRITES.map((write, index) => ({
+	...write,
+	uuid: asUuid(
+		`7a51e001-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+	),
+}));
+
+/**
+ * What the journey reads off every handle and the detail's position: the four
+ * dependent changes, the fifteen routine ones, and the dormant lookup carrier
+ * the smoke seed always installs last.
+ */
+export const CASE_CHANGES_SEQUENCE_LENGTH = CASE_CHANGES_ROUTINE.length + 5;
 
 export const CASE_CHANGES_SEED = {
 	appName: "Smoke — Case changes",
@@ -94,6 +180,14 @@ export function buildCaseChangesBlueprint(
 						label: "Last note",
 						data_type: "text",
 					},
+					// A write names a declared property or the app is invalid
+					// (CASE_OPERATION_UNKNOWN_PROPERTY), so the routine changes
+					// bring their own.
+					...CASE_CHANGES_ROUTINE.map((routine) => ({
+						name: routine.property,
+						label: routine.label,
+						data_type: "text" as const,
+					})),
 				],
 			},
 			{
@@ -218,7 +312,8 @@ export function buildCaseChangesBlueprint(
 	}
 	/* Attached here rather than through `buildDoc`: that shared helper takes
 	 * authoring shorthand, while these operations are already in their stored
-	 * shape — including the fractional order keys the list reads. */
+	 * shape. Array position IS the sequence, so the order written below is the
+	 * order the list and the runtime both read. */
 	return {
 		...doc,
 		forms: {
@@ -284,6 +379,19 @@ function caseOperations(
 				},
 			],
 		},
+		// The sequence between the dependent head and the dormant tail. They
+		// carry the list to twenty without adding a second thing that can
+		// refuse a move, so the refusal the journey drives stays the only one.
+		...CASE_CHANGES_ROUTINE.map((routine) => ({
+			uuid: routine.uuid,
+			id: routine.id,
+			action: "update" as const,
+			caseType: CASE_CHANGES_SEED.caseType,
+			target: { kind: "session" as const },
+			writes: [
+				{ property: routine.property, value: term(literal(routine.label)) },
+			],
+		})),
 		...(lookupCarrier === undefined
 			? []
 			: [
