@@ -1002,8 +1002,10 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						return { ok: false, messages: lines };
 					}
 					/* Commit the validated candidate (one reducer run, one undo
-					 * entry), THEN the stash — a pure state write that can't fail. */
-					docStoreRef.getState().commitDoc(verdict.nextDoc);
+					 * entry) with the batch that produced it — this is an author
+					 * edit, so it joins the command queue persistence sends. THEN
+					 * the stash, a pure state write that can't fail. */
+					docStoreRef.getState().commitDoc(verdict.nextDoc, mutations);
 					set({
 						connectStash: nextStash,
 						// "Last active connect type" = the mode now in effect, or the

@@ -432,7 +432,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 	// kinds have a null parent, so the kind alone separates them.
 	const buckets = new Map<string, StoredEntityRow[]>();
 	for (const row of result.rows) {
-		const key = `${row.app_id} ${row.kind} ${row.parent_uuid ?? ""}`;
+		const key = `${row.app_id}\u0000${row.kind}\u0000${row.parent_uuid ?? ""}`;
 		const bucket = buckets.get(key);
 		if (bucket === undefined) buckets.set(key, [row]);
 		else bucket.push(row);
@@ -440,7 +440,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 
 	const updates = new Map<string, { ordinal: number; data: unknown }>();
 	const stage = (row: StoredEntityRow, ordinal: number): void => {
-		updates.set(`${row.app_id} ${row.uuid}`, { ordinal, data: row.data });
+		updates.set(`${row.app_id}\u0000${row.uuid}`, { ordinal, data: row.data });
 	};
 
 	for (const bucket of buckets.values()) {
@@ -468,7 +468,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 	}
 
 	for (const [key, { ordinal, data }] of updates) {
-		const [appId, uuid] = key.split(" ");
+		const [appId, uuid] = key.split("\u0000");
 		await sql`
 			UPDATE blueprint_entities
 			SET ordinal = ${ordinal}, data = ${JSON.stringify(data)}::jsonb
