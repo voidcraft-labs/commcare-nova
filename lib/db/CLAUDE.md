@@ -31,7 +31,7 @@ groups) plus one `blueprint_entities` row per entity. Six kinds share that table
 (`EntityRowKind`): `module` / `form` / `field` encode their hierarchy in
 `(parent_uuid, ordinal)`, while `user_property` / `user_type` / `persona` are
 flat — no parent, constant ordinal, sequence living entirely in each entity's
-fractional `order` key. **Every kind branches explicitly in the assembler**: its
+position in its parent's sequence. **Every kind branches explicitly in the assembler**: its
 shape is `if module / else if form / else field`, so a new kind that falls
 through is read as a field, fails `blueprintDocSchema`, and stops the whole app
 from loading rather than losing one row. The three flat collections' doc slots

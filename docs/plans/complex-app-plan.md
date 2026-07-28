@@ -242,28 +242,20 @@ source on the handle's pointer-down, so the first pointer move is already gated 
 and the keyboard asks the same map before committing. Neither gesture can commit
 what the other would refuse, and `view.move` re-plans from the invocation-time
 document so a peer edit mid-gesture cannot slip one through. The move mutation
-carries both its fractional key and requested final rank; the authoritative
-commit rejects it if a peer insertion makes that key land elsewhere.
+names the operation this one now follows.
 
-**A fractional key alone cannot name a destination inside a run of tied
-siblings**, and the sequence is `(order, uuid)`: a key above the run sorts after
-all of it, below sorts before all of it, and equal leaves the mover's immutable
-uuid to decide. `lib/doc/order/rankedMove.ts::planRankedMove` therefore returns
-the mover's key plus the minimum sibling re-keys that open a real gap — the
-shorter side of the run, empty in the common case, and only the upper side where
-the lower bound is numerically zero, below which nothing sorts. Re-keys preserve
-sibling relative order, so only the mover changes rank and the dependency and
-wire-order analyses stay about the same graph; they ride index-less, so exactly
-one rank is fenced — the one the author chose — while a genuine peer shift is
-still rejected. Its comparator is a required parameter because the repo has two
-tie-breaks, and a default matching one silently mis-plans for the other.
-`backfillOrderKeys` covers `caseOperations`, so an absent key is a
-directly-constructed-document case rather than a live path; the primitive stays
-total for it regardless. Successful
-pointer, keyboard, SA, and MCP outcomes all report the rank in the committed
-document, never the stale requested rank. Moving to the rank the operation
-already occupies is a true no-op: it reports that rank without rewriting the
-fractional key, persisting an event, or adding undo history. A refused keyboard
+**An anchor cannot be shifted by a peer's insert**, which is what removed a
+whole layer here. A fractional key named an ABSOLUTE position, so a peer
+inserting above the destination moved it out from under the author — hence a
+requested-rank fence on the mutation, an authoritative check that the key still
+landed where the author asked, and a ranked-move planner that re-keyed tied
+siblings to open a gap a single key could not reach. Sequence is array position
+now: the move says "after this one", the reducer splices, and a peer's insert
+simply lands somewhere else in the same list. There is no rank to fence, no gap
+to open, and no tie to break. Successful pointer, keyboard, SA, and MCP outcomes
+all report the rank in the committed document. Moving to the rank the operation
+already occupies is a true no-op: it reports that rank without persisting an
+event or adding undo history. A refused keyboard
 move ANNOUNCES why and names the operations involved (`keyboardMove.ts`), which
 is the whole point:
 a pointer author reads a refusal off a drop zone that will not open, and a
@@ -820,8 +812,8 @@ A module's case list is laid out either as a row of columns or as a **tile** —
 12 × 12 grid where each Results field occupies a rectangle. The layout lives on
 `caseListConfig.tile` and its presence IS the switch; each column carries its own
 `tile` cell (`{x, y, width, height}` plus optional alignment, text size, border,
-and shading). Placement is deliberately separate from the `listOrder` /
-`detailOrder` keys: a cell is where a field sits on the tile, an order key is
+and shading). Placement is deliberately separate from the case list's two
+ordering arrays: a cell is where a field sits on the tile, a sequence is
 where it sits in a sequence.
 
 One short detail drives all three tile surfaces. `models/modules.py::Module.search_detail`
@@ -1487,7 +1479,7 @@ files and the baseline UI review in the contracts.
 · depends on nothing · blocks unit 15
 
 An exhaustive-`else` link projection with durable link identity in one release,
-then form sections with fractional order. **The file holds** the six end-of-form
+then form sections in authored order. **The file holds** the six end-of-form
 workflow mappings and their traps, the closed stack vocabulary, the negative sweep
 proving sections have no wire notion, the no-expression-slots design fence, and
 the verified mechanics that make sections beat multi-form chains.
