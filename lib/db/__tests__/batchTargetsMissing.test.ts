@@ -301,18 +301,22 @@ describe("batchTargetsMissing — granular collection kinds (item uuid)", () => 
 				kind: "moveColumn",
 				moduleUuid,
 				uuid: columnUuid,
+				surface: "list",
+				after: null,
 			} as Mutation,
 			{
 				kind: "moveColumn",
 				moduleUuid,
 				uuid: columnUuid,
-				surfaceOrderPatch: { surface: "list", order: "a2" },
+				surface: "list",
+				after: null,
 			} as Mutation,
 			{
 				kind: "moveColumn",
 				moduleUuid,
 				uuid: columnUuid,
-				surfaceOrderPatch: { surface: "detail", order: "a3" },
+				surface: "detail",
+				after: null,
 			} as Mutation,
 			{
 				kind: "updateColumn",
@@ -366,7 +370,8 @@ describe("batchTargetsMissing — granular collection kinds (item uuid)", () => 
 					kind: "moveColumn",
 					moduleUuid,
 					uuid: MISSING,
-					surfaceOrderPatch: { surface: "list", order: "a1" },
+					surface: "list",
+					after: null,
 				} as Mutation,
 			]),
 		).toBe(true);
@@ -376,7 +381,8 @@ describe("batchTargetsMissing — granular collection kinds (item uuid)", () => 
 					kind: "moveColumn",
 					moduleUuid,
 					uuid: MISSING,
-					surfaceOrderPatch: { surface: "detail", order: "a1" },
+					surface: "detail",
+					after: null,
 				} as Mutation,
 			]),
 		).toBe(true);
@@ -412,7 +418,13 @@ describe("batchTargetsMissing — granular collection kinds (item uuid)", () => 
 		};
 		expect(
 			batchTargetsMissing(doc, [
-				{ kind: "addColumn", moduleUuid: owner, column },
+				{
+					kind: "addColumn",
+					moduleUuid: owner,
+					column,
+					afterInList: null,
+					afterInDetail: null,
+				},
 				{
 					kind: "updateColumn",
 					moduleUuid: owner,
@@ -616,11 +628,11 @@ describe("batchTargetsMissing — case-operation logical identities", () => {
 					patch: { id: "renamed" },
 				},
 			),
-			granular(
-				formUuid,
-				{ ...operation, order: "z" },
-				{ operation: "move", uuid: OPERATION, order: "z" },
-			),
+			granular(formUuid, operation, {
+				operation: "move",
+				uuid: OPERATION,
+				after: null,
+			}),
 		];
 		for (const mutation of operationEdits) {
 			expect(batchTargetsMissing(withoutOperation, [mutation])).toBe(true);
@@ -755,11 +767,12 @@ describe("batchTargetsMissing — case-operation logical identities", () => {
 			caseOperationChange: {
 				operation: "move",
 				uuid: OPERATION,
+				after: OTHER_OPERATION,
 			},
 			caseOperationPatch: {
 				operation: "move",
 				uuid: OPERATION,
-				index: 1,
+				after: OTHER_OPERATION,
 			},
 		};
 
@@ -774,51 +787,29 @@ describe("batchTargetsMissing — case-operation logical identities", () => {
 		expect(batchTargetsMissing(fresh, [move])).toBe(true);
 	});
 
-	it("judges rank intent against the complete same-batch membership and order projection", () => {
+	it("accepts a move whose anchor is only born later in the same batch", () => {
 		const { doc, formUuid } = fixture();
 		const first = operationIn(doc, formUuid);
-		const second: CaseOperation = {
-			...first,
-			uuid: OTHER_OPERATION,
-			id: "second",
-		};
-		const third: CaseOperation = {
-			...first,
-			uuid: asUuid("33333333-3333-4333-8333-333333333333"),
-			id: "third",
-		};
-		doc.forms[formUuid].caseOperations = [first, second, third];
-		const move = (
-			uuid: ReturnType<typeof asUuid>,
-			order: string,
-			index: number,
-		): Mutation => ({
-			kind: "updateForm",
-			uuid: asUuid(formUuid),
-			patch: {},
-			caseOperationChange: { operation: "move", uuid, order },
-			caseOperationPatch: { operation: "move", uuid, order, index },
-		});
-
-		// The first event temporarily puts `second` last. Only the complete
-		// batch has C(x), B(y), A(z), so an intermediate-rank check would
-		// falsely reject B's intended final rank 1.
-		expect(
-			batchTargetsMissing(doc, [
-				move(OTHER_OPERATION, "y", 1),
-				move(OPERATION, "z", 2),
-				move(third.uuid, "x", 0),
-			]),
-		).toBe(false);
-
 		const peer: CaseOperation = {
 			...first,
 			uuid: asUuid("44444444-4444-4444-8444-444444444444"),
 			id: "same_batch_birth",
 		};
+		const move = (after: ReturnType<typeof asUuid> | null): Mutation => ({
+			kind: "updateForm",
+			uuid: asUuid(formUuid),
+			patch: {},
+			caseOperationChange: { operation: "move", uuid: OPERATION, after },
+			caseOperationPatch: { operation: "move", uuid: OPERATION, after },
+		});
+
+		// A placement named by the uuid it follows cannot be shifted by a peer,
+		// so there is no rank to fence: the anchor either survives and the
+		// operation lands after it, or it does not and the operation appends.
+		// Neither outcome is a phantom conflict.
 		expect(
 			batchTargetsMissing(doc, [
-				move(OPERATION, "z", 3),
+				move(peer.uuid),
 				{
 					kind: "updateForm",
 					uuid: asUuid(formUuid),
@@ -827,6 +818,9 @@ describe("batchTargetsMissing — case-operation logical identities", () => {
 				},
 			]),
 		).toBe(false);
+
+		// The MOVED operation still has to exist — that is a real conflict.
+		expect(batchTargetsMissing(doc, [move(null), move(null)])).toBe(false);
 	});
 
 	it("advances births, removals, and full replacements across one batch", () => {
