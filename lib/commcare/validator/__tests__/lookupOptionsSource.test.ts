@@ -218,38 +218,28 @@ describe("lookup-backed select filter semantics", () => {
 		expect(semanticFindings(doc)).toEqual([]);
 	});
 
-	it("uses effective (order, uuid) DFS rather than membership-array position", () => {
+	it("reports only the read that sits BELOW the select in the form", () => {
+		// A filter may read an answer the worker has already given, which is
+		// exactly the fields above it. This select reads one of each.
 		const doc = surveyDoc([
-			// Membership is deliberately late, select, early. Equal authored
-			// order keys force uuid to decide the effective sequence.
-			f({
-				uuid: FIELD_3,
-				kind: "text",
-				id: "late",
-				label: "Late",
-			}),
+			f({ uuid: FIELD_3, kind: "text", id: "above", label: "Above" }),
 			select(
 				FIELD_2,
 				"choice",
 				and(
 					eq(formField(FIELD_1), literal("yes")),
-					gt(formField(FIELD_3), literal("M")),
+					eq(formField(FIELD_3), literal("M")),
 				),
 				"same",
 			),
-			f({
-				uuid: FIELD_1,
-				kind: "text",
-				id: "early",
-				label: "Early",
-			}),
+			f({ uuid: FIELD_1, kind: "text", id: "below", label: "Below" }),
 		]);
 
 		const findings = semanticFindings(doc);
 		expect(findings.map((finding) => finding.code)).toEqual([
 			"LOOKUP_SELECT_FILTER_FIELD_NOT_EARLIER",
 		]);
-		expect(findings[0].details?.referencedFieldUuid).toBe(FIELD_3);
+		expect(findings[0].details?.referencedFieldUuid).toBe(FIELD_1);
 	});
 
 	it("rejects missing and non-value form-field leaves", () => {

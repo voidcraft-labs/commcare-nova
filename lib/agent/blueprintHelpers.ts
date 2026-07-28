@@ -45,7 +45,7 @@ import {
 	computeFieldPath,
 	findContainingForm,
 } from "@/lib/doc/mutations/helpers";
-import { sequenceMovesTo } from "@/lib/doc/mutations/sequence";
+import { anchorForIndex, sequenceMovesTo } from "@/lib/doc/mutations/sequence";
 import { searchInputUpdateMutation as planSearchInputUpdate } from "@/lib/doc/searchInputMutations";
 import type { Mutation } from "@/lib/doc/types";
 import type {
@@ -990,12 +990,19 @@ export function addFieldMutations(
 		parentForm !== undefined ||
 		(parentField !== undefined && isContainer(parentField));
 	if (!parentExists) return [];
+	// The SA speaks display indexes; a mutation carries the sibling it follows,
+	// so the index resolves HERE, against the live document, and the durable
+	// event names a place a peer's concurrent insert cannot shift.
+	const after = anchorForIndex(
+		doc.fieldOrder[input.parentUuid] ?? [],
+		input.index,
+	);
 	return [
 		{
 			kind: "addField",
 			parentUuid: input.parentUuid,
 			field: structuredClone(input.field),
-			...(input.index !== undefined && { index: input.index }),
+			...(after !== undefined && { after }),
 		},
 	];
 }

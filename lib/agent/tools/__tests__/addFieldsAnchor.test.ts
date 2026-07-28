@@ -184,40 +184,4 @@ describe("add_fields anchored insert lands at the anchor in display order", () =
 		expect("message" in out.result).toBe(true);
 		expect(displayIds(out.newDoc)).toEqual(["qa", "qb", "qc", "qx"]);
 	});
-
-	it("an anchor at a COLLISION lands after the whole tied run at a defined position", async () => {
-		// Force qa and qb to share an `order` key — a legitimate rested tie
-		// (`bySortKey` breaks it on uuid). `keysForSlot` must widen past the
-		// tied run so the insert lands after BOTH, before the next distinct key,
-		// instead of emitting a key outside the degenerate interval.
-		const doc = threeFieldDoc();
-		const byId = (id: string) =>
-			Object.values(doc.fields).find((fl) => fl.id === id);
-		const qa = byId("qa");
-		const qb = byId("qb");
-		const qc = byId("qc");
-		if (!qa || !qb || !qc) throw new Error("fixture missing fields");
-		(qa as { order?: string }).order = "V";
-		(qb as { order?: string }).order = "V";
-		(qc as { order?: string }).order = "z";
-
-		const { ctx } = makeCtx();
-		const out = await addFieldsTool.execute(
-			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fields: [textField("qx")],
-				afterFieldId: "qa",
-			},
-			ctx,
-			doc,
-		);
-		expect("message" in out.result).toBe(true);
-		const ids = displayIds(out.newDoc);
-		// qx lands after both tied siblings and before the next distinct key —
-		// a well-defined slot regardless of the uuid-broken tie order.
-		expect(ids.indexOf("qx")).toBeGreaterThan(ids.indexOf("qa"));
-		expect(ids.indexOf("qx")).toBeGreaterThan(ids.indexOf("qb"));
-		expect(ids.indexOf("qx")).toBeLessThan(ids.indexOf("qc"));
-	});
 });
