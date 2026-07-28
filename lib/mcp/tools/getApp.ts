@@ -23,6 +23,7 @@ import {
 	toMcpErrorResult,
 } from "../errors";
 import { loadAppBlueprint } from "../loadApp";
+import { LARGE_RESULT_META } from "../resultSize";
 import type { ToolContext } from "../types";
 
 /**
@@ -40,6 +41,11 @@ export function registerGetApp(server: McpServer, ctx: ToolContext): void {
 		{
 			description:
 				"Get a blueprint summary (human-readable markdown) for one of your apps.",
+			/* The summary scales with the app and is the largest thing
+			 * this surface returns — the biggest app in production renders
+			 * 73,534 chars, past what a host delivers by default. See
+			 * `../resultSize`. */
+			_meta: LARGE_RESULT_META,
 			inputSchema: {
 				app_id: z
 					.string()

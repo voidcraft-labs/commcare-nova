@@ -67,6 +67,7 @@ import {
 	toMcpErrorResult,
 } from "../errors";
 import { loadAppBlueprint } from "../loadApp";
+import { LARGE_RESULT_META } from "../resultSize";
 import { deriveRunId, timestampToMillis } from "../runId";
 import type { ToolContext } from "../types";
 
@@ -158,7 +159,15 @@ export function registerSharedTool(
 	 * for the inferred alias). */
 	server.registerTool(
 		toolName,
-		{ description: tool.description, inputSchema: mcpSchema },
+		{
+			description: tool.description,
+			/* Every tool on this surface returns something a model reads —
+			 * a module, a form, a set of matches, a sentence confirming a
+			 * mutation — so they share one exposure to the host's result
+			 * cap and one declaration lifting it. See `../resultSize`. */
+			_meta: LARGE_RESULT_META,
+			inputSchema: mcpSchema,
+		},
 		async (args, extra): Promise<McpToolResult> => {
 			/* `args` is typed by the SDK's overload resolution to the
 			 * inferred object output of `mcpSchema`. `app_id` is always a
