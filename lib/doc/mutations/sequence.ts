@@ -57,3 +57,50 @@ export function withoutEntry<Id extends string>(
 ): Id[] {
 	return (sequence ?? []).filter((entry) => entry !== uuid);
 }
+
+/** One entity's landing: where it goes, and what it follows when it gets there. */
+export interface SequenceMove<Id extends string> {
+	readonly uuid: Id;
+	readonly after: Id | null;
+}
+
+/**
+ * The moves that turn one sequence into another.
+ *
+ * Used where a sequence has to be RECOVERED from two states rather than read
+ * from the gesture that produced it — the authoritative repair writer, which is
+ * handed a target document and has to derive the batch that reaches it. The
+ * builder does not use this: it knows what the author did and says so directly,
+ * which is the entire point of the change this lives inside.
+ *
+ * The result is correct, not minimal. It simulates forward, emitting a move
+ * only when the next expected entity is not already in place, so a sequence
+ * that only had one entity moved yields one move rather than a rewrite of every
+ * position after it. Entities absent from `before` are treated as already
+ * present at their landing, because their own add carries that placement.
+ */
+export function sequenceMovesTo<Id extends string>(
+	before: readonly Id[],
+	after: readonly Id[],
+): SequenceMove<Id>[] {
+	const target = new Set(after);
+	// Only entities that survive into `after` can be moved; a removal is its own
+	// mutation and must not be mistaken for a reorder.
+	const working = before.filter((uuid) => target.has(uuid));
+	const known = new Set(working);
+	const moves: SequenceMove<Id>[] = [];
+
+	after.forEach((uuid, index) => {
+		if (working[index] === uuid) return;
+		const previous = index === 0 ? null : (after[index - 1] as Id);
+		// A newcomer's placement rides its add, so it needs no move — but it does
+		// have to enter the simulation, or every later comparison is off by one.
+		if (known.has(uuid)) moves.push({ uuid, after: previous });
+		else known.add(uuid);
+		const from = working.indexOf(uuid);
+		if (from !== -1) working.splice(from, 1);
+		working.splice(index, 0, uuid);
+	});
+
+	return moves;
+}
