@@ -159,30 +159,24 @@ describe("flattenFieldRefs", () => {
 });
 
 /**
- * The keyboard-navigation surface must walk DISPLAY order (`sort-by-(order,
- * uuid)`), not `fieldOrder` array position. A same-parent reorder writes only
- * the entity's `order` and leaves the membership array untouched, so a walk
- * that read the array would land Tab/Shift-Tab and the delete-neighbor / arrow
- * targets on the wrong (visually non-adjacent) field.
+ * The keyboard-navigation surface walks the membership array, which IS the
+ * sequence: Tab/Shift-Tab and the delete-neighbour / arrow targets have to land
+ * on the field the author sees next, at every nesting level.
  */
-describe("navigation follows display order after a same-parent reorder", () => {
-	// Array order is [Q1, Q2, Q3]; the `order` keys sort them Q3, Q1, Q2 — the
-	// exact shape a reorder leaves (array untouched, only `order` changed).
+describe("navigation follows the sequence at every level", () => {
 	const reorderedRoot = () =>
 		buildDoc(FORM, [
-			{ uuid: Q1, id: "q1", kind: "text", parentUuid: FORM, order: "b" },
-			{ uuid: Q2, id: "q2", kind: "text", parentUuid: FORM, order: "c" },
-			{ uuid: Q3, id: "q3", kind: "text", parentUuid: FORM, order: "a" },
+			{ uuid: Q3, id: "q3", kind: "text", parentUuid: FORM },
+			{ uuid: Q1, id: "q1", kind: "text", parentUuid: FORM },
+			{ uuid: Q2, id: "q2", kind: "text", parentUuid: FORM },
 		]);
 
-	it("flattenFieldRefs walks display order, not array position", () => {
+	it("flattenFieldRefs walks the form's sequence", () => {
 		const uuids = flattenFieldRefs(reorderedRoot(), FORM).map((r) => r.uuid);
 		expect(uuids).toEqual([Q3, Q1, Q2]);
 	});
 
-	it("recurses into a reordered container's children in display order", () => {
-		// Group children array [CHILD1, CHILD2, CHILD3] but order keys sort them
-		// CHILD2, CHILD3, CHILD1.
+	it("recurses into a container's children in their own sequence", () => {
 		const doc = buildDoc(FORM, [
 			{
 				uuid: GRP,
@@ -191,34 +185,29 @@ describe("navigation follows display order after a same-parent reorder", () => {
 				parentUuid: FORM,
 				childrenOrder: [],
 			},
-			{ uuid: CHILD1, id: "c1", kind: "text", parentUuid: GRP, order: "z" },
-			{ uuid: CHILD2, id: "c2", kind: "text", parentUuid: GRP, order: "m" },
-			{ uuid: CHILD3, id: "c3", kind: "text", parentUuid: GRP, order: "p" },
+			{ uuid: CHILD2, id: "c2", kind: "text", parentUuid: GRP },
+			{ uuid: CHILD3, id: "c3", kind: "text", parentUuid: GRP },
+			{ uuid: CHILD1, id: "c1", kind: "text", parentUuid: GRP },
 		]);
 		const uuids = flattenFieldRefs(doc, FORM).map((r) => r.uuid);
 		expect(uuids).toEqual([GRP, CHILD2, CHILD3, CHILD1]);
 	});
 
-	it("getFieldMoveTargets returns the display-adjacent siblings", () => {
-		// Display order [Q3, Q1, Q2]: Q1's neighbors are Q3 (before) / Q2 (after),
-		// NOT the array neighbors (before Q1 there is nothing; after is Q2).
+	it("getFieldMoveTargets returns the adjacent siblings", () => {
 		expect(getFieldMoveTargets(reorderedRoot(), Q1)).toEqual({
 			beforeUuid: Q3,
 			afterUuid: Q2,
 		});
-		// The display-first field (Q3) has no predecessor even though it sits
-		// LAST in the array.
+		// The first field has no predecessor.
 		expect(getFieldMoveTargets(reorderedRoot(), Q3)).toEqual({
 			beforeUuid: undefined,
 			afterUuid: Q1,
 		});
 	});
 
-	it("getCrossLevelFieldMoveTargets indents into the display-previous container", () => {
-		// Array [Q1, GRP] but order keys put GRP display-BEFORE Q1, so Shift+Up
-		// on Q1 indents into GRP (its display-previous sibling).
+	it("getCrossLevelFieldMoveTargets indents into the previous container", () => {
+		// Shift+Up on Q1 indents into GRP, the sibling above it.
 		const doc = buildDoc(FORM, [
-			{ uuid: Q1, id: "q1", kind: "text", parentUuid: FORM, order: "b" },
 			{
 				uuid: GRP,
 				id: "grp",
@@ -226,6 +215,7 @@ describe("navigation follows display order after a same-parent reorder", () => {
 				parentUuid: FORM,
 				childrenOrder: [],
 			},
+			{ uuid: Q1, id: "q1", kind: "text", parentUuid: FORM },
 		]);
 		const { up } = getCrossLevelFieldMoveTargets(doc, Q1);
 		expect(up).toEqual({ toParentUuid: GRP, direction: "into" });
