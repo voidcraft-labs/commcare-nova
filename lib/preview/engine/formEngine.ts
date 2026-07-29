@@ -42,7 +42,6 @@ import {
 	ownRecordValue,
 	storageDatetimeValue,
 	storageTimeValue,
-	wireTimeFromStorage,
 	type XPathPrintableDoc,
 } from "@/lib/domain";
 import {
@@ -2093,7 +2092,12 @@ export class FormEngine {
 				withCP.case_property_on === this.moduleCaseType &&
 				own.has(f.id)
 			) {
-				this.instance.set(path, engineValueForKind(f, own.get(f.id) ?? ""));
+				// Verbatim: the instance holds a temporal value exactly as the
+				// case store holds it, so this path, its `Tracked` twin, and
+				// the `#case/<prop>` resolver in `createEvalContext` cannot
+				// disagree about the same property (see
+				// `lib/domain/temporalValues.ts`).
+				this.instance.set(path, own.get(f.id) ?? "");
 			}
 			if (node.children) {
 				const childPrefix = f.kind === "repeat" ? `${path}[0]` : path;
@@ -2401,20 +2405,6 @@ function readCasePropertyOn(field: Field): string | undefined {
  *  constructor keeps it as `string`), widening the domain set once. */
 function isCaseLoadingFormType(formType: string): boolean {
 	return (CASE_LOADING_FORM_TYPES as ReadonlySet<string>).has(formType);
-}
-
-/**
- * Project a STORED case value back into the shape the form instance holds
- * — the inverse of the temporal arms of `coerceValueForProperty`, and the
- * reason a followup form shows the time a registration form saved.
- *
- * Only `time` moves: the case store keeps it tagged with the `Z` its
- * strict schema demands, while the instance holds the bare wall clock the
- * device's `TimeData` holds. Everything else, `datetime` included, is
- * already stored in exactly the shape the instance wants.
- */
-function engineValueForKind(field: Field, stored: string): string {
-	return field.kind === "time" ? wireTimeFromStorage(stored) : stored;
 }
 
 /**

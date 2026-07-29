@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
 	storageDatetimeValue,
 	storageTimeValue,
-	wireTimeFromStorage,
 	wireTimeOfDay,
 	zoneDesignatorForWallTime,
 } from "../temporalValues";
@@ -46,15 +45,22 @@ describe("storageTimeValue", () => {
 		expect(storageTimeValue("14:30:00-05:00")).toBe("14:30:00.000-05:00");
 	});
 
-	it("round-trips back to the wall clock the form engine holds", () => {
-		expect(wireTimeFromStorage(storageTimeValue("14:30"))).toBe("14:30:00.000");
+	it("is idempotent — an already-stored time survives a second pass", () => {
+		// The form instance holds the stored spelling, so every followup
+		// submission re-tags a value that was already tagged. A
+		// non-idempotent tag would drift the property on each round trip.
+		const once = storageTimeValue("14:30");
+		expect(storageTimeValue(once)).toBe(once);
 	});
 
-	it("leaves a real offset intact on the way back out", () => {
-		// Only the Z tag is Nova's; an offset came from someone who meant it.
-		expect(wireTimeFromStorage("14:30:00.000-05:00")).toBe(
-			"14:30:00.000-05:00",
-		);
+	it("leaves text that is not a time alone instead of mangling it", () => {
+		// A bare date reaches here from the `date -> time` migration cast,
+		// which slices only at `T`. A zone-designator pattern anchored at
+		// the end reads this one's `-15` as an offset and emits
+		// `2026-01-15-15`; the cast still fails either way, but the failure
+		// reason is quoted back to a person and has to be the real value.
+		expect(storageTimeValue("2026-01-15")).toBe("2026-01-15");
+		expect(storageTimeValue("half past two")).toBe("half past two");
 	});
 });
 

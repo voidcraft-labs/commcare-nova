@@ -31,9 +31,9 @@
 // `{format: "date-time"}` (`lib/domain/predicate/jsonSchema.ts`), which
 // ajv-formats reads as RFC 3339 — where an offset is REQUIRED. So the naive
 // wall clock `14:30:00.000` cannot be stored as-is. Nova therefore appends a
-// `Z` STORAGE TAG to a time on its way into the case store and strips it on
-// the way back out. The tag is a label on a wall clock, not a claim about an
-// instant, and it is only safe because nothing reads a bare time as one:
+// `Z` STORAGE TAG to a time. The tag is a label on a wall clock, not a claim
+// about an instant, and it is only safe because nothing reads a bare time as
+// one:
 //
 //   - `format-date`'s applicability gate is `DATE_DATA_TYPES`
 //     (`lib/domain/casePropertyTypes.ts`), which is `{date, datetime}` —
@@ -44,6 +44,17 @@
 //
 // Widen either of those to include `time` and the tag silently becomes an
 // instant, moving every stored wall clock by the viewer's offset.
+//
+// The tag is NOT stripped back off on the way in. The form engine holds a
+// time exactly as the case store holds it, and the question widget renders
+// that value — which it must do anyway, since neither `14:30:00.000` nor
+// `14:30:00.000Z` is something to show a person. Stripping on read looked
+// tidier (the instance would then hold what the device's instance holds)
+// but bought nothing observable: a bare time parses to `null` in the XPath
+// evaluator either way and no comparison can see the difference. What it
+// cost was real — two separate preload paths and the `#case/<prop>`
+// resolver each had to remember to strip, and a single miss meant the same
+// property read one way through a field and another through an expression.
 //
 // Datetime needs no such tag: once the offset is real, the wire shape and
 // the storage shape are the same string. The only divergence left is the
@@ -56,11 +67,21 @@
 /** Calendar date, the one shape that is identical everywhere. */
 const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-/** A trailing zone designator: `Z`, `+05`, `-0530`, `+05:30`. */
-const ZONE_DESIGNATOR_RE = /(?:Z|[+-]\d{2}(?::?\d{2})?)$/;
+/**
+ * A time-of-day with optional seconds, fractional seconds, and trailing
+ * zone designator, captured as one grammar rather than as a clock regex
+ * plus a separate designator regex.
+ *
+ * Splitting them is what makes `2026-01-15` read as a clock carrying a
+ * `-15` offset: a designator pattern anchored only at the end has no way
+ * to know the text before it was never a time. Requiring the whole
+ * fragment to parse at once removes the question.
+ */
+const TIME_OF_DAY_RE =
+	/^(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\.(\d+))?(Z|[+-]\d{2}(?::?\d{2})?)?$/;
 
-/** A time-of-day with optional seconds and optional fractional seconds. */
-const TIME_OF_DAY_RE = /^(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\.(\d+))?$/;
+/** A trailing zone designator on an already-validated datetime. */
+const ZONE_DESIGNATOR_RE = /(?:Z|[+-]\d{2}(?::?\d{2})?)$/;
 
 /** A calendar date joined to a time-of-day, with no zone designator. */
 const NAIVE_DATETIME_RE =
@@ -87,12 +108,22 @@ const pad = (value: number, width: number): string =>
  * schema, not this function, is the authority on what conforms.
  */
 export function wireTimeOfDay(fragment: string): string {
-	const trimmed = fragment.trim();
-	const naive = trimmed.replace(ZONE_DESIGNATOR_RE, "");
-	const match = TIME_OF_DAY_RE.exec(naive);
-	if (match === null) return trimmed;
-	const [, hours, minutes, seconds, fraction] = match;
-	return `${pad(Number(hours), 2)}:${minutes}:${seconds ?? "00"}.${(fraction ?? "").padEnd(3, "0").slice(0, 3)}`;
+	const parsed = parseTimeOfDay(fragment);
+	return parsed === null ? fragment.trim() : parsed.clock;
+}
+
+/** A time fragment split into its wall clock and its zone designator, or
+ *  `null` when the text is not a time at all. */
+function parseTimeOfDay(
+	fragment: string,
+): { clock: string; designator: string } | null {
+	const match = TIME_OF_DAY_RE.exec(fragment.trim());
+	if (match === null) return null;
+	const [, hours, minutes, seconds, fraction, designator] = match;
+	return {
+		clock: `${pad(Number(hours), 2)}:${minutes}:${seconds ?? "00"}.${(fraction ?? "").padEnd(3, "0").slice(0, 3)}`,
+		designator: designator ?? "",
+	};
 }
 
 /**
@@ -100,25 +131,16 @@ export function wireTimeOfDay(fragment: string): string {
  * storage tag the strict `format: "time"` schema requires. A fragment that
  * already carries an offset keeps it — an imported value's own zone is
  * authoritative and this function never overrides one.
+ *
+ * Text that is not a time comes back untouched, so a value the caller
+ * reached here by mistake (a bare date arriving from the `date → time`
+ * migration cast, say) still reads as itself in the cast-failure message
+ * the person is shown, rather than as a mangled hybrid.
  */
 export function storageTimeValue(fragment: string): string {
-	const trimmed = fragment.trim();
-	if (ZONE_DESIGNATOR_RE.test(trimmed)) {
-		const designator = ZONE_DESIGNATOR_RE.exec(trimmed)?.[0] ?? "";
-		return `${wireTimeOfDay(trimmed)}${designator}`;
-	}
-	return `${wireTimeOfDay(trimmed)}Z`;
-}
-
-/**
- * Inverse of the storage tag — a stored time back to the wall clock the
- * form engine and the device both hold. Only the `Z` tag is removed: a
- * value carrying a real offset came from somewhere that meant it, so it is
- * left intact for the reader to interpret rather than silently flattened.
- */
-export function wireTimeFromStorage(stored: string): string {
-	const trimmed = stored.trim();
-	return trimmed.endsWith("Z") ? wireTimeOfDay(trimmed) : trimmed;
+	const parsed = parseTimeOfDay(fragment);
+	if (parsed === null) return fragment.trim();
+	return `${parsed.clock}${parsed.designator === "" ? "Z" : parsed.designator}`;
 }
 
 /** Per-zone formatter cache — `Intl.DateTimeFormat` construction is the

@@ -230,12 +230,11 @@ describe("FormEngine", () => {
 			expect(engine.getState("/data/age").value).toBe("30");
 		});
 
-		it("strips the time storage tag so a saved wall clock comes back whole", () => {
-			// The store keeps a time tagged with the `Z` its strict schema
-			// demands; the instance holds the bare wall clock the device's
-			// `TimeData` holds. Preloading the stored spelling verbatim
-			// would hand the question a value it cannot display — which is
-			// what a native `<input type="time">` silently blanked.
+		it("preloads a temporal value exactly as the case store holds it", () => {
+			// The instance mirrors storage rather than the device's own
+			// instance spelling, so that a field's preloaded value and the
+			// same property read through `#case/<prop>` cannot disagree.
+			// Rendering that value for a person is the question widget's job.
 			const input = dTree(
 				[
 					{ id: "case_name", kind: "text", case_property_on: "patient" },
@@ -252,15 +251,42 @@ describe("FormEngine", () => {
 			]);
 			const engine = new FormEngine(input, "patient", caseData);
 
-			expect(engine.getState("/data/wake_time").value).toBe("07:30:00.000");
-			// A datetime is stored in exactly the shape the instance wants,
-			// so it must NOT be rewritten on the way in.
+			expect(engine.getState("/data/wake_time").value).toBe("07:30:00.000Z");
 			expect(engine.getState("/data/last_seen").value).toBe(
 				"2026-05-06T12:34:56.000-04:00",
 			);
 		});
 
-		it("round-trips a time from submission through preload unchanged", () => {
+		it("reads a preloaded field and its #case/ reference identically", () => {
+			// The defect this pins: a field's preload and the expression
+			// resolver are two separate readers of one property bag. If only
+			// one of them adapts the stored spelling, a `default_value` of
+			// `#case/wake_time` writes a different string than the field
+			// beside it holds, and any comparison between them is false
+			// forever.
+			const input = dTree(
+				[
+					{ id: "case_name", kind: "text", case_property_on: "patient" },
+					{ id: "wake_time", kind: "time", case_property_on: "patient" },
+					{ id: "echoed", kind: "hidden", calculate: "#case/wake_time" },
+				],
+				"followup",
+			);
+			const engine = new FormEngine(
+				input,
+				"patient",
+				caseDataFor("patient", [
+					["case_name", "Alice"],
+					["wake_time", "07:30:00.000Z"],
+				]),
+			);
+
+			expect(engine.getState("/data/echoed").value).toBe(
+				engine.getState("/data/wake_time").value,
+			);
+		});
+
+		it("reaches a fixed point — resubmitting a preloaded time changes nothing", () => {
 			const roundTripCaseTypes: CaseType[] = [
 				{
 					name: "patient",
@@ -302,7 +328,19 @@ describe("FormEngine", () => {
 				]),
 			);
 
-			expect(reader.getState("/data/wake_time").value).toBe("07:30:00.000");
+			// Preload hands back what was stored, and a followup that submits
+			// without touching the question stores that same value again. The
+			// property is the thing that must not drift across the cycle —
+			// any adaptation that is not idempotent shows up right here.
+			expect(reader.getState("/data/wake_time").value).toBe(stored);
+			const resubmitted = reader.computeSubmissionMutation({
+				caseId: "case-1",
+				caseTypes: roundTripCaseTypes,
+				entryKey: ENTRY_KEY,
+				viewerTimeZone: "America/New_York",
+			});
+			if (resubmitted.kind !== "followup") throw new Error("expected followup");
+			expect(resubmitted.patch.properties.wake_time).toBe(stored);
 		});
 	});
 
