@@ -11,8 +11,16 @@ interface TimeFieldProps {
 	disabled?: boolean;
 	className?: string;
 	onFocus?: () => void;
-	onBlur?: () => void;
+	/**
+	 * Receives the field's CURRENT text, which a caller that canonicalizes on
+	 * blur must use in place of whatever it last rendered. Those are not the
+	 * same thing: the last keystroke and the blur can land in one batch, so a
+	 * commit handler reading its own render closure can be a keystroke behind
+	 * and write back the value the person just replaced.
+	 */
+	onBlur?: (value: string) => void;
 	"aria-label"?: string;
+	"aria-labelledby"?: string;
 	"aria-invalid"?: boolean;
 	"aria-describedby"?: string;
 }
@@ -38,6 +46,7 @@ function TimeField({
 	onFocus,
 	onBlur,
 	"aria-label": ariaLabel,
+	"aria-labelledby": ariaLabelledBy,
 	"aria-invalid": ariaInvalid,
 	"aria-describedby": ariaDescribedBy,
 }: TimeFieldProps) {
@@ -51,9 +60,10 @@ function TimeField({
 			value={value}
 			onChange={(event) => onValueChange(event.target.value)}
 			onFocus={onFocus}
-			onBlur={onBlur}
+			onBlur={(event) => onBlur?.(event.target.value)}
 			placeholder="2:30 PM"
 			aria-label={ariaLabel}
+			aria-labelledby={ariaLabelledBy}
 			aria-invalid={ariaInvalid}
 			aria-describedby={ariaDescribedBy}
 			className={cn("min-h-11 w-32", className)}

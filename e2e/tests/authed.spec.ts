@@ -7,7 +7,10 @@ import {
 	CASE_CHANGES_SEED,
 	CASE_CHANGES_SEQUENCE_LENGTH,
 } from "../lib/caseChangesSeed";
-import { CASE_WORKSPACE_SEED } from "../lib/caseWorkspaceSeed";
+import {
+	CASE_WORKSPACE_SEED,
+	SEEDED_TEMPORAL_DISPLAY,
+} from "../lib/caseWorkspaceSeed";
 import { attachErrorGuard } from "../lib/errorGuard";
 import { expect, test } from "../lib/fixtures";
 
@@ -1374,9 +1377,165 @@ test.describe("authenticated builder", () => {
 		await expect(canvas).toBeVisible({ timeout: 20_000 });
 		expect(await canvas.evaluate((el) => el.clientHeight)).toBeGreaterThan(0);
 
-		// One row per authored field — the fixture's form holds exactly one.
-		await expect(canvas.locator("[data-field-uuid]")).toHaveCount(1);
+		// One row per authored field.
+		await expect(canvas.locator("[data-field-uuid]")).toHaveCount(3);
 		await expect(canvas.getByText("Visit note")).toBeVisible();
+	});
+
+	/**
+	 * The date / time / datetime questions, which are the only ones whose
+	 * STORED value a person cannot be shown directly and the only ones a
+	 * person can half-finish into something that is not a value of its type.
+	 *
+	 * Three things here are invisible to any unit test:
+	 *
+	 *   - A native `<input type="datetime-local">` silently blanks any value
+	 *     carrying a zone designator — which every stored datetime does — so
+	 *     the widget swap is what makes a preloaded answer visible at all.
+	 *     Nothing throws; the answer is just gone, and re-submitting the form
+	 *     erases the case property.
+	 *   - The flipbook's contract is that edit and live land every row at
+	 *     identical X/Y. A picker trigger and a text input are different
+	 *     controls with different intrinsic heights, so this pair is exactly
+	 *     where the two renderers can drift apart.
+	 *   - The shape gate has to hold a half-typed clock back at Submit while
+	 *     leaving the person's own text on screen to correct.
+	 */
+	test("temporal questions show their stored answers, hold their row geometry, and refuse a half-typed clock", async ({
+		page,
+	}) => {
+		await page.goto(seed.caseWorkspace.routes.tileForm);
+		await expect(page.locator("[data-form-header]")).toBeVisible({
+			timeout: 20_000,
+		});
+
+		// The row STACK, measured from its own first row rather than from the
+		// viewport. Absolute position is the shell's business and the two
+		// modes legitimately differ there — the sidebar collapses on the flip,
+		// and live mode pins a persistent case tile above the form that edit
+		// mode has no equivalent for, translating every row down by the tile's
+		// height without changing the layout at all. What must not move is the
+		// stack itself: same heights, same spacing. That is also where the
+		// real risk lives, since a 44px picker trigger and a 38px text input
+		// are different controls standing in for the same row.
+		const rowGeometry = async () =>
+			await page.locator("main [data-field-uuid]").evaluateAll((els) => {
+				const boxes = els.map((el) => el.getBoundingClientRect());
+				const top = boxes[0]?.y ?? 0;
+				return els.map((el, i) => ({
+					uuid: (el as HTMLElement).dataset.fieldUuid ?? "",
+					offset: Math.round((boxes[i]?.y ?? 0) - top),
+					height: Math.round(boxes[i]?.height ?? 0),
+				}));
+			});
+
+		const edit = await rowGeometry();
+		expect(edit).toHaveLength(3);
+
+		await page.getByRole("button", { name: "Preview", exact: true }).click();
+		const dateTrigger = page.locator('button[data-slot="date-picker"]');
+		await expect(dateTrigger).toHaveCount(1, { timeout: 20_000 });
+
+		await test.step("both renderers lay the rows out identically", async () => {
+			expect(await rowGeometry()).toEqual(edit);
+		});
+
+		await test.step("no native temporal input survives anywhere", async () => {
+			// The whole point of the migration: the browser's own picker
+			// chrome never opens over the previewed app's theme.
+			await expect(
+				page.locator(
+					'input[type="date"], input[type="time"], input[type="datetime-local"]',
+				),
+			).toHaveCount(0);
+		});
+
+		const clocks = page.locator('input[data-slot="time-field"]');
+
+		await test.step("a preloaded answer is readable, not blank", async () => {
+			// A followup opened on a seeded row. The datetime's calendar half
+			// reads its date, its clock half reads the wall clock it was
+			// entered at, and the standalone time reads through its `Z` tag.
+			await expect(dateTrigger).not.toHaveText(/Pick a date/, {
+				timeout: 20_000,
+			});
+			await expect(clocks.nth(0)).toHaveValue(
+				SEEDED_TEMPORAL_DISPLAY.visitStartedTime,
+			);
+			await expect(clocks.nth(1)).toHaveValue(SEEDED_TEMPORAL_DISPLAY.nextDose);
+		});
+
+		await test.step("a stored answer nobody touched does not block Submit", async () => {
+			// The seeded time predates the millisecond padding rule. It is
+			// valid RFC 3339 and the schema takes it, so the shape gate must
+			// let it through — refusing it would strand a person on a form
+			// over an answer they never entered and cannot correct.
+			await expect(clocks.nth(0)).not.toHaveAttribute("aria-invalid", "true");
+			await expect(clocks.nth(1)).not.toHaveAttribute("aria-invalid", "true");
+		});
+
+		await test.step("emptying the clock half answers nothing on the person's behalf", async () => {
+			// The date's own midnight is a value nobody chose, and committing
+			// it back here would make a cleared clock refill itself.
+			await clocks.nth(0).fill("");
+			await clocks.nth(0).blur();
+			await expect(clocks.nth(0)).toHaveValue("");
+			await expect(dateTrigger).not.toHaveText(/Pick a date/);
+			await expect(clocks.nth(0)).not.toHaveAttribute("aria-invalid", "true");
+		});
+
+		await test.step("a clock entered before its date reads back as typed", async () => {
+			// Clear the date too, so the clock really is the only half there.
+			// The join has to survive that: showing back "14:30:00" would be
+			// the field rewriting the person's own "2:30 PM" into a spelling
+			// they never used, and quoting the join at them in the error would
+			// put punctuation they never typed on screen.
+			await dateTrigger.click();
+			await page.getByRole("button", { name: "Clear", exact: true }).click();
+			await expect(dateTrigger).toHaveText(/Pick a date/);
+
+			await clocks.nth(0).fill("2:30 PM");
+			await clocks.nth(0).blur();
+			await expect(clocks.nth(0)).toHaveValue("2:30 PM");
+			await expect(
+				page.getByText("Pick a date — this question needs both."),
+			).toBeVisible();
+
+			// And clearing the remaining half empties the answer outright.
+			await clocks.nth(0).fill("");
+			await clocks.nth(0).blur();
+			await expect(clocks.nth(0)).toHaveValue("");
+			await expect(
+				page.getByText("Pick a date — this question needs both."),
+			).toBeHidden();
+		});
+
+		await test.step("a typed clock commits in the locale's own spelling", async () => {
+			await clocks.nth(1).fill("7:05 am");
+			await clocks.nth(1).blur();
+			await expect(clocks.nth(1)).toHaveValue("7:05 AM");
+			await expect(clocks.nth(1)).not.toHaveAttribute("aria-invalid", "true");
+		});
+
+		await test.step("a half-typed clock is named, kept, and refused at Submit", async () => {
+			await clocks.nth(1).fill("2:3");
+			await clocks.nth(1).blur();
+			// Kept verbatim: the person's own text is what they have to fix.
+			await expect(clocks.nth(1)).toHaveValue("2:3");
+			await expect(clocks.nth(1)).toHaveAttribute("aria-invalid", "true");
+			await expect(
+				page.getByText(
+					"“2:3” isn’t a time yet. Enter a clock time like 2:30 PM.",
+				),
+			).toBeVisible();
+
+			await page
+				.locator("main")
+				.getByRole("button", { name: "Submit", exact: true })
+				.click();
+			// Still on the form, with the answer still there to correct.
+			await expect(clocks.nth(1)).toHaveValue("2:3");
+		});
 	});
 
 	/**

@@ -856,7 +856,13 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				settleAttempt({ kind: "idle" });
 				setValidationAnnouncement({
 					attempt,
-					message: "Review the highlighted required question.",
+					// Deliberately does not name the reason. Submit is blocked by
+					// a missing required answer, an authored validation rule, OR
+					// a temporal answer that is not yet a value of its type, and
+					// the focused question announces its OWN message a moment
+					// later — naming one of the three here would contradict the
+					// other two.
+					message: "Review the highlighted question.",
 				});
 				revealAndFocusFirstInvalid();
 				return;

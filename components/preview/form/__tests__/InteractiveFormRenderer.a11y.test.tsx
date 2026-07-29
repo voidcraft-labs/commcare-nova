@@ -193,10 +193,11 @@ describe("InteractiveFormRenderer repeated-field accessibility", () => {
 			}),
 			NUMBER_QUESTION,
 		);
+		// A date question is the design system's calendar picker, so its
+		// labelled element is the popover trigger — there is no native
+		// `<input type="date">` in the previewed app.
 		expectCollisionFreeVisibleLabels(
-			screen.getAllByLabelText(nameContaining(DATE_QUESTION), {
-				selector: 'input[type="date"]',
-			}),
+			screen.getAllByRole("button", { name: nameContaining(DATE_QUESTION) }),
 			DATE_QUESTION,
 		);
 		expectCollisionFreeVisibleLabels(
