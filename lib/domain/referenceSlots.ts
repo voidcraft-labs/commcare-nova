@@ -344,7 +344,7 @@ export const FIELD_REFERENCE_SLOTS = [
 	{
 		entity: "field",
 		slot: "option_label",
-		path: "options[].label",
+		path: "optionsSource.options[].label",
 		kind: "prose",
 		appliesTo: SELECT_KINDS,
 	},
@@ -718,7 +718,7 @@ export function fieldReferenceSlotsFor(
 //
 // One traversal interprets the registry's path grammar — `.` for
 // object steps, a `[]` suffix for array fan-out (e.g.
-// `options[].label`, `formLinks[].datums[].xpath`,
+// `optionsSource.options[].label`, `formLinks[].datums[].xpath`,
 // `data_source.ids_query`) — so the schema-resolving audit test, the
 // write-side rewriter, and the read accessor
 // (`expressionSource.ts`) interpret one vocabulary. Total over any
@@ -917,9 +917,9 @@ export const NON_REFERENCE_FIELD_PATHS: Readonly<
 	hint_media: "media",
 	help_media: "media",
 	validate_msg_media: "media",
-	"options[].uuid": "identity",
-	"options[].value": "data-literal",
-	"options[].media": "media",
+	"optionsSource.options[].uuid": "identity",
+	"optionsSource.options[].value": "data-literal",
+	"optionsSource.options[].media": "media",
 };
 
 export const NON_REFERENCE_FORM_PATHS: Readonly<

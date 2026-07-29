@@ -16,11 +16,7 @@ import { predicateSchema, valueExpressionSchema } from "@/lib/domain/predicate";
 
 type JsonNode = Record<string, unknown>;
 
-const DISPLAY_TYPE_NAMES: Readonly<Record<string, string>> = {
-	CarrierBlindPredicate: "Predicate",
-	CarrierBlindValueExpression: "ValueExpression",
-	CarrierBlindTerm: "Term",
-};
+const DISPLAY_TYPE_NAMES: Readonly<Record<string, string>> = {};
 
 function commentLines(text: unknown): string[] {
 	if (typeof text !== "string" || text.length === 0) return [];

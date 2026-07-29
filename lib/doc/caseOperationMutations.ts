@@ -14,7 +14,6 @@ import {
 } from "./caseOperationOrder";
 import { mutationCommitVerdict } from "./commitVerdicts";
 import { deepEqual } from "./deepEqual";
-import { caseOperationContainsDormantLookupCarrier } from "./dormantLookupCarriers";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "./lookupReferences";
 import { caseOperationCatalogMutations } from "./scaffolds";
 import type { Mutation } from "./types";
@@ -55,27 +54,16 @@ function clearable<T>(value: T | undefined): T | null {
 function operationMutation(
 	formUuid: Uuid,
 	patch: CaseOperationPatch,
-	fallbackValue: CaseOperation,
 ): UpdateFormMutation {
 	return {
 		kind: "updateForm",
 		uuid: formUuid,
 		patch: {},
-		caseOperationChange: {
-			operation: "update",
-			uuid: fallbackValue.uuid,
-			value: structuredClone(fallbackValue),
-		},
 		caseOperationPatch: patch,
 	};
 }
 
 /**
- * An ordinary move has an exact carrier-blind spelling in the established
- * grammar, so use it as the rolling fallback instead of embedding the whole
- * operation in a replacement. This is what lets a lookup-carrier-bearing
- * operation move without putting its dormant AST inside `mutationSchema`.
- *
  * `after` is the whole placement — the operation this one now follows, or
  * `null` for first. An anchor cannot be shifted by a peer's insert, so there is
  * no rank for the authoritative writer to fence: the anchor either still exists
@@ -90,7 +78,6 @@ function moveOperationMutation(
 		kind: "updateForm",
 		uuid: formUuid,
 		patch: {},
-		caseOperationChange: { operation: "move", uuid, after },
 		caseOperationPatch: { operation: "move", uuid, after },
 	};
 }
@@ -228,15 +215,11 @@ export function caseOperationChangesForUpdate(
 	}
 	if (Object.keys(patch).length > 0) {
 		mutations.push(
-			operationMutation(
-				formUuid,
-				{
-					operation: "update",
-					uuid: before.uuid,
-					patch,
-				},
-				after,
-			),
+			operationMutation(formUuid, {
+				operation: "update",
+				uuid: before.uuid,
+				patch,
+			}),
 		);
 	}
 
@@ -249,31 +232,23 @@ export function caseOperationChangesForUpdate(
 	for (const [property] of beforeWrites) {
 		if (afterWrites.has(property)) continue;
 		mutations.push(
-			operationMutation(
-				formUuid,
-				{
-					operation: "remove-write",
-					uuid: before.uuid,
-					property,
-				},
-				after,
-			),
+			operationMutation(formUuid, {
+				operation: "remove-write",
+				uuid: before.uuid,
+				property,
+			}),
 		);
 	}
 	for (const [index, write] of (after.writes ?? []).entries()) {
 		const prior = beforeWrites.get(write.property);
 		if (prior === undefined) {
 			mutations.push(
-				operationMutation(
-					formUuid,
-					{
-						operation: "add-write",
-						uuid: before.uuid,
-						value: structuredClone(write),
-						index,
-					},
-					after,
-				),
+				operationMutation(formUuid, {
+					operation: "add-write",
+					uuid: before.uuid,
+					value: structuredClone(write),
+					index,
+				}),
 			);
 			continue;
 		}
@@ -286,16 +261,12 @@ export function caseOperationChangesForUpdate(
 		}
 		if (Object.keys(writePatch).length > 0) {
 			mutations.push(
-				operationMutation(
-					formUuid,
-					{
-						operation: "update-write",
-						uuid: before.uuid,
-						property: write.property,
-						patch: writePatch,
-					},
-					after,
-				),
+				operationMutation(formUuid, {
+					operation: "update-write",
+					uuid: before.uuid,
+					property: write.property,
+					patch: writePatch,
+				}),
 			);
 		}
 	}
@@ -309,31 +280,23 @@ export function caseOperationChangesForUpdate(
 	for (const [identifier] of beforeLinks) {
 		if (afterLinks.has(identifier)) continue;
 		mutations.push(
-			operationMutation(
-				formUuid,
-				{
-					operation: "remove-link",
-					uuid: before.uuid,
-					identifier,
-				},
-				after,
-			),
+			operationMutation(formUuid, {
+				operation: "remove-link",
+				uuid: before.uuid,
+				identifier,
+			}),
 		);
 	}
 	for (const [index, link] of (after.links ?? []).entries()) {
 		const prior = beforeLinks.get(link.identifier);
 		if (prior === undefined) {
 			mutations.push(
-				operationMutation(
-					formUuid,
-					{
-						operation: "add-link",
-						uuid: before.uuid,
-						value: structuredClone(link),
-						index,
-					},
-					after,
-				),
+				operationMutation(formUuid, {
+					operation: "add-link",
+					uuid: before.uuid,
+					value: structuredClone(link),
+					index,
+				}),
 			);
 			continue;
 		}
@@ -348,16 +311,12 @@ export function caseOperationChangesForUpdate(
 		}
 		if (Object.keys(linkPatch).length > 0) {
 			mutations.push(
-				operationMutation(
-					formUuid,
-					{
-						operation: "update-link",
-						uuid: before.uuid,
-						identifier: link.identifier,
-						patch: linkPatch,
-					},
-					after,
-				),
+				operationMutation(formUuid, {
+					operation: "update-link",
+					uuid: before.uuid,
+					identifier: link.identifier,
+					patch: linkPatch,
+				}),
 			);
 		}
 	}
@@ -395,24 +354,6 @@ export type CaseOperationMutationPlan =
 export type CaseOperationEditVerdict =
 	| { readonly ok: true }
 	| { readonly ok: false; readonly reason: string };
-
-export const CASE_OPERATION_DORMANT_LOOKUP_EDIT_REASON =
-	"This case change uses lookup-table logic that Nova preserves but cannot safely edit from this surface.";
-
-/** Whether a canonical operation can be authored by the currently shared
- * builder/SA/MCP vocabulary. Moving is intentionally outside this verdict:
- * an identity-keyed move never needs to project or replace the operation's
- * hidden AST. */
-export function caseOperationAuthoringVerdict(
-	operation: CaseOperation,
-): CaseOperationEditVerdict {
-	return caseOperationContainsDormantLookupCarrier(operation)
-		? {
-				ok: false,
-				reason: CASE_OPERATION_DORMANT_LOOKUP_EDIT_REASON,
-			}
-		: { ok: true };
-}
 
 const CASE_OPERATION_STALE_EDIT_REASON =
 	"This case change changed while you were editing it. Review the latest version and try again.";
@@ -562,10 +503,8 @@ function rebaseCaseOperationEdit(
  * Plan a full-shape edit against the current doc while retaining the
  * render/tool snapshot that defines the caller's actual intent.
  *
- * Lookup-carrier-bearing operations are read-only until that vocabulary is
- * authorable on all three editors. This refusal occurs before construction of
- * a rolling mutation, so a carrier-blind read can never clear hidden behavior
- * and the builder can never enter the permanent-400 autosave state.
+ * Every operation uses the same canonical expression vocabulary. No operation
+ * becomes read-only merely because one expression contains lookup-table logic.
  */
 export function planCaseOperationUpdate(
 	doc: BlueprintDoc,
@@ -586,15 +525,6 @@ export function planCaseOperationUpdate(
 	const normalizedDesired: CaseOperation = { ...desired };
 	if (deepEqual(intentBase, normalizedDesired)) {
 		return { ok: true, mutations: [] };
-	}
-	if (
-		!caseOperationAuthoringVerdict(current).ok ||
-		!caseOperationAuthoringVerdict(intentBase).ok
-	) {
-		return {
-			ok: false,
-			reason: CASE_OPERATION_DORMANT_LOOKUP_EDIT_REASON,
-		};
 	}
 	const rebased = rebaseCaseOperationEdit(
 		intentBase,

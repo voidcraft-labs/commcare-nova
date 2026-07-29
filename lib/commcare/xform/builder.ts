@@ -843,7 +843,7 @@ function buildFieldParts(
 	const field = doc.fields[fieldUuid];
 	const lookupSource =
 		(field.kind === "single_select" || field.kind === "multi_select") &&
-		field.optionsSource !== undefined
+		field.optionsSource.kind === "lookup"
 			? field.optionsSource
 			: undefined;
 	if (lookupSource !== undefined && lookupSelects === undefined) {

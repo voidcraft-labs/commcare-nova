@@ -40,6 +40,7 @@ import type {
 	SessionUserRef,
 	Term,
 } from "@/lib/domain/predicate/types";
+import type { SearchInputDecl } from "@/lib/domain/predicate/typeChecker";
 import type { Uuid } from "@/lib/domain/uuid";
 import { emitCasePropertyWirePath } from "../casePropertyWire";
 import type { LookupWireNaming } from "../lookup/naming";
@@ -149,6 +150,8 @@ export interface OnDeviceTermEmissionContext
 	readonly lookup?: OnDeviceLookupEmissionContext;
 	/** Current saved names for identity-backed custom worker information. */
 	readonly userPropertySlugs?: ReadonlyMap<Uuid, string>;
+	/** Current runtime names for identity-backed search inputs. */
+	readonly searchInputNames?: ReadonlyMap<Uuid, string>;
 }
 
 /** Drop the fixture-row scope when emission leaves the fixture predicate. */
@@ -355,7 +358,7 @@ export function emitTerm(
 			return emitOnDevicePropertyRef(term, root);
 		}
 		case "input":
-			return `instance('search-input:results')/input/field[@name='${term.name}']`;
+			return emitSearchInputXPath(term, context);
 		case "session-user":
 			// `field` is constrained to XML element-name vocabulary at
 			// the schema layer (no quoting / escaping required for valid
@@ -551,6 +554,7 @@ export function emitTermSegment(
 	t: Term,
 	context: {
 		readonly userPropertySlugs?: ReadonlyMap<Uuid, string>;
+		readonly knownInputs?: ReadonlyArray<SearchInputDecl>;
 	} = {},
 ): TermEmission {
 	switch (t.kind) {
@@ -559,8 +563,24 @@ export function emitTermSegment(
 		case "input":
 			return {
 				kind: "runtime",
-				xpath: emitSearchInputXPath(t),
-				inputNames: [t.name],
+				xpath: emitSearchInputXPath(t, {
+					searchInputNames: new Map(
+						(context.knownInputs ?? []).map((input) => [
+							input.uuid,
+							input.name,
+						]),
+					),
+				}),
+				inputNames: [
+					resolveSearchInputName(t, {
+						searchInputNames: new Map(
+							(context.knownInputs ?? []).map((input) => [
+								input.uuid,
+								input.name,
+							]),
+						),
+					}),
+				],
 			};
 		case "session-user":
 			return { kind: "runtime", xpath: emitSessionUserXPath(t) };
@@ -647,8 +667,24 @@ export function emitCsqlPropertyRefSegment(
  * vocabulary (no hyphens, no quotes), so direct interpolation is
  * safe.
  */
-export function emitSearchInputXPath(t: SearchInputRef): string {
-	return `instance('search-input:results')/input/field[@name='${t.name}']`;
+export function emitSearchInputXPath(
+	t: SearchInputRef,
+	context: Pick<OnDeviceTermEmissionContext, "searchInputNames"> = {},
+): string {
+	return `instance('search-input:results')/input/field[@name='${resolveSearchInputName(t, context)}']`;
+}
+
+function resolveSearchInputName(
+	t: SearchInputRef,
+	context: Pick<OnDeviceTermEmissionContext, "searchInputNames">,
+): string {
+	const name = context.searchInputNames?.get(t.searchInputUuid);
+	if (name === undefined) {
+		throw new Error(
+			`Search input identity '${t.searchInputUuid}' has no current runtime-name binding.`,
+		);
+	}
+	return name;
 }
 
 /**

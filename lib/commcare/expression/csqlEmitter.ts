@@ -248,7 +248,12 @@ function emitCsqlFunctionArgumentSegments(
 	return quoteRuntimeCsqlValue(
 		emitOnDeviceExpression(expr, undefined, typeContext ?? {}),
 		runtimeQuoteStyle,
-		[...collectRuntimeCsqlStringExpressionInputNames(expr)],
+		[
+			...collectRuntimeCsqlStringExpressionInputNames(
+				expr,
+				typeContext?.knownInputs,
+			),
+		],
 	);
 }
 
@@ -329,7 +334,10 @@ function emitDateAddQuantitySegments(
 	);
 	if (expr.interval !== "months" && expr.interval !== "years") return segments;
 
-	const classification = classifyCalendarDateAddQuantity(expr.quantity);
+	const classification = classifyCalendarDateAddQuantity(
+		expr.quantity,
+		typeContext?.knownInputs,
+	);
 	if (classification.kind === "static-valid") return segments;
 	if (classification.kind === "runtime-input") {
 		return [

@@ -26,12 +26,7 @@ const SETTINGS = [
 	"searchButtonDisplayCondition",
 ] as const satisfies readonly (keyof CaseSearchConfigPatch)[];
 
-/**
- * Plan one whole editor projection as independent setting writes. A local
- * whole-bag snapshot remains only as the pre-deploy reducer fallback; current
- * receivers apply `caseSearchConfigPatch` to fresh state so title, button,
- * condition, and owner edits commute.
- */
+/** Plan one whole editor projection as independent setting writes. */
 export function caseSearchConfigPatchMutations(
 	uuid: Uuid,
 	current: CaseSearchConfig | undefined,
@@ -69,7 +64,7 @@ export function caseSearchConfigPatchMutations(
 		mutations.push({
 			kind: "updateModule",
 			uuid,
-			patch: { caseSearchConfig: desired },
+			patch: {},
 			caseSearchConfigPatch: patch,
 		});
 	}
@@ -98,7 +93,7 @@ export function clearCaseSearchConfigSettingsMutations(
 		mutations.push({
 			kind: "updateModule",
 			uuid,
-			patch: { caseSearchConfig: null },
+			patch: {},
 			caseSearchConfigPatch: patch,
 		});
 	}

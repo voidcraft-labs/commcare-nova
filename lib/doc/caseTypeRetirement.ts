@@ -482,18 +482,11 @@ function collectFieldReferences(
 			}
 			case "xpath-ast": {
 				// Identity leaves name their case type directly — a leaf walk,
-				// never a re-parse. Explicit multi-segment raw refs keep their
-				// namespace as a type name, matching the string scan's rule.
+				// never a re-parse.
 				for (const entry of readSlotValues(field, slot.path)) {
 					if (!isXPathExpression(entry.value)) continue;
 					const names = xpathRefParts(entry.value).some(
-						(part) =>
-							(part.kind === "case-ref" && part.caseType === caseType) ||
-							(part.kind === "raw-ref" &&
-								part.namespace === caseType &&
-								part.namespace !== "form" &&
-								part.namespace !== "user" &&
-								part.namespace !== "case"),
+						(part) => part.kind === "case-ref" && part.caseType === caseType,
 					);
 					if (names) {
 						out.push({
@@ -518,7 +511,8 @@ function collectFieldReferences(
 			case "lookup-carrier":
 				if (
 					(field.kind === "single_select" || field.kind === "multi_select") &&
-					field.optionsSource?.filter !== undefined &&
+					field.optionsSource.kind === "lookup" &&
+					field.optionsSource.filter !== undefined &&
 					predicateRefsCaseType(field.optionsSource.filter, caseType)
 				) {
 					out.push({
@@ -642,13 +636,7 @@ function collectFormSlotReferences(
 		for (const entry of readSlotValues(form, slot.path)) {
 			if (!isXPathExpression(entry.value)) continue;
 			const names = xpathRefParts(entry.value).some(
-				(part) =>
-					(part.kind === "case-ref" && part.caseType === caseType) ||
-					(part.kind === "raw-ref" &&
-						part.namespace === caseType &&
-						part.namespace !== "form" &&
-						part.namespace !== "user" &&
-						part.namespace !== "case"),
+				(part) => part.kind === "case-ref" && part.caseType === caseType,
 			);
 			if (!names) continue;
 			out.push({

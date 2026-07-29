@@ -45,6 +45,7 @@ import type {
 	CasePropertyDataType,
 	CaseType,
 	SearchInputDef,
+	Uuid,
 } from "@/lib/domain";
 import {
 	caseListConfigSchema,
@@ -153,9 +154,9 @@ function previewCaseStoreBindings(
 	inputValues: SearchInputValues = new Map(),
 	viewerTimeZone?: string,
 ): TermBindings {
-	const boundInputs = new Map(inputValues);
+	const boundInputs = new Map<Uuid, string>();
 	for (const input of searchInputs) {
-		if (!boundInputs.has(input.name)) boundInputs.set(input.name, "");
+		boundInputs.set(input.uuid, inputValues.get(input.name) ?? "");
 	}
 
 	const sessionContext = new Map<string, string>();
@@ -249,6 +250,7 @@ export async function loadCasesAction(args: {
 				: {
 						caseTypes: [...(args.caseTypes ?? [])],
 						knownInputs: args.caseListConfig.searchInputs.map((input) => ({
+							uuid: input.uuid,
 							name: input.name,
 							data_type: SEARCH_INPUT_RUNTIME_VALUE_TYPES[input.type],
 						})),

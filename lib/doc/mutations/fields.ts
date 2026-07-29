@@ -176,21 +176,7 @@ export function applyFieldMutation(
 			// Cloned: `updateField` edits the stored field in place, and the payload
 			// must not be the object it edits — a second apply of the same batch
 			// would be assigning to a frozen produced state.
-			let field = structuredClone(mut.field);
-			if (mut.optionsSource !== undefined) {
-				const parsedField = fieldSchema.safeParse({
-					...mut.field,
-					optionsSource: mut.optionsSource,
-				});
-				if (!parsedField.success) {
-					console.warn(
-						`addField: the lookup-source extension for ${mut.field.uuid} didn't fit the field's schema and was skipped.`,
-						{ issues: parsedField.error.issues },
-					);
-					return;
-				}
-				field = parsedField.data;
-			}
+			const field = structuredClone(mut.field);
 			// `after` absent appends, `null` puts it first — the two are distinct
 			// so "add at the top" survives the wire, where JSON drops `undefined`.
 			draft.fieldOrder[mut.parentUuid] = spliceAfter(
@@ -253,16 +239,6 @@ export function applyFieldMutation(
 					delete spread[key];
 				} else {
 					spread[key] = value;
-				}
-			}
-			// Lookup-backed options are a rolling-compatible semantic extension:
-			// the nested patch stays in the strict pre-S05 shape for old
-			// receivers, while current receivers apply set/replace/clear here.
-			if (mut.optionsSource !== undefined) {
-				if (mut.optionsSource === null) {
-					delete spread.optionsSource;
-				} else {
-					spread.optionsSource = mut.optionsSource;
 				}
 			}
 			// Filter the result through `pickFieldKeysForKind` before
@@ -663,7 +639,9 @@ export function applyFieldMutation(
 			const reconciled = reconcileFieldForKind(
 				field,
 				mut.toKind,
-				mut.options !== undefined ? { options: mut.options } : undefined,
+				mut.optionsSource !== undefined
+					? { optionsSource: mut.optionsSource }
+					: undefined,
 			);
 			if (!reconciled) {
 				// Reachable on one real path: a conversion into a select kind
@@ -751,17 +729,23 @@ function applyOptionMutation(
 	>,
 ): void {
 	const field = draft.fields[mut.fieldUuid];
-	if (!field || !("options" in field) || !Array.isArray(field.options)) return;
-	const options = field.options;
+	if (
+		!field ||
+		!("optionsSource" in field) ||
+		field.optionsSource.kind !== "inline"
+	) {
+		return;
+	}
+	const options = field.optionsSource.options;
 	switch (mut.kind) {
 		case "addOption": {
 			// Idempotent on uuid (a re-applied add is a no-op).
 			if (options.some((o) => o.uuid === mut.option.uuid)) return;
-			field.options = spliceEntryAfter(
+			field.optionsSource.options = spliceEntryAfter(
 				options,
 				structuredClone(mut.option),
 				mut.after,
-			) as typeof field.options;
+			) as typeof field.optionsSource.options;
 			return;
 		}
 		case "updateOption": {
@@ -783,11 +767,11 @@ function applyOptionMutation(
 			// option a peer removed cannot be moved back into it.
 			const opt = options.find((o) => o.uuid === mut.uuid);
 			if (opt === undefined) return;
-			field.options = spliceEntryAfter(
+			field.optionsSource.options = spliceEntryAfter(
 				options,
 				opt,
 				mut.after,
-			) as typeof field.options;
+			) as typeof field.optionsSource.options;
 			return;
 		}
 	}

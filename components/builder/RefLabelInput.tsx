@@ -32,9 +32,7 @@ import { SavedCheck } from "@/components/builder/EditableTitle";
 import { SaveShortcutHint } from "@/components/builder/SaveShortcutHint";
 import {
 	canonicalProseTemplate,
-	prosePartSchema,
 	proseTemplateIsEmpty,
-	type ProsePart,
 	type ProseTemplate,
 } from "@/lib/domain";
 import type { ReferenceProvider } from "@/lib/references/provider";
@@ -44,6 +42,10 @@ import {
 	useReferenceProvider,
 } from "@/lib/references/ReferenceContext";
 import { CommcareRef } from "@/lib/tiptap/commcareRefNode";
+import {
+	proseTemplateToTiptapContent,
+	tiptapContentToProseTemplate,
+} from "@/lib/tiptap/proseTemplateCodec";
 import { createRefSuggestion } from "@/lib/tiptap/refSuggestion";
 
 interface RefLabelInputProps {
@@ -72,58 +74,17 @@ function parseValueToContent(
 	provider: ReferenceProvider | null,
 	formUuid: string | undefined,
 ): JSONContent {
-	const paragraphs: JSONContent[] = [{ type: "paragraph", content: [] }];
-	for (const part of value.parts) {
-		if (part.kind === "text") {
-			const lines = part.text.split("\n");
-			for (let index = 0; index < lines.length; index++) {
-				const line = lines[index];
-				if (line)
-					paragraphs.at(-1)?.content?.push({ type: "text", text: line });
-				if (index < lines.length - 1) {
-					paragraphs.push({ type: "paragraph", content: [] });
-				}
-			}
-		} else {
-			const resolved = provider?.resolvePart(part, formUuid);
-			paragraphs.at(-1)?.content?.push({
-				type: "commcareRef",
-				attrs: { part, label: resolved?.label ?? resolved?.raw ?? "" },
-			});
-		}
-	}
-	return {
-		type: "doc",
-		content: paragraphs.map((paragraph) => ({
-			...paragraph,
-			content: paragraph.content?.length ? paragraph.content : undefined,
-		})),
-	};
+	return proseTemplateToTiptapContent(value, (part) => {
+		const resolved = provider?.resolvePart(part, formUuid);
+		return resolved?.label ?? resolved?.raw ?? "";
+	}) as JSONContent;
 }
 
 /**
  * Serialize TipTap document content directly to canonical prose parts.
  */
 function serializeContent(doc: JSONContent): ProseTemplate {
-	const parts: ProsePart[] = [];
-	const paragraphs = doc.content ?? [];
-	for (let pi = 0; pi < paragraphs.length; pi++) {
-		const paragraph = paragraphs[pi];
-		for (const node of paragraph.content ?? []) {
-			if (node.type === "text") {
-				parts.push({ kind: "text", text: node.text ?? "" });
-			} else if (node.type === "commcareRef") {
-				const parsed = prosePartSchema.safeParse(node.attrs?.part);
-				if (parsed.success && parsed.data.kind !== "text") {
-					parts.push(parsed.data);
-				}
-			}
-		}
-		if (pi < paragraphs.length - 1) {
-			parts.push({ kind: "text", text: "\n" });
-		}
-	}
-	return canonicalProseTemplate(parts);
+	return tiptapContentToProseTemplate(doc);
 }
 
 function sameTemplate(left: ProseTemplate, right: ProseTemplate): boolean {

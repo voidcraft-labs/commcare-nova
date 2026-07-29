@@ -105,12 +105,6 @@ export function addPersonaMutations(
 	];
 }
 
-function fallbackValues(
-	values: UserDataValues | undefined,
-): UserDataValues | null {
-	return values !== undefined && Object.keys(values).length > 0 ? values : null;
-}
-
 function userDataValueMutations(
 	kind: "updateUserType" | "updatePersona",
 	uuid: Uuid,
@@ -118,7 +112,6 @@ function userDataValueMutations(
 	after: UserDataValues | undefined,
 ): Mutation[] {
 	const mutations: Mutation[] = [];
-	let cursor = before;
 	const keys = [
 		...new Set([...Object.keys(before ?? {}), ...Object.keys(after ?? {})]),
 	].sort();
@@ -128,13 +121,10 @@ function userDataValueMutations(
 		const beforeValue = ownRecordValue(before, propertyUuid);
 		const afterValue = ownRecordValue(after, propertyUuid);
 		if (beforeHas === afterHas && beforeValue === afterValue) continue;
-		cursor = afterHas
-			? recordWithValue(cursor, propertyUuid, afterValue as string)
-			: recordWithoutKey(cursor, propertyUuid);
 		mutations.push({
 			kind,
 			uuid,
-			patch: { values: fallbackValues(cursor) },
+			patch: {},
 			valuePatch: {
 				userPropertyUuid: propertyUuid as Uuid,
 				value: afterHas ? (afterValue as string) : null,

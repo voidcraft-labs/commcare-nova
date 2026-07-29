@@ -11,7 +11,11 @@ import {
 	type BlueprintAuthoredIdentityKind,
 	type BlueprintDoc,
 	type Uuid,
+	printXPath,
+	xpathPrintContext,
 } from "@/lib/domain";
+import { parseXPathExpressionWithIssues } from "@/lib/commcare/xpath";
+import { proseTemplateSurvivesTiptapRoundTrip } from "@/lib/tiptap/proseTemplateCodec";
 import { type ValidationError, validationError } from "../errors";
 import { RESERVED_CASE_TYPE_NAMES } from "../reservedNamespaces";
 import {
@@ -51,6 +55,98 @@ function globallyUniqueEntityUuids(doc: BlueprintDoc): ValidationError[] {
 					{ entityUuid: uuid, entityKind: member.kind },
 				),
 			);
+		}
+	}
+	return errors;
+}
+
+function canonicalCasePropertyDefaults(doc: BlueprintDoc): ValidationError[] {
+	const errors: ValidationError[] = [];
+	const printContext = xpathPrintContext(doc);
+	const userProperties = Object.values(doc.userProperties ?? {});
+	const resolveUserProperty = (slug: string): Uuid | undefined => {
+		const matches = userProperties.filter(
+			(property) => property?.slug === slug,
+		);
+		return matches.length === 1 ? matches[0]?.uuid : undefined;
+	};
+	const flag = (
+		caseType: string,
+		property: string,
+		slot: string,
+		reason: string,
+	): void => {
+		errors.push(
+			validationError(
+				"CASE_PROPERTY_REFERENCE_INVALID",
+				"app",
+				`Case property "${caseType}.${property}" has a noncanonical ${slot} default. ${reason}`,
+				{},
+				{ caseType, property, slot },
+			),
+		);
+	};
+
+	for (const caseType of doc.caseTypes ?? []) {
+		for (const property of caseType.properties) {
+			for (const [slot, expression] of [
+				["required", property.required],
+				["validation", property.validation],
+			] as const) {
+				if (expression === undefined) continue;
+				if (
+					expression.parts.some(
+						(part) => part.kind === "field-ref" || part.kind === "path-ref",
+					)
+				) {
+					flag(
+						caseType.name,
+						property.name,
+						slot,
+						"Catalog defaults cannot read a form answer; put that reference on the field-specific override.",
+					);
+					continue;
+				}
+				const source = printXPath(expression, printContext);
+				const parsed = parseXPathExpressionWithIssues(
+					source,
+					() => undefined,
+					resolveUserProperty,
+				);
+				if (
+					parsed.issues.length > 0 ||
+					JSON.stringify(parsed.expression) !== JSON.stringify(expression)
+				) {
+					flag(
+						caseType.name,
+						property.name,
+						slot,
+						"The XPath must parse and print to the identical identity AST, with every custom worker reference stored by UUID.",
+					);
+				}
+			}
+
+			for (const [slot, template] of [
+				["label", property.label],
+				["hint", property.hint],
+				["validation_msg", property.validation_msg],
+				...(property.options ?? []).map(
+					(option, index) => [`options[${index}].label`, option.label] as const,
+				),
+			] as const) {
+				if (template === undefined) continue;
+				if (
+					!proseTemplateSurvivesTiptapRoundTrip(template) ||
+					template.parts.some((part) => part.kind === "field-ref")
+				) {
+					flag(
+						caseType.name,
+						property.name,
+						slot,
+						"Catalog text must survive the reference editor round trip and cannot read a form answer.",
+					);
+				}
+			}
 		}
 	}
 	return errors;
@@ -388,6 +484,7 @@ function connectNoParticipatingForms(doc: BlueprintDoc): ValidationError[] {
 
 export const APP_RULES = [
 	globallyUniqueEntityUuids,
+	canonicalCasePropertyDefaults,
 	noModules,
 	emptyAppName,
 	reservedCaseTypeName,

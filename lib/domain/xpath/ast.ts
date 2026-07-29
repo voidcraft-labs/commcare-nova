@@ -35,12 +35,9 @@
 //     name is intentionally the identity because it has no doc entity.
 //   - `user-property-ref` — Nova-authored custom worker information,
 //     stored by stable uuid and printed through its current saved name.
-//   - `raw-ref` — a hashtag that names no identity the doc can
-//     anchor: a dangling `#form/...`, the transitional contextual
-//     `#case/...` (whose meaning follows the owning module's CURRENT
-//     case type rather than naming one), an unknown namespace, or a
-//     malformed multi-segment shape. Prints verbatim; the validator
-//     adjudicates it from the printed text exactly as it always has.
+// Unresolved, contextual, unknown, and malformed hashtag references are not a
+// stored arm. The parse boundary reports them and the commit gate rejects
+// them; only canonical identity-backed leaves enter the document.
 //
 // `.`/`..` and every other structural XPath shape stay inside `text`
 // runs — they are evaluation context, not references.
@@ -100,14 +97,6 @@ const xpathUserPropertyRefPartSchema = z
 	})
 	.strict();
 
-const xpathRawRefPartSchema = z
-	.object({
-		kind: z.literal("raw-ref"),
-		namespace: z.string(),
-		segments: z.array(z.string()),
-	})
-	.strict();
-
 const xpathPartSchema = z.discriminatedUnion("kind", [
 	xpathTextPartSchema,
 	xpathFieldRefPartSchema,
@@ -115,7 +104,6 @@ const xpathPartSchema = z.discriminatedUnion("kind", [
 	xpathCaseRefPartSchema,
 	xpathUserRefPartSchema,
 	xpathUserPropertyRefPartSchema,
-	xpathRawRefPartSchema,
 ]);
 
 export type XPathTextPart = z.infer<typeof xpathTextPartSchema>;
@@ -126,7 +114,6 @@ export type XPathUserRefPart = z.infer<typeof xpathUserRefPartSchema>;
 export type XPathUserPropertyRefPart = z.infer<
 	typeof xpathUserPropertyRefPartSchema
 >;
-export type XPathRawRefPart = z.infer<typeof xpathRawRefPartSchema>;
 export type XPathPart = z.infer<typeof xpathPartSchema>;
 
 /** A reference-carrying part — everything except verbatim text. */

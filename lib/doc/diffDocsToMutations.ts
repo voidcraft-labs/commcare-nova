@@ -120,6 +120,7 @@ import type {
 import {
 	caseSearchConfigAfterFinalInputRemoval,
 	caseSearchConfigHasAuthoredSettings,
+	convertNeedsOptionSeed,
 	emptyCaseListConfig,
 	hasOwnRecordKey,
 	ownRecordValue,
@@ -186,15 +187,11 @@ const FIELD_MEDIA_KEYS = FIELD_MEDIA_SLOTS.map(
 const MENU_MEDIA_KEY_SET = new Set<string>(["icon", "audioLabel"]);
 
 // The field generic patch skips the media slots (their own kinds), the `order`
-// sort key (a `moveField` carries it), and `options` (diffed per-uuid into the
-// granular option kinds).
+// sort key (a `moveField` carries it), and `optionsSource` (either replaced as
+// one arm or diffed per option when both sides are inline).
 const FIELD_PATCH_SKIP = new Set<string>([
 	...FIELD_MEDIA_KEYS,
 	"order",
-	"options",
-	// Lookup source intent uses the top-level rolling-compatible
-	// addField/updateField extension; the nested fallback remains the strict
-	// inline-options shape understood by pre-S05 receivers.
 	"optionsSource",
 ]);
 
@@ -590,6 +587,10 @@ export function diffDocsToMutations(
 				kind: "convertField",
 				uuid,
 				toKind: nField.kind,
+				...(convertNeedsOptionSeed(pField, nField.kind) &&
+					"optionsSource" in nField && {
+						optionsSource: cloneEntity(nField.optionsSource),
+					}),
 			});
 		}
 
@@ -617,15 +618,22 @@ export function diffDocsToMutations(
 		const optionsSourceChanged =
 			(nField.kind === "single_select" || nField.kind === "multi_select") &&
 			!deepEqual(previousOptionsSource, nextOptionsSource);
-		if (Object.keys(patch).length > 0 || optionsSourceChanged) {
+		const bothInline =
+			previousOptionsSource?.kind === "inline" &&
+			nextOptionsSource?.kind === "inline";
+		const sourceNeedsAtomicReplacement =
+			optionsSourceChanged &&
+			!bothInline &&
+			!convertNeedsOptionSeed(pField, nField.kind);
+		if (sourceNeedsAtomicReplacement) {
+			patch.optionsSource = cloneEntity(nextOptionsSource);
+		}
+		if (Object.keys(patch).length > 0) {
 			updates.push({
 				kind: "updateField",
 				uuid,
 				targetKind: nField.kind,
 				patch,
-				...(optionsSourceChanged && {
-					optionsSource: nextOptionsSource ?? null,
-				}),
 			} as Mutation);
 		}
 
@@ -636,7 +644,9 @@ export function diffDocsToMutations(
 		// content change excludes `order`/`uuid`; an `order` shift emits a
 		// `moveOption`). A field added this batch carries its options inline on
 		// `addField`, so the option diff runs for COMMON fields only.
-		collections.push(...diffOptions(pField, nField, uuid));
+		if (bothInline) {
+			collections.push(...diffOptions(pField, nField, uuid));
+		}
 	}
 
 	// (5) Module order — `moduleOrder` IS the sequence, so the reorder is
@@ -1013,18 +1023,12 @@ function reconcileFieldTree(
 			const field = cloneEntity(
 				ownRecordValue(next.fields, uuid) as Field,
 			) as Field;
-			const optionsSource =
-				"optionsSource" in field ? field.optionsSource : undefined;
-			if ("optionsSource" in field) {
-				delete (field as unknown as Record<string, unknown>).optionsSource;
-			}
 			adds.push({
 				kind: "addField",
 				parentUuid,
 				field,
 				after: at === 0 ? null : sequence[at - 1],
-				...(optionsSource !== undefined && { optionsSource }),
-			} as Mutation);
+			});
 		}
 	}
 
@@ -1181,11 +1185,10 @@ function stripOrder(value: unknown): unknown {
 }
 
 /**
- * Diff a module's `caseListConfig`. Birth is an idempotent semantic extension
- * on `updateModule`, followed by the same granular column / search-input /
- * `setCaseListMeta` kinds used for ordinary content edits. Reapplying that
- * batch over a peer-populated config therefore merges by item uuid instead of
- * replacing the peer's work with the empty rolling-deploy fallback snapshot.
+ * Diff a module's `caseListConfig`. Birth is an idempotent semantic edit,
+ * followed by the same granular column / search-input / `setCaseListMeta`
+ * kinds used for ordinary content edits. Reapplying that batch over a
+ * peer-populated config therefore merges by item uuid.
  *
  * A case-type flip has no special config behavior: `updateModule{caseType}`
  * changes the module context, while any simultaneous config changes remain
@@ -1217,7 +1220,7 @@ function diffCaseListConfig(
 					{
 						kind: "updateModule",
 						uuid: moduleUuid,
-						patch: { caseListConfig: emptyCaseListConfig() },
+						patch: {},
 						ensureCaseListConfig: true,
 					},
 				]
@@ -1374,10 +1377,7 @@ function diffSearchInputs(
 	return out;
 }
 
-/** The case-list's non-array metadata — always-on `filter`, case-list-link
- *  `icon` / `audioLabel`, and the `tile` layout. A clear travels as `null`.
- *  The tile rides its own top-level slot because the patch body is strict on
- *  a pre-deploy parser; the reducer folds the two together. */
+/** The case-list's non-array metadata. A clear travels as `null`. */
 function diffCaseListMeta(
 	prev: CaseListConfig,
 	next: CaseListConfig,
@@ -1387,6 +1387,7 @@ function diffCaseListMeta(
 		filter?: CaseListConfig["filter"] | null;
 		icon?: CaseListConfig["icon"] | null;
 		audioLabel?: CaseListConfig["audioLabel"] | null;
+		tile?: CaseListConfig["tile"] | null;
 	} = {};
 	if (!deepEqual(prev.filter, next.filter)) {
 		patch.filter = next.filter === undefined ? null : cloneEntity(next.filter);
@@ -1396,15 +1397,15 @@ function diffCaseListMeta(
 		patch.audioLabel = next.audioLabel ?? null;
 	}
 	const tileChanged = !deepEqual(prev.tile, next.tile);
+	if (tileChanged) {
+		patch.tile = next.tile === undefined ? null : cloneEntity(next.tile);
+	}
 	if (Object.keys(patch).length === 0 && !tileChanged) return [];
 	return [
 		{
 			kind: "setCaseListMeta",
 			uuid: moduleUuid,
 			patch,
-			...(tileChanged && {
-				tilePatch: next.tile === undefined ? null : cloneEntity(next.tile),
-			}),
 		},
 	];
 }
@@ -1527,10 +1528,9 @@ function diffOptions(
 	if (prevOpts.length === 0 && nextOpts.length === 0) return [];
 	const out: Mutation[] = [];
 	const prevByUuid = new Map<string, SelectOption>();
-	for (const o of prevOpts) if (o.uuid) prevByUuid.set(o.uuid, o);
+	for (const o of prevOpts) prevByUuid.set(o.uuid, o);
 	const nextUuids = new Set<string>();
 	for (const opt of nextOpts) {
-		if (!opt.uuid) continue; // unbackfilled (shouldn't happen post-hydration)
 		nextUuids.add(opt.uuid);
 		const p = prevByUuid.get(opt.uuid);
 		if (!p) {
@@ -1539,7 +1539,7 @@ function diffOptions(
 				fieldUuid,
 				option: cloneEntity(opt),
 				after: predecessorIn(
-					nextOpts.flatMap((o) => (o.uuid ? [o.uuid] : [])),
+					nextOpts.map((o) => o.uuid),
 					opt.uuid,
 				),
 			});
@@ -1554,16 +1554,14 @@ function diffOptions(
 			});
 		}
 	}
-	// The `options` array IS the sequence. Only uuid-bearing options can be
-	// addressed by a move; a legacy option with no uuid predates option identity
-	// and rides whatever whole-field write carries it. Moves run against the
-	// sequence the adds above have already landed in.
+	// The inline `options` array IS the sequence. Every option has stable
+	// identity; moves run against the sequence the adds above landed in.
 	for (const move of sequenceMovesTo(
 		arrivalsProjected(
-			prevOpts.flatMap((o) => (o.uuid ? [o.uuid] : [])),
-			nextOpts.flatMap((o) => (o.uuid ? [o.uuid] : [])),
+			prevOpts.map((o) => o.uuid),
+			nextOpts.map((o) => o.uuid),
 		),
-		nextOpts.flatMap((o) => (o.uuid ? [o.uuid] : [])),
+		nextOpts.map((o) => o.uuid),
 	)) {
 		out.push({
 			kind: "moveOption",
@@ -1573,7 +1571,7 @@ function diffOptions(
 		});
 	}
 	for (const o of prevOpts) {
-		if (o.uuid && !nextUuids.has(o.uuid)) {
+		if (!nextUuids.has(o.uuid)) {
 			out.push({ kind: "removeOption", fieldUuid, uuid: o.uuid });
 		}
 	}
@@ -1581,8 +1579,8 @@ function diffOptions(
 }
 
 function optionsOf(field: Field): readonly SelectOption[] {
-	return "options" in field && Array.isArray(field.options)
-		? (field.options as SelectOption[])
+	return "optionsSource" in field && field.optionsSource.kind === "inline"
+		? field.optionsSource.options
 		: [];
 }
 

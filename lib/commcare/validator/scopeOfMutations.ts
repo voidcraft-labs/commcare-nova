@@ -440,13 +440,16 @@ export function scopeOfMutations(
 
 			// ── Granular case-list collections ─────────────────────────
 			case "addColumn":
-			case "updateColumn":
 				// A column edit re-walks its module. A CALCULATED column carries
 				// an AST that can read a property on another case type via a
 				// relation walk — the same reach as a case-property writer, so
 				// it forces a full run; every other column kind reads only the
 				// module's own type and stays module-scoped.
 				if (mut.column.kind === "calculated") acc.full = true;
+				else acc.moduleUuids.add(mut.moduleUuid);
+				break;
+			case "updateColumn":
+				if (mut.column?.kind === "calculated") acc.full = true;
 				else acc.moduleUuids.add(mut.moduleUuid);
 				break;
 			case "removeColumn":
@@ -457,12 +460,23 @@ export function scopeOfMutations(
 				acc.moduleUuids.add(mut.moduleUuid);
 				break;
 			case "addSearchInput":
-			case "updateSearchInput":
 				// An advanced predicate, a `default` expression, or a simple
 				// input with a relation `via` can read a property on another
 				// case type (full); a bare simple input reads only the module's
 				// own type (module scope).
 				if (searchInputReferencesForeignScope(mut.searchInput)) {
+					acc.full = true;
+				} else {
+					acc.moduleUuids.add(mut.moduleUuid);
+				}
+				break;
+			case "updateSearchInput":
+				if (
+					searchInputReferencesForeignScope({
+						...mut.searchInput,
+						uuid: mut.uuid,
+					})
+				) {
 					acc.full = true;
 				} else {
 					acc.moduleUuids.add(mut.moduleUuid);

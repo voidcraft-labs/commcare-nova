@@ -435,6 +435,7 @@ export function deriveSearchInputDecl(
 	row: SearchInputDef,
 ): EditorSearchInputDecl {
 	return {
+		uuid: row.uuid,
 		name: row.name,
 		label: row.label,
 		data_type: SEARCH_INPUT_RUNTIME_VALUE_TYPES[row.type],
@@ -585,7 +586,7 @@ export function seedCustomCondition(
 		row.via === undefined || row.via.kind === "self" ? undefined : row.via;
 	const propertyRef = prop(currentCaseType, row.property, viaForRef);
 	if (row.name === "") return eq(propertyRef, literal(""));
-	const inputRef = input(row.name);
+	const inputRef = input(row.uuid);
 	const modeKind = effectiveModeKind(row);
 	const clause = (() => {
 		switch (modeKind) {

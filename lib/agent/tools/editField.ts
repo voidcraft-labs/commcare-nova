@@ -57,7 +57,7 @@ import type {
 	Field,
 	FieldKind,
 	FieldPatchFor,
-	SelectOption,
+	SelectOptionsSource,
 	Uuid,
 } from "@/lib/domain";
 import {
@@ -78,6 +78,7 @@ import {
 	type StagedMutationBatch,
 	toToolErrorResult,
 } from "./common";
+import { prepareToolOptionsSource } from "../contentProcessing";
 import type {
 	MutationSuccess,
 	ToolCallSummary,
@@ -170,10 +171,10 @@ function editPatchToFieldPatch(
 		if (value === undefined) continue;
 		patch[key] = value;
 	}
-	if (updates.options !== undefined) {
-		// Option identity is part of the exact machine-authored shape. A
-		// replacement never guesses continuity from an editable value.
-		patch.options = updates.options;
+	if (updates.optionsSource !== undefined) {
+		// Source replacement is atomic. The tool's `optionUuid` creation slots
+		// become required stored `uuid`s before the mutation is built.
+		patch.optionsSource = prepareToolOptionsSource(updates.optionsSource);
 	}
 	// Nested `validate: { expr, msg? }` config. SA passes:
 	//   - object → replace; flatten back to schema's `validate` +
@@ -297,34 +298,33 @@ export const editFieldTool = {
 
 				// Converting INTO a select kind from a kind that carries no
 				// options (text → single_select): the destination schema
-				// requires `.min(2)` options, and the only way they can exist
+				// requires a complete source arm, and the only way it can exist
 				// on the converted field is riding the convertField mutation
 				// itself — a post-convert `updateField { options }` can't
 				// help, because the convert would already have no-opped. So
-				// the call's `options` are CONSUMED into the convert (minted
+				// the call's `optionsSource` is CONSUMED into the convert
 				// here, at the batch-building layer) and dropped from the
 				// later scalar-patch stage. Kinds that already carry options
 				// (single ↔ multi) keep the existing behavior: options
 				// transfer verbatim in the reducer, and a same-call `options`
 				// patch reconciles uuid identity in the patch stage.
-				let mintOptions: (() => SelectOption[]) | undefined;
+				let selectSource: SelectOptionsSource | undefined;
 				if (convertNeedsOptionSeed(resolved.field, newKind)) {
-					const seedInput = fieldUpdates.options;
-					if (!seedInput || seedInput.length < 2) {
+					const seedInput = fieldUpdates.optionsSource;
+					if (!seedInput) {
 						return {
 							kind: "mutate" as const,
 							mutations: [],
 							newDoc: doc,
 							result: {
-								error: `Converting "${currentId}" from ${fromKind} to ${newKind} needs the option list in the same call — pass \`options\` with at least 2 entries alongside kind="${newKind}".`,
+								error: `Converting "${currentId}" from ${fromKind} to ${newKind} needs a complete choice source in the same call — pass \`optionsSource\` alongside kind="${newKind}".`,
 							},
 						};
 					}
-					const seed = seedInput;
-					mintOptions = () => seed;
+					selectSource = prepareToolOptionsSource(seedInput);
 					// Consumed by the convert — the patch stage must not apply
 					// it a second time against the already-seeded options.
-					delete fieldUpdates.options;
+					delete fieldUpdates.optionsSource;
 				}
 
 				// The property-centric plan: a case-bound string-scalar
@@ -346,7 +346,7 @@ export const editFieldTool = {
 					doc: workingDoc,
 					field: planField,
 					toKind: newKind,
-					...(mintOptions && { mintOptions }),
+					...(selectSource && { optionsSource: selectSource }),
 				});
 				if (!plan.ok) {
 					const blockerMessage =

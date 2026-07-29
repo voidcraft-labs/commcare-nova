@@ -218,11 +218,11 @@ export function prop(
 
 /**
  * Constructs a reference to a value the user typed into a search
- * input. Resolved at compile time (XPath / SQL) by mapping `name` to
- * the search input's runtime binding.
+ * input. Resolved at compile time (XPath / SQL) by mapping the UUID to
+ * the search input's current runtime binding.
  */
-export function input(name: string): SearchInputRef {
-	return { kind: "input", name };
+export function input(searchInputUuid: Uuid): SearchInputRef {
+	return { kind: "input", searchInputUuid };
 }
 
 /**

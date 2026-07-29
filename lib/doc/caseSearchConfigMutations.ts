@@ -1,74 +1,26 @@
 import type { Mutation } from "@/lib/doc/types";
 import {
 	type CaseSearchConfig,
-	caseSearchConfigAfterFinalInputRemoval,
 	normalizeOwnerOnlyCaseSearchConfig,
 	type Uuid,
 } from "@/lib/domain";
 
 type ModuleUpdateMutation = Extract<Mutation, { kind: "updateModule" }>;
 
-/** Strict origin/main `caseSearchConfigSchema` fallback for Nova's private bit. */
-export function legacyCompatibleCaseSearchConfig(
-	config: CaseSearchConfig,
-): CaseSearchConfig {
-	const normalized = normalizeOwnerOnlyCaseSearchConfig(config);
-	if (normalized.searchActionEnabled !== false) return normalized;
-	const { searchActionEnabled: _intent, ...legacy } = normalized;
-	return {
-		...legacy,
-		// Origin/main understands this predicate and therefore keeps the Search
-		// action inaccessible if an old server strips the semantic extension.
-		searchButtonDisplayCondition: { kind: "match-none" },
-	};
-}
-
-/**
- * Encode Search presence on the established `updateModule` discriminator.
- *
- * The snapshot is deliberately redundant: origin/main parsers strip the
- * optional operation and origin/main reducers apply this enabled projection,
- * while current reducers preserve fresh peer settings and clear only the
- * owner-only no-action provenance bit.
- */
+/** Encode Search presence as one fresh-state semantic operation. */
 export function enableCaseSearchMutation(
 	uuid: Uuid,
-	config: CaseSearchConfig | undefined,
+	_config: CaseSearchConfig | undefined,
 ): ModuleUpdateMutation {
-	const normalized =
-		config === undefined
-			? undefined
-			: normalizeOwnerOnlyCaseSearchConfig(config);
-	const {
-		searchActionEnabled: _previousIntent,
-		searchButtonDisplayCondition: legacyCondition,
-		...rest
-	} = normalized ?? {};
-	const enabled =
-		normalized !== undefined &&
-		normalized.searchActionEnabled === false &&
-		legacyCondition?.kind === "match-none"
-			? rest
-			: {
-					...rest,
-					...(legacyCondition && {
-						searchButtonDisplayCondition: legacyCondition,
-					}),
-				};
 	return {
 		kind: "updateModule",
 		uuid,
-		patch: { caseSearchConfig: enabled },
+		patch: {},
 		caseSearchConfigOperation: "enable",
 	};
 }
 
-/**
- * Deliberately store assigned-case availability without enabling Search.
- * The desired value lives in an optional top-level extension (stripped whole
- * by old parsers); the recognized patch carries the behavior-equivalent
- * match-none fallback that origin/main's strict nested schema accepts.
- */
+/** Deliberately store assigned-case availability without enabling Search. */
 export function setOwnerOnlyCaseSearchMutation(
 	uuid: Uuid,
 	config: CaseSearchConfig,
@@ -85,7 +37,7 @@ export function setOwnerOnlyCaseSearchMutation(
 	return {
 		kind: "updateModule",
 		uuid,
-		patch: { caseSearchConfig: legacyCompatibleCaseSearchConfig(desired) },
+		patch: {},
 		caseSearchConfigOperation: "set-owner-only",
 		caseSearchConfigValue: desired,
 	};
@@ -98,7 +50,7 @@ export function disableUnusedCaseSearchMutation(
 	return {
 		kind: "updateModule",
 		uuid,
-		patch: { caseSearchConfig: null },
+		patch: {},
 		caseSearchConfigOperation: "disable-if-unused",
 	};
 }
@@ -116,34 +68,21 @@ export function removeCaseSearchConfigIfNoAuthoredSettingsMutation(
 	return {
 		kind: "updateModule",
 		uuid,
-		patch: { caseSearchConfig: null },
+		patch: {},
 		caseSearchConfigOperation: "remove-if-no-authored-settings",
 	};
 }
 
-/**
- * Remove the final prompt screen against replay-time state. The fallback is
- * the same local projection an origin/main receiver can safely apply without
- * encountering an unknown discriminator.
- */
+/** Remove the final prompt screen against replay-time state. */
 export function cleanupCaseSearchAfterFinalInputMutation(args: {
 	readonly uuid: Uuid;
 	readonly config: CaseSearchConfig | undefined;
 	readonly hasCasesAvailableCondition: boolean;
 }): ModuleUpdateMutation {
-	const fallback = caseSearchConfigAfterFinalInputRemoval(
-		args.config,
-		args.hasCasesAvailableCondition,
-	);
 	return {
 		kind: "updateModule",
 		uuid: args.uuid,
-		patch: {
-			caseSearchConfig:
-				fallback === undefined
-					? null
-					: legacyCompatibleCaseSearchConfig(fallback),
-		},
+		patch: {},
 		caseSearchConfigOperation: "cleanup-after-final-input",
 	};
 }

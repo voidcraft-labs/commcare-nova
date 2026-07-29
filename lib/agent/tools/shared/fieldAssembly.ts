@@ -40,6 +40,7 @@ import {
 	applyDefaults,
 	type FlatField,
 	flatFieldToField,
+	prepareFlatFieldIdentities,
 	stripEmpty,
 } from "../../contentProcessing";
 
@@ -157,19 +158,21 @@ export function assembleFieldMutations(
 
 	// Assign final identities before assembling any item. This complete overlay
 	// lets expression references point forward while topology remains ordered.
-	const assigned = items.map((raw) => ({
-		raw,
-		uuid: raw.fieldUuid ?? asUuid(crypto.randomUUID()),
+	const assigned = items.map((input) => ({
+		raw: prepareFlatFieldIdentities(input),
+		uuid: input.fieldUuid ?? asUuid(crypto.randomUUID()),
 	}));
 	const predeclared = new Map<Uuid, string>();
 	const identityRejections: Array<{ id: string; reason: string }> = [];
 	for (const { raw, uuid } of assigned) {
 		const declarations: Array<{ uuid: Uuid; label: string }> = [
 			{ uuid, label: `field "${raw.id}"` },
-			...(raw.options ?? []).map((option) => ({
-				uuid: option.uuid,
-				label: `option "${option.value}" on field "${raw.id}"`,
-			})),
+			...(raw.optionsSource?.kind === "inline"
+				? raw.optionsSource.options.map((option) => ({
+						uuid: option.uuid,
+						label: `option "${option.value}" on field "${raw.id}"`,
+					}))
+				: []),
 		];
 		for (const declaration of declarations) {
 			const prior = predeclared.get(declaration.uuid);

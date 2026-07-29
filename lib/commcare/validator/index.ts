@@ -19,6 +19,7 @@ import {
 	caseRefAcceptMap,
 	expressionSurfaceReads,
 	type Field,
+	fieldPathResolver,
 	fieldRegistry,
 	type FieldProseSlotId,
 	type FieldXPathSlotId,
@@ -29,8 +30,11 @@ import {
 	toReachableIndex,
 	type Uuid,
 	type XPathExpression,
+	printXPath,
 	xpathPrintContext,
 } from "@/lib/domain";
+import { parseXPathExpressionWithIssues } from "@/lib/commcare/xpath";
+import { proseTemplateSurvivesTiptapRoundTrip } from "@/lib/tiptap/proseTemplateCodec";
 import {
 	buildFieldTree,
 	type FieldTreeNode,
@@ -185,11 +189,6 @@ function classifyStoredRef(
 ): "raw-text" | "dangling-identity" | undefined {
 	if (expr === undefined || failingRef === undefined) return undefined;
 	for (const part of expr.parts) {
-		if (part.kind === "raw-ref" && part.namespace === "form") {
-			if (failingRef === `/data/${part.segments.join("/")}`) {
-				return "raw-text";
-			}
-		}
 		if (part.kind === "field-ref" || part.kind === "path-ref") {
 			if (failingRef === `/data/${part.uuid}`) return "dangling-identity";
 		}
@@ -206,6 +205,54 @@ function withStoredRef(
 	if (error.code !== "INVALID_REF") return error;
 	const storedRef = classifyStoredRef(expr, error.ref);
 	return storedRef === undefined ? error : { ...error, storedRef };
+}
+
+function canonicalXPathError(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	text: string,
+	expr: XPathExpression | undefined,
+): XPathError | undefined {
+	if (expr === undefined) {
+		return {
+			code: "INVALID_REF",
+			message: "This expression is not stored as Nova's canonical XPath AST.",
+		};
+	}
+	const userProperties = Object.values(doc.userProperties ?? {});
+	const parsed = parseXPathExpressionWithIssues(
+		text,
+		fieldPathResolver(doc, formUuid),
+		(slug) => {
+			const matches = userProperties.filter(
+				(property) => property?.slug === slug,
+			);
+			return matches.length === 1 ? matches[0]?.uuid : undefined;
+		},
+	);
+	const issue = parsed.issues[0];
+	if (issue !== undefined) {
+		return {
+			code: issue.kind === "syntax" ? "XPATH_SYNTAX" : "INVALID_REF",
+			message:
+				issue.kind === "syntax"
+					? `Syntax error near "${issue.source}"`
+					: `Reference "${issue.source}" must resolve to one canonical identity in this form.`,
+			position: issue.from,
+			...(issue.kind === "unresolved-reference" && { ref: issue.source }),
+		};
+	}
+	if (
+		JSON.stringify(parsed.expression) !== JSON.stringify(expr) ||
+		printXPath(parsed.expression, xpathPrintContext(doc)) !== text
+	) {
+		return {
+			code: "INVALID_REF",
+			message:
+				"This expression does not survive Nova's canonical identity parse and print round trip.",
+		};
+	}
+	return undefined;
 }
 
 /**
@@ -386,6 +433,16 @@ export function validateBlueprintDeep(
 					const text = formExpressionSource(form, slot, doc);
 					if (!text) continue;
 					const expr = formExpressionValue(form, slot);
+					const canonicalError = canonicalXPathError(doc, formUuid, text, expr);
+					if (canonicalError !== undefined) {
+						errors.push({
+							...loc,
+							kind: "connect-xpath",
+							slot,
+							error: canonicalError,
+						});
+						continue;
+					}
 					for (const error of validateXPath(
 						text,
 						validPaths,
@@ -470,6 +527,11 @@ function validateTreeXPath(
 					? text.trim().length === 0
 					: text.length === 0;
 			if (blank) continue;
+			const canonicalError = canonicalXPathError(doc, loc.formUuid, text, expr);
+			if (canonicalError !== undefined) {
+				pushFieldError(node.field, slot, canonicalError);
+				continue;
+			}
 			for (const error of validateXPath(
 				text,
 				validPaths,
@@ -513,6 +575,21 @@ function validateTreeProse(
 		template: ProseTemplate | undefined,
 	): void => {
 		if (!template) return;
+		if (!proseTemplateSurvivesTiptapRoundTrip(template)) {
+			errors.push({
+				...loc,
+				kind: "field-prose",
+				fieldUuid: field.uuid,
+				fieldId: field.id,
+				surface,
+				error: {
+					code: "INVALID_REF",
+					message:
+						"This text does not survive Nova's canonical reference-editor round trip.",
+				},
+			});
+			return;
+		}
 		const print = xpathPrintContext(doc);
 		for (const [partIndex, part] of template.parts.entries()) {
 			let error: XPathError | undefined;

@@ -530,7 +530,7 @@ function emitComparisonSegments(
 		typeContext,
 	);
 	const rightSegs = isSubcaseCountAnchor(p.left)
-		? emitSubcaseCountBoundSegments(p.right)
+		? emitSubcaseCountBoundSegments(p.right, typeContext)
 		: emitOperandSegments(p.right, "value", typeContext);
 	const op = COMPARISON_OPS[p.kind];
 	return [...leftSegs, { kind: "constant", text: ` ${op} ` }, ...rightSegs];
@@ -548,8 +548,12 @@ function isSubcaseCountAnchor(expression: ValueExpression): boolean {
  */
 function emitSubcaseCountBoundSegments(
 	expression: ValueExpression,
+	typeContext?: TypeContext,
 ): CsqlSegment[] {
-	const classification = classifySubcaseCountBound(expression);
+	const classification = classifySubcaseCountBound(
+		expression,
+		typeContext?.knownInputs,
+	);
 	if (classification.kind === "static-valid") {
 		return [{ kind: "constant", text: formatNumeric(classification.value) }];
 	}
@@ -697,7 +701,10 @@ function inlineAsRuntimeOperand(
 ): CsqlSegment[] {
 	const xpath = emitOnDeviceExpression(expr, undefined, typeContext ?? {});
 	return quoteRuntimeCsqlValue(xpath, "double", [
-		...collectRuntimeCsqlStringExpressionInputNames(expr),
+		...collectRuntimeCsqlStringExpressionInputNames(
+			expr,
+			typeContext?.knownInputs,
+		),
 	]);
 }
 
@@ -1082,7 +1089,13 @@ function emitGeopointCenterSegments(
 		typeContext ?? {},
 	);
 	const normalized = normalizeOnDeviceGeopoint(rawCenter);
-	const inputNames = [...collectGeopointCenterInputNames(center)].sort();
+	const inputNames = [...collectGeopointCenterInputNames(center)]
+		.map(
+			(uuid) =>
+				typeContext?.knownInputs.find((input) => input.uuid === uuid)?.name,
+		)
+		.filter((name): name is string => name !== undefined)
+		.sort();
 	return [
 		{
 			kind: "runtime",

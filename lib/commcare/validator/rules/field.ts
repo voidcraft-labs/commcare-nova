@@ -111,7 +111,12 @@ interface FieldContext {
 function selectNoOptions(field: Field, ctx: FieldContext): ValidationError[] {
 	if (field.kind !== "single_select" && field.kind !== "multi_select")
 		return [];
-	if (field.options && field.options.length > 0) return [];
+	if (
+		field.optionsSource.kind === "lookup" ||
+		field.optionsSource.options.length > 0
+	) {
+		return [];
+	}
 	const typeName =
 		field.kind === "single_select" ? "single-select" : "multi-select";
 	return [
@@ -145,7 +150,8 @@ function selectTooFewOptions(
 ): ValidationError[] {
 	if (field.kind !== "single_select" && field.kind !== "multi_select")
 		return [];
-	const count = field.options?.length ?? 0;
+	if (field.optionsSource.kind === "lookup") return [];
+	const count = field.optionsSource.options.length;
 	if (count === 0 || count >= 2) return [];
 	const typeName =
 		field.kind === "single_select" ? "single-select" : "multi-select";

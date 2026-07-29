@@ -58,7 +58,6 @@ import { planKindConversion } from "@/lib/doc/kindConversionCascade";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { modulePatchMutations } from "@/lib/doc/modulePatchMutations";
 import { notifyRejectedCommit } from "@/lib/doc/mutations/notify";
-import { withOptionUuids } from "@/lib/doc/optionIdentity";
 import {
 	BlueprintDocContext,
 	BlueprintEditableContext,
@@ -95,7 +94,6 @@ import {
 } from "@/lib/doc/userMutations";
 import {
 	asUuid,
-	type CarrierBlindField,
 	type CaseProperty,
 	type CaseType,
 	type CommitOutcome,
@@ -114,7 +112,6 @@ import {
 	type ModuleIconRef,
 	ownRecordValue,
 	type Persona,
-	type SelectOption,
 	type UserProperty,
 	type UserType,
 } from "@/lib/domain";
@@ -243,10 +240,7 @@ export interface BlueprintMutations {
 	 */
 	addField: <K extends FieldKind>(
 		parentUuid: Uuid,
-		field: { kind: K } & Omit<
-			Extract<CarrierBlindField, { kind: K }>,
-			"uuid" | "kind"
-		> & {
+		field: { kind: K } & Omit<Extract<Field, { kind: K }>, "uuid" | "kind"> & {
 				uuid?: string;
 			},
 		opts?: {
@@ -702,14 +696,6 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 							? maybeUuid
 							: crypto.randomUUID(),
 					);
-					// A born select field's options each need a stable uuid + order
-					// key too — the per-uuid option diff skips a keyless/uuid-less
-					// option, so a picker-created select (whose starter options
-					// carry neither) would lose them. Same minting the SA assembly
-					// uses.
-					const bornOptions = withOptionUuids(
-						(field as { options?: SelectOption[] }).options,
-					);
 					// Field is a discriminated union; the narrowed generic input is a
 					// specific variant's Omit — we stamp the uuid and cast via
 					// `unknown` because the distributive Omit shape doesn't round-trip
@@ -720,7 +706,6 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 					const entity = {
 						...field,
 						uuid,
-						...(bornOptions && { options: bornOptions }),
 					} as unknown as Field;
 
 					// Declaration chokepoint: a field writing to a type absent from
@@ -953,11 +938,13 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 						doc,
 						field,
 						toKind,
-						mintOptions: () =>
-							DEFAULT_SELECT_OPTIONS.map((option) => ({
+						optionsSource: {
+							kind: "inline",
+							options: DEFAULT_SELECT_OPTIONS.map((option) => ({
 								...option,
 								uuid: asUuid(crypto.randomUUID()),
 							})),
+						},
 					});
 					if (!plan.ok) {
 						const message =

@@ -1185,7 +1185,7 @@ function compileSelfViaQuantifier(
  * bindings resolve before compilation, so input-bound → compile
  * `clause`; input-absent → `lit(true)` (the AND-chain identity).
  *
- * "Bound" means `searchInputs.has(name)` regardless of value — an
+ * "Bound" means `searchInputs.has(searchInputUuid)` regardless of value — an
  * empty-string binding is still bound and the wrapped clause runs.
  * This diverges from CCHQ's wire `count(input)` semantic (which
  * returns 0 for empty strings and skips the clause). Deliberate:
@@ -1199,7 +1199,8 @@ function compileWhenInputPresent(
 	pred: Extract<Predicate, { kind: "when-input-present" }>,
 	ctx: PredicateCompileContext,
 ): Expression<SqlBool> {
-	const isBound = ctx.bindings.searchInputs?.has(pred.input.name) ?? false;
+	const isBound =
+		ctx.bindings.searchInputs?.has(pred.input.searchInputUuid) ?? false;
 	if (isBound) {
 		return compilePredicate(pred.clause, ctx);
 	}

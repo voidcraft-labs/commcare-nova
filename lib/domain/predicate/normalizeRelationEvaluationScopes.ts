@@ -25,6 +25,7 @@ import type {
 	SwitchCase,
 	ValueExpression,
 } from "./types";
+import type { SearchInputDecl } from "./typeChecker";
 
 export type RelationEvaluationScopeIssue =
 	| "mixed-property-scopes"
@@ -46,6 +47,8 @@ export interface RelationEvaluationScopeContext {
 	readonly currentCaseType?: string;
 	/** Current wire names for identity-backed custom worker information. */
 	readonly userPropertySlugs?: ReadonlyMap<Uuid, string>;
+	/** Current runtime names for identity-backed search inputs. */
+	readonly knownInputs?: ReadonlyArray<SearchInputDecl>;
 }
 
 /** Normalize every predicate leaf reachable through structural boolean slots. */

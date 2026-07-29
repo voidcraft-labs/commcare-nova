@@ -1,6 +1,10 @@
 "use client";
 import { MediaDisplay } from "@/components/builder/media/MediaDisplay";
-import { fallbackProseProjection, type SingleSelectField } from "@/lib/domain";
+import {
+	fallbackProseProjection,
+	type SelectOption,
+	type SingleSelectField,
+} from "@/lib/domain";
 import { PreviewMarkdown } from "@/lib/markdown";
 import type { FieldState } from "@/lib/preview/engine/types";
 import { useEditMode } from "@/lib/session/hooks";
@@ -36,7 +40,7 @@ export function SelectOneField({
 	// live filtered choices (already in authored row order); while the
 	// fixture snapshot is still loading they are undefined and the list
 	// shows its loading state.
-	const lookupBacked = field.optionsSource !== undefined;
+	const lookupBacked = field.optionsSource.kind === "lookup";
 	// `key` is display identity: static options are validator-unique by
 	// value; lookup rows guarantee neither unique nor non-blank values,
 	// so their choices carry the source row id.
@@ -44,16 +48,18 @@ export function SelectOneField({
 		key: string;
 		value: string;
 		label: string;
-		media?: (typeof field.options)[number]["media"];
+		media?: SelectOption["media"];
 	}> = lookupBacked
 		? (state.choices ?? [])
-		: [...(field.options ?? [])].map((opt) => ({
-				...opt,
-				key: opt.value,
-				label:
-					state.resolvedOptionLabels?.[opt.uuid] ??
-					fallbackProseProjection(opt.label),
-			}));
+		: field.optionsSource.kind === "inline"
+			? field.optionsSource.options.map((opt) => ({
+					...opt,
+					key: opt.value,
+					label:
+						state.resolvedOptionLabels?.[opt.uuid] ??
+						fallbackProseProjection(opt.label),
+				}))
+			: [];
 	const showError = state.touched && !state.valid;
 	const isEditMode = useEditMode() === "edit";
 

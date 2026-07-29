@@ -171,16 +171,12 @@ export const setCaseListTileTool = {
 			}
 
 			if (tile !== undefined && !deepEqual(config.tile, tile ?? undefined)) {
-				// The layout rides the granular `setCaseListMeta` kind (not a
-				// wholesale `updateModule{caseListConfig}` that would clobber a
-				// concurrent column edit on the guarded re-apply). `tilePatch` is
-				// top-level on that kind rather than inside its `.strict()` patch
-				// body, so an old parser strips it instead of rejecting the event.
+				// The layout rides the granular `setCaseListMeta` kind, so it does
+				// not clobber a concurrent column edit on guarded re-apply.
 				mutations.push({
 					kind: "setCaseListMeta",
 					uuid: mod.uuid,
-					patch: {},
-					tilePatch: tile,
+					patch: { tile },
 				});
 			}
 

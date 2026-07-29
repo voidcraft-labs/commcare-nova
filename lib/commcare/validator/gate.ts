@@ -108,6 +108,7 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	RESERVED_CASE_TYPE_NAME: "soundness",
 	CONNECT_NO_PARTICIPATING_FORMS: "completeness",
 	BLUEPRINT_ENTITY_UUID_DUPLICATE: "soundness",
+	CASE_PROPERTY_REFERENCE_INVALID: "soundness",
 	// Who runs the app. Every one is soundness: an illegal or duplicated
 	// slug is an identity CommCare refuses, a duplicated role or persona
 	// name is indistinguishable in every picker, a dangling role or

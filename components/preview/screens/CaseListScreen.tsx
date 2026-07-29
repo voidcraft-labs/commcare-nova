@@ -254,6 +254,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		() => ({
 			caseTypes: [...effectiveCaseTypes],
 			knownInputs: (config?.searchInputs ?? []).map((input) => ({
+				uuid: input.uuid,
 				name: input.name,
 				data_type: SEARCH_INPUT_RUNTIME_VALUE_TYPES[input.type],
 			})),

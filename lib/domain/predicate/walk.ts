@@ -209,14 +209,14 @@ export function walkInputRefs(
 	});
 }
 
-/** Whether a predicate reads the named Search input anywhere in its AST. */
+/** Whether a predicate reads the identified Search input anywhere in its AST. */
 export function predicateReferencesSearchInput(
 	predicate: Predicate,
-	name: string,
+	searchInputUuid: SearchInputRef["searchInputUuid"],
 ): boolean {
 	let found = false;
 	walkInputRefs(predicate, (ref) => {
-		if (ref.name === name) found = true;
+		if (ref.searchInputUuid === searchInputUuid) found = true;
 	});
 	return found;
 }
@@ -224,43 +224,15 @@ export function predicateReferencesSearchInput(
 /** Expression-rooted counterpart to `predicateReferencesSearchInput`. */
 export function expressionReferencesSearchInput(
 	expression: ValueExpression,
-	name: string,
+	searchInputUuid: SearchInputRef["searchInputUuid"],
 ): boolean {
 	let found = false;
 	walkExpressionTerms(expression, (term) => {
-		if (term.kind === "input" && term.name === name) found = true;
+		if (term.kind === "input" && term.searchInputUuid === searchInputUuid) {
+			found = true;
+		}
 	});
 	return found;
-}
-
-/** Structurally rename every matching Search-input leaf in a predicate. */
-export function renameSearchInputInPredicate(
-	predicate: Predicate,
-	oldName: string,
-	newName: string,
-): number {
-	let changed = 0;
-	walkInputRefs(predicate, (ref) => {
-		if (ref.name !== oldName) return;
-		ref.name = newName;
-		changed++;
-	});
-	return changed;
-}
-
-/** Structurally rename every matching Search-input leaf in an expression. */
-export function renameSearchInputInExpression(
-	expression: ValueExpression,
-	oldName: string,
-	newName: string,
-): number {
-	let changed = 0;
-	walkExpressionTerms(expression, (term) => {
-		if (term.kind !== "input" || term.name !== oldName) return;
-		term.name = newName;
-		changed++;
-	});
-	return changed;
 }
 
 /**

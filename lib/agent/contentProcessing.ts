@@ -27,7 +27,13 @@
  * their domain equivalents when seeding a field's defaults.
  */
 import type { z } from "zod";
-import type { CaseType, Field, FieldKind, Uuid } from "@/lib/domain";
+import type {
+	CaseType,
+	Field,
+	FieldKind,
+	SelectOptionsSource,
+	Uuid,
+} from "@/lib/domain";
 import {
 	authorableCaseProperties,
 	canonicalCasePropertyName,
@@ -77,6 +83,47 @@ type CaseTypes = CaseType[] | null;
  */
 export type FlatField = z.infer<typeof addFieldsItemSchema>;
 
+/** Add-tool field shape after every authorable option has its final UUID. */
+export type PreparedFlatField = Omit<FlatField, "optionsSource"> & {
+	optionsSource?: SelectOptionsSource | null;
+};
+
+type ToolSelectOptionsSource = NonNullable<FlatField["optionsSource"]>;
+
+/** Convert one machine-authored source arm to its persisted domain shape. */
+export function prepareToolOptionsSource(
+	source: ToolSelectOptionsSource,
+): SelectOptionsSource {
+	if (source.kind === "lookup") return source;
+	return {
+		kind: "inline",
+		options: source.options.map(({ optionUuid, ...option }) => ({
+			...option,
+			uuid: optionUuid ?? uuidSchema.parse(crypto.randomUUID()),
+		})),
+	};
+}
+
+/**
+ * Establish the stored select-source shape at the tool boundary.
+ *
+ * `optionUuid` is the machine-facing creation/address slot; the document stores
+ * that identity as `uuid`. A missing creation UUID is minted once here, before
+ * collision checks and field assembly.
+ */
+export function prepareFlatFieldIdentities(
+	field: FlatField,
+): PreparedFlatField {
+	const source = field.optionsSource;
+	if (source == null || source.kind === "lookup") {
+		return field as PreparedFlatField;
+	}
+	return {
+		...field,
+		optionsSource: prepareToolOptionsSource(source),
+	};
+}
+
 // ── Sentinel collapse ────────────────────────────────────────────────
 
 /**
@@ -99,7 +146,7 @@ export type FlatField = z.infer<typeof addFieldsItemSchema>;
  * `Partial<FlatField>` because any non-required key may be absent after
  * the collapse.
  */
-export function stripEmpty(q: FlatField): Partial<FlatField> & {
+export function stripEmpty(q: PreparedFlatField): Partial<PreparedFlatField> & {
 	parentUuid?: Uuid | null;
 } {
 	const result: Record<string, unknown> = {};
@@ -110,7 +157,9 @@ export function stripEmpty(q: FlatField): Partial<FlatField> & {
 		result[k] = v;
 	}
 	if (result.parentUuid === undefined) result.parentUuid = null;
-	return result as Partial<FlatField> & { parentUuid?: Uuid | null };
+	return result as Partial<PreparedFlatField> & {
+		parentUuid?: Uuid | null;
+	};
 }
 
 // ── Data-model defaults ──────────────────────────────────────────────
@@ -133,9 +182,9 @@ export function stripEmpty(q: FlatField): Partial<FlatField> & {
  * second channel for the same effect; the structural preload owns it.
  */
 export function applyDefaults<E extends object = object>(
-	q: Partial<FlatField> & E,
+	q: Partial<PreparedFlatField> & E,
 	caseTypes: CaseTypes,
-): Partial<FlatField> & E {
+): Partial<PreparedFlatField> & E {
 	const result = { ...q };
 
 	if (result.case_property_on && caseTypes) {
@@ -183,11 +232,14 @@ export function applyDefaults<E extends object = object>(
 					...(prop.validation_msg && { msg: prop.validation_msg }),
 				};
 			}
-			if (declares("options") && isUnset(result.options)) {
-				result.options = prop.options?.map((option) => ({
+			if (declares("optionsSource") && isUnset(result.optionsSource)) {
+				const options = prop.options?.map((option) => ({
 					...option,
 					uuid: uuidSchema.parse(crypto.randomUUID()),
 				}));
+				if (options !== undefined) {
+					result.optionsSource = { kind: "inline", options };
+				}
 			}
 		}
 	}
@@ -269,7 +321,7 @@ function describeFieldFailure(
  * form the shared add-path pipeline both `addFields` and `addField` walk.
  */
 export function flatFieldToField(
-	q: Partial<FlatField>,
+	q: Partial<PreparedFlatField>,
 	uuid: Uuid,
 ): FlatFieldResult {
 	const candidate: Record<string, unknown> = {
@@ -295,10 +347,7 @@ export function flatFieldToField(
 			q.calculate !== null && { calculate: q.calculate }),
 		...(q.default_value !== undefined &&
 			q.default_value !== null && { default_value: q.default_value }),
-		...(Array.isArray(q.options) &&
-			q.options.length > 0 && {
-				options: q.options,
-			}),
+		...(q.optionsSource != null && { optionsSource: q.optionsSource }),
 		...(typeof q.case_property_on === "string" &&
 			q.case_property_on.length > 0 && {
 				case_property_on: q.case_property_on,

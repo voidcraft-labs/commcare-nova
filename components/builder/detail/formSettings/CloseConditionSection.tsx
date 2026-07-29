@@ -78,10 +78,10 @@ export function CloseConditionSection({ formUuid }: FormSettingsSectionProps) {
 		// `options` only exists on select kinds; narrow via `in`. In DISPLAY
 		// order (`sort-by-(order, uuid)`, matching the field's rendered choices),
 		// not `options` array position.
-		return "options" in closeField &&
-			closeField.options &&
-			closeField.options.length > 0
-			? closeField.options.map((option) => ({
+		return "optionsSource" in closeField &&
+			closeField.optionsSource.kind === "inline" &&
+			closeField.optionsSource.options.length > 0
+			? closeField.optionsSource.options.map((option) => ({
 					...option,
 					label: fallbackProseProjection(option.label),
 				}))

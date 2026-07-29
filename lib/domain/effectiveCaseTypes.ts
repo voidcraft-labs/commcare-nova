@@ -639,8 +639,7 @@ function inferExpressionType(
 		case "path-ref":
 		case "user-ref":
 		case "user-property-ref":
-		case "raw-ref":
-			// Form-field / user / unresolvable refs stay unknown — see the
+			// Form-field / user refs stay unknown — see the
 			// module header for why field refs are excluded on purpose.
 			return undefined;
 	}

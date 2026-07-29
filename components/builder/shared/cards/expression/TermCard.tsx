@@ -690,7 +690,7 @@ export function termHasMeaningfulContent(value: Term): boolean {
 		case "field":
 			return true;
 		case "input":
-			return (value.name ?? "").length > 0;
+			return true;
 		case "session-context":
 			return true;
 		case "session-user":
@@ -961,7 +961,11 @@ function buildTermDefault(
 					? true
 					: acceptsType(constraint, i.data_type ?? "text"),
 			);
-			return input(matching?.name ?? ctx.knownInputs[0]?.name ?? "");
+			return input(
+				matching?.uuid ??
+					ctx.knownInputs[0]?.uuid ??
+					asUuid("00000000-0000-4000-8000-000000000000"),
+			);
 		}
 		case "session-context":
 			// `userid` is the most authored choice ("owned by me"
@@ -1250,8 +1254,8 @@ function TermBodyInput({
 		case "input":
 			return (
 				<InputRefMenu
-					value={term.name}
-					onChange={(name) => onChange(input(name))}
+					value={term.searchInputUuid}
+					onChange={(uuid) => onChange(input(uuid))}
 					constraint={constraint}
 					invalid={invalid}
 				/>
@@ -1307,8 +1311,8 @@ function TermBodyInput({
 }
 
 interface InputRefMenuProps {
-	readonly value: string | undefined;
-	readonly onChange: (name: string) => void;
+	readonly value: Uuid | undefined;
+	readonly onChange: (uuid: Uuid) => void;
 	readonly constraint: SlotConstraint;
 	readonly invalid: boolean;
 }
@@ -1343,18 +1347,18 @@ function InputRefMenu({
 		() =>
 			ctx.knownInputs.filter(
 				(i) =>
-					i.name === value ||
+					i.uuid === value ||
 					constraint.accepts === "any" ||
 					acceptsType(constraint, i.data_type ?? "text"),
 			),
 		[ctx.knownInputs, constraint, value],
 	);
-	const current = items.find((i) => i.name === value);
-	const hasSavedValue = value !== undefined && value.trim().length > 0;
+	const current = items.find((i) => i.uuid === value);
+	const hasSavedValue = value !== undefined;
 	const currentMissing = hasSavedValue && current === undefined;
 	const currentLabel =
 		current !== undefined
-			? searchInputDisplayLabel(current.name, ctx.knownInputs)
+			? searchInputDisplayLabel(current.uuid, ctx.knownInputs)
 			: hasSavedValue
 				? searchInputDisplayLabel(value, ctx.knownInputs)
 				: undefined;
@@ -1434,17 +1438,17 @@ function InputRefMenu({
 							</div>
 						) : null}
 						{items.map((it) => {
-							const isActive = it.name === value;
+							const isActive = it.uuid === value;
 							return (
 								<DropdownMenuItem
-									key={it.name}
-									onClick={() => onChange(it.name)}
+									key={it.uuid}
+									onClick={() => onChange(it.uuid)}
 									className={
 										isActive ? "bg-nova-violet/10 text-nova-violet-bright" : ""
 									}
 								>
 									<span className="min-w-0 flex-1 break-words">
-										{searchInputDisplayLabel(it.name, ctx.knownInputs)}
+										{searchInputDisplayLabel(it.uuid, ctx.knownInputs)}
 									</span>
 									{it.data_type && (
 										<span className="text-xs text-nova-text-muted">

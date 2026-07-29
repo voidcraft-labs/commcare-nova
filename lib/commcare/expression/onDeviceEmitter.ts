@@ -165,11 +165,23 @@ export function emitOnDeviceExpression(
 	termContext: OnDeviceTermEmissionContext = {},
 ): string {
 	const resolvedTermContext =
-		termContext.userPropertySlugs === undefined &&
-		relationContext.userPropertySlugs !== undefined
+		termContext.userPropertySlugs === undefined ||
+		termContext.searchInputNames === undefined
 			? {
 					...termContext,
-					userPropertySlugs: relationContext.userPropertySlugs,
+					...(termContext.userPropertySlugs === undefined &&
+						relationContext.userPropertySlugs !== undefined && {
+							userPropertySlugs: relationContext.userPropertySlugs,
+						}),
+					...(termContext.searchInputNames === undefined &&
+						relationContext.knownInputs !== undefined && {
+							searchInputNames: new Map(
+								relationContext.knownInputs.map((input) => [
+									input.uuid,
+									input.name,
+								]),
+							),
+						}),
 				}
 			: termContext;
 	const compatibilityIssue = findOnDeviceScalarExpressionIssue(

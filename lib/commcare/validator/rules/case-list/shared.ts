@@ -188,6 +188,7 @@ export function moduleTypeContext(
 	const { augmentedCaseTypes } = validationContextFor(doc);
 
 	const knownInputs: SearchInputDecl[] = inputs.map((input) => ({
+		uuid: input.uuid,
 		name: input.name,
 		data_type: SEARCH_INPUT_RUNTIME_VALUE_TYPES[input.type],
 	}));

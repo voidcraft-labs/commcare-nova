@@ -11,6 +11,8 @@
  */
 
 import type { Predicate, ValueExpression } from "@/lib/domain/predicate";
+import type { SearchInputDecl } from "@/lib/domain/predicate";
+import type { Uuid } from "@/lib/domain";
 import { isNativeCsqlValueExpression } from "../expression/csqlEmitter";
 import { normalizeCsqlPredicate } from "./csqlRepresentability";
 
@@ -23,29 +25,43 @@ type OperandPosition = "comparison-operand" | "value";
  */
 export function collectRuntimeCsqlStringInputNames(
 	predicate: Predicate | undefined,
+	knownInputs: readonly SearchInputDecl[] = [],
 ): ReadonlySet<string> {
-	const names = new Set<string>();
+	const uuids = new Set<Uuid>();
 	if (predicate !== undefined) {
 		collectPredicateRuntimeStringInputs(
 			normalizeCsqlPredicate(predicate),
-			names,
+			uuids,
 		);
 	}
-	return names;
+	return resolveInputNames(uuids, knownInputs);
 }
 
 /** Prompt bytes that can survive into one on-device-computed string result. */
 export function collectRuntimeCsqlStringExpressionInputNames(
 	expression: ValueExpression,
+	knownInputs: readonly SearchInputDecl[] = [],
+): ReadonlySet<string> {
+	const uuids = new Set<Uuid>();
+	collectOnDeviceOutputTaint(expression, uuids);
+	return resolveInputNames(uuids, knownInputs);
+}
+
+function resolveInputNames(
+	uuids: ReadonlySet<Uuid>,
+	knownInputs: readonly SearchInputDecl[],
 ): ReadonlySet<string> {
 	const names = new Set<string>();
-	collectOnDeviceOutputTaint(expression, names);
+	for (const uuid of uuids) {
+		const name = knownInputs.find((input) => input.uuid === uuid)?.name;
+		if (name !== undefined) names.add(name);
+	}
 	return names;
 }
 
 function collectPredicateRuntimeStringInputs(
 	predicate: Predicate,
-	names: Set<string>,
+	names: Set<Uuid>,
 ): void {
 	switch (predicate.kind) {
 		case "match-all":
@@ -133,7 +149,7 @@ function collectPredicateRuntimeStringInputs(
 function collectServerOperandRuntimeStringInputs(
 	expression: ValueExpression,
 	position: OperandPosition,
-	names: Set<string>,
+	names: Set<Uuid>,
 ): void {
 	if (expression.kind === "count") {
 		if (
@@ -155,7 +171,9 @@ function collectServerOperandRuntimeStringInputs(
 
 	switch (expression.kind) {
 		case "term":
-			if (expression.term.kind === "input") names.add(expression.term.name);
+			if (expression.term.kind === "input") {
+				names.add(expression.term.searchInputUuid);
+			}
 			return;
 		case "today":
 		case "now":
@@ -199,11 +217,13 @@ function collectServerOperandRuntimeStringInputs(
 /** Follow only on-device outputs that can preserve entered quote bytes. */
 function collectOnDeviceOutputTaint(
 	expression: ValueExpression,
-	names: Set<string>,
+	names: Set<Uuid>,
 ): void {
 	switch (expression.kind) {
 		case "term":
-			if (expression.term.kind === "input") names.add(expression.term.name);
+			if (expression.term.kind === "input") {
+				names.add(expression.term.searchInputUuid);
+			}
 			return;
 		case "concat":
 			for (const part of expression.parts) {

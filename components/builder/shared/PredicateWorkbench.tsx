@@ -984,9 +984,12 @@ function FocusedStructureBody({
 							Search answer
 						</p>
 						<SearchInputMenu
-							value={value.input.name || undefined}
-							onChange={(name) =>
-								onChange({ ...value, input: { kind: "input", name } })
+							value={value.input.searchInputUuid}
+							onChange={(searchInputUuid) =>
+								onChange({
+									...value,
+									input: { kind: "input", searchInputUuid },
+								})
 							}
 							invalid={false}
 						/>
@@ -1629,8 +1632,8 @@ function workbenchBreadcrumb(
 		case "not":
 			return "Exclude cases when";
 		case "when-input-present":
-			return value.input.name
-				? `When ${searchInputDisplayLabel(value.input.name, knownInputs)} is answered`
+			return value.input.searchInputUuid
+				? `When ${searchInputDisplayLabel(value.input.searchInputUuid, knownInputs)} is answered`
 				: "After a search answer";
 		case "exists":
 			return "Related case";
@@ -1655,8 +1658,8 @@ function structuralActionContext(
 			case "not":
 				return "condition that excludes cases";
 			case "when-input-present":
-				return value.input.name
-					? `condition after ${searchInputDisplayLabel(value.input.name, knownInputs)} is answered`
+				return value.input.searchInputUuid
+					? `condition after ${searchInputDisplayLabel(value.input.searchInputUuid, knownInputs)} is answered`
 					: "condition after a search answer";
 			case "exists":
 				return "related case condition";
@@ -1682,8 +1685,8 @@ function structureLabel(
 		case "not":
 			return "Exclude cases when";
 		case "when-input-present":
-			return value.input.name
-				? `When ${searchInputDisplayLabel(value.input.name, knownInputs)} is answered`
+			return value.input.searchInputUuid
+				? `When ${searchInputDisplayLabel(value.input.searchInputUuid, knownInputs)} is answered`
 				: "When a search field is answered";
 		case "exists":
 			return "Has a related case";

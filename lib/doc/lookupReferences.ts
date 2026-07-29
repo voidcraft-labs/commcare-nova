@@ -320,7 +320,7 @@ export function collectLookupOptionsSourceCarriers(
 		if (field.kind !== "single_select" && field.kind !== "multi_select") {
 			continue;
 		}
-		if (field.optionsSource === undefined) continue;
+		if (field.optionsSource.kind !== "lookup") continue;
 		carriers.push({
 			fieldUuid: field.uuid,
 			fieldId: field.id,
@@ -342,7 +342,7 @@ function extractLookupOptionsSources(
 			continue;
 		}
 		const source = field.optionsSource;
-		if (source === undefined) continue;
+		if (source.kind !== "lookup") continue;
 		const location = fieldLocation(doc, field, parents);
 		references.push(
 			{

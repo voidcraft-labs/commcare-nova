@@ -402,11 +402,11 @@ function visitPredicate(p: Predicate, gated: Set<string>): void {
 			// outer's gate when the inner exits. Mirrors the validator
 			// walker's `wasAlreadyGated` preserve at
 			// `searchInputRefUsesWhenInputPresent.ts::visitPredicate`.
-			const triggerName = p.input.name;
-			const wasAlreadyGated = gated.has(triggerName);
-			gated.add(triggerName);
+			const triggerUuid = p.input.searchInputUuid;
+			const wasAlreadyGated = gated.has(triggerUuid);
+			gated.add(triggerUuid);
 			visitPredicate(p.clause, gated);
-			if (!wasAlreadyGated) gated.delete(triggerName);
+			if (!wasAlreadyGated) gated.delete(triggerUuid);
 			return;
 		}
 		default: {
@@ -421,11 +421,11 @@ function visitPredicate(p: Predicate, gated: Set<string>): void {
 function visitExpression(expr: ValueExpression, gated: Set<string>): void {
 	switch (expr.kind) {
 		case "term":
-			if (expr.term.kind === "input" && !gated.has(expr.term.name)) {
+			if (expr.term.kind === "input" && !gated.has(expr.term.searchInputUuid)) {
 				throw new Error(
 					compilerBugMessage({
 						where: "composeXPathQueryEmission",
-						invariant: `the composed _xpath_query predicate carries a bare search-input reference (\`input("${expr.term.name}")\`) outside any when-input-present envelope`,
+						invariant: `the composed _xpath_query predicate carries a bare search-input reference (\`input("${expr.term.searchInputUuid}")\`) outside any when-input-present envelope`,
 						detail:
 							"The validator rule `searchInputRefUsesWhenInputPresent` rejects this shape at authoring time. Reaching this throw means the validator was bypassed — typically through an AST constructed at runtime, an `as any` cast, or a partial discriminated-union widening. Run validation before invoking the compile pipeline; the validator surfaces the offending slot so the author can wrap the subtree in a `when-input-present` envelope or remove the input reference.",
 					}),

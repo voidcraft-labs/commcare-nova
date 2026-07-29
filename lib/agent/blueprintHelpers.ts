@@ -24,9 +24,9 @@ import { addModuleMutation } from "@/lib/doc/addModuleMutation";
 import {
 	columnAddMutation,
 	columnContentEqualIgnoringGranularSlots,
+	columnContentSnapshot,
 	columnSortMutations,
 	columnVisibilityMutations,
-	legacyCompatibleColumnSnapshot,
 } from "@/lib/doc/caseListColumnMutations";
 import {
 	cleanupCaseSearchAfterFinalInputMutation,
@@ -377,9 +377,7 @@ export function updateColumnMutation(
 			kind: "updateColumn",
 			moduleUuid: mod.uuid,
 			uuid: columnUuid,
-			column: legacyCompatibleColumnSnapshot(nextColumn),
-			preserveVisibility: true,
-			preserveSort: true,
+			column: columnContentSnapshot(nextColumn),
 		});
 	}
 	mutations.push(...columnVisibilityMutations(current, nextColumn, mod.uuid));

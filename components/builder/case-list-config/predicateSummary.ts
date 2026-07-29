@@ -80,7 +80,7 @@ function summarizeExclusionCondition(
 	currentCaseType: string | undefined,
 ): string {
 	if (predicate.kind === "when-input-present") {
-		return `${searchInputDisplayLabel(predicate.input.name, context.knownInputs ?? [])} has an answer and ${embeddedSummary(summarizePredicate(predicate.clause, context, currentCaseType))}`;
+		return `${searchInputDisplayLabel(predicate.input.searchInputUuid, context.knownInputs ?? [])} has an answer and ${embeddedSummary(summarizePredicate(predicate.clause, context, currentCaseType))}`;
 	}
 	return embeddedSummary(
 		summarizePredicate(predicate, context, currentCaseType),
@@ -168,7 +168,7 @@ function summarizePredicate(
 		case "not":
 			return summarizeNegatedPredicate(p.clause, context, currentCaseType);
 		case "when-input-present":
-			return `When ${searchInputDisplayLabel(p.input.name, context.knownInputs ?? [])} has an answer, ${embeddedSummary(summarizePredicate(p.clause, context, currentCaseType))}`;
+			return `When ${searchInputDisplayLabel(p.input.searchInputUuid, context.knownInputs ?? [])} has an answer, ${embeddedSummary(summarizePredicate(p.clause, context, currentCaseType))}`;
 		case "exists": {
 			const destination = relationDestination(p.via, context, currentCaseType);
 			return p.where !== undefined
@@ -260,7 +260,7 @@ function summarizeNegatedPredicate(
 		case "not":
 			return summarizePredicate(p.clause, context, currentCaseType);
 		case "when-input-present":
-			return `${searchInputDisplayLabel(p.input.name, context.knownInputs ?? [])} has an answer and ${embeddedSummary(summarizeNegatedPredicate(p.clause, context, currentCaseType))}`;
+			return `${searchInputDisplayLabel(p.input.searchInputUuid, context.knownInputs ?? [])} has an answer and ${embeddedSummary(summarizeNegatedPredicate(p.clause, context, currentCaseType))}`;
 		case "exists": {
 			const destination = relationDestination(p.via, context, currentCaseType);
 			return p.where === undefined
@@ -358,7 +358,10 @@ function operand(
 				case "prop":
 					return propertySentenceLabel(t, context);
 				case "input":
-					return searchInputDisplayLabel(t.name, context.knownInputs ?? []);
+					return searchInputDisplayLabel(
+						t.searchInputUuid,
+						context.knownInputs ?? [],
+					);
 				case "literal":
 					return literalText(t.value);
 				case "session-user":

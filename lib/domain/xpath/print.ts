@@ -114,7 +114,7 @@ export function xpathPrintContext(doc: XPathPrintableDoc): XPathPrintContext {
  *   - `field-ref` → `#form/<current path>`
  *   - `path-ref`  → canonical absolute `/data/<current path>`
  *   - `user-property-ref` → the target property's current saved name
- *   - `case-ref` / `user-ref` / `raw-ref` → their name spelling
+ *   - `case-ref` / `user-ref` → their name spelling
  */
 export function printXPath(
 	expr: XPathExpression,
@@ -146,9 +146,6 @@ export function printXPath(
 				out += `#user/${
 					ctx.userPropertySlug(part.userPropertyUuid) ?? part.userPropertyUuid
 				}`;
-				break;
-			case "raw-ref":
-				out += `#${part.namespace}/${part.segments.join("/")}`;
 				break;
 			default: {
 				const _exhaustive: never = part;

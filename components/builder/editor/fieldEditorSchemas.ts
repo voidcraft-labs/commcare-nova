@@ -408,7 +408,7 @@ const geopointFieldEditorSchema: FieldEditorSchema<GeopointField> = {
 const singleSelectFieldEditorSchema: FieldEditorSchema<SingleSelectField> = {
 	data: [
 		casePropertyEntry<SingleSelectField>(),
-		{ key: "options", component: OptionsEditor, label: "Options" },
+		{ key: "optionsSource", component: OptionsEditor, label: "Options" },
 	],
 	logic: [
 		requiredEntry<SingleSelectField>(),
@@ -435,7 +435,7 @@ const singleSelectFieldEditorSchema: FieldEditorSchema<SingleSelectField> = {
 const multiSelectFieldEditorSchema: FieldEditorSchema<MultiSelectField> = {
 	data: [
 		casePropertyEntry<MultiSelectField>(),
-		{ key: "options", component: OptionsEditor, label: "Options" },
+		{ key: "optionsSource", component: OptionsEditor, label: "Options" },
 	],
 	logic: [
 		requiredEntry<MultiSelectField>(),

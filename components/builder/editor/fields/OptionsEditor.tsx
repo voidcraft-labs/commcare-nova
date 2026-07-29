@@ -1,14 +1,10 @@
 /**
- * OptionsEditor — declarative editor for the `options` array on
- * single-select / multi-select fields.
+ * OptionsEditor — declarative editor for a select field's inline options.
  *
  * Two exports:
  *   - `OptionsEditor` — the FieldEditorComponent adapter. Accepts
- *     `FieldEditorComponentProps` and enforces the schema's `min(2)`
- *     invariant at the adapter boundary: drafts smaller than two
- *     entries collapse to `undefined` (which the reducer treats as a
- *     removal patch) rather than writing through a list the schema
- *     would reject on the next validation pass.
+ *     `FieldEditorComponentProps` and preserves the complete
+ *     `optionsSource` discriminant.
  *   - `OptionsEditorWidget` — the underlying fieldset widget with the
  *     `{ options, onSave }` shape. Callers that already hold a
  *     persistence strategy and simply want the label/value rows + add
@@ -33,6 +29,7 @@ import {
 	proseText,
 	type ProseTemplate,
 	type SelectOption,
+	type SelectOptionsSource,
 } from "@/lib/domain";
 import type { FieldEditorComponentProps } from "@/lib/domain/kinds";
 import { MEDIA_KINDS, type Media } from "@/lib/domain/multimedia";
@@ -198,10 +195,7 @@ function OptionsEditorWidget({
 
 	const addOption = useCallback(() => {
 		const num = draft.length + 1;
-		// Mint a stable `uuid` + an append `order` key: the auto-save diff keys
-		// options BY uuid (a uuid-less option is invisible to it) and orders by
-		// `order`, not array position. Place the new option after the last in
-		// DISPLAY order.
+		// Mint the persisted identity once. Array order remains display order.
 		const next: DraftOption[] = [
 			...draft,
 			{
@@ -304,10 +298,9 @@ function OptionsEditorWidget({
 								value={opt.media}
 								onChange={(media) => setOptionMedia(i, media)}
 								kinds={MEDIA_KINDS}
-								// Keyed by the option's VALUE (the same handle the SA
-								// tool addresses options by), so add/remove of sibling
-								// rows doesn't re-target a staged chip mid-upload.
-								slotKey={`option:${slotKeyBase}:${opt.value}`}
+								// The UUID is the authored identity. Values are mutable
+								// wire projections and never address option media.
+								slotKey={`option:${slotKeyBase}:${opt.uuid}`}
 								ariaLabel={
 									fallbackProseProjection(opt.label).trim() || `Option ${i + 1}`
 								}
@@ -328,41 +321,46 @@ function OptionsEditorWidget({
 /**
  * Declarative FieldEditorComponent adapter.
  *
- * Empties and single-option drafts collapse to `undefined`; the
- * single-select / multi-select schemas declare `.min(2)` on
- * `options`, so any smaller list would fail re-validation on the
- * next write. Treating `undefined` as "not set yet" is the only
- * round-trip-safe value for a sub-minimum draft — the reducer
- * interprets it as a removal patch.
- *
- * The `as F["options" & keyof F]` cast is needed because the generic
+ * The `as F["optionsSource" & keyof F]` cast is needed because the generic
  * `onChange(next: F[K])` is an indexed-access write; every kind that
- * declares `options` carries it as `SelectOption[] | undefined`, so
- * both branches are valid values at runtime.
+ * declares `optionsSource` carries the same discriminated union.
  */
 export function OptionsEditor<F extends Field>(
-	props: FieldEditorComponentProps<F, "options" & keyof F>,
+	props: FieldEditorComponentProps<F, "optionsSource" & keyof F>,
 ) {
 	const { field, value, onChange, autoFocus } = props;
-	const current = Array.isArray(value) ? (value as SelectOption[]) : [];
+	const source = value as SelectOptionsSource;
 	/* The widget's `onSave` has no inline channel of its own, so the
 	 * adapter holds the gate's finding and renders it beneath the rows —
 	 * the section dispatches through the inline (no-toast) flavor on the
 	 * promise that every editor presents its own rejections. Cleared on
 	 * the next save that lands. */
 	const [rejection, setRejection] = useState<string | null>(null);
+	if (source.kind === "lookup") {
+		return (
+			<div
+				data-field-id="options"
+				className="rounded-lg border border-white/[0.06] bg-nova-deep/35 px-3 py-2.5"
+			>
+				<p className={INSPECTOR_LABEL_CLS}>Options</p>
+				<p className="mt-1 text-xs leading-relaxed text-nova-text-muted">
+					These choices come from a project data table. Change the table,
+					columns, or row filter in the table-source editor.
+				</p>
+			</div>
+		);
+	}
 	return (
 		<div data-field-id="options">
 			<OptionsEditorWidget
-				options={current}
+				options={source.options}
 				slotKeyBase={field.uuid}
 				autoFocus={autoFocus}
 				onSave={(next) => {
-					// Enforce the schema's `min(2)` at the adapter boundary —
-					// any sub-minimum draft becomes `undefined` (removal patch).
-					const persisted =
-						next.length >= 2 ? next : (undefined as SelectOption[] | undefined);
-					const outcome = onChange(persisted as F["options" & keyof F]);
+					const outcome = onChange({
+						kind: "inline",
+						options: next,
+					} as F["optionsSource" & keyof F]);
 					setRejection(outcome.ok ? null : (outcome.messages[0] ?? null));
 					// The widget gates its committed-key ref on this — a refusal
 					// must keep the user's draft rows on screen.

@@ -32,7 +32,6 @@ import {
 	type CaseOperationEditVerdict,
 	type CaseOperationMutationPlan,
 	caseOperationAddVerdict,
-	caseOperationAuthoringVerdict,
 	caseOperationEditVerdict,
 	moveCaseOperationMutation,
 	planCaseOperationUpdate,
@@ -79,9 +78,6 @@ export interface CaseOperationsView {
 		operation: CaseOperation,
 		index?: number,
 	) => CaseOperationEditVerdict;
-	/** Whether this operation's full author shape is available on all editors.
-	 * Moving is separate and remains available for a read-only carrier. */
-	readonly authoringVerdict: (uuid: Uuid) => CaseOperationEditVerdict;
 	/** The type one write's value must be assignable to, or `undefined` when
 	 * this write is what establishes the property's type. */
 	readonly writeValueType: (
@@ -175,18 +171,6 @@ export function useCaseOperations(formUuid: Uuid): CaseOperationsView {
 		(operation: CaseOperation, index?: number) =>
 			caseOperationAddVerdict(doc, formUuid, operation, index),
 		[doc, formUuid],
-	);
-	const authoringVerdict = useCallback(
-		(uuid: Uuid): CaseOperationEditVerdict => {
-			const operation = operations.find((candidate) => candidate.uuid === uuid);
-			return operation === undefined
-				? {
-						ok: false,
-						reason: "This case change is no longer part of the form.",
-					}
-				: caseOperationAuthoringVerdict(operation);
-		},
-		[operations],
 	);
 
 	const writeValueType = useCallback(
@@ -316,7 +300,6 @@ export function useCaseOperations(formUuid: Uuid): CaseOperationsView {
 			removalPlan,
 			editVerdict,
 			addVerdict,
-			authoringVerdict,
 			writeValueType,
 			add,
 			update,
@@ -333,7 +316,6 @@ export function useCaseOperations(formUuid: Uuid): CaseOperationsView {
 			removalPlan,
 			editVerdict,
 			addVerdict,
-			authoringVerdict,
 			writeValueType,
 			add,
 			update,

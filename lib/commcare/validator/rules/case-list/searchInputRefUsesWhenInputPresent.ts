@@ -85,7 +85,7 @@ import type {
 import { type ValidationError, validationError } from "../../errors";
 
 interface BareRef {
-	inputName: string;
+	inputUuid: Uuid;
 	path: string;
 }
 
@@ -223,16 +223,20 @@ function buildError(args: {
 }): ValidationError {
 	const { mod, moduleUuid, ref, mode, slot, adviceSlotName } = args;
 	const at = ref.path ? ` (at ${ref.path})` : "";
+	const inputName =
+		mod.caseListConfig?.searchInputs.find(
+			(input) => input.uuid === ref.inputUuid,
+		)?.name ?? ref.inputUuid;
 	const message =
 		mode === "requires-envelope"
-			? `Module "${mod.name}" has a bare \`input("${ref.inputName}")\` reference inside ${slot}${at}. CCHQ's runtime resolves an unset input to the empty string, so the wire would match cases whose property equals "" when the user hasn't typed anything yet — not the "filter only when the input has a value" semantic the authoring shape suggests. Open ${adviceSlotName} and wrap the offending subtree in a \`when-input-present(input("${ref.inputName}"), <subtree>)\` envelope so the runtime short-circuits cleanly on an unset input; alternatively, remove the input reference if the predicate isn't supposed to depend on user input.`
-			: `Module "${mod.name}" references \`input("${ref.inputName}")\` inside ${slot}${at}. This slot can never see a typed search value: a starting-value expression evaluates before the user has typed, so the reference resolves to the empty string — while the search-button display condition and calculated columns evaluate on the ordinary case list, where the search-input data doesn't exist yet and touching it errors the whole screen on a device (no \`when-input-present\` envelope can guard that — the failure happens before the guard runs). Open ${adviceSlotName} and remove the input reference; if you need the slot to react to a search input, you likely want a different slot (e.g. \`caseListConfig.filter\` for filtering, or an advanced-arm search-input predicate for input-driven matching).`;
+			? `Module "${mod.name}" has a bare \`input("${inputName}")\` reference inside ${slot}${at}. CCHQ's runtime resolves an unset input to the empty string, so the wire would match cases whose property equals "" when the user hasn't typed anything yet — not the "filter only when the input has a value" semantic the authoring shape suggests. Open ${adviceSlotName} and wrap the offending subtree in a \`when-input-present(input("${inputName}"), <subtree>)\` envelope so the runtime short-circuits cleanly on an unset input; alternatively, remove the input reference if the predicate isn't supposed to depend on user input.`
+			: `Module "${mod.name}" references \`input("${inputName}")\` inside ${slot}${at}. This slot can never see a typed search value: a starting-value expression evaluates before the user has typed, so the reference resolves to the empty string — while the search-button display condition and calculated columns evaluate on the ordinary case list, where the search-input data doesn't exist yet and touching it errors the whole screen on a device (no \`when-input-present\` envelope can guard that — the failure happens before the guard runs). Open ${adviceSlotName} and remove the input reference; if you need the slot to react to a search input, you likely want a different slot (e.g. \`caseListConfig.filter\` for filtering, or an advanced-arm search-input predicate for input-driven matching).`;
 	return validationError(
 		"CASE_LIST_BARE_SEARCH_INPUT_REF",
 		"module",
 		message,
 		{ moduleUuid, moduleName: mod.name },
-		{ inputName: ref.inputName, slot, path: ref.path, mode },
+		{ inputUuid: ref.inputUuid, inputName, slot, path: ref.path, mode },
 	);
 }
 
@@ -370,9 +374,9 @@ function visitPredicate(
 			// gating set. In `forbids-input-ref` mode the trigger ref is
 			// still an input reference in a no-input-context slot — flag
 			// it as well, and the gating set does nothing for the clause.
-			const triggerName = predicate.input.name;
+			const triggerUuid = predicate.input.searchInputUuid;
 			if (mode === "forbids-input-ref") {
-				out.push({ inputName: triggerName, path: joinPath(path, "input") });
+				out.push({ inputUuid: triggerUuid, path: joinPath(path, "input") });
 				visitPredicate(
 					predicate.clause,
 					joinPath(path, "clause"),
@@ -382,8 +386,8 @@ function visitPredicate(
 				);
 				return;
 			}
-			const wasAlreadyGated = gated.has(triggerName);
-			gated.add(triggerName);
+			const wasAlreadyGated = gated.has(triggerUuid);
+			gated.add(triggerUuid);
 			visitPredicate(
 				predicate.clause,
 				joinPath(path, "when-input-present.clause"),
@@ -391,7 +395,7 @@ function visitPredicate(
 				mode,
 				out,
 			);
-			if (!wasAlreadyGated) gated.delete(triggerName);
+			if (!wasAlreadyGated) gated.delete(triggerUuid);
 			return;
 		}
 		case "exists":
@@ -543,8 +547,10 @@ function visitInputRef(
 	mode: SlotMode,
 	out: BareRef[],
 ): void {
-	if (mode === "requires-envelope" && gated.has(ref.name)) return;
-	out.push({ inputName: ref.name, path });
+	if (mode === "requires-envelope" && gated.has(ref.searchInputUuid)) {
+		return;
+	}
+	out.push({ inputUuid: ref.searchInputUuid, path });
 }
 
 function joinPath(parent: string, segment: string): string {

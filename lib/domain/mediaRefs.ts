@@ -451,7 +451,8 @@ function* walkFieldOptionMedia(
 	ctx: FormWalkContext,
 ): Generator<AssetRef> {
 	if (field.kind !== "single_select" && field.kind !== "multi_select") return;
-	for (const option of field.options) {
+	if (field.optionsSource.kind !== "inline") return;
+	for (const option of field.optionsSource.options) {
 		const media = option.media;
 		if (!media) continue;
 		for (const slotKind of MEDIA_BUNDLE_KEYS) {
@@ -614,8 +615,13 @@ function remapFieldMedia(
 	if ("validate_msg_media" in field) {
 		remapMediaBundle(field.validate_msg_media, remap);
 	}
-	if (field.kind === "single_select" || field.kind === "multi_select") {
-		for (const option of field.options) remapMediaBundle(option.media, remap);
+	if (
+		(field.kind === "single_select" || field.kind === "multi_select") &&
+		field.optionsSource.kind === "inline"
+	) {
+		for (const option of field.optionsSource.options) {
+			remapMediaBundle(option.media, remap);
+		}
 	}
 }
 

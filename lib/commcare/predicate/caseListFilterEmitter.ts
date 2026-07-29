@@ -180,9 +180,21 @@ export function emitCaseListFilter(
 	termContext: OnDeviceTermEmissionContext = {},
 ): string {
 	const resolvedTermContext =
-		termContext.userPropertySlugs === undefined &&
-		context.userPropertySlugs !== undefined
-			? { ...termContext, userPropertySlugs: context.userPropertySlugs }
+		termContext.userPropertySlugs === undefined ||
+		termContext.searchInputNames === undefined
+			? {
+					...termContext,
+					...(termContext.userPropertySlugs === undefined &&
+						context.userPropertySlugs !== undefined && {
+							userPropertySlugs: context.userPropertySlugs,
+						}),
+					...(termContext.searchInputNames === undefined &&
+						context.knownInputs !== undefined && {
+							searchInputNames: new Map(
+								context.knownInputs.map((input) => [input.uuid, input.name]),
+							),
+						}),
+				}
 			: termContext;
 	return emitPredicate(
 		normalizeRelationEvaluationScopes(predicate, context),

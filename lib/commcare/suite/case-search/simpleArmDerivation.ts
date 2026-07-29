@@ -285,7 +285,7 @@ export function deriveSimpleArmPredicate(
 			? undefined
 			: authored.via;
 	const propertyRef = prop(caseType, authored.property, viaForRef);
-	const inputRef = input(authored.name);
+	const inputRef = input(authored.uuid);
 
 	// The `when-input-present` envelope routes through the canonical
 	// `if(count(<trigger>), <inner-csql>, 'match-all()')` shape at

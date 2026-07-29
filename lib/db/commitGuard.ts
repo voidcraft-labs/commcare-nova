@@ -137,9 +137,11 @@ export function batchTargetsMissing(
 	}
 	const options = new Set<string>();
 	for (const field of Object.values(doc.fields)) {
-		if (!("options" in field) || !Array.isArray(field.options)) continue;
-		for (const opt of field.options) {
-			if (opt.uuid !== undefined) options.add(opt.uuid);
+		if (!("optionsSource" in field) || field.optionsSource.kind !== "inline") {
+			continue;
+		}
+		for (const opt of field.optionsSource.options) {
+			options.add(opt.uuid);
 		}
 	}
 	// The three flat user collections, tracked at the same item granularity:

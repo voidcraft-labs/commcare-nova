@@ -19,6 +19,7 @@ import {
 	type SearchInputDef,
 	type SearchInputMode,
 	type SearchInputType,
+	type Uuid,
 } from "@/lib/domain";
 import type {
 	AstMapHooks,
@@ -72,6 +73,7 @@ type SearchInputRuntimeValueType =
 	(typeof SEARCH_INPUT_RUNTIME_VALUE_TYPES)[SearchInputDef["type"]];
 
 interface RuntimeInputBinding {
+	readonly uuid: Uuid;
 	readonly name: string;
 	readonly runtimeValueType?: SearchInputRuntimeValueType;
 }
@@ -147,18 +149,20 @@ export function bindSearchInputValuesInExpression(
 	inputValues: SearchInputValues,
 	searchInputs: readonly SearchInputDef[] = [],
 ): ValueExpression {
-	const runtimeValueTypes = searchInputRuntimeValueTypes(searchInputs);
-	const names = new Set<string>();
+	const runtimeBindings = searchInputRuntimeBindings(searchInputs);
+	const uuids = new Set<Uuid>();
 	walkExpressionTerms(expression, (term) => {
-		if (term.kind === "input") names.add(term.name);
+		if (term.kind === "input") uuids.add(term.searchInputUuid);
 	});
 
 	let bound = expression;
-	for (const name of names) {
+	for (const uuid of uuids) {
+		const input = runtimeBindings.get(uuid);
+		if (input === undefined) continue;
 		bound = substituteInputInExpression(
 			bound,
-			{ name, runtimeValueType: runtimeValueTypes.get(name) },
-			inputValues.get(name) ?? "",
+			input,
+			inputValues.get(input.name) ?? "",
 			true,
 		);
 	}
@@ -186,22 +190,24 @@ export function bindSearchInputValuesInExpression(
 export function bindSearchInputValuesInPredicate(
 	predicate: Predicate,
 	inputValues: SearchInputValues,
-	knownInputNames: ReadonlySet<string>,
+	knownInputUuids: ReadonlySet<Uuid>,
 	searchInputs: readonly SearchInputDef[] = [],
 ): Predicate {
-	const runtimeValueTypes = searchInputRuntimeValueTypes(searchInputs);
-	const referencedNames = new Set<string>();
+	const runtimeBindings = searchInputRuntimeBindings(searchInputs);
+	const referencedUuids = new Set<Uuid>();
 	walkTerms(predicate, (term) => {
-		if (term.kind === "input") referencedNames.add(term.name);
+		if (term.kind === "input") referencedUuids.add(term.searchInputUuid);
 	});
 
 	let bound = predicate;
-	for (const name of referencedNames) {
-		if (!knownInputNames.has(name)) continue;
+	for (const uuid of referencedUuids) {
+		if (!knownInputUuids.has(uuid)) continue;
+		const input = runtimeBindings.get(uuid);
+		if (input === undefined) continue;
 		bound = substituteInputInPredicate(
 			bound,
-			{ name, runtimeValueType: runtimeValueTypes.get(name) },
-			inputValues.get(name) ?? "",
+			input,
+			inputValues.get(input.name) ?? "",
 			true,
 		);
 	}
@@ -234,14 +240,14 @@ export function composeRuntimeFilter(
 		searchInputs,
 		inputValues,
 	);
-	const knownInputNames = new Set(searchInputs.map((input) => input.name));
+	const knownInputUuids = new Set(searchInputs.map((input) => input.uuid));
 	const clauses: Predicate[] = [];
 	for (const input of searchInputs) {
 		const clause = clauseForInput(
 			input,
 			expressionValues,
 			caseType,
-			knownInputNames,
+			knownInputUuids,
 			searchInputs,
 			caseTypeSchemas,
 		);
@@ -256,7 +262,7 @@ function clauseForInput(
 	input: SearchInputDef,
 	inputValues: SearchInputValues,
 	caseType: string,
-	knownInputNames: ReadonlySet<string>,
+	knownInputUuids: ReadonlySet<Uuid>,
 	searchInputs: readonly SearchInputDef[],
 	caseTypeSchemas?: ReadonlyMap<string, CaseType>,
 ): Predicate | undefined {
@@ -272,7 +278,7 @@ function clauseForInput(
 			return buildAdvancedArmClause(
 				input,
 				inputValues,
-				knownInputNames,
+				knownInputUuids,
 				searchInputs,
 			);
 		default: {
@@ -462,13 +468,13 @@ function defaultModeFor(type: SearchInputType): SearchInputMode {
 function buildAdvancedArmClause(
 	input: Extract<SearchInputDef, { kind: "advanced" }>,
 	inputValues: SearchInputValues,
-	knownInputNames: ReadonlySet<string>,
+	knownInputUuids: ReadonlySet<Uuid>,
 	searchInputs: readonly SearchInputDef[],
 ): Predicate {
 	return bindSearchInputValuesInPredicate(
 		input.predicate,
 		inputValues,
-		knownInputNames,
+		knownInputUuids,
 		searchInputs,
 	);
 }
@@ -481,13 +487,17 @@ function buildAdvancedArmClause(
  * projection beside substitution prevents the SQL compiler from having to
  * guess a temporal type from a string after the input leaf has disappeared.
  */
-function searchInputRuntimeValueTypes(
+function searchInputRuntimeBindings(
 	searchInputs: readonly SearchInputDef[],
-): ReadonlyMap<string, SearchInputRuntimeValueType> {
+): ReadonlyMap<Uuid, RuntimeInputBinding> {
 	return new Map(
 		searchInputs.map((input) => [
-			input.name,
-			SEARCH_INPUT_RUNTIME_VALUE_TYPES[input.type],
+			input.uuid,
+			{
+				uuid: input.uuid,
+				name: input.name,
+				runtimeValueType: SEARCH_INPUT_RUNTIME_VALUE_TYPES[input.type],
+			},
 		]),
 	);
 }
@@ -511,7 +521,7 @@ function substitutionHooks(
 ): AstMapHooks {
 	const hooks: AstMapHooks = {
 		mapTerm: (node) => {
-			if (node.kind !== "input" || node.name !== target.name) {
+			if (node.kind !== "input" || node.searchInputUuid !== target.uuid) {
 				return undefined;
 			}
 			const replacement =
@@ -525,7 +535,7 @@ function substitutionHooks(
 			if (
 				!resolvePresence ||
 				predicate.kind !== "when-input-present" ||
-				predicate.input.name !== target.name
+				predicate.input.searchInputUuid !== target.uuid
 			) {
 				// A gate for another input stays structural during this pass. The
 				// binding pass for that declared name resolves it from its own

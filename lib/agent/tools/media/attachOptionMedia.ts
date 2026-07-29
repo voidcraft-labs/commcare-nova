@@ -109,8 +109,16 @@ export const attachOptionMediaTool = {
 					);
 					continue;
 				}
+				if (field.optionsSource.kind !== "inline") {
+					failures.push(
+						`attachments[${i}]: field "${field.id}" uses lookup choices, which do not have authored option UUIDs or per-option media.`,
+					);
+					continue;
+				}
 
-				const index = field.options.findIndex((o) => o.uuid === optionUuid);
+				const index = field.optionsSource.options.findIndex(
+					(o) => o.uuid === optionUuid,
+				);
 				if (index < 0) {
 					failures.push(
 						`attachments[${i}]: field "${field.id}" has no option with UUID "${optionUuid}".`,
@@ -131,7 +139,7 @@ export const attachOptionMediaTool = {
 				// same field merges. The reducer preserves the option's current
 				// `order`; the uuid falls back to the deterministic backfill key when
 				// a not-yet-hydrated doc lacks one (matching what backfill mints).
-				const targetOption = field.options[index];
+				const targetOption = field.optionsSource.options[index];
 				const updated = withMedia(
 					targetOption,
 					setKinds.length > 0 ? media : undefined,

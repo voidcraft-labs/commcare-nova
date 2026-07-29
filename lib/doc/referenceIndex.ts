@@ -404,7 +404,8 @@ function extractFieldEdges(
 			case "lookup-carrier":
 				if (
 					(field.kind === "single_select" || field.kind === "multi_select") &&
-					field.optionsSource?.filter !== undefined
+					field.optionsSource.kind === "lookup" &&
+					field.optionsSource.filter !== undefined
 				) {
 					predicateEdges(sink, slot.slot, field.optionsSource.filter);
 				}
@@ -761,14 +762,6 @@ function expressionEdges(
  *     `local` mark: identity edges cannot shift with the form's id
  *     namespace, which is the whole point of the representation.
  *   - `case-ref` names its type (`t:`) and reads its property (`c:`).
- *   - `raw-ref` keeps the string extractor's namespace dispatch: a
- *     contextual `#case/<prop>` keys under the owning module's CURRENT
- *     type and marks the carrier context-dependent; an explicit
- *     namespace (always multi-segment here — single-segment explicit
- *     refs parse to `case-ref` leaves) names its type; dangling
- *     `#form/…` and `#user/…` shapes contribute nothing — an
- *     unresolved leaf stays text forever, so there is no resolution
- *     to track.
  */
 function extractAstRefs(
 	sink: EdgeSink,
@@ -792,19 +785,6 @@ function extractAstRefs(
 				break;
 			case "user-property-ref":
 				sink.edge(userPropertyTargetKey(part.userPropertyUuid), slot);
-				break;
-			case "raw-ref":
-				if (part.namespace === "case") {
-					sink.markCtx();
-					if (part.segments.length === 1 && ctx.moduleCaseType) {
-						sink.edge(
-							casePropertyTargetKey(ctx.moduleCaseType, part.segments[0]),
-							slot,
-						);
-					}
-				} else if (part.namespace !== "form" && part.namespace !== "user") {
-					sink.edge(caseTypeTargetKey(part.namespace), slot);
-				}
 				break;
 			default: {
 				const _exhaustive: never = part;

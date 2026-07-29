@@ -58,6 +58,7 @@
  */
 
 import {
+	asUuid,
 	type CaseProperty,
 	type CasePropertyDataType,
 	caseDataTypeForFieldKind,
@@ -67,7 +68,7 @@ import {
 	type FieldKind,
 	fieldCasePropertyOn,
 	getConvertibleTypes,
-	type SelectOption,
+	type SelectOptionsSource,
 } from "@/lib/domain";
 import { declarersOf } from "./referenceIndex";
 import type { BlueprintDoc, Mutation, Uuid } from "./types";
@@ -136,26 +137,46 @@ export type KindConversionPlanResult =
  * pass the field with that override applied, or the plan cascades a
  * binding the field is about to leave.
  *
- * `mintOptions` supplies born options for a converted field whose
- * source kind has none (`convertNeedsOptionSeed`) — called once PER
- * converted field so every field gets its own minted option identities
- * (uuid + order), never shared references.
+ * `optionsSource` supplies the complete source for a converted field whose
+ * source kind has none (`convertNeedsOptionSeed`). The authoring boundary has
+ * already established every nested identity.
  */
 export function planKindConversion(args: {
 	doc: BlueprintDoc;
 	field: Field;
 	toKind: FieldKind;
-	mintOptions?: () => SelectOption[];
+	optionsSource?: SelectOptionsSource;
 }): KindConversionPlanResult {
-	const { doc, field, toKind, mintOptions } = args;
+	const { doc, field, toKind, optionsSource } = args;
 
-	const convertMutation = (target: Field): Mutation => ({
-		kind: "convertField",
-		uuid: target.uuid,
-		toKind,
-		...(convertNeedsOptionSeed(target, toKind) &&
-			mintOptions && { options: mintOptions() }),
-	});
+	const sourceFor = (target: Field): SelectOptionsSource | undefined => {
+		if (optionsSource === undefined) return undefined;
+		if (target.uuid === field.uuid || optionsSource.kind === "lookup") {
+			return structuredClone(optionsSource);
+		}
+		// A property-wide cascade may convert several peer fields. Inline
+		// options are authored sub-entities, so each owning field gets distinct
+		// final identities while retaining the authored values and labels.
+		return {
+			kind: "inline",
+			options: optionsSource.options.map((option) => ({
+				...structuredClone(option),
+				uuid: asUuid(crypto.randomUUID()),
+			})),
+		};
+	};
+
+	const convertMutation = (target: Field): Mutation => {
+		const source = convertNeedsOptionSeed(target, toKind)
+			? sourceFor(target)
+			: undefined;
+		return {
+			kind: "convertField",
+			uuid: target.uuid,
+			toKind,
+			...(source !== undefined && { optionsSource: source }),
+		};
+	};
 
 	const addressedConvert = convertMutation(field);
 
@@ -317,8 +338,11 @@ function declarationOptions(
 	}
 	const source =
 		addressedConvert.kind === "convertField" &&
-		addressedConvert.options !== undefined
-			? addressedConvert.options
-			: (field as { options?: SelectOption[] }).options;
+		addressedConvert.optionsSource?.kind === "inline"
+			? addressedConvert.optionsSource.options
+			: (field.kind === "single_select" || field.kind === "multi_select") &&
+					field.optionsSource.kind === "inline"
+				? field.optionsSource.options
+				: undefined;
 	return source?.map(({ value, label }) => ({ value, label }));
 }

@@ -20,6 +20,7 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
 import { humanizeId } from "@/lib/domain/idSlug";
+import { asUuid, type Uuid } from "@/lib/domain";
 import {
 	input as buildInput,
 	matchAll,
@@ -39,7 +40,9 @@ export function whenInputPresentDefault(
 ): Extract<Predicate, { kind: "when-input-present" }> {
 	const firstInput = ctx.knownInputs[0];
 	return whenInput(
-		buildInput(firstInput?.name ?? ""),
+		buildInput(
+			firstInput?.uuid ?? asUuid("00000000-0000-4000-8000-000000000000"),
+		),
 		firstConditionSeed(ctx) ?? matchAll(),
 	);
 }
@@ -58,10 +61,10 @@ export function WhenInputPresentCard({
 	const inputErrors = useEditorErrorsAt(
 		appendKindSlot(path, "when-input-present", "input"),
 	);
-	const inputName = value.input.name || undefined;
+	const inputUuid = value.input.searchInputUuid;
 
-	const setInput = (name: string) => {
-		onChange(whenInput(buildInput(name), value.clause));
+	const setInput = (uuid: Uuid) => {
+		onChange(whenInput(buildInput(uuid), value.clause));
 	};
 
 	const setClause = (next: Predicate) => {
@@ -75,7 +78,7 @@ export function WhenInputPresentCard({
 					When this search field has a value
 				</div>
 				<SearchInputMenu
-					value={inputName}
+					value={inputUuid}
 					onChange={setInput}
 					invalid={inputErrors.length > 0}
 				/>
@@ -101,18 +104,18 @@ export function SearchInputMenu({
 	onChange,
 	invalid,
 }: {
-	readonly value: string | undefined;
-	readonly onChange: (name: string) => void;
+	readonly value: Uuid | undefined;
+	readonly onChange: (uuid: Uuid) => void;
 	readonly invalid: boolean;
 }) {
 	const ctx = usePredicateEditContext();
 	const triggerRef = useRef<HTMLButtonElement>(null);
 	const items = ctx.knownInputs;
-	const current = items.find((i) => i.name === value);
+	const current = items.find((i) => i.uuid === value);
 	const currentLabel =
 		current === undefined
 			? undefined
-			: searchInputDisplayLabel(current.name, ctx.knownInputs);
+			: searchInputDisplayLabel(current.uuid, ctx.knownInputs);
 	const triggerClass = [
 		"group min-h-11 w-full justify-between rounded-lg border bg-nova-deep/50 px-3 text-sm text-nova-text transition-colors",
 		invalid
@@ -171,11 +174,11 @@ export function SearchInputMenu({
 				>
 					<DropdownMenuPopup>
 						{items.map((it) => {
-							const isActive = it.name === value;
+							const isActive = it.uuid === value;
 							return (
 								<DropdownMenuItem
-									key={it.name}
-									onClick={() => onChange(it.name)}
+									key={it.uuid}
+									onClick={() => onChange(it.uuid)}
 									className={
 										isActive
 											? "bg-nova-violet/10 text-nova-violet-bright"
@@ -183,7 +186,7 @@ export function SearchInputMenu({
 									}
 								>
 									<span>
-										{searchInputDisplayLabel(it.name, ctx.knownInputs)}
+										{searchInputDisplayLabel(it.uuid, ctx.knownInputs)}
 									</span>
 									{it.data_type && (
 										<span className="text-xs text-nova-text-muted">

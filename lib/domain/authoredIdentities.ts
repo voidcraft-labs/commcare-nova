@@ -66,8 +66,8 @@ export function authoredBlueprintIdentities(
 	}
 	for (const field of Object.values(doc.fields)) {
 		identities.push({ uuid: field.uuid, kind: "field" });
-		if ("options" in field) {
-			for (const option of field.options ?? []) {
+		if ("optionsSource" in field && field.optionsSource.kind === "inline") {
+			for (const option of field.optionsSource.options) {
 				identities.push({
 					uuid: option.uuid,
 					kind: "selectOption",

@@ -14,8 +14,6 @@ export { asUuid } from "@/lib/domain";
 import { z } from "zod";
 import {
 	CONNECT_TYPES,
-	carrierBlindFieldPatchSchemaByKind,
-	carrierBlindFieldSchema,
 	caseListConfigSchema,
 	caseOperationSchema,
 	casePropertySchema,
@@ -23,41 +21,30 @@ import {
 	caseTargetSchema,
 	caseTileLayoutSchema,
 	caseTypeSchema,
+	type Column,
 	columnSchema,
 	columnSortSchema,
+	fieldPatchSchemaByKind,
 	fieldKinds,
+	fieldSchema,
 	formIconRefSchema,
 	formSchema,
-	lookupOptionsSourceSchema,
 	mediaAssetIdSchema,
 	mediaSchema,
 	moduleIconRefSchema,
 	moduleSchema,
 	personaSchema,
 	searchInputDefSchema,
+	type SearchInputDef,
 	selectOptionSchema,
+	selectOptionsSourceSchema,
 	tileCellSchema,
 	userPropertySchema,
 	userTypeSchema,
 	uuidSchema,
 } from "@/lib/domain";
-import {
-	carrierBlindPredicateSchema,
-	carrierBlindValueExpressionSchema,
-	type Predicate,
-	predicateSchema,
-	searchInputRefSchema,
-	type ValueExpression,
-} from "@/lib/domain/predicate";
+import { predicateSchema } from "@/lib/domain/predicate";
 import { deepEqual } from "./deepEqual";
-
-// Runtime-narrow, statically canonical projections. Mutation call sites keep
-// their long-standing Predicate / ValueExpression types; the wire parser and
-// generated grammar use the carrier-blind schema instances underneath.
-const rollingPredicateSchema =
-	carrierBlindPredicateSchema as unknown as z.ZodType<Predicate>;
-const rollingValueExpressionSchema =
-	carrierBlindValueExpressionSchema as unknown as z.ZodType<ValueExpression>;
 
 /**
  * The four field message slots a `Media` bundle attaches to. The
@@ -76,11 +63,9 @@ export const FIELD_MEDIA_SLOTS = [
 // ─── Mutation union ────────────────────────────────────────────────────
 //
 // Every way the doc store can change. Each reducer in `./mutations/*` is
-// an exhaustive switch over a subset of these kinds. One shared schema
-// factory produces the carrier-blind rolling/external `mutationSchema` and
-// the full-vocabulary `canonicalMutationSchema` used for durable replay.
-// The TypeScript `Mutation` type derives from the canonical projection, and
-// the rolling output is compile-time asserted assignable to it.
+// an exhaustive switch over a subset of these kinds. `mutationSchema` is the
+// one canonical envelope used by every editor, durable log, stream, diff,
+// undo, and replay boundary.
 //
 // The update-*/patch variants for modules and forms use
 // `.omit({ uuid: true }).partial()` on the underlying entity schema to
@@ -137,101 +122,6 @@ function clearablePartialPatch<
 		[K in Exclude<keyof S, "uuid">]: z.ZodOptional<z.ZodNullable<S[K]>>;
 	}>;
 }
-
-/**
- * Origin-compatible projections for every canonical domain subtree embedded
- * in an established mutation discriminator.
- *
- * Canonical BlueprintDoc schemas intentionally accept dormant lookup ASTs so
- * a current receiver can hydrate and replay them. Mutation fallbacks have a
- * different compatibility obligation: an open pre-S05 receiver must parse
- * them. Rebuild the affected recursive slots with the carrier-blind AST
- * family rather than applying a shallow refinement at `mutationSchema`.
- *
- * The `as typeof canonicalSchema` casts preserve the existing public
- * `Mutation` TypeScript API. Runtime schemas are strictly narrower, and their
- * generated JSON grammars expose only the narrower recursive family. This
- * mirrors the established rolling-field projection: compatibility is a wire
- * boundary without redefining the canonical persisted domain type.
- */
-const carrierBlindColumnSchema = z.discriminatedUnion(
-	"kind",
-	columnSchema.options.map((arm) => {
-		const kind = (arm.shape.kind as z.ZodLiteral).value;
-		return kind === "calculated"
-			? arm.extend({ expression: rollingValueExpressionSchema })
-			: arm;
-	}) as unknown as typeof columnSchema.options,
-) as unknown as typeof columnSchema;
-
-const carrierBlindSearchInputDefSchema = z.discriminatedUnion(
-	"kind",
-	searchInputDefSchema.options.map((arm) => {
-		const common = {
-			default: rollingValueExpressionSchema.optional(),
-		};
-		const kind = (arm.shape.kind as z.ZodLiteral).value;
-		return kind === "advanced"
-			? arm.extend({
-					...common,
-					predicate: rollingPredicateSchema,
-				})
-			: arm.extend(common);
-	}) as unknown as typeof searchInputDefSchema.options,
-) as unknown as typeof searchInputDefSchema;
-
-const carrierBlindCaseListConfigSchema = caseListConfigSchema.extend({
-	columns: z.array(carrierBlindColumnSchema),
-	filter: rollingPredicateSchema.optional(),
-	searchInputs: z.array(carrierBlindSearchInputDefSchema),
-});
-
-const carrierBlindCaseSearchConfigSchema = caseSearchConfigSchema.extend({
-	excludedOwnerIds: rollingValueExpressionSchema.optional(),
-	searchButtonDisplayCondition: rollingPredicateSchema.optional(),
-});
-
-const carrierBlindCaseTargetSchema = z.discriminatedUnion(
-	"kind",
-	caseTargetSchema.options.map((arm) => {
-		const kind = (arm.shape.kind as z.ZodLiteral).value;
-		return kind === "expression"
-			? arm.extend({ expr: rollingValueExpressionSchema })
-			: arm;
-	}) as unknown as typeof caseTargetSchema.options,
-) as unknown as typeof caseTargetSchema;
-
-const carrierBlindCaseOperationWriteSchema = caseOperationSchema.shape.writes
-	.unwrap()
-	.element.extend({
-		value: rollingValueExpressionSchema,
-		condition: rollingPredicateSchema.optional(),
-	});
-const carrierBlindCaseOperationLinkSchema = caseOperationSchema.shape.links
-	.unwrap()
-	.element.extend({
-		target: carrierBlindCaseTargetSchema.nullable(),
-	});
-const carrierBlindCaseOperationSchema = caseOperationSchema.extend({
-	target: carrierBlindCaseTargetSchema,
-	condition: rollingPredicateSchema.optional(),
-	name: rollingValueExpressionSchema.optional(),
-	owner: rollingValueExpressionSchema.optional(),
-	rename: rollingValueExpressionSchema.optional(),
-	writes: z.array(carrierBlindCaseOperationWriteSchema).optional(),
-	links: z.array(carrierBlindCaseOperationLinkSchema).optional(),
-}) as unknown as typeof caseOperationSchema;
-
-const carrierBlindModuleSchema = moduleSchema.extend({
-	displayCondition: rollingPredicateSchema.optional(),
-	caseListConfig: carrierBlindCaseListConfigSchema.optional(),
-	caseSearchConfig: carrierBlindCaseSearchConfigSchema.optional(),
-}) as unknown as typeof moduleSchema;
-
-const carrierBlindFormSchema = formSchema.extend({
-	displayCondition: rollingPredicateSchema.optional(),
-	caseOperations: z.array(carrierBlindCaseOperationSchema).optional(),
-}) as unknown as typeof formSchema;
 
 function caseOperationChangeSchemaFor(
 	operationValueSchema: typeof caseOperationSchema,
@@ -401,27 +291,7 @@ function caseSearchConfigPatchSchemaFor(
 		.strict();
 }
 
-const carrierBlindModuleUpdatePatchSchema = clearablePartialPatch(
-	carrierBlindModuleSchema,
-);
-const carrierBlindFormUpdatePatchSchema = clearablePartialPatch(
-	carrierBlindFormSchema,
-).omit({
-	caseOperations: true,
-});
-const carrierBlindCaseOperationChangeSchema = caseOperationChangeSchemaFor(
-	carrierBlindCaseOperationSchema,
-);
-const carrierBlindCaseOperationPatchSchema = caseOperationPatchSchemaFor(
-	carrierBlindCaseOperationSchema,
-);
-const carrierBlindCaseSearchConfigPatchSchema = caseSearchConfigPatchSchemaFor(
-	carrierBlindCaseSearchConfigSchema,
-);
-
-// User properties, user types, and personas hold no Predicate or
-// ValueExpression, so their patches are identical under both envelopes —
-// there is no carrier-blind projection to build. Every clearable slot is
+// Every clearable slot is
 // null-as-delete-safe: an absent `order` sorts last by uuid, an absent
 // `required` is not required, an absent `choices` is free text, an absent
 // `description` is none, an absent `userTypeUuid` is no role, and an
@@ -432,6 +302,12 @@ const carrierBlindCaseSearchConfigPatchSchema = caseSearchConfigPatchSchemaFor(
 const userPropertyUpdatePatchSchema = clearablePartialPatch(userPropertySchema);
 const userTypeUpdatePatchSchema = clearablePartialPatch(userTypeSchema);
 const personaUpdatePatchSchema = clearablePartialPatch(personaSchema);
+const userTypeEntityUpdatePatchSchema = userTypeUpdatePatchSchema.omit({
+	values: true,
+});
+const personaEntityUpdatePatchSchema = personaUpdatePatchSchema.omit({
+	values: true,
+});
 const userDataValuePatchSchema = z
 	.object({
 		userPropertyUuid: uuidSchema,
@@ -451,6 +327,37 @@ const canonicalCaseOperationPatchSchema =
 const canonicalCaseSearchConfigPatchSchema = caseSearchConfigPatchSchemaFor(
 	caseSearchConfigSchema,
 );
+
+type WithoutColumnFacets<T> = T extends Column
+	? Omit<T, "uuid" | "sort" | "tile" | "visibleInList" | "visibleInDetail">
+	: never;
+type ColumnContent = WithoutColumnFacets<Column>;
+
+const columnContentSchema = z.discriminatedUnion(
+	"kind",
+	columnSchema.options.map((arm) =>
+		(arm as z.ZodObject<z.ZodRawShape>).omit({
+			uuid: true,
+			sort: true,
+			tile: true,
+			visibleInList: true,
+			visibleInDetail: true,
+		}),
+	) as unknown as [z.ZodObject<z.ZodRawShape>, ...z.ZodObject<z.ZodRawShape>[]],
+) as unknown as z.ZodType<ColumnContent>;
+
+type SearchInputContent = SearchInputDef extends infer T
+	? T extends SearchInputDef
+		? Omit<T, "uuid">
+		: never
+	: never;
+
+const searchInputContentSchema = z.discriminatedUnion(
+	"kind",
+	searchInputDefSchema.options.map((arm) =>
+		(arm as z.ZodObject<z.ZodRawShape>).omit({ uuid: true }),
+	) as unknown as [z.ZodObject<z.ZodRawShape>, ...z.ZodObject<z.ZodRawShape>[]],
+) as unknown as z.ZodType<SearchInputContent>;
 
 /**
  * Per-`targetKind` arms for the `updateField` mutation. Each arm
@@ -473,10 +380,7 @@ type UpdateFieldArm = {
 		kind: z.ZodLiteral<"updateField">;
 		uuid: typeof uuidSchema;
 		targetKind: z.ZodLiteral<K>;
-		patch: z.ZodDefault<(typeof carrierBlindFieldPatchSchemaByKind)[K]>;
-		optionsSource: z.ZodOptional<
-			z.ZodNullable<typeof lookupOptionsSourceSchema>
-		>;
+		patch: z.ZodDefault<(typeof fieldPatchSchemaByKind)[K]>;
 	}>;
 }[(typeof fieldKinds)[number]];
 
@@ -506,28 +410,14 @@ const updateFieldArms = fieldKinds.map(
 				// union of every kind's patch schema, which isn't directly
 				// `.default()`-callable; the outer `as UpdateFieldArm` restores the
 				// precise per-kind type.
-				patch: (
-					carrierBlindFieldPatchSchemaByKind[targetKind] as z.ZodTypeAny
-				).default(() => ({})),
-				optionsSource: lookupOptionsSourceSchema.nullable().optional(),
+				patch: (fieldPatchSchemaByKind[targetKind] as z.ZodTypeAny).default(
+					() => ({}),
+				),
 			})
-			.superRefine((mutation, ctx) => {
-				if (
-					mutation.optionsSource !== undefined &&
-					targetKind !== "single_select" &&
-					targetKind !== "multi_select"
-				) {
-					ctx.addIssue({
-						code: "custom",
-						path: ["optionsSource"],
-						message:
-							"Only single-select and multi-select fields can use lookup-backed options.",
-					});
-				}
-			}) as unknown as UpdateFieldArm,
+			.strict() as unknown as UpdateFieldArm,
 ) as [UpdateFieldArm, ...UpdateFieldArm[]];
 
-const canonicalMutationFamily = {
+const finalMutationFamily = {
 	module: moduleSchema,
 	moduleUpdatePatch: canonicalModuleUpdatePatchSchema,
 	caseSearchConfig: caseSearchConfigSchema,
@@ -541,61 +431,7 @@ const canonicalMutationFamily = {
 	predicate: predicateSchema,
 } as const;
 
-type MutationSchemaFamily = typeof canonicalMutationFamily;
-
-const carrierBlindMutationFamily = {
-	module: carrierBlindModuleSchema,
-	moduleUpdatePatch: carrierBlindModuleUpdatePatchSchema,
-	caseSearchConfig: carrierBlindCaseSearchConfigSchema,
-	caseSearchConfigPatch: carrierBlindCaseSearchConfigPatchSchema,
-	form: carrierBlindFormSchema,
-	formUpdatePatch: carrierBlindFormUpdatePatchSchema,
-	caseOperationChange: carrierBlindCaseOperationChangeSchema,
-	caseOperationPatch: carrierBlindCaseOperationPatchSchema,
-	column: carrierBlindColumnSchema,
-	searchInput: carrierBlindSearchInputDefSchema,
-	predicate: rollingPredicateSchema,
-} as const satisfies MutationSchemaFamily;
-
-function reportMisplacedOptionsSource(
-	value: unknown,
-	ctx: z.RefinementCtx,
-): void {
-	const rootKind =
-		typeof value === "object" &&
-		value !== null &&
-		!Array.isArray(value) &&
-		"kind" in value
-			? value.kind
-			: undefined;
-	const rootAllowsOptionsSource =
-		rootKind === "addField" || rootKind === "updateField";
-	const visited = new WeakSet<object>();
-
-	function visit(node: unknown, path: PropertyKey[]): void {
-		if (typeof node !== "object" || node === null) return;
-		if (visited.has(node)) return;
-		visited.add(node);
-
-		for (const [key, child] of Object.entries(node)) {
-			const childPath = [...path, key];
-			if (
-				key === "optionsSource" &&
-				!(path.length === 0 && rootAllowsOptionsSource)
-			) {
-				ctx.addIssue({
-					code: "custom",
-					path: childPath,
-					message:
-						"Lookup optionsSource is reserved for the top level of addField and updateField mutations.",
-				});
-			}
-			visit(child, childPath);
-		}
-	}
-
-	visit(value, []);
-}
+type MutationSchemaFamily = typeof finalMutationFamily;
 
 /**
  * Reports a case-operation update that also tries to set the operation's
@@ -659,286 +495,12 @@ function prevalidateRawMutationInput<Schema extends z.ZodType>(
 ): z.ZodType<z.output<Schema>, z.input<Schema>> {
 	const guarded = z.preprocess<z.input<Schema>, Schema, z.input<Schema>>(
 		(value, ctx) => {
-			reportMisplacedOptionsSource(value, ctx);
 			reportImmutableCaseOperationIdentity(value, ctx);
 			return value;
 		},
 		schema,
 	);
 	return guarded as z.ZodType<z.output<Schema>, z.input<Schema>>;
-}
-
-/**
- * Per-column tile placement carried on a wholesale module write.
- *
- * A tile cell is a current-only column slot, so it cannot ride inside
- * the nested module/config fallback that an origin/main strict schema
- * has to parse — exactly the constraint `columnSurfaceOrders` solves
- * for the two surface order keys. This array is the same shape of
- * answer: the fallback body carries cell-free columns an old reducer
- * applies unchanged, and a current reducer replays the cells on top.
- */
-const columnTileCellsSchema = z
-	.array(z.object({ uuid: uuidSchema, tile: tileCellSchema }).strict())
-	.optional();
-
-/**
- * Reports a nested fallback column that smuggled a current-only tile
- * cell. Shared by `addModule` and `updateModule`, whose fallback
- * bodies sit at different paths.
- */
-function reportSmuggledTileCells(
-	columns: readonly { readonly tile?: unknown }[],
-	basePath: readonly (string | number)[],
-	ctx: z.RefinementCtx,
-): void {
-	for (const [index, column] of columns.entries()) {
-		if (column.tile === undefined) continue;
-		ctx.addIssue({
-			code: "custom",
-			path: [...basePath, index, "tile"],
-			message:
-				"A tile cell must travel in the mutation's columnTileCells extension so the strict pre-deploy column schema can parse the fallback.",
-		});
-	}
-}
-
-/**
- * Reports tile-cell hydration entries that do not name exactly one
- * distinct column present in the mutation's own fallback body — the
- * same integrity rule `columnSurfaceOrders` carries, so a replayed
- * extension can never invent or double-write a column.
- */
-function reportUnmatchedTileCellEntries(
-	entries: readonly { readonly uuid: string }[],
-	fallbackColumnUuids: ReadonlySet<string>,
-	ctx: z.RefinementCtx,
-): void {
-	const seen = new Set<string>();
-	for (const [index, entry] of entries.entries()) {
-		if (!fallbackColumnUuids.has(entry.uuid) || seen.has(entry.uuid)) {
-			ctx.addIssue({
-				code: "custom",
-				path: ["columnTileCells", index, "uuid"],
-				message:
-					"Each tile-cell entry must name one unique column in the mutation's fallback columns.",
-			});
-		}
-		seen.add(entry.uuid);
-	}
-}
-
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-	return typeof value === "object" && value !== null && !Array.isArray(value)
-		? (value as Record<string, unknown>)
-		: undefined;
-}
-
-function recordsIn(value: unknown): Record<string, unknown>[] {
-	return Array.isArray(value)
-		? value
-				.map(asRecord)
-				.filter(
-					(entry): entry is Record<string, unknown> => entry !== undefined,
-				)
-		: [];
-}
-
-/**
- * Bind the current granular intent to the established full-operation fallback.
- *
- * A rolling parser from the immediate parent strips `caseOperationPatch` and
- * applies `caseOperationChange.value`; a current parser applies only the
- * granular extension. The two views must therefore name one identity and
- * agree on the slot the extension edits. This is schema-level integrity, not
- * reducer trust: malformed durable events cannot fork old and current replay.
- */
-function reportCaseOperationPatchIntegrity(
-	fallbackValue: unknown,
-	semanticValue: unknown,
-	ctx: z.RefinementCtx,
-): void {
-	if (semanticValue === undefined) return;
-	const semantic = asRecord(semanticValue);
-	const fallback = asRecord(fallbackValue);
-	const issue = (path: readonly (string | number)[], message: string): void => {
-		ctx.addIssue({ code: "custom", path: [...path], message });
-	};
-	// A move is the one pairing whose fallback is also a `move`: both views name
-	// the operation and the uuid it now follows, and both slots are required, so
-	// agreement is exact identity on the pair. Comparing anything less would let
-	// through an event whose two views disagree about where the move landed,
-	// which replays to two different documents.
-	if (
-		semantic?.operation === "move" &&
-		fallback?.operation === "move" &&
-		typeof semantic.uuid === "string" &&
-		fallback.uuid === semantic.uuid &&
-		(typeof semantic.after === "string" || semantic.after === null) &&
-		fallback.after === semantic.after
-	) {
-		return;
-	}
-	if (
-		semantic === undefined ||
-		fallback === undefined ||
-		fallback.operation !== "update"
-	) {
-		issue(
-			["caseOperationChange"],
-			"A granular case-operation edit requires the established full-operation update fallback.",
-		);
-		return;
-	}
-
-	const desired = asRecord(fallback.value);
-	const uuid = semantic.uuid;
-	if (
-		typeof uuid !== "string" ||
-		fallback.uuid !== uuid ||
-		desired?.uuid !== uuid
-	) {
-		issue(
-			["caseOperationChange", "value", "uuid"],
-			"The case-operation fallback and granular edit must preserve one UUID identity.",
-		);
-		return;
-	}
-
-	const mismatch = (
-		path: readonly (string | number)[],
-		message = "The case-operation fallback must agree with the granular edit.",
-	): void => issue(path, message);
-	// A patch `null` means one of two different things depending on the
-	// slot it addresses, and the fallback spells each differently:
-	//
-	//   - a CLEARABLE OPTIONAL slot (a scalar facet, an order key) —
-	//     `null` deletes it, so the fallback simply omits the key and
-	//     reads back `undefined`;
-	//   - a REQUIRED NULLABLE slot — a link's `target` is the one today
-	//     — where `null` is the assigned value meaning "no target", so
-	//     the fallback carries a literal `null`.
-	//
-	// Normalizing to `undefined` alone made the second case disagree
-	// with itself: clearing a connection's target emitted a granular
-	// `update-link` whose own fallback it then rejected, so
-	// `mutationSchema` refused the mutation and the write 400'd rather
-	// than persisting. Accepting either spelling keeps the clear case
-	// exact while letting an assigned `null` match.
-	const matchesPatch = (
-		target: Record<string, unknown>,
-		patch: Record<string, unknown>,
-	): boolean =>
-		Object.entries(patch).every(([key, value]) => {
-			if (value === null) {
-				return target[key] === undefined || target[key] === null;
-			}
-			return deepEqual(target[key], value);
-		});
-
-	switch (semantic.operation) {
-		case "update": {
-			const patch = asRecord(semantic.patch);
-			if (
-				desired === undefined ||
-				patch === undefined ||
-				!matchesPatch(desired, patch)
-			) {
-				mismatch(["caseOperationPatch", "patch"]);
-			}
-			return;
-		}
-		case "add-write": {
-			const writes = recordsIn(desired?.writes);
-			const expected = asRecord(semantic.value);
-			const matches = writes
-				.map((write, index) => ({ write, index }))
-				.filter(({ write }) => write.property === expected?.property);
-			if (
-				expected === undefined ||
-				matches.length !== 1 ||
-				!deepEqual(matches[0]?.write, expected) ||
-				(typeof semantic.index === "number" &&
-					matches[0]?.index !== semantic.index)
-			) {
-				mismatch(["caseOperationPatch", "value"]);
-			}
-			return;
-		}
-		case "update-write": {
-			const matches = recordsIn(desired?.writes).filter(
-				(write) => write.property === semantic.property,
-			);
-			const patch = asRecord(semantic.patch);
-			if (
-				matches.length !== 1 ||
-				patch === undefined ||
-				!matchesPatch(matches[0] ?? {}, patch)
-			) {
-				mismatch(["caseOperationPatch", "patch"]);
-			}
-			return;
-		}
-		case "remove-write": {
-			if (
-				recordsIn(desired?.writes).some(
-					(write) => write.property === semantic.property,
-				)
-			) {
-				mismatch(["caseOperationPatch", "property"]);
-			}
-			return;
-		}
-		case "add-link": {
-			const links = recordsIn(desired?.links);
-			const expected = asRecord(semantic.value);
-			const matches = links
-				.map((link, index) => ({ link, index }))
-				.filter(({ link }) => link.identifier === expected?.identifier);
-			if (
-				expected === undefined ||
-				matches.length !== 1 ||
-				!deepEqual(matches[0]?.link, expected) ||
-				(typeof semantic.index === "number" &&
-					matches[0]?.index !== semantic.index)
-			) {
-				mismatch(["caseOperationPatch", "value"]);
-			}
-			return;
-		}
-		case "update-link": {
-			const matches = recordsIn(desired?.links).filter(
-				(link) => link.identifier === semantic.identifier,
-			);
-			const patch = asRecord(semantic.patch);
-			if (
-				matches.length !== 1 ||
-				patch === undefined ||
-				!matchesPatch(matches[0] ?? {}, patch)
-			) {
-				mismatch(["caseOperationPatch", "patch"]);
-			}
-			return;
-		}
-		case "remove-link": {
-			if (
-				recordsIn(desired?.links).some(
-					(link) => link.identifier === semantic.identifier,
-				)
-			) {
-				mismatch(["caseOperationPatch", "identifier"]);
-			}
-			return;
-		}
-		case "move":
-			// Unreachable for a WELL-FORMED move: that pairing agrees on uuid
-			// and anchor and returned above. Getting here means a `move` intent
-			// arrived beside a full-operation `update` fallback — two views that
-			// replay to different documents, which is exactly what this
-			// function exists to reject.
-			mismatch(["caseOperationPatch", "operation"]);
-			return;
-	}
 }
 
 function createMutationSchema({
@@ -956,100 +518,14 @@ function createMutationSchema({
 }: MutationSchemaFamily) {
 	const schema = z.discriminatedUnion("kind", [
 		// Module
-		z
-			.object({
-				kind: z.literal("addModule"),
-				// The nested module is the origin/main reducer fallback. New strict
-				// nested slots travel in top-level extensions so old PUT handlers can
-				// parse this established discriminator and safely degrade.
-				module: mutationModuleSchema,
-				/** The module this one now follows, or `null` for first. Absent
-				 *  appends — the common case, and distinct from `null` so "add at
-				 *  the top" stays expressible across the JSON wire. */
-				after: uuidSchema.nullable().optional(),
-				// Per-column tile placement and the case list's tile layout are both
-				// current-only slots on a strict nested schema, so they travel here and
-				// the fallback module stays tile-free. An old reducer applies a
-				// row-layout case list; the current reducer replays the tile on top.
-				columnTileCells: columnTileCellsSchema,
-				caseListTile: caseTileLayoutSchema.optional(),
-				// Desired owner-only Search state contains Nova's private false bit.
-				// The old-shape module carries a match-none projection instead.
-				caseSearchConfigValue: mutationCaseSearchConfigSchema.optional(),
-				// Belongs only to updateModule; reject accidental cross-arm placement.
-				caseSearchConfigPatch: z.never().optional(),
-			})
-			.superRefine((mutation, ctx) => {
-				const columns = mutation.module.caseListConfig?.columns ?? [];
-				reportSmuggledTileCells(
-					columns,
-					["module", "caseListConfig", "columns"],
-					ctx,
-				);
-				if (mutation.module.caseListConfig?.tile !== undefined) {
-					ctx.addIssue({
-						code: "custom",
-						path: ["module", "caseListConfig", "tile"],
-						message:
-							"A tile layout must travel in addModule.caseListTile so the strict pre-deploy module schema can parse the fallback.",
-					});
-				}
-				reportUnmatchedTileCellEntries(
-					mutation.columnTileCells ?? [],
-					new Set(columns.map((column) => column.uuid)),
-					ctx,
-				);
-
-				const desiredSearch = mutation.caseSearchConfigValue;
-				const fallbackSearch = mutation.module.caseSearchConfig;
-				if (desiredSearch !== undefined) {
-					if (
-						desiredSearch.searchActionEnabled !== false ||
-						desiredSearch.excludedOwnerIds === undefined
-					) {
-						ctx.addIssue({
-							code: "custom",
-							path: ["caseSearchConfigValue"],
-							message:
-								"Only disabled assigned-case availability needs the addModule compatibility extension.",
-						});
-					}
-					if (
-						fallbackSearch?.searchActionEnabled === false ||
-						fallbackSearch?.searchButtonDisplayCondition?.kind !== "match-none"
-					) {
-						ctx.addIssue({
-							code: "custom",
-							path: ["module", "caseSearchConfig"],
-							message:
-								"Owner-only addModule must carry an origin-compatible match-none Search fallback.",
-						});
-					}
-					const { searchActionEnabled: _intent, ...originSearch } =
-						desiredSearch;
-					const expectedFallback = {
-						...originSearch,
-						searchButtonDisplayCondition: { kind: "match-none" as const },
-					};
-					if (
-						JSON.stringify(fallbackSearch) !== JSON.stringify(expectedFallback)
-					) {
-						ctx.addIssue({
-							code: "custom",
-							path: ["module", "caseSearchConfig"],
-							message:
-								"The owner-only module fallback must agree with every retained Search setting.",
-						});
-					}
-				} else if (fallbackSearch?.searchActionEnabled === false) {
-					ctx.addIssue({
-						code: "custom",
-						path: ["module", "caseSearchConfig", "searchActionEnabled"],
-						message:
-							"Nova's private Search intent must use addModule.caseSearchConfigValue outside the strict pre-deploy module fallback.",
-					});
-				}
-			}),
+		z.object({
+			kind: z.literal("addModule"),
+			module: mutationModuleSchema,
+			/** The module this one now follows, or `null` for first. Absent
+			 *  appends — the common case, and distinct from `null` so "add at
+			 *  the top" stays expressible across the JSON wire. */
+			after: uuidSchema.nullable().optional(),
+		}),
 		z.object({ kind: z.literal("removeModule"), uuid: uuidSchema }),
 		// A move carries an ANCHOR — the module it now follows — not a position.
 		// A position is computed against the sequence its author could see, so
@@ -1075,26 +551,8 @@ function createMutationSchema({
 			.object({
 				kind: z.literal("updateModule"),
 				uuid: uuidSchema,
-				// A clear carries an explicit `null` (the clearable slots are
-				// nullable — see `clearablePartialPatch`), so a clear-only edit is a
-				// NON-empty patch that round-trips intact. The `{}` default exists for
-				// a genuinely-empty patch: a degenerate no-property update, or a legacy
-				// event written before clears carried `null` (then a clear lowered to
-				// an all-`undefined` patch that `ignoreUndefinedProperties` stripped to
-				// an empty, document-omitted map). See `updateFieldArms`.
 				patch: mutationModuleUpdatePatchSchema.default(() => ({})),
-				// Semantic absent -> present transition. This deliberately extends the
-				// pre-deploy `updateModule` arm instead of adding a discriminator: an old
-				// parser strips this flag and applies the empty fallback snapshot, while
-				// the new reducer ensures the container without replacing peer contents.
 				ensureCaseListConfig: z.literal(true).optional(),
-				// A full case-list replacement carries old-shape nested columns in the
-				// patch and reconstructs current-only surface keys from this top-level
-				// extension. Origin/main strips the extension and accepts the fallback.
-				// Search presence and final-input cleanup are likewise semantic edits on
-				// the origin/main-known `updateModule` discriminator. The patch retains
-				// the locally projected `caseSearchConfig` as an old-reducer fallback;
-				// new reducers interpret this operation against fresh peer state instead.
 				caseSearchConfigOperation: z
 					.enum([
 						"enable",
@@ -1104,91 +562,42 @@ function createMutationSchema({
 						"set-owner-only",
 					])
 					.optional(),
-				// Desired owner-only state contains Nova's private false bit, which an
-				// origin/main strict nested schema cannot parse. Keeping it in a new
-				// top-level slot means an old parser strips it whole and consumes only
-				// the old-compatible match-none fallback in `patch`.
 				caseSearchConfigValue: mutationCaseSearchConfigSchema.optional(),
-				// Per-setting enabled-Search edits merge into the fresh bag. The nested
-				// patch remains a full origin-compatible snapshot for old reducers.
 				caseSearchConfigPatch: mutationCaseSearchConfigPatchSchema.optional(),
-				// Tile placement + layout on a wholesale case-list replacement. Same
-				// contract as `columnSurfaceOrders`: the nested patch is the tile-free
-				// old-reducer fallback and these rebuild the current-only slots.
-				columnTileCells: columnTileCellsSchema,
-				caseListTile: caseTileLayoutSchema.optional(),
 			})
 			.superRefine((mutation, ctx) => {
-				const caseListFallback = mutation.patch.caseListConfig;
-				const fallbackColumns =
-					caseListFallback === null || caseListFallback === undefined
-						? []
-						: caseListFallback.columns;
-				reportSmuggledTileCells(
-					fallbackColumns,
-					["patch", "caseListConfig", "columns"],
-					ctx,
-				);
 				if (
-					caseListFallback !== null &&
-					caseListFallback !== undefined &&
-					caseListFallback.tile !== undefined
+					mutation.ensureCaseListConfig &&
+					Object.hasOwn(mutation.patch, "caseListConfig")
 				) {
 					ctx.addIssue({
 						code: "custom",
-						path: ["patch", "caseListConfig", "tile"],
+						path: ["patch", "caseListConfig"],
 						message:
-							"A tile layout must travel in updateModule.caseListTile so the strict pre-deploy nested schema can parse the fallback.",
+							"A case-list ensure is its complete payload and cannot carry a duplicate config snapshot.",
 					});
 				}
-				reportUnmatchedTileCellEntries(
-					mutation.columnTileCells ?? [],
-					new Set(fallbackColumns.map((column) => column.uuid)),
-					ctx,
-				);
-				if (mutation.ensureCaseListConfig) {
-					const fallback = mutation.patch.caseListConfig;
-					const hasOnlyRequiredEmptySlots =
-						fallback !== null &&
-						fallback !== undefined &&
-						fallback.columns.length === 0 &&
-						fallback.searchInputs.length === 0 &&
-						fallback.listColumnOrder.length === 0 &&
-						fallback.detailColumnOrder.length === 0 &&
-						Object.keys(fallback).every(
-							(key) =>
-								key === "columns" ||
-								key === "searchInputs" ||
-								key === "listColumnOrder" ||
-								key === "detailColumnOrder",
-						);
-					if (!hasOnlyRequiredEmptySlots) {
-						ctx.addIssue({
-							code: "custom",
-							path: ["patch", "caseListConfig"],
-							message:
-								"A semantic case-list ensure must carry the required empty config as its pre-deploy fallback.",
-						});
-					}
-				}
-
 				const operation = mutation.caseSearchConfigOperation;
-				const patchSearch = mutation.patch.caseSearchConfig;
 				const semanticPatch = mutation.caseSearchConfigPatch;
+				const ownsCaseSearchPayload =
+					operation !== undefined || semanticPatch !== undefined;
+				if (
+					ownsCaseSearchPayload &&
+					Object.hasOwn(mutation.patch, "caseSearchConfig")
+				) {
+					ctx.addIssue({
+						code: "custom",
+						path: ["patch", "caseSearchConfig"],
+						message:
+							"A Search semantic edit is its complete payload and cannot carry a duplicate whole-config patch.",
+					});
+				}
 				if (semanticPatch !== undefined) {
 					if (Object.keys(semanticPatch).length === 0) {
 						ctx.addIssue({
 							code: "custom",
 							path: ["caseSearchConfigPatch"],
 							message: "A semantic Search settings patch cannot be empty.",
-						});
-					}
-					if (!Object.hasOwn(mutation.patch, "caseSearchConfig")) {
-						ctx.addIssue({
-							code: "custom",
-							path: ["patch", "caseSearchConfig"],
-							message:
-								"A semantic Search settings patch needs an origin-compatible fallback.",
 						});
 					}
 					if (
@@ -1202,31 +611,6 @@ function createMutationSchema({
 								"A per-setting Search patch cannot be combined with another Search semantic operation.",
 						});
 					}
-					for (const [slot, semanticValue] of Object.entries(semanticPatch)) {
-						const fallbackValue =
-							patchSearch === null || patchSearch === undefined
-								? undefined
-								: (patchSearch as unknown as Record<string, unknown>)[slot];
-						const desiredValue = semanticValue ?? undefined;
-						if (
-							JSON.stringify(fallbackValue) !== JSON.stringify(desiredValue)
-						) {
-							ctx.addIssue({
-								code: "custom",
-								path: ["caseSearchConfigPatch", slot],
-								message:
-									"Each Search settings patch slot must agree with its origin-compatible fallback.",
-							});
-						}
-					}
-				}
-				if (patchSearch?.searchActionEnabled === false) {
-					ctx.addIssue({
-						code: "custom",
-						path: ["patch", "caseSearchConfig", "searchActionEnabled"],
-						message:
-							"The pre-deploy Search fallback cannot contain Nova's private searchActionEnabled slot.",
-					});
 				}
 				if (operation === undefined) {
 					if (mutation.caseSearchConfigValue !== undefined) {
@@ -1239,39 +623,6 @@ function createMutationSchema({
 					}
 					return;
 				}
-				if (!Object.hasOwn(mutation.patch, "caseSearchConfig")) {
-					ctx.addIssue({
-						code: "custom",
-						path: ["patch", "caseSearchConfig"],
-						message:
-							"A semantic Search operation must carry a caseSearchConfig fallback for pre-deploy receivers.",
-					});
-					return;
-				}
-				const fallback = mutation.patch.caseSearchConfig;
-				if (
-					operation === "enable" &&
-					(fallback == null || fallback.searchActionEnabled === false)
-				) {
-					ctx.addIssue({
-						code: "custom",
-						path: ["patch", "caseSearchConfig"],
-						message:
-							"A semantic Search enable must carry an enabled config snapshot as its pre-deploy fallback.",
-					});
-				}
-				if (
-					(operation === "disable-if-unused" ||
-						operation === "remove-if-no-authored-settings") &&
-					fallback !== null
-				) {
-					ctx.addIssue({
-						code: "custom",
-						path: ["patch", "caseSearchConfig"],
-						message:
-							"A conditional Search removal must carry null as its pre-deploy fallback.",
-					});
-				}
 				if (operation === "set-owner-only") {
 					if (
 						mutation.caseSearchConfigValue?.searchActionEnabled !== false ||
@@ -1281,34 +632,7 @@ function createMutationSchema({
 							code: "custom",
 							path: ["caseSearchConfigValue"],
 							message:
-								"An owner-only Search operation must carry the desired disabled assigned-case config outside the legacy patch.",
-						});
-					}
-					if (mutation.caseSearchConfigValue !== undefined) {
-						const { searchActionEnabled: _intent, ...originSearch } =
-							mutation.caseSearchConfigValue;
-						const expectedFallback = {
-							...originSearch,
-							searchButtonDisplayCondition: { kind: "match-none" as const },
-						};
-						if (JSON.stringify(fallback) !== JSON.stringify(expectedFallback)) {
-							ctx.addIssue({
-								code: "custom",
-								path: ["patch", "caseSearchConfig"],
-								message:
-									"The owner-only fallback must agree with every retained Search setting.",
-							});
-						}
-					}
-					if (
-						fallback == null ||
-						fallback.searchButtonDisplayCondition?.kind !== "match-none"
-					) {
-						ctx.addIssue({
-							code: "custom",
-							path: ["patch", "caseSearchConfig"],
-							message:
-								"An owner-only Search operation must carry an origin-compatible match-none fallback.",
+								"An owner-only Search operation must carry the desired disabled assigned-case config.",
 						});
 					}
 				} else if (mutation.caseSearchConfigValue !== undefined) {
@@ -1350,57 +674,33 @@ function createMutationSchema({
 			.object({
 				kind: z.literal("updateForm"),
 				uuid: uuidSchema,
-				// A clear carries an explicit `null` (the clearable slots are
-				// nullable — see `clearablePartialPatch`), so a clear-only edit is a
-				// NON-empty patch that round-trips intact. The `{}` default exists for
-				// a genuinely-empty patch: a degenerate no-property update, or a legacy
-				// event written before clears carried `null` (then a clear lowered to
-				// an all-`undefined` patch that `ignoreUndefinedProperties` stripped to
-				// an empty, document-omitted map). See `updateFieldArms`.
 				patch: mutationFormUpdatePatchSchema.default(() => ({})),
-				// Exact immediate-parent grammar. For a granular edit, `update.value`
-				// is the full-operation fallback an older reducer safely applies.
 				caseOperationChange: mutationCaseOperationChangeSchema.optional(),
-				// Current-only granular intent. Immediate-parent strict object parsers
-				// strip this top-level key and consume the fallback above.
 				caseOperationPatch: mutationCaseOperationPatchSchema.optional(),
 			})
 			.superRefine((mutation, ctx) => {
-				reportCaseOperationPatchIntegrity(
-					mutation.caseOperationChange,
-					mutation.caseOperationPatch,
-					ctx,
-				);
-			}),
-		// Field
-		z
-			.object({
-				kind: z.literal("addField"),
-				parentUuid: uuidSchema,
-				// The nested field is the pre-S05 receiver fallback and therefore
-				// remains strict and carrier-blind. Current source intent travels in
-				// the optional top-level extension below.
-				field: carrierBlindFieldSchema,
-				/** The sibling this field follows under `parentUuid`, or `null` for
-				 *  first. Absent appends — the common case, and distinct from `null`
-				 *  so "add at the top" stays expressible. */
-				after: uuidSchema.nullable().optional(),
-				optionsSource: lookupOptionsSourceSchema.optional(),
-			})
-			.superRefine((mutation, ctx) => {
 				if (
-					mutation.optionsSource !== undefined &&
-					mutation.field.kind !== "single_select" &&
-					mutation.field.kind !== "multi_select"
+					mutation.caseOperationChange !== undefined &&
+					mutation.caseOperationPatch !== undefined
 				) {
 					ctx.addIssue({
 						code: "custom",
-						path: ["optionsSource"],
+						path: ["caseOperationPatch"],
 						message:
-							"Only single-select and multi-select fields can use lookup-backed options.",
+							"A case-operation edit carries exactly one final change or patch payload.",
 					});
 				}
 			}),
+		// Field
+		z.object({
+			kind: z.literal("addField"),
+			parentUuid: uuidSchema,
+			field: fieldSchema,
+			/** The sibling this field follows under `parentUuid`, or `null` for
+			 *  first. Absent appends — the common case, and distinct from `null`
+			 *  so "add at the top" stays expressible. */
+			after: uuidSchema.nullable().optional(),
+		}),
 		z.object({ kind: z.literal("removeField"), uuid: uuidSchema }),
 		// A same-parent reorder splices the field to a new position in its
 		// parent's membership array; a cross-parent move splices it into the
@@ -1436,7 +736,7 @@ function createMutationSchema({
 			// order) at the batch-building layer so the reducer stays
 			// deterministic for replay and peers. Ignored when the target kind
 			// has no options slot.
-			options: z.array(selectOptionSchema).optional(),
+			optionsSource: selectOptionsSourceSchema.optional(),
 		}),
 		// App-level
 		z.object({ kind: z.literal("setAppName"), name: z.string() }),
@@ -1527,12 +827,7 @@ function createMutationSchema({
 		z.object({
 			kind: z.literal("updateUserType"),
 			uuid: uuidSchema,
-			patch: userTypeUpdatePatchSchema.default(() => ({})),
-			/**
-			 * Current receivers apply this one semantic key and ignore the
-			 * whole-bag `patch.values` fallback. Older receivers strip this
-			 * extension and apply that cumulative fallback instead.
-			 */
+			patch: userTypeEntityUpdatePatchSchema.default(() => ({})),
 			valuePatch: userDataValuePatchSchema.optional(),
 		}),
 		z.object({ kind: z.literal("removeUserType"), uuid: uuidSchema }),
@@ -1544,7 +839,7 @@ function createMutationSchema({
 		z.object({
 			kind: z.literal("updatePersona"),
 			uuid: uuidSchema,
-			patch: personaUpdatePatchSchema.default(() => ({})),
+			patch: personaEntityUpdatePatchSchema.default(() => ({})),
 			valuePatch: userDataValuePatchSchema.optional(),
 		}),
 		z.object({ kind: z.literal("removePersona"), uuid: uuidSchema }),
@@ -1560,56 +855,24 @@ function createMutationSchema({
 		// A config's absent -> present transition is the semantic extension on
 		// `updateModule` above. Its old-client fallback is an empty config snapshot;
 		// new reducers treat it as an idempotent ensure before the granular edits.
-		z
-			.object({
-				kind: z.literal("addColumn"),
-				moduleUuid: uuidSchema,
-				column: mutationColumnSchema,
-				/**
-				 * Where the column lands in each surface — the uuid it follows, or
-				 * `null` for first. A column belongs to BOTH sequences from birth
-				 * regardless of visibility, so both placements are required: an
-				 * absent one would mean "somewhere", which is the ambiguity this
-				 * whole model removes.
-				 */
-				afterInList: uuidSchema.nullable(),
-				afterInDetail: uuidSchema.nullable(),
-				// Placement on the tile grid for a column added into a tile-laid-out
-				// case list. Top-level because origin's nested column schema is strict
-				// and predates the slot.
-				tileCell: tileCellSchema.optional(),
-			})
-			.superRefine((mutation, ctx) => {
-				if (mutation.column.tile !== undefined) {
-					ctx.addIssue({
-						code: "custom",
-						path: ["column", "tile"],
-						message:
-							"Tile placement must use addColumn.tileCell so the strict pre-deploy column schema can parse the fallback.",
-					});
-				}
-			}),
+		z.object({
+			kind: z.literal("addColumn"),
+			moduleUuid: uuidSchema,
+			column: mutationColumnSchema,
+			/**
+			 * Where the column lands in each surface — the uuid it follows, or
+			 * `null` for first. A column belongs to BOTH sequences from birth.
+			 */
+			afterInList: uuidSchema.nullable(),
+			afterInDetail: uuidSchema.nullable(),
+		}),
 		z
 			.object({
 				kind: z.literal("updateColumn"),
 				moduleUuid: uuidSchema,
 				uuid: uuidSchema,
-				column: mutationColumnSchema,
-				// New content emitters opt into preserving the fresh slots;
-				// visibility-only emitters carry a single-surface patch. Both are
-				// optional extensions of the existing kind so pre-deploy clients keep
-				// recognizing streamed events. Absence retains legacy full-body behavior.
-				preserveVisibility: z.literal(true).optional(),
-				// Content-only replacements preserve a peer's fresh sort directive.
-				preserveSort: z.literal(true).optional(),
-				// Sort is an independently mergeable slot. `null` clears it; the
-				// nested column remains an old-reducer full-body fallback.
+				column: columnContentSchema.optional(),
 				sortPatch: columnSortSchema.nullable().optional(),
-				// Tile placement is an independently mergeable slot, like sort: `null`
-				// clears the cell, a value sets it. Unlike `sortPatch` there is no
-				// agreeing fallback to check — origin's strict column schema has no
-				// `tile` key at all, so the nested body stays cell-free and an old
-				// receiver simply keeps rendering rows.
 				tilePatch: tileCellSchema.nullable().optional(),
 				visibilityPatch: z
 					.object({
@@ -1620,83 +883,17 @@ function createMutationSchema({
 					.optional(),
 			})
 			.superRefine((mutation, ctx) => {
-				if (mutation.column.tile !== undefined) {
+				const payloadCount = [
+					mutation.column,
+					mutation.sortPatch,
+					mutation.tilePatch,
+					mutation.visibilityPatch,
+				].filter((value) => value !== undefined).length;
+				if (payloadCount !== 1) {
 					ctx.addIssue({
 						code: "custom",
-						path: ["column", "tile"],
 						message:
-							"Tile placement must stay out of the strict pre-deploy updateColumn fallback.",
-					});
-				}
-				if (
-					mutation.tilePatch !== undefined &&
-					(mutation.sortPatch !== undefined ||
-						mutation.preserveSort ||
-						mutation.preserveVisibility ||
-						mutation.visibilityPatch !== undefined)
-				) {
-					ctx.addIssue({
-						code: "custom",
-						path: ["tilePatch"],
-						message:
-							"A tile patch cannot be combined with another updateColumn semantic mode.",
-					});
-				}
-				if (mutation.sortPatch !== undefined) {
-					if (
-						mutation.preserveSort ||
-						mutation.preserveVisibility ||
-						mutation.visibilityPatch !== undefined
-					) {
-						ctx.addIssue({
-							code: "custom",
-							path: ["sortPatch"],
-							message:
-								"A sort patch cannot be combined with another updateColumn semantic mode.",
-						});
-					}
-					const fallbackSort = mutation.column.sort ?? null;
-					if (
-						JSON.stringify(fallbackSort) !== JSON.stringify(mutation.sortPatch)
-					) {
-						ctx.addIssue({
-							code: "custom",
-							path: ["column", "sort"],
-							message:
-								"The old-reducer column fallback must carry the requested sort value.",
-						});
-					}
-				}
-				if (mutation.visibilityPatch === undefined) return;
-				if (mutation.preserveVisibility) {
-					ctx.addIssue({
-						code: "custom",
-						path: ["preserveVisibility"],
-						message:
-							"A visibility-only update cannot also be a content update that preserves visibility.",
-					});
-				}
-				if (mutation.preserveSort) {
-					ctx.addIssue({
-						code: "custom",
-						path: ["preserveSort"],
-						message:
-							"A visibility-only patch cannot also request content sort preservation.",
-					});
-				}
-				const slot =
-					mutation.visibilityPatch.surface === "list"
-						? "visibleInList"
-						: "visibleInDetail";
-				if (
-					(mutation.column[slot] !== false) !==
-					mutation.visibilityPatch.visible
-				) {
-					ctx.addIssue({
-						code: "custom",
-						path: ["column", slot],
-						message:
-							"The fallback column visibility must agree with the visibility patch for pre-deploy receivers.",
+							"A column update carries exactly one content, sort, tile, or visibility payload.",
 					});
 				}
 			}),
@@ -1726,30 +923,12 @@ function createMutationSchema({
 			/** The uuid this input now follows; `null` first, absent appends. */
 			after: uuidSchema.nullable().optional(),
 		}),
-		z
-			.object({
-				kind: z.literal("updateSearchInput"),
-				moduleUuid: uuidSchema,
-				uuid: uuidSchema,
-				// Origin-compatible full-row fallback. A rename retains the previous
-				// declaration name here; current receivers apply the desired name below
-				// and structurally rewrite module-wide input refs against fresh state.
-				searchInput: mutationSearchInputSchema,
-				renamedTo: searchInputRefSchema.shape.name.optional(),
-			})
-			.superRefine((mutation, ctx) => {
-				if (
-					mutation.renamedTo !== undefined &&
-					mutation.renamedTo === mutation.searchInput.name
-				) {
-					ctx.addIssue({
-						code: "custom",
-						path: ["renamedTo"],
-						message:
-							"A Search-input rename extension must differ from its origin-compatible fallback name.",
-					});
-				}
-			}),
+		z.object({
+			kind: z.literal("updateSearchInput"),
+			moduleUuid: uuidSchema,
+			uuid: uuidSchema,
+			searchInput: searchInputContentSchema,
+		}),
 		z.object({
 			kind: z.literal("removeSearchInput"),
 			moduleUuid: uuidSchema,
@@ -1776,17 +955,9 @@ function createMutationSchema({
 					filter: mutationPredicateSchema.nullable().optional(),
 					icon: moduleIconRefSchema.nullable().optional(),
 					audioLabel: mediaAssetIdSchema.nullable().optional(),
+					tile: caseTileLayoutSchema.nullable().optional(),
 				})
 				.strict(),
-			// The tile layout is the same kind of non-array case-list metadata as
-			// `filter` / `icon` / `audioLabel`, but `patch` is `.strict()` in the
-			// pre-deploy schema, so a `patch.tile` key would fail an old parser
-			// outright rather than degrade. It therefore rides top-level: an old
-			// receiver strips it and applies the (typically empty) patch as a
-			// harmless no-op, while the current reducer folds it into the same
-			// key-by-key apply, where `null` clears exactly as it does for the
-			// other three slots.
-			tilePatch: caseTileLayoutSchema.nullable().optional(),
 		}),
 		// ─── Granular select options ─────────────────────────────────────────
 		//
@@ -1868,34 +1039,10 @@ function createMutationSchema({
 	});
 }
 
-/**
- * Rolling/external mutation envelope.
- *
- * Established fallback subtrees intentionally omit dormant S05 lookup
- * carriers so a payload remains parseable by a pre-S05 receiver. New lookup
- * option intent travels only in the top-level addField/updateField extension.
- */
-export const mutationSchema = createMutationSchema(carrierBlindMutationFamily);
+/** The single canonical mutation envelope. */
+export const mutationSchema = createMutationSchema(finalMutationFamily);
 
-/**
- * Canonical replay envelope.
- *
- * Durable events may already contain canonical lookup carriers in established
- * Predicate / ValueExpression slots. Replays and log reads must preserve
- * those values even though new rolling writes keep their fallback projection
- * carrier-blind.
- */
-export const canonicalMutationSchema = createMutationSchema(
-	canonicalMutationFamily,
-);
-
-export type Mutation = z.infer<typeof canonicalMutationSchema>;
-export type RollingMutation = z.infer<typeof mutationSchema>;
-
-type Assert<T extends true> = T;
-export type RollingMutationIsCanonical = Assert<
-	RollingMutation extends Mutation ? true : false
->;
+export type Mutation = z.infer<typeof mutationSchema>;
 
 // ─── MutationResult ────────────────────────────────────────────────────
 //

@@ -77,19 +77,20 @@ import { MATCH_MODES } from "./types";
 /**
  * Declared search input in scope at the type-check site. The case-search
  * UI declares inputs at the screen level; predicates referencing
- * `input(name)` resolve against this list. The optional `data_type`
+ * `input(searchInputUuid)` resolve against this list. The optional `data_type`
  * widens or narrows the comparison-rule check at this input's use site
  * — when omitted, the input defaults to `text`, which is CommCare's
  * default for properties without an explicit type.
  *
- * Distinct from the AST `SearchInputRef` (the `input("name")` term
+ * Distinct from the AST `SearchInputRef` (the `input(uuid)` term
  * built by the predicate). `SearchInputRef` is on the predicate side
  * and discriminates with `kind: "input"` to participate in the
  * `Term` discriminated union; `SearchInputDecl` is on the context
- * side and is looked up by `name` only, so it carries no
+ * side and is looked up by immutable UUID, so it carries no
  * discriminator.
  */
 export type SearchInputDecl = {
+	uuid: Uuid;
 	name: string;
 	data_type?: CasePropertyDataType;
 };
@@ -1704,12 +1705,12 @@ export function resolveTermType(
 			return property.data_type ?? "text";
 		}
 		case "input": {
-			const decl = ctx.knownInputs.find((i) => i.name === term.name);
+			const decl = ctx.knownInputs.find((i) => i.uuid === term.searchInputUuid);
 			if (!decl) {
 				errors.push({
 					path,
 					code: "unknown-search-input",
-					message: `Unknown search input '${term.name}'.`,
+					message: `Unknown search input '${term.searchInputUuid}'.`,
 				});
 				return undefined;
 			}

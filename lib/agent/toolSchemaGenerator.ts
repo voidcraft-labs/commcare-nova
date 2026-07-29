@@ -64,6 +64,7 @@ import {
 	fieldKindDeclaresKey,
 	fieldKinds,
 	fieldRegistry,
+	lookupOptionsSourceSchema,
 	proseTemplateSchema,
 	selectOptionSchema,
 	uuidSchema,
@@ -128,7 +129,9 @@ const FIELD_DOCS = {
 	default_value:
 		"XPath evaluated ONCE at form load, never recomputed. For values " +
 		"that must track other fields, use calculate.",
-	options: "The choice list — at least 2 options.",
+	optionsSource:
+		'Choice source. Use kind "inline" with at least 2 options, or kind ' +
+		'"lookup" with stable table/column UUIDs and an optional canonical filter.',
 	case_property_on:
 		"Case type this field saves to. The module's own type = a normal " +
 		"case property; a different type creates a child case (its " +
@@ -200,18 +203,38 @@ const defaultValueField = () =>
 		.nullable()
 		.optional()
 		.describe(FIELD_DOCS.default_value);
-// The SA's option shape omits media only. Stable option UUIDs are required.
-// `selectOptionSchema` carries an optional per-option `media` reference, but
+// The SA's option shape omits media and projects stored `uuid` through the
+// creation/address slot `optionUuid`. `selectOptionSchema` carries an optional
+// per-option `media` reference, but
 // the field-mutation tools expose neither the asset library nor an upload
 // affordance, so the agent can't mint or validate an asset id here —
 // exposing the slot would only let the model write a dangling reference into
 // the doc. Option media is set through the dedicated media tools.
-const saOptionSchema = selectOptionSchema.omit({
-	media: true,
-});
+const saOptionSchema = selectOptionSchema
+	.omit({
+		media: true,
+		uuid: true,
+	})
+	.extend({
+		optionUuid: uuidSchema
+			.optional()
+			.describe(
+				"Stable UUID for this option. Supply it when preserving an existing option or when another same-call value refers to it; otherwise Nova mints it.",
+			),
+	});
 
-const optionsField = () =>
-	z.array(saOptionSchema).nullable().optional().describe(FIELD_DOCS.options);
+const optionsSourceField = () =>
+	z
+		.discriminatedUnion("kind", [
+			z
+				.object({
+					kind: z.literal("inline"),
+					options: z.array(saOptionSchema).min(2),
+				})
+				.strict(),
+			lookupOptionsSourceSchema,
+		])
+		.describe(FIELD_DOCS.optionsSource);
 
 // Nested-object factories — return the bare object so callers wrap it
 // with `.optional()` (add tools) or `.nullable().optional()` (edit
@@ -288,7 +311,7 @@ const ADD_GATED_KEYS = [
 	"validate",
 	"calculate",
 	"default_value",
-	"options",
+	"optionsSource",
 	"case_property_on",
 ] as const;
 
@@ -345,7 +368,7 @@ function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
 			validate: validateConfigField().nullable().optional(),
 			calculate: calculateField(),
 			default_value: defaultValueField(),
-			options: optionsField(),
+			optionsSource: optionsSourceField().nullable().optional(),
 			case_property_on: casePropertyOnField(),
 			repeat: repeatConfigDiscriminated().nullable().optional(),
 			// `.strict()` so a key outside the shape is REJECTED at the boundary —
@@ -360,7 +383,7 @@ function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
 				}
 			}
 			// A case-bound field (`case_property_on` set) INHERITS label /
-			// options / validation / required from its catalog record —
+			// optionsSource / validation / required from its catalog record —
 			// `applyDefaults` seeds them after this parse, and the prompt
 			// teaches stating those slots only to override. Absence is
 			// therefore legal exactly when the field is case-bound; a record
@@ -382,17 +405,18 @@ function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
 					message: `kind "${item.kind}" needs a \`label\` ProseTemplate — the end user reads it.`,
 				});
 			}
-			// Missing options are fine on a case-bound field (the record's
-			// list seeds them); a STATED list under 2 entries is wrong on
-			// every path — an override must be a real choice list.
+			// Missing optionsSource is fine on a case-bound field (the record's
+			// list seeds an inline source). A stated inline arm is already
+			// structurally required to carry at least two complete options.
 			if (
-				fieldKindDeclaresKey(item.kind, "options") &&
-				(item.options == null ? !caseBound : item.options.length < 2)
+				fieldKindDeclaresKey(item.kind, "optionsSource") &&
+				item.optionsSource == null &&
+				!caseBound
 			) {
 				ctx.addIssue({
 					code: "custom",
-					path: ["options"],
-					message: `kind "${item.kind}" needs an \`options\` choice list with at least 2 entries.`,
+					path: ["optionsSource"],
+					message: `kind "${item.kind}" needs an \`optionsSource\` arm.`,
 				});
 			}
 			if (item.kind === "repeat" && item.repeat == null) {
@@ -446,7 +470,9 @@ function buildEditFieldUpdatesSchema(kinds: readonly FieldKind[]) {
 			validate: validateConfigField().nullable().optional(),
 			calculate: calculateField(),
 			default_value: defaultValueField(),
-			options: optionsField(),
+			// A select source is required state and cannot be cleared. Omission
+			// keeps it; a value atomically replaces the complete arm.
+			optionsSource: optionsSourceField().optional(),
 			case_property_on: casePropertyOnField(),
 			repeat: repeatConfigDiscriminated().optional(),
 			// `.strict()` — same boundary rejection as the add item: a key
