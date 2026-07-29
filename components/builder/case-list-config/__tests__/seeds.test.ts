@@ -2,7 +2,6 @@
 // must work immediately. Search gets a useful automatic seed; display creation
 // builds from the exact property the author chose in the canvas.
 
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
@@ -15,6 +14,7 @@ import type {
 } from "@/lib/domain";
 import { simpleSearchInputDef } from "@/lib/domain";
 import { eq, literal, prop as propertyTerm } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import {
 	labelFromProperty,
 	representedColumnProperties,

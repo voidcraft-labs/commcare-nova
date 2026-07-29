@@ -1,5 +1,5 @@
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
+import { proseText } from "@/lib/domain/prose";
 import type { CaseType } from "../blueprint";
 import {
 	caseDataTypeForFieldKind,
@@ -10,7 +10,7 @@ import {
 } from "../caseTypes";
 import type { FieldKind } from "../fields";
 
-const prop = (name: string) => ({ name, label: name });
+const prop = (name: string) => ({ name, label: proseText(name) });
 const TYPES: CaseType[] = [
 	{ name: "mother", properties: [prop("case_name"), prop("household_code")] },
 	{

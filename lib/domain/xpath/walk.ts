@@ -23,7 +23,6 @@ export interface XPathCasePropertyRename {
 export function renameCasePropertyInXPath(
 	expr: XPathExpression,
 	rename: XPathCasePropertyRename,
-	_opts: { contextualMatches: boolean },
 ): number {
 	let changed = 0;
 	for (const part of expr.parts) {
@@ -34,7 +33,6 @@ export function renameCasePropertyInXPath(
 		) {
 			part.property = rename.newName;
 			changed++;
-			continue;
 		}
 	}
 	return changed;

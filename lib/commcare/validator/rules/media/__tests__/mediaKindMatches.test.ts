@@ -1,5 +1,5 @@
-import { proseText } from "@/lib/domain/prose";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { proseText } from "@/lib/domain/prose";
 /**
  * Tests for `mediaKindMatches` — every referenced asset's MIME kind
  * matches the carrier slot's expected kind.
@@ -38,7 +38,7 @@ describe("mediaKindMatches", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 									label_media: { image: mediaId("audio-asset") },
 								}),
@@ -88,9 +88,9 @@ describe("mediaKindMatches", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
-									help: "Here's how",
+									help: proseText("Here's how"),
 									help_media: { audio: mediaId("image-asset") },
 								}),
 							],
@@ -136,7 +136,7 @@ describe("mediaKindMatches", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 									label_media: { video: mediaId("image-asset") },
 								}),
@@ -183,7 +183,7 @@ describe("mediaKindMatches", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 							],
@@ -232,7 +232,7 @@ describe("mediaKindMatches", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 							],
@@ -281,10 +281,10 @@ describe("mediaKindMatches", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 									label_media: { image: mediaId("good-image") },
-									help: "Here's how",
+									help: proseText("Here's how"),
 									help_media: { audio: mediaId("good-audio") },
 								}),
 							],

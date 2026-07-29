@@ -11,6 +11,7 @@ import { useHasFieldsInForm } from "@/lib/doc/hooks/useHasFieldsInForm";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { BlueprintDoc } from "@/lib/doc/types";
+import { proseText } from "@/lib/domain/prose";
 
 const MOD_UUID = testUuid("module-1-uuid");
 const FORM_WITH_FIELDS = testUuid("form-with-uuid");
@@ -46,7 +47,7 @@ function setup() {
 				uuid: Q_UUID,
 				id: "name",
 				kind: "text",
-				label: "Name",
+				label: proseText("Name"),
 			} as BlueprintDoc["fields"][string],
 		},
 		moduleOrder: [MOD_UUID],

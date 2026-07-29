@@ -2,13 +2,9 @@
  * SA tool: `getField` — fetch a single field by id or uuid, with
  * children when the field is a container.
  *
- * Pure read — no mutations, no SSE emission. Resolves the field through
- * the positional `(moduleIndex, formIndex, fieldId)` triple so the SA
- * can read a field it knows only by name without threading a path
- * prefix through the call — and through the field's uuid when duplicate
- * ids make the bare id ambiguous (`resolveFieldTarget` refuses those
- * with every match listed). Both the SA chat factory and the MCP
- * adapter call this the same way.
+ * Pure read — no mutations, no SSE emission. Resolves the stable
+ * `(moduleUuid, formUuid, fieldUuid)` address and proves parent membership.
+ * Both the SA chat factory and the MCP adapter call this the same way.
  *
  * Container-vs-leaf branching lives here: group / repeat fields carry a
  * `children` key populated with the ordered subtree so the SA sees one
@@ -16,7 +12,7 @@
  * call. Leaf fields return the raw domain `Field` verbatim.
  */
 
-import { z } from "zod";
+import type { z } from "zod";
 import { buildFieldTree, type FieldWithChildren } from "@/lib/doc/fieldWalk";
 import { unwrittenPropertiesReadBy } from "@/lib/doc/unwrittenProperties";
 import type { BlueprintDoc, Field, Uuid } from "@/lib/domain";
@@ -47,8 +43,8 @@ export type ContainerFieldWithChildren = Field & {
 };
 
 /**
- * Two legal return shapes: `{ error }` when the triple doesn't resolve,
- * or the found-field payload carrying positional context + the field
+ * Two legal return shapes: `{ error }` when the address doesn't resolve, or
+ * the found-field payload carrying canonical UUID context plus the field
  * itself (flat for leaves, with `children` for containers).
  */
 export type GetFieldResult =

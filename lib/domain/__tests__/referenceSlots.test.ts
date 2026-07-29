@@ -4,8 +4,8 @@
 //
 //   1. Dead-path check — every registry entry's path resolves into the
 //      real Zod schemas for every kind/mode/arm it claims, with the
-//      shape its surface kind promises (string for xpath/prose/name
-//      refs, the actual predicate/value-expression/relation-path
+//      shape its surface kind promises (canonical objects for XPath/prose,
+//      strings for name refs, the actual predicate/value-expression/relation-path
 //      schema object for AST slots) — and does NOT resolve anywhere it
 //      doesn't claim, so applicability is exact in both directions.
 //   2. Schema-key audit — every key the field/form/module schemas
@@ -350,7 +350,12 @@ describe("field slots — paths resolve exactly where claimed", () => {
 			for (const schema of schemasClaimedByFieldSlot(slot)) {
 				const resolved = resolvePath(schema, slot.path);
 				expect(resolved.length).toBeGreaterThan(0);
-				if (slot.kind === "prose" || slot.kind === "case-type-ref") {
+				if (slot.kind === "prose") {
+					for (const r of resolved) {
+						expect(r).toBeInstanceOf(z.ZodObject);
+					}
+				}
+				if (slot.kind === "case-type-ref") {
 					for (const r of resolved) {
 						expect(r).toBeInstanceOf(z.ZodString);
 					}
@@ -617,7 +622,7 @@ describe("string-typed non-reference keys (reviewed: none carries an expression)
 				allFieldRegistryPaths,
 				NON_REFERENCE_FIELD_PATH_SET,
 			),
-		).toEqual(["id", "options[].uuid", "options[].value", "uuid"]);
+		).toEqual(["id", "uuid"]);
 	});
 
 	it("form list is pinned", () => {

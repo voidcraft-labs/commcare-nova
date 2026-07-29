@@ -12,6 +12,7 @@
  * surface failed.
  */
 
+import { parseXPathExpressionWithIssues } from "@/lib/commcare/xpath";
 import {
 	type BlueprintDoc,
 	CONNECT_XPATH_SLOT_IDS,
@@ -19,27 +20,26 @@ import {
 	caseRefAcceptMap,
 	expressionSurfaceReads,
 	type Field,
-	fieldPathResolver,
-	fieldRegistry,
 	type FieldProseSlotId,
 	type FieldXPathSlotId,
+	fieldPathResolver,
+	fieldRegistry,
 	formExpressionSource,
 	formExpressionValue,
 	type ProseTemplate,
+	printXPath,
 	reachableCaseTypes,
 	toReachableIndex,
 	type Uuid,
 	type XPathExpression,
-	printXPath,
 	xpathPrintContext,
 } from "@/lib/domain";
-import { parseXPathExpressionWithIssues } from "@/lib/commcare/xpath";
-import { proseTemplateSurvivesTiptapRoundTrip } from "@/lib/tiptap/proseTemplateCodec";
 import {
 	buildFieldTree,
 	type FieldTreeNode,
 } from "@/lib/preview/engine/fieldTree";
 import { TriggerDag } from "@/lib/preview/engine/triggerDag";
+import { proseTemplateSurvivesTiptapRoundTrip } from "@/lib/tiptap/proseTemplateCodec";
 import {
 	checkCaseHashtag,
 	validateXPath,
@@ -162,35 +162,31 @@ export type DeepValidationError =
 	| (DeepLocation & { kind: "cycle"; cycle: readonly string[] });
 
 /**
- * Classify how an INVALID_REF's failing `/data/...` reference is STORED
- * in the slot's expression AST, so the runner can render the repair that
- * actually fixes it (`XPathError.storedRef`). The match is exact against
- * each leaf's printed expansion:
- *
- *   - a raw `#form/...` leaf (plain text the migration could not
- *     re-resolve) expands to `/data/<segments>` — `"raw-text"`: the
- *     reference doesn't follow its field through renames, and
- *     re-committing the expression is the repair;
- *   - an identity leaf whose target no longer resolves prints the bare
- *     uuid (`#form/<uuid>` / `/data/<uuid>` — the printer's total
- *     fallback), expanding to `/data/<uuid>` — `"dangling-identity"`:
+ * Classify an INVALID_REF whose identity leaf no longer resolves, so the
+ * runner can render the repair that actually fixes it
+ * (`XPathError.storedRef`). A dangling identity has an internal diagnostic
+ * projection using its bare uuid (`#form/<uuid>` / `/data/<uuid>`) —
+ * `"dangling-identity"`:
  *     the printed text is an internal id, not a path a person can look
  *     up, so the runner must not present it as one.
  *
- * A failing ref matching neither (a typo'd reference, a cross-form
- * path) classifies as `undefined` and keeps the generic prose. The
- * dangling check needs no doc resolution: a RESOLVED leaf prints its
- * segments, so the bare-uuid expansion exists exactly when resolution
- * failed.
+ * A failing ref matching neither keeps the generic prose. The dangling
+ * check needs no doc resolution: a resolved leaf prints its current path,
+ * so a bare UUID spelling exists exactly when resolution failed.
  */
 function classifyStoredRef(
 	expr: XPathExpression | undefined,
 	failingRef: string | undefined,
-): "raw-text" | "dangling-identity" | undefined {
+): "dangling-identity" | undefined {
 	if (expr === undefined || failingRef === undefined) return undefined;
 	for (const part of expr.parts) {
 		if (part.kind === "field-ref" || part.kind === "path-ref") {
-			if (failingRef === `/data/${part.uuid}`) return "dangling-identity";
+			if (
+				failingRef === `/data/${part.uuid}` ||
+				failingRef === `#form/${part.uuid}`
+			) {
+				return "dangling-identity";
+			}
 		}
 	}
 	return undefined;
@@ -212,6 +208,7 @@ function canonicalXPathError(
 	formUuid: Uuid,
 	text: string,
 	expr: XPathExpression | undefined,
+	validPaths: ReadonlySet<string>,
 ): XPathError | undefined {
 	if (expr === undefined) {
 		return {
@@ -230,8 +227,41 @@ function canonicalXPathError(
 			return matches.length === 1 ? matches[0]?.uuid : undefined;
 		},
 	);
-	const issue = parsed.issues[0];
+	/**
+	 * Connect injects wrapper/session nodes that are real `/data/...` paths on
+	 * the emitted form but are not Nova-owned field entities. Their external
+	 * wire name is therefore the identity: there is deliberately no UUID leaf
+	 * to store. Admit only an exact path already present in this form's
+	 * validator-owned path catalog. Ordinary field paths never reach this arm
+	 * because the form resolver turns them into `field-ref` / `path-ref`
+	 * identities first.
+	 */
+	const externalPath = (source: string): string | undefined =>
+		source.startsWith("/data/")
+			? source
+			: source.startsWith("#form/")
+				? `/data/${source.slice("#form/".length)}`
+				: undefined;
+	const issue = parsed.issues.find((candidate) => {
+		if (candidate.kind !== "unresolved-reference") return true;
+		const path = externalPath(candidate.source);
+		return path === undefined || !validPaths.has(path);
+	});
 	if (issue !== undefined) {
+		const ref =
+			issue.kind === "unresolved-reference"
+				? externalPath(issue.source)
+				: undefined;
+		const leaf = ref?.slice(ref.lastIndexOf("/") + 1);
+		const suggestions =
+			ref === undefined || leaf === undefined
+				? []
+				: [...validPaths]
+						.filter(
+							(path) =>
+								path !== ref && path.slice(path.lastIndexOf("/") + 1) === leaf,
+						)
+						.sort();
 		return {
 			code: issue.kind === "syntax" ? "XPATH_SYNTAX" : "INVALID_REF",
 			message:
@@ -239,7 +269,8 @@ function canonicalXPathError(
 					? `Syntax error near "${issue.source}"`
 					: `Reference "${issue.source}" must resolve to one canonical identity in this form.`,
 			position: issue.from,
-			...(issue.kind === "unresolved-reference" && { ref: issue.source }),
+			...(ref !== undefined && { ref }),
+			...(suggestions.length > 0 && { suggestions }),
 		};
 	}
 	if (
@@ -433,7 +464,13 @@ export function validateBlueprintDeep(
 					const text = formExpressionSource(form, slot, doc);
 					if (!text) continue;
 					const expr = formExpressionValue(form, slot);
-					const canonicalError = canonicalXPathError(doc, formUuid, text, expr);
+					const canonicalError = canonicalXPathError(
+						doc,
+						formUuid,
+						text,
+						expr,
+						validPaths,
+					);
 					if (canonicalError !== undefined) {
 						errors.push({
 							...loc,
@@ -527,9 +564,15 @@ function validateTreeXPath(
 					? text.trim().length === 0
 					: text.length === 0;
 			if (blank) continue;
-			const canonicalError = canonicalXPathError(doc, loc.formUuid, text, expr);
+			const canonicalError = canonicalXPathError(
+				doc,
+				loc.formUuid,
+				text,
+				expr,
+				validPaths,
+			);
 			if (canonicalError !== undefined) {
-				pushFieldError(node.field, slot, canonicalError);
+				pushFieldError(node.field, slot, withStoredRef(canonicalError, expr));
 				continue;
 			}
 			for (const error of validateXPath(

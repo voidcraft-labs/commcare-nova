@@ -1,6 +1,5 @@
 // @vitest-environment happy-dom
 
-import { proseText } from "@/lib/domain/prose";
 import {
 	cleanup,
 	fireEvent,
@@ -21,18 +20,21 @@ import {
 	type Predicate,
 	prop,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { PredicateCardEditor } from "../../PredicateCardEditor";
 
 const OPTIONS = [
-	{ value: "a", label: "Alpha" },
-	{ value: "b", label: "Beta" },
-	{ value: "c", label: "Gamma" },
-	{ value: "d", label: "Delta" },
+	{ value: "a", label: proseText("Alpha") },
+	{ value: "b", label: proseText("Beta") },
+	{ value: "c", label: proseText("Gamma") },
+	{ value: "d", label: proseText("Delta") },
 ] as const;
 
-function caseType(
-	options: readonly { value: string; label: string }[] = OPTIONS,
-): CaseType {
+type CaseOption = NonNullable<
+	CaseType["properties"][number]["options"]
+>[number];
+
+function caseType(options: readonly CaseOption[] = OPTIONS): CaseType {
 	return {
 		name: "patient",
 		properties: [
@@ -96,8 +98,8 @@ describe("MultiSelectContainsCard", () => {
 			<Controlled
 				initial={seed("vip", "new")}
 				patient={caseType([
-					{ value: "vip", label: "Priority client" },
-					{ value: "new", label: "New client" },
+					{ value: "vip", label: proseText("Priority client") },
+					{ value: "new", label: proseText("New client") },
 				])}
 			/>,
 		);
@@ -113,9 +115,9 @@ describe("MultiSelectContainsCard", () => {
 			<Controlled
 				initial={seed("open_a", "closed")}
 				patient={caseType([
-					{ value: "open_a", label: "Open" },
-					{ value: "open_b", label: "Open" },
-					{ value: "closed", label: "Closed" },
+					{ value: "open_a", label: proseText("Open") },
+					{ value: "open_b", label: proseText("Open") },
+					{ value: "closed", label: proseText("Closed") },
 				])}
 			/>,
 		);

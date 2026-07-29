@@ -11,6 +11,7 @@
 
 import { closeCaseStoreDatabase } from "@/lib/case-store/postgres/connection";
 import { withExclusiveCaptureCleanupWorker } from "@/lib/db/captureCleanupLease";
+import { runCaptureCleanupSchemaProbe } from "@/lib/db/captureCleanupSchemaProbe";
 import { preparePendingFormAttachments } from "@/lib/db/formAttachmentPreparation";
 import { purgeExpiredFormAttachments } from "@/lib/db/formAttachments";
 import { deleteAsset, deleteAssetGeneration } from "@/lib/storage/media";
@@ -79,6 +80,22 @@ async function runMaintenance(): Promise<void> {
 }
 
 async function main(): Promise<void> {
+	const args = process.argv.slice(2);
+	if (args.length === 1 && args[0] === "--probe-schema") {
+		const result = await runCaptureCleanupSchemaProbe();
+		console.log(
+			JSON.stringify({
+				severity: "INFO",
+				message: "[attachments] cleanup schema probe passed",
+				...result,
+			}),
+		);
+		return;
+	}
+	if (args.length !== 0) {
+		throw new Error(`Unknown capture-cleanup argument(s): ${args.join(", ")}`);
+	}
+
 	const result = await withExclusiveCaptureCleanupWorker(runMaintenance);
 	if (result.kind !== "ran") {
 		console.log(

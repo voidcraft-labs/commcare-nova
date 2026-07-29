@@ -3,6 +3,7 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { adjudicateSubmissionReceipt } from "@/lib/case-store";
 import type { CaseOperation } from "@/lib/domain";
 import { formField, literal, term } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { buildDoc, f } from "../../../__tests__/docHelpers";
 import type { SubmissionMutation } from "../caseDataBindingTypes";
 import type { ResolvedPreviewIdentity } from "../identity";
@@ -90,14 +91,14 @@ function repeatScopedOperationDoc(opts: { readsVisitNote?: boolean } = {}) {
 								uuid: REPEAT_UUID,
 								kind: "repeat",
 								id: "visits",
-								label: "Visits",
+								label: proseText("Visits"),
 								repeat_mode: "user_controlled",
 								children: [
 									f({
 										uuid: REPEAT_FIELD_UUID,
 										kind: "text",
 										id: "visit_note",
-										label: "Visit note",
+										label: proseText("Visit note"),
 									}),
 								],
 							}),

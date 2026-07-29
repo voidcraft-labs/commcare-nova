@@ -32,6 +32,7 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { xp } from "@/lib/__tests__/docHelpers";
 import type { BlueprintDoc } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 
 import { renderAgentPrompt } from "../prompts";
 
@@ -73,7 +74,7 @@ function fixturePopulatedDoc(): BlueprintDoc {
 				uuid: fieldUuid,
 				id: "patient_name",
 				kind: "text",
-				label: "Patient Name",
+				label: proseText("Patient Name"),
 				required: xp("true()"),
 			},
 		},

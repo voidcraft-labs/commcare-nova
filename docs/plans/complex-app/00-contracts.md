@@ -46,7 +46,7 @@ traffic-split controllers.
 **Valid by construction.** An invalid app cannot exist. Every mutation batch is
 gated before it commits, identically on the chat SA, the visual builder, and the
 MCP API. There is no save/validate/release cycle and no draft state. New
-mutations follow the compatibility rules in `lib/doc/CLAUDE.md`: persisted
+mutations follow the fold rules in `lib/doc/CLAUDE.md`: persisted
 mutation history after the active baseline must always replay. When a stored
 shape changes incompatibly, the same release either migrates the replayable
 suffix or atomically establishes an explicit fold horizon whose earlier rows

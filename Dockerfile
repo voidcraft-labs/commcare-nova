@@ -96,7 +96,7 @@ RUN npm run build
 # resolve a module that isn't installed.
 RUN npx esbuild scripts/migrate.ts \
       --bundle --platform=node --target=node24 --format=cjs \
-      --tsconfig=tsconfig.json --external:pg-native \
+      --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
       --outfile=migrate.cjs
 
 # Bundle the deployment/maintenance jobs into the same immutable image.

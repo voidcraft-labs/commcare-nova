@@ -5,7 +5,6 @@
 // verbMenuBuildFuzz) prove seeds are well-typed; this suite proves their
 // TRUTH — the axis a well-typed always-false placeholder still breaks.
 
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import {
 	firstComparisonDefault,
@@ -23,6 +22,7 @@ import {
 	predicateCardSchemas,
 } from "@/components/builder/shared/editorSchemas";
 import type { Predicate, ValueExpression } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 
 const GLOBAL_CTX: PredicateEditContext = {
 	caseTypes: [

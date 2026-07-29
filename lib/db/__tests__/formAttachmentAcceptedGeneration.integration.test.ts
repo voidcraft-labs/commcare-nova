@@ -1,5 +1,6 @@
 import type { Kysely } from "kysely";
 import { describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
 import { prepareCaptureSubmissionBytes } from "@/lib/case-store/postgres/submissionAttachments";
 import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
@@ -120,8 +121,8 @@ const PROJECT_ID = "capture-generation-project";
 const ACTOR_ID = "capture-generation-editor";
 const ENTRY_KEY = "77777777-7777-4777-8777-777777777777";
 const ATTACHMENT_ID = "55555555-5555-4555-8555-555555555555";
-const FIELD_UUID = "88888888-8888-4888-8888-888888888888";
-const FORM_UUID = "66666666-6666-4666-8666-666666666666";
+const FIELD_UUID = testUuid("88888888-8888-4888-8888-888888888888");
+const FORM_UUID = testUuid("66666666-6666-4666-8666-666666666666");
 const SOURCE_GENERATION = "source-generation-17";
 const SOURCE_KEY = `captures-staged/${PROJECT_ID}/${ATTACHMENT_ID}.png`;
 const DESTINATION_KEY = captureObjectKeyFor(PROJECT_ID, ATTACHMENT_ID, ".png");

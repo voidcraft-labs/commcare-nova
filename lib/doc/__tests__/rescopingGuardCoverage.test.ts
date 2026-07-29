@@ -1,8 +1,7 @@
-import { proseText } from "@/lib/domain/prose";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { withUserSequences } from "@/lib/__tests__/docHelpers";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { backfillOptionUuids } from "@/lib/doc/optionIdentity";
+import { proseText } from "@/lib/domain/prose";
 /**
  * Guard coverage per mutation kind — the second half of the proof that
  * licenses deleting the validate-fix loop (beside the construction fuzz):
@@ -71,19 +70,19 @@ function richDoc(): BlueprintDoc {
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Name",
+								label: proseText("Name"),
 								case_property_on: "patient",
 							}),
 							f({
 								kind: "text",
 								id: "village",
-								label: "Village",
+								label: proseText("Village"),
 								case_property_on: "patient",
 							}),
 							f({
 								kind: "date",
 								id: "dob",
-								label: "Date of birth",
+								label: proseText("Date of birth"),
 								case_property_on: "patient",
 							}),
 						],
@@ -95,20 +94,22 @@ function richDoc(): BlueprintDoc {
 							f({
 								kind: "date",
 								id: "dob",
-								label: "Date of birth",
+								label: proseText("Date of birth"),
 								case_property_on: "patient",
 							}),
 							f({
 								kind: "text",
 								id: "status",
-								label: "Status",
+								label: proseText("Status"),
 								case_property_on: "patient",
 							}),
 							f({
 								kind: "repeat",
 								id: "visits",
-								label: "Visits",
-								children: [f({ kind: "text", id: "note", label: "Note" })],
+								label: proseText("Visits"),
+								children: [
+									f({ kind: "text", id: "note", label: proseText("Note") }),
+								],
 							}),
 						],
 					},
@@ -120,7 +121,9 @@ function richDoc(): BlueprintDoc {
 					{
 						name: "Archive survey",
 						type: "survey",
-						fields: [f({ kind: "text", id: "comments", label: "Comments" })],
+						fields: [
+							f({ kind: "text", id: "comments", label: proseText("Comments") }),
+						],
 						formLinks: [
 							{
 								target: {
@@ -187,13 +190,13 @@ function _capWriterDoc(): BlueprintDoc {
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Name",
+								label: proseText("Name"),
 								case_property_on: "patient",
 							}),
 							f({
 								kind: "text",
 								id: AT_CAP_ID,
-								label: "At the cap",
+								label: proseText("At the cap"),
 								case_property_on: "patient",
 							}),
 						],
@@ -481,7 +484,7 @@ const GUARD_COVERAGE = {
 							uuid: testUuid("fld-stranger"),
 							kind: "text",
 							id: "stranger_note",
-							label: "Note",
+							label: proseText("Note"),
 							case_property_on: "stranger",
 						} as Field,
 					},
@@ -643,9 +646,9 @@ const GUARD_COVERAGE = {
 							{
 								name: "patient",
 								properties: [
-									{ name: "case_name", label: "Name" },
-									{ name: "dob", label: "Date of birth" },
-									{ name: "status", label: "Status" },
+									{ name: "case_name", label: proseText("Name") },
+									{ name: "dob", label: proseText("Date of birth") },
+									{ name: "status", label: proseText("Status") },
 								],
 							},
 						],
@@ -709,7 +712,7 @@ const GUARD_COVERAGE = {
 									f({
 										kind: "text",
 										id: "case_name",
-										label: "Name",
+										label: proseText("Name"),
 										case_property_on: "patient",
 									}),
 								],
@@ -893,7 +896,7 @@ const GUARD_COVERAGE = {
 									f({
 										kind: "single_select",
 										id: "color",
-										label: "Color",
+										label: proseText("Color"),
 										options: [
 											{ value: "r", label: "Red" },
 											{ value: "g", label: "Green" },
@@ -905,9 +908,14 @@ const GUARD_COVERAGE = {
 					},
 				],
 			});
-			backfillOptionUuids(doc);
 			const field = byId(doc, "color");
-			const options = (field as { options: Array<{ uuid: string }> }).options;
+			if (
+				!("optionsSource" in field) ||
+				field.optionsSource.kind !== "inline"
+			) {
+				throw new Error("fixture must be an inline select");
+			}
+			const options = field.optionsSource.options;
 			return {
 				doc,
 				batch: [
@@ -981,7 +989,11 @@ const GUARD_COVERAGE = {
 				{
 					kind: "updateUserType",
 					uuid: testUuid("ut-chw"),
-					patch: { values: { [testUuid("up-region")]: "atlantis" } },
+					patch: {},
+					valuePatch: {
+						userPropertyUuid: testUuid("up-region"),
+						value: "atlantis",
+					},
 				},
 			],
 		}),

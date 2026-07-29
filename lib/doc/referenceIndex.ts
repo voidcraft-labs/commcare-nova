@@ -5,15 +5,14 @@
  *
  * Every reference operation in the write path answers "who references
  * X?" / "who declares X?" through these lookups instead of walking the
- * document: the rename cascade and `moveField`'s prose re-anchor pass
- * (`mutations/fields.ts`), the case-type retirement planner
+ * document: the case-property rename cascade (`mutations/fields.ts`), the
+ * case-type retirement planner
  * (`caseTypeRetirement.ts`), the peer-aware rename verdict
  * (`identifierVerdicts.ts`), and the unwritten-property derivation
  * (`unwrittenProperties.ts`). Edges carry (carrier uuid, slot id),
- * never character positions — a consumer that needs structure walks
- * the named slot's leaves (AST slots) or re-locates the hashtag
- * substrings (prose), so nothing positional can go stale across
- * mutations.
+ * never character positions — a consumer that needs structure walks the
+ * named slot's typed AST/template leaves, so nothing positional can go stale
+ * across mutations.
  *
  * ## One extractor, two builders
  *
@@ -27,11 +26,9 @@
  *
  * ## Extraction discipline
  *
- * Expression slots store the XPath AST (`lib/domain/xpath`), so their
- * extraction is a pure leaf walk — identity leaves edge directly, no
- * parse, no resolution. Prose slots are located with the shared
- * hashtag matcher (`lib/domain/hashtagSegments.ts`) and their refs
- * resolved against the doc, never parsed as XPath.
+ * Expression slots store the XPath AST (`lib/domain/xpath`) and prose slots
+ * store typed templates, so extraction is a pure leaf walk — identity atoms
+ * edge directly, with no parse or name resolution.
  * Predicate/value-expression slots are walked structurally via
  * `lib/domain/predicate`'s term walkers, keying each `PropertyRef` on
  * the walk's DESTINATION type — the rename rewriter's matching rule.
@@ -44,21 +41,9 @@
  * changed: the named entity (plus its subtree on removals, plus minted
  * clones on duplication), the carriers whose edges a rename re-keys
  * (peers via the declarations index, property referencers via the
- * `c:`-bucket), and two resolution-context groups —
- *
- *   - `local[form]`: carriers whose PROSE embeds form-local hashtag
- *     text. Prose refs resolve by id-path against the form's field
- *     tree at extraction, so any mutation that changes the form's
- *     id/path namespace (add/remove/move/rename/duplicate) can flip a
- *     ref between dangling and resolved WITHOUT touching the carrier.
- *     Re-deriving the bucket keeps the incremental index equal to a
- *     rebuild even for those at-a-distance shifts. AST slots never
- *     join: their identity leaves resolve at PRINT, and an unresolved
- *     leaf stays text forever — extraction has no resolution to track.
- *   - `ctx[module]`: carriers whose extraction read the module's case
- *     type (contextual `#case/…` refs, prose or transitional AST raw
- *     leaves). A module case-type change or a cross-module form move
- *     re-keys their `c:` edges the same way.
+ * `c:`-bucket), and the `ctx[module]` group whose extraction read the
+ * module's case-type context. A module case-type change or a cross-module form
+ * move re-keys those edges.
  *
  * Re-extraction is idempotent, so over-approximating a touched set
  * costs only repeated parses of that carrier's own slots — never
@@ -118,7 +103,6 @@ function emptyReferenceIndex(): ReferenceIndex {
 		in: recordFromEntries([]),
 		out: recordFromEntries([]),
 		decl: recordFromEntries([]),
-		local: recordFromEntries([]),
 		ctx: recordFromEntries([]),
 	};
 }
@@ -150,13 +134,9 @@ function removeFromBucket(
 }
 
 /**
- * The extraction context a carrier's references resolve in: the
- * containing form (form-local id-path resolution) and the owning
- * module (whose `caseType` contextualizes `#case/…` refs and the
- * module config's property slots).
+ * The owning-module context a carrier's references resolve in.
  */
 interface CarrierContext {
-	formUuid?: Uuid;
 	moduleUuid?: Uuid;
 	moduleCaseType?: string;
 }
@@ -198,7 +178,6 @@ function carrierContext(doc: BlueprintDoc, carrier: string): CarrierContext {
 			? ownRecordValue(doc.modules, moduleUuid)?.caseType
 			: undefined;
 	return {
-		formUuid,
 		...(moduleUuid !== undefined && { moduleUuid }),
 		...(moduleCaseType !== undefined && { moduleCaseType }),
 	};
@@ -234,9 +213,6 @@ function unindexCarrier(index: ReferenceIndex, carrier: string): void {
 	}
 	for (const declaration of entry.decls ?? []) {
 		removeFromBucket(index.decl, declaration, carrier);
-	}
-	if (entry.local !== undefined) {
-		removeFromBucket(index.local, entry.local, carrier);
 	}
 	if (entry.ctx !== undefined) removeFromBucket(index.ctx, entry.ctx, carrier);
 	delete index.out[carrier];
@@ -299,7 +275,6 @@ function registerFormDeclarations(
 
 interface EdgeSink {
 	edge(targetKey: string, slot: string): void;
-	markLocal(): void;
 	markCtx(): void;
 }
 
@@ -330,13 +305,6 @@ function makeSink(
 			inSlots[slot] = true;
 			byCarrier[carrier] = inSlots;
 		},
-		markLocal() {
-			if (ctx.formUuid === undefined) return;
-			const e = entry();
-			if (e.local !== undefined) return;
-			e.local = ctx.formUuid;
-			addToBucket(index.local, ctx.formUuid, carrier);
-		},
 		markCtx() {
 			if (ctx.moduleUuid === undefined) return;
 			const e = entry();
@@ -362,26 +330,21 @@ function extractCarrierEdges(
 	}
 	const form = ownRecordValue(doc.forms, carrier);
 	if (form) {
-		extractFormEdges(makeSink(index, carrier, ctx), form, ctx);
+		extractFormEdges(makeSink(index, carrier, ctx), form);
 		return;
 	}
 	const field = ownRecordValue(doc.fields, carrier);
-	if (field) extractFieldEdges(makeSink(index, carrier, ctx), doc, field, ctx);
+	if (field) extractFieldEdges(makeSink(index, carrier, ctx), field);
 }
 
-function extractFieldEdges(
-	sink: EdgeSink,
-	doc: BlueprintDoc,
-	field: Field,
-	ctx: CarrierContext,
-): void {
+function extractFieldEdges(sink: EdgeSink, field: Field): void {
 	const repeatMode = field.kind === "repeat" ? field.repeat_mode : undefined;
 	for (const slot of fieldReferenceSlotsFor(field.kind, repeatMode)) {
 		switch (slot.kind) {
 			case "xpath-ast":
 				for (const value of readSlotValues(field, slot.path)) {
 					if (isXPathExpression(value.value)) {
-						extractAstRefs(sink, ctx, value.value, slot.slot);
+						extractAstRefs(sink, value.value, slot.slot);
 					}
 				}
 				break;
@@ -425,11 +388,7 @@ function extractFieldEdges(
 	}
 }
 
-function extractFormEdges(
-	sink: EdgeSink,
-	form: Form,
-	ctx: CarrierContext,
-): void {
+function extractFormEdges(sink: EdgeSink, form: Form): void {
 	for (const slot of FORM_REFERENCE_SLOTS) {
 		switch (slot.slot) {
 			case "form_display_condition":
@@ -448,7 +407,7 @@ function extractFormEdges(
 				// same as the field expression slots.
 				for (const value of readSlotValues(form, slot.path)) {
 					if (isXPathExpression(value.value)) {
-						extractAstRefs(sink, ctx, value.value, slot.slot);
+						extractAstRefs(sink, value.value, slot.slot);
 					}
 				}
 				break;
@@ -758,14 +717,11 @@ function expressionEdges(
 /**
  * Edges for one stored expression AST — a pure leaf walk, no parse:
  *
- *   - `field-ref` / `path-ref` carry the target's uuid directly. No
- *     `local` mark: identity edges cannot shift with the form's id
- *     namespace, which is the whole point of the representation.
+ *   - `field-ref` / `path-ref` carry the target's UUID directly.
  *   - `case-ref` names its type (`t:`) and reads its property (`c:`).
  */
 function extractAstRefs(
 	sink: EdgeSink,
-	ctx: CarrierContext,
 	expr: XPathExpression,
 	slot: string,
 ): void {
@@ -829,76 +785,6 @@ function extractProseRefs(
 	}
 }
 
-/**
- * Namespace dispatch shared by the XPath and prose extractors:
- *
- *   - `form` — form-local; a `u:` edge per resolved anchored prefix.
- *   - `user` — built-in user properties, outside the doc; no edge.
- *   - `case` — contextual; keys under the owning module's CURRENT case
- *     type (single-segment refs only — multi-segment `#case/…` is a
- *     shape the property-rename rewriter never matches), and marks the
- *     carrier context-dependent either way so a later type change
- *     re-extracts it.
- *   - anything else — an explicit case-type namespace: a `t:` edge
- *     always, plus the `c:` property edge for the single-segment form.
- */
-function hashtagEdges(
-	sink: EdgeSink,
-	doc: BlueprintDoc,
-	ctx: CarrierContext,
-	slot: string,
-	namespace: string,
-	segments: string[],
-): void {
-	if (namespace.length === 0) return;
-	if (namespace === "form") {
-		sink.markLocal();
-		for (const uuid of resolveIdChain(doc, ctx.formUuid, segments)) {
-			sink.edge(entityTargetKey(uuid), slot);
-		}
-		return;
-	}
-	if (namespace === "user") return;
-	if (namespace === "case") {
-		sink.markCtx();
-		if (segments.length === 1 && ctx.moduleCaseType) {
-			sink.edge(casePropertyTargetKey(ctx.moduleCaseType, segments[0]), slot);
-		}
-		return;
-	}
-	sink.edge(caseTypeTargetKey(namespace), slot);
-	if (segments.length === 1) {
-		sink.edge(casePropertyTargetKey(namespace, segments[0]), slot);
-	}
-}
-
-/**
- * Resolve an id path stepwise from the form root, returning the field
- * uuid landed on at each step (stopping at the first unresolvable
- * segment). Resolution follows `fieldOrder` structure by semantic id —
- * the same anchored-prefix walk the rewriters' segment matching
- * performs textually.
- */
-function resolveIdChain(
-	doc: BlueprintDoc,
-	formUuid: Uuid | undefined,
-	segments: readonly string[],
-): Uuid[] {
-	if (formUuid === undefined) return [];
-	const resolved: Uuid[] = [];
-	let parent: Uuid = formUuid;
-	for (const segment of segments) {
-		const children = ownRecordValue(doc.fieldOrder, parent) ?? [];
-		const next = children.find(
-			(uuid) => ownRecordValue(doc.fields, uuid)?.id === segment,
-		);
-		if (next === undefined) break;
-		resolved.push(next);
-		parent = next;
-	}
-	return resolved;
-}
-
 // ── Builders + accessors ────────────────────────────────────────────
 
 /**
@@ -941,7 +827,6 @@ function referenceIndexRootsAreOwn(index: ReferenceIndex): boolean {
 		isOwnRecord(index.in) &&
 		isOwnRecord(index.out) &&
 		isOwnRecord(index.decl) &&
-		isOwnRecord(index.local) &&
 		isOwnRecord(index.ctx)
 	);
 }
@@ -955,7 +840,6 @@ function referenceIndexIsOwn(index: ReferenceIndex): boolean {
 	if (
 		!referenceIndexRootsAreOwn(index) ||
 		!nestedSetBucketIsOwn(index.decl) ||
-		!nestedSetBucketIsOwn(index.local) ||
 		!nestedSetBucketIsOwn(index.ctx)
 	) {
 		return false;
@@ -1078,23 +962,12 @@ export function planReferenceIndexMaintenance(
 	const index = doc.refIndex;
 	if (!index) return NO_MAINTENANCE;
 	const carriers = new Set<string>();
-	const addLocalCarriers = (formUuid: string | undefined): void => {
-		if (formUuid === undefined) return;
-		for (const carrier of Object.keys(
-			ownRecordValue(index.local, formUuid) ?? {},
-		)) {
-			carriers.add(carrier);
-		}
-	};
 	const addFieldSubtree = (uuid: Uuid): void => {
 		carriers.add(uuid);
 		for (const descendant of walkFormFieldUuids(doc, uuid)) {
 			carriers.add(descendant);
 		}
 	};
-	const containingFormOf = (uuid: Uuid): Uuid | undefined =>
-		ownRecordValue(doc.forms, uuid) ? uuid : findContainingForm(doc, uuid);
-
 	switch (mut.kind) {
 		// App-level slots are never indexed (the case-type catalog is
 		// root-level data the planner reads directly), so the catalog kinds —
@@ -1135,7 +1008,7 @@ export function planReferenceIndexMaintenance(
 		case "updateModule": {
 			carriers.add(mut.uuid);
 			// A case-type change re-keys every context-dependent ref in the
-			// module's forms (`#case/…` extracts under the module's type).
+			// module's forms and module-owned contextual property slots.
 			if ("caseType" in mut.patch) {
 				const previous = ownRecordValue(doc.modules, mut.uuid)?.caseType;
 				if (mut.patch.caseType !== previous) {
@@ -1188,39 +1061,28 @@ export function planReferenceIndexMaintenance(
 			break;
 		case "addField":
 			carriers.add(mut.field.uuid);
-			addLocalCarriers(containingFormOf(mut.parentUuid));
 			break;
 		case "removeField":
 			addFieldSubtree(mut.uuid);
-			addLocalCarriers(containingFormOf(mut.uuid));
 			break;
 		case "moveField":
-			// The moved field's path (and possibly its dedup-renamed id)
-			// changes; same-form refs re-anchor textually but resolution can
-			// shift for refs the rewrite never matched.
+			// A sibling collision may change the field's authored id and its
+			// case-property declaration. UUID references need no re-indexing.
 			carriers.add(mut.uuid);
-			addLocalCarriers(containingFormOf(mut.uuid));
 			break;
 		case "renameField": {
 			const field = ownRecordValue(doc.fields, mut.uuid);
 			if (!field || field.id === mut.newId) break;
 			carriers.add(mut.uuid);
-			addLocalCarriers(containingFormOf(mut.uuid));
 			const caseType = fieldCasePropertyOn(field);
 			if (caseType !== undefined && field.id.length > 0) {
-				// Peers rename in lockstep (their declarations re-key, and
-				// their forms' local namespaces change with them)…
+				// Peers rename in lockstep, so their declarations re-key.
 				const declKey = casePropertyDeclKey(caseType, field.id);
 				for (const peer of Object.keys(
 					ownRecordValue(index.decl, declKey) ?? {},
 				)) {
 					if (peer === mut.uuid) continue;
 					carriers.add(peer);
-					addLocalCarriers(
-						ownRecordValue(doc.fields, peer)
-							? findContainingForm(doc, peer as Uuid)
-							: undefined,
-					);
 				}
 				// …and every carrier reading the property re-keys from
 				// `c:<type>/<old>` to `c:<type>/<new>`.
@@ -1266,14 +1128,6 @@ export function planReferenceIndexMaintenance(
 			break;
 		case "updateField": {
 			carriers.add(mut.uuid);
-			// The generic patch CAN carry `id` (the rename mutation is the
-			// designed path, but replayed events are total) — an id change
-			// shifts the form's namespace like a rename does.
-			const patch = mut.patch as Record<string, unknown>;
-			const field = ownRecordValue(doc.fields, mut.uuid);
-			if (field && typeof patch.id === "string" && patch.id !== field.id) {
-				addLocalCarriers(containingFormOf(mut.uuid));
-			}
 			break;
 		}
 		// User properties, user types, and personas register NO edges. The

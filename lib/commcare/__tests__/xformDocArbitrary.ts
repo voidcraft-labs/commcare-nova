@@ -47,6 +47,7 @@ import {
 } from "@/lib/domain";
 import { walkAssetRefs } from "@/lib/domain/mediaRefs";
 import { asMediaAssetId, type MediaAssetId } from "@/lib/domain/multimedia";
+import { proseText } from "@/lib/domain/prose";
 
 // ── Stable id minting ──────────────────────────────────────────────
 
@@ -249,14 +250,19 @@ export function buildField(
 		// Per-option media is layered onto each option below.
 		const options = spec.options.map((opt, idx) => {
 			const optMedia = buildMediaSlot(ctx.minter, spec.optionMedia?.[idx]);
-			return optMedia ? { ...opt, media: optMedia } : opt;
+			return {
+				uuid: ctx.minter.uuid("opt"),
+				value: opt.value,
+				label: proseText(opt.label),
+				...(optMedia ? { media: optMedia } : {}),
+			};
 		});
 		ctx.fields[uuid] = {
 			uuid,
 			kind,
 			id,
-			label: spec.label,
-			options,
+			label: proseText(spec.label),
+			optionsSource: { kind: "inline", options },
 			// Selects are validatable kinds; a type-matched `'a'` default exercises
 			// the setvalue path for the select shape too.
 			...(spec.wantsDefault
@@ -285,7 +291,7 @@ export function buildField(
 			uuid,
 			kind: "group",
 			id,
-			label: spec.label,
+			label: proseText(spec.label),
 		} as Field;
 		ctx.fieldOrder[uuid] = [];
 		spec.children.forEach((childSpec, i) => {
@@ -295,7 +301,12 @@ export function buildField(
 	}
 
 	if (spec.kind === "repeat") {
-		const base = { uuid, kind: "repeat" as const, id, label: spec.label };
+		const base = {
+			uuid,
+			kind: "repeat" as const,
+			id,
+			label: proseText(spec.label),
+		};
 		let field: Field;
 		if (spec.mode === "user_controlled") {
 			field = { ...base, repeat_mode: "user_controlled" } as Field;
@@ -357,18 +368,21 @@ export function buildField(
 		uuid,
 		kind: spec.kind,
 		id,
-		label: spec.label,
+		label: proseText(spec.label),
 		...(spec.relevant
 			? { relevant: opaqueXPathExpression(spec.relevant) }
 			: {}),
 		...(spec.required
 			? { required: opaqueXPathExpression(spec.required) }
 			: {}),
-		...(spec.hint ? { hint: spec.hint } : {}),
+		...(spec.hint ? { hint: proseText(spec.hint) } : {}),
 		...(validatable && spec.validate
 			? {
 					validate: opaqueXPathExpression(spec.validate),
-					validate_msg: spec.validateMsg,
+					validate_msg:
+						spec.validateMsg === undefined
+							? undefined
+							: proseText(spec.validateMsg),
 				}
 			: {}),
 		// `default_value` is type-matched per kind (DEFAULT_VALUE_BY_KIND); a
@@ -408,7 +422,7 @@ function injectSubcaseRepeat(
 		uuid: repeatUuid,
 		kind: "repeat" as const,
 		id: "children",
-		label: "Children",
+		label: proseText("Children"),
 	};
 	let repeatField: Field;
 	if (spec.mode === "user_controlled") {
@@ -444,7 +458,7 @@ function injectSubcaseRepeat(
 		uuid: childFieldUuid,
 		kind: "text",
 		id: "case_name",
-		label: "Child name",
+		label: proseText("Child name"),
 		case_property_on: spec.childCaseType,
 	} as Field;
 }
@@ -1122,7 +1136,7 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 					uuid: caseNameUuid,
 					kind: "text",
 					id: "case_name",
-					label: "Case name",
+					label: proseText("Case name"),
 					case_property_on: modSpec.caseType,
 				} as Field;
 
@@ -1134,7 +1148,7 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 					// A fixed reserved id OUTSIDE `SIBLING_ID_POOL` so it never
 					// collides with a pool-assigned random root sibling.
 					id: "saved_prop",
-					label: "A saved property",
+					label: proseText("A saved property"),
 					case_property_on: modSpec.caseType,
 				} as Field;
 			}
@@ -1207,7 +1221,7 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 	]);
 	const caseTypes: CaseType[] = [...allCaseTypeNames].map((name) => ({
 		name,
-		properties: [{ name: "case_name", label: "Name" }],
+		properties: [{ name: "case_name", label: proseText("Name") }],
 	}));
 
 	// App-level logo (web-apps banner). Single optional slot; minted late so

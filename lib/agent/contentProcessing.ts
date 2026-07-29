@@ -40,7 +40,9 @@ import {
 	fieldKindDeclaresKey,
 	fieldKinds,
 	fieldSchema,
+	isProseTemplate,
 	pickFieldKeysForKind,
+	proseTemplateIsEmpty,
 	uuidSchema,
 } from "@/lib/domain";
 import { log } from "@/lib/logger";
@@ -64,6 +66,7 @@ function isUnset(value: unknown): boolean {
 		value === undefined ||
 		value === null ||
 		value === "" ||
+		(isProseTemplate(value) && proseTemplateIsEmpty(value)) ||
 		(Array.isArray(value) && value.length === 0)
 	);
 }

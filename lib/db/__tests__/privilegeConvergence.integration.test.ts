@@ -24,10 +24,13 @@ import {
 	executeDatabaseOwnerBootstrap,
 	quoteIdentifier,
 } from "@/scripts/infra/databaseOwnerBootstrap";
+import { runCaptureCleanupSchemaProbe } from "../captureCleanupSchemaProbe";
+import type { AppDatabase } from "../pg";
 import {
 	convergeDatabasePrivileges,
 	type DatabasePrivilegeRoleConfig,
 } from "../privilegeConvergence";
+import { runCanonicalRuntimeDatabaseProbe } from "../runtimeDatabaseProbe";
 
 const h = setupPerTestDatabase({
 	databaseNamePrefix: "privilege_convergence_",
@@ -397,6 +400,9 @@ describe("database privilege convergence", () => {
 		let migration:
 			| { readonly db: Kysely<unknown>; readonly pool: Pool }
 			| undefined;
+		let cleanup:
+			| { readonly db: Kysely<unknown>; readonly pool: Pool }
+			| undefined;
 		try {
 			await bootstrapClient.connect();
 			await bootstrapClient.query(`SET ROLE ${quoteIdentifier(bootstrapRole)}`);
@@ -461,6 +467,83 @@ describe("database privilege convergence", () => {
 			await runAuthAppMigrations(migration.db);
 
 			await convergeDatabasePrivileges(migration.db, config);
+
+			const probeAppId = crypto.randomUUID();
+			const probeUserId = crypto.randomUUID();
+			const probeProjectId = crypto.randomUUID();
+			await sql`
+				INSERT INTO auth_user (
+					id, name, email, "emailVerified", "createdAt", "updatedAt"
+				)
+				VALUES (
+					${probeUserId}, 'Runtime probe',
+					${`${probeUserId}@dimagi.com`}, true, now(), now()
+				)
+			`.execute(migration.db);
+			await sql`
+				INSERT INTO auth_organization (
+					id, name, slug, "createdAt"
+				)
+				VALUES (
+					${probeProjectId}, 'Runtime probe',
+					${`runtime-probe-${probeProjectId}`}, now()
+				)
+			`.execute(migration.db);
+			await sql`
+				INSERT INTO apps (
+					id, owner, project_id, app_name, app_name_lower
+				)
+				VALUES (
+					${probeAppId}, ${probeUserId}, ${probeProjectId},
+					'Runtime probe', 'runtime probe'
+				)
+			`.execute(migration.db);
+			await sql`
+				INSERT INTO auth_member (
+					id, "userId", "organizationId", role, "createdAt"
+				)
+				VALUES (
+					${crypto.randomUUID()}, ${probeUserId}, ${probeProjectId},
+					'editor', now()
+				)
+			`.execute(migration.db);
+
+			const runtimeProbe = await runCanonicalRuntimeDatabaseProbe(
+				migration.db,
+				config.runtimeRole,
+			);
+			expect(runtimeProbe).toMatchObject({
+				parsedAppCount: 1,
+				parserFindingCount: 0,
+				rollbackVerified: true,
+			});
+			expect(runtimeProbe.snapshotDigest).toMatch(/^[0-9a-f]{64}$/);
+			const runtimeProbeResidue = await sql<{
+				mutation_seq: string | number;
+				mutation_count: string | number;
+			}>`
+				SELECT
+					app.mutation_seq,
+					(
+						SELECT count(*)
+						FROM accepted_mutations
+						WHERE app_id = app.id
+					) AS mutation_count
+				FROM apps AS app
+				WHERE app.id = ${probeAppId}
+			`.execute(migration.db);
+			expect(runtimeProbeResidue.rows).toEqual([
+				{ mutation_seq: "0", mutation_count: "0" },
+			]);
+
+			cleanup = await createRoleDatabase(config.cleanupRole);
+			const cleanupProbe = await runCaptureCleanupSchemaProbe(
+				cleanup.db as unknown as Kysely<AppDatabase>,
+			);
+			expect(cleanupProbe).toEqual({
+				columnCount: 23,
+				rollbackVerified: true,
+			});
 			// Convergence is an every-deploy operation, including after `cases` has
 			// already moved and is runtime-owned. Seed historical direct cleanup
 			// grants to prove the second pass converges rather than merely audits
@@ -732,6 +815,7 @@ describe("database privilege convergence", () => {
 		} finally {
 			await bootstrapClient.query("RESET ROLE").catch(() => undefined);
 			await bootstrapClient.end().catch(() => undefined);
+			await cleanup?.db.destroy().catch(() => undefined);
 			await migration?.db.destroy().catch(() => undefined);
 			await dropRoles(h.db, config, [config.cleanupRole, bootstrapRole]);
 		}

@@ -1,6 +1,6 @@
-import { proseText } from "@/lib/domain/prose";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { proseText } from "@/lib/domain/prose";
 /**
  * Cross-rule integration tests for the case-search-config validator
  * surface. Two pins:
@@ -99,13 +99,13 @@ describe("case-search validator — cross-rule integration", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 								f({
 									kind: "text",
 									id: "region",
-									label: "Region",
+									label: proseText("Region"),
 									case_property_on: "patient",
 								}),
 							],
@@ -211,13 +211,13 @@ describe("case-search validator — cross-rule integration", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 								f({
 									kind: "text",
 									id: "region",
-									label: "Region",
+									label: proseText("Region"),
 									case_property_on: "patient",
 								}),
 							],

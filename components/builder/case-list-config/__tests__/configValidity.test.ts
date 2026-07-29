@@ -28,6 +28,7 @@ import {
 	today,
 	whenInput,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 
 import { caseListConfigVerdicts } from "../configValidity";
 
@@ -35,10 +36,10 @@ const CASE_TYPES: CaseType[] = [
 	{
 		name: "patient",
 		properties: [
-			{ name: "name", label: "Name", data_type: "text" },
-			{ name: "dob", label: "Date of birth", data_type: "date" },
-			{ name: "age", label: "Age", data_type: "int" },
-			{ name: "score", label: "Score", data_type: "int" },
+			{ name: "name", label: proseText("Name"), data_type: "text" },
+			{ name: "dob", label: proseText("Date of birth"), data_type: "date" },
+			{ name: "age", label: proseText("Age"), data_type: "int" },
+			{ name: "score", label: proseText("Score"), data_type: "int" },
 		],
 	} as CaseType,
 ];
@@ -90,11 +91,12 @@ describe("caseListConfigVerdicts", () => {
 	});
 
 	it("checks Results filters against a date field's runtime date value", () => {
+		const searchInputUuid = testUuid("date-search");
 		const v = verdicts({
-			filter: eq(prop("patient", "dob"), input("visit_date")),
+			filter: eq(prop("patient", "dob"), input(searchInputUuid)),
 			searchInputs: [
 				simpleSearchInputDef(
-					testUuid("date-search"),
+					searchInputUuid,
 					"visit_date",
 					"Visit date",
 					"date",
@@ -146,7 +148,7 @@ describe("caseListConfigVerdicts", () => {
 		const caseTypes: CaseType[] = [
 			{
 				name: "patient",
-				properties: [{ name: "mystery", label: "Mystery" }],
+				properties: [{ name: "mystery", label: proseText("Mystery") }],
 			} as CaseType,
 		];
 		const v = caseListConfigVerdicts(
@@ -283,14 +285,18 @@ describe("caseListConfigVerdicts", () => {
 		// via the when-input-present envelope. The edited row must be in
 		// scope for that to resolve — otherwise the gate flags a condition
 		// the commit gate and wire emitter accept.
+		const searchInputUuid = testUuid("s1");
 		const v = verdicts({
 			searchInputs: [
 				advancedSearchInputDef(
-					testUuid("s1"),
+					searchInputUuid,
 					"name",
 					"Name",
 					"text",
-					whenInput(input("name"), eq(prop("patient", "name"), input("name"))),
+					whenInput(
+						input(searchInputUuid),
+						eq(prop("patient", "name"), input(searchInputUuid)),
+					),
 				),
 			],
 		});

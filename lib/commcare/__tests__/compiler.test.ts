@@ -1,4 +1,3 @@
-import { proseText } from "@/lib/domain/prose";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -28,6 +27,7 @@ import {
 	term,
 	whenInput,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 
 // The compiler consumes the domain doc directly — we build the fixture
 // via the shared DSL, expand it to HQ JSON with `expandDoc`, and feed
@@ -48,13 +48,13 @@ const doc = buildDoc({
 						f({
 							kind: "text",
 							id: "case_name",
-							label: "Name",
+							label: proseText("Name"),
 							case_property_on: "patient",
 						}),
 						f({
 							kind: "int",
 							id: "age",
-							label: "Age",
+							label: proseText("Age"),
 							case_property_on: "patient",
 						}),
 					],
@@ -69,7 +69,7 @@ const doc = buildDoc({
 							calculate: "#case/total_visits + 1",
 							case_property_on: "patient",
 						}),
-						f({ kind: "text", id: "notes", label: "Notes" }),
+						f({ kind: "text", id: "notes", label: proseText("Notes") }),
 					],
 				},
 			],
@@ -167,7 +167,9 @@ describe("compileCcz", () => {
 						{
 							name: "Visit",
 							type: "followup",
-							fields: [f({ kind: "text", id: "notes", label: "Notes" })],
+							fields: [
+								f({ kind: "text", id: "notes", label: proseText("Notes") }),
+							],
 						},
 					],
 				},
@@ -209,7 +211,9 @@ describe("compileCcz", () => {
 						{
 							name: "Visit",
 							type: "followup",
-							fields: [f({ kind: "text", id: "notes", label: "Notes" })],
+							fields: [
+								f({ kind: "text", id: "notes", label: proseText("Notes") }),
+							],
 						},
 					],
 				},
@@ -240,17 +244,18 @@ describe("compileCcz", () => {
 		const config = caseListConfig([
 			{ field: "last_visit", header: "Last visit" },
 		]);
+		const baseDateInputUuid = testUuid("00000000-0000-4000-8000-00000000a002");
 		config.searchInputs = [
 			advancedSearchInputDef(
-				testUuid("00000000-0000-4000-8000-00000000a002"),
+				baseDateInputUuid,
 				"base_date",
 				"Starting date",
 				"date",
 				whenInput(
-					input("base_date"),
+					input(baseDateInputUuid),
 					eq(
 						prop("patient", "last_visit"),
-						dateAdd(term(input("base_date")), "days", term(literal(7))),
+						dateAdd(term(input(baseDateInputUuid)), "days", term(literal(7))),
 					),
 				),
 			),
@@ -266,7 +271,9 @@ describe("compileCcz", () => {
 						{
 							name: "Visit",
 							type: "followup",
-							fields: [f({ kind: "text", id: "notes", label: "Notes" })],
+							fields: [
+								f({ kind: "text", id: "notes", label: proseText("Notes") }),
+							],
 						},
 					],
 				},
@@ -337,7 +344,9 @@ describe("compileCcz", () => {
 						{
 							name: "Visit",
 							type: "followup",
-							fields: [f({ kind: "text", id: "notes", label: "Notes" })],
+							fields: [
+								f({ kind: "text", id: "notes", label: proseText("Notes") }),
+							],
 						},
 					],
 				},
@@ -400,18 +409,19 @@ describe("compileCcz", () => {
 		const config = caseListConfig([
 			{ field: "last_seen", header: "Last seen" },
 		]);
+		const baseDateInputUuid = testUuid("00000000-0000-4000-8000-00000000a004");
 		config.searchInputs = [
 			advancedSearchInputDef(
-				testUuid("00000000-0000-4000-8000-00000000a004"),
+				baseDateInputUuid,
 				"base_date",
 				"Starting date",
 				"date",
 				whenInput(
-					input("base_date"),
+					input(baseDateInputUuid),
 					eq(
 						prop("patient", "last_seen"),
 						dateAdd(
-							datetimeCoerce(term(input("base_date"))),
+							datetimeCoerce(term(input(baseDateInputUuid))),
 							"hours",
 							term(literal(1)),
 						),
@@ -430,7 +440,9 @@ describe("compileCcz", () => {
 						{
 							name: "Visit",
 							type: "followup",
-							fields: [f({ kind: "text", id: "notes", label: "Notes" })],
+							fields: [
+								f({ kind: "text", id: "notes", label: proseText("Notes") }),
+							],
 						},
 					],
 				},
@@ -649,7 +661,7 @@ describe("compileCcz", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Household name",
+									label: proseText("Household name"),
 									case_property_on: "household",
 								}),
 								// Child case fields live under a group so the child's
@@ -661,12 +673,12 @@ describe("compileCcz", () => {
 								f({
 									kind: "group",
 									id: "child_section",
-									label: "Child",
+									label: proseText("Child"),
 									children: [
 										f({
 											kind: "text",
 											id: "case_name",
-											label: "Child name",
+											label: proseText("Child name"),
 											case_property_on: "child",
 										}),
 									],
@@ -753,24 +765,24 @@ describe("compileCcz", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Household name",
+									label: proseText("Household name"),
 									case_property_on: "household",
 								}),
 								f({
 									kind: "group",
 									id: "child_section",
-									label: "Child",
+									label: proseText("Child"),
 									children: [
 										f({
 											kind: "text",
 											id: "case_name",
-											label: "Child name",
+											label: proseText("Child name"),
 											case_property_on: "child",
 										}),
 										f({
 											kind: "int",
 											id: "child_age",
-											label: "Child age",
+											label: proseText("Child age"),
 											case_property_on: "child",
 										}),
 									],
@@ -875,13 +887,17 @@ describe("compileCcz", () => {
 									},
 								},
 							],
-							fields: [f({ kind: "text", id: "refer", label: "Refer?" })],
+							fields: [
+								f({ kind: "text", id: "refer", label: proseText("Refer?") }),
+							],
 						},
 						{
 							uuid: followupUuid,
 							name: "Followup",
 							type: "survey",
-							fields: [f({ kind: "text", id: "notes", label: "Notes" })],
+							fields: [
+								f({ kind: "text", id: "notes", label: proseText("Notes") }),
+							],
 						},
 					],
 				},
@@ -1163,7 +1179,7 @@ describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "test_case_type",
 								}),
 							],
@@ -1281,7 +1297,7 @@ describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 								f({
 									kind: "text",
 									id: "question1",
-									label: "Question",
+									label: proseText("Question"),
 									case_property_on: "test_case_type",
 								}),
 							],
@@ -1381,7 +1397,7 @@ describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Household name",
+									label: proseText("Household name"),
 									case_property_on: "household",
 								}),
 								// Field on a different case type at the data
@@ -1394,12 +1410,12 @@ describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 								f({
 									kind: "group",
 									id: "child_section",
-									label: "Child",
+									label: proseText("Child"),
 									children: [
 										f({
 											kind: "text",
 											id: "case_name",
-											label: "Child name",
+											label: proseText("Child name"),
 											case_property_on: "child",
 										}),
 									],
@@ -1541,7 +1557,7 @@ describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 								f({
 									kind: "text",
 									id: "question1",
-									label: "Question",
+									label: proseText("Question"),
 									case_property_on: "test_case_type",
 								}),
 							],
@@ -1620,18 +1636,18 @@ describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Household name",
+									label: proseText("Household name"),
 									case_property_on: "household",
 								}),
 								f({
 									kind: "group",
 									id: "child_section",
-									label: "Child",
+									label: proseText("Child"),
 									children: [
 										f({
 											kind: "text",
 											id: "case_name",
-											label: "Child name",
+											label: proseText("Child name"),
 											case_property_on: "child",
 										}),
 									],
@@ -1699,19 +1715,19 @@ describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Parent name",
+									label: proseText("Parent name"),
 									case_property_on: "parent",
 								}),
 								f({
 									kind: "repeat",
 									id: "children",
-									label: "Children",
+									label: proseText("Children"),
 									repeat_mode: "user_controlled",
 									children: [
 										f({
 											kind: "text",
 											id: "case_name",
-											label: "Child name",
+											label: proseText("Child name"),
 											case_property_on: "child1",
 										}),
 									],
@@ -1787,7 +1803,7 @@ describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 								f({
 									kind: "text",
 									id: "question1",
-									label: "Question",
+									label: proseText("Question"),
 									case_property_on: "test_case_type",
 								}),
 							],
@@ -1850,7 +1866,7 @@ describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 								f({
 									kind: "text",
 									id: "question1",
-									label: "Question",
+									label: proseText("Question"),
 									case_property_on: "test_case_type",
 									default_value: "'manual-default'",
 								}),
@@ -2082,7 +2098,9 @@ describe.skipIf(!HAS_CCHQ_SUITE_FIXTURES)("CCHQ suite-fixture parity", () => {
 						{
 							name: "Visit",
 							type: "followup",
-							fields: [f({ kind: "text", id: "notes", label: "Notes" })],
+							fields: [
+								f({ kind: "text", id: "notes", label: proseText("Notes") }),
+							],
 						},
 					],
 				},
@@ -2364,7 +2382,9 @@ describe.skipIf(!HAS_CCHQ_SUITE_FIXTURES)("CCHQ case-tile parity", () => {
 						{
 							name: "Visit",
 							type: "followup",
-							fields: [f({ kind: "text", id: "notes", label: "Notes" })],
+							fields: [
+								f({ kind: "text", id: "notes", label: proseText("Notes") }),
+							],
 						},
 					],
 				},

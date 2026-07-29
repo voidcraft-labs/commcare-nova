@@ -10,7 +10,6 @@
  * `streamDispatcher-mutations.test.ts`.
  */
 
-import { proseText } from "@/lib/domain/prose";
 import { beforeEach, describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import {
@@ -20,6 +19,7 @@ import {
 } from "@/lib/collab/reconciler";
 import type { BlueprintDocStoreApi } from "@/lib/doc/store";
 import type { PersistableDoc } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import type { ConversationEvent } from "@/lib/log/types";
 import type { BuilderSessionStoreApi } from "@/lib/session/store";
 import { READ_ENERGY_PER_CHAR, signalGrid } from "@/lib/signalGrid/store";
@@ -97,7 +97,7 @@ const MINIMAL_DOC: PersistableDoc = {
 			uuid: testUuid("q-uuid-1"),
 			id: "case_name",
 			kind: "text",
-			label: "Patient Name",
+			label: proseText("Patient Name"),
 		},
 	},
 	moduleOrder: [testUuid("mod-uuid-1")],

@@ -32,8 +32,8 @@ import { SavedCheck } from "@/components/builder/EditableTitle";
 import { SaveShortcutHint } from "@/components/builder/SaveShortcutHint";
 import {
 	canonicalProseTemplate,
-	proseTemplateIsEmpty,
 	type ProseTemplate,
+	proseTemplateIsEmpty,
 } from "@/lib/domain";
 import type { ReferenceProvider } from "@/lib/references/provider";
 import {

@@ -15,7 +15,6 @@
 //     valid: false; clearing the slot flips back to true even with
 //     the stale-shadow path active (slot-presence short-circuit).
 
-import { proseText } from "@/lib/domain/prose";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { CaseType } from "@/lib/domain";
@@ -27,6 +26,7 @@ import {
 	type Predicate,
 	prop,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { PredicateSlotCard } from "../PredicateSlotCard";
 
 // ── Fixtures ──────────────────────────────────────────────────────

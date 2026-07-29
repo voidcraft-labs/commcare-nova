@@ -6,7 +6,6 @@
  * build fixtures directly in that shape via the `dTree` helper.
  */
 
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import type {
@@ -15,8 +14,11 @@ import type {
 	FieldKind,
 	Form,
 	FormType,
+	ProseTemplate,
+	SelectOptionsSource,
 	Uuid,
 } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 
 import {
 	type CaseDataByType,
@@ -42,17 +44,35 @@ function caseDataFor(
 interface DField {
 	id: string;
 	kind: FieldKind;
-	label?: string;
-	hint?: string;
+	label?: ProseTemplate;
+	hint?: ProseTemplate;
 	required?: string;
 	relevant?: string;
 	calculate?: string;
 	default_value?: string;
 	validate?: string;
-	validate_msg?: string;
+	validate_msg?: ProseTemplate;
 	case_property_on?: string;
-	options?: Array<{ value: string; label: string }>;
+	optionsSource?: SelectOptionsSource;
 	children?: DField[];
+}
+
+function prose(...parts: ProseTemplate["parts"]): ProseTemplate {
+	return { parts };
+}
+
+function inlineOptions(
+	scope: string,
+	options: ReadonlyArray<readonly [value: string, label: string]>,
+): SelectOptionsSource {
+	return {
+		kind: "inline",
+		options: options.map(([value, label]) => ({
+			uuid: testUuid(`${scope}.${value}`),
+			value,
+			label: proseText(label),
+		})),
+	};
 }
 
 /**
@@ -107,8 +127,8 @@ function dTree(
 describe("FormEngine", () => {
 	it("initializes with field states", () => {
 		const input = dTree([
-			{ id: "name", kind: "text", label: "Name" },
-			{ id: "age", kind: "int", label: "Age" },
+			{ id: "name", kind: "text", label: proseText("Name") },
+			{ id: "age", kind: "int", label: proseText("Age") },
 		]);
 		const engine = new FormEngine(input);
 
@@ -118,7 +138,9 @@ describe("FormEngine", () => {
 	});
 
 	it("sets and gets values", () => {
-		const input = dTree([{ id: "name", kind: "text", label: "Name" }]);
+		const input = dTree([
+			{ id: "name", kind: "text", label: proseText("Name") },
+		]);
 		const engine = new FormEngine(input);
 
 		engine.setValue("/data/name", "Alice");
@@ -131,16 +153,16 @@ describe("FormEngine", () => {
 				{
 					id: "has_children",
 					kind: "single_select",
-					label: "Has children?",
-					options: [
-						{ value: "yes", label: "Yes" },
-						{ value: "no", label: "No" },
-					],
+					label: proseText("Has children?"),
+					optionsSource: inlineOptions("has-children", [
+						["yes", "Yes"],
+						["no", "No"],
+					]),
 				},
 				{
 					id: "num_children",
 					kind: "int",
-					label: "How many?",
+					label: proseText("How many?"),
 					relevant: '/data/has_children = "yes"',
 				},
 			]);
@@ -160,8 +182,8 @@ describe("FormEngine", () => {
 	describe("calculate", () => {
 		it("computes calculated values", () => {
 			const input = dTree([
-				{ id: "weight", kind: "decimal", label: "Weight (kg)" },
-				{ id: "height", kind: "decimal", label: "Height (m)" },
+				{ id: "weight", kind: "decimal", label: proseText("Weight (kg)") },
+				{ id: "height", kind: "decimal", label: proseText("Height (m)") },
 				{
 					id: "bmi",
 					kind: "hidden",
@@ -184,9 +206,9 @@ describe("FormEngine", () => {
 				{
 					id: "age",
 					kind: "int",
-					label: "Age",
+					label: proseText("Age"),
 					validate: ". > 0 and . < 150",
-					validate_msg: "Must be 1-149",
+					validate_msg: proseText("Must be 1-149"),
 				},
 			]);
 			const engine = new FormEngine(input);
@@ -207,7 +229,9 @@ describe("FormEngine", () => {
 		// as a schema rejection naming a property instead of a question.
 
 		it("rejects a half-typed clock, naming what was entered", () => {
-			const input = dTree([{ id: "wake", kind: "time", label: "Wake time" }]);
+			const input = dTree([
+				{ id: "wake", kind: "time", label: proseText("Wake time") },
+			]);
 			const engine = new FormEngine(input);
 
 			engine.setValue("/data/wake", "2:3");
@@ -275,7 +299,7 @@ describe("FormEngine", () => {
 					id: "wake",
 					kind: "time",
 					validate: ". > '08:00:00.000Z'",
-					validate_msg: "Must be after 8am",
+					validate_msg: proseText("Must be after 8am"),
 				},
 			]);
 			const engine = new FormEngine(input);
@@ -384,8 +408,13 @@ describe("FormEngine", () => {
 	describe("required", () => {
 		it("marks statically required fields", () => {
 			const input = dTree([
-				{ id: "name", kind: "text", label: "Name", required: "true()" },
-				{ id: "notes", kind: "text", label: "Notes" },
+				{
+					id: "name",
+					kind: "text",
+					label: proseText("Name"),
+					required: "true()",
+				},
+				{ id: "notes", kind: "text", label: proseText("Notes") },
 			]);
 			const engine = new FormEngine(input);
 
@@ -538,7 +567,7 @@ describe("FormEngine", () => {
 				{
 					id: "visit_date",
 					kind: "date",
-					label: "Visit Date",
+					label: proseText("Visit Date"),
 					default_value: "today()",
 				},
 			]);
@@ -555,7 +584,7 @@ describe("FormEngine", () => {
 					{
 						id: "case_name",
 						kind: "text",
-						label: "Name",
+						label: proseText("Name"),
 						case_property_on: "patient",
 						default_value: "concat(#case/age, ' - ', #case/case_name)",
 					},
@@ -578,7 +607,7 @@ describe("FormEngine", () => {
 					{
 						id: "case_name",
 						kind: "text",
-						label: "Name",
+						label: proseText("Name"),
 						case_property_on: "patient",
 						default_value: "concat(#case/age, ' - ', #case/case_name)",
 					},
@@ -604,7 +633,21 @@ describe("FormEngine", () => {
 					{
 						id: "summary",
 						kind: "label",
-						label: "Patient: #patient/case_name (#patient/hiv_status)",
+						label: prose(
+							{ kind: "text", text: "Patient: " },
+							{
+								kind: "case-ref",
+								caseType: "patient",
+								property: "case_name",
+							},
+							{ kind: "text", text: " (" },
+							{
+								kind: "case-ref",
+								caseType: "patient",
+								property: "hiv_status",
+							},
+							{ kind: "text", text: ")" },
+						),
 					},
 				],
 				"followup",
@@ -635,7 +678,7 @@ describe("FormEngine", () => {
 					{
 						id: "case_name",
 						kind: "text",
-						label: "Medication",
+						label: proseText("Medication"),
 						case_property_on: "medication_order",
 					},
 				],
@@ -670,7 +713,7 @@ describe("FormEngine", () => {
 					{
 						id: "not_delivered_warning",
 						kind: "label",
-						label: "Not yet delivered",
+						label: proseText("Not yet delivered"),
 						relevant: "#medication_order/order_status != 'delivered'",
 					},
 				],
@@ -698,7 +741,14 @@ describe("FormEngine", () => {
 					{
 						id: "banner",
 						kind: "label",
-						label: "Household: #household/case_name",
+						label: prose(
+							{ kind: "text", text: "Household: " },
+							{
+								kind: "case-ref",
+								caseType: "household",
+								property: "case_name",
+							},
+						),
 					},
 				],
 				"followup",
@@ -730,8 +780,25 @@ describe("FormEngine", () => {
 					{
 						id: "context",
 						kind: "label",
-						label:
-							"#patient/case_name / #household/case_name / #village/case_name",
+						label: prose(
+							{
+								kind: "case-ref",
+								caseType: "patient",
+								property: "case_name",
+							},
+							{ kind: "text", text: " / " },
+							{
+								kind: "case-ref",
+								caseType: "household",
+								property: "case_name",
+							},
+							{ kind: "text", text: " / " },
+							{
+								kind: "case-ref",
+								caseType: "village",
+								property: "case_name",
+							},
+						),
 					},
 				],
 				"followup",
@@ -831,9 +898,9 @@ describe("FormEngine", () => {
 				{
 					id: "dob",
 					kind: "date",
-					label: "Date of birth",
+					label: proseText("Date of birth"),
 					validate: ". <= today()",
-					validate_msg: "DOB cannot be in the future",
+					validate_msg: proseText("DOB cannot be in the future"),
 				},
 			]);
 			const engine = new FormEngine(input);
@@ -852,7 +919,7 @@ describe("FormEngine", () => {
 					{
 						id: "case_name",
 						kind: "text",
-						label: "Name",
+						label: proseText("Name"),
 						case_property_on: "patient",
 					},
 				],
@@ -875,10 +942,10 @@ describe("FormEngine", () => {
 				{
 					id: "greeting",
 					kind: "text",
-					label: "Greeting",
+					label: proseText("Greeting"),
 					default_value: "'hello'",
 				},
-				{ id: "name", kind: "text", label: "Name" },
+				{ id: "name", kind: "text", label: proseText("Name") },
 			]);
 			const engine = new FormEngine(input);
 			expect(engine.getState("/data/greeting").value).toBe("hello");
@@ -893,10 +960,10 @@ describe("FormEngine", () => {
 				{
 					id: "greeting",
 					kind: "text",
-					label: "Greeting",
+					label: proseText("Greeting"),
 					default_value: "'goodbye'",
 				},
-				{ id: "name", kind: "text", label: "Name" },
+				{ id: "name", kind: "text", label: proseText("Name") },
 			]);
 			const newEngine = new FormEngine(updatedInput);
 			expect(newEngine.getState("/data/greeting").value).toBe("goodbye");
@@ -912,7 +979,7 @@ describe("FormEngine", () => {
 				{
 					id: "status",
 					kind: "text",
-					label: "Status",
+					label: proseText("Status"),
 					default_value: "'active'",
 				},
 			]);
@@ -929,7 +996,7 @@ describe("FormEngine", () => {
 				{
 					id: "status",
 					kind: "text",
-					label: "Status",
+					label: proseText("Status"),
 					default_value: "'archived'",
 				},
 			]);
@@ -947,10 +1014,10 @@ describe("FormEngine", () => {
 				{
 					id: "demographics",
 					kind: "group",
-					label: "Demographics",
+					label: proseText("Demographics"),
 					children: [
-						{ id: "name", kind: "text", label: "Name" },
-						{ id: "age", kind: "int", label: "Age" },
+						{ id: "name", kind: "text", label: proseText("Name") },
+						{ id: "age", kind: "int", label: proseText("Age") },
 					],
 				},
 			]);
@@ -971,8 +1038,8 @@ describe("FormEngine", () => {
 				{
 					id: "members",
 					kind: "repeat",
-					label: "Household members",
-					children: [{ id: "name", kind: "text", label: "Name" }],
+					label: proseText("Household members"),
+					children: [{ id: "name", kind: "text", label: proseText("Name") }],
 				},
 			]);
 			const engine = new FormEngine(input);
@@ -985,8 +1052,8 @@ describe("FormEngine", () => {
 				{
 					id: "members",
 					kind: "repeat",
-					label: "Household members",
-					children: [{ id: "name", kind: "text", label: "Name" }],
+					label: proseText("Household members"),
+					children: [{ id: "name", kind: "text", label: proseText("Name") }],
 				},
 			]);
 			const engine = new FormEngine(input);
@@ -1008,8 +1075,8 @@ describe("FormEngine", () => {
 				{
 					id: "members",
 					kind: "repeat",
-					label: "Household members",
-					children: [{ id: "name", kind: "text", label: "Name" }],
+					label: proseText("Household members"),
+					children: [{ id: "name", kind: "text", label: proseText("Name") }],
 				},
 			]);
 			const engine = new FormEngine(input);
@@ -1039,8 +1106,8 @@ describe("FormEngine", () => {
 				{
 					id: "members",
 					kind: "repeat",
-					label: "Household members",
-					children: [{ id: "name", kind: "text", label: "Name" }],
+					label: proseText("Household members"),
+					children: [{ id: "name", kind: "text", label: proseText("Name") }],
 				},
 			]);
 			const engine = new FormEngine(input);
@@ -1122,18 +1189,18 @@ describe("FormEngine", () => {
 				{
 					id: "show",
 					kind: "single_select",
-					label: "Show?",
-					options: [
-						{ value: "yes", label: "Yes" },
-						{ value: "no", label: "No" },
-					],
+					label: proseText("Show?"),
+					optionsSource: inlineOptions("repeat-visibility", [
+						["yes", "Yes"],
+						["no", "No"],
+					]),
 				},
 				{
 					id: "members",
 					kind: "repeat",
-					label: "Members",
+					label: proseText("Members"),
 					relevant: '/data/show = "yes"',
-					children: [{ id: "name", kind: "text", label: "Name" }],
+					children: [{ id: "name", kind: "text", label: proseText("Name") }],
 				},
 			]);
 			const engine = new FormEngine(input);
@@ -1156,8 +1223,8 @@ describe("FormEngine", () => {
 				{
 					id: "members",
 					kind: "repeat",
-					label: "Household members",
-					children: [{ id: "name", kind: "text", label: "Name" }],
+					label: proseText("Household members"),
+					children: [{ id: "name", kind: "text", label: proseText("Name") }],
 				},
 			]);
 			const engine = new FormEngine(input);
@@ -1175,7 +1242,12 @@ describe("FormEngine", () => {
 	describe("touch (blur validation)", () => {
 		it("marks field as touched — required validation deferred to submit", () => {
 			const input = dTree([
-				{ id: "name", kind: "text", label: "Name", required: "true()" },
+				{
+					id: "name",
+					kind: "text",
+					label: proseText("Name"),
+					required: "true()",
+				},
 			]);
 			const engine = new FormEngine(input);
 
@@ -1206,9 +1278,9 @@ describe("FormEngine", () => {
 				{
 					id: "age",
 					kind: "int",
-					label: "Age",
+					label: proseText("Age"),
 					validate: ". > 0",
-					validate_msg: "Must be positive",
+					validate_msg: proseText("Must be positive"),
 				},
 			]);
 			const engine = new FormEngine(input);
@@ -1230,9 +1302,19 @@ describe("FormEngine", () => {
 	describe("validateAll (submit validation)", () => {
 		it("marks all visible required empty fields as invalid", () => {
 			const input = dTree([
-				{ id: "name", kind: "text", label: "Name", required: "true()" },
-				{ id: "email", kind: "text", label: "Email", required: "true()" },
-				{ id: "notes", kind: "text", label: "Notes" },
+				{
+					id: "name",
+					kind: "text",
+					label: proseText("Name"),
+					required: "true()",
+				},
+				{
+					id: "email",
+					kind: "text",
+					label: proseText("Email"),
+					required: "true()",
+				},
+				{ id: "notes", kind: "text", label: proseText("Notes") },
 			]);
 			const engine = new FormEngine(input);
 
@@ -1246,7 +1328,12 @@ describe("FormEngine", () => {
 
 		it("returns true when all required fields are filled", () => {
 			const input = dTree([
-				{ id: "name", kind: "text", label: "Name", required: "true()" },
+				{
+					id: "name",
+					kind: "text",
+					label: proseText("Name"),
+					required: "true()",
+				},
 			]);
 			const engine = new FormEngine(input);
 
@@ -1259,16 +1346,16 @@ describe("FormEngine", () => {
 				{
 					id: "toggle",
 					kind: "single_select",
-					label: "Show?",
-					options: [
-						{ value: "yes", label: "Yes" },
-						{ value: "no", label: "No" },
-					],
+					label: proseText("Show?"),
+					optionsSource: inlineOptions("required-visibility", [
+						["yes", "Yes"],
+						["no", "No"],
+					]),
 				},
 				{
 					id: "conditional",
 					kind: "text",
-					label: "Details",
+					label: proseText("Details"),
 					required: "true()",
 					relevant: '/data/toggle = "yes"',
 				},
@@ -1282,17 +1369,17 @@ describe("FormEngine", () => {
 
 		it("skips required descendants of an irrelevant group", () => {
 			const input = dTree([
-				{ id: "gate", kind: "text", label: "Gate" },
+				{ id: "gate", kind: "text", label: proseText("Gate") },
 				{
 					id: "section",
 					kind: "group",
-					label: "Section",
+					label: proseText("Section"),
 					relevant: "/data/gate = 'yes'",
 					children: [
 						{
 							id: "photo",
 							kind: "image",
-							label: "Photo",
+							label: proseText("Photo"),
 							required: "true()",
 						},
 					],
@@ -1309,17 +1396,17 @@ describe("FormEngine", () => {
 
 		it("skips required descendants of an irrelevant repeat", () => {
 			const input = dTree([
-				{ id: "gate", kind: "text", label: "Gate" },
+				{ id: "gate", kind: "text", label: proseText("Gate") },
 				{
 					id: "visits",
 					kind: "repeat",
-					label: "Visits",
+					label: proseText("Visits"),
 					relevant: "/data/gate = 'yes'",
 					children: [
 						{
 							id: "photo",
 							kind: "image",
-							label: "Photo",
+							label: proseText("Photo"),
 							required: "true()",
 						},
 					],
@@ -1335,7 +1422,9 @@ describe("FormEngine", () => {
 
 	describe("Zustand store reactivity", () => {
 		it("updates store state on value change", () => {
-			const input = dTree([{ id: "name", kind: "text", label: "Name" }]);
+			const input = dTree([
+				{ id: "name", kind: "text", label: proseText("Name") },
+			]);
 			const engine = new FormEngine(input);
 
 			let called = false;
@@ -1349,7 +1438,9 @@ describe("FormEngine", () => {
 		});
 
 		it("allows unsubscribing from store", () => {
-			const input = dTree([{ id: "name", kind: "text", label: "Name" }]);
+			const input = dTree([
+				{ id: "name", kind: "text", label: proseText("Name") },
+			]);
 			const engine = new FormEngine(input);
 
 			let callCount = 0;
@@ -1367,8 +1458,8 @@ describe("FormEngine", () => {
 
 		it("only creates new state objects for changed paths", () => {
 			const input = dTree([
-				{ id: "age", kind: "text", label: "Age" },
-				{ id: "name", kind: "text", label: "Name" },
+				{ id: "age", kind: "text", label: proseText("Age") },
+				{ id: "name", kind: "text", label: proseText("Name") },
 			]);
 			const engine = new FormEngine(input);
 
@@ -1397,13 +1488,21 @@ describe("FormEngine", () => {
 					{
 						id: "case_name",
 						kind: "text",
-						label: "Name",
+						label: proseText("Name"),
 						case_property_on: "patient",
 					},
 					{
 						id: "greeting",
 						kind: "label",
-						label: "Hello, #case/case_name!",
+						label: prose(
+							{ kind: "text", text: "Hello, " },
+							{
+								kind: "case-ref",
+								caseType: "patient",
+								property: "case_name",
+							},
+							{ kind: "text", text: "!" },
+						),
 					},
 				],
 				"followup",
@@ -1418,8 +1517,15 @@ describe("FormEngine", () => {
 
 		it("resolves hashtag refs referencing form fields", () => {
 			const input = dTree([
-				{ id: "name", kind: "text", label: "Name" },
-				{ id: "summary", kind: "label", label: "You entered: #form/name" },
+				{ id: "name", kind: "text", label: proseText("Name") },
+				{
+					id: "summary",
+					kind: "label",
+					label: prose(
+						{ kind: "text", text: "You entered: " },
+						{ kind: "field-ref", uuid: testUuid("form.name") },
+					),
+				},
 			]);
 			const engine = new FormEngine(input);
 
@@ -1442,13 +1548,19 @@ describe("FormEngine", () => {
 				{
 					id: "demographics",
 					kind: "group",
-					label: "Demographics",
-					children: [{ id: "name", kind: "text", label: "Name" }],
+					label: proseText("Demographics"),
+					children: [{ id: "name", kind: "text", label: proseText("Name") }],
 				},
 				{
 					id: "summary",
 					kind: "label",
-					label: "You entered: #form/demographics/name",
+					label: prose(
+						{ kind: "text", text: "You entered: " },
+						{
+							kind: "field-ref",
+							uuid: testUuid("form.demographics.name"),
+						},
+					),
 				},
 				{
 					id: "echo",
@@ -1467,9 +1579,17 @@ describe("FormEngine", () => {
 
 		it("resolves multiple hashtag refs in one label", () => {
 			const input = dTree([
-				{ id: "first", kind: "text", label: "First" },
-				{ id: "last", kind: "text", label: "Last" },
-				{ id: "display", kind: "label", label: "#form/first #form/last" },
+				{ id: "first", kind: "text", label: proseText("First") },
+				{ id: "last", kind: "text", label: proseText("Last") },
+				{
+					id: "display",
+					kind: "label",
+					label: prose(
+						{ kind: "field-ref", uuid: testUuid("form.first") },
+						{ kind: "text", text: " " },
+						{ kind: "field-ref", uuid: testUuid("form.last") },
+					),
+				},
 			]);
 			const engine = new FormEngine(input);
 
@@ -1480,8 +1600,16 @@ describe("FormEngine", () => {
 
 		it("resolves hashtag refs in hints", () => {
 			const input = dTree([
-				{ id: "name", kind: "text", label: "Name" },
-				{ id: "age", kind: "int", label: "Age", hint: "Age for #form/name" },
+				{ id: "name", kind: "text", label: proseText("Name") },
+				{
+					id: "age",
+					kind: "int",
+					label: proseText("Age"),
+					hint: prose(
+						{ kind: "text", text: "Age for " },
+						{ kind: "field-ref", uuid: testUuid("form.name") },
+					),
+				},
 			]);
 			const engine = new FormEngine(input);
 
@@ -1491,13 +1619,20 @@ describe("FormEngine", () => {
 
 		it("cascades through calculated fields into hashtag refs", () => {
 			const input = dTree([
-				{ id: "age", kind: "int", label: "Age" },
+				{ id: "age", kind: "int", label: proseText("Age") },
 				{
 					id: "status",
 					kind: "hidden",
 					calculate: "if(/data/age > 18, 'Adult', 'Minor')",
 				},
-				{ id: "info", kind: "label", label: "Status: #form/status" },
+				{
+					id: "info",
+					kind: "label",
+					label: prose(
+						{ kind: "text", text: "Status: " },
+						{ kind: "field-ref", uuid: testUuid("form.status") },
+					),
+				},
 			]);
 			const engine = new FormEngine(input);
 
@@ -1509,7 +1644,9 @@ describe("FormEngine", () => {
 		});
 
 		it("does not set resolvedLabel when no hashtag refs present", () => {
-			const input = dTree([{ id: "name", kind: "text", label: "Plain label" }]);
+			const input = dTree([
+				{ id: "name", kind: "text", label: proseText("Plain label") },
+			]);
 			const engine = new FormEngine(input);
 
 			expect(engine.getState("/data/name").resolvedLabel).toBeUndefined();
@@ -2211,11 +2348,11 @@ describe("FormEngine", () => {
 						id: "tags",
 						kind: "multi_select",
 						case_property_on: "patient",
-						options: [
-							{ value: "a", label: "A" },
-							{ value: "b", label: "B" },
-							{ value: "c", label: "C" },
-						],
+						optionsSource: inlineOptions("submission.tags", [
+							["a", "A"],
+							["b", "B"],
+							["c", "C"],
+						]),
 					},
 				]);
 				const engine = new FormEngine(input, "patient");
@@ -2401,10 +2538,10 @@ describe("FormEngine", () => {
 						id: "priority",
 						kind: "single_select",
 						case_property_on: "patient",
-						options: [
-							{ value: "low", label: "Low" },
-							{ value: "high", label: "High" },
-						],
+						optionsSource: inlineOptions("submission.priority", [
+							["low", "Low"],
+							["high", "High"],
+						]),
 					},
 				]);
 				const engine = new FormEngine(input, "patient");
@@ -2503,10 +2640,10 @@ describe("FormEngine", () => {
 					{
 						id: "show",
 						kind: "single_select",
-						options: [
-							{ value: "yes", label: "Yes" },
-							{ value: "no", label: "No" },
-						],
+						optionsSource: inlineOptions("submission.visibility", [
+							["yes", "Yes"],
+							["no", "No"],
+						]),
 					},
 					{ id: "case_name", kind: "text", case_property_on: "patient" },
 					{
@@ -2662,12 +2799,12 @@ describe("FormEngine", () => {
 				{
 					id: "orders",
 					kind: "repeat",
-					label: "Orders",
+					label: proseText("Orders"),
 					children: [
 						{
 							id: "medication_name",
 							kind: "text",
-							label: "Medication",
+							label: proseText("Medication"),
 							case_property_on: "medication_order",
 						},
 						{
@@ -2751,11 +2888,11 @@ describe("FormEngine", () => {
 					id: "orders",
 					kind: "repeat",
 					children: [
-						{ id: "flag", kind: "text", label: "Flag" },
+						{ id: "flag", kind: "text", label: proseText("Flag") },
 						{
 							id: "details",
 							kind: "text",
-							label: "Details",
+							label: proseText("Details"),
 							relevant: "#form/orders/flag = 'yes'",
 						},
 					],
@@ -2778,9 +2915,9 @@ describe("FormEngine", () => {
 						{
 							id: "qty",
 							kind: "text",
-							label: "Qty",
+							label: proseText("Qty"),
 							validate: ". != 'bad'",
-							validate_msg: "No bad values",
+							validate_msg: proseText("No bad values"),
 						},
 					],
 				},
@@ -2800,11 +2937,21 @@ describe("FormEngine", () => {
 					id: "orders",
 					kind: "repeat",
 					children: [
-						{ id: "medication_name", kind: "text", label: "Medication" },
+						{
+							id: "medication_name",
+							kind: "text",
+							label: proseText("Medication"),
+						},
 						{
 							id: "confirm",
 							kind: "text",
-							label: "Confirm #form/orders/medication_name",
+							label: prose(
+								{ kind: "text", text: "Confirm " },
+								{
+									kind: "field-ref",
+									uuid: testUuid("form.orders.medication_name"),
+								},
+							),
 						},
 					],
 				},
@@ -2824,7 +2971,7 @@ describe("FormEngine", () => {
 
 		it("a reference to a field outside the repeat fans out to every instance", () => {
 			const input = dTree([
-				{ id: "prefix", kind: "text", label: "Prefix" },
+				{ id: "prefix", kind: "text", label: proseText("Prefix") },
 				{
 					id: "orders",
 					kind: "repeat",
@@ -2872,7 +3019,7 @@ describe("FormEngine", () => {
 						{
 							id: "stamp",
 							kind: "text",
-							label: "Stamp",
+							label: proseText("Stamp"),
 							default_value: "concat('entry-', position())",
 						},
 					],
@@ -2891,13 +3038,15 @@ describe("FormEngine", () => {
 					id: "orders",
 					kind: "repeat",
 					children: [
-						{ id: "flag", kind: "text", label: "Flag" },
+						{ id: "flag", kind: "text", label: proseText("Flag") },
 						{
 							id: "extras",
 							kind: "group",
-							label: "Extras",
+							label: proseText("Extras"),
 							relevant: "#form/orders/flag = 'yes'",
-							children: [{ id: "note", kind: "text", label: "Note" }],
+							children: [
+								{ id: "note", kind: "text", label: proseText("Note") },
+							],
 						},
 					],
 				},
@@ -2915,7 +3064,7 @@ describe("FormEngine", () => {
 			// value keys exist — a repeat whose children are all structural
 			// (a common mid-authoring state) must not report zero instances.
 			const input = dTree([
-				{ id: "show", kind: "text", label: "Show?" },
+				{ id: "show", kind: "text", label: proseText("Show?") },
 				{
 					id: "section",
 					kind: "repeat",
@@ -2923,7 +3072,7 @@ describe("FormEngine", () => {
 						{
 							id: "grp",
 							kind: "group",
-							label: "Extras",
+							label: proseText("Extras"),
 							relevant: "#form/show = 'yes'",
 							children: [],
 						},
@@ -2953,7 +3102,9 @@ describe("FormEngine", () => {
 						{
 							id: "members",
 							kind: "repeat",
-							children: [{ id: "first", kind: "text", label: "First" }],
+							children: [
+								{ id: "first", kind: "text", label: proseText("First") },
+							],
 						},
 					],
 				},
@@ -2981,7 +3132,7 @@ describe("FormEngine", () => {
 						{
 							id: "final_note",
 							kind: "text",
-							label: "Note",
+							label: proseText("Note"),
 							relevant: "position() = last()",
 						},
 					],
@@ -3000,7 +3151,7 @@ describe("FormEngine", () => {
 				{
 					id: "note",
 					kind: "text",
-					label: "Note",
+					label: proseText("Note"),
 					default_value: "'draft'",
 					case_property_on: "patient",
 				},
@@ -3029,7 +3180,7 @@ describe("FormEngine", () => {
 				{
 					id: "orders",
 					kind: "repeat",
-					children: [{ id: "name", kind: "text", label: "Name" }],
+					children: [{ id: "name", kind: "text", label: proseText("Name") }],
 				},
 			]);
 			const engine = new FormEngine(input);
@@ -3052,7 +3203,7 @@ describe("FormEngine", () => {
 				{
 					id: "orders",
 					kind: "repeat",
-					children: [{ id: "name", kind: "text", label: "Name" }],
+					children: [{ id: "name", kind: "text", label: proseText("Name") }],
 				},
 			]);
 			const engine = new FormEngine(input);
@@ -3074,7 +3225,7 @@ describe("FormEngine", () => {
 				{
 					id: "c",
 					kind: "repeat",
-					children: [{ id: "x", kind: "text", label: "X" }],
+					children: [{ id: "x", kind: "text", label: proseText("X") }],
 				},
 			]);
 			const engine = new FormEngine(input);
@@ -3093,7 +3244,7 @@ describe("FormEngine", () => {
 				{
 					id: "c",
 					kind: "group",
-					children: [{ id: "x", kind: "text", label: "X" }],
+					children: [{ id: "x", kind: "text", label: proseText("X") }],
 				},
 				{ id: "copy", kind: "hidden", calculate: "#form/c/x" },
 			]);
@@ -3116,12 +3267,12 @@ describe("FormEngine", () => {
 					id: "households",
 					kind: "repeat",
 					children: [
-						{ id: "surname", kind: "text", label: "Surname" },
+						{ id: "surname", kind: "text", label: proseText("Surname") },
 						{
 							id: "members",
 							kind: "repeat",
 							children: [
-								{ id: "first", kind: "text", label: "First name" },
+								{ id: "first", kind: "text", label: proseText("First name") },
 								{
 									id: "full",
 									kind: "hidden",

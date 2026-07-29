@@ -11,16 +11,15 @@
  * is the MCP-surface sibling for cross-surface parity.
  */
 
-import { proseText } from "@/lib/domain/prose";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { xp } from "@/lib/__tests__/docHelpers";
-import { backfillOptionUuids } from "@/lib/doc/optionIdentity";
 import type { BlueprintDoc, Field, Form, Module } from "@/lib/domain";
 import type {
 	AssetKind,
 	MediaAssetId,
 	MediaAssetStatus,
 } from "@/lib/domain/multimedia";
+import { proseText } from "@/lib/domain/prose";
 import {
 	type MakeMcpTestContextHandles,
 	makeMcpTestContext,
@@ -107,6 +106,8 @@ export const FORM_A = testUuid("22222222-2222-2222-2222-222222222222");
 export const TEXT_FIELD = testUuid("33333333-3333-3333-3333-333333333333");
 export const SELECT_FIELD = testUuid("44444444-4444-4444-4444-444444444444");
 export const HIDDEN_FIELD = testUuid("55555555-5555-5555-5555-555555555555");
+export const FEVER_OPTION = testUuid("66666666-6666-4666-8666-666666666666");
+export const COUGH_OPTION = testUuid("77777777-7777-4777-8777-777777777777");
 
 /**
  * Minimal field-bearing `BlueprintDoc`: a `patient` module + a
@@ -132,18 +133,29 @@ export function makeMediaDoc(): BlueprintDoc {
 		uuid: TEXT_FIELD,
 		id: "patient_name",
 		kind: "text",
-		label: "Patient name",
-		case_property_on: "case_name",
+		label: proseText("Patient name"),
+		case_property_on: "patient",
 	} as Field;
 	const selectField: Field = {
 		uuid: SELECT_FIELD,
 		id: "symptom",
 		kind: "single_select",
-		label: "Primary symptom",
-		options: [
-			{ value: "fever", label: "Fever" },
-			{ value: "cough", label: "Cough" },
-		],
+		label: proseText("Primary symptom"),
+		optionsSource: {
+			kind: "inline",
+			options: [
+				{
+					uuid: FEVER_OPTION,
+					value: "fever",
+					label: proseText("Fever"),
+				},
+				{
+					uuid: COUGH_OPTION,
+					value: "cough",
+					label: proseText("Cough"),
+				},
+			],
+		},
 	} as Field;
 	const hiddenField: Field = {
 		uuid: HIDDEN_FIELD,
@@ -177,10 +189,6 @@ export function makeMediaDoc(): BlueprintDoc {
 			[HIDDEN_FIELD]: FORM_A,
 		},
 	};
-	// Mirror the production hydration boundary (`loadAppBlueprint`): backfill
-	// order keys + option uuids so a granular `updateOption` can key the option
-	// by uuid (a hand-built fixture lacks them otherwise).
-	backfillOptionUuids(doc);
 	return doc;
 }
 

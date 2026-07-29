@@ -58,7 +58,7 @@ describe("reorderSearchInputs", () => {
 		const { ctx } = makeCaseListFixture();
 		const doc = fixtureWithThreeInputs();
 		const result = await reorderSearchInputsTool.execute(
-			{ moduleIndex: 0, searchInputUuids: [C, A, B] },
+			{ moduleUuid: MOD_A, searchInputUuids: [C, A, B] },
 			ctx,
 			doc,
 		);
@@ -75,7 +75,7 @@ describe("reorderSearchInputs", () => {
 		const { ctx } = makeCaseListFixture();
 		const doc = fixtureWithThreeInputs();
 		const result = await reorderSearchInputsTool.execute(
-			{ moduleIndex: 0, searchInputUuids: [C, A, B] },
+			{ moduleUuid: MOD_A, searchInputUuids: [C, A, B] },
 			ctx,
 			doc,
 		);
@@ -89,7 +89,7 @@ describe("reorderSearchInputs", () => {
 		const { ctx } = makeCaseListFixture();
 		const doc = fixtureWithThreeInputs();
 		const result = await reorderSearchInputsTool.execute(
-			{ moduleIndex: 0, searchInputUuids: [A, B] },
+			{ moduleUuid: MOD_A, searchInputUuids: [A, B] },
 			ctx,
 			doc,
 		);
@@ -106,7 +106,7 @@ describe("reorderSearchInputs", () => {
 		const { ctx } = makeCaseListFixture();
 		const doc = fixtureWithThreeInputs();
 		const result = await reorderSearchInputsTool.execute(
-			{ moduleIndex: 0, searchInputUuids: [A, A, B] },
+			{ moduleUuid: MOD_A, searchInputUuids: [A, A, B] },
 			ctx,
 			doc,
 		);
@@ -124,7 +124,7 @@ describe("reorderSearchInputs", () => {
 		const doc = fixtureWithThreeInputs();
 		const unknown = testUuid("dddddddd-dddd-dddd-dddd-dddddddddddd");
 		const result = await reorderSearchInputsTool.execute(
-			{ moduleIndex: 0, searchInputUuids: [A, B, unknown] },
+			{ moduleUuid: MOD_A, searchInputUuids: [A, B, unknown] },
 			ctx,
 			doc,
 		);
@@ -137,11 +137,11 @@ describe("reorderSearchInputs", () => {
 		expect(result.result.error).toContain(String(unknown));
 	});
 
-	it("returns an Elm-style error on out-of-range moduleIndex", async () => {
+	it("returns the canonical UUID-address error for an unknown module", async () => {
 		const { ctx } = makeCaseListFixture();
 		const doc = fixtureWithThreeInputs();
 		const result = await reorderSearchInputsTool.execute(
-			{ moduleIndex: 99, searchInputUuids: [A, B, C] },
+			{ moduleUuid: testUuid("unknown-module"), searchInputUuids: [A, B, C] },
 			ctx,
 			doc,
 		);
@@ -150,7 +150,6 @@ describe("reorderSearchInputs", () => {
 		if (!("error" in result.result)) {
 			throw new Error("expected error result");
 		}
-		expect(result.result.error).toContain("Tried to reorder");
-		expect(result.result.error).toContain("module index 99");
+		expect(result.result.error).toContain("No module with UUID");
 	});
 });

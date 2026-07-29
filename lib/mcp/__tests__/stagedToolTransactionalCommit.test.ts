@@ -22,13 +22,17 @@
  *      reached the event log.
  */
 
-import { proseText } from "@/lib/domain/prose";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { editFieldTool } from "@/lib/agent/tools/editField";
 import { applyBlueprintChange } from "@/lib/db/applyBlueprintChange";
 import { BlueprintCommitRejectedError } from "@/lib/db/commitGuard";
-import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	fallbackProseProjection,
+	type PersistableDoc,
+} from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import type { LogWriter } from "@/lib/log/writer";
 import { McpContext } from "../context";
 
@@ -61,13 +65,13 @@ function minDoc(): BlueprintDoc {
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Name",
+								label: proseText("Name"),
 								case_property_on: "patient",
 							}),
 							f({
 								kind: "text",
 								id: "village",
-								label: "Village",
+								label: proseText("Village"),
 								case_property_on: "patient",
 							}),
 						],
@@ -122,16 +126,22 @@ describe("editField through McpContext — one transactional save per edit", () 
 	it("a passing rename+patch edit issues exactly one guarded save over the concatenated batch", async () => {
 		const doc = minDoc();
 		const { ctx, logEvent } = makeMcpCtx();
+		const moduleUuid = doc.moduleOrder[0];
+		const formUuid = doc.formOrder[moduleUuid][0];
+		const fieldUuid = doc.fieldOrder[formUuid].find(
+			(uuid) => doc.fields[uuid]?.id === "village",
+		);
+		if (fieldUuid === undefined) throw new Error("village fixture is missing");
 
 		const out = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "village",
+				moduleUuid,
+				formUuid,
+				fieldUuid,
 				updates: {
 					kind: "text",
 					id: "village_name",
-					label: "Home village",
+					label: proseText("Home village"),
 				} as never,
 			},
 			ctx,
@@ -152,17 +162,29 @@ describe("editField through McpContext — one transactional save per edit", () 
 		const renamed = Object.values(persisted.fields).find(
 			(fl) => fl.id === "village_name",
 		);
-		expect(renamed && "label" in renamed && renamed.label).toBe("Home village");
+		expect(
+			renamed && "label" in renamed && renamed.label !== undefined
+				? fallbackProseProjection(renamed.label)
+				: undefined,
+		).toBe("Home village");
 		// Both stages' envelopes reached the log, tagged per stage.
 		const stages = logEvent.mock.calls.map(
 			(c) => (c[0] as { stage?: string }).stage,
 		);
-		expect(new Set(stages)).toEqual(new Set(["rename:0-0", "edit:0-0"]));
+		expect(new Set(stages)).toEqual(
+			new Set([`rename:${formUuid}`, `edit:${formUuid}`]),
+		);
 	});
 
 	it("a contention rejection PROPAGATES out of the tool with ZERO persisted prefix", async () => {
 		const doc = minDoc();
 		const { ctx, logEvent } = makeMcpCtx();
+		const moduleUuid = doc.moduleOrder[0];
+		const formUuid = doc.formOrder[moduleUuid][0];
+		const fieldUuid = doc.fieldOrder[formUuid].find(
+			(uuid) => doc.fields[uuid]?.id === "village",
+		);
+		if (fieldUuid === undefined) throw new Error("village fixture is missing");
 		// The fresh-doc re-verdict inside the transaction rejects — a
 		// concurrent commit landed between the tool's snapshot and the write.
 		vi.mocked(applyBlueprintChange).mockRejectedValueOnce(
@@ -180,13 +202,13 @@ describe("editField through McpContext — one transactional save per edit", () 
 		await expect(
 			editFieldTool.execute(
 				{
-					moduleIndex: 0,
-					formIndex: 0,
-					fieldId: "village",
+					moduleUuid,
+					formUuid,
+					fieldUuid,
 					updates: {
 						kind: "text",
 						id: "village_name",
-						label: "Home village",
+						label: proseText("Home village"),
 					} as never,
 				},
 				ctx,

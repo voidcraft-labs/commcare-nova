@@ -3,8 +3,12 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveDocExpressions } from "@/lib/__tests__/docHelpers";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
-
-import { expressionSource } from "@/lib/domain";
+import {
+	canonicalProseTemplate,
+	expressionSource,
+	printProseTemplate,
+} from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 
 /** Printed text of an AST-stored expression slot off the live store doc. */
 function calcText(doc: BlueprintDoc, uuid: Uuid): string | undefined {
@@ -51,19 +55,19 @@ function fixture(): BlueprintDoc {
 				uuid: GRP1,
 				id: "grp1",
 				kind: "group",
-				label: "G1",
+				label: proseText("G1"),
 			} as BlueprintDoc["fields"][typeof GRP1],
 			[GRP2]: {
 				uuid: GRP2,
 				id: "grp2",
 				kind: "group",
-				label: "G2",
+				label: proseText("G2"),
 			} as BlueprintDoc["fields"][typeof GRP2],
 			[SRC]: {
 				uuid: SRC,
 				id: "source",
 				kind: "text",
-				label: "Source",
+				label: proseText("Source"),
 			} as BlueprintDoc["fields"][typeof SRC],
 			[REF]: {
 				uuid: REF,
@@ -136,19 +140,19 @@ function containerFixture(): BlueprintDoc {
 				uuid: OUTER,
 				id: "outer",
 				kind: "group",
-				label: "Outer",
+				label: proseText("Outer"),
 			} as BlueprintDoc["fields"][typeof OUTER],
 			[GRP]: {
 				uuid: GRP,
 				id: "grp",
 				kind: "group",
-				label: "Grp",
+				label: proseText("Grp"),
 			} as BlueprintDoc["fields"][typeof GRP],
 			[CHILD]: {
 				uuid: CHILD,
 				id: "child",
 				kind: "text",
-				label: "Child",
+				label: proseText("Child"),
 			} as BlueprintDoc["fields"][typeof CHILD],
 			[WATCH]: {
 				uuid: WATCH,
@@ -160,7 +164,11 @@ function containerFixture(): BlueprintDoc {
 				uuid: LABELED,
 				id: "labeled",
 				kind: "text",
-				label: "Compare with #form/grp/child today",
+				label: canonicalProseTemplate([
+					{ kind: "text", text: "Compare with " },
+					{ kind: "field-ref", uuid: CHILD },
+					{ kind: "text", text: " today" },
+				]),
 			} as BlueprintDoc["fields"][typeof LABELED],
 		},
 		moduleOrder: [MOD],
@@ -188,7 +196,7 @@ describe("moveField re-anchors refs to a moved CONTAINER's descendants", () => {
 		);
 	});
 
-	it("rewrites descendant hashtag refs embedded in prose surfaces", () => {
+	it("projects descendant prose refs at their current path", () => {
 		const store = createBlueprintDocStore();
 		store.getState().load(resolveDocExpressions(containerFixture()));
 		store
@@ -196,10 +204,13 @@ describe("moveField re-anchors refs to a moved CONTAINER's descendants", () => {
 			.applyMany([
 				{ kind: "moveField", uuid: GRP, toParentUuid: OUTER, after: null },
 			]);
-		const labeled = store.getState().fields[LABELED] as
-			| { label?: string }
-			| undefined;
-		expect(labeled?.label).toBe("Compare with #form/outer/grp/child today");
+		const next = store.getState();
+		const labeled = next.fields[LABELED];
+		expect(
+			labeled && "label" in labeled && labeled.label !== undefined
+				? printProseTemplate(labeled.label, next)
+				: undefined,
+		).toBe("Compare with #form/outer/grp/child today");
 	});
 });
 
@@ -238,7 +249,7 @@ function crossFormFixture(): BlueprintDoc {
 				uuid: NOTES_A,
 				id: "notes",
 				kind: "text",
-				label: "Notes A",
+				label: proseText("Notes A"),
 			} as BlueprintDoc["fields"][typeof NOTES_A],
 			[WATCH_A]: {
 				uuid: WATCH_A,
@@ -250,7 +261,7 @@ function crossFormFixture(): BlueprintDoc {
 				uuid: NOTES_B,
 				id: "notes",
 				kind: "text",
-				label: "Notes B",
+				label: proseText("Notes B"),
 			} as BlueprintDoc["fields"][typeof NOTES_B],
 			[WATCH_B]: {
 				uuid: WATCH_B,
@@ -304,13 +315,13 @@ describe("moveField across forms is warn-and-skipped (undesigned operation)", ()
 			uuid: GRP,
 			id: "grp",
 			kind: "group",
-			label: "Grp",
+			label: proseText("Grp"),
 		} as BlueprintDoc["fields"][typeof GRP];
 		doc.fields[SUB_A] = {
 			uuid: SUB_A,
 			id: "a",
 			kind: "text",
-			label: "A",
+			label: proseText("A"),
 		} as BlueprintDoc["fields"][typeof SUB_A];
 		doc.fields[SUB_B] = {
 			uuid: SUB_B,
@@ -322,7 +333,7 @@ describe("moveField across forms is warn-and-skipped (undesigned operation)", ()
 			uuid: SEC,
 			id: "sec",
 			kind: "group",
-			label: "Sec",
+			label: proseText("Sec"),
 		} as BlueprintDoc["fields"][typeof SEC];
 		doc.fieldOrder[FORM] = [NOTES_A, WATCH_A, GRP];
 		doc.fieldOrder[GRP] = [SUB_A, SUB_B];
@@ -360,7 +371,7 @@ describe("moveField across forms is warn-and-skipped (undesigned operation)", ()
 			uuid: ORPHAN,
 			id: "orphan",
 			kind: "group",
-			label: "Orphan",
+			label: proseText("Orphan"),
 		} as BlueprintDoc["fields"][typeof ORPHAN];
 
 		const store = createBlueprintDocStore();
@@ -414,19 +425,19 @@ function selfSubtreeFixture(): BlueprintDoc {
 				uuid: PAR,
 				id: "par",
 				kind: "group",
-				label: "Par",
+				label: proseText("Par"),
 			} as BlueprintDoc["fields"][typeof PAR],
 			[INNER]: {
 				uuid: INNER,
 				id: "inner",
 				kind: "group",
-				label: "Inner",
+				label: proseText("Inner"),
 			} as BlueprintDoc["fields"][typeof INNER],
 			[LEAF]: {
 				uuid: LEAF,
 				id: "leaf",
 				kind: "text",
-				label: "Leaf",
+				label: proseText("Leaf"),
 			} as BlueprintDoc["fields"][typeof LEAF],
 		},
 		moduleOrder: [MOD],

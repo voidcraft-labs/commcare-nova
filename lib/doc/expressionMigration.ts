@@ -1,18 +1,16 @@
 // lib/doc/expressionMigration.ts
 //
-// One-time conversion of stored expression slots from their legacy
-// string form to the expression AST — the shared core the scan/migrate
-// scripts and the byte-identity proofs drive. Steady-state code never
-// calls this: live commits parse at their own boundaries
-// (`expressionText.ts`), and the codebase reads only the new shape.
+// Historical operator-repair conversion of stored expression slots from their
+// legacy string form to the expression AST. Steady-state code never calls
+// this, and Unit 18's canonical production cutover does not import it: that
+// migration owns its frozen legacy schemas, parser, printer, and decisions.
 //
 // The conversion is ROUND-TRIP-GATED per slot: a string converts only
 // when printing its parsed AST against the same doc reproduces the
 // original bytes exactly. The parser/printer pair holds that law for
 // every input by construction (fuzz-pinned), so a failure here means
-// the pair has a bug — the slot is REPORTED and left as its original
-// string (which every reader still projects verbatim), never silently
-// "fixed".
+// the pair has a bug — the operator repair is blocked rather than silently
+// "fixing" it. Current app loading accepts only the canonical AST.
 //
 // Registry-driven: the slot list is the reference-slot registry's
 // `xpath-ast` projection, so each surface that migrates to the AST

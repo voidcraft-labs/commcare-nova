@@ -13,11 +13,11 @@
  * (`shared/fieldAssembly.ts`), so groups + nested children compose
  * identically on both tools.
  *
- * A `connect` block crosses the text → AST parse boundary
- * (`shared/connectInput.ts::buildConnectConfig`, same as `updateForm`)
- * against the assembly's batch-aware resolver — so an
- * `assessment.user_score` referencing a field landing in this same
- * call resolves to an identity leaf — and then runs through
+ * A `connect` block carries the exact canonical expression AST
+ * (`shared/connectInput.ts::buildConnectConfig`, same as `updateForm`).
+ * A reference to a field landing in this same call uses that field's
+ * predeclared final UUID, so no name/path resolution occurs here. The
+ * merged block then runs through
  * `enforceConnectIds` (the agent-path source guard, same as
  * `updateForm` / `createModule`): an omitted connect id is autofilled
  * with a valid, unique, name-derived id (stored on the doc from then
@@ -28,7 +28,7 @@
  * Both the SA chat factory and the MCP adapter call this through the
  * shared `ToolExecutionContext` interface. Exit branches:
  *
- *   1. Parent module index out of range → `{ error }`, no mutations.
+ *   1. Parent module UUID address does not resolve → `{ error }`, no mutations.
  *   2. Identifier guard rejection (any field id illegal / reserved /
  *      over-long / batch-conflicting) → `{ error }` naming EVERY failing
  *      item, nothing persisted.
@@ -51,8 +51,8 @@ import type {
 } from "@/lib/domain";
 import {
 	asUuid,
-	findAuthoredBlueprintIdentity,
 	FORM_TYPES,
+	findAuthoredBlueprintIdentity,
 	USER_FACING_DESTINATIONS,
 	uuidSchema,
 } from "@/lib/domain";
@@ -71,6 +71,10 @@ import {
 import { collectConnectIds, enforceConnectIds } from "./shared/connectIds";
 import { buildConnectConfig } from "./shared/connectInput";
 import {
+	moduleAddressSchema,
+	resolveModuleAddress,
+} from "./shared/entityAddresses";
+import {
 	assembleFieldMutations,
 	describeRejectedFieldIds,
 	resolveCloseCondition,
@@ -79,10 +83,6 @@ import type {
 	MutationSuccess,
 	ToolCallSummary,
 } from "./shared/toolCallSummary";
-import {
-	moduleAddressSchema,
-	resolveModuleAddress,
-} from "./shared/entityAddresses";
 
 export const createFormInputSchema = moduleAddressSchema
 	.extend({
@@ -122,7 +122,7 @@ export const createFormInputSchema = moduleAddressSchema
 			.nullable()
 			.optional()
 			.describe(
-				"Close forms only — close the case only when the named field matches (the field may be one landing in this same call). null for an unconditional close.",
+				"Close forms only — close the case only when the UUID-addressed field matches (the field may be predeclared in this same call). null for an unconditional close.",
 			),
 		connect: connectFormConfigSchema
 			.nullable()
@@ -193,8 +193,8 @@ export const createFormTool = {
 				};
 			}
 
-			// Assembled BEFORE the connect block so the block's XPath slots
-			// can parse against the batch-aware resolver below.
+			// Assemble the fields first so their predeclared UUIDs are present
+			// in the same atomic mutation batch as any connect references.
 			const assembly = assembleFieldMutations({
 				doc,
 				formUuid,
@@ -233,12 +233,12 @@ export const createFormTool = {
 				};
 			}
 
-			// The connect block's XPath slots parse text → AST against the
-			// assembly's batch resolver (a `user_score` naming a field from
-			// this same call lands as an identity leaf). Then force connect
-			// ids correct at the source: autofill an omitted id (valid +
-			// unique, derived from the module/form name), reject an explicit
-			// invalid or duplicate id by failing the call (writes nothing).
+			// The connect block already carries canonical AST. A same-call
+			// field reference names the field's predeclared UUID. Then force
+			// connect ids correct at the source: autofill an omitted id
+			// (valid + unique, derived from the module/form name), reject an
+			// explicit invalid or duplicate id by failing the call (writes
+			// nothing).
 			// No exclusion is passed to the collector — the form this call
 			// creates doesn't exist in the doc yet, so every stored id is a
 			// potential conflict.

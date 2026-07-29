@@ -1,6 +1,6 @@
-import { proseText } from "@/lib/domain/prose";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { proseText } from "@/lib/domain/prose";
 /**
  * Tests for the `searchButtonDisplayConditionTypeCheck` rule. One
  * invariant per `it(...)` block; the rule routes through the shared
@@ -54,7 +54,7 @@ describe("searchButtonDisplayConditionTypeCheck", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 							],
@@ -115,7 +115,7 @@ describe("searchButtonDisplayConditionTypeCheck", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 							],
@@ -169,7 +169,7 @@ describe("searchButtonDisplayConditionTypeCheck", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 							],
@@ -223,7 +223,10 @@ describe("searchButtonDisplayConditionTypeCheck", () => {
 						],
 					},
 					caseSearchConfig: {
-						searchButtonDisplayCondition: eq(input("ghost"), literal("x")),
+						searchButtonDisplayCondition: eq(
+							input(testUuid("ghost")),
+							literal("x"),
+						),
 					},
 					forms: [
 						{
@@ -233,7 +236,7 @@ describe("searchButtonDisplayConditionTypeCheck", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 							],
@@ -287,7 +290,7 @@ describe("searchButtonDisplayConditionTypeCheck", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 							],
@@ -336,7 +339,7 @@ describe("searchButtonDisplayConditionTypeCheck", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 							],
@@ -385,7 +388,7 @@ describe("searchButtonDisplayConditionTypeCheck", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 							],

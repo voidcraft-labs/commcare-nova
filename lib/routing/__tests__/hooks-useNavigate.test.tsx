@@ -19,6 +19,7 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
+import { proseText } from "@/lib/domain/prose";
 
 const consultGuard = vi.fn(() => true);
 
@@ -83,7 +84,14 @@ function makeStore() {
 							uuid: "f-1",
 							name: "F",
 							type: "survey",
-							fields: [f({ uuid: "q-1", kind: "text", id: "q", label: "Q" })],
+							fields: [
+								f({
+									uuid: "q-1",
+									kind: "text",
+									id: "q",
+									label: proseText("Q"),
+								}),
+							],
 						},
 					],
 				},

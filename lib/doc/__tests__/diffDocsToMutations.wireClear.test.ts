@@ -29,6 +29,7 @@ import { applyMutations } from "@/lib/doc/mutations";
 import { type Mutation, mutationSchema } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
 import { eq, literal, prop } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 
 /**
  * Replay a diff exactly as the persistence wire does: serialize to JSON
@@ -60,7 +61,7 @@ describe("diffDocsToMutations — clearing an optional slot survives the wire", 
 							name: "Close visit",
 							type: "close",
 							closeCondition: { field: "done", answer: "yes" },
-							fields: [{ kind: "text", id: "done", label: "Done?" }],
+							fields: [{ kind: "text", id: "done", label: proseText("Done?") }],
 						},
 					],
 				},

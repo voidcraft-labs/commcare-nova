@@ -17,7 +17,6 @@
 // slots would silently lose its content the moment a user opens
 // the editor.
 
-import { proseText } from "@/lib/domain/prose";
 import {
 	act,
 	fireEvent,
@@ -62,6 +61,7 @@ import {
 	unwrapList,
 	within,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { ExpressionCardEditor } from "../ExpressionCardEditor";
 import { buildValidityIndex, PredicateEditProvider } from "../editorContext";
 import { PredicateCardEditor } from "../PredicateCardEditor";

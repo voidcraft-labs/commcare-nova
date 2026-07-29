@@ -24,7 +24,6 @@
  * value) the check exists to catch.
  */
 
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
@@ -48,6 +47,7 @@ import {
 	plainColumn,
 } from "@/lib/domain";
 import { prop, toValueExpression } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 
 // ── Fixture builders ───────────────────────────────────────────────
 
@@ -331,13 +331,13 @@ describe("HQ-JSON oracle — clean baseline", () => {
 								{
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								},
 								{
 									kind: "text",
 									id: "notes",
-									label: "Notes",
+									label: proseText("Notes"),
 									case_property_on: "patient",
 								},
 							],
@@ -356,7 +356,7 @@ describe("HQ-JSON oracle — clean baseline", () => {
 								{
 									kind: "text",
 									id: "case_name",
-									label: "Visit name",
+									label: proseText("Visit name"),
 									case_property_on: "visit",
 								},
 							],

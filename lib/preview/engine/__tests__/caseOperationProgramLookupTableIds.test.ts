@@ -1,4 +1,3 @@
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
@@ -15,6 +14,7 @@ import {
 	tableLookup,
 	term,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { caseOperationProgramLookupTableIds } from "../caseDataBindingHelpers";
 
 const tableId = (suffix: string) =>

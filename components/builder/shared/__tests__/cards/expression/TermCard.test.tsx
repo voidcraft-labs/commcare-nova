@@ -1,6 +1,5 @@
 // @vitest-environment happy-dom
 
-import { proseText } from "@/lib/domain/prose";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
@@ -30,6 +29,7 @@ import {
 	timeLiteral,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { ExpressionCardEditor } from "../../../ExpressionCardEditor";
 
 const PATIENT: CaseType = {
@@ -103,8 +103,18 @@ function renderStatefulTerm(value: ValueExpression) {
 				caseTypes={TRANSITION_CASE_TYPES}
 				currentCaseType="patient"
 				knownInputs={[
-					{ name: "client_name", label: "Client name", data_type: "text" },
-					{ name: "minimum_age", label: "Minimum age", data_type: "int" },
+					{
+						uuid: testUuid("client_name"),
+						name: "client_name",
+						label: "Client name",
+						data_type: "text",
+					},
+					{
+						uuid: testUuid("minimum_age"),
+						name: "minimum_age",
+						label: "Minimum age",
+						data_type: "int",
+					},
 				]}
 			/>
 		);
@@ -269,7 +279,7 @@ describe("TermCard source transitions", () => {
 	it("keeps a missing saved search answer readable when no search fields remain", async () => {
 		render(
 			<ExpressionCardEditor
-				value={term(input("retired_status"))}
+				value={term(input(testUuid("retired_status")))}
 				onChange={vi.fn()}
 				caseTypes={[PATIENT]}
 				currentCaseType="patient"
@@ -283,16 +293,16 @@ describe("TermCard source transitions", () => {
 			}),
 		).toBeDefined();
 		const savedAnswer = screen.getByRole("button", {
-			name: "Search answer: Retired status, no longer available",
+			name: "Search answer: Search field, no longer available",
 		});
-		expect(savedAnswer.textContent).toContain("Retired status");
+		expect(savedAnswer.textContent).toContain("Search field");
 		expect(savedAnswer.textContent).toContain("No longer available");
 		expect(screen.queryByText("retired_status")).toBeNull();
 
 		fireEvent.click(savedAnswer);
 
 		expect(
-			await screen.findByText("Retired status is no longer available"),
+			await screen.findByText("Search field is no longer available"),
 		).toBeDefined();
 		expect(
 			screen.getByText(
@@ -305,12 +315,13 @@ describe("TermCard source transitions", () => {
 		const onChange = vi.fn();
 		render(
 			<ExpressionCardEditor
-				value={term(input("retired_status"))}
+				value={term(input(testUuid("retired_status")))}
 				onChange={onChange}
 				caseTypes={[PATIENT]}
 				currentCaseType="patient"
 				knownInputs={[
 					{
+						uuid: testUuid("active_status"),
 						name: "active_status",
 						label: "Active status",
 						data_type: "text",
@@ -321,12 +332,12 @@ describe("TermCard source transitions", () => {
 
 		fireEvent.click(
 			screen.getByRole("button", {
-				name: "Search answer: Retired status, no longer available",
+				name: "Search answer: Search field, no longer available",
 			}),
 		);
 
 		expect(
-			await screen.findByText("Retired status is no longer available"),
+			await screen.findByText("Search field is no longer available"),
 		).toBeDefined();
 		expect(
 			screen.getByText(
@@ -337,7 +348,9 @@ describe("TermCard source transitions", () => {
 			screen.getByRole("menuitem", { name: "Active status Text" }),
 		);
 
-		expect(onChange).toHaveBeenCalledWith(term(input("active_status")));
+		expect(onChange).toHaveBeenCalledWith(
+			term(input(testUuid("active_status"))),
+		);
 	});
 
 	it("cancels exactly, restores focus, and keeps a related-property draft", async () => {
@@ -393,7 +406,7 @@ describe("TermCard source transitions", () => {
 	});
 
 	it("keeps the chosen search answer while trying another source", async () => {
-		const saved = term(input("client_name"));
+		const saved = term(input(testUuid("client_name")));
 		const onChange = renderStatefulTerm(saved);
 		expect(
 			screen.getByRole("button", { name: "Search answer: Client name" }),

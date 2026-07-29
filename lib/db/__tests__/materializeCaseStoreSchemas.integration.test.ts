@@ -29,7 +29,6 @@
 // feeds the monotone `synced_seq` gate so a stale lower-seq
 // materialize no-ops against a fresher row.
 
-import { proseText } from "@/lib/domain/prose";
 import type { Kysely } from "kysely";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CaseStore } from "@/lib/case-store";
@@ -42,6 +41,7 @@ import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 import type { Database } from "@/lib/case-store/sql/database";
 import type { CaseType, PersistableDoc } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 
 // ── Hoisted spy shells ─────────────────────────────────────────────
 

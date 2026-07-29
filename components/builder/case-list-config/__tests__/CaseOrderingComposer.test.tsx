@@ -1,6 +1,5 @@
 // @vitest-environment happy-dom
 
-import { proseText } from "@/lib/domain/prose";
 import {
 	act,
 	fireEvent,
@@ -20,6 +19,7 @@ import {
 	emptyCaseListConfig,
 } from "@/lib/domain";
 import { prop, term } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { CaseOrderingComposer } from "../SortPriorityStack";
 import { resolveSortedColumns } from "../sortPriority";
 

@@ -1,6 +1,6 @@
-import { proseText } from "@/lib/domain/prose";
-import { testMediaAssetId } from "@/__tests__/helpers/uuid";
+import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { proseText } from "@/lib/domain/prose";
 // scripts/__tests__/legacyMediaRefs.test.ts
 //
 // Coverage for the media-reference arm behind the legacy scripts'
@@ -86,13 +86,13 @@ function mediaDoc(): BlueprintDoc {
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Name",
+								label: proseText("Name"),
 								case_property_on: "patient",
 							}),
 							f({
 								kind: "single_select",
 								id: "symptom",
-								label: "Symptom",
+								label: proseText("Symptom"),
 								options: [
 									{ value: "fever", label: "Fever" },
 									{ value: "cough", label: "Cough" },
@@ -134,21 +134,31 @@ function mediaDoc(): BlueprintDoc {
 		image: testMediaAssetId("dead-bundle-img"),
 		audio: testMediaAssetId("live-audio"),
 	};
-	const selectField = fields.find((fl) => fl.id === "symptom") as Field & {
-		options: {
-			value: string;
-			label: string;
-			media?: { image?: MediaAssetId };
-		}[];
+	const selectField = fields.find((fl) => fl.id === "symptom");
+	if (
+		!selectField ||
+		(selectField.kind !== "single_select" &&
+			selectField.kind !== "multi_select") ||
+		selectField.optionsSource.kind !== "inline"
+	) {
+		throw new Error("expected inline symptom select");
+	}
+	selectField.optionsSource = {
+		kind: "inline",
+		options: [
+			{
+				uuid: testUuid("option-fever"),
+				value: "fever",
+				label: proseText("Fever"),
+				media: { image: testMediaAssetId("dead-option-img") },
+			},
+			{
+				uuid: testUuid("option-cough"),
+				value: "cough",
+				label: proseText("Cough"),
+			},
+		],
 	};
-	selectField.options = [
-		{
-			value: "fever",
-			label: "Fever",
-			media: { image: testMediaAssetId("dead-option-img") },
-		},
-		{ value: "cough", label: "Cough" },
-	];
 	return doc;
 }
 
@@ -251,10 +261,20 @@ describe("planMediaRefClears", () => {
 		});
 		const selectField = Object.values(gate.nextDoc.fields).find(
 			(fl) => fl.id === "symptom",
-		) as Field & {
-			options: { value: string; label: string; media?: unknown }[];
-		};
-		expect(selectField.options[0]).toEqual({ value: "fever", label: "Fever" });
+		);
+		if (
+			!selectField ||
+			(selectField.kind !== "single_select" &&
+				selectField.kind !== "multi_select") ||
+			selectField.optionsSource.kind !== "inline"
+		) {
+			throw new Error("expected inline symptom select");
+		}
+		expect(selectField.optionsSource.options[0]).toEqual({
+			uuid: testUuid("option-fever"),
+			value: "fever",
+			label: proseText("Fever"),
+		});
 		expect(gate.nextDoc.logo).toBeUndefined();
 	});
 

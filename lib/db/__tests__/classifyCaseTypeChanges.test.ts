@@ -19,11 +19,11 @@
 //      regen and the per-row migration). A departed property with
 //      no surviving writer stays a plain removal.
 
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { BlueprintDoc, CaseType } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import { classifyCaseTypeChanges } from "../classifyCaseTypeChanges";
 
 // Minimal `BlueprintDoc` fixture — the classifier reads `caseTypes`
@@ -270,7 +270,7 @@ describe("classifyCaseTypeChanges — synthesized renames", () => {
 									uuid: "field-age",
 									id: args.fieldId,
 									kind: "int",
-									label: "Age",
+									label: proseText("Age"),
 									case_property_on: "patient",
 								}),
 							],
@@ -389,7 +389,7 @@ describe("classifyCaseTypeChanges — synthesized renames", () => {
 									uuid: "field-age",
 									id: "years",
 									kind: "int",
-									label: "Age",
+									label: proseText("Age"),
 								}),
 							],
 						},
@@ -459,14 +459,14 @@ describe("classifyCaseTypeChanges — synthesized renames", () => {
 									uuid: testUuid("field-one"),
 									id: args.field1Id,
 									kind: "text",
-									label: "One",
+									label: proseText("One"),
 									case_property_on: "patient",
 								}),
 								f({
 									uuid: testUuid("field-two"),
 									id: args.field2Id,
 									kind: "text",
-									label: "Two",
+									label: proseText("Two"),
 									case_property_on: "patient",
 								}),
 							],
@@ -579,7 +579,7 @@ describe("classifyCaseTypeChanges — writer-derived type flips", () => {
 								f({
 									id: "case_name",
 									kind: "text",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 								f({

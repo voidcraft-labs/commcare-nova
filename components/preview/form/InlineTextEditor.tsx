@@ -46,11 +46,11 @@ import {
 	ToolbarGroup,
 	ToolbarSeparator,
 } from "@/components/tiptap-ui-primitive/toolbar";
+import type { ProseTemplate } from "@/lib/domain";
 import {
 	useLiveFormUuidGetter,
 	useReferenceProvider,
 } from "@/lib/references/ReferenceContext";
-import type { ProseTemplate } from "@/lib/domain";
 import { POPOVER_GLASS } from "@/lib/styles";
 import {
 	createInlineEditorExtensions,

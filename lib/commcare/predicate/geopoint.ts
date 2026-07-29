@@ -1,5 +1,5 @@
-import type { Predicate, ValueExpression } from "@/lib/domain/predicate/types";
 import type { Uuid } from "@/lib/domain";
+import type { Predicate, ValueExpression } from "@/lib/domain/predicate/types";
 import { walkPredicateNodes, walkTerms } from "@/lib/domain/predicate/walk";
 
 // Geopoint text normalization shared by on-device distance evaluation and the

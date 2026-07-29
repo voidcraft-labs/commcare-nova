@@ -14,14 +14,24 @@
  *     select options.
  */
 
-import { proseText } from "@/lib/domain/prose";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import {
+	act,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
+import { focusElement } from "@/__tests__/helpers/baseUiInteractions";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
-
-import type { SelectOption, SingleSelectField } from "@/lib/domain";
+import {
+	fallbackProseProjection,
+	type SelectOptionsSource,
+	type SingleSelectField,
+} from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import { BuilderSessionProvider } from "@/lib/session/provider";
 import { OptionsEditor } from "../OptionsEditor";
 
@@ -39,11 +49,27 @@ const baseField: SingleSelectField = {
 	uuid: testUuid("u1-options"),
 	id: "color",
 	label: proseText("Color"),
-	options: [
-		{ value: "red", label: proseText("Red") },
-		{ value: "blue", label: proseText("Blue") },
-	],
+	optionsSource: {
+		kind: "inline",
+		options: [
+			{
+				uuid: testUuid("red-option"),
+				value: "red",
+				label: proseText("Red"),
+			},
+			{
+				uuid: testUuid("blue-option"),
+				value: "blue",
+				label: proseText("Blue"),
+			},
+		],
+	},
 };
+
+const baseSource = baseField.optionsSource as Extract<
+	SelectOptionsSource,
+	{ kind: "inline" }
+>;
 
 /**
  * Minimal controlled parent — mirrors the real doc-store round-trip
@@ -55,21 +81,21 @@ function ControlledOptionsEditor({
 	initial,
 	onDispatch,
 }: {
-	initial: SelectOption[];
-	onDispatch?: (next: SelectOption[] | undefined) => void;
+	initial: SelectOptionsSource;
+	onDispatch?: (next: SelectOptionsSource) => void;
 }) {
-	const [value, setValue] = useState<SelectOption[] | undefined>(initial);
+	const [value, setValue] = useState<SelectOptionsSource>(initial);
 	return (
 		<OptionsEditor
-			field={{ ...baseField, options: value ?? [] } as SingleSelectField}
-			value={value as SingleSelectField["options"]}
+			field={{ ...baseField, optionsSource: value } as SingleSelectField}
+			value={value}
 			onChange={(next) => {
-				setValue(next as SelectOption[] | undefined);
-				onDispatch?.(next as SelectOption[] | undefined);
+				setValue(next);
+				onDispatch?.(next);
 				return { ok: true } as const;
 			}}
 			label="Options"
-			keyName="options"
+			keyName="optionsSource"
 		/>
 	);
 }
@@ -79,29 +105,26 @@ describe("OptionsEditor", () => {
 		render(
 			<OptionsEditor
 				field={baseField}
-				value={baseField.options}
+				value={baseSource}
 				onChange={() => ({ ok: true }) as const}
 				label="Options"
-				keyName="options"
+				keyName="optionsSource"
 			/>,
 			{ wrapper },
 		);
-		expect((screen.getByDisplayValue("Red") as HTMLInputElement).value).toBe(
-			"Red",
-		);
-		expect((screen.getByDisplayValue("Blue") as HTMLInputElement).value).toBe(
-			"Blue",
-		);
+		const labelEditors = screen.getAllByRole("textbox", { name: "Label" });
+		expect(labelEditors[0]?.textContent).toBe("Red");
+		expect(labelEditors[1]?.textContent).toBe("Blue");
 	});
 
 	it("wraps the widget in a data-field-id=options container", () => {
 		const { container } = render(
 			<OptionsEditor
 				field={baseField}
-				value={baseField.options}
+				value={baseSource}
 				onChange={() => ({ ok: true }) as const}
 				label="Options"
-				keyName="options"
+				keyName="optionsSource"
 			/>,
 			{ wrapper },
 		);
@@ -110,93 +133,112 @@ describe("OptionsEditor", () => {
 
 	it("dispatches the expanded list when Add option is clicked", () => {
 		const onChange = vi.fn(
-			(_next: SelectOption[] | undefined) => ({ ok: true }) as const,
+			(_next: SelectOptionsSource) => ({ ok: true }) as const,
 		);
 		render(
 			<OptionsEditor
 				field={baseField}
-				value={baseField.options}
+				value={baseSource}
 				onChange={onChange}
 				label="Options"
-				keyName="options"
+				keyName="optionsSource"
 			/>,
 			{ wrapper },
 		);
 		fireEvent.click(screen.getByRole("button", { name: /Add option/i }));
 		expect(onChange).toHaveBeenCalled();
 		const next = onChange.mock.calls[0][0];
-		expect(Array.isArray(next)).toBe(true);
-		expect(next).toHaveLength(3);
+		expect(next.kind).toBe("inline");
+		expect(next.kind === "inline" ? next.options : []).toHaveLength(3);
 	});
 
-	it("keeps the new input focused after Add option + parent round-trip", () => {
+	it("keeps the new input focused after Add option + parent round-trip", async () => {
 		// Controlled harness echoes the dispatched list back as the new
 		// prop value, reproducing the real doc-store round-trip. A
 		// self-sync regression would regenerate draft ids on the echo,
 		// unmount the newly-mounted input, and drop focus.
-		render(<ControlledOptionsEditor initial={baseField.options} />, {
+		render(<ControlledOptionsEditor initial={baseSource} />, {
 			wrapper,
 		});
 		fireEvent.click(screen.getByRole("button", { name: /Add option/i }));
-		const labelInputs = screen.getAllByPlaceholderText(
-			"Label",
-		) as HTMLInputElement[];
-		expect(labelInputs).toHaveLength(3);
-		expect(document.activeElement).toBe(labelInputs[2]);
+		const labelEditors = screen.getAllByRole("textbox", { name: "Label" });
+		expect(labelEditors).toHaveLength(3);
+		await waitFor(() => {
+			expect(document.activeElement).toBe(labelEditors[2]);
+		});
 	});
 
-	it("dispatches the updated list when a label is edited and the group blurs", async () => {
+	it("dispatches the updated list when a value is edited and the group blurs", async () => {
 		const onChange = vi.fn(
-			(_next: SelectOption[] | undefined) => ({ ok: true }) as const,
+			(_next: SelectOptionsSource) => ({ ok: true }) as const,
 		);
 		render(
 			<OptionsEditor
 				field={baseField}
-				value={baseField.options}
+				value={baseSource}
 				onChange={onChange}
 				label="Options"
-				keyName="options"
+				keyName="optionsSource"
 			/>,
 			{ wrapper },
 		);
-		const red = screen.getByDisplayValue("Red") as HTMLInputElement;
-		red.focus();
-		fireEvent.change(red, { target: { value: "Crimson" } });
+		const redValue = screen.getByDisplayValue("red");
+		focusElement(redValue);
+		fireEvent.change(redValue, { target: { value: "crimson" } });
 		// Group-blur runs inside rAF; flush the frame inside act so
 		// React's state update is observed before we assert.
-		red.blur();
+		const outside = document.createElement("button");
+		document.body.append(outside);
+		focusElement(outside);
 		await act(
 			() =>
 				new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
 		);
-		expect(onChange).toHaveBeenCalled();
+		outside.remove();
+		await waitFor(() => expect(onChange).toHaveBeenCalled());
 		const last = onChange.mock.calls[onChange.mock.calls.length - 1][0];
-		expect(last?.[0]).toEqual({ value: "red", label: "Crimson" });
-		expect(last?.[1]).toEqual({ value: "blue", label: "Blue" });
+		expect(last.kind).toBe("inline");
+		if (last.kind !== "inline") throw new Error("expected inline options");
+		expect(last.options[0]?.value).toBe("crimson");
+		expect(fallbackProseProjection(last.options[0]?.label)).toBe("Red");
+		expect(last.options[1]?.value).toBe("blue");
+		expect(fallbackProseProjection(last.options[1]?.label)).toBe("Blue");
 	});
 
 	it("dispatches a shorter list when an option row is removed", () => {
 		const onChange = vi.fn(
-			(_next: SelectOption[] | undefined) => ({ ok: true }) as const,
+			(_next: SelectOptionsSource) => ({ ok: true }) as const,
 		);
 		render(
 			<OptionsEditor
 				field={{
 					...baseField,
+					optionsSource: {
+						kind: "inline",
+						options: [
+							...baseSource.options,
+							{
+								uuid: testUuid("green-option"),
+								value: "green",
+								label: proseText("Green"),
+							},
+						],
+					},
+				}}
+				value={{
+					kind: "inline",
 					options: [
-						{ value: "red", label: proseText("Red") },
-						{ value: "blue", label: proseText("Blue") },
-						{ value: "green", label: proseText("Green") },
+						...baseSource.options,
+						{
+							uuid: testUuid("green-option"),
+							value: "green",
+							label: proseText("Green"),
+						},
 					],
 				}}
-				value={[
-					{ value: "red", label: "Red" },
-					{ value: "blue", label: "Blue" },
-					{ value: "green", label: "Green" },
-				]}
 				onChange={onChange}
 				label="Options"
-				keyName="options"
+				keyName="optionsSource"
 			/>,
 			{ wrapper },
 		);
@@ -210,35 +252,39 @@ describe("OptionsEditor", () => {
 		fireEvent.click(buttons[0] as HTMLButtonElement);
 		expect(onChange).toHaveBeenCalled();
 		const last = onChange.mock.calls[onChange.mock.calls.length - 1][0];
-		expect(last).toHaveLength(2);
-		expect(last?.[0]).toEqual({ value: "blue", label: "Blue" });
+		expect(last.kind).toBe("inline");
+		if (last.kind !== "inline") throw new Error("expected inline options");
+		expect(last.options).toHaveLength(2);
+		expect(last.options[0]?.value).toBe("blue");
+		expect(fallbackProseProjection(last.options[0]?.label)).toBe("Blue");
 	});
 
-	it("clamps drafts below min(2) to undefined at the adapter boundary", () => {
+	it("preserves the canonical inline source when a row is removed", () => {
 		const onChange = vi.fn(
-			(_next: SelectOption[] | undefined) => ({ ok: true }) as const,
+			(_next: SelectOptionsSource) => ({ ok: true }) as const,
 		);
 		render(
 			<OptionsEditor
 				field={baseField}
-				value={baseField.options}
+				value={baseSource}
 				onChange={onChange}
 				label="Options"
-				keyName="options"
+				keyName="optionsSource"
 			/>,
 			{ wrapper },
 		);
-		// Remove one of two rows → the widget would try to save a
-		// 1-entry list, which the adapter collapses to `undefined` so
-		// the reducer treats it as a removal patch. Persisting a
-		// 1-entry list would fail the schema's `min(2)` on the next
-		// validation pass.
+		// The adapter preserves the source discriminant and the surviving
+		// option's UUID. The real doc gate decides whether the resulting
+		// single-option field is admissible.
 		// Query the <fieldset> element directly: the per-option MediaSlot
 		// now carries role="group" too, so getByRole("group") is ambiguous.
 		const fieldset = document.querySelector("fieldset") as HTMLElement;
 		const buttons = fieldset.querySelectorAll("button[type='button']");
 		fireEvent.click(buttons[0] as HTMLButtonElement);
 		const last = onChange.mock.calls[onChange.mock.calls.length - 1][0];
-		expect(last).toBeUndefined();
+		expect(last).toEqual({
+			kind: "inline",
+			options: [baseSource.options[1]],
+		});
 	});
 });

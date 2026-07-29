@@ -20,11 +20,9 @@
 // preset switching is covered by `CustomDatePatternInput.test.tsx`
 // at the primitive level.
 
-import { proseText } from "@/lib/domain/prose";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-
 import {
 	type CaseType,
 	type Column,
@@ -37,6 +35,7 @@ import {
 	plainColumn,
 } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { ColumnEditor } from "../../../ColumnEditor";
 
 const PATIENT: CaseType = {

@@ -11,14 +11,13 @@
  * select↔text reshapes — plus the risk verdict's exact boundary.
  */
 
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { buildReferenceIndex } from "@/lib/doc/referenceIndex";
-
 import type { BlueprintDoc, FieldKind, Form } from "@/lib/domain";
 import { today } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { planKindConversion } from "../kindConversionCascade";
 
 /** Two forms writing the same `visit_on` date property (declared), so a
@@ -46,13 +45,13 @@ function temporalDoc(): BlueprintDoc {
 							f({
 								id: "case_name",
 								kind: "text",
-								label: "Name",
+								label: proseText("Name"),
 								case_property_on: "patient",
 							}),
 							f({
 								id: "visit_on",
 								kind: "date",
-								label: "Visited",
+								label: proseText("Visited"),
 								case_property_on: "patient",
 							}),
 						],
@@ -64,7 +63,7 @@ function temporalDoc(): BlueprintDoc {
 							f({
 								id: "visit_on",
 								kind: "date",
-								label: "Visited",
+								label: proseText("Visited"),
 								case_property_on: "patient",
 							}),
 						],
@@ -144,13 +143,13 @@ describe("planKindConversion — generalized escort", () => {
 								f({
 									id: "case_name",
 									kind: "text",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 								f({
 									id: "symptoms",
 									kind: "multi_select",
-									label: "Symptoms",
+									label: proseText("Symptoms"),
 									case_property_on: "patient",
 									options: [
 										{ value: "fever", label: "Fever" },
@@ -166,7 +165,7 @@ describe("planKindConversion — generalized escort", () => {
 								f({
 									id: "symptoms",
 									kind: "multi_select",
-									label: "Symptoms",
+									label: proseText("Symptoms"),
 									case_property_on: "patient",
 									options: [
 										{ value: "fever", label: "Fever" },
@@ -269,7 +268,9 @@ describe("planKindConversion — dataLossRisk verdict", () => {
 						{
 							name: "Feedback",
 							type: "survey",
-							fields: [f({ id: "when", kind: "date", label: "When" })],
+							fields: [
+								f({ id: "when", kind: "date", label: proseText("When") }),
+							],
 						},
 					],
 				},

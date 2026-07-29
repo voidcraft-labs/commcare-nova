@@ -11,6 +11,7 @@ import type { Mutation } from "@/lib/doc/types";
 import { removeUserPropertyPlan } from "@/lib/doc/userMutations";
 import type { BlueprintDoc } from "@/lib/domain";
 import { eq, literal, sessionUserProperty } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 
 const PROPERTY_A = testUuid("__proto__");
 const PROPERTY_B = testUuid("constructor");
@@ -71,12 +72,11 @@ function valueUpdate(
 	uuid: string,
 	propertyUuid: string,
 	value: string | null,
-	fallbackValues: Record<string, string> | null,
 ): Mutation {
 	return {
 		kind,
 		uuid: testUuid(uuid),
-		patch: { values: fallbackValues },
+		patch: {},
 		valuePatch: { userPropertyUuid: testUuid(propertyUuid), value },
 	} as Mutation;
 }
@@ -149,13 +149,7 @@ describe("user collection mutations", () => {
 				uuid: PROPERTY_A,
 				patch: { label: "Own prototype" },
 			},
-			valueUpdate(
-				"updateUserType",
-				TYPE,
-				PROPERTY_A,
-				"south",
-				ownRecord([[PROPERTY_A, "south"]]),
-			),
+			valueUpdate("updateUserType", TYPE, PROPERTY_A, "south"),
 		]);
 		expect(updated.userProperties?.[PROPERTY_A]?.label).toBe("Own prototype");
 		expect(updated.userTypes?.[TYPE]?.values?.[PROPERTY_A]).toBe("south");
@@ -173,26 +167,8 @@ describe("user collection mutations", () => {
 
 	it("merges concurrent writes to different value keys in either order", () => {
 		const base = userDoc();
-		const left = valueUpdate(
-			"updateUserType",
-			TYPE,
-			PROPERTY_A,
-			"left",
-			ownRecord([
-				[PROPERTY_A, "left"],
-				[PROPERTY_B, "community"],
-			]),
-		);
-		const right = valueUpdate(
-			"updateUserType",
-			TYPE,
-			PROPERTY_B,
-			"right",
-			ownRecord([
-				[PROPERTY_A, "north"],
-				[PROPERTY_B, "right"],
-			]),
-		);
+		const left = valueUpdate("updateUserType", TYPE, PROPERTY_A, "left");
+		const right = valueUpdate("updateUserType", TYPE, PROPERTY_B, "right");
 
 		const leftThenRight = fold(base, [left], [right]);
 		const rightThenLeft = fold(base, [right], [left]);
@@ -225,16 +201,7 @@ describe("user collection mutations", () => {
 			),
 		).toBe(true);
 
-		const peer = valueUpdate(
-			"updateUserType",
-			TYPE,
-			PROPERTY_B,
-			"peer edit",
-			ownRecord([
-				[PROPERTY_A, "north"],
-				[PROPERTY_B, "peer edit"],
-			]),
-		);
+		const peer = valueUpdate("updateUserType", TYPE, PROPERTY_B, "peer edit");
 		const removalThenPeer = fold(base, removal, [peer]);
 		const peerThenRemoval = fold(base, [peer], removal);
 		expect(removalThenPeer.userTypes?.[TYPE]?.values).toEqual(
@@ -261,7 +228,7 @@ describe("user collection mutations", () => {
 								f({
 									kind: "text",
 									id: "notes",
-									label: "Notes",
+									label: proseText("Notes"),
 								}),
 							],
 						},
@@ -323,7 +290,7 @@ describe("user collection mutations", () => {
 								f({
 									kind: "text",
 									id: "notes",
-									label: "Notes",
+									label: proseText("Notes"),
 								}),
 							],
 						},

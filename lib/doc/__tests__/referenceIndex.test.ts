@@ -16,7 +16,6 @@
  * `referenceIndex.fuzz.test.ts`; these are the targeted, readable pins.
  */
 
-import { proseText } from "@/lib/domain/prose";
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -31,10 +30,12 @@ import {
 import type { Mutation } from "@/lib/doc/types";
 import {
 	type BlueprintDoc,
+	canonicalProseTemplate,
 	casePropertyTargetKey,
 	caseTypeTargetKey,
 	entityTargetKey,
 	expressionSource,
+	printProseTemplate,
 	type Uuid,
 	userPropertyTargetKey,
 } from "@/lib/domain";
@@ -45,6 +46,7 @@ import {
 	sessionUserProperty,
 	subcasePath,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 
 function uuidByFieldId(doc: BlueprintDoc, id: string): Uuid {
 	const found = Object.values(doc.fields).find((field) => field.id === id);
@@ -75,7 +77,7 @@ function apply(doc: BlueprintDoc, mutations: Mutation[]): BlueprintDoc {
 
 /** A doc rich in every reference surface kind. */
 function richDoc(): BlueprintDoc {
-	return buildDoc({
+	const doc = buildDoc({
 		appName: "Clinic",
 		caseTypes: [
 			{
@@ -104,50 +106,54 @@ function richDoc(): BlueprintDoc {
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Name",
+								label: proseText("Name"),
 								case_property_on: "patient",
 							}),
 							f({
 								kind: "group",
 								id: "grp",
-								children: [f({ kind: "text", id: "inner", label: "Inner" })],
+								children: [
+									f({ kind: "text", id: "inner", label: proseText("Inner") }),
+								],
 							}),
 							f({
 								kind: "text",
 								id: "watcher",
-								label: "See #patient/age and #form/grp/inner",
+								label: proseText("Watcher"),
 								relevant: "#form/grp/inner != '' and /data/case_name != ''",
 							}),
 							f({
 								kind: "text",
 								id: "slash_watcher",
-								label: "Slash",
+								label: proseText("Slash"),
 								relevant: "/data/grp/inner != ''",
 							}),
 							f({
 								kind: "text",
-								id: "pending",
-								// The dangling ref rides PROSE — label refs resolve at
-								// extraction, so a later add re-keys the edge through
-								// the `local` bucket. The relevant's AST raw leaf
-								// extracts nothing by design (unresolved identity
-								// stays text forever).
-								label: "Pending #form/pending_x",
-								relevant: "#form/pending_x = '1'",
-							}),
-							f({
-								kind: "text",
 								id: "ctx_ref",
-								label: "Ctx",
-								relevant: "#case/age > 1",
+								label: proseText("Ctx"),
+								relevant: "#patient/age > 1",
 							}),
-							f({ kind: "text", id: "outcome", label: "Outcome" }),
+							f({ kind: "text", id: "outcome", label: proseText("Outcome") }),
 						],
 					},
 				],
 			},
 		],
 	});
+	const watcher = uuidByFieldId(doc, "watcher");
+	const inner = uuidByFieldId(doc, "inner");
+	const watcherField = doc.fields[watcher];
+	if (!watcherField || !("label" in watcherField)) {
+		throw new Error("expected watcher to carry a label");
+	}
+	watcherField.label = canonicalProseTemplate([
+		{ kind: "text", text: "See " },
+		{ kind: "case-ref", caseType: "patient", property: "age" },
+		{ kind: "text", text: " and " },
+		{ kind: "field-ref", uuid: inner },
+	]);
+	return doc;
 }
 
 describe("buildReferenceIndex — identity-keyed edges", () => {
@@ -165,7 +171,9 @@ describe("buildReferenceIndex — identity-keyed edges", () => {
 						{
 							name: "Visit",
 							type: "survey",
-							fields: [f({ kind: "text", id: "name", label: "Name" })],
+							fields: [
+								f({ kind: "text", id: "name", label: proseText("Name") }),
+							],
 						},
 					],
 				},
@@ -235,17 +243,10 @@ describe("buildReferenceIndex — identity-keyed edges", () => {
 
 		// An AST-stored ref is ONE identity leaf to the field it lands on —
 		// `#form/grp/inner` / `/data/grp/inner` edge to `inner` alone, with
-		// no container prefix edge: nothing ever rewrites the slot (print
-		// re-derives the whole chain), so the container needs no carrier
-		// lookup. PROSE refs still resolve per segment prefix — the label's
-		// `#form/grp/inner` keeps the `grp` edge the prose rewriter needs.
+		// no container prefix edge: both XPath and prose store the target
+		// field's identity, and printing re-derives its current full path.
 		const slashWatcher = uuidByFieldId(doc, "slash_watcher");
-		expect(referencingCarrierUuids(doc, entityTargetKey(grp))).toEqual([
-			watcher,
-		]);
-		expect(slotsFor(doc, entityTargetKey(grp))[watcher]).toEqual({
-			label: true,
-		});
+		expect(referencingCarrierUuids(doc, entityTargetKey(grp))).toEqual([]);
 		expect(slotsFor(doc, entityTargetKey(inner))[watcher]).toEqual({
 			relevant: true,
 			label: true,
@@ -272,15 +273,15 @@ describe("buildReferenceIndex — identity-keyed edges", () => {
 		).toContain(watcher);
 	});
 
-	it("keys #case refs under the module's CURRENT type, with no case-type edge", () => {
+	it("keys explicit XPath case refs under their authored type", () => {
 		const doc = richDoc();
 		const ctxRef = uuidByFieldId(doc, "ctx_ref");
 		expect(
 			referencingCarrierUuids(doc, casePropertyTargetKey("patient", "age")),
 		).toContain(ctxRef);
-		// `#case/…` follows the module's type rather than naming one — the
-		// retirement planner's distinction.
-		expect(slotsFor(doc, caseTypeTargetKey("patient"))[ctxRef]).toBeUndefined();
+		expect(
+			referencingCarrierUuids(doc, caseTypeTargetKey("patient")),
+		).toContain(ctxRef);
 	});
 
 	it("keys AST PropertyRefs on the relation walk's destination type", () => {
@@ -334,7 +335,7 @@ describe("buildReferenceIndex — identity-keyed edges", () => {
 					uuid: "11111111-1111-4111-8111-111111111111",
 					kind: "text",
 					id: "outcome",
-					label: "Cousin outcome",
+					label: proseText("Cousin outcome"),
 				} as never,
 			},
 		]);
@@ -370,7 +371,7 @@ describe("index-driven rewrites — slash-path descendants and mid-batch currenc
 					uuid: outerUuid,
 					kind: "group",
 					id: "outer",
-					label: "Outer",
+					label: proseText("Outer"),
 				} as never,
 			},
 			{
@@ -390,8 +391,8 @@ describe("index-driven rewrites — slash-path descendants and mid-batch currenc
 		// Mid-batch currency is what lets reducers be lookup-driven at all:
 		// the add's maintenance must land its edges BEFORE the rename's
 		// reducer looks carriers up, inside one applyMutations call. The
-		// fresh PROSE ref is what the rename rewrites; the AST relevant
-		// follows at print with no rewrite.
+		// fresh prose and XPath refs both store identity and follow the rename
+		// at projection time without rewriting stored bytes.
 		const doc = richDoc();
 		const caseName = uuidByFieldId(doc, "case_name");
 		const formUuid = doc.moduleOrder.flatMap((m) => doc.formOrder[m] ?? [])[0];
@@ -404,15 +405,21 @@ describe("index-driven rewrites — slash-path descendants and mid-batch currenc
 					uuid: mintedUuid,
 					kind: "text",
 					id: "fresh_ref",
-					label: "Fresh #form/case_name",
+					label: canonicalProseTemplate([
+						{ kind: "text", text: "Fresh " },
+						{ kind: "field-ref", uuid: caseName },
+					]),
 					relevant: parseXPathForForm(doc, formUuid, "#form/case_name != ''"),
 				} as never,
 			},
 			{ kind: "renameField", uuid: caseName, newId: "full_name" },
 		]);
-		expect((next.fields[mintedUuid as never] as { label?: string }).label).toBe(
-			"Fresh #form/full_name",
-		);
+		const fresh = next.fields[mintedUuid as never];
+		expect(
+			"label" in fresh && fresh.label !== undefined
+				? printProseTemplate(fresh.label, next)
+				: undefined,
+		).toBe("Fresh #form/full_name");
 		expect(printedRelevant(next, mintedUuid as never)).toBe(
 			"#form/full_name != ''",
 		);
@@ -434,46 +441,7 @@ describe("declarations index", () => {
 	});
 });
 
-describe("incremental maintenance — at-a-distance resolution shifts", () => {
-	it("an addField that satisfies a dangling #form ref creates the edge without touching the carrier", () => {
-		const doc = richDoc();
-		const formUuid = doc.moduleOrder.flatMap((m) => doc.formOrder[m] ?? [])[0];
-		const pending = uuidByFieldId(doc, "pending");
-		const mintedUuid = "22222222-2222-4222-8222-222222222222";
-		const next = apply(doc, [
-			{
-				kind: "addField",
-				parentUuid: formUuid,
-				field: {
-					uuid: mintedUuid,
-					kind: "text",
-					id: "pending_x",
-					label: "Now exists",
-				} as never,
-			},
-		]);
-		expect(slotsFor(next, entityTargetKey(mintedUuid))[pending]).toEqual({
-			label: true,
-		});
-		expect(next.refIndex).toEqual(buildReferenceIndex(next));
-	});
-
-	it("a module case-type change re-keys #case refs across the module's forms", () => {
-		const doc = richDoc();
-		const moduleUuid = doc.moduleOrder[0];
-		const ctxRef = uuidByFieldId(doc, "ctx_ref");
-		const next = apply(doc, [
-			{ kind: "updateModule", uuid: moduleUuid, patch: { caseType: "visit" } },
-		]);
-		expect(
-			referencingCarrierUuids(next, casePropertyTargetKey("visit", "age")),
-		).toContain(ctxRef);
-		expect(
-			slotsFor(next, casePropertyTargetKey("patient", "age"))[ctxRef],
-		).toBeUndefined();
-		expect(next.refIndex).toEqual(buildReferenceIndex(next));
-	});
-
+describe("incremental maintenance", () => {
 	it("removals drop every trace of the removed subtree", () => {
 		const doc = richDoc();
 		const moduleUuid = doc.moduleOrder[0];

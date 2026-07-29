@@ -14,7 +14,7 @@ import type { XPathPrintableDoc } from "./print";
 /** Resolve a full id path from a form root to a field uuid, or
  *  `undefined` when any segment fails to resolve. Identity leaves are
  *  minted only from FULL resolutions — a partially-resolving reference
- *  stays a raw leaf and keeps printing its original text. */
+ *  stays inert text and the commit gate rejects the unresolved reference. */
 export type ResolveFieldPath = (
 	segments: readonly string[],
 ) => string | undefined;
@@ -35,7 +35,7 @@ export type IsBindableUserPropertySlug = (slug: string) => boolean;
  * the one unambiguous property so parsing never changes authored bytes merely
  * by normalizing case. Finally, the caller supplies the CommCare-validity gate:
  * a built-in or otherwise reserved historical custom declaration must stay the
- * explicit raw `user-ref` arm.
+ * explicit name-backed `user-ref` arm.
  */
 export function userPropertySlugResolver(
 	doc: Pick<XPathPrintableDoc, "userProperties">,
@@ -58,8 +58,8 @@ export function userPropertySlugResolver(
 /**
  * Build a resolver scoped to one form. `formUuid` may name a form that
  * doesn't exist on `doc` yet (a form minted earlier in the same batch)
- * — every resolution then fails and references stay raw, exactly the
- * dangling treatment they'd get against an empty form.
+ * — every resolution then fails and reference-looking text stays inert until
+ * the commit gate rejects the dangling target.
  */
 export function fieldPathResolver(
 	doc: XPathPrintableDoc,

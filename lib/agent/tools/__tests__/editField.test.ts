@@ -13,10 +13,10 @@
  *      convention).
  */
 
-import { proseText } from "@/lib/domain/prose";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import type { BlueprintDoc, Field, Form, Module } from "@/lib/domain";
+import { fallbackProseProjection, proseText } from "@/lib/domain/prose";
 import {
 	makeMcpTestContext,
 	makeStubToolContext,
@@ -47,8 +47,8 @@ function makeDoc(help?: string): BlueprintDoc {
 		uuid: FIELD,
 		id: "patient_name",
 		kind: "text",
-		label: "Patient name",
-		...(help !== undefined && { help }),
+		label: proseText("Patient name"),
+		...(help !== undefined && { help: proseText(help) }),
 	} as Field;
 	return {
 		appId: "test-app",
@@ -68,8 +68,12 @@ function makeDoc(help?: string): BlueprintDoc {
 /** Read the `help` text off the field in a post-mutation doc. */
 function helpOf(doc: BlueprintDoc): string | undefined {
 	const field = doc.fields[FIELD];
-	return field && "help" in field ? field.help : undefined;
+	return field && "help" in field && field.help
+		? fallbackProseProjection(field.help)
+		: undefined;
 }
+
+const ADDRESS = { moduleUuid: MOD, formUuid: FORM, fieldUuid: FIELD };
 
 beforeEach(() => {
 	vi.clearAllMocks();
@@ -80,9 +84,7 @@ describe("editField — help text", () => {
 		const { doc, ctx } = { doc: makeDoc(), ...makeStubToolContext() };
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "patient_name",
+				...ADDRESS,
 				updates: {
 					kind: "text",
 					help: proseText("Enter the patient's full legal name."),
@@ -103,9 +105,7 @@ describe("editField — help text", () => {
 		};
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "patient_name",
+				...ADDRESS,
 				updates: { kind: "text", label: proseText("Patient name") },
 			},
 			ctx,
@@ -122,9 +122,7 @@ describe("editField — help text", () => {
 		};
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "patient_name",
+				...ADDRESS,
 				updates: { kind: "text", help: null },
 			},
 			ctx,
@@ -143,7 +141,12 @@ const AGE = testUuid("66666666-6666-6666-6666-666666666666");
  *  `patient_name` → `age` is a sibling-id conflict. */
 function makeTwoFieldDoc(): BlueprintDoc {
 	const doc = makeDoc();
-	const age = { uuid: AGE, id: "age", kind: "int", label: "Age" } as Field;
+	const age = {
+		uuid: AGE,
+		id: "age",
+		kind: "int",
+		label: proseText("Age"),
+	} as Field;
 	return {
 		...doc,
 		fields: { ...doc.fields, [AGE]: age },
@@ -158,9 +161,7 @@ describe("editField — rename identifier guard", () => {
 		const recordSpy = vi.spyOn(ctx, "recordMutationStages");
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "patient_name",
+				...ADDRESS,
 				updates: { kind: "text", id: "age" },
 			},
 			ctx,
@@ -179,9 +180,7 @@ describe("editField — rename identifier guard", () => {
 		const { ctx } = makeStubToolContext();
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "patient_name",
+				...ADDRESS,
 				updates: { kind: "text", id: "patient name" },
 			},
 			ctx,
@@ -197,9 +196,7 @@ describe("editField — rename identifier guard", () => {
 		const { ctx } = makeStubToolContext();
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "patient_name",
+				...ADDRESS,
 				updates: { kind: "text", id: "__nova_count_x" },
 			},
 			ctx,
@@ -214,9 +211,7 @@ describe("editField — rename identifier guard", () => {
 		const recordSpy = vi.spyOn(ctx, "recordMutationStages");
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "patient_name",
+				...ADDRESS,
 				updates: { kind: "text", id: "full_name" },
 			},
 			ctx,
@@ -233,9 +228,7 @@ describe("editField — rename identifier guard", () => {
 		const recordSpy = vi.spyOn(ctx, "recordMutationStages");
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "patient_name",
+				...ADDRESS,
 				updates: { kind: "text", id: "age" },
 			},
 			ctx,
@@ -260,11 +253,14 @@ function makeSelectDoc(): BlueprintDoc {
 		uuid: SEL,
 		id: "consent",
 		kind: "single_select",
-		label: "Consent",
-		options: [
-			{ label: "Yes", value: "yes", uuid: OPT_YES, order: "a1" },
-			{ label: "No", value: "no", uuid: OPT_NO, order: "a2" },
-		],
+		label: proseText("Consent"),
+		optionsSource: {
+			kind: "inline",
+			options: [
+				{ label: proseText("Yes"), value: "yes", uuid: OPT_YES, order: "a1" },
+				{ label: proseText("No"), value: "no", uuid: OPT_NO, order: "a2" },
+			],
+		},
 	} as unknown as Field;
 	return {
 		...doc,
@@ -274,22 +270,29 @@ function makeSelectDoc(): BlueprintDoc {
 	};
 }
 
-describe("editField — wholesale options replacement keeps identity", () => {
+describe("editField — wholesale option-source replacement keeps identity", () => {
 	it("carries surviving values' uuids forward and identifies every option", async () => {
 		const { ctx } = makeStubToolContext();
-		// The SA replaces the whole list (its wire carries NO uuid/order):
-		// "yes" survives with a new label, "no" is dropped, "maybe" is new.
+		// The SA replaces the whole list and explicitly preserves the UUID of
+		// "yes"; "no" is dropped and uuid-less "maybe" is new.
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "consent",
+				moduleUuid: MOD,
+				formUuid: FORM,
+				fieldUuid: SEL,
 				updates: {
 					kind: "single_select",
-					options: [
-						{ label: proseText("Yes, agreed"), value: "yes" },
-						{ label: proseText("Maybe"), value: "maybe" },
-					],
+					optionsSource: {
+						kind: "inline",
+						options: [
+							{
+								optionUuid: OPT_YES,
+								label: proseText("Yes, agreed"),
+								value: "yes",
+							},
+							{ label: proseText("Maybe"), value: "maybe" },
+						],
+					},
 				},
 			},
 			ctx,
@@ -299,23 +302,26 @@ describe("editField — wholesale options replacement keeps identity", () => {
 		expect(result.kind).toBe("mutate");
 		const options = (
 			result.newDoc.fields[SEL] as unknown as {
-				options: Array<{
-					label: string;
-					value: string;
-					uuid?: string;
-					order?: string;
-				}>;
+				optionsSource: {
+					kind: "inline";
+					options: Array<{
+						label: ReturnType<typeof proseText>;
+						value: string;
+						uuid?: string;
+						order?: string;
+					}>;
+				};
 			}
-		).options;
+		).optionsSource.options;
 		expect(options).toHaveLength(2);
-		// The surviving value keeps its identity — a peer's concurrent granular
-		// edit addressed at OPT_YES stays valid, and this tab's own next builder
-		// edit to it is visible to the per-uuid option diff.
-		expect(options[0]).toMatchObject({ label: "Yes, agreed", value: "yes" });
+		// The explicitly addressed value keeps its identity — a peer's
+		// concurrent granular edit addressed at OPT_YES stays valid.
+		expect(options[0]).toMatchObject({
+			label: proseText("Yes, agreed"),
+			value: "yes",
+		});
 		expect(options[0]?.uuid).toBe(OPT_YES);
-		// The new option minted a fresh uuid (a uuid-less option committed
-		// mid-session is invisible to the per-uuid diff until a reload's
-		// backfill — the silent-loss class).
+		// The new option receives identity before the replacement commits.
 		expect(options[1]?.uuid).toBeDefined();
 		expect(options[1]?.uuid).not.toBe(OPT_NO);
 		for (const opt of options) {

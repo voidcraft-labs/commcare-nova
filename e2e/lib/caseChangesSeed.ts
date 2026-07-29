@@ -23,7 +23,6 @@
  * that: every row fits on one screen and traversal never has to carry anyone.
  */
 
-import { proseText } from "@/lib/domain/prose";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import {
 	asUuid,
@@ -45,6 +44,7 @@ import {
 	tableLookup,
 	term,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { buildUrl } from "@/lib/routing/location";
 
 /**
@@ -250,13 +250,13 @@ export function buildCaseChangesBlueprint(
 								uuid: CASE_CHANGES_SEED.fieldUuid,
 								kind: "text",
 								id: "visit_note",
-								label: "Visit note",
+								label: proseText("Visit note"),
 							}),
 							f({
 								uuid: CASE_CHANGES_SEED.linkTargetFieldUuid,
 								kind: "text",
 								id: "related_case_id",
-								label: "Related patient case id",
+								label: proseText("Related patient case id"),
 							}),
 						],
 					},

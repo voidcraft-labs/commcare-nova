@@ -15,6 +15,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
 	asMediaAssetId,
 	MEDIA_EXTRACT_STATUSES,
+	type MediaAssetId,
 } from "@/lib/domain/multimedia";
 import type { MediaAssetExtract } from "../types";
 import { setupAppStateTestDb } from "./appStateTestDb";
@@ -48,8 +49,8 @@ interface RowOverrides {
 }
 
 /** Insert a `media_assets` row, defaulting a `ready` image, and return its id. */
-async function seedRow(over: RowOverrides = {}): Promise<string> {
-	const id = crypto.randomUUID();
+async function seedRow(over: RowOverrides = {}): Promise<MediaAssetId> {
+	const id = asMediaAssetId(crypto.randomUUID());
 	await h
 		.db()
 		.insertInto("media_assets")

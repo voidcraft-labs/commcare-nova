@@ -4,11 +4,11 @@
 // tests pin the resolution rules and the honest-unknown contract the
 // column-applicability + gate consumers depend on.
 
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { CasePropertyDataType, PersistableDoc } from "@/lib/domain";
 import { effectiveCaseTypes } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 
 /** Test-local single-property read over the effective view —
  *  `undefined` conflates missing-and-unknown, which is fine for
@@ -59,7 +59,7 @@ describe("effectiveCaseTypes — writer derivation", () => {
 				f({
 					kind: "date",
 					id: "dob",
-					label: "DOB",
+					label: proseText("DOB"),
 					case_property_on: "patient",
 				}),
 			],
@@ -81,7 +81,7 @@ describe("effectiveCaseTypes — writer derivation", () => {
 				f({
 					kind: "date",
 					id: "dob",
-					label: "DOB",
+					label: proseText("DOB"),
 					case_property_on: "patient",
 				}),
 			],
@@ -142,7 +142,7 @@ describe("effectiveCaseTypes — writer derivation", () => {
 								f({
 									kind: "date",
 									id: "dob",
-									label: "DOB",
+									label: proseText("DOB"),
 									case_property_on: "patient",
 								}),
 							],
@@ -197,8 +197,18 @@ describe("effectiveCaseTypes — writer derivation", () => {
 	it("resolves unknown on writer disagreement instead of picking a side", () => {
 		const doc = docWith({
 			fields: [
-				f({ kind: "date", id: "x", label: "X", case_property_on: "patient" }),
-				f({ kind: "int", id: "x", label: "X", case_property_on: "patient" }),
+				f({
+					kind: "date",
+					id: "x",
+					label: proseText("X"),
+					case_property_on: "patient",
+				}),
+				f({
+					kind: "int",
+					id: "x",
+					label: proseText("X"),
+					case_property_on: "patient",
+				}),
 			],
 		});
 		expect(resolveEffectivePropertyType(doc, "patient", "x")).toBeUndefined();
@@ -272,7 +282,7 @@ describe("effectiveCaseTypes — the assembled view", () => {
 				f({
 					kind: "text",
 					id: "n",
-					label: "N",
+					label: proseText("N"),
 					case_property_on: "undeclared_type",
 				}),
 			],

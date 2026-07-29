@@ -16,7 +16,7 @@
  * Both the SA chat factory and the MCP adapter call this through the
  * shared `ToolExecutionContext` interface. Two exit branches:
  *
- *   1. Module index out of range → `{ error }`, no mutations.
+ *   1. Module UUID address does not resolve → `{ error }`, no mutations.
  *   2. Success → `{ message, uuids }` plus the persisted mutation,
  *      tagged `module:M:caseList:column:add`.
  */
@@ -35,11 +35,11 @@ import {
 	type MutatingToolResult,
 	toToolErrorResult,
 } from "../common";
-import type { MutationSuccess } from "../shared/toolCallSummary";
 import {
 	moduleAddressSchema,
 	resolveModuleAddress,
 } from "../shared/entityAddresses";
+import type { MutationSuccess } from "../shared/toolCallSummary";
 import { columnInputSchema, newUuid, stampColumnUuid } from "./shared";
 
 export const addCaseListColumnsInputSchema = moduleAddressSchema

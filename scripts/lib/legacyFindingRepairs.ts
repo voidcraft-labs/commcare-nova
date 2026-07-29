@@ -81,7 +81,11 @@ import {
 } from "../../lib/commcare/validator/gate";
 import { runValidation } from "../../lib/commcare/validator/runner";
 import { detectUnquotedStringLiteral, parser } from "../../lib/commcare/xpath";
-import { updateModuleMutation } from "../../lib/doc/addModuleMutation";
+import {
+	columnAddMutation,
+	columnSortMutations,
+	columnVisibilityMutations,
+} from "../../lib/doc/caseListColumnMutations";
 import { mutationCommitVerdict } from "../../lib/doc/commitVerdicts";
 import {
 	type DocExpressionMigrationResult,
@@ -158,6 +162,9 @@ export const REPAIR_JUDGMENTS: Readonly<
 	),
 	BLUEPRINT_ENTITY_UUID_DUPLICATE: owner(
 		"choosing which globally-colliding entity keeps its stable identity requires rewriting every reference to the other entity",
+	),
+	CASE_PROPERTY_REFERENCE_INVALID: owner(
+		"choosing a replacement reference or clearing an authored catalog default changes the app's data semantics",
 	),
 	// ── Worker information, roles, personas ──────────────────────────
 	//
@@ -1318,11 +1325,9 @@ const planSortPriorityRenumber: RepairModule = (finding, doc) => {
 	return {
 		tier: "mechanical",
 		description: `renumber sort priorities on module "${mod.name}" in the existing resolution order (wire bytes unchanged)`,
-		mutations: [
-			updateModuleMutation(moduleUuid, {
-				caseListConfig: { ...config, columns },
-			}),
-		],
+		mutations: config.columns.flatMap((column, index) =>
+			columnSortMutations(column, columns[index] ?? column, moduleUuid),
+		),
 	};
 };
 
@@ -1355,11 +1360,11 @@ const planSeedCaseNameColumn: RepairModule = (finding, doc) => {
 		return {
 			tier: "proposed",
 			description: `restore "${field}" as a visible Results field on module "${mod.name}"`,
-			mutations: [
-				updateModuleMutation(moduleUuid, {
-					caseListConfig: { ...config, columns: nextColumns },
-				}),
-			],
+			mutations: columnVisibilityMutations(
+				restored,
+				nextColumns[index] ?? restored,
+				moduleUuid,
+			),
 		};
 	}
 
@@ -1368,15 +1373,19 @@ const planSeedCaseNameColumn: RepairModule = (finding, doc) => {
 		tier: "proposed",
 		description: `seed the case list of module "${mod.name}" with the single "case_name" column (header "Name") — the column every Nova build leads with`,
 		mutations: [
-			updateModuleMutation(moduleUuid, {
-				caseListConfig: {
-					...(config ?? {}),
-					columns: [column],
-					// The seeded column belongs to both surfaces from birth.
-					listColumnOrder: [column.uuid],
-					detailColumnOrder: [column.uuid],
-					searchInputs: config?.searchInputs ?? [],
-				},
+			...(config === undefined
+				? [
+						{
+							kind: "updateModule" as const,
+							uuid: moduleUuid,
+							patch: {},
+							ensureCaseListConfig: true as const,
+						},
+					]
+				: []),
+			columnAddMutation(moduleUuid, column, {
+				afterInList: null,
+				afterInDetail: null,
 			}),
 		],
 	};

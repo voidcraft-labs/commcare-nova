@@ -1,5 +1,5 @@
-import { proseText } from "@/lib/domain/prose";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { proseText } from "@/lib/domain/prose";
 /**
  * Tests for `mediaAssetReady` — every referenced asset is in
  * `status: "ready"`. The validator's manifest loader includes
@@ -39,13 +39,13 @@ function docWithOptionMedia(assetId: string) {
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Name",
+								label: proseText("Name"),
 								case_property_on: "patient",
 							}),
 							f({
 								kind: "single_select",
 								id: "color",
-								label: "Color",
+								label: proseText("Color"),
 								options: [
 									{
 										value: "r",

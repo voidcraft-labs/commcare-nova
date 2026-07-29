@@ -36,10 +36,10 @@ import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useField } from "@/lib/doc/hooks/useEntity";
 import {
 	EMPTY_PROSE_TEMPLATE,
-	fallbackProseProjection,
 	type FieldPatchFor,
-	proseTemplateIsEmpty,
+	fallbackProseProjection,
 	type ProseTemplate,
+	proseTemplateIsEmpty,
 	type Uuid,
 } from "@/lib/domain";
 import { useEngineController } from "@/lib/preview/hooks/useEngineController";

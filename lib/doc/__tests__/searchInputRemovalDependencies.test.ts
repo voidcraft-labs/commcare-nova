@@ -36,22 +36,22 @@ describe("searchInputRemovalDependencies", () => {
 			"External ID",
 			"text",
 			whenInput(
-				input("case_name"),
-				eq(prop("client", "external_id"), input("case_name")),
+				input(targetUuid),
+				eq(prop("client", "external_id"), input(targetUuid)),
 			),
 		);
 		const config: CaseListConfig = resolveCaseListConfig({
 			columns: [],
 			searchInputs: [target, sibling],
 			filter: whenInput(
-				input("case_name"),
-				eq(prop("client", "case_name"), input("case_name")),
+				input(targetUuid),
+				eq(prop("client", "case_name"), input(targetUuid)),
 			),
 		});
 		const searchConfig: CaseSearchConfig = {
 			excludedOwnerIds: concat(
-				term(input("case_name")),
-				term(input("case_name")),
+				term(input(targetUuid)),
+				term(input(targetUuid)),
 			),
 		};
 
@@ -106,7 +106,7 @@ describe("searchInputRemovalDependencies", () => {
 				"text",
 				"external_id",
 			),
-			default: term(input("case_name")),
+			default: term(input(targetUuid)),
 		};
 		const config: CaseListConfig = resolveCaseListConfig({
 			columns: [],
@@ -114,8 +114,8 @@ describe("searchInputRemovalDependencies", () => {
 		});
 		const searchConfig: CaseSearchConfig = {
 			searchButtonDisplayCondition: whenInput(
-				input("case_name"),
-				eq(prop("client", "case_name"), input("case_name")),
+				input(targetUuid),
+				eq(prop("client", "case_name"), input(targetUuid)),
 			),
 		};
 
@@ -155,7 +155,7 @@ describe("searchInputRemovalDependencies", () => {
 		);
 		const config: CaseListConfig = resolveCaseListConfig({
 			columns: [
-				calculatedColumn(columnUuid, "Match note", term(input("case_name"))),
+				calculatedColumn(columnUuid, "Match note", term(input(targetUuid))),
 			],
 			searchInputs: [target],
 		});
@@ -181,7 +181,7 @@ describe("searchInputRemovalDependencies", () => {
 				"text",
 				"case_name",
 			),
-			default: term(input("case_name")),
+			default: term(input(targetUuid)),
 		};
 		const config: CaseListConfig = resolveCaseListConfig({
 			columns: [],

@@ -202,7 +202,7 @@ export async function resolveAttachments(
 	onProgress?: (deltaChars: number) => void,
 ): Promise<NovaUIMessage[]> {
 	// Unique asset ids across the whole history.
-	const ids = new Set<string>();
+	const ids = new Set<MediaAssetId>();
 	for (const m of messages) {
 		for (const ref of refsOf(m)) ids.add(ref.assetId);
 	}

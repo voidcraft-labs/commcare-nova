@@ -7,10 +7,10 @@
 
 import {
 	canonicalProseTemplate,
-	prosePartSchema,
 	type ProsePart,
 	type ProseReferencePart,
 	type ProseTemplate,
+	prosePartSchema,
 } from "@/lib/domain";
 
 export interface ProseTiptapNode {

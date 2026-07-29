@@ -33,6 +33,7 @@ import {
 	lookupColumnIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
+import { proseText } from "@/lib/domain/prose";
 import { applyLookupSchemaGovernanceInTransaction } from "@/lib/lookup/schemaGovernance";
 import { createLookupTable } from "@/lib/lookup/service";
 import type { LookupTableSnapshot } from "@/lib/lookup/types";
@@ -195,7 +196,7 @@ function lookupCarrierFixture(
 } {
 	const fieldUuid = testUuid(crypto.randomUUID());
 	const optionsSource: LookupOptionsSource = {
-		kind: "lookup-table",
+		kind: "lookup",
 		tableId,
 		valueColumnId: columnId,
 		labelColumnId: columnId,
@@ -214,11 +215,7 @@ function lookupCarrierFixture(
 								uuid: fieldUuid,
 								kind: "single_select",
 								id: "choice",
-								label: "Choice",
-								options: [
-									{ value: "a", label: "A" },
-									{ value: "b", label: "B" },
-								],
+								label: proseText("Choice"),
 								optionsSource,
 							},
 						],
@@ -519,8 +516,23 @@ describe("lookup materialization versus resource deletion", () => {
 					kind: "updateField",
 					uuid: fieldUuid,
 					targetKind: "single_select",
-					patch: {},
-					optionsSource: null,
+					patch: {
+						optionsSource: {
+							kind: "inline",
+							options: [
+								{
+									uuid: testUuid("inline-option-a"),
+									value: "a",
+									label: proseText("A"),
+								},
+								{
+									uuid: testUuid("inline-option-b"),
+									value: "b",
+									label: proseText("B"),
+								},
+							],
+						},
+					},
 				},
 			],
 			actorUserId: ACTOR,
@@ -530,7 +542,28 @@ describe("lookup materialization versus resource deletion", () => {
 		const repaired = await loadApp(appId);
 		if (!repaired) throw new Error("repaired app disappeared");
 		const repairedDoc = hydratePersistedBlueprint(repaired.blueprint);
-		expect(repairedDoc.fields[fieldUuid]).not.toHaveProperty("optionsSource");
+		const repairedField = repairedDoc.fields[fieldUuid];
+		if (
+			repairedField?.kind !== "single_select" &&
+			repairedField?.kind !== "multi_select"
+		) {
+			throw new Error("repaired field is no longer a select");
+		}
+		expect(repairedField.optionsSource).toEqual({
+			kind: "inline",
+			options: [
+				{
+					uuid: testUuid("inline-option-a"),
+					value: "a",
+					label: proseText("A"),
+				},
+				{
+					uuid: testUuid("inline-option-b"),
+					value: "b",
+					label: proseText("B"),
+				},
+			],
+		});
 		expect(extractLookupReferenceTargets(repairedDoc)).toBe(
 			EMPTY_LOOKUP_REFERENCE_TARGETS,
 		);
@@ -824,8 +857,23 @@ describe("cross-Project move", () => {
 					kind: "updateField",
 					uuid: fieldUuid,
 					targetKind: "single_select",
-					patch: {},
-					optionsSource: null,
+					patch: {
+						optionsSource: {
+							kind: "inline",
+							options: [
+								{
+									uuid: testUuid("inline-option-a"),
+									value: "a",
+									label: proseText("A"),
+								},
+								{
+									uuid: testUuid("inline-option-b"),
+									value: "b",
+									label: proseText("B"),
+								},
+							],
+						},
+					},
 				},
 			],
 			actorUserId: ACTOR,

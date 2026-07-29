@@ -12,8 +12,8 @@ import { expandDoc } from "@/lib/commcare/expander";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import type { AppConnectId } from "@/lib/doc/hooks/useAppConnectIds";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-
 import type { ConnectConfig, ConnectType, Uuid } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import {
 	dedupeRestoredConnectIds,
 	type RestoredConnectIdContext,
@@ -438,7 +438,7 @@ describe("Connect validation", () => {
 				assessment: { id: "module_quiz", user_score: xp("100") },
 			},
 			"Form",
-			[f({ kind: "text", id: "q", label: "Q" })],
+			[f({ kind: "text", id: "q", label: proseText("Q") })],
 		);
 		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(errors).toHaveLength(0);
@@ -456,7 +456,7 @@ describe("Connect validation", () => {
 				},
 			},
 			"Form",
-			[f({ kind: "text", id: "q", label: "Q" })],
+			[f({ kind: "text", id: "q", label: proseText("Q") })],
 		);
 		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(errors).toHaveLength(0);

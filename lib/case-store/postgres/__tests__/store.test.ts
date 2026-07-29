@@ -46,10 +46,10 @@
 // plays the role of the superuser provisioning; `runCaseStoreMigrations`
 // plays the role of the per-deploy migration Job.
 
-import { proseText } from "@/lib/domain/prose";
 import { Kysely, PostgresDialect, type PostgresPool } from "kysely";
 import { Pool } from "pg";
 import { beforeEach, describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type {
 	BlueprintDoc,
 	CaseProperty,
@@ -57,6 +57,7 @@ import type {
 	CaseType,
 } from "@/lib/domain";
 import { casePropertyDataTypes } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import { buildSimpleBlueprint } from "../../__tests__/fixtures/simpleBlueprint";
 import { runStoreContract } from "../../__tests__/storeContract";
 import { CaseNotFoundError, CasePropertiesValidationError } from "../../errors";
@@ -2153,7 +2154,7 @@ describe("PostgresCaseStore — creation stamps", () => {
 			appId: APP_ID,
 			submissionReceipt: {
 				entryKey: "store-creation-stamp-entry",
-				formUuid: "66666666-6666-4666-8666-666666666666",
+				formUuid: testUuid("66666666-6666-4666-8666-666666666666"),
 				expectedAppMutationSeq: 0,
 				requestDigest: "store-creation-stamp-request",
 			},
@@ -2612,7 +2613,7 @@ describe("PostgresCaseStore — applySchemaChange synced_seq gate", () => {
 			name: "patient",
 			properties: props.map((name) => ({
 				name,
-				label: name,
+				label: proseText(name),
 				data_type: "text" as const,
 			})),
 		};

@@ -19,12 +19,10 @@
 // Each operation routes through `idMappingColumn(...)` so the
 // emitted Column always parses through `columnSchema`.
 
-import { proseText } from "@/lib/domain/prose";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-
 import {
 	type CaseType,
 	type Column,
@@ -32,6 +30,7 @@ import {
 	type IdMappingEntry,
 	idMappingColumn,
 } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import { ColumnEditor } from "../../../ColumnEditor";
 
 const TEST_UUID = testUuid("00000000-0000-0000-0000-000000000001");

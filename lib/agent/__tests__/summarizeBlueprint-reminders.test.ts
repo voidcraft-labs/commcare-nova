@@ -5,9 +5,9 @@
  * and stays reminder-free otherwise.
  */
 
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { proseText } from "@/lib/domain/prose";
 import { summarizeBlueprint } from "../summarizeBlueprint";
 
 function readingDoc() {

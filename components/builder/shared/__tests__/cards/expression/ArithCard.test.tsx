@@ -8,11 +8,11 @@
 // `useEditorErrorsAt(appendSlot(path, "left" | "right"))` lookup
 // captures them inline next to the matching operand picker.
 
-import { proseText } from "@/lib/domain/prose";
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { CaseType } from "@/lib/domain";
 import { arith, literal, term } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { ExpressionCardEditor } from "../../../ExpressionCardEditor";
 
 const PATIENT: CaseType = {

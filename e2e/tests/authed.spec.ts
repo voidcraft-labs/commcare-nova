@@ -135,16 +135,16 @@ function isBlankExpressionTargetAutosave(
 			}
 			return false;
 		}
-		const fallback = mutation.caseOperationChange;
+		const change = mutation.caseOperationChange;
 		if (
-			!isRecord(fallback) ||
-			(fallback.operation !== "add" && fallback.operation !== "update") ||
-			!isRecord(fallback.value) ||
-			!Array.isArray(fallback.value.links)
+			!isRecord(change) ||
+			change.operation !== "add" ||
+			!isRecord(change.value) ||
+			!Array.isArray(change.value.links)
 		) {
 			return false;
 		}
-		return fallback.value.links.some(
+		return change.value.links.some(
 			(link) => isRecord(link) && isBlankExpressionTarget(link.target),
 		);
 	});

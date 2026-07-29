@@ -328,36 +328,47 @@ function openStream(args: {
 						.where("seq", ">", deliveredThrough)
 						.orderBy("seq")
 						.execute();
+					/* Validate the COMPLETE fetched suffix before emitting any frame. A
+					 * migration marker later in the same SELECT invalidates replay of every
+					 * preceding ordinary row too: the canonical migration rewrote the
+					 * authoritative snapshot and archived the old event vocabulary, so a
+					 * client must cross that horizon with one fresh-snapshot reload, never
+					 * by partially applying C+1…M-1 first. */
+					let expectedSeq = deliveredThrough + 1;
+					let containsMigration = false;
 					for (const row of rows) {
-						if (closed) return;
 						const seq = Number(row.seq);
-						/* A hole — the browser missed entries between its cursor and the
-						 * first delivered seq. Replay is impossible; reload. */
-						if (seq !== deliveredThrough + 1) {
+						if (seq !== expectedSeq) {
 							reloadAndClose();
 							return;
 						}
-						/* Migration batches reload the complete snapshot even when their
-						 * durable history row carries replayable deterministic mutations. The
-						 * migration may also have moved the app, so freshly reauthorize BEFORE
-						 * advancing the private cursor. A transient failure throws back to the
-						 * pump with `deliveredThrough` still at M-1, causing row M to retry. */
-						if (row.kind === "migration") {
-							try {
-								runBeforeMigrationReauthorizationTestHook();
-								await reauthorizeStreamScope(appId, userId);
-							} catch (err) {
-								if (err instanceof AppAccessError) {
-									revokeAndClose("access-revoked");
-									return;
-								}
-								throw err;
+						expectedSeq += 1;
+						if (row.kind === "migration") containsMigration = true;
+					}
+
+					if (containsMigration) {
+						/* The marker may also represent an app move. Reauthorize before
+						 * advancing any cursor or emitting any earlier ordinary row. A
+						 * transient failure leaves `deliveredThrough` unchanged and the
+						 * pump retries the whole suffix; a confirmed loss revokes. */
+						try {
+							runBeforeMigrationReauthorizationTestHook();
+							await reauthorizeStreamScope(appId, userId);
+						} catch (err) {
+							if (err instanceof AppAccessError) {
+								revokeAndClose("access-revoked");
+								return;
 							}
-							if (closed) return;
-							deliveredThrough = seq;
-							reloadAndClose("app-migrated");
-							return;
+							throw err;
 						}
+						if (closed) return;
+						reloadAndClose("app-migrated");
+						return;
+					}
+
+					for (const row of rows) {
+						if (closed) return;
+						const seq = Number(row.seq);
 						deliveredThrough = seq;
 						/* Project the client-relevant shape — the reconciler keys on these
 						 * fields (echo classification, gap detection, apply). The row's

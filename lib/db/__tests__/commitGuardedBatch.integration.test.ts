@@ -34,13 +34,19 @@
  * Runs unconditionally under `npm test`.
  */
 
-import { proseText } from "@/lib/domain/prose";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
 import { MAX_RUN_MINUTES } from "@/lib/db/constants";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { Mutation } from "@/lib/doc/types";
-import type { BlueprintDoc } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	fallbackProseProjection,
+	type MediaAssetId,
+	type Uuid,
+} from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import { setupAppStateTestDb } from "./appStateTestDb";
 
 // The fresh role read is the only auth dependency in the guarded path. Mock it
@@ -56,8 +62,13 @@ vi.mock("@/lib/db/projectMembership", () => ({
 	projectRoleForInTransaction: projectRoleForInTransactionMock,
 }));
 
-const { appendSyntheticBatch, commitGuardedBatch, loadApp, UNTITLED_APP_NAME } =
-	await import("../apps");
+const {
+	appendSyntheticBatch,
+	commitGuardedBatch,
+	commitGuardedBatchInTransaction,
+	loadApp,
+	UNTITLED_APP_NAME,
+} = await import("../apps");
 const {
 	AppProjectChangedError,
 	CommitReauthError,
@@ -92,13 +103,13 @@ function minDoc(appName = "Test"): BlueprintDoc {
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Name",
+								label: proseText("Name"),
 								case_property_on: "patient",
 							}),
 							f({
 								kind: "text",
 								id: "village",
-								label: "Village",
+								label: proseText("Village"),
 								case_property_on: "patient",
 							}),
 						],
@@ -185,8 +196,8 @@ async function seedApp(
 /** Seed a `ready` image asset in a Project. */
 async function seedReadyImage(
 	projectId: string,
-	assetId = crypto.randomUUID(),
-): Promise<string> {
+	assetId = testMediaAssetId(crypto.randomUUID()),
+): Promise<MediaAssetId> {
 	await h
 		.db()
 		.insertInto("media_assets")
@@ -211,7 +222,7 @@ async function seedReadyImage(
 	return assetId;
 }
 
-function villageUuid(doc: BlueprintDoc): string {
+function villageUuid(doc: BlueprintDoc): Uuid {
 	const field = Object.values(doc.fields).find((fl) => fl.id === "village");
 	if (!field) throw new Error("village field missing from fixture");
 	return field.uuid;
@@ -223,14 +234,14 @@ function renameVillageLabel(doc: BlueprintDoc, label: string): Mutation[] {
 			kind: "updateField",
 			uuid: villageUuid(doc),
 			targetKind: "text",
-			patch: { label },
-		} as Mutation,
+			patch: { label: proseText(label) },
+		},
 	];
 }
 
 function attachVillageLabelImage(
 	doc: BlueprintDoc,
-	assetId: string,
+	assetId: MediaAssetId,
 ): Mutation[] {
 	return [
 		{
@@ -238,7 +249,7 @@ function attachVillageLabelImage(
 			fieldUuid: villageUuid(doc),
 			slot: "label",
 			media: { image: assetId },
-		} as Mutation,
+		},
 	];
 }
 
@@ -296,6 +307,42 @@ beforeEach(() => {
 });
 
 describe("commitGuardedBatch (Postgres)", () => {
+	it("exercises the exact writer inside a caller-owned rollback transaction", async () => {
+		const doc = minDoc();
+		const appId = await seedApp(doc);
+		const batchId = crypto.randomUUID();
+		const rollback = new Error("intentional probe rollback");
+
+		await expect(
+			h
+				.db()
+				.transaction()
+				.execute(async (tx) => {
+					const result = await commitGuardedBatchInTransaction(tx, {
+						appId,
+						expectedProjectId: PROJECT,
+						batchId,
+						mutations: [],
+						actorUserId: OWNER,
+						kind: "migration",
+					});
+					expect(result).toMatchObject({ seq: 1, deduped: false });
+					expect(
+						await tx
+							.selectFrom("accepted_mutations")
+							.select("batch_id")
+							.where("app_id", "=", appId)
+							.where("batch_id", "=", batchId)
+							.executeTakeFirst(),
+					).toEqual({ batch_id: batchId });
+					throw rollback;
+				}),
+		).rejects.toBe(rollback);
+
+		expect(await readSeq(appId)).toBe(0);
+		expect(await readStream(appId)).toEqual([]);
+	});
+
 	it("persists MCP run attribution without granting it chat-holder authority", async () => {
 		const doc = minDoc();
 		const appId = await seedApp(doc);
@@ -322,7 +369,12 @@ describe("commitGuardedBatch (Postgres)", () => {
 		const village = Object.values(result.committedDoc.fields).find(
 			(fl) => fl.id === "village",
 		);
-		expect(village && "label" in village && village.label).toBe("Home village");
+		expect(
+			village &&
+				"label" in village &&
+				village.label !== undefined &&
+				fallbackProseProjection(village.label),
+		).toBe("Home village");
 
 		// The app row advanced its counter.
 		expect(await readSeq(appId)).toBe(1);
@@ -381,7 +433,12 @@ describe("commitGuardedBatch (Postgres)", () => {
 		const village = Object.values(reloaded?.blueprint.fields ?? {}).find(
 			(fl) => fl.id === "village",
 		);
-		expect(village && "label" in village && village.label).toBe("Reassembled");
+		expect(
+			village &&
+				"label" in village &&
+				village.label !== undefined &&
+				fallbackProseProjection(village.label),
+		).toBe("Reassembled");
 		expect(reloaded?.mutation_seq).toBe(result.seq);
 	});
 
@@ -441,7 +498,12 @@ describe("commitGuardedBatch (Postgres)", () => {
 		const village = Object.values(replay.committedDoc.fields).find(
 			(fl) => fl.id === "village",
 		);
-		expect(village && "label" in village && village.label).toBe("Home village");
+		expect(
+			village &&
+				"label" in village &&
+				village.label !== undefined &&
+				fallbackProseProjection(village.label),
+		).toBe("Home village");
 	});
 
 	it("refreshes the EDIT run_lock lease on a commit by the lock-holding run", async () => {
@@ -556,7 +618,12 @@ describe("commitGuardedBatch (Postgres)", () => {
 		const village = Object.values(reloaded?.blueprint.fields ?? {}).find(
 			(field) => field.id === "village",
 		);
-		expect(village && "label" in village && village.label).toBe("Village");
+		expect(
+			village &&
+				"label" in village &&
+				village.label !== undefined &&
+				fallbackProseProjection(village.label),
+		).toBe("Village");
 	});
 
 	it("rejects a stale edit batch without changing the live successor's doc, cursor, identity, marker, or lock", async () => {
@@ -605,7 +672,12 @@ describe("commitGuardedBatch (Postgres)", () => {
 		const village = Object.values(reloaded?.blueprint.fields ?? {}).find(
 			(field) => field.id === "village",
 		);
-		expect(village && "label" in village && village.label).toBe("Village");
+		expect(
+			village &&
+				"label" in village &&
+				village.label !== undefined &&
+				fallbackProseProjection(village.label),
+		).toBe("Village");
 	});
 
 	it("denies a non-member with a terminal CommitReauthError (nothing written)", async () => {
@@ -739,10 +811,10 @@ describe("commitGuardedBatch (Postgres)", () => {
 		const mutations: Mutation[] = [
 			{
 				kind: "updateField",
-				uuid: "deleted-by-a-peer",
+				uuid: testUuid("deleted-by-a-peer"),
 				targetKind: "text",
-				patch: { label: "New label" },
-			} as Mutation,
+				patch: { label: proseText("New label") },
+			},
 		];
 
 		const err = await commitGuardedBatch({
@@ -813,7 +885,12 @@ describe("commitGuardedBatch (Postgres)", () => {
 		const village = Object.values(result.committedDoc.fields).find(
 			(fl) => fl.id === "village",
 		);
-		expect(village && "label" in village && village.label).toBe("Home village");
+		expect(
+			village &&
+				"label" in village &&
+				village.label !== undefined &&
+				fallbackProseProjection(village.label),
+		).toBe("Home village");
 	});
 
 	it("commits a media attach when the asset is present + ready inside the transaction", async () => {
@@ -853,7 +930,7 @@ describe("commitGuardedBatch (Postgres)", () => {
 		const doc = minDoc();
 		const appId = await seedApp(doc, { projectId: PROJECT });
 		// The asset is GONE by the time the transaction reads the asset rows.
-		const missingAssetId = crypto.randomUUID();
+		const missingAssetId = testMediaAssetId(crypto.randomUUID());
 
 		await expect(
 			commitGuardedBatch({
@@ -990,13 +1067,13 @@ describe("commitGuardedBatch — rename-expectation gate", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 								f({
 									kind: "text",
 									id: "village",
-									label: "Moving village writer",
+									label: proseText("Moving village writer"),
 									case_property_on: "patient",
 								}),
 							],
@@ -1008,7 +1085,7 @@ describe("commitGuardedBatch — rename-expectation gate", () => {
 								f({
 									kind: "text",
 									id: "village",
-									label: "Keeping village writer",
+									label: proseText("Keeping village writer"),
 									case_property_on: "patient",
 								}),
 							],
@@ -1028,7 +1105,10 @@ describe("commitGuardedBatch — rename-expectation gate", () => {
 		});
 		const appId = await seedApp(fresh, { projectId: null });
 		const movingWriter = Object.values(fresh.fields).find(
-			(field) => "label" in field && field.label === "Moving village writer",
+			(field) =>
+				"label" in field &&
+				field.label !== undefined &&
+				fallbackProseProjection(field.label) === "Moving village writer",
 		);
 		if (!movingWriter) throw new Error("fixture is missing the moving writer");
 

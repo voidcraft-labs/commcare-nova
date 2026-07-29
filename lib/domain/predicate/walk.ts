@@ -317,7 +317,7 @@ function collapseWhenInputPresent(predicate: Predicate): void {
 function blankInputTerm(term: Term): void {
 	if (term.kind !== "input") return;
 	const node = term as unknown as Record<string, unknown>;
-	delete node.name;
+	delete node.searchInputUuid;
 	node.kind = "literal";
 	node.value = "";
 }

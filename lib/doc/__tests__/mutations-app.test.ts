@@ -1,9 +1,9 @@
-import { proseText } from "@/lib/domain/prose";
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { applyMutation } from "@/lib/doc/mutations";
 import type { BlueprintDoc } from "@/lib/doc/types";
+import { proseText } from "@/lib/domain/prose";
 
 function emptyDoc(): BlueprintDoc {
 	return {
@@ -71,7 +71,7 @@ describe("applyMutation: setCaseTypes", () => {
 		expect(next.caseTypes).toEqual([
 			{
 				name: "patient",
-				properties: [{ name: "name", label: "Name" }],
+				properties: [{ name: "name", label: proseText("Name") }],
 			},
 		]);
 	});

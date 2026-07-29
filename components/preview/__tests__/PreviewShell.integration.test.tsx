@@ -17,12 +17,12 @@
 // intents and PreviewShell's Activity boundaries; live data loading
 // is a black box from this surface's perspective.
 
-import { proseText } from "@/lib/domain/prose";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { CaseListWorkspaceProvider } from "@/components/builder/case-list-config/CaseListConfigWorkspace";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
+import { proseText } from "@/lib/domain/prose";
 
 import type { Location } from "@/lib/routing/types";
 

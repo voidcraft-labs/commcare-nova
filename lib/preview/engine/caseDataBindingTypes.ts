@@ -57,10 +57,8 @@ export type CaseQueryConstraintSource =
 	| "worker-search"
 	| "authored-rules";
 
-/** What the client can truthfully say about a settled query result. `unknown`
- * exists only for the short rolling-deploy window where a new client receives
- * the older Server Action response shape without constraint metadata. */
-export type CaseQueryConstraintContext = CaseQueryConstraintSource | "unknown";
+/** What the client can truthfully say about a settled query result. */
+export type CaseQueryConstraintContext = CaseQueryConstraintSource;
 
 /**
  * Result of loading case rows for a case type, optionally as a bounded window.
@@ -78,15 +76,13 @@ export type LoadCasesResult =
 			kind: "rows";
 			rows: ReadonlyArray<CaseRowWithCalculated>;
 			/** Full population matching the authored + worker query. Present for
-			 * bounded running-list reads; optional during rolling deploys and for
-			 * legacy unpaged callers. */
+			 * bounded running-list reads; absent for current unpaged helper callers. */
 			totalCount?: number;
 			/** Effective bounded window returned by the server. The server may
 			 * clamp an offset past the final page after concurrent deletion. */
 			pageOffset?: number;
 			pageSize?: number;
-			/** Optional only for rolling-deploy compatibility with an older action. */
-			constraintSource?: CaseQueryConstraintSource;
+			constraintSource: CaseQueryConstraintSource;
 	  }
 	| {
 			kind: "empty";
@@ -95,8 +91,7 @@ export type LoadCasesResult =
 			 * clearing Search cannot reveal a case; a positive value proves that
 			 * Search itself narrowed the authored population to zero. */
 			authoredMatchingCount?: number;
-			/** Optional only for rolling-deploy compatibility with an older action. */
-			constraintSource?: CaseQueryConstraintSource;
+			constraintSource: CaseQueryConstraintSource;
 	  }
 	/** A safe, deterministic Search-value rejection. Unlike `error`, retrying
 	 * unchanged input cannot help, so consumers show the cause beside Search

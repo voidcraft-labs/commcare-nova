@@ -11,7 +11,6 @@
  * Fixtures are built in the normalized `BlueprintDoc` shape directly.
  */
 
-import { proseText } from "@/lib/domain/prose";
 import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
@@ -19,6 +18,7 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
+import { proseText } from "@/lib/domain/prose";
 import { EMPTY_COLLAPSE, useFormRows } from "../useFormRows";
 
 // ── Setup ──────────────────────────────────────────────────────────────
@@ -45,8 +45,8 @@ const TEST_DOC: BlueprintDoc = {
 		},
 	},
 	fields: {
-		[Q_A]: { uuid: Q_A, id: "a", kind: "text", label: "A" },
-		[Q_B]: { uuid: Q_B, id: "b", kind: "text", label: "B" },
+		[Q_A]: { uuid: Q_A, id: "a", kind: "text", label: proseText("A") },
+		[Q_B]: { uuid: Q_B, id: "b", kind: "text", label: proseText("B") },
 	},
 	moduleOrder: [MODULE_UUID],
 	formOrder: { [MODULE_UUID]: [FORM_UUID] },

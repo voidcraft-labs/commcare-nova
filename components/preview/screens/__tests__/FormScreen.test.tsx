@@ -28,7 +28,6 @@
 //      assertion, then resolves with the success arm so the pending
 //      promise drains before teardown.
 
-import { proseText } from "@/lib/domain/prose";
 import {
 	act,
 	fireEvent,
@@ -42,6 +41,7 @@ import { xp } from "@/lib/__tests__/docHelpers";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
 import type { Uuid } from "@/lib/doc/types";
+import { proseText } from "@/lib/domain/prose";
 import type { SubmissionResult } from "@/lib/preview/engine/caseDataBindingTypes";
 import type { EngineController } from "@/lib/preview/engine/engineController";
 import { useBuilderFormEngine } from "@/lib/preview/engine/provider";
@@ -354,14 +354,14 @@ function renderFormScreen(opts: {
 						uuid: FIELD_UUID,
 						id: "name",
 						kind: "text",
-						label: "Name",
+						label: proseText("Name"),
 						case_property_on: CASE_TYPE,
 					},
 					[FIELD_REQUIRED_UUID]: {
 						uuid: FIELD_REQUIRED_UUID,
 						id: "name",
 						kind: "text",
-						label: "Name",
+						label: proseText("Name"),
 						case_property_on: CASE_TYPE,
 						required: xp("true()"),
 					},
@@ -369,60 +369,60 @@ function renderFormScreen(opts: {
 						uuid: GROUP_ONE_UUID,
 						id: "visit_one",
 						kind: "group",
-						label: "Visit",
+						label: proseText("Visit"),
 					},
 					[GROUP_TWO_UUID]: {
 						uuid: GROUP_TWO_UUID,
 						id: "visit_two",
 						kind: "group",
-						label: "Visit",
+						label: proseText("Visit"),
 					},
 					[REPEAT_UUID]: {
 						uuid: REPEAT_UUID,
 						id: "visits",
 						kind: "repeat",
-						label: "Visit",
+						label: proseText("Visit"),
 						repeat_mode: "user_controlled",
 					},
 					[GROUP_ONE_PHOTO_UUID]: {
 						uuid: GROUP_ONE_PHOTO_UUID,
 						id: "photo",
 						kind: "image",
-						label: "Photo",
+						label: proseText("Photo"),
 						required: xp("true()"),
 					},
 					[GROUP_TWO_PHOTO_UUID]: {
 						uuid: GROUP_TWO_PHOTO_UUID,
 						id: "photo",
 						kind: "image",
-						label: "Photo",
+						label: proseText("Photo"),
 					},
 					[REPEAT_PHOTO_UUID]: {
 						uuid: REPEAT_PHOTO_UUID,
 						id: "photo",
 						kind: "image",
-						label: "Photo",
+						label: proseText("Photo"),
 					},
 					[GROUP_TWO_SIGNATURE_UUID]: {
 						uuid: GROUP_TWO_SIGNATURE_UUID,
 						id: "consent",
 						kind: "signature",
-						label: "Signed consent",
+						label: proseText("Signed consent"),
 					},
 					[REQUIRED_PHOTO_UUID]: {
 						uuid: REQUIRED_PHOTO_UUID,
 						id: "photo",
 						kind: "image",
-						label: "Photo",
-						hint: "Attach a clear image.",
+						label: proseText("Photo"),
+						hint: proseText("Attach a clear image."),
 						required: xp("true()"),
 					},
 					[REQUIRED_SIGNATURE_UUID]: {
 						uuid: REQUIRED_SIGNATURE_UUID,
 						id: "consent",
 						kind: "signature",
-						label: "Signed consent",
-						hint: "Ask the participant to sign.",
+						label: proseText("Signed consent"),
+						hint: proseText("Ask the participant to sign."),
 						required: xp("true()"),
 					},
 				},
@@ -591,7 +591,10 @@ beforeEach(async () => {
 	/* Default the case-list query (used by the auto-select path for a
 	 *  directly-previewed case-loading form) to an empty store; tests that
 	 *  exercise auto-selection override with rows. */
-	vi.mocked(loadCasesAction).mockResolvedValue({ kind: "empty" });
+	vi.mocked(loadCasesAction).mockResolvedValue({
+		constraintSource: "unconstrained",
+		kind: "empty",
+	});
 });
 
 afterEach(async () => {
@@ -1901,6 +1904,7 @@ describe("FormScreen — case-loading form previewed directly (no nav caseId)", 
 		 *  usable), not gate on navigation — same stance as the case list.
 		 *  The submit row renders against that bound case. */
 		vi.mocked(loadCasesAction).mockResolvedValue({
+			constraintSource: "unconstrained",
 			kind: "rows",
 			rows: [
 				{
@@ -1935,7 +1939,10 @@ describe("FormScreen — case-loading form previewed directly (no nav caseId)", 
 		 *  flipbook continuity, but Preview stays app-pure: it explains the
 		 *  normal Results → case-selection journey instead of exposing a
 		 *  builder-only sample-data action. */
-		vi.mocked(loadCasesAction).mockResolvedValue({ kind: "empty" });
+		vi.mocked(loadCasesAction).mockResolvedValue({
+			constraintSource: "unconstrained",
+			kind: "empty",
+		});
 		renderFormScreen({ formUuid: CLOSE_FORM_UUID });
 
 		/* The form itself renders — its field's textbox is present (an

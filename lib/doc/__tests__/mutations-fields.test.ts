@@ -1,4 +1,3 @@
-import { proseText } from "@/lib/domain/prose";
 import { produce } from "immer";
 import { describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -15,8 +14,9 @@ import type {
 } from "@/lib/doc/mutations/fields";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
 import { mutationSchema } from "@/lib/doc/types";
-import type { Column, Field, Form, Module } from "@/lib/domain";
+import type { Column, Field, Form, Module, ProseTemplate } from "@/lib/domain";
 import { expressionSource } from "@/lib/domain";
+import { canonicalProseTemplate, proseText } from "@/lib/domain/prose";
 
 const M = (s: string) => testUuid(`mod${s}-0000-0000-0000-000000000000`);
 const F = (s: string) => testUuid(`frm${s}-0000-0000-0000-000000000000`);
@@ -40,33 +40,8 @@ function field_(
 	patch: Record<string, unknown> & { kind?: Field["kind"] } = {},
 ): Field {
 	const { kind = "text", ...rest } = patch;
-	return { uuid, id, kind, label: id, ...rest } as unknown as Field;
+	return { uuid, id, kind, label: proseText(id), ...rest } as unknown as Field;
 }
-
-/**
- * Cast a union `Field | undefined` to a loosely-typed shape for assertion.
- *
- * Tests assert on properties like `label` and `calculate` that live only
- * on some variants. Since the discriminant `kind` isn't being narrowed at
- * the call site, we expose a shared `asField` helper that widens the type
- * to an any-variant-has-these-keys shape purely for the assertion.
- */
-type AnyField =
-	| {
-			uuid: Uuid;
-			id: string;
-			kind: string;
-			label?: string;
-			hint?: string;
-			required?: string;
-			calculate?: string;
-			relevant?: string;
-			validate?: string;
-			default_value?: string;
-	  }
-	| undefined;
-
-const asField = (f: Field | undefined): AnyField => f as AnyField;
 
 /** The printed text of an AST-stored expression slot — what the old
  *  string assertions used to read directly off the field. */
@@ -77,6 +52,36 @@ function slotText(
 ): string | undefined {
 	const field = doc.fields[uuid];
 	return field ? expressionSource(field, slot, doc) : undefined;
+}
+
+function proseSlotText(
+	doc: BlueprintDoc,
+	uuid: Uuid,
+	slot: "label" | "hint" | "help" | "validate_msg",
+): string | undefined {
+	const field = doc.fields[uuid];
+	return field ? expressionSource(field, slot, doc) : undefined;
+}
+
+function fieldRefProse(prefix: string, uuid: Uuid, suffix = ""): ProseTemplate {
+	return canonicalProseTemplate([
+		{ kind: "text", text: prefix },
+		{ kind: "field-ref", uuid },
+		{ kind: "text", text: suffix },
+	]);
+}
+
+function caseRefProse(
+	prefix: string,
+	caseType: string,
+	property: string,
+	suffix = "",
+): ProseTemplate {
+	return canonicalProseTemplate([
+		{ kind: "text", text: prefix },
+		{ kind: "case-ref", caseType, property },
+		{ kind: "text", text: suffix },
+	]);
 }
 
 /**
@@ -194,7 +199,7 @@ describe("updateField", () => {
 				patch: { label: proseText("Patient Name"), required: xp("true") },
 			});
 		});
-		expect(asField(next.fields[Q("a")])?.label).toBe("Patient Name");
+		expect(proseSlotText(next, Q("a"), "label")).toBe("Patient Name");
 		expect(slotText(next, Q("a"), "required")).toBe("true");
 		expect(next.fields[Q("a")]?.id).toBe("name"); // Preserved
 	});
@@ -256,23 +261,24 @@ describe("updateField", () => {
 				kind: "updateField",
 				uuid: Q("grp"),
 				targetKind: "group",
-				patch: { kind: "text", label: "Renamed" } as unknown as Partial<{
-					label: string;
+				patch: {
+					kind: "text",
+					label: proseText("Renamed"),
+				} as unknown as Partial<{
+					label: ReturnType<typeof proseText>;
 				}>,
 			});
 		});
 		// The group stays a group (children intact); the rest of the patch
 		// landed normally.
 		expect(next.fields[Q("grp")]?.kind).toBe("group");
-		expect(asField(next.fields[Q("grp")])?.label).toBe("Renamed");
+		expect(proseSlotText(next, Q("grp"), "label")).toBe("Renamed");
 		expect(next.fieldOrder[Q("grp")]).toEqual([Q("kid")]);
 	});
 
-	it("applies a kind-bearing patch byte-identically in-process and after a wire round-trip", () => {
-		// Replay-equivalence: `mutationSchema` strips `kind` from the patch
-		// (the per-kind partial schemas omit it; default-mode Zod objects
-		// drop unknown keys silently), so the SAME mutation replayed off the
-		// event log must produce the SAME doc the in-process dispatch did.
+	it("rejects an immutable kind key at the wire boundary", () => {
+		// The final mutation dialect is strict. A kind change has one owner:
+		// `convertField`; `updateField` never accepts an alternate spelling.
 		const start: BlueprintDoc = {
 			...docWithForm(),
 			fields: { [Q("a")]: field_(Q("a"), "name") },
@@ -282,20 +288,16 @@ describe("updateField", () => {
 			kind: "updateField",
 			uuid: Q("a"),
 			targetKind: "text",
-			patch: { kind: "int", hint: "patched" },
+			patch: { kind: "int", hint: proseText("patched") },
 		} as unknown as Parameters<typeof applyMutation>[1];
 		const inProcess = produce(resolveDocExpressions(start), (d) => {
 			applyMutation(d, mut);
 		});
-		const roundTripped = mutationSchema.parse(
-			JSON.parse(JSON.stringify(mut)),
-		) as Parameters<typeof applyMutation>[1];
-		const replayed = produce(resolveDocExpressions(start), (d) => {
-			applyMutation(d, roundTripped);
-		});
-		expect(JSON.stringify(inProcess)).toBe(JSON.stringify(replayed));
+		expect(
+			mutationSchema.safeParse(JSON.parse(JSON.stringify(mut))).success,
+		).toBe(false);
 		expect(inProcess.fields[Q("a")]?.kind).toBe("text");
-		expect(asField(inProcess.fields[Q("a")])?.hint).toBe("patched");
+		expect(proseSlotText(inProcess, Q("a"), "hint")).toBe("patched");
 	});
 
 	it("drops stale mode-specific keys when repeat_mode changes", () => {
@@ -357,13 +359,15 @@ describe("updateField", () => {
 				// The TS shape on the new mutation requires per-kind partial,
 				// so cast through `unknown` to inject the bad value at
 				// runtime — the reducer's `safeParse` is what we're testing.
-				patch: { label: 42 } as unknown as Partial<{ label: string }>,
+				patch: { label: 42 } as unknown as Partial<{
+					label: ReturnType<typeof proseText>;
+				}>,
 			});
 		});
 		expect(warn).toHaveBeenCalled();
 		warn.mockRestore();
 		// No-op: original label preserved (field_ defaults label to id).
-		expect(asField(next.fields[Q("a")])?.label).toBe("name");
+		expect(proseSlotText(next, Q("a"), "label")).toBe("name");
 	});
 
 	it("clears a property when the patch value is null (the wire-safe blank)", () => {
@@ -849,7 +853,7 @@ describe("moveField result metadata", () => {
 				[Q("grp")]: field_(Q("grp"), "grp", { kind: "group" }),
 				[Q("ref")]: field_(Q("ref"), "ref", {
 					// Prose label with a hashtag ref — transformBareHashtags path.
-					label: "See #form/source for details",
+					label: fieldRefProse("See ", Q("src"), " for details"),
 					// XPath surface with the same hashtag ref. `relevant` is the
 					// XPath slot every kind carries, so one text field can host
 					// both surfaces (`calculate` is hidden-only and hidden has
@@ -872,7 +876,7 @@ describe("moveField result metadata", () => {
 			});
 		});
 
-		expect(asField(next.fields[Q("ref")])?.label).toBe(
+		expect(proseSlotText(next, Q("ref"), "label")).toBe(
 			"See #form/grp/source for details",
 		);
 		expect(slotText(next, Q("ref"), "relevant")).toBe("#form/grp/source != ''");
@@ -885,7 +889,7 @@ describe("moveField result metadata", () => {
 				[Q("grp")]: field_(Q("grp"), "grp", { kind: "group" }),
 				[Q("src")]: field_(Q("src"), "source"),
 				[Q("ref")]: field_(Q("ref"), "ref", {
-					label: "See #form/grp/source for details",
+					label: fieldRefProse("See ", Q("src"), " for details"),
 				}),
 			},
 			fieldOrder: {
@@ -903,7 +907,7 @@ describe("moveField result metadata", () => {
 			});
 		});
 
-		expect(asField(next.fields[Q("ref")])?.label).toBe(
+		expect(proseSlotText(next, Q("ref"), "label")).toBe(
 			"See #form/source for details",
 		);
 	});
@@ -1063,13 +1067,13 @@ describe("renameField case-property cascade", () => {
 				// Form 2 of the SAME module has a field whose label references
 				// `#case/age` — this is the ref that must be rewritten.
 				[Q("ref")]: field_(Q("ref"), "display", {
-					label: "Patient age: #case/age",
+					label: caseRefProse("Patient age: ", "patient", "age"),
 				}),
 				// Form 3 of module Y (caseType: household) ALSO has a
 				// `#case/age` ref. Because Y's caseType differs, the cascade
 				// must NOT touch it — the ref resolves to a different case.
 				[Q("off")]: field_(Q("off"), "household_display", {
-					label: "Household age: #case/age",
+					label: caseRefProse("Household age: ", "household", "age"),
 				}),
 			},
 			fieldOrder: {
@@ -1090,12 +1094,12 @@ describe("renameField case-property cascade", () => {
 		// Source field's id changed.
 		expect(next.fields[Q("src")]?.id).toBe("age_1");
 		// Cross-form #case/ ref in same caseType rewritten.
-		expect(asField(next.fields[Q("ref")])?.label).toBe(
-			"Patient age: #case/age_1",
+		expect(proseSlotText(next, Q("ref"), "label")).toBe(
+			"Patient age: #patient/age_1",
 		);
 		// Cross-caseType ref left alone (resolves to a different case entity).
-		expect(asField(next.fields[Q("off")])?.label).toBe(
-			"Household age: #case/age",
+		expect(proseSlotText(next, Q("off"), "label")).toBe(
+			"Household age: #household/age",
 		);
 	});
 
@@ -1107,8 +1111,8 @@ describe("renameField case-property cascade", () => {
 				[Q("src")]: field_(Q("src"), "age", { case_property_on: "patient" }),
 				[Q("ref")]: field_(Q("ref"), "adult_check", {
 					kind: "hidden",
-					calculate: "#case/age >= 18",
-					relevant: "#case/age > 0",
+					calculate: "#patient/age >= 18",
+					relevant: "#patient/age > 0",
 				}),
 			},
 			fieldOrder: {
@@ -1125,8 +1129,8 @@ describe("renameField case-property cascade", () => {
 			});
 		});
 
-		expect(slotText(next, Q("ref"), "calculate")).toBe("#case/age_1 >= 18");
-		expect(slotText(next, Q("ref"), "relevant")).toBe("#case/age_1 > 0");
+		expect(slotText(next, Q("ref"), "calculate")).toBe("#patient/age_1 >= 18");
+		expect(slotText(next, Q("ref"), "relevant")).toBe("#patient/age_1 > 0");
 	});
 
 	it("rewrites #<caseType>/<oldId> per-type refs app-wide, leaving other types alone", () => {
@@ -1168,7 +1172,7 @@ describe("renameField case-property cascade", () => {
 					// `relevant` hosts the XPath surface so the same text field
 					// can also carry the prose label (calculate is hidden-only).
 					relevant: "#mother/age + #pregnancy/age",
-					label: "Mother age: #mother/age",
+					label: caseRefProse("Mother age: ", "mother", "age"),
 				}),
 			},
 			moduleOrder: [M("X"), M("P")],
@@ -1192,7 +1196,7 @@ describe("renameField case-property cascade", () => {
 			"#mother/age_years + #pregnancy/age",
 		);
 		// Prose ref rewritten the same way.
-		expect(asField(next.fields[Q("ref")])?.label).toBe(
+		expect(proseSlotText(next, Q("ref"), "label")).toBe(
 			"Mother age: #mother/age_years",
 		);
 	});
@@ -1502,7 +1506,7 @@ describe("renameField case-property cascade", () => {
 		expect(slotText(next, Q("ref_b"), "calculate")).toBe("/data/source + 1");
 	});
 
-	it("counts a field with both /data/ and #case/ refs exactly once", () => {
+	it("counts a field with both /data/ and typed case refs exactly once", () => {
 		// A single field with both a form-local path ref AND a cross-form
 		// case hashtag ref gets rewritten by BOTH passes. The distinct-field
 		// counter must dedupe — the UI toast "N references updated" should
@@ -1515,11 +1519,11 @@ describe("renameField case-property cascade", () => {
 				[Q("src")]: field_(Q("src"), "age", { case_property_on: "patient" }),
 				// Same-form ref with /data/age reached by form-local pass
 				// (`relevant` — the XPath slot text fields carry) AND
-				// #case/age reached by the cascade pass (module X's caseType
+				// The patient/age reference is reached by the cascade pass
 				// is "patient" → its forms are visited).
 				[Q("ref")]: field_(Q("ref"), "display", {
 					relevant: "/data/age > 1",
-					label: "Age: #case/age",
+					label: caseRefProse("Age: ", "patient", "age"),
 				}),
 			},
 			fieldOrder: { [F("1")]: [Q("src"), Q("ref")] },
@@ -1536,12 +1540,12 @@ describe("renameField case-property cascade", () => {
 
 		// Both refs updated…
 		expect(slotText(next, Q("ref"), "relevant")).toBe("/data/age_1 > 1");
-		expect(asField(next.fields[Q("ref")])?.label).toBe("Age: #case/age_1");
+		expect(proseSlotText(next, Q("ref"), "label")).toBe("Age: #patient/age_1");
 		// …but `ref` is still exactly one field → count is 1.
 		expect(result?.xpathFieldsRewritten).toBe(1);
 	});
 
-	it("does not set cascadedAcrossForms when only same-form #case/ refs were rewritten", () => {
+	it("does not set cascadedAcrossForms when only same-form case refs were rewritten", () => {
 		// `cascadedAcrossForms` tells consumers whether a form-only refresh
 		// is enough. A same-form `#case/` rewrite is still same-form — the
 		// flag must stay false.
@@ -1552,9 +1556,9 @@ describe("renameField case-property cascade", () => {
 				[Q("src")]: field_(Q("src"), "age", { case_property_on: "patient" }),
 				// Both the renamed field AND the ref live in F1. Module X
 				// (F1's module) has caseType "patient" so the cascade visits
-				// F1 and rewrites the #case/ ref — but F1 is the primary form.
+				// F1 and rewrites the typed case ref — but F1 is the primary form.
 				[Q("ref")]: field_(Q("ref"), "display", {
-					label: "Age: #case/age",
+					label: caseRefProse("Age: ", "patient", "age"),
 				}),
 			},
 			fieldOrder: { [F("1")]: [Q("src"), Q("ref")] },
@@ -1684,13 +1688,13 @@ describe("renameField case-property cascade", () => {
 				}),
 				// Visit-module ref — SHOULD be rewritten (same caseType).
 				[Q("tgt_ref")]: field_(Q("tgt_ref"), "display", {
-					label: "Visit: #case/date_of_visit",
+					label: caseRefProse("Visit: ", "visit", "date_of_visit"),
 				}),
 				// Host-module ref — in a "patient" module. `#case/` here
 				// resolves to patient's property of that name (which doesn't
 				// exist, but that's a validator concern). Must NOT be rewritten.
 				[Q("host_ref")]: field_(Q("host_ref"), "host_display", {
-					label: "Host says: #case/date_of_visit",
+					label: caseRefProse("Host says: ", "patient", "date_of_visit"),
 				}),
 			},
 			moduleOrder: [M("host"), M("tgt")],
@@ -1714,12 +1718,12 @@ describe("renameField case-property cascade", () => {
 		// Primary id updated.
 		expect(next.fields[Q("src")]?.id).toBe("visit_date");
 		// Visit-module ref rewritten.
-		expect(asField(next.fields[Q("tgt_ref")])?.label).toBe(
-			"Visit: #case/visit_date",
+		expect(proseSlotText(next, Q("tgt_ref"), "label")).toBe(
+			"Visit: #visit/visit_date",
 		);
 		// Host-module ref (different caseType) untouched.
-		expect(asField(next.fields[Q("host_ref")])?.label).toBe(
-			"Host says: #case/date_of_visit",
+		expect(proseSlotText(next, Q("host_ref"), "label")).toBe(
+			"Host says: #patient/date_of_visit",
 		);
 		// Target module's column rewritten. The fixture seeds plain
 		// columns on both modules; only the plain / reserved-scalar
@@ -1816,7 +1820,7 @@ describe("renameField case-property cascade", () => {
 				// caseType is "household", this ref means "household.age",
 				// NOT "patient.age". It must stay put.
 				[Q("neighbor")]: field_(Q("neighbor"), "household_display", {
-					label: "Household age: #case/age",
+					label: caseRefProse("Household age: ", "household", "age"),
 				}),
 			},
 			moduleOrder: [M("X"), M("Y")],
@@ -1840,8 +1844,8 @@ describe("renameField case-property cascade", () => {
 		// Peer renamed (same id + case_property_on match).
 		expect(next.fields[Q("peer")]?.id).toBe("age_1");
 		// Neighbor's #case/age ref untouched — different case-type namespace.
-		expect(asField(next.fields[Q("neighbor")])?.label).toBe(
-			"Household age: #case/age",
+		expect(proseSlotText(next, Q("neighbor"), "label")).toBe(
+			"Household age: #household/age",
 		);
 		expect(result?.peerFieldsRenamed).toBe(1);
 	});

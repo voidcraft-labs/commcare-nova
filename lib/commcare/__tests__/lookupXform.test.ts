@@ -15,6 +15,7 @@ import {
 	sessionUser,
 	tableColumn,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import type { LookupRevision } from "@/lib/lookup/types";
 
 const REGIONS = "018f3e8a-7b2c-7def-8abc-0000000000a1" as LookupTableId;
@@ -73,10 +74,6 @@ function selectForm(
 								kind,
 								id: "region",
 								label: "Region",
-								options: [
-									{ value: "manual", label: "Manual" },
-									{ value: "other", label: "Other" },
-								],
 								optionsSource,
 							}),
 						],
@@ -96,7 +93,7 @@ function selectForm(
 describe("buildXForm — lookup-backed select itemset", () => {
 	it("emits exactly one filterless itemset and no inline items", () => {
 		const { xml } = selectForm("single_select", {
-			kind: "lookup-table",
+			kind: "lookup",
 			tableId: REGIONS,
 			valueColumnId: VALUE,
 			labelColumnId: LABEL,
@@ -122,7 +119,7 @@ describe("buildXForm — lookup-backed select itemset", () => {
 
 	it("declares the fixture instance and drops the inline option itext", () => {
 		const { xml } = selectForm("single_select", {
-			kind: "lookup-table",
+			kind: "lookup",
 			tableId: REGIONS,
 			valueColumnId: VALUE,
 			labelColumnId: LABEL,
@@ -145,7 +142,7 @@ describe("buildXForm — lookup-backed select itemset", () => {
 
 	it("emits a <select> for a multi_select lookup source", () => {
 		const { xml } = selectForm("multi_select", {
-			kind: "lookup-table",
+			kind: "lookup",
 			tableId: REGIONS,
 			valueColumnId: VALUE,
 			labelColumnId: LABEL,
@@ -159,7 +156,7 @@ describe("buildXForm — lookup-backed select itemset", () => {
 
 	it("passes the XForm oracle", () => {
 		const { xml } = selectForm("single_select", {
-			kind: "lookup-table",
+			kind: "lookup",
 			tableId: REGIONS,
 			valueColumnId: VALUE,
 			labelColumnId: LABEL,
@@ -184,16 +181,15 @@ describe("buildXForm — lookup itemset filters", () => {
 								f({
 									kind: "text",
 									id: "province",
-									label: "Province",
+									label: proseText("Province"),
 									uuid: province,
 								}),
 								f({
 									kind: "single_select",
 									id: "region",
-									label: "Region",
-									options: [{ value: "manual", label: "Manual" }],
+									label: proseText("Region"),
 									optionsSource: {
-										kind: "lookup-table",
+										kind: "lookup",
 										tableId: REGIONS,
 										valueColumnId: VALUE,
 										labelColumnId: LABEL,
@@ -237,16 +233,20 @@ describe("buildXForm — lookup itemset filters", () => {
 								f({
 									kind: "repeat",
 									id: "visits",
-									label: "Visits",
+									label: proseText("Visits"),
 									children: [
-										f({ kind: "text", id: "zone", label: "Zone", uuid: zone }),
+										f({
+											kind: "text",
+											id: "zone",
+											label: proseText("Zone"),
+											uuid: zone,
+										}),
 										f({
 											kind: "single_select",
 											id: "region",
-											label: "Region",
-											options: [{ value: "manual", label: "Manual" }],
+											label: proseText("Region"),
 											optionsSource: {
-												kind: "lookup-table",
+												kind: "lookup",
 												tableId: REGIONS,
 												valueColumnId: VALUE,
 												labelColumnId: LABEL,
@@ -276,7 +276,7 @@ describe("buildXForm — lookup itemset filters", () => {
 
 	it("declares commcaresession for a session-user filter term", () => {
 		const { xml } = selectForm("single_select", {
-			kind: "lookup-table",
+			kind: "lookup",
 			tableId: REGIONS,
 			valueColumnId: VALUE,
 			labelColumnId: LABEL,
@@ -298,7 +298,7 @@ describe("buildXForm — lookup itemset filters", () => {
 
 describe("validateXForm — malformed select shapes", () => {
 	const validXform = selectForm("single_select", {
-		kind: "lookup-table",
+		kind: "lookup",
 		tableId: REGIONS,
 		valueColumnId: VALUE,
 		labelColumnId: LABEL,

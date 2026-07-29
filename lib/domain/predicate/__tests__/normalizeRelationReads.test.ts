@@ -10,7 +10,6 @@
 // emitter — they do NOT rewrite the AST. Tests for that inline
 // behaviour live in `csqlEmitter.test.ts`.
 
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import {
 	ancestorPath,
@@ -33,6 +32,7 @@ import {
 	term,
 	within,
 } from "@/lib/domain/predicate/builders";
+import { proseText } from "@/lib/domain/prose";
 import {
 	normalizeRelationPredicateSubjects,
 	normalizeRelationPropertyReads,

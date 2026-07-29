@@ -1,12 +1,7 @@
 /**
  * blueprintHelpers — SA-only pure helpers over `BlueprintDoc`.
  *
- * Two surfaces:
- *
- *   - Positional lookups the SA's tool handlers use to resolve a
- *     `(moduleIndex, formIndex, fieldRef)` triple to a `{ field, path, formUuid }`
- *     record: `findFieldByBareId`, `resolveFieldTarget`.
- *   - Mutation builders that return `Mutation[]` for the caller to apply
+ * Mutation builders return `Mutation[]` for the caller to apply
  *     via `docStore.applyMany(mutations)`. Helpers cover every level of
  *     the tree (app / module / form / field) plus the scaffolding +
  *     case-type bulk operations used during initial generation.
@@ -34,7 +29,10 @@ import {
 } from "@/lib/doc/caseSearchConfigMutations";
 import { normalizeConnectConfig } from "@/lib/doc/connectConfig";
 import { buildFieldTree, type FieldWithChildren } from "@/lib/doc/fieldWalk";
-import { modulePatchMutations } from "@/lib/doc/modulePatchMutations";
+import {
+	type ModuleAuthoringPatch,
+	modulePatchMutations,
+} from "@/lib/doc/modulePatchMutations";
 import { anchorForIndex, sequenceMovesTo } from "@/lib/doc/mutations/sequence";
 import { searchInputUpdateMutation as planSearchInputUpdate } from "@/lib/doc/searchInputMutations";
 import type { Mutation } from "@/lib/doc/types";
@@ -78,11 +76,10 @@ import {
 /**
  * Shape returned by `formSnapshot` — the form entity augmented with its
  * ordered, nested field tree. It keeps domain names (`closeCondition`,
- * `postSubmit`, `formLinks`) while the dormant S05a read projection removes
- * lookup-only carriers before SA/MCP consumers see the snapshot.
+ * `postSubmit`, `formLinks`) and preserves the canonical UUID-backed
+ * expression and lookup shapes SA/MCP callers can round-trip.
  *
- * Lives alongside the positional lookup helpers because it's a
- * `BlueprintDoc`-read derived shape — the same category of surface.
+ * Lives alongside the other `BlueprintDoc`-read derived shapes.
  */
 export type FormSnapshot = Omit<Form, "caseOperations" | "icon"> & {
 	/** Built-ins project to their accepted catalog slug; uploads stay UUIDs. */
@@ -182,17 +179,9 @@ export function removeModuleMutations(
  *  module up out of the doc to derive its uuid + read sibling fields, so
  *  re-resolving inside the helper would just repeat the same map lookup.
  *  The "module not found" defense lives at each tool's call boundary. */
-type ModuleMutationPatch = Omit<
-	Partial<Omit<Module, "uuid">>,
-	"caseSearchConfig"
-> & {
-	/** Explicit null survives JSON and clears the optional search config. */
-	caseSearchConfig?: Module["caseSearchConfig"] | null;
-};
-
 export function updateModuleMutations(
 	mod: Module,
-	patch: ModuleMutationPatch,
+	patch: ModuleAuthoringPatch,
 ): Mutation[] {
 	return modulePatchMutations(mod, patch, {
 		nullCaseSearchConfig: "settings",
@@ -277,9 +266,9 @@ export function setFormMediaMutations(
 // Other (non-SA) consumers — UI mutations — destructure the same
 // shape and surface their own error UI.
 //
-// Each builder takes the resolved `Module` directly. Every call site
-// already looks the module up out of the doc to map a `moduleIndex`
-// to a uuid and to read its sibling fields; passing `mod` straight in
+// Each builder takes the resolved `Module` directly. Every call site already
+// proves the UUID address and reads the module's sibling fields; passing `mod`
+// straight in
 // keeps the helper from re-running the same map lookup and lets the
 // "module not found" defense live at the tool's call boundary
 // (uniformly worded, in one place per tool).
@@ -415,7 +404,7 @@ export function removeColumnMutation(
 /**
  * Reorder the visible fields on ONE user-facing case screen. Results and
  * Details are independent compositions, so this changes only the selected
- * surface key and leaves generic/legacy order plus the other screen untouched.
+ * surface sequence and leaves the other screen untouched.
  *
  * Failure arms: length mismatch, duplicate uuid, unknown uuid in the request.
  */
@@ -775,7 +764,7 @@ export function updateFieldMutations<K extends FieldKind>(
 
 // ── Private helpers ─────────────────────────────────────────────────────
 
-/** Derive a module's semantic id slug from its display name.
+/** Derive a module's wire id from its display name.
  *
  *  DISPLAY ONLY. Nothing addresses a module or a form by this slug any more —
  *  the case-operation tools were the last consumer and now take uuids — so it
@@ -785,8 +774,8 @@ function slugifyModuleId(name: string): string {
 	return slugifyId(name, "module");
 }
 
-/** Derive a form's semantic id slug from its display name. Same rule and the
- *  same display-only status as the module slug. */
+/** Derive a form's wire id from its display name. Same rule and the same
+ *  display-only status as the module wire id. */
 function slugifyFormId(name: string): string {
 	return slugifyId(name, "form");
 }

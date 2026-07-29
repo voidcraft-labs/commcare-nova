@@ -22,10 +22,9 @@ import {
 } from "./fieldWalk";
 
 /**
- * A single match from `searchBlueprint`. The surface preserves the
- * positional index shape (`moduleIndex`, `formIndex`) so SA tool output
- * remains stable and human-readable; the `uuid` field lets callers
- * target follow-up mutations directly without re-resolving by index.
+ * A single match from `searchBlueprint`. `moduleIndex` / `formIndex` are
+ * human-readable display projections only; callers address every follow-up
+ * tool by the returned UUIDs.
  *
  * For case-list matches (`case_list_column` and `search_input`), the
  * `uuid` is the entity's own uuid — the column or search input the
@@ -59,11 +58,9 @@ export interface SearchResult {
 /**
  * Full-text search across the entire blueprint.
  *
- * Walks modules → forms → fields (via the ordered indices) plus case-list
- * and case-detail columns. Each hit records the positional context
- * (moduleIndex / formIndex / fieldPath) so the result list is human-
- * readable, and also records the entity uuid so follow-up mutations can
- * target it directly.
+ * Walks modules → forms → fields plus case-list and case-detail columns. Each
+ * hit records display-order context for readability and stable UUID identity
+ * for every follow-up mutation.
  */
 export function searchBlueprint(
 	doc: BlueprintDoc,
@@ -72,10 +69,8 @@ export function searchBlueprint(
 	const results: SearchResult[] = [];
 	const q = query.toLowerCase();
 
-	// DISPLAY order (`sort-by-(order, uuid)`) — the reported `moduleIndex` /
-	// `formIndex` are the SAME sorted positions the SA's positional resolvers
-	// and `summarizeBlueprint` speak, so a search hit's "Module N" addresses
-	// the entity another tool call reaches by index N.
+	// Display order. The numeric positions are explanatory output only; tool
+	// addresses come from each hit's UUID fields.
 	const moduleUuids = orderedModuleUuids(doc);
 	for (let mIdx = 0; mIdx < moduleUuids.length; mIdx++) {
 		const moduleUuid = moduleUuids[mIdx];

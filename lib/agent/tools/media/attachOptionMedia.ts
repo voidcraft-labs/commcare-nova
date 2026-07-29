@@ -5,14 +5,14 @@
  * Each select option carries its own optional `media` bundle (image +
  * audio + video) so a visual-pick UI can show a picture or play audio
  * beside each choice. Every attachment in the batch locates a field,
- * finds the option by its `value` (the stored choice key, not the display
- * label), and replaces that option's `media` bundle; an empty bundle
+ * finds the option by its stable UUID, and replaces that option's
+ * `media` bundle; an empty bundle
  * (`{}`) clears it. A whole picture-choice field — or several fields —
  * authors in one call; one attachment is a length-1 `attachments` array.
  *
  * Only `single_select` / `multi_select` fields carry options; any other
- * kind fails with an Elm-shape error. A `value` that isn't among the
- * field's options likewise fails, naming the values that exist.
+ * kind fails with an Elm-shape error. An option UUID that isn't among the
+ * field's options likewise fails.
  *
  * The batch is all-or-nothing (`commitMediaBatch`): every attachment must
  * resolve and every set slot must pass the at-source asset verdict
@@ -29,11 +29,11 @@ import { z } from "zod";
 import { type BlueprintDoc, type SelectOption, uuidSchema } from "@/lib/domain";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { type MutatingToolResult, toToolErrorResult } from "../common";
-import type { MutationSuccess } from "../shared/toolCallSummary";
 import {
 	fieldAddressSchema,
 	resolveFieldAddress,
 } from "../shared/entityAddresses";
+import type { MutationSuccess } from "../shared/toolCallSummary";
 import {
 	bundleExpectations,
 	commitMediaBatch,
@@ -135,10 +135,9 @@ export const attachOptionMediaTool = {
 					.map(([k]) => k);
 
 				// Swap the one option's media via a granular `updateOption` keyed by
-				// the option's uuid, so a concurrent edit to a DIFFERENT option of the
+				// the option's UUID, so a concurrent edit to a DIFFERENT option of the
 				// same field merges. The reducer preserves the option's current
-				// `order`; the uuid falls back to the deterministic backfill key when
-				// a not-yet-hydrated doc lacks one (matching what backfill mints).
+				// `order`; canonical docs always carry the option UUID.
 				const targetOption = field.optionsSource.options[index];
 				const updated = withMedia(
 					targetOption,

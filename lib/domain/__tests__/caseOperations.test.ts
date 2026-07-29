@@ -1,8 +1,6 @@
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-
 import {
 	caseOperationSchema,
 	effectiveCaseTypes,
@@ -20,6 +18,7 @@ import {
 	term,
 	unowned,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 
 const A = testUuid("11111111-1111-4111-8111-111111111111");
 const B = testUuid("22222222-2222-4222-8222-222222222222");
@@ -175,7 +174,7 @@ describe("case-operation domain vocabulary", () => {
 								f({
 									kind: "int",
 									id: "score",
-									label: "Score",
+									label: proseText("Score"),
 									case_property_on: "patient",
 								}),
 							],

@@ -1,6 +1,5 @@
 // @vitest-environment happy-dom
 
-import { proseText } from "@/lib/domain/prose";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, type Mock, vi } from "vitest";
 import type { CaseType } from "@/lib/domain";
@@ -10,6 +9,7 @@ import {
 	literal,
 	timeLiteral,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { PredicateEditProvider } from "../editorContext";
 import { LiteralValueInput } from "../primitives/LiteralValueInput";
 

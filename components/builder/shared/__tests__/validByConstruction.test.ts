@@ -36,6 +36,7 @@ import {
 	term,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import {
 	reseedLiteralForConstraint,
 	reseedValueForConstraint,
@@ -47,10 +48,10 @@ const CASE_TYPE: CaseType = {
 	name: "ct",
 	properties: casePropertyDataTypes.map((dt) => ({
 		name: `p_${dt}`,
-		label: dt,
+		label: proseText(dt),
 		data_type: dt,
 	})),
-} as CaseType;
+};
 const CTX = { caseTypes: [CASE_TYPE], knownInputs: [], currentCaseType: "ct" };
 const REAL_TYPES = casePropertyDataTypes;
 

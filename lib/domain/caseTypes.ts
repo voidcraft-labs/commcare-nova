@@ -149,9 +149,9 @@ export interface ReachableCaseType {
  * runtime; a child case is created fresh and never loaded, so it is a write
  * target but not a readable source.
  *
- * `depth` is the load-bearing output: the wire emitter turns `#<type>/<prop>`
- * into the same `…/index/parent × depth …/<prop>` walk that `#case/parent…/`
- * already produces. Ordered own-first; cycle-guarded against malformed
+ * `depth` is the load-bearing output: the wire emitter turns a typed
+ * `case-ref` into the corresponding `…/index/parent × depth …/<prop>` walk.
+ * Ordered own-first; cycle-guarded against malformed
  * `parent_type` chains. An undeclared own type still appears at depth 0 (with
  * no properties) so its namespace is recognized even before properties exist.
  */

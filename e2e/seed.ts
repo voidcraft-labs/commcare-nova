@@ -21,6 +21,7 @@
  * keeps its writes on the local Postgres, never the real Cloud SQL instance
  * (which holds BOTH auth and app state).
  */
+
 import { randomBytes, randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -46,6 +47,7 @@ import {
 import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
 import { appendThreadResponse, upsertThreadTurn } from "@/lib/db/threads";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { proseText } from "@/lib/domain/prose";
 import { createLookupTable } from "@/lib/lookup/service";
 import {
 	buildCaseChangesBlueprint,
@@ -560,7 +562,7 @@ async function main(): Promise<void> {
 										uuid: "0f000000-0000-4000-8000-000000000003",
 										kind: "text",
 										id: "visit_notes",
-										label: "Visit notes",
+										label: proseText("Visit notes"),
 									}),
 								],
 							},
@@ -641,7 +643,7 @@ async function main(): Promise<void> {
 										uuid: "0f000000-0000-4000-8000-000000000013",
 										kind: "text",
 										id: "referral_notes",
-										label: "Referral notes",
+										label: proseText("Referral notes"),
 									}),
 								],
 							},

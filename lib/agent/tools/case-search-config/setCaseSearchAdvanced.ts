@@ -8,15 +8,14 @@
  * Every slot is required-and-nullable on the SA boundary: `null` clears,
  * non-null sets. The tool computes a whole editor projection so the display
  * cluster round-trips byte-identically, then `updateModuleMutations` splits
- * it into fresh-state per-slot writes; its whole-config payload is only the
- * rolling-deploy fallback.
+ * it into final fresh-state per-slot writes.
  *
- * Two exit branches: module-index-out-of-range returns `{ error }`
+ * Two exit branches: an invalid module UUID returns `{ error }`
  * with no mutations; success returns `{ message, advancedSlotsSet }`
  * with the persisted mutation tagged `module:M:caseSearch:advanced`.
  */
 
-import { z } from "zod";
+import type { z } from "zod";
 import type { BlueprintDoc, CaseSearchConfig } from "@/lib/domain";
 import { updateModuleMutations } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
@@ -25,11 +24,11 @@ import {
 	type MutatingToolResult,
 	toToolErrorResult,
 } from "../common";
-import type { ToolCallSummary } from "../shared/toolCallSummary";
 import {
 	moduleAddressSchema,
 	resolveModuleAddress,
 } from "../shared/entityAddresses";
+import type { ToolCallSummary } from "../shared/toolCallSummary";
 import {
 	ADVANCED_SLOT_NAMES,
 	type AdvancedSlotName,

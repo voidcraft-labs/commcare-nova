@@ -7,7 +7,6 @@
  * no bundled media bytes).
  */
 
-import { proseText } from "@/lib/domain/prose";
 import AdmZip from "adm-zip";
 import { describe, expect, it } from "vitest";
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
@@ -19,6 +18,7 @@ import type {
 	ResolvedMediaAsset,
 } from "@/lib/commcare/multimedia/assetWirePath";
 import type { MediaAssetId } from "@/lib/domain/multimedia";
+import { proseText } from "@/lib/domain/prose";
 
 const ICON_HASH = "a".repeat(64);
 const LOGO_HASH = "b".repeat(64);
@@ -72,7 +72,7 @@ function mediaDoc() {
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Name",
+								label: proseText("Name"),
 								case_property_on: "patient",
 							}),
 						],

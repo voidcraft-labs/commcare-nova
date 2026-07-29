@@ -1,5 +1,5 @@
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
+import { proseText } from "@/lib/domain/prose";
 import {
 	friendlyPropertyDisambiguator,
 	propertyDisplayLabel,
@@ -79,8 +79,12 @@ describe("propertyDisplayLabel", () => {
 
 	it("never repeats the visible label as its own disambiguator", () => {
 		const properties = [
-			{ name: "case_name", label: "case_name", data_type: "text" as const },
-			{ name: "name", label: "name", data_type: "text" as const },
+			{
+				name: "case_name",
+				label: proseText("case_name"),
+				data_type: "text" as const,
+			},
+			{ name: "name", label: proseText("name"), data_type: "text" as const },
 		];
 		expect(friendlyPropertyDisambiguator(properties[0], properties)).toBe(
 			undefined,
@@ -89,8 +93,16 @@ describe("propertyDisplayLabel", () => {
 
 	it("keeps a parenthetical when it genuinely distinguishes equal labels", () => {
 		const properties = [
-			{ name: "home_region", label: "Region", data_type: "text" as const },
-			{ name: "work_region", label: "Region", data_type: "text" as const },
+			{
+				name: "home_region",
+				label: proseText("Region"),
+				data_type: "text" as const,
+			},
+			{
+				name: "work_region",
+				label: proseText("Region"),
+				data_type: "text" as const,
+			},
 		];
 		expect(friendlyPropertyDisambiguator(properties[0], properties)).toBe(
 			"Home region",

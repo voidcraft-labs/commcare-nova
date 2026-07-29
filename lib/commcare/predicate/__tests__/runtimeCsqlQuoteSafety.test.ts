@@ -23,38 +23,68 @@ import {
 	whenInput,
 } from "@/lib/domain/predicate";
 import { composeXPathQueryPredicate } from "../../suite/case-search/xpathQuery";
-import { collectRuntimeCsqlStringInputNames } from "../runtimeCsqlQuoteSafety";
+import { collectRuntimeCsqlStringInputNames as collectRuntimeCsqlStringInputNamesRaw } from "../runtimeCsqlQuoteSafety";
 
 const u = (tail: number) =>
 	testUuid(`00000000-0000-0000-0000-${String(tail).padStart(12, "0")}`);
+
+const TEST_INPUTS = [
+	"direct",
+	"date_text",
+	"trigger",
+	"number",
+	"control",
+	"branch_value",
+	"visit_name",
+].map((name) => ({
+	uuid: testUuid(name),
+	name,
+	data_type: "text" as const,
+}));
+TEST_INPUTS.push(
+	{ uuid: u(1), name: "client_query", data_type: "text" },
+	{ uuid: u(2), name: "advanced_owner", data_type: "text" },
+	{ uuid: u(3), name: "sibling", data_type: "text" },
+	{ uuid: u(4), name: "query", data_type: "text" },
+	{ uuid: u(5), name: "filter_value", data_type: "text" },
+);
+
+function collectRuntimeCsqlStringInputNames(
+	predicate: Parameters<typeof collectRuntimeCsqlStringInputNamesRaw>[0],
+) {
+	return collectRuntimeCsqlStringInputNamesRaw(predicate, TEST_INPUTS);
+}
 
 describe("collectRuntimeCsqlStringInputNames", () => {
 	it("collects direct and native-function input values", () => {
 		expect(
 			collectRuntimeCsqlStringInputNames(
-				eq(prop("patient", "name"), input("direct")),
+				eq(prop("patient", "name"), input(testUuid("direct"))),
 			),
 		).toEqual(new Set(["direct"]));
 		expect(
 			collectRuntimeCsqlStringInputNames(
-				eq(prop("patient", "dob"), dateCoerce(term(input("date_text")))),
+				eq(
+					prop("patient", "dob"),
+					dateCoerce(term(input(testUuid("date_text")))),
+				),
 			),
 		).toEqual(new Set(["date_text"]));
 	});
 
 	it("skips trigger-only and normalized on-device control values", () => {
 		const triggerOnly = whenInput(
-			input("trigger"),
+			input(testUuid("trigger")),
 			eq(prop("patient", "status"), literal("active")),
 		);
 		const numericOutput = eq(
 			prop("patient", "score"),
-			arith("+", term(input("number")), term(literal(1))),
+			arith("+", term(input(testUuid("number"))), term(literal(1))),
 		);
 		const conditionalControl = eq(
 			prop("patient", "label"),
 			ifExpr(
-				eq(input("control"), literal("yes")),
+				eq(input(testUuid("control")), literal("yes")),
 				term(literal("accepted")),
 				term(literal("rejected")),
 			),
@@ -73,7 +103,7 @@ describe("collectRuntimeCsqlStringInputNames", () => {
 			prop("patient", "label"),
 			ifExpr(
 				matchAll(),
-				term(input("branch_value")),
+				term(input(testUuid("branch_value"))),
 				term(literal("fallback")),
 			),
 		);
@@ -88,8 +118,8 @@ describe("collectRuntimeCsqlStringInputNames", () => {
 			count(
 				subcasePath("visit"),
 				whenInput(
-					input("visit_name"),
-					eq(prop("visit", "name"), input("visit_name")),
+					input(testUuid("visit_name")),
+					eq(prop("visit", "name"), input(testUuid("visit_name"))),
 				),
 			),
 		);
@@ -114,17 +144,22 @@ describe("collectRuntimeCsqlStringInputNames", () => {
 					"advanced_owner",
 					"Advanced",
 					"text",
-					whenInput(
-						input("sibling"),
-						eq(prop("patient", "region"), input("sibling")),
-					),
+					whenInput(input(u(3)), eq(prop("patient", "region"), input(u(3)))),
 				),
 				// This prompt is consumed by the sibling advanced predicate.
 				advancedSearchInputDef(u(3), "sibling", "Region", "text", matchAll()),
+				// The app-wide Results filter owns this independent prompt.
+				advancedSearchInputDef(
+					u(5),
+					"filter_value",
+					"Filter",
+					"text",
+					matchAll(),
+				),
 			],
 			filter: whenInput(
-				input("filter_value"),
-				eq(prop("patient", "status"), input("filter_value")),
+				input(u(5)),
+				eq(prop("patient", "status"), input(u(5))),
 			),
 		});
 		const predicate = composeXPathQueryPredicate(config, "patient");
@@ -143,10 +178,7 @@ describe("collectRuntimeCsqlStringInputNames", () => {
 					"query",
 					"Query",
 					"text",
-					whenInput(
-						input("query"),
-						eq(prop("patient", "name"), input("query")),
-					),
+					whenInput(input(u(4)), eq(prop("patient", "name"), input(u(4)))),
 				),
 			],
 		});

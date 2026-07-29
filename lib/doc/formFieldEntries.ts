@@ -11,9 +11,9 @@
 import {
 	type CasePropertyDataType,
 	caseDataTypeForFieldKind,
-	fallbackProseProjection,
 	type Field,
 	type FieldKind,
+	fallbackProseProjection,
 	type Uuid,
 } from "@/lib/domain";
 

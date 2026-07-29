@@ -229,7 +229,7 @@ describe("updateModule.ensureCaseListConfig", () => {
 			applyMutation(d, {
 				kind: "updateModule",
 				uuid: M("A"),
-				patch: { caseListConfig: emptyCaseListConfig() },
+				patch: {},
 				ensureCaseListConfig: true,
 			});
 		});
@@ -263,7 +263,7 @@ describe("updateModule.ensureCaseListConfig", () => {
 			applyMutation(d, {
 				kind: "updateModule",
 				uuid: M("A"),
-				patch: { caseListConfig: emptyCaseListConfig() },
+				patch: {},
 				ensureCaseListConfig: true,
 			});
 		});

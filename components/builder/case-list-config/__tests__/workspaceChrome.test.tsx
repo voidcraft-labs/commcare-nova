@@ -1,6 +1,5 @@
 // @vitest-environment happy-dom
 
-import { proseText } from "@/lib/domain/prose";
 import {
 	fireEvent,
 	render,
@@ -39,6 +38,7 @@ import {
 	term,
 	today,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { AssignedCasesSetting } from "../canvas/AssignedCasesSetting";
 import { CaseListCanvas } from "../canvas/CaseListCanvas";
 import { DetailCanvas } from "../canvas/DetailCanvas";
@@ -929,7 +929,11 @@ describe("case workspace chrome", () => {
 					{
 						name: "patient",
 						properties: [
-							{ name: "case_name", label: "Patient", data_type: "text" },
+							{
+								name: "case_name",
+								label: proseText("Patient"),
+								data_type: "text",
+							},
 						],
 					} as CaseType,
 				]}
@@ -1090,7 +1094,11 @@ describe("case workspace chrome", () => {
 					{
 						name: "patient",
 						properties: [
-							{ name: "last_visit", label: "Last visit", data_type: "date" },
+							{
+								name: "last_visit",
+								label: proseText("Last visit"),
+								data_type: "date",
+							},
 						],
 					} as CaseType,
 				]}
@@ -1137,8 +1145,16 @@ describe("case workspace chrome", () => {
 					{
 						name: "patient",
 						properties: [
-							{ name: "name", label: "Patient name", data_type: "text" },
-							{ name: "case_name", label: "Case name", data_type: "text" },
+							{
+								name: "name",
+								label: proseText("Patient name"),
+								data_type: "text",
+							},
+							{
+								name: "case_name",
+								label: proseText("Case name"),
+								data_type: "text",
+							},
 						],
 					} as CaseType,
 				]}
@@ -1816,7 +1832,11 @@ describe("case workspace chrome", () => {
 					{
 						name: "patient",
 						properties: [
-							{ name: "case_name", label: "Patient name", data_type: "text" },
+							{
+								name: "case_name",
+								label: proseText("Patient name"),
+								data_type: "text",
+							},
 						],
 					} as CaseType,
 				]}
@@ -1862,11 +1882,11 @@ describe("case workspace chrome", () => {
 						properties: [
 							{
 								name: "preferred_household_contact_name",
-								label: longPropertyLabel,
+								label: proseText(longPropertyLabel),
 								data_type: "text",
 							},
 						],
-					} as CaseType,
+					},
 				]}
 				currentCaseType="patient"
 				onChange={() => {}}
@@ -1918,7 +1938,11 @@ describe("case workspace chrome", () => {
 					{
 						name: "patient",
 						properties: [
-							{ name: "case_name", label: "Patient name", data_type: "text" },
+							{
+								name: "case_name",
+								label: proseText("Patient name"),
+								data_type: "text",
+							},
 						],
 					} as CaseType,
 				]}
@@ -1965,7 +1989,7 @@ describe("case workspace chrome", () => {
 						properties: [
 							{
 								name: "visit_date",
-								label: "Visit date",
+								label: proseText("Visit date"),
 								data_type: "date",
 							},
 						],
@@ -2029,7 +2053,7 @@ describe("case workspace chrome", () => {
 						properties: [
 							{
 								name: "visit_date",
-								label: "Visit date",
+								label: proseText("Visit date"),
 								data_type: "date",
 							},
 						],
@@ -2078,7 +2102,7 @@ describe("case workspace chrome", () => {
 						properties: [
 							{
 								name: "visit_date",
-								label: "Visit date",
+								label: proseText("Visit date"),
 								data_type: "date",
 							},
 						],
@@ -2174,7 +2198,7 @@ describe("case workspace chrome", () => {
 						properties: [
 							{
 								name: "visit_date",
-								label: "Visit date",
+								label: proseText("Visit date"),
 								data_type: "date",
 							},
 						],
@@ -2233,7 +2257,11 @@ describe("case workspace chrome", () => {
 					{
 						name: "patient",
 						properties: [
-							{ name: "case_name", label: "Patient name", data_type: "text" },
+							{
+								name: "case_name",
+								label: proseText("Patient name"),
+								data_type: "text",
+							},
 						],
 					} as CaseType,
 				]}
@@ -2280,8 +2308,16 @@ describe("case workspace chrome", () => {
 					{
 						name: "patient",
 						properties: [
-							{ name: "birth_date", label: "Birth date", data_type: "date" },
-							{ name: "case_name", label: "Case name", data_type: "text" },
+							{
+								name: "birth_date",
+								label: proseText("Birth date"),
+								data_type: "date",
+							},
+							{
+								name: "case_name",
+								label: proseText("Case name"),
+								data_type: "text",
+							},
 						],
 					} as CaseType,
 				]}
@@ -2470,7 +2506,7 @@ describe("case workspace chrome", () => {
 					{
 						name: "patient",
 						properties: [
-							{ name: "status", label: "Status", data_type: "text" },
+							{ name: "status", label: proseText("Status"), data_type: "text" },
 						],
 					} as CaseType,
 				]}
@@ -2533,7 +2569,7 @@ describe("case workspace chrome", () => {
 					{
 						name: "patient",
 						properties: [
-							{ name: "status", label: "Status", data_type: "text" },
+							{ name: "status", label: proseText("Status"), data_type: "text" },
 						],
 					} as CaseType,
 				]}
@@ -2833,7 +2869,13 @@ describe("case workspace chrome", () => {
 				onChange={onChange}
 				caseTypes={SEARCH_CONDITION_CASE_TYPES}
 				currentCaseType="patient"
-				knownInputs={[{ name: "query", data_type: "text" }]}
+				knownInputs={[
+					{
+						uuid: testUuid("query"),
+						name: "query",
+						data_type: "text",
+					},
+				]}
 				onEditDisplayCondition={onEditDisplayCondition}
 			/>,
 		);
@@ -2859,7 +2901,13 @@ describe("case workspace chrome", () => {
 				onChange={onChange}
 				caseTypes={SEARCH_CONDITION_CASE_TYPES}
 				currentCaseType="patient"
-				knownInputs={[{ name: "query", data_type: "text" }]}
+				knownInputs={[
+					{
+						uuid: testUuid("query"),
+						name: "query",
+						data_type: "text",
+					},
+				]}
 				hasVisibleSearchScreen={false}
 				onEditDisplayCondition={onEditDisplayCondition}
 			/>,

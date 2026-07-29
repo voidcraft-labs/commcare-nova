@@ -10,15 +10,16 @@
 // test files; this file is the coverage gate that every kind has a
 // mount path.
 
-import { proseText } from "@/lib/domain/prose";
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type { CaseType } from "@/lib/domain";
 import {
 	type SearchInputDecl,
 	type ValueExpression,
 	valueExpressionSchema,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { ExpressionCardEditor } from "../ExpressionCardEditor";
 import {
 	type ExpressionEditContext,
@@ -57,7 +58,7 @@ const PATIENT: CaseType = {
 };
 
 const KNOWN_INPUTS: readonly SearchInputDecl[] = [
-	{ name: "name_search", data_type: "text" },
+	{ uuid: testUuid("name-search"), name: "name_search", data_type: "text" },
 ];
 
 const ctx: ExpressionEditContext = {

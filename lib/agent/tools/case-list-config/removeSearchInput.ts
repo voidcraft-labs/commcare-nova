@@ -8,13 +8,13 @@
  *
  * Three exit branches:
  *
- *   1. Module index out of range → `{ error }`, no mutations.
+ *   1. Module UUID address does not resolve → `{ error }`, no mutations.
  *   2. Search-input uuid not present → `{ error }`, no mutations.
  *   3. Success → `{ message, uuid, remaining }` plus the persisted
  *      mutation, tagged `module:M:caseList:searchInput:remove`.
  */
 
-import { z } from "zod";
+import type { z } from "zod";
 import { asUuid, type BlueprintDoc, type Uuid } from "@/lib/domain";
 import { removeSearchInputMutation } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
@@ -23,11 +23,11 @@ import {
 	type MutatingToolResult,
 	toToolErrorResult,
 } from "../common";
-import type { ToolCallSummary } from "../shared/toolCallSummary";
 import {
 	moduleAddressSchema,
 	resolveModuleAddress,
 } from "../shared/entityAddresses";
+import type { ToolCallSummary } from "../shared/toolCallSummary";
 import { uuidInputSchema } from "./shared";
 
 export const removeSearchInputInputSchema = moduleAddressSchema

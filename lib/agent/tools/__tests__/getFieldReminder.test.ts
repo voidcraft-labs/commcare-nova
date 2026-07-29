@@ -7,6 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { proseText } from "@/lib/domain/prose";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { getFieldTool } from "../getField";
 
@@ -15,7 +16,7 @@ const CTX = {} as ToolExecutionContext;
 const ORDER_CATALOG = [
 	{
 		name: "medication_order",
-		properties: [{ name: "order_status", label: "Order status" }],
+		properties: [{ name: "order_status", label: proseText("Order status") }],
 	},
 ];
 
@@ -33,8 +34,14 @@ function docWith(fields: ReturnType<typeof f>[]) {
 }
 
 async function getField(doc: ReturnType<typeof buildDoc>, fieldId: string) {
+	const moduleUuid = doc.moduleOrder[0];
+	const formUuid = doc.formOrder[moduleUuid][0];
+	const fieldUuid = Object.values(doc.fields).find(
+		(field) => field.id === fieldId,
+	)?.uuid;
+	if (!fieldUuid) throw new Error(`fixture missing field "${fieldId}"`);
 	const outcome = await getFieldTool.execute(
-		{ moduleIndex: 0, formIndex: 0, fieldId },
+		{ moduleUuid, formUuid, fieldUuid },
 		CTX,
 		doc,
 	);
@@ -64,7 +71,7 @@ describe("getField — unwritten-property reminder", () => {
 			f({
 				id: "admin",
 				kind: "group",
-				label: "Administration",
+				label: proseText("Administration"),
 				children: [
 					f({
 						id: "med_given",

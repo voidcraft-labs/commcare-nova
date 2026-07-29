@@ -1,5 +1,5 @@
-import { proseText } from "@/lib/domain/prose";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { proseText } from "@/lib/domain/prose";
 /**
  * Tests for `mediaAssetExists` — every referenced `MediaAssetId` resolves
  * to a row in the manifest.
@@ -40,7 +40,7 @@ describe("mediaAssetExists", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 									label_media: { image: missingAsset },
 								}),
@@ -99,7 +99,7 @@ describe("mediaAssetExists", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 							],
@@ -155,7 +155,7 @@ describe("mediaAssetExists", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 									label_media: { image: goodAsset },
 								}),
@@ -217,7 +217,7 @@ describe("mediaAssetExists", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 							],
@@ -259,7 +259,7 @@ describe("mediaAssetExists", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 									label_media: { image: "missing-asset" },
 								}),

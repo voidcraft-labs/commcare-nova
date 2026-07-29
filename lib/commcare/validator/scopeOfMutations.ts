@@ -269,6 +269,7 @@ export function scopeOfMutations(
 				const form = prevDoc.forms[mut.uuid];
 				if (
 					mut.caseOperationChange !== undefined ||
+					mut.caseOperationPatch !== undefined ||
 					form === undefined ||
 					patchTouches(mut.patch, "type", form.type)
 				) {

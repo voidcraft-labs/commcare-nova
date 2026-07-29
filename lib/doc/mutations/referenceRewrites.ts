@@ -24,10 +24,10 @@ import {
 	fieldReferenceSlotsFor,
 	isXPathExpression,
 	MODULE_REFERENCE_SLOTS,
-	readSlotValues,
-	renameCasePropertyInXPath,
-	renameCasePropertyInProse,
 	type ProseTemplate,
+	readSlotValues,
+	renameCasePropertyInProse,
+	renameCasePropertyInXPath,
 	type XPathCasePropertyRename,
 } from "@/lib/domain";
 import {
@@ -38,26 +38,16 @@ import {
 } from "@/lib/domain/predicate";
 
 /**
- * What one field-slot rewrite pass carries:
+ * One case-property cascade over field-owned typed carriers.
  *
- *   - `xpath` — the string rewriter for string-stored XPath slots and
- *     for the hashtag substrings embedded in prose (prose is located
- *     by the shared matcher first; surrounding text is never parsed
- *     as XPath).
- *   - `caseLeafRename` — present only on the case-property cascade:
- *     AST-stored slots rename matching leaves STRUCTURALLY
- *     (`renameCasePropertyInXPath`). Form-local rename/move passes
- *     leave it absent because AST slots need nothing from them —
- *     identity leaves resolve at print, so there is no rewrite.
+ * Form-local references need no rename/move pass: XPath and prose both store
+ * field UUID atoms and project the current path at print. The only rewrite is
+ * the deliberate structural rename of name-keyed `(caseType, property)`
+ * leaves.
  */
 export interface FieldSlotRewriteOps {
-	xpath: (expr: string) => string;
-	caseLeafRename?: {
+	caseLeafRename: {
 		rename: XPathCasePropertyRename;
-		/** True when the carrier's owning module has the renamed case
-		 *  type — gates the transitional contextual `#case/…` leaves,
-		 *  which follow the module's type rather than naming one. */
-		contextualMatches: boolean;
 	};
 }
 
@@ -81,20 +71,17 @@ export function rewriteFieldReferenceSlots(
 		switch (slot.kind) {
 			case "xpath-ast": {
 				const leafRename = ops.caseLeafRename;
-				if (leafRename === undefined) break;
 				for (const entry of readSlotValues(field, slot.path)) {
 					if (!isXPathExpression(entry.value)) continue;
 					const renamed = renameCasePropertyInXPath(
 						entry.value,
 						leafRename.rename,
-						{ contextualMatches: leafRename.contextualMatches },
 					);
 					if (renamed > 0) changed++;
 				}
 				break;
 			}
 			case "prose":
-				if (ops.caseLeafRename === undefined) break;
 				for (const entry of readSlotValues(field, slot.path)) {
 					changed += renameCasePropertyInProse(
 						entry.value as ProseTemplate,
@@ -111,7 +98,6 @@ export function rewriteFieldReferenceSlots(
 			case "lookup-carrier": {
 				const leafRename = ops.caseLeafRename;
 				if (
-					leafRename !== undefined &&
 					(field.kind === "single_select" || field.kind === "multi_select") &&
 					field.optionsSource.kind === "lookup" &&
 					field.optionsSource.filter !== undefined
@@ -154,7 +140,6 @@ export function rewriteFieldReferenceSlots(
 export interface FormSlotRewriteContext {
 	caseLeafRename: {
 		rename: XPathCasePropertyRename;
-		contextualMatches: boolean;
 	};
 }
 
@@ -196,7 +181,6 @@ export function rewriteFormReferenceSlots(
 					const renamed = renameCasePropertyInXPath(
 						entry.value,
 						leafRename.rename,
-						{ contextualMatches: leafRename.contextualMatches },
 					);
 					if (renamed > 0) changed++;
 				}

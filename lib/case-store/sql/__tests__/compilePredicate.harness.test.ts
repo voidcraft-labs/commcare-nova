@@ -31,8 +31,8 @@
 // tokens", not "does Postgres parse and execute it correctly". This
 // file's tests answer the second question.
 
-import { proseText } from "@/lib/domain/prose";
 import { describe } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type { CaseType } from "@/lib/domain";
 import {
 	dateRangeSearchPredicate,
@@ -70,6 +70,7 @@ import {
 	whenInput,
 	within,
 } from "@/lib/domain/predicate/builders";
+import { proseText } from "@/lib/domain/prose";
 import {
 	compilePredicate,
 	type PredicateCompileContext,
@@ -1329,7 +1330,7 @@ describe("compilePredicate — round-trip — match", () => {
 		// level fuzzy clause; "Zelda" shares neither prefix nor token.
 		const pred = match(
 			prop("patient", "nickname"),
-			term(input("name_search")),
+			term(input(testUuid("name_search"))),
 			"fuzzy",
 		);
 		const rows = await executeAgainstPredicate(
@@ -1337,7 +1338,9 @@ describe("compilePredicate — round-trip — match", () => {
 			compilePredicate(
 				pred,
 				makeCtx(db, {
-					bindings: { searchInputs: new Map([["name_search", "Alise"]]) },
+					bindings: {
+						searchInputs: new Map([[testUuid("name_search"), "Alise"]]),
+					},
 				}),
 			),
 		);
@@ -2190,7 +2193,7 @@ describe("compilePredicate — round-trip — when-input-present", () => {
 			])
 			.execute();
 		const pred = whenInput(
-			input("name_filter"),
+			input(testUuid("name_filter")),
 			eq(prop("patient", "nickname"), literal("Alice")),
 		);
 		const rows = await executeAgainstPredicate(
@@ -2198,7 +2201,9 @@ describe("compilePredicate — round-trip — when-input-present", () => {
 			compilePredicate(
 				pred,
 				makeCtx(db, {
-					bindings: { searchInputs: new Map([["name_filter", "Alice"]]) },
+					bindings: {
+						searchInputs: new Map([[testUuid("name_filter"), "Alice"]]),
+					},
 				}),
 			),
 		);
@@ -2227,7 +2232,7 @@ describe("compilePredicate — round-trip — when-input-present", () => {
 			])
 			.execute();
 		const pred = whenInput(
-			input("name_filter"),
+			input(testUuid("name_filter")),
 			eq(prop("patient", "nickname"), literal("Alice")),
 		);
 		const rows = await executeAgainstPredicate(

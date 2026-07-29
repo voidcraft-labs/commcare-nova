@@ -14,14 +14,19 @@
  * All field uuids are explicit strings to keep assertion code readable.
  */
 
-import { proseText } from "@/lib/domain/prose";
 import { produce } from "immer";
 import { describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { applyMutation } from "@/lib/doc/mutations";
 import type { BlueprintDoc } from "@/lib/domain";
-import { isXPathExpression, printXPath, xpathPrintContext } from "@/lib/domain";
+import {
+	isXPathExpression,
+	printProseTemplate,
+	printXPath,
+	xpathPrintContext,
+} from "@/lib/domain";
+import { isProseTemplate, proseText } from "@/lib/domain/prose";
 
 // ---------------------------------------------------------------------------
 // Shared fixture builder
@@ -63,15 +68,19 @@ function printSlot(value: unknown, doc: BlueprintDoc): string | undefined {
 		: (value as string | undefined);
 }
 
+function printProse(value: unknown, doc: BlueprintDoc): string | undefined {
+	return isProseTemplate(value) ? printProseTemplate(value, doc) : undefined;
+}
+
 describe("convertField — text / secret family", () => {
 	it("text → secret preserves id, label, uuid, hint, required, validate", () => {
 		const doc = docWithField({
 			uuid: "q-1",
 			kind: "text",
 			id: "pin",
-			label: "PIN",
+			label: proseText("PIN"),
 			required: "true()",
-			hint: "four digits",
+			hint: proseText("four digits"),
 			validate: "string-length(.) = 4",
 		});
 		const next = produce(doc, (d) => {
@@ -84,9 +93,9 @@ describe("convertField — text / secret family", () => {
 		const converted = next.fields[testUuid("q-1")] as Record<string, unknown>;
 		expect(converted.kind).toBe("secret");
 		expect(converted.id).toBe("pin");
-		expect(converted.label).toBe("PIN");
+		expect(printProse(converted.label, next)).toBe("PIN");
 		expect(converted.uuid).toBe(testUuid("q-1"));
-		expect(converted.hint).toBe("four digits");
+		expect(printProse(converted.hint, next)).toBe("four digits");
 		expect(printSlot(converted.required, next)).toBe("true()");
 		expect(printSlot(converted.validate, next)).toBe("string-length(.) = 4");
 		// `calculate` exists on text but not secret — must be stripped.
@@ -98,8 +107,8 @@ describe("convertField — text / secret family", () => {
 			uuid: "q-1",
 			kind: "secret",
 			id: "token",
-			label: "Token",
-			hint: "enter token",
+			label: proseText("Token"),
+			hint: proseText("enter token"),
 			validate: "string-length(.) > 0",
 		});
 		const next = produce(doc, (d) => {
@@ -112,7 +121,7 @@ describe("convertField — text / secret family", () => {
 		const converted = next.fields[testUuid("q-1")] as Record<string, unknown>;
 		expect(converted.kind).toBe("text");
 		expect(converted.id).toBe("token");
-		expect(converted.hint).toBe("enter token");
+		expect(printProse(converted.hint, next)).toBe("enter token");
 		expect(printSlot(converted.validate, next)).toBe("string-length(.) > 0");
 	});
 });
@@ -127,7 +136,7 @@ describe("convertField — int / decimal family", () => {
 			uuid: "q-1",
 			kind: "int",
 			id: "age",
-			label: "Age",
+			label: proseText("Age"),
 			validate: ". > 0",
 		});
 		const next = produce(doc, (d) => {
@@ -149,7 +158,7 @@ describe("convertField — int / decimal family", () => {
 			uuid: "q-1",
 			kind: "decimal",
 			id: "price",
-			label: "Price",
+			label: proseText("Price"),
 			relevant: "/data/show_price = 'yes'",
 			required: "true()",
 		});
@@ -179,7 +188,7 @@ describe("convertField — temporal family", () => {
 			uuid: "q-1",
 			kind: "date",
 			id: "visit_date",
-			label: "Visit Date",
+			label: proseText("Visit Date"),
 		});
 		const next = produce(doc, (d) => {
 			applyMutation(d, {
@@ -199,7 +208,7 @@ describe("convertField — temporal family", () => {
 			uuid: "q-1",
 			kind: "datetime",
 			id: "appt_dt",
-			label: "Appointment",
+			label: proseText("Appointment"),
 			relevant: ". != ''",
 			case_property_on: "appointment_dt",
 		});
@@ -227,11 +236,22 @@ describe("convertField — selection family", () => {
 			uuid: "q-1",
 			kind: "single_select",
 			id: "color",
-			label: "Color",
-			options: [
-				{ value: "r", label: "Red" },
-				{ value: "b", label: "Blue" },
-			],
+			label: proseText("Color"),
+			optionsSource: {
+				kind: "inline",
+				options: [
+					{
+						uuid: testUuid("red"),
+						value: "r",
+						label: proseText("Red"),
+					},
+					{
+						uuid: testUuid("blue"),
+						value: "b",
+						label: proseText("Blue"),
+					},
+				],
+			},
 		});
 		const next = produce(doc, (d) => {
 			applyMutation(d, {
@@ -244,8 +264,12 @@ describe("convertField — selection family", () => {
 		expect(converted.kind).toBe("multi_select");
 		expect(converted.uuid).toBe(testUuid("q-1"));
 		expect(converted.id).toBe("color");
-		expect(converted.options as Array<{ value: string }>).toHaveLength(2);
-		expect((converted.options as Array<{ value: string }>)[0].value).toBe("r");
+		const source = converted.optionsSource as {
+			kind: "inline";
+			options: Array<{ value: string }>;
+		};
+		expect(source.options).toHaveLength(2);
+		expect(source.options[0]?.value).toBe("r");
 	});
 
 	it("multi_select → single_select transfers options", () => {
@@ -253,12 +277,27 @@ describe("convertField — selection family", () => {
 			uuid: "q-1",
 			kind: "multi_select",
 			id: "symptoms",
-			label: "Symptoms",
-			options: [
-				{ value: "fever", label: "Fever" },
-				{ value: "cough", label: "Cough" },
-				{ value: "headache", label: "Headache" },
-			],
+			label: proseText("Symptoms"),
+			optionsSource: {
+				kind: "inline",
+				options: [
+					{
+						uuid: testUuid("fever"),
+						value: "fever",
+						label: proseText("Fever"),
+					},
+					{
+						uuid: testUuid("cough"),
+						value: "cough",
+						label: proseText("Cough"),
+					},
+					{
+						uuid: testUuid("headache"),
+						value: "headache",
+						label: proseText("Headache"),
+					},
+				],
+			},
 		});
 		const next = produce(doc, (d) => {
 			applyMutation(d, {
@@ -269,7 +308,11 @@ describe("convertField — selection family", () => {
 		});
 		const converted = next.fields[testUuid("q-1")] as Record<string, unknown>;
 		expect(converted.kind).toBe("single_select");
-		expect(converted.options as Array<{ value: string }>).toHaveLength(3);
+		const source = converted.optionsSource as {
+			kind: "inline";
+			options: Array<{ value: string }>;
+		};
+		expect(source.options).toHaveLength(3);
 	});
 });
 
@@ -283,8 +326,8 @@ describe("convertField — media family", () => {
 			uuid: "q-1",
 			kind: "image",
 			id: "photo",
-			label: "Photo",
-			hint: "take a clear photo",
+			label: proseText("Photo"),
+			hint: proseText("take a clear photo"),
 			relevant: "/data/needs_photo = 'yes'",
 		});
 		const next = produce(doc, (d) => {
@@ -298,7 +341,7 @@ describe("convertField — media family", () => {
 		expect(converted.kind).toBe("audio");
 		expect(converted.id).toBe("photo");
 		expect(converted.uuid).toBe(testUuid("q-1"));
-		expect(converted.hint).toBe("take a clear photo");
+		expect(printProse(converted.hint, next)).toBe("take a clear photo");
 		expect(printSlot(converted.relevant, next)).toBe(
 			"/data/needs_photo = 'yes'",
 		);
@@ -309,7 +352,7 @@ describe("convertField — media family", () => {
 			uuid: "q-1",
 			kind: "video",
 			id: "consent_video",
-			label: "Consent Video",
+			label: proseText("Consent Video"),
 		});
 		const next = produce(doc, (d) => {
 			applyMutation(d, {
@@ -321,7 +364,7 @@ describe("convertField — media family", () => {
 		const converted = next.fields[testUuid("q-1")] as Record<string, unknown>;
 		expect(converted.kind).toBe("signature");
 		expect(converted.id).toBe("consent_video");
-		expect(converted.label).toBe("Consent Video");
+		expect(printProse(converted.label, next)).toBe("Consent Video");
 	});
 });
 
@@ -347,13 +390,13 @@ describe("convertField — structural family", () => {
 									uuid: "g-1",
 									kind: "group",
 									id: "demographics",
-									label: "Demographics",
+									label: proseText("Demographics"),
 									children: [
 										f({
 											uuid: "c-1",
 											kind: "text",
 											id: "name",
-											label: "Name",
+											label: proseText("Name"),
 										}),
 									],
 								}),
@@ -396,7 +439,7 @@ describe("convertField — structural family", () => {
 									uuid: "r-1",
 									kind: "repeat",
 									id: "visits",
-									label: "Visits",
+									label: proseText("Visits"),
 									relevant: "/data/has_visits = 'yes'",
 									children: [],
 								}),
@@ -432,7 +475,7 @@ describe("convertField — invariants", () => {
 			uuid: "q-1",
 			kind: "text",
 			id: "pin",
-			label: "PIN",
+			label: proseText("PIN"),
 		});
 		const next = produce(doc, (d) => {
 			applyMutation(d, {
@@ -450,7 +493,7 @@ describe("convertField — invariants", () => {
 			uuid: "q-1",
 			kind: "text",
 			id: "pin",
-			label: "PIN",
+			label: proseText("PIN"),
 		});
 		const next = produce(doc, (d) => {
 			applyMutation(d, {
@@ -473,7 +516,7 @@ describe("convertField — invariants", () => {
 			uuid: "q-stable",
 			kind: "int",
 			id: "count",
-			label: "Count",
+			label: proseText("Count"),
 		});
 		const next = produce(doc, (d) => {
 			applyMutation(d, {
@@ -496,7 +539,7 @@ describe("convertField — invariants", () => {
 			uuid: "q-1",
 			kind: "text",
 			id: "name",
-			label: "Name",
+			label: proseText("Name"),
 		});
 		// The convertibility gate console.warns on the skip (the reducer's
 		// client-safe degraded-path convention); silence the expected noise.
@@ -535,13 +578,13 @@ describe("convertField — invariants", () => {
 									uuid: "g-1",
 									kind: "group",
 									id: "demographics",
-									label: "Demographics",
+									label: proseText("Demographics"),
 									children: [
 										f({
 											uuid: "c-1",
 											kind: "text",
 											id: "name",
-											label: "Name",
+											label: proseText("Name"),
 										}),
 									],
 								}),
@@ -580,8 +623,8 @@ describe("convertField — string-compatible tier", () => {
 			uuid: "q-1",
 			kind: "text",
 			id: "tracking_code",
-			label: "Tracking code",
-			hint: "on the package",
+			label: proseText("Tracking code"),
+			hint: proseText("on the package"),
 			validate: "string-length(.) = 12",
 			default_value: '"unknown"',
 		});
@@ -596,7 +639,7 @@ describe("convertField — string-compatible tier", () => {
 		expect(converted.kind).toBe("barcode");
 		expect(converted.id).toBe("tracking_code");
 		expect(converted.uuid).toBe(testUuid("q-1"));
-		expect(converted.hint).toBe("on the package");
+		expect(printProse(converted.hint, next)).toBe("on the package");
 		expect(printSlot(converted.validate, next)).toBe("string-length(.) = 12");
 		expect(printSlot(converted.default_value, next)).toBe('"unknown"');
 	});
@@ -606,7 +649,7 @@ describe("convertField — string-compatible tier", () => {
 			uuid: "q-1",
 			kind: "barcode",
 			id: "sample_id",
-			label: "Sample",
+			label: proseText("Sample"),
 			required: "true()",
 		});
 		const next = produce(doc, (d) => {
@@ -627,19 +670,19 @@ describe("convertField — string-compatible tier", () => {
 			uuid: "q-1",
 			kind: "text",
 			id: "facility",
-			label: "Specialist facility",
-			hint: "referral target",
+			label: proseText("Specialist facility"),
+			hint: proseText("referral target"),
 			case_property_on: "patient",
 		});
 		const seed = [
 			{
 				value: "clinic_a",
-				label: "Clinic A",
+				label: proseText("Clinic A"),
 				uuid: testUuid("o-1"),
 			},
 			{
 				value: "clinic_b",
-				label: "Clinic B",
+				label: proseText("Clinic B"),
 				uuid: testUuid("o-2"),
 			},
 		];
@@ -648,19 +691,22 @@ describe("convertField — string-compatible tier", () => {
 				kind: "convertField",
 				uuid: testUuid("q-1"),
 				toKind: "single_select",
-				options: seed,
+				optionsSource: { kind: "inline", options: seed },
 			});
 		});
 		const converted = next.fields[testUuid("q-1")] as Record<string, unknown>;
 		expect(converted.kind).toBe("single_select");
 		expect(converted.id).toBe("facility");
 		expect(converted.uuid).toBe(testUuid("q-1"));
-		expect(converted.hint).toBe("referral target");
+		expect(printProse(converted.hint, next)).toBe("referral target");
 		expect(converted.case_property_on).toBe("patient");
 		// The payload's minted identity survives untouched — the reducer
 		// never re-mints, which is what keeps a replayed/peer-applied batch
 		// byte-identical to the committer's.
-		expect(converted.options).toEqual(seed);
+		expect(converted.optionsSource).toEqual({
+			kind: "inline",
+			options: seed,
+		});
 	});
 
 	it("text → single_select with no seed options no-ops (schema requires min 2)", () => {
@@ -668,7 +714,7 @@ describe("convertField — string-compatible tier", () => {
 			uuid: "q-1",
 			kind: "text",
 			id: "facility",
-			label: "Facility",
+			label: proseText("Facility"),
 		});
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 		const next = produce(doc, (d) => {
@@ -688,8 +734,8 @@ describe("convertField — string-compatible tier", () => {
 			uuid: "q-1",
 			kind: "text",
 			id: "full_name",
-			label: "Full name",
-			hint: "first and last",
+			label: proseText("Full name"),
+			hint: proseText("first and last"),
 			required: "true()",
 			validate: "string-length(.) > 1",
 			relevant: "true()",
@@ -722,7 +768,7 @@ describe("convertField — string-compatible tier", () => {
 			uuid: "q-1",
 			kind: "single_select",
 			id: "status",
-			label: "Status",
+			label: proseText("Status"),
 			options: [
 				{ value: "open", label: "Open" },
 				{ value: "closed", label: "Closed" },
@@ -753,21 +799,32 @@ describe("convertField — string-compatible tier", () => {
 			uuid: "q-1",
 			kind: "text",
 			id: "pin",
-			label: "PIN",
+			label: proseText("PIN"),
 		});
 		const next = produce(doc, (d) => {
 			applyMutation(d, {
 				kind: "convertField",
 				uuid: testUuid("q-1"),
 				toKind: "secret",
-				options: [
-					{ value: "a", label: proseText("A") },
-					{ value: "b", label: proseText("B") },
-				],
+				optionsSource: {
+					kind: "inline",
+					options: [
+						{
+							uuid: testUuid("secret-option-a"),
+							value: "a",
+							label: proseText("A"),
+						},
+						{
+							uuid: testUuid("secret-option-b"),
+							value: "b",
+							label: proseText("B"),
+						},
+					],
+				},
 			});
 		});
 		const converted = next.fields[testUuid("q-1")] as Record<string, unknown>;
 		expect(converted.kind).toBe("secret");
-		expect(converted.options).toBeUndefined();
+		expect(converted.optionsSource).toBeUndefined();
 	});
 });

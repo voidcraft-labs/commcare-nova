@@ -1,4 +1,4 @@
-import { z } from "zod";
+import type { z } from "zod";
 import { planCaseOperationUpdate } from "@/lib/doc/caseOperationMutations";
 import { asUuid, type BlueprintDoc, type Uuid, uuidSchema } from "@/lib/domain";
 import type { ToolExecutionContext } from "../../toolExecutionContext";

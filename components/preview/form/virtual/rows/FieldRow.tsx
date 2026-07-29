@@ -29,8 +29,8 @@ import { TextEditable } from "@/components/preview/form/TextEditable";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useField } from "@/lib/doc/hooks/useEntity";
 import {
-	fallbackProseProjection,
 	type FieldPatchFor,
+	fallbackProseProjection,
 	type ProseTemplate,
 	type Uuid,
 } from "@/lib/domain";

@@ -8,7 +8,6 @@
 // `mutationCommitVerdict` here for exactly that reason; a seed that
 // forgets a required facet fails this test rather than the author.
 
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
@@ -19,13 +18,13 @@ import {
 } from "@/lib/doc/caseOperationMutations";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-
 import {
 	type BlueprintDoc,
 	type CaseOperation,
 	isCaseOperationIdentifier,
 	type Uuid,
 } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import {
 	actionChangeLosses,
 	type CaseOperationSeedKind,
@@ -72,7 +71,7 @@ function caseFirstDoc(): {
 								uuid: NAME,
 								kind: "text",
 								id: "nickname",
-								label: "Nickname",
+								label: proseText("Nickname"),
 								case_property_on: "patient",
 							}),
 						],
@@ -271,7 +270,27 @@ describe("the value a fresh write starts from", () => {
 									uuid: field.uuid,
 									kind: field.dataType === "int" ? "int" : field.dataType,
 									id: `answer_${index}`,
-									label: `Answer ${index}`,
+									label: proseText(`Answer ${index}`),
+									...(field.dataType === "single_select" ||
+									field.dataType === "multi_select"
+										? {
+												optionsSource: {
+													kind: "inline" as const,
+													options: [
+														{
+															uuid: testUuid(`answer-${index}-yes`),
+															value: "yes",
+															label: proseText("Yes"),
+														},
+														{
+															uuid: testUuid(`answer-${index}-no`),
+															value: "no",
+															label: proseText("No"),
+														},
+													],
+												},
+											}
+										: {}),
 								}),
 							),
 						},

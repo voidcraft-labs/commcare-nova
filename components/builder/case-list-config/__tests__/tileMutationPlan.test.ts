@@ -92,8 +92,7 @@ describe("planTileLayoutEnable", () => {
 		expect(layout[0]).toEqual({
 			kind: "setCaseListMeta",
 			uuid: MODULE,
-			patch: {},
-			tilePatch: {},
+			patch: { tile: {} },
 		});
 	});
 
@@ -190,7 +189,7 @@ describe("planTileLayoutEnable", () => {
 describe("planTileLayoutDisable", () => {
 	it("clears the layout and touches nothing else, so every cell survives", () => {
 		expect(planTileLayoutDisable(MODULE)).toEqual([
-			{ kind: "setCaseListMeta", uuid: MODULE, patch: {}, tilePatch: null },
+			{ kind: "setCaseListMeta", uuid: MODULE, patch: { tile: null } },
 		]);
 	});
 });
@@ -201,15 +200,12 @@ describe("planTilePersistOnForms", () => {
 			{
 				kind: "setCaseListMeta",
 				uuid: MODULE,
-				patch: {},
-				tilePatch: { persistOnForms: true },
+				patch: { tile: { persistOnForms: true } },
 			},
 		]);
 		expect(
 			planTilePersistOnForms(MODULE, false, { persistOnForms: true }),
-		).toEqual([
-			{ kind: "setCaseListMeta", uuid: MODULE, patch: {}, tilePatch: {} },
-		]);
+		).toEqual([{ kind: "setCaseListMeta", uuid: MODULE, patch: { tile: {} } }]);
 	});
 
 	it("rebuilds the layout it was given rather than replacing it", () => {
@@ -221,9 +217,11 @@ describe("planTilePersistOnForms", () => {
 		} as unknown as Parameters<typeof planTilePersistOnForms>[2];
 		const [off] = planTilePersistOnForms(MODULE, false, withFutureSlot);
 		const [on] = planTilePersistOnForms(MODULE, true, withFutureSlot);
-		expect(off).toMatchObject({ tilePatch: { futureSlot: "kept" } });
+		expect(off).toMatchObject({ patch: { tile: { futureSlot: "kept" } } });
 		expect(on).toMatchObject({
-			tilePatch: { futureSlot: "kept", persistOnForms: true },
+			patch: {
+				tile: { futureSlot: "kept", persistOnForms: true },
+			},
 		});
 	});
 });

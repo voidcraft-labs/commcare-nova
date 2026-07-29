@@ -69,7 +69,7 @@ describe("user authoring tools", () => {
 		expect(addUserPropertiesTool.description).toContain("createModule");
 	});
 
-	it("states that update values replace the complete saved set", () => {
+	it("states that each update carries one UUID-addressed value patch", () => {
 		for (const schema of [
 			updateUserTypeInputSchema,
 			updatePersonaInputSchema,
@@ -78,17 +78,17 @@ describe("user authoring tools", () => {
 				target: "draft-7",
 				io: "input",
 			}) as {
-				properties?: { values?: { description?: string } };
+				properties?: { valuePatch?: { description?: string } };
 			};
-			expect(json.properties?.values?.description).toContain(
-				"COMPLETE replacement",
+			expect(json.properties?.valuePatch?.description).toContain(
+				"One UUID-addressed value edit",
 			);
-			expect(json.properties?.values?.description).toContain(
-				"include every value",
+			expect(json.properties?.valuePatch?.description).toContain(
+				"clear only the named property",
 			);
 		}
-		expect(updateUserTypeTool.description).toContain("COMPLETE replacement");
-		expect(updatePersonaTool.description).toContain("COMPLETE replacement");
+		expect(updateUserTypeTool.description).toContain("valuePatch");
+		expect(updatePersonaTool.description).toContain("valuePatch");
 	});
 
 	it("bridges returned property uuids into role and persona value records", async () => {
@@ -226,7 +226,11 @@ describe("user authoring tools", () => {
 		const roleUuid = role.result.uuids[0];
 
 		const cleared = await updateUserTypeTool.execute(
-			{ uuid: roleUuid, description: null, values: null },
+			{
+				uuid: roleUuid,
+				description: null,
+				valuePatch: { userPropertyUuid: propertyUuid, value: null },
+			},
 			ctx,
 			role.newDoc,
 		);
@@ -497,29 +501,25 @@ describe("user authoring tools", () => {
 		const updated = await updateUserTypeTool.execute(
 			{
 				uuid: role.result.uuids[0],
-				values: [
-					{ userPropertyUuid: regionUuid, value: "south" },
-					{ userPropertyUuid: cadreUuid, value: "supervisor" },
-				],
+				valuePatch: { userPropertyUuid: regionUuid, value: "south" },
 			},
 			ctx,
 			role.newDoc,
 		);
 
-		expect(updated.mutations).toHaveLength(2);
+		expect(updated.mutations).toHaveLength(1);
 		expect(
 			updated.mutations.map((mutation) =>
 				"valuePatch" in mutation ? mutation.valuePatch : undefined,
 			),
-		).toEqual(
-			[
-				{ userPropertyUuid: cadreUuid, value: "supervisor" },
-				{ userPropertyUuid: regionUuid, value: "south" },
-			].sort((a, b) => a.userPropertyUuid.localeCompare(b.userPropertyUuid)),
-		);
+		).toEqual([{ userPropertyUuid: regionUuid, value: "south" }]);
+		expect(updated.newDoc.userTypes?.[role.result.uuids[0]]?.values).toEqual({
+			[regionUuid]: "south",
+			[cadreUuid]: "community",
+		});
 	});
 
-	it("treats a provided values array as the complete replacement", async () => {
+	it("preserves unmentioned values when one value is patched", async () => {
 		const { ctx } = makeCtx();
 		const properties = await addUserPropertiesTool.execute(
 			{
@@ -553,7 +553,7 @@ describe("user authoring tools", () => {
 		const updated = await updateUserTypeTool.execute(
 			{
 				uuid: role.result.uuids[0],
-				values: [{ userPropertyUuid: regionUuid, value: "south" }],
+				valuePatch: { userPropertyUuid: regionUuid, value: "south" },
 			},
 			ctx,
 			role.newDoc,
@@ -561,6 +561,7 @@ describe("user authoring tools", () => {
 
 		expect(updated.newDoc.userTypes?.[role.result.uuids[0]]?.values).toEqual({
 			[regionUuid]: "south",
+			[cadreUuid]: "community",
 		});
 		expect(
 			updated.mutations.some(
@@ -569,7 +570,7 @@ describe("user authoring tools", () => {
 					mutation.valuePatch?.userPropertyUuid === cadreUuid &&
 					mutation.valuePatch.value === null,
 			),
-		).toBe(true);
+		).toBe(false);
 	});
 
 	it.each([
@@ -597,14 +598,20 @@ describe("user tool schemas", () => {
 			updateUserTypeInputSchema.safeParse({
 				uuid: testUuid("role"),
 				description: null,
-				values: null,
+				valuePatch: {
+					userPropertyUuid: testUuid("property"),
+					value: null,
+				},
 			}).success,
 		).toBe(true);
 		expect(
 			updatePersonaInputSchema.safeParse({
 				uuid: testUuid("persona"),
 				userTypeUuid: null,
-				values: null,
+				valuePatch: {
+					userPropertyUuid: testUuid("property"),
+					value: null,
+				},
 			}).success,
 		).toBe(true);
 		expect(
@@ -621,16 +628,22 @@ describe("user tool schemas", () => {
 		).toBe(false);
 	});
 
-	it("rejects duplicate value identities instead of silently taking the last one", () => {
+	it("rejects the removed whole-values update dialect", () => {
 		expect(
 			updateUserTypeInputSchema.safeParse({
-				uuid: "role",
-				values: [
-					{ userPropertyUuid: "region", value: "north" },
-					{ userPropertyUuid: "region", value: "south" },
-				],
+				uuid: testUuid("role"),
+				values: [{ userPropertyUuid: testUuid("region"), value: "north" }],
 			}).success,
 		).toBe(false);
+		expect(
+			updateUserTypeInputSchema.safeParse({
+				uuid: testUuid("role"),
+				valuePatch: {
+					userPropertyUuid: testUuid("region"),
+					value: "north",
+				},
+			}).success,
+		).toBe(true);
 	});
 
 	it("rejects duplicate accepted values on both create and update", () => {

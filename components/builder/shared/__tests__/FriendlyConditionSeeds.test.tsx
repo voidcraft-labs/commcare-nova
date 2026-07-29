@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 
-import { proseText } from "@/lib/domain/prose";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type { CaseType } from "@/lib/domain";
 import {
 	ancestorPath,
@@ -18,6 +18,7 @@ import {
 	subcasePath,
 	whenInput,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { whenInputPresentDefault } from "../cards/WhenInputPresentCard";
 import { ExpressionCardEditor } from "../ExpressionCardEditor";
 import { PredicateCardEditor } from "../PredicateCardEditor";
@@ -37,7 +38,9 @@ const CASE_TYPES: readonly CaseType[] = [
 		],
 	},
 ];
-const KNOWN_INPUTS = [{ name: "query", data_type: "text" }] as const;
+const KNOWN_INPUTS = [
+	{ uuid: testUuid("query"), name: "query", data_type: "text" },
+] as const;
 const VIA = ancestorPath(relationStep("parent", "household"));
 const PATIENT_FIRST = eq(prop("patient", "status"), literal(""));
 const HOUSEHOLD_FIRST = eq(prop("household", "region"), literal(""));
@@ -60,7 +63,7 @@ describe("friendly first-condition seeds", () => {
 				knownInputs: KNOWN_INPUTS,
 				caseDataScope: "per-case",
 			}),
-		).toEqual(whenInput(input("query"), PATIENT_FIRST));
+		).toEqual(whenInput(input(testUuid("query")), PATIENT_FIRST));
 	});
 
 	it("starts a Count filter in the related case scope", () => {
@@ -197,7 +200,7 @@ describe("friendly first-condition seeds", () => {
 		const whenChange = vi.fn();
 		render(
 			<PredicateCardEditor
-				value={whenInput(input("query"), matchAll())}
+				value={whenInput(input(testUuid("query")), matchAll())}
 				onChange={whenChange}
 				caseTypes={CASE_TYPES}
 				currentCaseType="patient"

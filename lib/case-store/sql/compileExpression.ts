@@ -36,7 +36,6 @@ import type {
 } from "kysely";
 import { expressionBuilder } from "kysely";
 import type { CaseType } from "@/lib/domain/blueprint";
-import { proseText } from "@/lib/domain/prose";
 import {
 	COMMCARE_DATE_FORMAT_TOKENS,
 	COMMCARE_DAY_NAMES_LONG,
@@ -71,6 +70,7 @@ import type {
 	SwitchCase,
 	ValueExpression,
 } from "@/lib/domain/predicate/types";
+import { proseText } from "@/lib/domain/prose";
 import {
 	STANDARD_CASE_LIST_PROPERTY_DATA_TYPES,
 	standardCasePropertyDisplayLabel,

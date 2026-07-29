@@ -18,6 +18,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	type BlueprintDoc,
 	caseSearchConfigSchema,
@@ -31,6 +32,8 @@ import {
 	makeCaseSearchFixture,
 	makeCaseSearchMcpFixture,
 } from "./fixtures";
+
+const MISSING_MODULE = testUuid("missing-case-search-module");
 
 vi.mock("@/lib/db/apps", () => ({
 	completeApp: vi.fn(() => Promise.resolve()),
@@ -54,7 +57,7 @@ describe("setCaseSearchDisplay", () => {
 		const { doc, ctx } = makeCaseSearchFixture();
 		const result = await setCaseSearchDisplayTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				searchScreenTitle: null,
 				searchScreenSubtitle: null,
 				searchButtonLabel: null,
@@ -80,7 +83,7 @@ describe("setCaseSearchDisplay", () => {
 
 		const result = await setCaseSearchDisplayTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				searchScreenTitle: "Find a patient",
 				searchScreenSubtitle: "Type to filter",
 				searchButtonLabel: "Search",
@@ -111,7 +114,7 @@ describe("setCaseSearchDisplay", () => {
 		const { doc, ctx } = makeCaseSearchFixture();
 		const result = await setCaseSearchDisplayTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				searchScreenTitle: "Search patients",
 				searchScreenSubtitle: null,
 				searchButtonLabel: "Go",
@@ -154,7 +157,7 @@ describe("setCaseSearchDisplay", () => {
 
 		const result = await setCaseSearchDisplayTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				searchScreenTitle: null,
 				searchScreenSubtitle: null,
 				searchButtonLabel: null,
@@ -200,7 +203,7 @@ describe("setCaseSearchDisplay", () => {
 
 		const result = await setCaseSearchDisplayTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				searchScreenTitle: "Find patients",
 				searchScreenSubtitle: null,
 				searchButtonLabel: null,
@@ -234,7 +237,7 @@ describe("setCaseSearchDisplay", () => {
 		};
 		const result = await setCaseSearchDisplayTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				searchScreenTitle: null,
 				searchScreenSubtitle: null,
 				searchButtonLabel: "Refresh cases",
@@ -249,11 +252,11 @@ describe("setCaseSearchDisplay", () => {
 		});
 	});
 
-	it("returns an Elm-style error on out-of-range moduleIndex", async () => {
+	it("returns an Elm-style error for an unknown module UUID", async () => {
 		const { doc, ctx } = makeCaseSearchFixture();
 		const result = await setCaseSearchDisplayTool.execute(
 			{
-				moduleIndex: 99,
+				moduleUuid: MISSING_MODULE,
 				searchScreenTitle: null,
 				searchScreenSubtitle: null,
 				searchButtonLabel: null,
@@ -267,11 +270,8 @@ describe("setCaseSearchDisplay", () => {
 		if (!("error" in result.result)) {
 			throw new Error("expected error result");
 		}
-		expect(result.result.error).toContain(
-			"Tried to set the case-search display cluster",
-		);
-		expect(result.result.error).toContain("module index 99");
-		expect(result.result.error).toContain("Found no module");
+		expect(result.result.error).toContain(MISSING_MODULE);
+		expect(result.result.error).toContain("No module with UUID");
 	});
 
 	it("initializes the caseSearchConfig with an empty rebuild when the module has none", async () => {
@@ -290,7 +290,7 @@ describe("setCaseSearchDisplay", () => {
 
 		const result = await setCaseSearchDisplayTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				searchScreenTitle: "Find a patient",
 				searchScreenSubtitle: null,
 				searchButtonLabel: null,
@@ -315,7 +315,7 @@ describe("setCaseSearchDisplay", () => {
 		const { doc, ctx: chatCtx } = makeCaseSearchFixture();
 		const { ctx: mcpCtx } = makeCaseSearchMcpFixture();
 		const input = {
-			moduleIndex: 0,
+			moduleUuid: MOD_A,
 			searchScreenTitle: "Find a patient",
 			searchScreenSubtitle: null,
 			searchButtonLabel: "Go",
@@ -334,7 +334,7 @@ describe("setCaseSearchDisplay", () => {
 		// the regression class: an SA handing a slot name the cluster
 		// doesn't carry hits the boundary, not a silent strip.
 		const parseResult = setCaseSearchDisplayTool.inputSchema.safeParse({
-			moduleIndex: 0,
+			moduleUuid: MOD_A,
 			searchScreenTitle: null,
 			searchScreenSubtitle: null,
 			searchButtonLabel: null,

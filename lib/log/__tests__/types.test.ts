@@ -4,9 +4,9 @@
  * `eventSchema.parse()` to validate persisted data.
  */
 
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { proseText } from "@/lib/domain/prose";
 
 import {
 	type ConversationEvent,

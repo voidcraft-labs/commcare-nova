@@ -17,12 +17,13 @@
  *   Loading > Completed > Generating > Ready > Idle.
  */
 
-import { proseText } from "@/lib/domain/prose";
 import { assert, describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { docHasData } from "@/lib/doc/predicates";
 import type { BlueprintDocStoreApi } from "@/lib/doc/store";
 import type { Mutation } from "@/lib/doc/types";
+import { fallbackProseProjection } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 
 import type {
 	ConversationEvent,
@@ -130,7 +131,7 @@ const Q_NAME_UUID = testUuid("q-patient-name");
 const Q_AGE_UUID = testUuid("q-patient-age");
 
 const CASE_TYPES = [
-	{ name: "patient", properties: [{ name: "name", label: "Name" }] },
+	{ name: "patient", properties: [{ name: "name", label: proseText("Name") }] },
 ];
 
 const SCAFFOLD_MUTATIONS: Mutation[] = [
@@ -243,7 +244,15 @@ describe("generation lifecycle (end-to-end)", () => {
 				{
 					kind: "updateModule",
 					uuid: MOD_UUID,
-					patch: { caseListConfig: config },
+					patch: {},
+					ensureCaseListConfig: true,
+				},
+				{
+					kind: "addColumn",
+					moduleUuid: MOD_UUID,
+					column: config.columns[0],
+					afterInList: null,
+					afterInDetail: null,
 				},
 			],
 			"module:0",
@@ -331,7 +340,7 @@ describe("generation lifecycle (end-to-end)", () => {
 		);
 		const nameField = docStore.getState().fields[Q_NAME_UUID];
 		assert(nameField && nameField.kind === "text");
-		expect(nameField.label).toBe("Patient Full Name");
+		expect(fallbackProseProjection(nameField.label)).toBe("Patient Full Name");
 		expect(deriveAgentStage(s().events)).toBe(GenerationStage.Fix);
 
 		// ── Done ──
@@ -420,9 +429,9 @@ describe("generation lifecycle (end-to-end)", () => {
 		emitMutations(
 			[
 				{
-					kind: "updateForm",
+					kind: "renameForm",
 					uuid: FORM_UUID,
-					patch: { name: "Register (Edited)" },
+					newId: "Register (Edited)",
 				},
 			],
 			"form:0-0",

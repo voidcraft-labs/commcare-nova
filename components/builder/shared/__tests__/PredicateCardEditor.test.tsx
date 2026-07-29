@@ -10,7 +10,6 @@
 // `onChange` / `onValidityChange`, and how nested errors land on
 // the right card.
 
-import { proseText } from "@/lib/domain/prose";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { CaseType } from "@/lib/domain";
@@ -27,6 +26,7 @@ import {
 	prop,
 	relationStep,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { presentCheckErrorForEditor } from "../checkErrorPresentation";
 import { PredicateCardEditor } from "../PredicateCardEditor";
 

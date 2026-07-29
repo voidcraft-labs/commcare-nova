@@ -1,5 +1,5 @@
-import { proseText } from "@/lib/domain/prose";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { proseText } from "@/lib/domain/prose";
 /**
  * Atomic structural creation — `createForm` / `createModule` land an
  * entity TOGETHER with what makes it sound and complete, in one gated
@@ -14,7 +14,8 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
  */
 
 import { describe, expect, it, vi } from "vitest";
-import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { printXPathInDoc } from "@/lib/doc/expressionText";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
@@ -84,13 +85,13 @@ function completeDoc(): BlueprintDoc {
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Name",
+								label: proseText("Name"),
 								case_property_on: "patient",
 							}),
 							f({
 								kind: "text",
 								id: "village",
-								label: "Village",
+								label: proseText("Village"),
 								case_property_on: "patient",
 							}),
 						],
@@ -120,25 +121,37 @@ function completeDoc(): BlueprintDoc {
 	});
 }
 
+function moduleAddress(doc: BlueprintDoc) {
+	return { moduleUuid: doc.moduleOrder[0] };
+}
+
+function formAddress(doc: BlueprintDoc) {
+	const moduleUuid = doc.moduleOrder[0];
+	const formUuid = doc.formOrder[moduleUuid]?.[0];
+	if (!formUuid) throw new Error("Fixture must contain a form");
+	return { moduleUuid, formUuid };
+}
+
 describe("createForm — atomic form + fields", () => {
 	it("grows a COMPLETE app: a followup form lands with its fields in one batch", async () => {
 		const { ctx, recordMutations } = makeCtx();
+		const doc = completeDoc();
 		const out = await createFormTool.execute(
 			{
-				moduleIndex: 0,
+				...moduleAddress(doc),
 				name: "Follow up",
 				type: "followup",
 				fields: [
 					{
 						kind: "text",
 						id: "visit_notes",
-						label: "Visit notes",
+						label: proseText("Visit notes"),
 						case_property_on: "patient",
 					} as never,
 				],
 			},
 			ctx,
-			completeDoc(),
+			doc,
 		);
 
 		expect("message" in out.result).toBe(true);
@@ -152,22 +165,23 @@ describe("createForm — atomic form + fields", () => {
 
 	it("rejects a registration form missing its case_name writer with guidance THIS call can satisfy", async () => {
 		const { ctx, recordMutations } = makeCtx();
+		const doc = completeDoc();
 		const out = await createFormTool.execute(
 			{
-				moduleIndex: 0,
+				...moduleAddress(doc),
 				name: "Enroll",
 				type: "registration",
 				fields: [
 					{
 						kind: "text",
 						id: "village",
-						label: "Village",
+						label: proseText("Village"),
 						case_property_on: "patient",
 					} as never,
 				],
 			},
 			ctx,
-			completeDoc(),
+			doc,
 		);
 
 		expect("error" in out.result && out.result.error).toContain("case_name");
@@ -177,23 +191,30 @@ describe("createForm — atomic form + fields", () => {
 
 	it("nests fields under a group created in the same call", async () => {
 		const { ctx } = makeCtx();
+		const doc = completeDoc();
+		const vitalsUuid = testUuid("same-call-vitals");
 		const out = await createFormTool.execute(
 			{
-				moduleIndex: 0,
+				...moduleAddress(doc),
 				name: "Assessment",
 				type: "followup",
 				fields: [
-					{ kind: "group", id: "vitals", label: "Vitals" } as never,
+					{
+						fieldUuid: vitalsUuid,
+						kind: "group",
+						id: "vitals",
+						label: proseText("Vitals"),
+					} as never,
 					{
 						kind: "decimal",
 						id: "temperature",
-						label: "Temperature",
-						parentId: "vitals",
+						label: proseText("Temperature"),
+						parentUuid: vitalsUuid,
 					} as never,
 				],
 			},
 			ctx,
-			completeDoc(),
+			doc,
 		);
 
 		expect("message" in out.result).toBe(true);
@@ -223,13 +244,13 @@ describe("createModule — atomic module + forms + case list", () => {
 							{
 								kind: "text",
 								id: "case_name",
-								label: "Household name",
+								label: proseText("Household name"),
 								case_property_on: "household",
 							} as never,
 							{
 								kind: "text",
 								id: "head_of_household",
-								label: "Head of household",
+								label: proseText("Head of household"),
 								case_property_on: "household",
 							} as never,
 						],
@@ -284,13 +305,13 @@ describe("createModule — atomic module + forms + case list", () => {
 							{
 								kind: "text",
 								id: "case_name",
-								label: "Household name",
+								label: proseText("Household name"),
 								case_property_on: "household",
 							} as never,
 							{
 								kind: "text",
 								id: "head_of_household",
-								label: "Head of household",
+								label: proseText("Head of household"),
 								case_property_on: "household",
 							} as never,
 						],
@@ -317,7 +338,11 @@ describe("createModule — atomic module + forms + case list", () => {
 						name: "Feedback survey",
 						type: "survey",
 						fields: [
-							{ kind: "text", id: "comments", label: "Comments" } as never,
+							{
+								kind: "text",
+								id: "comments",
+								label: proseText("Comments"),
+							} as never,
 						],
 					},
 				],
@@ -361,13 +386,13 @@ function completeConnectDoc(): BlueprintDoc {
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Name",
+								label: proseText("Name"),
 								case_property_on: "trainee",
 							}),
 							f({
 								kind: "text",
 								id: "village",
-								label: "Village",
+								label: proseText("Village"),
 								case_property_on: "trainee",
 							}),
 						],
@@ -389,7 +414,7 @@ function completeConnectDoc(): BlueprintDoc {
 			...["quiz_case", "assessment_case", "refresher", "seller"].map(
 				(name) => ({
 					name,
-					properties: [{ name: "case_name", label: "Name" }],
+					properties: [{ name: "case_name", label: proseText("Name") }],
 				}),
 			),
 		],
@@ -399,16 +424,17 @@ function completeConnectDoc(): BlueprintDoc {
 describe("atomic creation on a complete Connect app", () => {
 	it("createForm with a connect block commits in one batch", async () => {
 		const { ctx, recordMutations } = makeCtx();
+		const doc = completeConnectDoc();
 		const out = await createFormTool.execute(
 			{
-				moduleIndex: 0,
+				...moduleAddress(doc),
 				name: "Lesson two",
 				type: "followup",
 				fields: [
 					{
 						kind: "text",
 						id: "lesson_notes",
-						label: "Notes",
+						label: proseText("Notes"),
 						case_property_on: "trainee",
 					} as never,
 				],
@@ -422,7 +448,7 @@ describe("atomic creation on a complete Connect app", () => {
 				},
 			},
 			ctx,
-			completeConnectDoc(),
+			doc,
 		);
 
 		expect("message" in out.result).toBe(true);
@@ -435,22 +461,23 @@ describe("atomic creation on a complete Connect app", () => {
 		 * by simply not finding a block there. The app keeps its existing
 		 * participating form, so the participation floor holds. */
 		const { ctx, recordMutations } = makeCtx();
+		const doc = completeConnectDoc();
 		const out = await createFormTool.execute(
 			{
-				moduleIndex: 0,
+				...moduleAddress(doc),
 				name: "Reference sheet",
 				type: "followup",
 				fields: [
 					{
 						kind: "text",
 						id: "lesson_notes",
-						label: "Notes",
+						label: proseText("Notes"),
 						case_property_on: "trainee",
 					} as never,
 				],
 			},
 			ctx,
-			completeConnectDoc(),
+			doc,
 		);
 
 		expect("message" in out.result, JSON.stringify(out.result)).toBe(true);
@@ -467,10 +494,11 @@ describe("atomic creation on a complete Connect app", () => {
 		 * (connect: null — null removes) leaves a Connect app with zero
 		 * participation — the one state the relaxation still forbids. */
 		const { ctx, recordMutations } = makeCtx();
+		const doc = completeConnectDoc();
 		const out = await updateFormTool.execute(
-			{ moduleIndex: 0, formIndex: 0, connect: null },
+			{ ...formAddress(doc), connect: null },
 			ctx,
-			completeConnectDoc(),
+			doc,
 		);
 
 		const error = "error" in out.result ? out.result.error : "";
@@ -486,14 +514,14 @@ describe("atomic creation on a complete Connect app", () => {
 		const doc = completeConnectDoc();
 		const grown = await createFormTool.execute(
 			{
-				moduleIndex: 0,
+				...moduleAddress(doc),
 				name: "Lesson two",
 				type: "followup",
 				fields: [
 					{
 						kind: "text",
 						id: "lesson_notes",
-						label: "Notes",
+						label: proseText("Notes"),
 						case_property_on: "trainee",
 					} as never,
 				],
@@ -512,7 +540,7 @@ describe("atomic creation on a complete Connect app", () => {
 		expect("message" in grown.result).toBe(true);
 
 		const out = await updateFormTool.execute(
-			{ moduleIndex: 0, formIndex: 0, connect: null },
+			{ ...formAddress(grown.newDoc), connect: null },
 			ctx,
 			grown.newDoc,
 		);
@@ -521,28 +549,39 @@ describe("atomic creation on a complete Connect app", () => {
 		expect(runValidation(out.newDoc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 	});
 
-	it("createForm parses assessment.user_score text to the expression AST, resolving a same-call field to an identity leaf", async () => {
+	it("createForm preserves a same-call identity in assessment.user_score", async () => {
 		const { ctx, recordMutations } = makeCtx();
+		const doc = completeConnectDoc();
+		const scoreFieldUuid = testUuid("create-form-score");
 		const out = await createFormTool.execute(
 			{
-				moduleIndex: 0,
+				...moduleAddress(doc),
 				name: "Quiz",
 				type: "followup",
 				fields: [
 					{
 						kind: "text",
 						id: "answer_one",
-						label: "Answer one",
+						label: proseText("Answer one"),
 						case_property_on: "trainee",
 					} as never,
-					{ kind: "hidden", id: "score_total", calculate: "1 + 1" } as never,
+					{
+						fieldUuid: scoreFieldUuid,
+						kind: "hidden",
+						id: "score_total",
+						calculate: xp("1 + 1"),
+					} as never,
 				],
 				connect: {
-					assessment: { user_score: "#form/score_total" },
+					assessment: {
+						user_score: {
+							parts: [{ kind: "field-ref", uuid: scoreFieldUuid }],
+						},
+					},
 				},
 			},
 			ctx,
-			completeConnectDoc(),
+			doc,
 		);
 
 		expect("message" in out.result, JSON.stringify(out.result)).toBe(true);
@@ -566,8 +605,9 @@ describe("atomic creation on a complete Connect app", () => {
 		);
 	});
 
-	it("createModule parses each form's assessment.user_score the same way", async () => {
+	it("createModule preserves each form's assessment.user_score identity", async () => {
 		const { ctx, recordMutations } = makeCtx();
+		const scoreFieldUuid = testUuid("create-module-score");
 		const out = await createModuleTool.execute(
 			{
 				name: "Quizzes",
@@ -580,23 +620,28 @@ describe("atomic creation on a complete Connect app", () => {
 							{
 								kind: "text",
 								id: "case_name",
-								label: "Quiz name",
+								label: proseText("Quiz name"),
 								case_property_on: "quiz_case",
 							} as never,
 							{
 								kind: "text",
 								id: "topic",
-								label: "Topic",
+								label: proseText("Topic"),
 								case_property_on: "quiz_case",
 							} as never,
 							{
+								fieldUuid: scoreFieldUuid,
 								kind: "hidden",
 								id: "score_total",
-								calculate: "1 + 1",
+								calculate: xp("1 + 1"),
 							} as never,
 						],
 						connect: {
-							assessment: { user_score: "#form/score_total" },
+							assessment: {
+								user_score: {
+									parts: [{ kind: "field-ref", uuid: scoreFieldUuid }],
+								},
+							},
 						},
 					},
 				],
@@ -636,13 +681,13 @@ describe("atomic creation on a complete Connect app", () => {
 							{
 								kind: "text",
 								id: "case_name",
-								label: "Assessment name",
+								label: proseText("Assessment name"),
 								case_property_on: "assessment_case",
 							} as never,
 							{
 								kind: "text",
 								id: "topic",
-								label: "Topic",
+								label: proseText("Topic"),
 								case_property_on: "assessment_case",
 							} as never,
 						],
@@ -682,16 +727,17 @@ describe("atomic creation on a complete Connect app", () => {
 describe("creation tools force connect ids correct at the source", () => {
 	it("createForm autofills an omitted connect id from the module name, unique against stored ids", async () => {
 		const { ctx } = makeCtx();
+		const doc = completeConnectDoc();
 		const out = await createFormTool.execute(
 			{
-				moduleIndex: 0,
+				...moduleAddress(doc),
 				name: "Lesson two",
 				type: "followup",
 				fields: [
 					{
 						kind: "text",
 						id: "lesson_notes",
-						label: "Notes",
+						label: proseText("Notes"),
 						case_property_on: "trainee",
 					} as never,
 				],
@@ -705,7 +751,7 @@ describe("creation tools force connect ids correct at the source", () => {
 				},
 			},
 			ctx,
-			completeConnectDoc(),
+			doc,
 		);
 
 		expect("message" in out.result).toBe(true);
@@ -719,16 +765,17 @@ describe("creation tools force connect ids correct at the source", () => {
 
 	it("createForm rejects an explicit duplicate connect id (nothing persisted)", async () => {
 		const { ctx, recordMutations } = makeCtx();
+		const doc = completeConnectDoc();
 		const out = await createFormTool.execute(
 			{
-				moduleIndex: 0,
+				...moduleAddress(doc),
 				name: "Lesson two",
 				type: "followup",
 				fields: [
 					{
 						kind: "text",
 						id: "lesson_notes",
-						label: "Notes",
+						label: proseText("Notes"),
 						case_property_on: "trainee",
 					} as never,
 				],
@@ -742,7 +789,7 @@ describe("creation tools force connect ids correct at the source", () => {
 				},
 			},
 			ctx,
-			completeConnectDoc(),
+			doc,
 		);
 
 		expect("error" in out.result && out.result.error).toContain(
@@ -754,16 +801,17 @@ describe("creation tools force connect ids correct at the source", () => {
 
 	it("createForm rejects an explicit XML-illegal connect id", async () => {
 		const { ctx, recordMutations } = makeCtx();
+		const doc = completeConnectDoc();
 		const out = await createFormTool.execute(
 			{
-				moduleIndex: 0,
+				...moduleAddress(doc),
 				name: "Lesson two",
 				type: "followup",
 				fields: [
 					{
 						kind: "text",
 						id: "lesson_notes",
-						label: "Notes",
+						label: proseText("Notes"),
 						case_property_on: "trainee",
 					} as never,
 				],
@@ -777,7 +825,7 @@ describe("creation tools force connect ids correct at the source", () => {
 				},
 			},
 			ctx,
-			completeConnectDoc(),
+			doc,
 		);
 
 		expect("error" in out.result && out.result.error).toContain("bad id");
@@ -801,13 +849,13 @@ describe("creation tools force connect ids correct at the source", () => {
 							{
 								kind: "text",
 								id: "case_name",
-								label: "Name",
+								label: proseText("Name"),
 								case_property_on: "refresher",
 							} as never,
 							{
 								kind: "text",
 								id: "topic_covered",
-								label: "Topic covered",
+								label: proseText("Topic covered"),
 								case_property_on: "refresher",
 							} as never,
 						],
@@ -826,7 +874,7 @@ describe("creation tools force connect ids correct at the source", () => {
 							{
 								kind: "text",
 								id: "notes",
-								label: "Notes",
+								label: proseText("Notes"),
 								case_property_on: "refresher",
 							} as never,
 						],
@@ -871,13 +919,13 @@ describe("creation tools force connect ids correct at the source", () => {
 							{
 								kind: "text",
 								id: "case_name",
-								label: "Name",
+								label: proseText("Name"),
 								case_property_on: "refresher",
 							} as never,
 							{
 								kind: "text",
 								id: "topic_covered",
-								label: "Topic covered",
+								label: proseText("Topic covered"),
 								case_property_on: "refresher",
 							} as never,
 						],
@@ -922,13 +970,13 @@ describe("creation tools force connect ids correct at the source", () => {
 							{
 								kind: "text",
 								id: "case_name",
-								label: "Name",
+								label: proseText("Name"),
 								case_property_on: "seller",
 							} as never,
 							{
 								kind: "text",
 								id: "stall_location",
-								label: "Stall location",
+								label: proseText("Stall location"),
 								case_property_on: "seller",
 							} as never,
 						],

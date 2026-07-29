@@ -26,8 +26,8 @@ import type {
 import { unhandledKindMessage } from "@/lib/domain/predicate";
 import { isNativeCsqlValueExpression } from "../expression/csqlEmitter";
 import {
-	classifyCalendarDateAddQuantity,
-	classifySubcaseCountBound,
+	isRepresentableCalendarDateAddQuantity,
+	isRepresentableSubcaseCountBound,
 } from "./runtimeCsqlNumericSafety";
 import { isCsqlStringLiteralRepresentable } from "./stringQuoting";
 
@@ -587,7 +587,7 @@ function checkSubcaseCountBound(
 	path: readonly (string | number)[],
 	issues: CsqlRepresentabilityIssue[],
 ): void {
-	if (classifySubcaseCountBound(expression).kind === "unsupported") {
+	if (!isRepresentableSubcaseCountBound(expression)) {
 		issues.push({
 			reason: "subcase-count-needs-nonnegative-whole-number",
 			path,
@@ -657,8 +657,7 @@ function checkRuntimeValue(
 			if (
 				dialect === "csql" &&
 				(expression.interval === "months" || expression.interval === "years") &&
-				classifyCalendarDateAddQuantity(expression.quantity).kind ===
-					"unsupported"
+				!isRepresentableCalendarDateAddQuantity(expression.quantity)
 			) {
 				issues.push({
 					reason: "calendar-date-add-needs-whole-number",

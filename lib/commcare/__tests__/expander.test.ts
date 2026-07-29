@@ -1,4 +1,3 @@
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import {
@@ -22,6 +21,7 @@ import {
 	idMappingEntry,
 	intervalColumn,
 	type Module,
+	type ProseTemplate,
 	phoneColumn,
 	plainColumn,
 	simpleSearchInputDef,
@@ -39,6 +39,11 @@ import {
 	today,
 	toValueExpression,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
+
+function prose(...parts: ProseTemplate["parts"]): ProseTemplate {
+	return { parts };
+}
 
 describe("display-condition HQ projection", () => {
 	it("projects typed module/form conditions and selects the menu-instance build", () => {
@@ -113,12 +118,12 @@ const followupDoc = buildDoc({
 						f({
 							kind: "group",
 							id: "client_info",
-							label: "Client Info",
+							label: proseText("Client Info"),
 							children: [
 								f({
 									kind: "text",
 									id: "full_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 							],
@@ -129,7 +134,7 @@ const followupDoc = buildDoc({
 							calculate: "#case/total_visits + 1",
 							case_property_on: "patient",
 						}),
-						f({ kind: "text", id: "notes", label: "Notes" }),
+						f({ kind: "text", id: "notes", label: proseText("Notes") }),
 					],
 				},
 			],
@@ -164,14 +169,14 @@ const registrationDoc = buildDoc({
 						f({
 							kind: "text",
 							id: "case_name",
-							label: "Full Name",
+							label: proseText("Full Name"),
 							required: "true()",
 							case_property_on: "patient",
 						}),
 						f({
 							kind: "int",
 							id: "age",
-							label: "Age",
+							label: proseText("Age"),
 							validate: ". > 0 and . < 150",
 							case_property_on: "patient",
 						}),
@@ -229,7 +234,7 @@ describe("expandDoc", () => {
 								f({
 									kind: "group",
 									id: "grp",
-									label: "G",
+									label: proseText("G"),
 									children: [
 										f({
 											kind: "hidden",
@@ -348,7 +353,7 @@ describe("expandDoc", () => {
 								f({
 									kind: "text",
 									id: "full_name",
-									label: "Name",
+									label: proseText("Name"),
 									default_value: "#case/full_name",
 									case_property_on: "c",
 								}),
@@ -398,7 +403,7 @@ describe("expandDoc", () => {
 								f({
 									kind: "single_select",
 									id: "confirm",
-									label: "Close?",
+									label: proseText("Close?"),
 									options: [
 										{ value: "yes", label: "Yes" },
 										{ value: "no", label: "No" },
@@ -409,7 +414,9 @@ describe("expandDoc", () => {
 						{
 							name: "Always Close",
 							type: "close",
-							fields: [f({ kind: "text", id: "note", label: "Note" })],
+							fields: [
+								f({ kind: "text", id: "note", label: proseText("Note") }),
+							],
 						},
 					],
 				},
@@ -456,7 +463,7 @@ describe("case_name in case list columns", () => {
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Name",
+								label: proseText("Name"),
 								case_property_on: "patient",
 							}),
 						],
@@ -508,7 +515,7 @@ describe("runValidation", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Q",
+									label: proseText("Q"),
 									case_property_on: "patient",
 								}),
 							],
@@ -539,7 +546,7 @@ describe("runValidation", () => {
 								f({
 									kind: "text",
 									id: "name",
-									label: "Q",
+									label: proseText("Q"),
 									case_property_on: "c",
 								}),
 							],
@@ -569,7 +576,7 @@ describe("runValidation", () => {
 						{
 							name: "F",
 							type: "registration",
-							fields: [f({ kind: "text", id: "q", label: "Q" })],
+							fields: [f({ kind: "text", id: "q", label: proseText("Q") })],
 						},
 					],
 				},
@@ -586,8 +593,9 @@ describe("runValidation", () => {
 // ── Feature 1: Output References in Labels ──────────────────────────────
 
 describe("output references in labels", () => {
-	// Authors reference fields in prose with hashtags (`#form/name`,
-	// `#case/prop`); the emitter lowers those into `<output>` elements.
+	// Authoring surfaces turn friendly hashtags (`#form/name`,
+	// `#case/prop`) into typed prose refs; the emitter lowers those refs into
+	// `<output>` elements.
 	// Raw `<output ...>` markup is NOT a supported authoring input — a label
 	// that literally contains it is prose and serializes as escaped text.
 	it("escapes author-written <output> markup as literal label text", () => {
@@ -601,11 +609,13 @@ describe("output references in labels", () => {
 							name: "F",
 							type: "survey",
 							fields: [
-								f({ kind: "text", id: "name", label: "Name" }),
+								f({ kind: "text", id: "name", label: proseText("Name") }),
 								f({
 									kind: "label",
 									id: "greeting",
-									label: 'Hello <output value="/data/name"/>, welcome!',
+									label: proseText(
+										'Hello <output value="/data/name"/>, welcome!',
+									),
 								}),
 							],
 						},
@@ -623,7 +633,7 @@ describe("output references in labels", () => {
 		expect(xform).not.toContain('<output value="/data/name"');
 	});
 
-	it("expands a #case/ hashtag ref in label prose into an <output>", () => {
+	it("expands a typed current-case ref in label prose into an <output>", () => {
 		const doc = buildDoc({
 			appName: "Output",
 			modules: [
@@ -638,13 +648,20 @@ describe("output references in labels", () => {
 								f({
 									kind: "text",
 									id: "full_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "c",
 								}),
 								f({
 									kind: "label",
 									id: "msg",
-									label: "Patient: #case/full_name",
+									label: prose(
+										{ kind: "text", text: "Patient: " },
+										{
+											kind: "case-ref",
+											caseType: "c",
+											property: "full_name",
+										},
+									),
 								}),
 							],
 						},
@@ -665,7 +682,7 @@ describe("output references in labels", () => {
 		expect(xform).toContain('vellum:value="#case/full_name"');
 	});
 
-	it("wraps bare #case/ in label text as <output> tags with expanded XPath", () => {
+	it("lowers several typed current-case refs with expanded XPath", () => {
 		const doc = buildDoc({
 			appName: "BareRef",
 			modules: [
@@ -680,26 +697,44 @@ describe("output references in labels", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "c",
 								}),
 								f({
 									kind: "date",
 									id: "start_date",
-									label: "Start",
+									label: proseText("Start"),
 									case_property_on: "c",
 								}),
 								f({
 									kind: "date",
 									id: "end_date",
-									label: "End",
+									label: proseText("End"),
 									case_property_on: "c",
 								}),
 								f({
 									kind: "label",
 									id: "summary",
-									label:
-										"Plan: **#case/case_name**, from #case/start_date to #case/end_date",
+									label: prose(
+										{ kind: "text", text: "Plan: **" },
+										{
+											kind: "case-ref",
+											caseType: "c",
+											property: "case_name",
+										},
+										{ kind: "text", text: "**, from " },
+										{
+											kind: "case-ref",
+											caseType: "c",
+											property: "start_date",
+										},
+										{ kind: "text", text: " to " },
+										{
+											kind: "case-ref",
+											caseType: "c",
+											property: "end_date",
+										},
+									),
 								}),
 							],
 						},
@@ -733,7 +768,8 @@ describe("output references in labels", () => {
 		expect(outputCount).toBe(6);
 	});
 
-	it("wraps bare #form/ in label text as <output> tags", () => {
+	it("lowers a typed form-field ref in label text", () => {
+		const userNameUuid = testUuid("bare-form.user-name");
 		const doc = buildDoc({
 			appName: "BareForm",
 			modules: [
@@ -744,11 +780,20 @@ describe("output references in labels", () => {
 							name: "F",
 							type: "survey",
 							fields: [
-								f({ kind: "text", id: "user_name", label: "Your name" }),
+								f({
+									kind: "text",
+									id: "user_name",
+									uuid: userNameUuid,
+									label: proseText("Your name"),
+								}),
 								f({
 									kind: "label",
 									id: "greeting",
-									label: "Hello #form/user_name!",
+									label: prose(
+										{ kind: "text", text: "Hello " },
+										{ kind: "field-ref", uuid: userNameUuid },
+										{ kind: "text", text: "!" },
+									),
 								}),
 							],
 						},
@@ -764,7 +809,7 @@ describe("output references in labels", () => {
 		);
 	});
 
-	it("handles mixed bare hashtags and existing <output> tags in one label", () => {
+	it("lowers multiple typed current-case refs in one label", () => {
 		const doc = buildDoc({
 			appName: "Mixed",
 			modules: [
@@ -779,20 +824,32 @@ describe("output references in labels", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "c",
 								}),
 								f({
 									kind: "text",
 									id: "status",
-									label: "Status",
+									label: proseText("Status"),
 									case_property_on: "c",
 								}),
 								f({
 									kind: "label",
 									id: "info",
-									label:
-										'Hello <output value="#case/case_name"/>, status: #case/status',
+									label: prose(
+										{ kind: "text", text: "Hello " },
+										{
+											kind: "case-ref",
+											caseType: "c",
+											property: "case_name",
+										},
+										{ kind: "text", text: ", status: " },
+										{
+											kind: "case-ref",
+											caseType: "c",
+											property: "status",
+										},
+									),
 								}),
 							],
 						},
@@ -811,11 +868,10 @@ describe("output references in labels", () => {
 		});
 		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
-		// The bare #case/status from the label should be wrapped and expanded
+		// Both typed refs are lowered with their friendly current-case shadows.
 		const infoLabel =
 			xform.match(/<text id="info-label">.*?<\/text>/s)?.[0] || "";
 		expect(infoLabel).not.toContain("status: #case/status");
-		// Both existing <output> and bare ref should be expanded with vellum:value
 		expect(infoLabel).toContain('vellum:value="#case/case_name"');
 		expect(infoLabel).toContain('vellum:value="#case/status"');
 	});
@@ -881,7 +937,7 @@ describe("label/hint prose entity escaping", () => {
 		expect(xml).toContain("<value>Rating &lt; 100 and &gt; 50</value>");
 	});
 
-	it("expands a hashtag ref in mixed prose while escaping surrounding `<`", () => {
+	it("expands a typed case ref in mixed prose while escaping surrounding `<`", () => {
 		// Issue #15: a label combining prose with a `<` AND a hashtag ref must
 		// escape the prose `<` (no bogus tag / no itext corruption) while
 		// lowering the hashtag into a real <output> element with the expanded
@@ -900,13 +956,20 @@ describe("label/hint prose entity escaping", () => {
 								f({
 									kind: "text",
 									id: "full_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "c",
 								}),
 								f({
 									kind: "label",
 									id: "msg",
-									label: "Weight < 5kg for #case/full_name",
+									label: prose(
+										{ kind: "text", text: "Weight < 5kg for " },
+										{
+											kind: "case-ref",
+											caseType: "c",
+											property: "full_name",
+										},
+									),
 								}),
 							],
 						},
@@ -941,7 +1004,7 @@ describe("label/hint prose entity escaping", () => {
 		expect(xml).not.toContain('<output value="x"');
 	});
 
-	it("still expands a bare hashtag in prose (regression)", () => {
+	it("still expands a typed case ref in prose (regression)", () => {
 		const doc = buildDoc({
 			appName: "Bare in prose",
 			modules: [
@@ -956,10 +1019,21 @@ describe("label/hint prose entity escaping", () => {
 								f({
 									kind: "text",
 									id: "name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "c",
 								}),
-								f({ kind: "label", id: "hi", label: "Hello #case/name" }),
+								f({
+									kind: "label",
+									id: "hi",
+									label: prose(
+										{ kind: "text", text: "Hello " },
+										{
+											kind: "case-ref",
+											caseType: "c",
+											property: "name",
+										},
+									),
+								}),
 							],
 						},
 					],
@@ -1019,7 +1093,7 @@ describe("select option itext ids — index-keyed (issue #10)", () => {
 								f({
 									kind: "single_select",
 									id: "rating",
-									label: "Rating",
+									label: proseText("Rating"),
 									// Both options carry value "3" — the bug trigger.
 									options: [
 										{ value: "3", label: "Three (low scale)" },
@@ -1070,7 +1144,7 @@ describe("select option itext ids — index-keyed (issue #10)", () => {
 								f({
 									kind: "multi_select",
 									id: "tags",
-									label: "Tags",
+									label: proseText("Tags"),
 									options: [
 										{ value: "x", label: "First X" },
 										{ value: "x", label: "Second X" },
@@ -1108,7 +1182,7 @@ describe("select option itext ids — index-keyed (issue #10)", () => {
 								f({
 									kind: "single_select",
 									id: "confirm",
-									label: "Confirm?",
+									label: proseText("Confirm?"),
 									options: [
 										{ value: "yes", label: "Yes" },
 										{ value: "no", label: "No" },
@@ -1155,7 +1229,7 @@ describe("markdown itext for all field kinds", () => {
 								f({
 									kind: "text",
 									id: "name",
-									label: "Enter your **full name**",
+									label: proseText("Enter your **full name**"),
 								}),
 							],
 						},
@@ -1187,7 +1261,7 @@ describe("markdown itext for all field kinds", () => {
 								f({
 									kind: "single_select",
 									id: "status",
-									label: "Current **status**",
+									label: proseText("Current **status**"),
 									options: [
 										{
 											value: "active",
@@ -1234,8 +1308,8 @@ describe("markdown itext for all field kinds", () => {
 								f({
 									kind: "int",
 									id: "age",
-									label: "Age",
-									hint: "Enter age in **years**",
+									label: proseText("Age"),
+									hint: proseText("Enter age in **years**"),
 								}),
 							],
 						},
@@ -1266,8 +1340,10 @@ describe("markdown itext for all field kinds", () => {
 								f({
 									kind: "group",
 									id: "demographics",
-									label: "## Demographics",
-									children: [f({ kind: "text", id: "name", label: "Name" })],
+									label: proseText("## Demographics"),
+									children: [
+										f({ kind: "text", id: "name", label: proseText("Name") }),
+									],
 								}),
 							],
 						},
@@ -1297,9 +1373,13 @@ describe("markdown itext for all field kinds", () => {
 								f({
 									kind: "repeat",
 									id: "children",
-									label: "Add **child** details",
+									label: proseText("Add **child** details"),
 									children: [
-										f({ kind: "text", id: "child_name", label: "Child name" }),
+										f({
+											kind: "text",
+											id: "child_name",
+											label: proseText("Child name"),
+										}),
 									],
 								}),
 							],
@@ -1331,10 +1411,18 @@ describe("markdown itext for all field kinds", () => {
 								f({
 									kind: "date",
 									id: "visit_date",
-									label: "Date of **visit**",
+									label: proseText("Date of **visit**"),
 								}),
-								f({ kind: "decimal", id: "weight", label: "Weight _(kg)_" }),
-								f({ kind: "image", id: "photo", label: "Take a **photo**" }),
+								f({
+									kind: "decimal",
+									id: "weight",
+									label: proseText("Weight _(kg)_"),
+								}),
+								f({
+									kind: "image",
+									id: "photo",
+									label: proseText("Take a **photo**"),
+								}),
 							],
 						},
 					],
@@ -1370,8 +1458,12 @@ describe("#form/ hashtag expansion", () => {
 							name: "F",
 							type: "survey",
 							fields: [
-								f({ kind: "text", id: "first_name", label: "First" }),
-								f({ kind: "text", id: "last_name", label: "Last" }),
+								f({
+									kind: "text",
+									id: "first_name",
+									label: proseText("First"),
+								}),
+								f({ kind: "text", id: "last_name", label: proseText("Last") }),
 								f({
 									kind: "hidden",
 									id: "full_name",
@@ -1407,7 +1499,7 @@ describe("#form/ hashtag expansion", () => {
 								f({
 									kind: "single_select",
 									id: "consent",
-									label: "Consent?",
+									label: proseText("Consent?"),
 									options: [
 										{ value: "yes", label: "Yes" },
 										{ value: "no", label: "No" },
@@ -1416,7 +1508,7 @@ describe("#form/ hashtag expansion", () => {
 								f({
 									kind: "text",
 									id: "details",
-									label: "Details",
+									label: proseText("Details"),
 									relevant: "#form/consent = 'yes'",
 								}),
 							],
@@ -1444,11 +1536,15 @@ describe("#form/ hashtag expansion", () => {
 							name: "F",
 							type: "survey",
 							fields: [
-								f({ kind: "date", id: "start_date", label: "Start" }),
+								f({
+									kind: "date",
+									id: "start_date",
+									label: proseText("Start"),
+								}),
 								f({
 									kind: "date",
 									id: "end_date",
-									label: "End",
+									label: proseText("End"),
 									validate: ". >= #form/start_date",
 								}),
 							],
@@ -1489,9 +1585,9 @@ describe("#form/ hashtag expansion", () => {
 								f({
 									kind: "int",
 									id: "age",
-									label: "Age",
+									label: proseText("Age"),
 									validate: ". > 0 and . < 150",
-									validate_msg: "Age must be between 1 and 149",
+									validate_msg: proseText("Age must be between 1 and 149"),
 								}),
 							],
 						},
@@ -1551,7 +1647,7 @@ describe("#form/ hashtag expansion", () => {
 									id: "risk",
 									calculate: "if(/data/age > 65, 'high', 'low')",
 									validate: ". != 'unknown'",
-									validate_msg: "Risk must resolve",
+									validate_msg: proseText("Risk must resolve"),
 								},
 							],
 						},
@@ -1583,15 +1679,17 @@ describe("#form/ hashtag expansion", () => {
 								{
 									kind: "label",
 									id: "section_header",
-									label: "Demographics",
-									validate_msg: "should never appear",
+									label: proseText("Demographics"),
+									validate_msg: proseText("should never appear"),
 								},
 								{
 									kind: "group",
 									id: "demographics",
-									label: "Demographics",
-									validate_msg: "should never appear either",
-									children: [f({ kind: "text", id: "name", label: "Name" })],
+									label: proseText("Demographics"),
+									validate_msg: proseText("should never appear either"),
+									children: [
+										f({ kind: "text", id: "name", label: proseText("Name") }),
+									],
 								},
 							],
 						},
@@ -1623,7 +1721,7 @@ describe("#form/ hashtag expansion", () => {
 								f({
 									kind: "single_select",
 									id: "has_issue",
-									label: "Issue?",
+									label: proseText("Issue?"),
 									options: [
 										{ value: "yes", label: "Yes" },
 										{ value: "no", label: "No" },
@@ -1632,7 +1730,7 @@ describe("#form/ hashtag expansion", () => {
 								f({
 									kind: "text",
 									id: "details",
-									label: "Details",
+									label: proseText("Details"),
 									required: "#form/has_issue = 'yes'",
 								}),
 							],
@@ -1652,7 +1750,8 @@ describe("#form/ hashtag expansion", () => {
 		expect(xform).not.toContain("vellum:required=");
 	});
 
-	it("expands #form/ in <output> tags with vellum:value", () => {
+	it("lowers a typed form-field prose ref with vellum:value", () => {
+		const textValueUuid = testUuid("form-ref.text-value");
 		const doc = buildDoc({
 			appName: "FormRef",
 			modules: [
@@ -1666,13 +1765,17 @@ describe("#form/ hashtag expansion", () => {
 								f({
 									kind: "hidden",
 									id: "text_value",
+									uuid: textValueUuid,
 									calculate: "'Text'",
 									default_value: "'Text'",
 								}),
 								f({
 									kind: "label",
 									id: "here",
-									label: 'Here <output value="#form/text_value"/>',
+									label: prose(
+										{ kind: "text", text: "Here " },
+										{ kind: "field-ref", uuid: textValueUuid },
+									),
 								}),
 							],
 						},
@@ -1698,8 +1801,8 @@ describe("#form/ hashtag expansion", () => {
 							name: "F",
 							type: "survey",
 							fields: [
-								f({ kind: "int", id: "score_a", label: "Score A" }),
-								f({ kind: "int", id: "score_b", label: "Score B" }),
+								f({ kind: "int", id: "score_a", label: proseText("Score A") }),
+								f({ kind: "int", id: "score_b", label: proseText("Score B") }),
 								f({
 									kind: "hidden",
 									id: "total",
@@ -1729,8 +1832,8 @@ describe("#form/ hashtag expansion", () => {
 							name: "F",
 							type: "survey",
 							fields: [
-								f({ kind: "text", id: "name", label: "Name" }),
-								f({ kind: "int", id: "age", label: "Age" }),
+								f({ kind: "text", id: "name", label: proseText("Name") }),
+								f({ kind: "int", id: "age", label: proseText("Age") }),
 							],
 						},
 					],
@@ -1757,8 +1860,10 @@ describe("#form/ hashtag expansion", () => {
 								f({
 									kind: "group",
 									id: "grp",
-									label: "Group",
-									children: [f({ kind: "text", id: "inner", label: "Inner" })],
+									label: proseText("Group"),
+									children: [
+										f({ kind: "text", id: "inner", label: proseText("Inner") }),
+									],
 								}),
 							],
 						},
@@ -1815,7 +1920,7 @@ describe("#form/ hashtag expansion", () => {
 								f({
 									kind: "single_select",
 									id: "show",
-									label: "Show?",
+									label: proseText("Show?"),
 									options: [
 										{ value: "yes", label: "Yes" },
 										{ value: "no", label: "No" },
@@ -1824,9 +1929,11 @@ describe("#form/ hashtag expansion", () => {
 								f({
 									kind: "group",
 									id: "details",
-									label: "Details",
+									label: proseText("Details"),
 									relevant: "#form/show = 'yes'",
-									children: [f({ kind: "text", id: "info", label: "Info" })],
+									children: [
+										f({ kind: "text", id: "info", label: proseText("Info") }),
+									],
 								}),
 							],
 						},
@@ -1852,7 +1959,7 @@ describe("#form/ hashtag expansion", () => {
 							name: "F",
 							type: "survey",
 							fields: [
-								f({ kind: "int", id: "a", label: "A" }),
+								f({ kind: "int", id: "a", label: proseText("A") }),
 								f({
 									kind: "hidden",
 									id: "b",
@@ -1958,7 +2065,14 @@ describe("#form/ hashtag expansion", () => {
 								f({
 									kind: "text",
 									id: "code_note",
-									label: "Code: #mother/household_code",
+									label: prose(
+										{ kind: "text", text: "Code: " },
+										{
+											kind: "case-ref",
+											caseType: "mother",
+											property: "household_code",
+										},
+									),
 								}),
 							],
 						},
@@ -2019,12 +2133,12 @@ describe("#form/ hashtag expansion", () => {
 								f({
 									kind: "text",
 									id: "selected_medication",
-									label: "Medication",
+									label: proseText("Medication"),
 								}),
 								f({
 									kind: "label",
 									id: "penicillin_allergy_alert",
-									label: "Allergy alert!",
+									label: proseText("Allergy alert!"),
 									relevant:
 										"#form/selected_medication != '' and contains(lower-case(#patient/allergen), 'penicillin')",
 								}),
@@ -2105,7 +2219,7 @@ describe("#form/ hashtag expansion", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 								f({
@@ -2138,15 +2252,9 @@ describe("#form/ hashtag expansion", () => {
 	});
 
 	it("keeps an unresolvable prose token literal — no <output>, no casedb", () => {
-		// The broad `BARE_HASHTAG_RE` matches innocent prose tokens too: an
-		// unreachable namespace (`#section/intro`), a junk token (`#N/A`), or a
-		// CHILD case type (`#child/name` — a write target, absent from the form's
-		// reachable read set). `expand` returns each verbatim, and prose lowering is
-		// gated on a CHANGED string, so none lower to `<output>` (a verbatim
-		// `<output value="#N/A">` would be broken XPath on device). They stay
-		// literal escaped text, exactly as before the regex was broadened —
-		// authoring-time flagging of a misdirected per-type prose ref is a separate
-		// validator job.
+		// Plain prose has no implicit reference syntax. An unreachable namespace
+		// (`#section/intro`), junk token (`#N/A`), or child case-looking token
+		// remains literal text and never lowers to `<output>` or a casedb read.
 		const doc = buildDoc({
 			appName: "JunkProse",
 			modules: [
@@ -2162,7 +2270,9 @@ describe("#form/ hashtag expansion", () => {
 								f({
 									kind: "text",
 									id: "junk_note",
-									label: "Codes #N/A and #child/name and #section/intro",
+									label: proseText(
+										"Codes #N/A and #child/name and #section/intro",
+									),
 								}),
 							],
 						},
@@ -2206,9 +2316,16 @@ describe("#form/ hashtag expansion", () => {
 								f({
 									kind: "text",
 									id: "code",
-									label: "Code",
+									label: proseText("Code"),
 									validate: "string-length(.) > 0",
-									validate_msg: "Must match #mother/household_code",
+									validate_msg: prose(
+										{ kind: "text", text: "Must match " },
+										{
+											kind: "case-ref",
+											caseType: "mother",
+											property: "household_code",
+										},
+									),
 								}),
 							],
 						},
@@ -2258,7 +2375,7 @@ describe("#form/ hashtag expansion", () => {
 							name: "F",
 							type: "survey",
 							fields: [
-								f({ kind: "int", id: "a", label: "A" }),
+								f({ kind: "int", id: "a", label: proseText("A") }),
 								f({
 									kind: "hidden",
 									id: "b",
@@ -2291,7 +2408,12 @@ describe("conditional required", () => {
 							name: "F",
 							type: "survey",
 							fields: [
-								f({ kind: "text", id: "q", label: "Q", required: "true()" }),
+								f({
+									kind: "text",
+									id: "q",
+									label: proseText("Q"),
+									required: "true()",
+								}),
 							],
 						},
 					],
@@ -2317,7 +2439,7 @@ describe("conditional required", () => {
 								f({
 									kind: "single_select",
 									id: "consent",
-									label: "Consent?",
+									label: proseText("Consent?"),
 									options: [
 										{ value: "yes", label: "Yes" },
 										{ value: "no", label: "No" },
@@ -2326,7 +2448,7 @@ describe("conditional required", () => {
 								f({
 									kind: "text",
 									id: "details",
-									label: "Details",
+									label: proseText("Details"),
 									required: "/data/consent = 'yes'",
 								}),
 							],
@@ -2356,13 +2478,13 @@ describe("conditional required", () => {
 								f({
 									kind: "text",
 									id: "risk",
-									label: "Q",
+									label: proseText("Q"),
 									case_property_on: "c",
 								}),
 								f({
 									kind: "text",
 									id: "notes",
-									label: "Notes",
+									label: proseText("Notes"),
 									required: "#case/risk = 'high'",
 								}),
 							],
@@ -2405,7 +2527,7 @@ describe("case detail (long) view", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "c",
 								}),
 							],
@@ -2470,7 +2592,7 @@ describe("case detail (long) view", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "c",
 								}),
 							],
@@ -2518,7 +2640,13 @@ describe("single language itext", () => {
 						{
 							name: "F",
 							type: "survey",
-							fields: [f({ kind: "text", id: "name", label: "Patient Name" })],
+							fields: [
+								f({
+									kind: "text",
+									id: "name",
+									label: proseText("Patient Name"),
+								}),
+							],
 						},
 					],
 				},
@@ -2549,7 +2677,7 @@ describe("jr-insert for repeat defaults", () => {
 								f({
 									kind: "repeat",
 									id: "items",
-									label: "Items",
+									label: proseText("Items"),
 									children: [
 										f({
 											kind: "hidden",
@@ -2622,9 +2750,13 @@ describe("jr-insert for repeat defaults", () => {
 								f({
 									kind: "repeat",
 									id: "items",
-									label: "Items",
+									label: proseText("Items"),
 									children: [
-										f({ kind: "text", id: "item_name", label: "Item" }),
+										f({
+											kind: "text",
+											id: "item_name",
+											label: proseText("Item"),
+										}),
 									],
 								}),
 							],
@@ -2657,13 +2789,13 @@ describe("expansion with complete fields", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Patient Name",
+									label: proseText("Patient Name"),
 									case_property_on: "patient",
 								}),
 								f({
 									kind: "int",
 									id: "age",
-									label: "Age",
+									label: proseText("Age"),
 									case_property_on: "patient",
 								}),
 							],
@@ -2699,7 +2831,7 @@ describe("expansion with complete fields", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Patient Name",
+									label: proseText("Patient Name"),
 									case_property_on: "patient",
 								}),
 							],
@@ -2747,7 +2879,7 @@ describe("unquoted string literal detection", () => {
 								{
 									kind: "text",
 									id: "q",
-									label: "Q",
+									label: proseText("Q"),
 									...overrides,
 								} as unknown as Parameters<typeof f>[0],
 							],
@@ -2883,7 +3015,7 @@ describe("unquoted string literal detection", () => {
 								f({
 									kind: "group",
 									id: "grp",
-									label: "Group",
+									label: proseText("Group"),
 									children: [
 										f({
 											kind: "hidden",
@@ -2935,13 +3067,13 @@ describe("child case type module requirement", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Plan Name",
+									label: proseText("Plan Name"),
 									case_property_on: "plan",
 								}),
 								f({
 									kind: "text",
 									id: "service_note",
-									label: "Service note",
+									label: proseText("Service note"),
 									case_property_on: "service",
 								}),
 							],
@@ -2985,7 +3117,7 @@ describe("child case type module requirement", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Plan Name",
+									label: proseText("Plan Name"),
 									case_property_on: "plan",
 								}),
 							],
@@ -3046,7 +3178,7 @@ describe("case_list_only validation", () => {
 						{
 							name: "F",
 							type: "followup",
-							fields: [f({ kind: "text", id: "q", label: "Q" })],
+							fields: [f({ kind: "text", id: "q", label: proseText("Q") })],
 						},
 					],
 				},
@@ -3111,7 +3243,7 @@ describe("case_list_only expansion", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Plan Name",
+									label: proseText("Plan Name"),
 									case_property_on: "plan",
 								}),
 							],
@@ -3186,7 +3318,7 @@ describe("case_list_only expansion", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Plan Name",
+									label: proseText("Plan Name"),
 									case_property_on: "plan",
 								}),
 							],
@@ -3285,7 +3417,7 @@ describe("empty container expansion", () => {
 								f({
 									kind: "group",
 									id: "demographics",
-									label: "Demographics",
+									label: proseText("Demographics"),
 									children: [],
 								}),
 							],
@@ -3330,22 +3462,22 @@ describe("nested container expansion", () => {
 								f({
 									kind: "repeat",
 									id: "visits",
-									label: "Visits",
+									label: proseText("Visits"),
 									children: [
 										f({
 											kind: "group",
 											id: "vitals",
-											label: "Vitals",
+											label: proseText("Vitals"),
 											children: [
 												f({
 													kind: "int",
 													id: "temperature",
-													label: "Temperature",
+													label: proseText("Temperature"),
 												}),
 												f({
 													kind: "int",
 													id: "heart_rate",
-													label: "Heart Rate",
+													label: proseText("Heart Rate"),
 												}),
 											],
 										}),
@@ -3405,7 +3537,9 @@ describe("Connect learn-only expansion", () => {
 								time_estimate: 30,
 							},
 						},
-						fields: [f({ kind: "text", id: "feedback", label: "Feedback" })],
+						fields: [
+							f({ kind: "text", id: "feedback", label: proseText("Feedback") }),
+						],
 					},
 				],
 			},
@@ -3474,7 +3608,9 @@ describe("Connect deliver_unit entity defaults", () => {
 								// wire-time fallback.
 							},
 						},
-						fields: [f({ kind: "text", id: "vendor", label: "Vendor" })],
+						fields: [
+							f({ kind: "text", id: "vendor", label: proseText("Vendor") }),
+						],
 					},
 				],
 			},
@@ -3527,7 +3663,9 @@ describe("Connect deliver_unit entity defaults", () => {
 									entity_name: xp("'manual override'"),
 								},
 							},
-							fields: [f({ kind: "text", id: "vendor", label: "Vendor" })],
+							fields: [
+								f({ kind: "text", id: "vendor", label: proseText("Vendor") }),
+							],
 						},
 					],
 				},
@@ -3576,7 +3714,7 @@ describe("case-property rename cascade — pipeline regression", () => {
 							name: "F",
 							type: "survey",
 							fields: [
-								f({ kind: "int", id: "patient_age", label: "Age" }),
+								f({ kind: "int", id: "patient_age", label: proseText("Age") }),
 								f({
 									kind: "hidden",
 									id: "risk_label",
@@ -3644,7 +3782,7 @@ describe("form_links emission", () => {
 								f({
 									kind: "single_select",
 									id: "outcome",
-									label: "Outcome",
+									label: proseText("Outcome"),
 									options: [
 										{ value: "yes", label: "Yes" },
 										{ value: "no", label: "No" },
@@ -3656,7 +3794,9 @@ describe("form_links emission", () => {
 							uuid: followupUuid,
 							name: "Followup",
 							type: "survey",
-							fields: [f({ kind: "text", id: "notes", label: "Notes" })],
+							fields: [
+								f({ kind: "text", id: "notes", label: proseText("Notes") }),
+							],
 						},
 					],
 				},
@@ -3702,7 +3842,7 @@ describe("form_links emission", () => {
 									target: { type: "module", moduleUuid: testUuid(modB) },
 								},
 							],
-							fields: [f({ kind: "text", id: "x", label: "X" })],
+							fields: [f({ kind: "text", id: "x", label: proseText("X") })],
 						},
 					],
 				},
@@ -3713,7 +3853,7 @@ describe("form_links emission", () => {
 						{
 							name: "FB",
 							type: "survey",
-							fields: [f({ kind: "text", id: "y", label: "Y" })],
+							fields: [f({ kind: "text", id: "y", label: proseText("Y") })],
 						},
 					],
 				},
@@ -3754,13 +3894,21 @@ describe("form_links emission", () => {
 									datums: [{ name: "case_id", xpath: "/data/patient_id" }],
 								},
 							],
-							fields: [f({ kind: "text", id: "severity", label: "Severity" })],
+							fields: [
+								f({
+									kind: "text",
+									id: "severity",
+									label: proseText("Severity"),
+								}),
+							],
 						},
 						{
 							uuid: triageUuid,
 							name: "Triage",
 							type: "survey",
-							fields: [f({ kind: "text", id: "notes", label: "Notes" })],
+							fields: [
+								f({ kind: "text", id: "notes", label: proseText("Notes") }),
+							],
 						},
 					],
 				},
@@ -3787,7 +3935,7 @@ describe("form_links emission", () => {
 						{
 							name: "F",
 							type: "survey",
-							fields: [f({ kind: "text", id: "x", label: "X" })],
+							fields: [f({ kind: "text", id: "x", label: proseText("X") })],
 						},
 					],
 				},
@@ -3831,7 +3979,9 @@ describe("form_links emission", () => {
 									},
 								},
 							],
-							fields: [f({ kind: "text", id: "notes", label: "Notes" })],
+							fields: [
+								f({ kind: "text", id: "notes", label: proseText("Notes") }),
+							],
 						},
 					],
 				},
@@ -3871,7 +4021,7 @@ describe("Connect mode gate", () => {
 									time_estimate: 10,
 								},
 							},
-							fields: [f({ kind: "text", id: "q1", label: "Q1" })],
+							fields: [f({ kind: "text", id: "q1", label: proseText("Q1") })],
 						},
 					],
 				},
@@ -3961,7 +4111,7 @@ function buildHqProjectionDoc(
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Name",
+								label: proseText("Name"),
 								case_property_on: "patient",
 							}),
 						],
@@ -5001,7 +5151,7 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 							],

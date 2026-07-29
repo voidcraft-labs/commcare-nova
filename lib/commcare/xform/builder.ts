@@ -85,9 +85,8 @@ import {
 	type FieldKind,
 	isCaptureFieldKind,
 	type Media,
-	printProseTemplate,
 	type ProseTemplate,
-	type SelectOption,
+	printProseTemplate,
 	type Uuid,
 	userPropertySlugsByUuid,
 } from "@/lib/domain";
@@ -95,57 +94,33 @@ import type { LookupOptionsSource } from "@/lib/domain/lookupCarriers";
 import { isMatchAll, simplifyForEmission } from "@/lib/domain/predicate";
 
 /**
- * Bare-hashtag matcher for label / hint prose. The pattern is shared with the
- * deep validator (`BARE_HASHTAG_PATTERN`) so emission and validation can't
- * drift on what counts as a prose hashtag; this module owns its own global
- * instance (the pattern is exported without `/g` to avoid shared `lastIndex`
- * state). Lowering is resolution-gated: a match becomes an `<output>` only when
- * `expand` actually resolves it, so an innocent prose token (`#N/A`) or an
- * unreachable namespace folds back into literal text rather than shipping a
- * broken reference.
- */
-/**
- * Build the ordered itext-value node list for one label / hint string, letting
+ * Build the ordered itext-value node list for one typed prose template, letting
  * `dom-serializer` (at final assembly) own ALL escaping.
  *
- * A label is natural-language PROSE that may embed Nova hashtag references
- * (`#case/name`, `#form/x`, `#user/y`). It is NOT markup. The earlier
- * approach parsed the whole label as XML to find the markup Nova itself had
- * just stitched in — and that whole-label parse is exactly what read an
- * author run like `(<2kg` as a bogus tag (leaking an invalid bare `<` that
- * CommCare HQ hard-rejects) and `<country><number>` as nested elements
- * (silent itext corruption). Issues #3 and #15.
+ * A label is natural-language prose whose references are explicit typed atoms,
+ * not hashtag-looking substrings and not markup.
  *
  * Instead we CONSTRUCT a DOM directly and never parse the label as markup:
  *
- *   - Prose runs (everything between hashtag matches) become a `Text` node
+ *   - Prose runs become a `Text` node
  *     whose data is `decodeXML(run)`. Decoding normalizes any pre-escaped
  *     entity the author may have typed (the historical `&lt;` workaround → `<`)
  *     so the serializer re-escapes it exactly once — `&lt;`, never the
  *     double-escaped `&amp;lt;` that would show a literal `&lt;` on device.
- *   - Each hashtag match becomes a constructed self-closing `<output>`
+ *   - Each typed reference atom becomes a constructed self-closing `<output>`
  *     element: `value` holds the expanded instance XPath, and the parallel
  *     `vellum:value` holds the original shorthand — but only when expansion
  *     changed the string (a non-expanding ref needs no round-trip shadow).
- *     This is the ONLY source of `<output>` elements: hashtags in prose are
- *     an SA-authoring concept Nova lowers to `<output>` here.
+ *     This is the only source of `<output>` elements in prose.
  *
- * Author-written `<output ...>` markup is deliberately NOT recognized — it
- * is not a supported authoring input (the SA and field editor emit
- * hashtags, never raw markup). A label that literally contains `<output>`
- * text is just prose, so it serializes as escaped literal text like any
- * other `<`.
+ * Author-written `<output ...>` markup or hashtag-looking literal text is
+ * deliberately not recognized. Both serialize as ordinary escaped text.
  *
  * Returns a fresh node array on every call: the dual `<value>` + `<value
  * form="markdown">` itext duplicate needs INDEPENDENT node instances under the
  * two `<value>` parents (a domhandler node has a single parent pointer, so
  * sharing instances would re-parent and corrupt the first `<value>`), and
  * calling this builder once per `<value>` is how the caller gets them.
- *
- * The `BARE_HASHTAG_RE` regex (not the Lezer XPath parser) locates hashtag
- * spans because labels are prose: surrounding markdown like `**` (bold) around
- * a `#` ref parses as XPath operators under the grammar and would swallow the
- * `#`, so the structural XPath parser is the wrong tool for prose scanning here.
  */
 function buildLabelNodes(
 	template: ProseTemplate,
@@ -715,21 +690,23 @@ export function buildXForm(
 }
 
 /**
- * Read a field's `options` array regardless of which kind declares it.
- * Same rationale as `readFieldString` (lib/commcare/fieldProps.ts):
- * `options` appears only on select variants, so the accessor returns
- * `undefined` for kinds that don't carry it.
+ * Read the inline arm of a select field's final options-source union.
+ * Lookup-backed selects emit an itemset and therefore have no inline choices.
  */
 function readOptions(
 	field: Field,
 ): Array<{ value: string; label: ProseTemplate; media?: Media }> | undefined {
-	const value = (field as unknown as Record<string, unknown>).options;
-	if (!Array.isArray(value)) return undefined;
+	if (
+		(field.kind !== "single_select" && field.kind !== "multi_select") ||
+		field.optionsSource.kind !== "inline"
+	) {
+		return undefined;
+	}
 	// Return options in DISPLAY (`sort-by-(order, uuid)`) order. Sorting HERE,
 	// at the one accessor, keeps the per-option index keys consistent between
 	// the itext-registration pass and the `<item>`-emission pass — sorting only
 	// one would dangle a `<label ref>`. `order` never reaches the wire.
-	return [...(value as SelectOption[])];
+	return [...field.optionsSource.options];
 }
 
 /**
@@ -1036,9 +1013,7 @@ function buildFieldParts(
 	// layer; an index key makes the id unique by construction. The `<item>`
 	// emission below uses the identical scheme so no `<label ref>` dangles.
 	// A lookup-backed select emits one <itemset> instead of inline <item>s,
-	// so its authored inline fallback registers no option itext (an entry
-	// with no referencing <item> would be dead weight; the fallback stays
-	// authored-only until an older receiver renders it).
+	// so it has no option itext entries.
 	const options = lookupSource !== undefined ? undefined : readOptions(field);
 	if (options && options.length > 0) {
 		options.forEach((opt, index) => {
@@ -1232,8 +1207,8 @@ function buildLeafControl(
 	if (field.kind === "single_select" || field.kind === "multi_select") {
 		const tag = field.kind === "single_select" ? "select1" : "select";
 		// A lookup-backed select carries exactly one <itemset> and zero inline
-		// <item>s (JavaRosa rejects a select mixing both); its inline fallback
-		// options stay authored-only. Otherwise each `<item>`'s `<label ref>`
+		// <item>s (JavaRosa rejects a select mixing both). Otherwise each
+		// `<item>`'s `<label ref>`
 		// references the same per-INDEX itext id registered by the caller
 		// (`-opt${index}-label`), so duplicate option values never collide. The
 		// `<value>` emits `opt.value` verbatim — the serializer escapes it;

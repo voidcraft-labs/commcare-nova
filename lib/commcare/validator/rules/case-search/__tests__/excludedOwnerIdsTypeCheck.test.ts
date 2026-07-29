@@ -1,6 +1,6 @@
-import { proseText } from "@/lib/domain/prose";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { proseText } from "@/lib/domain/prose";
 /**
  * Contract tests for the assigned-case exclusion expression.
  *
@@ -69,7 +69,7 @@ function docWithExpression(
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Name",
+								label: proseText("Name"),
 								case_property_on: "patient",
 							}),
 						],
@@ -160,10 +160,10 @@ describe("excludedOwnerIdsTypeCheck", () => {
 			term(literal("owner-a owner-b")),
 			term(sessionContext("userid")),
 			term(sessionUser("assigned_owner_ids")),
-			term(input("owner_ids")),
+			term(input(searchInput.uuid)),
 			ifExpr(
 				eq(term(sessionContext("userid")), literal("worker-a")),
-				concat(term(input("owner_ids")), term(literal(" owner-a"))),
+				concat(term(input(searchInput.uuid)), term(literal(" owner-a"))),
 				term(literal("")),
 			),
 		];

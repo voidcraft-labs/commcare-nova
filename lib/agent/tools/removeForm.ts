@@ -6,7 +6,7 @@
  * shared `ToolExecutionContext` interface. The reducer cascades
  * deletion to the form's fields — the full subtree is dropped atomically.
  *
- * The tool tolerates a missing form index: instead of returning an
+ * The tool tolerates an already-missing form UUID: instead of returning an
  * error (which would poison the SA's follow-up logic), it returns a
  * clear "does not exist, no change" success message. The SA sees the
  * target-already-gone state explicitly and keeps moving rather than
@@ -15,12 +15,12 @@
  *
  * Two exit branches:
  *
- *   - Missing index → no mutations, "does not exist, no change" message.
+ *   - Missing UUID → no mutations, "does not exist, no change" message.
  *   - Success → human-readable "Successfully removed" summary tagged
  *     `form:M-F`.
  */
 
-import { z } from "zod";
+import type { z } from "zod";
 import { orderedFormUuids } from "@/lib/doc/fieldWalk";
 import type { Mutation } from "@/lib/doc/types";
 import { asUuid, type BlueprintDoc } from "@/lib/domain";
@@ -31,14 +31,14 @@ import {
 	type MutatingToolResult,
 	toToolErrorResult,
 } from "./common";
-import type {
-	MutationSuccess,
-	ToolCallSummary,
-} from "./shared/toolCallSummary";
 import {
 	formAddressSchema,
 	resolveFormAddress,
 } from "./shared/entityAddresses";
+import type {
+	MutationSuccess,
+	ToolCallSummary,
+} from "./shared/toolCallSummary";
 
 export const removeFormInputSchema = formAddressSchema;
 
@@ -59,7 +59,7 @@ export const removeFormTool = {
 		try {
 			const address = resolveFormAddress(doc, input);
 
-			// Missing index → return a clear "no change" summary. A
+			// Missing UUID → return a clear "no change" summary. A
 			// "Successfully removed" string on a missing target would
 			// poison the SA's follow-up reasoning — it would assume the
 			// form was just deleted and e.g. skip a subsequent recreate

@@ -225,7 +225,7 @@ export async function loadCasesAction(args: {
 	inputValues?: SearchInputValuesWire;
 	excludedOwnerIdsExpression?: ValueExpression;
 	caseTypes?: readonly CaseType[];
-	/** Bounded Results window. Omitted by raw-row/legacy callers. */
+	/** Bounded Results window. Omitted by the current unpaged form-selection caller. */
 	page?: { offset: number; limit: number };
 	/**
 	 * The viewer's IANA timezone — drives `format-date` rendering in
@@ -402,10 +402,8 @@ export async function loadCasesAction(args: {
 			lookupTableSchemas,
 			excludedOwnerIds,
 			authoredExcludedOwnerIds,
-			// Omitted is the pre-pagination action shape. Keep it unpaged so an
-			// already-open old client (which has no pager) does not silently lose
-			// every row after 50 during a rolling deploy. Explicit new-client page
-			// bags are still normalized and capped inside `readCases`.
+			// The running Results surface passes a bounded window. The form-selection
+			// caller deliberately omits it because it needs the complete candidate set.
 			page: args.page,
 		});
 	} catch (err) {

@@ -5,7 +5,6 @@
 // helpers must reproduce the walker's emitted paths exactly so the
 // validity index lookups land on the right cards.
 
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import type { CaseType } from "@/lib/domain";
 import {
@@ -25,6 +24,7 @@ import {
 	term,
 	today,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import {
 	appendKind,
 	appendKindIndex,

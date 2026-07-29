@@ -15,7 +15,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { testMediaAssetId } from "@/__tests__/helpers/uuid";
+import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { applyOverWire } from "@/lib/doc/__tests__/wireRoundTrip";
 import { getFormTool } from "../../getForm";
 import { getModuleTool } from "../../getModule";
@@ -40,6 +40,8 @@ import {
 
 const ASSET_PENDING = testMediaAssetId("asset-pending");
 const ASSET_NOPE = testMediaAssetId("asset-nope");
+const UNKNOWN_MODULE = testUuid("88888888-8888-4888-8888-888888888888");
+const UNKNOWN_FORM = testUuid("99999999-9999-4999-8999-999999999999");
 
 type ModuleMenuItem = Extract<
 	SetMenuMediaInput["items"][number],
@@ -69,20 +71,25 @@ beforeEach(() => {
 	resetTestAssets();
 });
 
-/** A module-tile item with the fixture's module 0 as the target. */
+/** A module-tile item with the fixture module as the target. */
 const moduleItem = (
 	icon: ModuleMenuItem["icon"],
 	audioLabel: ModuleMenuItem["audioLabel"],
-): ModuleMenuItem => ({ target: "module", moduleIndex: 0, icon, audioLabel });
+): ModuleMenuItem => ({
+	target: "module",
+	moduleUuid: MOD_A,
+	icon,
+	audioLabel,
+});
 
-/** A form-tile item with the fixture's m0-f0 as the target. */
+/** A form-tile item with the fixture form as the target. */
 const formItem = (
 	icon: FormMenuItem["icon"],
 	audioLabel: FormMenuItem["audioLabel"],
 ): FormMenuItem => ({
 	target: "form",
-	moduleIndex: 0,
-	formIndex: 0,
+	moduleUuid: MOD_A,
+	formUuid: FORM_A,
 	icon,
 	audioLabel,
 });
@@ -183,7 +190,7 @@ describe("setMenuMedia", () => {
 					moduleItem("household", null),
 					{
 						target: "module",
-						moduleIndex: 99,
+						moduleUuid: UNKNOWN_MODULE,
 						icon: "patient",
 						audioLabel: null,
 					},
@@ -196,7 +203,7 @@ describe("setMenuMedia", () => {
 		expect(result.newDoc.modules[MOD_A]?.icon).toBeUndefined();
 		const error = errorOf(result);
 		expect(error).toContain("items[1]");
-		expect(error).toContain("no module at index 99");
+		expect(error).toContain(UNKNOWN_MODULE);
 	});
 
 	it("returns an Elm-style error when a form target is out of range", async () => {
@@ -206,8 +213,8 @@ describe("setMenuMedia", () => {
 				items: [
 					{
 						target: "form",
-						moduleIndex: 0,
-						formIndex: 9,
+						moduleUuid: MOD_A,
+						formUuid: UNKNOWN_FORM,
 						icon: ASSET_ICON,
 						audioLabel: null,
 					},
@@ -217,7 +224,7 @@ describe("setMenuMedia", () => {
 			doc,
 		);
 		expect(result.mutations).toEqual([]);
-		expect(errorOf(result)).toContain("m0-f9");
+		expect(errorOf(result)).toContain(UNKNOWN_FORM);
 	});
 
 	it("emits the same mutation batch through chat + MCP contexts", async () => {
@@ -337,7 +344,7 @@ describe("menu-media built-in icons", () => {
 				items: [
 					{
 						target: "module",
-						moduleIndex: 0,
+						moduleUuid: MOD_A,
 						icon: "nova-icon:household",
 						audioLabel: ASSET_AUDIO,
 					},
@@ -352,7 +359,7 @@ describe("menu-media built-in icons", () => {
 				items: [
 					{
 						target: "module",
-						moduleIndex: 0,
+						moduleUuid: MOD_A,
 						icon: "nova-icon:not-a-real-slug",
 						audioLabel: null,
 					},
@@ -376,7 +383,7 @@ describe("getModule menu-media projection (the read side of the single-slot cont
 			baseDoc,
 		);
 		const read = await getModuleTool.execute(
-			{ moduleIndex: 0 },
+			{ moduleUuid: MOD_A },
 			ctx,
 			seeded.newDoc,
 		);
@@ -395,7 +402,7 @@ describe("getModule menu-media projection (the read side of the single-slot cont
 			baseDoc,
 		);
 		const read = await getFormTool.execute(
-			{ moduleIndex: 0, formIndex: 0 },
+			{ moduleUuid: MOD_A, formUuid: FORM_A },
 			ctx,
 			seeded.newDoc,
 		);

@@ -13,7 +13,6 @@
  * exercised purely as a state machine, which is exactly what this file does.
  */
 
-import { proseText } from "@/lib/domain/prose";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import {
@@ -30,7 +29,9 @@ import {
 	createBlueprintDocStore,
 	isDocDataKey,
 } from "@/lib/doc/store";
-import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
+import type { BlueprintDoc, Mutation, Uuid } from "@/lib/doc/types";
+import { fallbackProseProjection } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 
 import {
 	type BuilderSessionStoreApi,
@@ -63,14 +64,14 @@ function makeDoc(appName = "App"): BlueprintDoc {
 				uuid: F_A,
 				id: "a",
 				kind: "text",
-				label: "A",
+				label: proseText("A"),
 				formUuid: FORM,
 			},
 			[F_B]: {
 				uuid: F_B,
 				id: "b",
 				kind: "text",
-				label: "B",
+				label: proseText("B"),
 				formUuid: FORM,
 			},
 		},
@@ -79,6 +80,14 @@ function makeDoc(appName = "App"): BlueprintDoc {
 		fieldOrder: { [FORM]: [F_A, F_B] },
 		fieldParent: { [F_A]: null, [F_B]: null },
 	} as unknown as BlueprintDoc;
+}
+
+function fieldLabel(doc: BlueprintDoc, uuid: Uuid): string | undefined {
+	const field = doc.fields[uuid];
+	if (!field || !("label" in field) || field.label === undefined) {
+		return undefined;
+	}
+	return fallbackProseProjection(field.label);
 }
 
 /** A frame carrying an autosave-kind (no runId) batch from `actorId`. */
@@ -495,15 +504,13 @@ describe("reconciler", () => {
 			const snap = h.reconciler.getSnapshot();
 			// confirmed advanced with the peer's change.
 			expect(snap.baseSeq).toBe(4);
-			expect((snap.confirmedDoc.fields[F_B] as { label: string }).label).toBe(
-				"B2",
-			);
+			expect(fieldLabel(snap.confirmedDoc, F_B)).toBe("B2");
 			// The human edit to A is still pending (not yet echoed).
 			expect(snap.sentPending).toHaveLength(1);
 			// Displayed shows BOTH — the merge.
 			const displayed = h.docStore.getState();
-			expect((displayed.fields[F_A] as { label: string }).label).toBe("A2");
-			expect((displayed.fields[F_B] as { label: string }).label).toBe("B2");
+			expect(fieldLabel(displayed, F_A)).toBe("A2");
+			expect(fieldLabel(displayed, F_B)).toBe("B2");
 			expect(batchId).toBeDefined();
 		});
 
@@ -540,8 +547,8 @@ describe("reconciler", () => {
 			// Undo the local A edit. The restored state must still carry B-peer.
 			h.docStore.getState().undo();
 			const afterUndo = h.docStore.getState();
-			expect((afterUndo.fields[F_A] as { label: string }).label).toBe("A");
-			expect((afterUndo.fields[F_B] as { label: string }).label).toBe("B-peer");
+			expect(fieldLabel(afterUndo, F_A)).toBe("A");
+			expect(fieldLabel(afterUndo, F_B)).toBe("B-peer");
 		});
 	});
 
@@ -640,16 +647,14 @@ describe("reconciler", () => {
 					},
 				],
 			});
-			expect(
-				(h.docStore.getState().fields[F_B] as { label: string }).label,
-			).toBe("B-mcp");
+			expect(fieldLabel(h.docStore.getState(), F_B)).toBe("B-mcp");
 			// Undo the local A edit — the restored state must still carry the MCP
 			// change (an echo-classification would have skipped the rebase, and
 			// this undo would silently revert the committed MCP edit).
 			h.docStore.getState().undo();
 			const afterUndo = h.docStore.getState();
-			expect((afterUndo.fields[F_A] as { label: string }).label).toBe("A");
-			expect((afterUndo.fields[F_B] as { label: string }).label).toBe("B-mcp");
+			expect(fieldLabel(afterUndo, F_A)).toBe("A");
+			expect(fieldLabel(afterUndo, F_B)).toBe("B-mcp");
 		});
 	});
 
@@ -1051,8 +1056,8 @@ describe("reconciler", () => {
 			expect(snap.sentPending[0].ackedSeq).toBe(8);
 			// Displayed carries the reloaded A6 AND the still-pending B8.
 			const displayed = h.docStore.getState();
-			expect((displayed.fields[F_A] as { label: string }).label).toBe("A6");
-			expect((displayed.fields[F_B] as { label: string }).label).toBe("B8");
+			expect(fieldLabel(displayed, F_A)).toBe("A6");
+			expect(fieldLabel(displayed, F_B)).toBe("B8");
 		});
 
 		it("defers a reload until no PUT is in flight", async () => {
@@ -1781,7 +1786,7 @@ describe("reconciler", () => {
 			await h.resolvePut(idx, { ok: true, seq: 2 });
 
 			const displayed = h.docStore.getState();
-			expect((displayed.fields[F_A] as { label: string }).label).toBe("Peer");
+			expect(fieldLabel(displayed, F_A)).toBe("Peer");
 			// The batch is gone — nothing left to re-PUT the stale "Mine".
 			expect(h.reconciler.getSnapshot().sentPending).toHaveLength(0);
 		});
@@ -2195,8 +2200,8 @@ describe("reconciler", () => {
 			assertInvariant(h);
 			// End state: both edits present, no pending.
 			const displayed = h.docStore.getState();
-			expect((displayed.fields[F_A] as { label: string }).label).toBe("LA");
-			expect((displayed.fields[F_B] as { label: string }).label).toBe("PB");
+			expect(fieldLabel(displayed, F_A)).toBe("LA");
+			expect(fieldLabel(displayed, F_B)).toBe("PB");
 			expect(h.reconciler.getSnapshot().sentPending).toHaveLength(0);
 		});
 
@@ -2243,8 +2248,8 @@ describe("reconciler", () => {
 			);
 			assertInvariant(h);
 			const displayed = h.docStore.getState();
-			expect((displayed.fields[F_A] as { label: string }).label).toBe("LA");
-			expect((displayed.fields[F_B] as { label: string }).label).toBe("PB");
+			expect(fieldLabel(displayed, F_A)).toBe("LA");
+			expect(fieldLabel(displayed, F_B)).toBe("PB");
 		});
 	});
 });

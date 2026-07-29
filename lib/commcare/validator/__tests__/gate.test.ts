@@ -1,4 +1,3 @@
-import { proseText } from "@/lib/domain/prose";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { produce } from "immer";
@@ -8,6 +7,7 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, Field, Uuid } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import { buildDoc, caseListConfig, f, xp } from "../../../__tests__/docHelpers";
 import { MEDIA_VALIDATION_CODES, type ValidationError } from "../errors";
 import {
@@ -43,7 +43,7 @@ function minDoc(): BlueprintDoc {
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Name",
+								label: proseText("Name"),
 								case_property_on: "patient",
 							}),
 							// A second case-writing field, for a realistic registration
@@ -51,7 +51,7 @@ function minDoc(): BlueprintDoc {
 							f({
 								kind: "text",
 								id: "village",
-								label: "Village",
+								label: proseText("Village"),
 								case_property_on: "patient",
 							}),
 						],
@@ -91,7 +91,7 @@ function textField(
 		uuid: testUuid(uuid),
 		kind: "text",
 		id,
-		label: id,
+		label: proseText(id),
 		...extra,
 	} as Field;
 }
@@ -218,8 +218,8 @@ describe("classification table", () => {
 		expect(byClass.get("environment")).toHaveLength(9);
 		expect(byClass.get("oracle")).toHaveLength(98);
 		expect(byClass.get("shape")).toHaveLength(6);
-		expect(byClass.get("soundness")).toHaveLength(133);
-		expect(Object.keys(VALIDITY_CLASS_BY_CODE)).toHaveLength(256);
+		expect(byClass.get("soundness")).toHaveLength(134);
+		expect(Object.keys(VALIDITY_CLASS_BY_CODE)).toHaveLength(257);
 	});
 
 	it("keeps the structural image-map rule out of the environment class", () => {
@@ -629,7 +629,7 @@ describe("evaluateCommit", () => {
 								f({
 									kind: "int",
 									id: "age",
-									label: "Age",
+									label: proseText("Age"),
 									case_property_on: "patient",
 								}),
 							],
@@ -650,10 +650,10 @@ describe("evaluateCommit", () => {
 								f({
 									kind: "int",
 									id: "age",
-									label: "Age",
+									label: proseText("Age"),
 									case_property_on: "patient",
 								}),
-								f({ kind: "int", id: "weight", label: "Weight" }),
+								f({ kind: "int", id: "weight", label: proseText("Weight") }),
 							],
 						},
 					],
@@ -706,7 +706,7 @@ describe("evaluateCommit", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 							],
@@ -738,7 +738,9 @@ describe("evaluateCommit", () => {
 						{
 							name: "Visit",
 							type: "followup",
-							fields: [f({ kind: "text", id: "note", label: "Note" })],
+							fields: [
+								f({ kind: "text", id: "note", label: proseText("Note") }),
+							],
 						},
 					],
 				},
@@ -768,7 +770,7 @@ describe("evaluateCommit", () => {
 					uuid: testUuid("fld-age-new"),
 					kind: "date",
 					id: "age",
-					label: "Age",
+					label: proseText("Age"),
 					case_property_on: "patient",
 				} as Field,
 			},
@@ -807,7 +809,7 @@ describe("evaluateCommit", () => {
 								f({
 									kind: "int",
 									id: "score",
-									label: "Score",
+									label: proseText("Score"),
 									case_property_on: "patient",
 								}),
 							],
@@ -828,7 +830,7 @@ describe("evaluateCommit", () => {
 								f({
 									kind: "int",
 									id: "score",
-									label: "Score",
+									label: proseText("Score"),
 									case_property_on: "patient",
 								}),
 							],

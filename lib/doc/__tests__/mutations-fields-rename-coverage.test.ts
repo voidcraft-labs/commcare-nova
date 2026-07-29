@@ -2,17 +2,11 @@
  * Rename/move rewriter coverage over the reference-slot registry
  * (`lib/domain/referenceSlots.ts`).
  *
- * Stage-0 Task 3: the rename cascade (form-local pass + case-property
- * cascade) and `moveField`'s rewrite passes must cover every applicable
- * registry slot. The first two describe blocks reproduce the two live
- * bugs that motivated the closure — `required` excluded from the old
- * hand-rolled XPath list under a stale comment, and the
- * `help` / `validate_msg` / option-label prose surfaces that the
- * validator declared as hashtag carriers but the cascade never
- * rewrote. The rest pin every newly covered slot: create a reference,
- * rename the referent, assert the reference follows — plus the
- * negative shapes (cousins sharing a leaf id, non-matching case
- * types, relation walks without an explicit destination).
+ * The registry must cover every applicable reference carrier. The first two
+ * describe blocks preserve regressions that once came from hand-written slot
+ * lists. Every field reference now stores identity, so rename/move changes only
+ * its friendly projection; structural `(caseType, property)` references still
+ * use their dedicated semantic cascade.
  */
 
 import { produce } from "immer";
@@ -30,7 +24,10 @@ import type { Field, Form, Module } from "@/lib/domain";
 import {
 	expressionSource,
 	formExpressionSource,
+	type ProseTemplate,
+	printProseTemplate,
 	printXPath,
+	proseText,
 	xpathPrintContext,
 } from "@/lib/domain";
 import {
@@ -56,7 +53,7 @@ function field_(
 	patch: Record<string, unknown> & { kind?: Field["kind"] } = {},
 ): Field {
 	const { kind = "text", ...rest } = patch;
-	return { uuid, id, kind, label: id, ...rest } as unknown as Field;
+	return { uuid, id, kind, label: proseText(id), ...rest } as unknown as Field;
 }
 
 type AnyField =
@@ -64,21 +61,38 @@ type AnyField =
 			uuid: Uuid;
 			id: string;
 			kind: string;
-			label?: string;
-			hint?: string;
-			help?: string;
+			label?: ProseTemplate;
+			hint?: ProseTemplate;
+			help?: ProseTemplate;
 			relevant?: string;
 			required?: string;
 			validate?: string;
-			validate_msg?: string;
+			validate_msg?: ProseTemplate;
 			calculate?: string;
 			repeat_count?: string;
 			data_source?: { ids_query: string };
-			options?: Array<{ value: string; label: string }>;
+			optionsSource?: {
+				kind: "inline";
+				options: Array<{
+					uuid: Uuid;
+					value: string;
+					label: ProseTemplate;
+				}>;
+			};
 	  }
 	| undefined;
 
 const asField = (f: Field | undefined): AnyField => f as AnyField;
+
+function proseFieldRef(uuid: Uuid, prefix = "", suffix = ""): ProseTemplate {
+	return {
+		parts: [
+			...(prefix.length > 0 ? [{ kind: "text" as const, text: prefix }] : []),
+			{ kind: "field-ref", uuid },
+			...(suffix.length > 0 ? [{ kind: "text" as const, text: suffix }] : []),
+		],
+	};
+}
 
 /** Printed text of an AST-stored expression slot. */
 function printedSlot(
@@ -194,65 +208,85 @@ describe("renameField rewrites `required` expressions (live bug)", () => {
 
 // ── Live bug 2: help / validate_msg / option-label prose ──────────
 
-describe("renameField rewrites help/validate_msg/option-label prose (live bug)", () => {
-	it("rewrites hashtag refs embedded in help text", () => {
+describe("renameField preserves identity-backed help/validate_msg/option-label prose", () => {
+	it("projects a help reference through the field's current name", () => {
 		const start: BlueprintDoc = {
 			...docWithForm(),
 			fields: {
 				[Q("age")]: field_(Q("age"), "age", { kind: "int" }),
 				[Q("ref")]: field_(Q("ref"), "weight", {
-					help: "Compare with #form/age before entering.",
+					help: proseFieldRef(Q("age"), "Compare with ", " before entering."),
 				}),
 			},
 			fieldOrder: { [F("1")]: [Q("age"), Q("ref")] },
 		};
 		const { next } = rename(start, Q("age"), "years");
-		expect(asField(next.fields[Q("ref")])?.help).toBe(
+		const help = asField(next.fields[Q("ref")])?.help;
+		if (!help) throw new Error("expected help template");
+		expect(printProseTemplate(help, next)).toBe(
 			"Compare with #form/years before entering.",
 		);
 	});
 
-	it("rewrites hashtag refs embedded in validate_msg text", () => {
+	it("projects a validation-message reference through the field's current name", () => {
 		const start: BlueprintDoc = {
 			...docWithForm(),
 			fields: {
 				[Q("age")]: field_(Q("age"), "age", { kind: "int" }),
 				[Q("ref")]: field_(Q("ref"), "weight", {
 					validate: ". > #form/age",
-					validate_msg: "Must exceed #form/age.",
+					validate_msg: proseFieldRef(Q("age"), "Must exceed ", "."),
 				}),
 			},
 			fieldOrder: { [F("1")]: [Q("age"), Q("ref")] },
 		};
 		const { next } = rename(start, Q("age"), "years");
-		expect(asField(next.fields[Q("ref")])?.validate_msg).toBe(
+		const validateMessage = asField(next.fields[Q("ref")])?.validate_msg;
+		if (!validateMessage) throw new Error("expected validation template");
+		expect(printProseTemplate(validateMessage, next)).toBe(
 			"Must exceed #form/years.",
 		);
 		// The paired validate XPath rewrites too (pre-existing coverage).
 		expect(printedSlot(next, Q("ref"), "validate")).toBe(". > #form/years");
 	});
 
-	it("rewrites hashtag refs in select option labels, leaving values alone", () => {
+	it("projects select-option references while leaving values alone", () => {
 		const start: BlueprintDoc = {
 			...docWithForm(),
 			fields: {
 				[Q("age")]: field_(Q("age"), "age", { kind: "int" }),
 				[Q("sel")]: field_(Q("sel"), "bracket", {
 					kind: "single_select",
-					options: [
-						{ value: "age", label: "Exactly #form/age" },
-						{ value: "other", label: "Something else" },
-					],
+					optionsSource: {
+						kind: "inline",
+						options: [
+							{
+								uuid: Q("option-age"),
+								value: "age",
+								label: proseFieldRef(Q("age"), "Exactly "),
+							},
+							{
+								uuid: Q("option-other"),
+								value: "other",
+								label: proseText("Something else"),
+							},
+						],
+					},
 				}),
 			},
 			fieldOrder: { [F("1")]: [Q("age"), Q("sel")] },
 		};
 		const { next } = rename(start, Q("age"), "years");
-		const options = asField(next.fields[Q("sel")])?.options;
-		expect(options?.[0]?.label).toBe("Exactly #form/years");
-		// `options[].value` is a data literal, never a reference.
-		expect(options?.[0]?.value).toBe("age");
-		expect(options?.[1]?.label).toBe("Something else");
+		const options = asField(next.fields[Q("sel")])?.optionsSource?.options;
+		if (!options?.[0] || !options[1]) {
+			throw new Error("expected both inline options");
+		}
+		expect(printProseTemplate(options[0].label, next)).toBe(
+			"Exactly #form/years",
+		);
+		// `optionsSource.options[].value` is a data literal, never a reference.
+		expect(options[0].value).toBe("age");
+		expect(printProseTemplate(options[1].label, next)).toBe("Something else");
 	});
 });
 
@@ -869,7 +903,22 @@ describe("case-property cascade rewrites module predicate-AST slots", () => {
 					type: "followup",
 					formLinks: [
 						{
-							condition: "#case/age > 17 and #patient/age > 17",
+							condition: {
+								parts: [
+									{
+										kind: "case-ref",
+										caseType: "patient",
+										property: "age",
+									},
+									{ kind: "text", text: " > 17 and " },
+									{
+										kind: "case-ref",
+										caseType: "patient",
+										property: "age",
+									},
+									{ kind: "text", text: " > 17" },
+								],
+							},
 							target: { type: "module", moduleUuid: M("X") },
 						},
 					],
@@ -882,7 +931,7 @@ describe("case-property cascade rewrites module predicate-AST slots", () => {
 		const f3Condition = next.forms[F("3")]?.formLinks?.[0]?.condition;
 		expect(
 			f3Condition && printXPath(f3Condition, xpathPrintContext(next)),
-		).toBe("#case/years > 17 and #patient/years > 17");
+		).toBe("#patient/years > 17 and #patient/years > 17");
 		expect(meta?.formWiringRewritten).toBe(1);
 		expect(meta?.cascadedAcrossForms).toBe(true);
 	});
@@ -912,14 +961,14 @@ describe("renameField re-anchors refs to a renamed CONTAINER's descendants", () 
 		);
 	});
 
-	it("rewrites descendant hashtag refs embedded in prose surfaces", () => {
+	it("projects descendant field refs through a renamed container", () => {
 		const start: BlueprintDoc = {
 			...docWithForm(),
 			fields: {
 				[Q("grp")]: field_(Q("grp"), "grp", { kind: "group" }),
 				[Q("inner")]: field_(Q("inner"), "inner"),
 				[Q("ref")]: field_(Q("ref"), "watcher", {
-					label: "Compare with #form/grp/inner today",
+					label: proseFieldRef(Q("inner"), "Compare with ", " today"),
 				}),
 			},
 			fieldOrder: {
@@ -928,7 +977,9 @@ describe("renameField re-anchors refs to a renamed CONTAINER's descendants", () 
 			},
 		};
 		const { next } = rename(start, Q("grp"), "grp2");
-		expect(asField(next.fields[Q("ref")])?.label).toBe(
+		const label = asField(next.fields[Q("ref")])?.label;
+		if (!label) throw new Error("expected field label template");
+		expect(printProseTemplate(label, next)).toBe(
 			"Compare with #form/grp2/inner today",
 		);
 	});

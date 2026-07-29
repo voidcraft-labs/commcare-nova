@@ -16,10 +16,11 @@
 
 "use client";
 import { useCallback, useState } from "react";
-import { EditableText } from "@/components/builder/EditableText";
 import { AddPropertyButton } from "@/components/builder/editor/AddPropertyButton";
 import { useFormLintContext } from "@/components/builder/editor/fields/useFormLintContext";
 import { INSPECTOR_LABEL_CLS } from "@/components/builder/inspector/inspectorChrome";
+import { RefLabelInput } from "@/components/builder/RefLabelInput";
+import { RejectionInline } from "@/components/builder/RejectionNotice";
 import { SaveShortcutHint } from "@/components/builder/SaveShortcutHint";
 import { XPathField } from "@/components/builder/XPathField";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
@@ -27,7 +28,12 @@ import {
 	useParseXPathForField,
 	useXPathText,
 } from "@/lib/doc/hooks/useXPathSlots";
-import type { Field, FieldPatchFor, XPathExpression } from "@/lib/domain";
+import type {
+	Field,
+	FieldPatchFor,
+	ProseTemplate,
+	XPathExpression,
+} from "@/lib/domain";
 import type {
 	FieldEditorComponentProps,
 	XPathExpressionKeys,
@@ -75,10 +81,13 @@ export function XPathEditor<F extends Field, K extends XPathExpressionKeys<F>>(
 	const isValidate = keyName === "validate";
 	const validateMsg =
 		isValidate && "validate_msg" in field
-			? (field.validate_msg as string | undefined)
+			? (field.validate_msg as ProseTemplate | undefined)
 			: undefined;
 	const hasValidateMsg = !!validateMsg;
 	const [addingMsg, setAddingMsg] = useState(false);
+	const [validateMsgRejection, setValidateMsgRejection] = useState<
+		string | null
+	>(null);
 
 	// Visibility decisions live in `validateMsgVisibility.ts` so the
 	// "show editor vs pill vs nothing" rules are pinned in pure tests
@@ -112,12 +121,16 @@ export function XPathEditor<F extends Field, K extends XPathExpressionKeys<F>>(
 		inline: { updateField },
 	} = useBlueprintMutations();
 	const saveValidateMsg = useCallback(
-		(next: string) => {
+		(next: ProseTemplate) => {
 			const outcome = updateField(field.uuid, field.kind, {
-				validate_msg: next === "" ? undefined : next,
+				validate_msg: next,
 			} as unknown as FieldPatchFor<F["kind"]>);
-			if (outcome.ok) setAddingMsg(false);
-			return outcome;
+			if (outcome.ok) {
+				setAddingMsg(false);
+				setValidateMsgRejection(null);
+			} else {
+				setValidateMsgRejection(outcome.messages.join(" "));
+			}
 		},
 		[updateField, field.uuid, field.kind],
 	);
@@ -135,9 +148,10 @@ export function XPathEditor<F extends Field, K extends XPathExpressionKeys<F>>(
 	//     back, regardless of whether the slot had a value to clear.
 	const clearValidateMsg = useCallback(() => {
 		if (validateMsg !== undefined) {
-			updateField(field.uuid, field.kind, {
+			const outcome = updateField(field.uuid, field.kind, {
 				validate_msg: undefined,
 			} as unknown as FieldPatchFor<F["kind"]>);
+			setValidateMsgRejection(outcome.ok ? null : outcome.messages.join(" "));
 		}
 		setAddingMsg(false);
 	}, [updateField, field.uuid, field.kind, validateMsg]);
@@ -161,14 +175,17 @@ export function XPathEditor<F extends Field, K extends XPathExpressionKeys<F>>(
 			</div>
 			{showValidateMsgEditor && (
 				<div className="mt-1">
-					<EditableText
+					<RefLabelInput
 						label="Validation Message"
 						dataFieldId="validate_msg"
-						value={validateMsg ?? ""}
+						value={validateMsg ?? { parts: [] }}
 						onSave={saveValidateMsg}
 						onEmpty={clearValidateMsg}
 						autoFocus={addingMsg || focusHint === "validate_msg"}
 					/>
+					{validateMsgRejection && (
+						<RejectionInline message={validateMsgRejection} />
+					)}
 				</div>
 			)}
 			{showValidateMsgPill && (

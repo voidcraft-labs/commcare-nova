@@ -7,7 +7,6 @@
 // rejected instead of inventing ambiguous pairwise semantics. An empty relation
 // makes every quantified leaf false (including `!=`).
 
-import { proseText } from "@/lib/domain/prose";
 import { describe } from "vitest";
 import type { CaseType } from "@/lib/domain";
 import {
@@ -29,6 +28,7 @@ import {
 	subcasePath,
 	within,
 } from "@/lib/domain/predicate/builders";
+import { proseText } from "@/lib/domain/prose";
 import {
 	compilePredicate,
 	type PredicateCompileContext,

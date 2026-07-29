@@ -125,6 +125,8 @@ const USER_MESSAGE_BY_CODE: Partial<
 		"You've turned Connect on for the app, but no form is using it yet. Set up Connect on at least one form, or turn it off for the app.",
 	BLUEPRINT_ENTITY_UUID_DUPLICATE: () =>
 		"Two parts of this app share the same internal identity. Retry the change so Nova can keep them distinct.",
+	CASE_PROPERTY_REFERENCE_INVALID: (e) =>
+		`${q(det(e, "caseType", "A case type"))}.${det(e, "property", "property")}'s ${det(e, "slot", "default")} setting contains a reference that isn't available there. Replace it with case, worker, or fixed information that exists in every form using this property.`,
 
 	// ── Worker information, roles, personas ──────────────────────────
 	// The rule's own message already carries the specific reason (an illegal

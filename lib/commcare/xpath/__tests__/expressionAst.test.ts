@@ -59,9 +59,9 @@ describe("leaf classification", () => {
 			{ kind: "field-ref", uuid: INNER },
 		]);
 		// A bare leaf id nested under a group does NOT resolve from the
-		// form root — it stays raw, the dangling treatment.
+		// form root. No mutable raw-reference leaf is admitted.
 		expect(parse("#form/inner", doc).parts).toEqual([
-			{ kind: "raw-ref", namespace: "form", segments: ["inner"] },
+			{ kind: "text", text: "#form/inner" },
 		]);
 	});
 
@@ -74,10 +74,10 @@ describe("leaf classification", () => {
 			{ kind: "path-ref", uuid: AGE },
 		]);
 		expect(parse("//data//age", doc).parts).toEqual([
-			{ kind: "path-ref", uuid: AGE },
+			{ kind: "text", text: "//data//age" },
 		]);
 		expect(printXPath(parse("//data//age", doc), xpathPrintContext(doc))).toBe(
-			"/data/age",
+			"//data//age",
 		);
 	});
 
@@ -99,10 +99,10 @@ describe("leaf classification", () => {
 			{ kind: "user-ref", property: "role" },
 		]);
 		expect(parse("#case/age", doc).parts).toEqual([
-			{ kind: "raw-ref", namespace: "case", segments: ["age"] },
+			{ kind: "text", text: "#case/age" },
 		]);
 		expect(parse("#mother/a/b", doc).parts).toEqual([
-			{ kind: "raw-ref", namespace: "mother", segments: ["a", "b"] },
+			{ kind: "text", text: "#mother/a/b" },
 		]);
 	});
 
@@ -260,28 +260,28 @@ describe("resolve at print", () => {
 });
 
 describe("structural case-property rename", () => {
-	it("renames matching case-ref leaves and contextual raw leaves", () => {
+	it("renames only the explicit case-type/property identity", () => {
 		const doc = makeDoc();
 		const expr = parse("#mother/age + #case/age + #other/age", doc);
-		const renamed = renameCasePropertyInXPath(
-			expr,
-			{ caseType: "mother", oldName: "age", newName: "years" },
-			{ contextualMatches: true },
-		);
-		expect(renamed).toBe(2);
+		const renamed = renameCasePropertyInXPath(expr, {
+			caseType: "mother",
+			oldName: "age",
+			newName: "years",
+		});
+		expect(renamed).toBe(1);
 		expect(printXPath(expr, xpathPrintContext(doc))).toBe(
-			"#mother/years + #case/years + #other/age",
+			"#mother/years + #case/age + #other/age",
 		);
 	});
 
 	it("leaves contextual refs alone when the carrier's module type differs", () => {
 		const doc = makeDoc();
 		const expr = parse("#case/age", doc);
-		const renamed = renameCasePropertyInXPath(
-			expr,
-			{ caseType: "mother", oldName: "age", newName: "years" },
-			{ contextualMatches: false },
-		);
+		const renamed = renameCasePropertyInXPath(expr, {
+			caseType: "mother",
+			oldName: "age",
+			newName: "years",
+		});
 		expect(renamed).toBe(0);
 		expect(printXPath(expr, xpathPrintContext(doc))).toBe("#case/age");
 	});
@@ -289,11 +289,11 @@ describe("structural case-property rename", () => {
 	it("never touches multi-segment contextual refs", () => {
 		const doc = makeDoc();
 		const expr = parse("#case/parent/age", doc);
-		const renamed = renameCasePropertyInXPath(
-			expr,
-			{ caseType: "mother", oldName: "age", newName: "years" },
-			{ contextualMatches: true },
-		);
+		const renamed = renameCasePropertyInXPath(expr, {
+			caseType: "mother",
+			oldName: "age",
+			newName: "years",
+		});
 		expect(renamed).toBe(0);
 	});
 });

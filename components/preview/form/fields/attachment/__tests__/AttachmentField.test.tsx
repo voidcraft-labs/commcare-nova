@@ -11,6 +11,7 @@ import type { ComponentProps } from "react";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CaptureField } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import type { FieldState } from "@/lib/preview/engine/types";
 import { AttachmentField as ProductionAttachmentField } from "../AttachmentField";
 import {
@@ -120,13 +121,13 @@ const FIELD = {
 	uuid: "22222222-2222-4222-8222-222222222222",
 	id: "photo",
 	kind: "image",
-	label: "Photo",
+	label: proseText("Photo"),
 } as CaptureField;
 const SECOND_FIELD = {
 	...FIELD,
 	uuid: "33333333-3333-4333-8333-333333333333",
 	id: "consent",
-	label: "Signed consent",
+	label: proseText("Signed consent"),
 } as CaptureField;
 const SIGNATURE_FIELD = {
 	...SECOND_FIELD,

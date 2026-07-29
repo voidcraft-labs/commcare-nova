@@ -1,4 +1,3 @@
-import { proseText } from "@/lib/domain/prose";
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -26,6 +25,7 @@ import {
 	printXPath,
 	xpathPrintContext,
 } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 
 function emptyDoc(): BlueprintDoc {
 	return {
@@ -333,7 +333,7 @@ describe("prototype-safe normalized blueprint records", () => {
 						uuid: GROUP_UUID,
 						kind: "group",
 						id: "group",
-						label: "Group",
+						label: proseText("Group"),
 					},
 				},
 				{
@@ -398,7 +398,7 @@ describe("prototype-safe normalized blueprint records", () => {
 					parentUuid: FORM_UUID,
 					field: {
 						...textField("prototype-watcher", "watcher"),
-						label: "See #form/status and #case/status",
+						label: proseText("See #form/status and #case/status"),
 						relevant: {
 							parts: [
 								{
@@ -422,13 +422,7 @@ describe("prototype-safe normalized blueprint records", () => {
 		for (const index of [next.refIndex, rebuilt]) {
 			expect(index).toBeDefined();
 			if (index === undefined) throw new Error("reference index missing");
-			for (const record of [
-				index.in,
-				index.out,
-				index.decl,
-				index.local,
-				index.ctx,
-			]) {
+			for (const record of [index.in, index.out, index.decl, index.ctx]) {
 				expectNullPrototype(record);
 			}
 			for (const byCarrier of Object.values(index.in)) {
@@ -443,7 +437,7 @@ describe("prototype-safe normalized blueprint records", () => {
 					expectNullPrototype(slots);
 				}
 			}
-			for (const bucket of [index.decl, index.local, index.ctx]) {
+			for (const bucket of [index.decl, index.ctx]) {
 				for (const members of Object.values(bucket)) {
 					expectNullPrototype(members);
 				}

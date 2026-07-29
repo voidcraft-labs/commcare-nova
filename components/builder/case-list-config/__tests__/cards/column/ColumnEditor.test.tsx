@@ -21,13 +21,11 @@
 //      mapping table, non-default threshold + unit) round-trip
 //      through the editor untouched.
 
-import { proseText } from "@/lib/domain/prose";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { settleBaseUiTransitions } from "@/__tests__/helpers/baseUiInteractions";
 import { testUuid } from "@/__tests__/helpers/uuid";
-
 import {
 	type CaseType,
 	type Column,
@@ -40,6 +38,7 @@ import {
 	plainColumn,
 } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { ColumnEditor } from "../../../ColumnEditor";
 
 const PATIENT: CaseType = {

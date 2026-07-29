@@ -4,6 +4,7 @@ import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
+import { proseText } from "@/lib/domain/prose";
 import { DEFAULT_RUNTIME_STATE } from "@/lib/preview/engine/engineController";
 import type { FieldState } from "@/lib/preview/engine/types";
 import { FormLayoutProvider } from "../FormLayoutContext";
@@ -83,7 +84,7 @@ describe("InteractiveFormRenderer repeated-field accessibility", () => {
 								f({
 									kind: "repeat",
 									id: "visits",
-									label: "Visits",
+									label: proseText("Visits"),
 									children: [
 										f({
 											kind: "text",
@@ -131,7 +132,7 @@ describe("InteractiveFormRenderer repeated-field accessibility", () => {
 								f({
 									kind: "repeat",
 									id: "visits",
-									label: "Visits",
+									label: proseText("Visits"),
 									children: [
 										f({
 											kind: "int",

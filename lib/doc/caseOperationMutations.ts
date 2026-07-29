@@ -175,36 +175,20 @@ export function caseOperationChangesForUpdate(
 ): Mutation[] {
 	if (before.uuid !== after.uuid) return [];
 
-	// Writes and links pair by their logical key — a write's destination
-	// property, a link's identifier — which is what lets two peers edit
-	// different writes without clobbering each other. A pure REORDER
-	// changes no key and no content, so key-wise pairing sees nothing
-	// and the author's edit would be silently discarded. Sequence is
-	// authored data here (it is the order the wire executes them in), so
-	// a changed sequence falls back to replacing the whole operation,
-	// which is exactly what the full-value change expresses.
-	if (
-		sequenceChanged(before.writes, after.writes, (write) => write.property) ||
-		sequenceChanged(before.links, after.links, (link) => link.identifier)
-	) {
-		// A whole-operation replacement, with NO granular intent beside
-		// it: there is no per-slot spelling for "these writes now run in
-		// this order", and the established full-value change says it
-		// exactly. It carries the reordered content too, so a reorder that
-		// arrives with edits to those same writes loses neither.
-		return [
-			{
-				kind: "updateForm",
-				uuid: formUuid,
-				patch: {},
-				caseOperationChange: {
-					operation: "update",
-					uuid: before.uuid,
-					value: structuredClone(after),
-				},
-			},
-		];
-	}
+	// Writes and links pair by logical identity. Their sequence is authored
+	// data too, so a changed order emits its own final identity-list patch after
+	// membership/content edits. That keeps the order mergeable without a
+	// duplicate whole-operation replacement.
+	const writesReordered = sequenceChanged(
+		before.writes,
+		after.writes,
+		(write) => write.property,
+	);
+	const linksReordered = sequenceChanged(
+		before.links,
+		after.links,
+		(link) => link.identifier,
+	);
 
 	const mutations: Mutation[] = [];
 
@@ -270,6 +254,15 @@ export function caseOperationChangesForUpdate(
 			);
 		}
 	}
+	if (writesReordered) {
+		mutations.push(
+			operationMutation(formUuid, {
+				operation: "reorder-writes",
+				uuid: before.uuid,
+				properties: (after.writes ?? []).map((write) => write.property),
+			}),
+		);
+	}
 
 	const beforeLinks = new Map(
 		(before.links ?? []).map((link) => [link.identifier, link]),
@@ -319,6 +312,15 @@ export function caseOperationChangesForUpdate(
 				}),
 			);
 		}
+	}
+	if (linksReordered) {
+		mutations.push(
+			operationMutation(formUuid, {
+				operation: "reorder-links",
+				uuid: before.uuid,
+				identifiers: (after.links ?? []).map((link) => link.identifier),
+			}),
+		);
 	}
 
 	return mutations;
@@ -670,12 +672,30 @@ export function addCaseOperationMutations(
 	const form = doc.forms[formUuid];
 	if (form === undefined) return [];
 	const ordered = orderedCaseOperations(form);
-	const value = { ...operation };
-	// An indexed add lands the operation, then moves it into place. Its
-	// neighbours are untouched: every position in an array is reachable by
-	// naming the operation to follow, so nothing has to be shifted to open room.
 	const at = index ?? ordered.length;
 	const previous = at > 0 ? (ordered[at - 1]?.uuid ?? null) : null;
+	return addCaseOperationAfterMutations(
+		doc,
+		formUuid,
+		operation,
+		at >= ordered.length ? undefined : previous,
+	);
+}
+
+/**
+ * Canonical identity placement for a new operation. `after` names the existing
+ * operation the new one follows, `null` means first, and `undefined` appends.
+ * The index-taking helper above is only the builder gesture adapter.
+ */
+export function addCaseOperationAfterMutations(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	operation: CaseOperation,
+	after?: Uuid | null,
+): Mutation[] {
+	const form = doc.forms[formUuid];
+	if (form === undefined) return [];
+	const value = { ...operation };
 	return [
 		...caseOperationCatalogMutations(doc, value),
 		{
@@ -684,9 +704,9 @@ export function addCaseOperationMutations(
 			patch: {},
 			caseOperationChange: { operation: "add", value },
 		},
-		...(at >= ordered.length
+		...(after === undefined
 			? []
-			: [moveOperationMutation(formUuid, operation.uuid, previous)]),
+			: [moveOperationMutation(formUuid, operation.uuid, after)]),
 	];
 }
 
@@ -833,6 +853,36 @@ export function moveCaseOperationMutation(
 		ok: true,
 		mutations: [moveOperationMutation(formUuid, uuid, after)],
 	};
+}
+
+/**
+ * Canonical identity placement for an existing operation. External authoring
+ * surfaces use this UUID anchor; the builder's rendered-index gesture uses
+ * `moveCaseOperationMutation` as its local adapter.
+ */
+export function moveCaseOperationAfterMutation(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	uuid: Uuid,
+	after: Uuid | null,
+): CaseOperationMutationPlan {
+	const form = doc.forms[formUuid];
+	if (form === undefined) {
+		return { ok: false, reason: "operation-not-found", dependentUuids: [] };
+	}
+	const ordered = orderedCaseOperations(form);
+	if (!ordered.some((candidate) => candidate.uuid === uuid)) {
+		return { ok: false, reason: "operation-not-found", dependentUuids: [] };
+	}
+	const without = ordered.filter((candidate) => candidate.uuid !== uuid);
+	const targetIndex =
+		after === null
+			? 0
+			: without.findIndex((candidate) => candidate.uuid === after) + 1;
+	if (after !== null && targetIndex === 0) {
+		return { ok: false, reason: "operation-not-found", dependentUuids: [] };
+	}
+	return moveCaseOperationMutation(doc, formUuid, uuid, targetIndex);
 }
 
 /**

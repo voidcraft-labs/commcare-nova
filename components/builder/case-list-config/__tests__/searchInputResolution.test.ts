@@ -33,6 +33,7 @@ import {
 	term,
 	whenInput,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import {
 	canSeedCustomConditionFaithfully,
 	recoverAnchoredProperty,
@@ -47,7 +48,9 @@ const CASE_TYPE = "household";
 const CASE_TYPES: CaseType[] = [
 	{
 		name: "household",
-		properties: [{ name: "case_name", label: "Name", data_type: "text" }],
+		properties: [
+			{ name: "case_name", label: proseText("Name"), data_type: "text" },
+		],
 	} as CaseType,
 ];
 
@@ -71,7 +74,7 @@ describe("seedCustomCondition", () => {
 				{ mode, via },
 			);
 			const propertyRef = prop(CASE_TYPE, "case_name", via);
-			const inputRef = input("query");
+			const inputRef = input(row.uuid);
 			const expectedClause =
 				mode.kind === "exact"
 					? eq(propertyRef, inputRef)
@@ -103,8 +106,8 @@ describe("seedCustomCondition", () => {
 		// exactly what the seed produces.
 		expect(seeded).toEqual(
 			whenInput(
-				input("case_name"),
-				eq(prop(CASE_TYPE, "case_name"), input("case_name")),
+				input(row.uuid),
+				eq(prop(CASE_TYPE, "case_name"), input(row.uuid)),
 			),
 		);
 	});
@@ -184,8 +187,8 @@ describe("seedCustomCondition", () => {
 		const seeded = seedCustomCondition(row, "patient");
 		expect(seeded).toEqual(
 			whenInput(
-				input("region"),
-				eq(prop("patient", "region", via), input("region")),
+				input(row.uuid),
+				eq(prop("patient", "region", via), input(row.uuid)),
 			),
 		);
 	});
@@ -308,8 +311,18 @@ describe("searchInputDecls", () => {
 		);
 
 		expect(searchInputDecls([date, range])).toEqual([
-			{ name: "visit_date", label: "Visit date", data_type: "date" },
-			{ name: "visit_range", label: "Visit range", data_type: "text" },
+			{
+				uuid: date.uuid,
+				name: "visit_date",
+				label: "Visit date",
+				data_type: "date",
+			},
+			{
+				uuid: range.uuid,
+				name: "visit_range",
+				label: "Visit range",
+				data_type: "text",
+			},
 		]);
 	});
 });
@@ -322,12 +335,12 @@ describe("legacy standard-property resolution", () => {
 				properties: [
 					{
 						name: "date-opened",
-						label: "Legacy date opened",
+						label: proseText("Legacy date opened"),
 						data_type: "text",
 					},
 					{
 						name: "date_opened",
-						label: "Date opened",
+						label: proseText("Date opened"),
 						data_type: "datetime",
 					},
 				],
@@ -369,14 +382,14 @@ describe("recoverAnchoredProperty", () => {
 	it("recovers the property from a bare left-anchored comparison", () => {
 		// Hand-authored (or chat/MCP) conditions without an envelope still
 		// recover the same way.
-		const bare = eq(prop(CASE_TYPE, "status"), input("status"));
+		const bare = eq(prop(CASE_TYPE, "status"), input(testUuid("status")));
 		expect(recoverAnchoredProperty(bare)).toBe("status");
 	});
 
 	it("does not recover when the left side walks to another case", () => {
 		const crossWalk = eq(
 			prop("patient", "status", ancestorPath(relationStep("parent"))),
-			input("status"),
+			input(testUuid("status")),
 		);
 		expect(recoverAnchoredProperty(crossWalk)).toBeUndefined();
 	});

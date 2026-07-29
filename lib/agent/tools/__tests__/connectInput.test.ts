@@ -15,8 +15,6 @@ import { buildConnectConfig } from "../shared/connectInput";
 const expr = (text: string): XPathExpression =>
 	({ __test_expr: text }) as unknown as XPathExpression;
 
-const parseExpr = (text: string): XPathExpression => expr(`parsed:${text}`);
-
 function existingConfig(): ConnectConfig {
 	return {
 		learn_module: {
@@ -38,11 +36,7 @@ function existingConfig(): ConnectConfig {
 describe("buildConnectConfig — edit path (existing config)", () => {
 	it("null removes exactly the named sub-config; omitted ones pass through", () => {
 		const existing = existingConfig();
-		const merged = buildConnectConfig(
-			{ assessment: null },
-			existing,
-			parseExpr,
-		);
+		const merged = buildConnectConfig({ assessment: null }, existing);
 		expect(merged.assessment).toBeUndefined();
 		expect("assessment" in merged).toBe(false);
 		// Untouched sub-configs are the SAME objects, not rebuilt copies.
@@ -54,7 +48,6 @@ describe("buildConnectConfig — edit path (existing config)", () => {
 		const merged = buildConnectConfig(
 			{ learn_module: null, assessment: null, deliver_unit: null, task: null },
 			existingConfig(),
-			parseExpr,
 		);
 		expect(Object.keys(merged)).toEqual([]);
 	});
@@ -63,7 +56,6 @@ describe("buildConnectConfig — edit path (existing config)", () => {
 		const merged = buildConnectConfig(
 			{ deliver_unit: { name: "Visit", entity_id: null } },
 			existingConfig(),
-			parseExpr,
 		);
 		expect("entity_id" in (merged.deliver_unit ?? {})).toBe(false);
 		// An omitted inner slot keeps its stored expression.
@@ -75,21 +67,18 @@ describe("buildConnectConfig — edit path (existing config)", () => {
 		const merged = buildConnectConfig(
 			{ deliver_unit: { name: "Renamed visit", id: null } },
 			existingConfig(),
-			parseExpr,
 		);
 		expect(merged.deliver_unit?.id).toBe("du-1");
 		expect(merged.deliver_unit?.name).toBe("Renamed visit");
 	});
 
-	it("stated XPath slots cross the parse boundary", () => {
+	it("stated XPath slots preserve their canonical AST", () => {
+		const score = expr("#form/final_score");
 		const merged = buildConnectConfig(
-			{ assessment: { user_score: "#form/final_score" } },
+			{ assessment: { user_score: score } },
 			existingConfig(),
-			parseExpr,
 		);
-		expect(merged.assessment?.user_score).toEqual(
-			expr("parsed:#form/final_score"),
-		);
+		expect(merged.assessment?.user_score).toBe(score);
 		expect(merged.assessment?.id).toBe("as-1");
 	});
 });
@@ -99,7 +88,6 @@ describe("buildConnectConfig — creation path (no existing config)", () => {
 		const merged = buildConnectConfig(
 			{ assessment: null, deliver_unit: { name: "Home visit" } },
 			undefined,
-			parseExpr,
 		);
 		expect("assessment" in merged).toBe(false);
 		expect(merged.deliver_unit).toEqual({ name: "Home visit" });

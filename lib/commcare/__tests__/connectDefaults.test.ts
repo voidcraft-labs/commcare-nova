@@ -20,6 +20,7 @@ import {
 } from "@/lib/commcare/connectDefaults";
 import type { ResolvedConnectConfig } from "@/lib/commcare/connectSlugs";
 import { buildXForm } from "@/lib/commcare/xform";
+import { proseText } from "@/lib/domain/prose";
 
 const XMLNS = "http://openrosa.org/formdesigner/connect-defaults-test";
 
@@ -37,7 +38,9 @@ function emitAssessmentForm(connect: ResolvedConnectConfig): string {
 						name: "Quiz",
 						type: "survey",
 						connect,
-						fields: [f({ kind: "text", id: "feedback", label: "Feedback" })],
+						fields: [
+							f({ kind: "text", id: "feedback", label: proseText("Feedback") }),
+						],
 					},
 				],
 			},

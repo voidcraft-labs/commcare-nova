@@ -38,11 +38,9 @@
 // integrating caller wires the real predicate compiler at the
 // composition boundary.
 
-import { proseText } from "@/lib/domain/prose";
 import { sql } from "kysely";
 import { describe } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-
 import type { CaseType } from "@/lib/domain";
 import {
 	ancestorPath,
@@ -71,6 +69,7 @@ import {
 	today,
 } from "@/lib/domain/predicate/builders";
 import type { DateAddInterval } from "@/lib/domain/predicate/types";
+import { proseText } from "@/lib/domain/prose";
 import { evaluate } from "@/lib/preview/xpath/evaluator";
 import type { EvalContext } from "@/lib/preview/xpath/types";
 import {
@@ -963,11 +962,11 @@ describe("compileExpression — round-trip — date-add arm", () => {
 				dateAdd(
 					datetimeCoerce(term(literal("2024-01-31T12:30:00Z"))),
 					interval,
-					double(term(input("calendar_quantity"))),
+					double(term(input(testUuid("calendar_quantity")))),
 				),
 				makeCtx(db, {
 					bindings: {
-						searchInputs: new Map([["calendar_quantity", "1.0"]]),
+						searchInputs: new Map([[testUuid("calendar_quantity"), "1.0"]]),
 					},
 				}),
 			);
@@ -991,11 +990,11 @@ describe("compileExpression — round-trip — date-add arm", () => {
 				dateAdd(
 					datetimeCoerce(term(literal("2024-01-31T12:30:00Z"))),
 					interval,
-					double(term(input("calendar_quantity"))),
+					double(term(input(testUuid("calendar_quantity")))),
 				),
 				makeCtx(db, {
 					bindings: {
-						searchInputs: new Map([["calendar_quantity", "1.5"]]),
+						searchInputs: new Map([[testUuid("calendar_quantity"), "1.5"]]),
 					},
 				}),
 			);

@@ -1,5 +1,6 @@
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { proseText } from "@/lib/domain/prose";
 // Tests for the in-tree creation scaffolds. The contract is valid-by-
 // construction: each scaffold's batch, committed against a valid doc, must
 // pass the SAME gate the builder UI uses (`mutationCommitVerdict`) — an empty
@@ -10,6 +11,7 @@ import { describe, expect, it } from "vitest";
 import { evaluateBoundary } from "@/lib/commcare/validator/gate";
 import { planCaseTypeRetirementOnRetype } from "@/lib/doc/caseTypeRetirement";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { modulePatchMutations } from "@/lib/doc/modulePatchMutations";
 import { applyMutation, applyMutations } from "@/lib/doc/mutations";
 import {
 	BLANK_APP_NAME,
@@ -75,7 +77,7 @@ function baseDoc(): BlueprintDoc {
 				uuid: Q("base"),
 				id: "note",
 				kind: "text",
-				label: "Note",
+				label: proseText("Note"),
 			} as never as Field,
 		});
 	});
@@ -383,11 +385,7 @@ describe("caseTypeSetPatch", () => {
 			doc,
 			[
 				...declareCaseTypeMutations(doc, "thing"),
-				{
-					kind: "updateModule",
-					uuid: M("s"),
-					patch: caseTypeSetPatch(mod, false, "thing"),
-				},
+				...modulePatchMutations(mod, caseTypeSetPatch(mod, false, "thing")),
 			],
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
@@ -414,11 +412,7 @@ describe("caseTypeSetPatch", () => {
 			doc,
 			[
 				...caseTypeCatalogMutations(doc, retirement, "b"),
-				{
-					kind: "updateModule",
-					uuid: moduleUuid,
-					patch: caseTypeSetPatch(mod, false, "b"),
-				},
+				...modulePatchMutations(mod, caseTypeSetPatch(mod, false, "b")),
 			],
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
@@ -463,7 +457,7 @@ describe("caseTypeClearPatch", () => {
 		});
 		const verdict = mutationCommitVerdict(
 			doc,
-			[{ kind: "updateModule", uuid: moduleUuid, patch: caseTypeClearPatch() }],
+			modulePatchMutations(doc.modules[moduleUuid], caseTypeClearPatch()),
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(verdict.ok).toBe(true);
@@ -485,7 +479,7 @@ describe("caseTypeClearPatch", () => {
 		});
 		const verdict = mutationCommitVerdict(
 			doc,
-			[{ kind: "updateModule", uuid: moduleUuid, patch: caseTypeClearPatch() }],
+			modulePatchMutations(doc.modules[moduleUuid], caseTypeClearPatch()),
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(verdict.ok).toBe(false);

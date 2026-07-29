@@ -17,9 +17,9 @@
 // the card shell's footer. Mounts through the full `PredicateCardEditor`
 // so the validity index is the real one produced by `checkPredicate`.
 
-import { proseText } from "@/lib/domain/prose";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type { CaseType } from "@/lib/domain";
 import {
 	checkPredicate,
@@ -33,6 +33,7 @@ import {
 	sessionContext,
 	sessionUser,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { PredicateCardEditor } from "../../PredicateCardEditor";
 
 const PATIENT: CaseType = {
@@ -102,8 +103,16 @@ describe("ComparisonCard — exhaustive subject authoring", () => {
 		caseTypes: [PATIENT],
 		currentCaseType: "patient",
 		knownInputs: [
-			{ name: "name_search", data_type: "text" as const },
-			{ name: "minimum_age", data_type: "int" as const },
+			{
+				uuid: testUuid("name_search"),
+				name: "name_search",
+				data_type: "text" as const,
+			},
+			{
+				uuid: testUuid("minimum_age"),
+				name: "minimum_age",
+				data_type: "int" as const,
+			},
 		],
 	};
 
@@ -181,7 +190,10 @@ describe("ComparisonCard — exhaustive subject authoring", () => {
 		const next = onChange.mock.calls[0]?.[0] as Predicate;
 		expect(next.kind).toBe("eq");
 		if (next.kind !== "eq") throw new Error("Expected an equality predicate");
-		expect(next.left).toEqual({ kind: "term", term: input("name_search") });
+		expect(next.left).toEqual({
+			kind: "term",
+			term: input(testUuid("name_search")),
+		});
 		expect(checkPredicate(next, ctx).ok).toBe(true);
 	});
 

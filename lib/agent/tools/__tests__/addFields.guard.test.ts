@@ -18,7 +18,8 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import type { BlueprintDoc, Field, Form, Module } from "@/lib/domain";
+import type { BlueprintDoc, Field, Form, Module, Uuid } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import {
 	makeMcpTestContext,
 	makeStubToolContext,
@@ -57,14 +58,19 @@ function makeDoc(): BlueprintDoc {
 		uuid: AGE,
 		id: "age",
 		kind: "int",
-		label: "Age",
+		label: proseText("Age"),
 	} as Field;
-	const grp = { uuid: GRP, id: "grp", kind: "group", label: "Group" } as Field;
+	const grp = {
+		uuid: GRP,
+		id: "grp",
+		kind: "group",
+		label: proseText("Group"),
+	} as Field;
 	const note = {
 		uuid: NOTE,
 		id: "note",
 		kind: "text",
-		label: "Note",
+		label: proseText("Note"),
 	} as Field;
 	return {
 		appId: "test-app",
@@ -82,14 +88,16 @@ function makeDoc(): BlueprintDoc {
 }
 
 /** Shorthand for the minimal valid text item the add pipeline accepts. */
-function textItem(id: string, parentId?: string) {
+function textItem(id: string, parentUuid?: Uuid) {
 	return {
 		id,
 		kind: "text" as const,
-		label: id,
-		...(parentId && { parentId }),
+		label: proseText(id),
+		...(parentUuid && { parentUuid }),
 	};
 }
+
+const ADDRESS = { moduleUuid: MOD, formUuid: FORM };
 
 beforeEach(() => {
 	vi.clearAllMocks();
@@ -100,7 +108,7 @@ describe("addFields — identifier guard (chat surface)", () => {
 		const { ctx } = makeStubToolContext();
 		const recordSpy = vi.spyOn(ctx, "recordMutations");
 		const result = await addFieldsTool.execute(
-			{ moduleIndex: 0, formIndex: 0, fields: [textItem("age")] },
+			{ ...ADDRESS, fields: [textItem("age")] },
 			ctx,
 			makeDoc(),
 		);
@@ -116,8 +124,7 @@ describe("addFields — identifier guard (chat surface)", () => {
 		const { ctx } = makeStubToolContext();
 		const result = await addFieldsTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
+				...ADDRESS,
 				fields: [textItem("age"), textItem("bad name"), textItem("__nova_x")],
 			},
 			ctx,
@@ -135,8 +142,7 @@ describe("addFields — identifier guard (chat surface)", () => {
 		const recordSpy = vi.spyOn(ctx, "recordMutations");
 		const result = await addFieldsTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
+				...ADDRESS,
 				fields: [textItem("dup"), textItem("dup")],
 			},
 			ctx,
@@ -152,9 +158,8 @@ describe("addFields — identifier guard (chat surface)", () => {
 		const { ctx } = makeStubToolContext();
 		const result = await addFieldsTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fields: [textItem("note", "grp")],
+				...ADDRESS,
+				fields: [textItem("note", GRP)],
 			},
 			ctx,
 			makeDoc(),
@@ -168,9 +173,8 @@ describe("addFields — identifier guard (chat surface)", () => {
 		const recordSpy = vi.spyOn(ctx, "recordMutations");
 		const result = await addFieldsTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fields: [textItem("age", "grp")],
+				...ADDRESS,
+				fields: [textItem("age", GRP)],
 			},
 			ctx,
 			makeDoc(),
@@ -186,8 +190,7 @@ describe("addFields — identifier guard (chat surface)", () => {
 		const recordSpy = vi.spyOn(ctx, "recordMutations");
 		const result = await addFieldsTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
+				...ADDRESS,
 				fields: [textItem("weight"), textItem("height")],
 			},
 			ctx,
@@ -208,7 +211,7 @@ describe("addFields — identifier guard (MCP surface, same tool body)", () => {
 		const { ctx } = makeMcpTestContext();
 		const recordSpy = vi.spyOn(ctx, "recordMutations");
 		const result = await addFieldsTool.execute(
-			{ moduleIndex: 0, formIndex: 0, fields: [textItem("age")] },
+			{ ...ADDRESS, fields: [textItem("age")] },
 			ctx,
 			makeDoc(),
 		);

@@ -10,8 +10,8 @@ import { mergeAttributes, Node } from "@tiptap/core";
 import { ReactNodeViewRenderer } from "@tiptap/react";
 import {
 	fallbackProseProjection,
-	prosePartSchema,
 	type ProseReferencePart,
+	prosePartSchema,
 } from "@/lib/domain";
 import { CommcareRefView } from "./CommcareRefView";
 

@@ -1,11 +1,9 @@
 // @vitest-environment happy-dom
 
-import { proseText } from "@/lib/domain/prose";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
-
 import {
 	type CaseType,
 	type Column,
@@ -13,6 +11,7 @@ import {
 	imageMapColumn,
 	type MediaAssetId,
 } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import { ColumnEditor } from "../../../ColumnEditor";
 
 vi.mock("@/components/builder/media/MediaSlot", () => ({

@@ -64,16 +64,6 @@ function readXPath(
 }
 
 /**
- * Read a generic optional string property off a Field variant that may or
- * may not declare it (e.g. `validate_msg` exists on input kinds but not on
- * structural containers).
- */
-function readString(field: Field, key: string): string | undefined {
-	const value = (field as unknown as Record<string, unknown>)[key];
-	return typeof value === "string" ? value : undefined;
-}
-
-/**
  * A field kind supports validation (constraint + constraint message) if the
  * user can actually see the error. Structural containers (group, repeat),
  * display-only labels, and computed hidden fields cannot — setting
@@ -338,7 +328,8 @@ function validationOnNonInputType(
 ): ValidationError[] {
 	if (supportsValidation(field.kind)) return [];
 	const validateExpr = readXPath(field, "validate", ctx);
-	const validateMsg = readString(field, "validate_msg");
+	const validateMsg = (field as unknown as Record<string, unknown>)
+		.validate_msg;
 	if (!validateExpr && !validateMsg) return [];
 	const reported = validateExpr ? "validate" : "validate_msg";
 	return [

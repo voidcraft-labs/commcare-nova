@@ -1,10 +1,10 @@
 // @vitest-environment happy-dom
 
-import { proseText } from "@/lib/domain/prose";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import type { CaseType } from "@/lib/domain";
 import { arith, eq, literal, prop, term } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { PredicateWorkbench } from "../PredicateWorkbench";
 
 const CASE_TYPES: readonly CaseType[] = [

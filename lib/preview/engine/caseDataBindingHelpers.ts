@@ -153,8 +153,8 @@ function isRuntimeCalculatedColumn(
 /**
  * Read an optional bounded window of one case type for the bound tenant,
  * projecting each `caseListConfig.columns` calc-arm column's expression as a
- * SELECT slot. Running Results always supplies a page; raw helper consumers
- * may omit it for their legacy unpaged read. An empty bounded worker query
+ * SELECT slot. Running Results always supplies a page; the current form
+ * auto-selection consumer omits it for a complete candidate read. An empty bounded worker query
  * also reports the authored-only population so the UI can name Search versus
  * Cases available as the real cause.
  *

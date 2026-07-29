@@ -1,11 +1,8 @@
 // lib/doc/__tests__/modulePatchMutations.test.ts
 //
-// The generic module-patch planner's caseSearchConfig key semantics:
-// omission keeps, `null` clears, and a PRESENT-but-`undefined` key is
-// OMISSION — never a clear. `undefined` cannot round-trip JSON (the SSE
-// wire and the persisted jsonb both drop it), so honoring it as a clear
-// would delete the module's whole Search configuration in memory from a
-// spread-built no-change caller while the clear never replicates.
+// The authoring planner lowers snapshot-like builder intent to the one strict
+// mutation dialect. Omission keeps; an explicitly present null/undefined clears
+// by emitting the JSON-stable null teardown payload.
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -24,21 +21,34 @@ const mod: Module = {
 };
 
 describe("modulePatchMutations — caseSearchConfig key semantics", () => {
-	it("treats a present-but-undefined key as omitted, keeping the Search config", () => {
+	it("lowers a rename and an explicit undefined Search clear separately", () => {
 		expect(
 			modulePatchMutations(mod, {
 				name: "Renamed",
 				caseSearchConfig: undefined,
 			}),
 		).toEqual([
-			{ kind: "updateModule", uuid: MODULE_UUID, patch: { name: "Renamed" } },
+			{
+				kind: "renameModule",
+				uuid: MODULE_UUID,
+				newId: "Renamed",
+			},
+			{
+				kind: "updateModule",
+				uuid: MODULE_UUID,
+				patch: { caseSearchConfig: null },
+			},
 		]);
 	});
 
-	it("emits nothing for an undefined key with no other change", () => {
-		expect(modulePatchMutations(mod, { caseSearchConfig: undefined })).toEqual(
-			[],
-		);
+	it("lowers an explicit undefined key to the direct null teardown", () => {
+		expect(modulePatchMutations(mod, { caseSearchConfig: undefined })).toEqual([
+			{
+				kind: "updateModule",
+				uuid: MODULE_UUID,
+				patch: { caseSearchConfig: null },
+			},
+		]);
 	});
 
 	it("clears the whole Search config only on an explicit null", () => {

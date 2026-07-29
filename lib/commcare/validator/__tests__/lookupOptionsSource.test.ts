@@ -1,4 +1,3 @@
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, type FieldSpec, f } from "@/lib/__tests__/docHelpers";
@@ -34,6 +33,7 @@ import {
 	term,
 	today,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import type { LookupRevision, LookupTableDefinition } from "@/lib/lookup/types";
 import { lookupTypeIndex } from "../lookupTypeContext";
 import { validateLookupOptionsSources } from "../rules/lookupOptionsSource";
@@ -97,7 +97,7 @@ function optionsSource(
 	labelColumnId: LookupColumnId = TEXT_A,
 ) {
 	return {
-		kind: "lookup-table" as const,
+		kind: "lookup" as const,
 		tableId,
 		valueColumnId,
 		labelColumnId,
@@ -117,18 +117,6 @@ function select(
 		kind: "single_select",
 		id,
 		label: id,
-		options: [
-			{
-				uuid: testUuid("21000000-0000-7000-8000-000000000001"),
-				value: "a",
-				label: "A",
-			},
-			{
-				uuid: testUuid("21000000-0000-7000-8000-000000000002"),
-				value: "b",
-				label: "B",
-			},
-		],
 		optionsSource: optionsSource(filter),
 	});
 }
@@ -223,7 +211,12 @@ describe("lookup-backed select filter semantics", () => {
 		// A filter may read an answer the worker has already given, which is
 		// exactly the fields above it. This select reads one of each.
 		const doc = surveyDoc([
-			f({ uuid: FIELD_3, kind: "text", id: "above", label: "Above" }),
+			f({
+				uuid: FIELD_3,
+				kind: "text",
+				id: "above",
+				label: proseText("Above"),
+			}),
 			select(
 				FIELD_2,
 				"choice",
@@ -233,7 +226,12 @@ describe("lookup-backed select filter semantics", () => {
 				),
 				"same",
 			),
-			f({ uuid: FIELD_1, kind: "text", id: "below", label: "Below" }),
+			f({
+				uuid: FIELD_1,
+				kind: "text",
+				id: "below",
+				label: proseText("Below"),
+			}),
 		]);
 
 		const findings = semanticFindings(doc);
@@ -249,7 +247,7 @@ describe("lookup-backed select filter semantics", () => {
 				uuid: FIELD_1,
 				kind: "label",
 				id: "instructions",
-				label: "Instructions",
+				label: proseText("Instructions"),
 			}),
 			select(
 				FIELD_2,
@@ -278,7 +276,7 @@ describe("lookup-backed select filter semantics", () => {
 			uuid: FIELD_3,
 			kind: "multi_select",
 			id: "many_choices",
-			label: "Many choices",
+			label: proseText("Many choices"),
 			options: [
 				{ value: "a", label: "A" },
 				{ value: "b", label: "B" },
@@ -319,31 +317,31 @@ describe("lookup-backed select filter semantics", () => {
 				uuid: FIELD_1,
 				kind: "text",
 				id: "root",
-				label: "Root",
+				label: proseText("Root"),
 			}),
 			f({
 				uuid: FIELD_2,
 				kind: "repeat",
 				id: "outer",
-				label: "Outer",
+				label: proseText("Outer"),
 				children: [
 					f({
 						uuid: FIELD_3,
 						kind: "text",
 						id: "outer_value",
-						label: "Outer value",
+						label: proseText("Outer value"),
 					}),
 					f({
 						uuid: FIELD_4,
 						kind: "repeat",
 						id: "inner",
-						label: "Inner",
+						label: proseText("Inner"),
 						children: [
 							f({
 								uuid: FIELD_5,
 								kind: "text",
 								id: "inner_value",
-								label: "Inner value",
+								label: proseText("Inner value"),
 							}),
 							select(
 								FIELD_6,
@@ -367,13 +365,13 @@ describe("lookup-backed select filter semantics", () => {
 				uuid: FIELD_1,
 				kind: "repeat",
 				id: "left",
-				label: "Left",
+				label: proseText("Left"),
 				children: [
 					f({
 						uuid: FIELD_2,
 						kind: "text",
 						id: "left_value",
-						label: "Left value",
+						label: proseText("Left value"),
 					}),
 					select(
 						FIELD_3,
@@ -388,13 +386,13 @@ describe("lookup-backed select filter semantics", () => {
 						uuid: FIELD_4,
 						kind: "repeat",
 						id: "child",
-						label: "Child",
+						label: proseText("Child"),
 						children: [
 							f({
 								uuid: FIELD_5,
 								kind: "text",
 								id: "child_value",
-								label: "Child value",
+								label: proseText("Child value"),
 							}),
 						],
 					}),
@@ -404,13 +402,13 @@ describe("lookup-backed select filter semantics", () => {
 				uuid: FIELD_7,
 				kind: "repeat",
 				id: "right",
-				label: "Right",
+				label: proseText("Right"),
 				children: [
 					f({
 						uuid: FIELD_8,
 						kind: "text",
 						id: "right_value",
-						label: "Right value",
+						label: proseText("Right value"),
 					}),
 				],
 			}),
@@ -437,7 +435,7 @@ describe("lookup-backed select filter semantics", () => {
 					"choice",
 					and(
 						eq(prop("patient", "region"), literal("North")),
-						eq(input("region_query"), literal("North")),
+						eq(input(testUuid("region_query")), literal("North")),
 					),
 				),
 			],
@@ -564,7 +562,7 @@ describe("lookup type-context integration", () => {
 				uuid: FIELD_3,
 				kind: "text",
 				id: "later",
-				label: "Later",
+				label: proseText("Later"),
 			}),
 		]);
 
@@ -603,7 +601,7 @@ describe("lookup type-context integration", () => {
 				uuid: FIELD_3,
 				kind: "text",
 				id: "future",
-				label: "Future",
+				label: proseText("Future"),
 			}),
 		]);
 		const moduleUuid = doc.moduleOrder[0];
@@ -698,7 +696,7 @@ describe("lookup type-context integration", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 							],
@@ -831,7 +829,7 @@ describe("lookup type-context integration", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 							],
@@ -1031,7 +1029,7 @@ describe("lookup type-context integration", () => {
 									f({
 										kind: "text",
 										id: "case_name",
-										label: "Name",
+										label: proseText("Name"),
 										case_property_on: "patient",
 									}),
 								],
@@ -1096,7 +1094,7 @@ describe("lookup type-context integration", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 							],

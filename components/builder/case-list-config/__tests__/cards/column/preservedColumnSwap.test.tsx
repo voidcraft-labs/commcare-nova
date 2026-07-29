@@ -32,10 +32,8 @@
 // `columnCardSchemas[target].defaultValue(ctx)`, so calling the pure
 // function with the same `ctx` reproduces them exactly.
 
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-
 import {
 	type CaseType,
 	calculatedColumn,
@@ -45,6 +43,7 @@ import {
 	plainColumn,
 } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { preservedColumnSwap } from "../../../ColumnEditor";
 import type { ColumnEditContext } from "../../../columnEditorSchemas";
 

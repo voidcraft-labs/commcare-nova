@@ -21,12 +21,12 @@
 //   - Parent linkage: child case types resolve `parent_case_id`
 //     from `parentRefs`; orphan case types produce `null`.
 
-import { proseText } from "@/lib/domain/prose";
 import Ajv2020 from "ajv/dist/2020";
 import addFormats from "ajv-formats";
 import { describe, expect, it } from "vitest";
 import type { CaseType } from "@/lib/domain";
 import { caseTypeToJsonSchema } from "@/lib/domain/predicate/jsonSchema";
+import { proseText } from "@/lib/domain/prose";
 import type { JsonObject } from "../../sql/database";
 import { HeuristicCaseGenerator } from "../heuristic";
 import { createSeededPrng, hashStringToUint32 } from "../prng";

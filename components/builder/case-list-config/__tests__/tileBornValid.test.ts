@@ -6,7 +6,6 @@
 // adjudication `useBlueprintMutations` performs — rather than trusting
 // the planner's own arithmetic.
 
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
@@ -20,6 +19,7 @@ import {
 	plainColumn,
 	type Uuid,
 } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import {
 	nextFreeTilePlacement,
 	placementForJoiningTile,
@@ -54,7 +54,7 @@ function docWithColumns(columns: readonly Column[]): {
 					{
 						name: "Follow up",
 						type: "followup",
-						fields: [{ kind: "text", id: "note", label: "Note" }],
+						fields: [{ kind: "text", id: "note", label: proseText("Note") }],
 					},
 				],
 			},
@@ -101,7 +101,7 @@ describe("turning the tile on", () => {
 			column("case_name", "Patient name"),
 		]);
 		const verdict = accepts(doc, [
-			{ kind: "setCaseListMeta", uuid: moduleUuid, patch: {}, tilePatch: {} },
+			{ kind: "setCaseListMeta", uuid: moduleUuid, patch: { tile: {} } },
 		]);
 		expect(verdict.ok).toBe(false);
 		if (verdict.ok) return;
@@ -162,7 +162,7 @@ describe("joining Results while it is a tile", () => {
 			}),
 		]);
 		const enabled = accepts(doc, [
-			{ kind: "setCaseListMeta", uuid: moduleUuid, patch: {}, tilePatch: {} },
+			{ kind: "setCaseListMeta", uuid: moduleUuid, patch: { tile: {} } },
 		]);
 		if (!enabled.ok) throw new Error("tile did not turn on");
 		return { doc: enabled.nextDoc, moduleUuid };
@@ -206,7 +206,7 @@ describe("joining Results while it is a tile", () => {
 			}),
 		]);
 		const enabled = accepts(doc, [
-			{ kind: "setCaseListMeta", uuid: moduleUuid, patch: {}, tilePatch: {} },
+			{ kind: "setCaseListMeta", uuid: moduleUuid, patch: { tile: {} } },
 		]);
 		expect(enabled.ok).toBe(true);
 		if (!enabled.ok) return;
@@ -267,10 +267,12 @@ describe("joining Results while it is a tile", () => {
 			{
 				kind: "addColumn",
 				moduleUuid,
-				column: column("village", "Village"),
+				column: {
+					...column("village", "Village"),
+					tile: place,
+				} as Column,
 				afterInList: null,
 				afterInDetail: null,
-				tileCell: place,
 			},
 		]);
 		expect(verdict.ok).toBe(true);

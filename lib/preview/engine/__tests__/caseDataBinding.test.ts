@@ -27,7 +27,6 @@
 // not an error. The case-store layer enforces the filter at the
 // SQL layer; the binding inherits the structural enforcement.
 
-import { proseText } from "@/lib/domain/prose";
 import type { Kysely } from "kysely";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -99,6 +98,7 @@ import {
 	today,
 	whenInput,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { buildDoc, f } from "../../../__tests__/docHelpers";
 import { validateCaptureSubmissionProjection } from "../captureSubmissionValidation";
 import {
@@ -327,7 +327,7 @@ function submissionEnvelopeArgs(
 			built?.submissionReceipt ??
 			({
 				entryKey: mutation.entryKey,
-				formUuid: mutation.formUuid,
+				formUuid: testUuid(mutation.formUuid),
 				expectedAppMutationSeq: 0,
 				requestDigest: `case-data-binding-request-${submissionEnvelopeReceiptSequence}`,
 			} as const),
@@ -1133,7 +1133,10 @@ describe("readCases — running-app search-input composition", () => {
 						{
 							kind: "match",
 							property: prop("patient", "name"),
-							value: { kind: "term", term: input("name_prefix") },
+							value: {
+								kind: "term",
+								term: input(READCASES_ADVANCED_INPUT_UUID),
+							},
 							mode: "starts-with",
 						},
 					),
@@ -1183,8 +1186,8 @@ describe("readCases — running-app search-input composition", () => {
 				),
 			],
 			filter: whenInput(
-				input("name_filter"),
-				eq(prop("patient", "name"), input("name_filter")),
+				input(READCASES_ADVANCED_INPUT_UUID),
+				eq(prop("patient", "name"), input(READCASES_ADVANCED_INPUT_UUID)),
 			),
 		});
 
@@ -3977,7 +3980,7 @@ describe("submitFormAction", () => {
 									uuid: "70000000-0000-4000-8000-00000000b012",
 									kind: "text",
 									id: "note",
-									label: "Note",
+									label: proseText("Note"),
 								}),
 							],
 						},
@@ -4392,7 +4395,7 @@ describe("submitFormAction", () => {
 									uuid: "51111111-1111-4111-8111-111111111111",
 									kind: "image",
 									id: "photo",
-									label: "Photo",
+									label: proseText("Photo"),
 								}),
 							],
 						},
@@ -4644,7 +4647,7 @@ describe("submitFormAction", () => {
 									uuid: "81111111-1111-4111-8111-111111111111",
 									kind: "image",
 									id: "photo",
-									label: "Photo",
+									label: proseText("Photo"),
 								}),
 							],
 						},
@@ -5035,11 +5038,12 @@ describe("loadCasesAction", () => {
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
+		const monthInputUuid = testUuid("month-input");
 		const predicate = whenInput(
-			input("months"),
+			input(monthInputUuid),
 			eq(
 				prop("patient", "due_date"),
-				dateAdd(today(), "months", double(term(input("months")))),
+				dateAdd(today(), "months", double(term(input(monthInputUuid)))),
 			),
 		);
 
@@ -5052,7 +5056,7 @@ describe("loadCasesAction", () => {
 				columns: [],
 				searchInputs: [
 					advancedSearchInputDef(
-						testUuid("month-input"),
+						monthInputUuid,
 						"months",
 						"Months",
 						"text",
@@ -5205,7 +5209,7 @@ describe("loadCasesAction", () => {
 			"dob",
 		);
 		const excludedOwnerIdsExpression = ifExpr(
-			not(whenInput(input("visit_dates"), matchNone())),
+			not(whenInput(input(rangeInput.uuid), matchNone())),
 			term(literal("range-owner")),
 			term(literal("")),
 		);

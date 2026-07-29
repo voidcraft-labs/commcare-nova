@@ -1,10 +1,10 @@
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { calculatedColumn, dateColumn, plainColumn } from "@/lib/domain";
 import { prop, term } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { runValidation } from "../../../runner";
 
 describe("columnReferences", () => {
@@ -27,7 +27,7 @@ describe("columnReferences", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 							],
@@ -78,7 +78,7 @@ describe("columnReferences", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 							],
@@ -116,13 +116,13 @@ describe("columnReferences", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 								f({
 									kind: "int",
 									id: "age",
-									label: "Age",
+									label: proseText("Age"),
 									case_property_on: "patient",
 								}),
 							],
@@ -169,7 +169,7 @@ describe("columnReferences", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 							],
@@ -218,7 +218,7 @@ describe("columnReferences", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 							],
@@ -260,7 +260,7 @@ describe("columnReferences", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 							],
@@ -302,7 +302,7 @@ describe("columnReferences", () => {
 						{
 							name: "Survey",
 							type: "survey",
-							fields: [f({ kind: "text", id: "q", label: "Q" })],
+							fields: [f({ kind: "text", id: "q", label: proseText("Q") })],
 						},
 					],
 				},

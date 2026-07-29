@@ -15,15 +15,14 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f, xpIn } from "@/lib/__tests__/docHelpers";
 import {
 	addFieldMutations,
-	findFieldByBareId,
 	updateFormMutations,
 } from "@/lib/agent/blueprintHelpers";
 import { deriveCaseConfig } from "@/lib/commcare/deriveCaseConfig";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
-
 import type { Field, Form, FormType } from "@/lib/domain";
 import { expressionSource } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 
 // ── Fixture builders ──────────────────────────────────────────────────
 
@@ -47,7 +46,9 @@ function makeShellDoc(type: FormType = "registration"): BlueprintDoc {
 				? [
 						{
 							name: "patient",
-							properties: [{ name: "case_name", label: "Full Name" }],
+							properties: [
+								{ name: "case_name", label: proseText("Full Name") },
+							],
 						},
 					]
 				: null,
@@ -86,7 +87,7 @@ function textField(
 	return {
 		uuid: testUuid(crypto.randomUUID()),
 		id,
-		label,
+		label: proseText(label),
 		kind: "text",
 		...(extras as object),
 	} as Field;
@@ -97,7 +98,7 @@ function groupField(id: string, label: string): Field {
 	return {
 		uuid: testUuid(crypto.randomUUID()),
 		id,
-		label,
+		label: proseText(label),
 		kind: "group",
 	} as Field;
 }
@@ -155,12 +156,23 @@ describe("Form Builder Agent Integration — mutation-builder helpers", () => {
 			const field: Field = {
 				uuid: testUuid(crypto.randomUUID()),
 				id: "gender",
-				label: "Gender",
+				label: proseText("Gender"),
 				kind: "single_select",
-				options: [
-					{ value: "male", label: "Male" },
-					{ value: "female", label: "Female" },
-				],
+				optionsSource: {
+					kind: "inline",
+					options: [
+						{
+							uuid: testUuid("gender-male"),
+							value: "male",
+							label: proseText("Male"),
+						},
+						{
+							uuid: testUuid("gender-female"),
+							value: "female",
+							label: proseText("Female"),
+						},
+					],
+				},
 				case_property_on: "gender",
 			} as Field;
 			const doc1 = apply(
@@ -169,11 +181,17 @@ describe("Form Builder Agent Integration — mutation-builder helpers", () => {
 			);
 
 			const uuid = doc1.fieldOrder[FORM][0];
-			const stored = doc1.fields[uuid] as {
-				options?: Array<{ value: string; label: string }>;
-			};
-			expect(stored.options).toHaveLength(2);
-			expect(stored.options?.[0].value).toBe("male");
+			const stored = doc1.fields[uuid];
+			expect(
+				stored.kind === "single_select" &&
+					stored.optionsSource.kind === "inline" &&
+					stored.optionsSource.options,
+			).toHaveLength(2);
+			expect(
+				stored.kind === "single_select" &&
+					stored.optionsSource.kind === "inline" &&
+					stored.optionsSource.options[0]?.value,
+			).toBe("male");
 		});
 
 		it("adds a hidden calculated field", () => {
@@ -197,11 +215,11 @@ describe("Form Builder Agent Integration — mutation-builder helpers", () => {
 				addFieldMutations(doc, { parentUuid: FORM, field: hidden }),
 			);
 
-			const found = findFieldByBareId(doc, FORM, "age_group");
+			const found = doc.fields[hidden.uuid];
 			expect(found).toBeDefined();
-			expect(found?.field.kind).toBe("hidden");
+			expect(found?.kind).toBe("hidden");
 			expect(
-				found ? expressionSource(found.field, "calculate", doc) : undefined,
+				found ? expressionSource(found, "calculate", doc) : undefined,
 			).toBe("if(/data/age < 18, 'child', 'adult')");
 		});
 
@@ -322,11 +340,11 @@ describe("child case derivation via case_property_on annotations", () => {
 	const caseTypes = [
 		{
 			name: "patient",
-			properties: [{ name: "case_name", label: "Full Name" }],
+			properties: [{ name: "case_name", label: proseText("Full Name") }],
 		},
 		{
 			name: "referral",
-			properties: [{ name: "case_name", label: "Referral Name" }],
+			properties: [{ name: "case_name", label: proseText("Referral Name") }],
 		},
 	];
 
@@ -345,13 +363,13 @@ describe("child case derivation via case_property_on annotations", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Referral Name",
+									label: proseText("Referral Name"),
 									case_property_on: "referral",
 								}),
 								f({
 									kind: "text",
 									id: "referral_reason",
-									label: "Referral Reason",
+									label: proseText("Referral Reason"),
 									case_property_on: "referral",
 								}),
 							],
@@ -386,19 +404,19 @@ describe("child case derivation via case_property_on annotations", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Patient Name",
+									label: proseText("Patient Name"),
 									case_property_on: "patient",
 								}),
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Referral Name",
+									label: proseText("Referral Name"),
 									case_property_on: "referral",
 								}),
 								f({
 									kind: "text",
 									id: "referral_reason",
-									label: "Reason",
+									label: proseText("Reason"),
 									case_property_on: "referral",
 								}),
 							],

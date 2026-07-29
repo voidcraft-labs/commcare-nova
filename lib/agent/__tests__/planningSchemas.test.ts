@@ -12,6 +12,8 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { xp } from "@/lib/__tests__/docHelpers";
+import { proseText } from "@/lib/domain/prose";
 import {
 	caseTypeRecordSchema,
 	cleanCaseTypeRecord,
@@ -21,7 +23,7 @@ import {
 
 const validRecord = {
 	name: "patient",
-	properties: [{ name: "case_name", label: "Full name" }],
+	properties: [{ name: "case_name", label: proseText("Full name") }],
 };
 
 describe("caseTypeRecordSchema", () => {
@@ -45,7 +47,7 @@ describe("caseTypeRecordSchema", () => {
 			properties: [
 				{
 					name: "case_name",
-					label: "Client name",
+					label: proseText("Client name"),
 					data_type: null,
 					hint: null,
 					required: null,
@@ -91,7 +93,7 @@ describe("caseTypeRecordSchema", () => {
 		] as const) {
 			const result = caseTypeRecordSchema.safeParse({
 				...validRecord,
-				properties: [{ name: "age", label: "Age", ...overrides }],
+				properties: [{ name: "age", label: proseText("Age"), ...overrides }],
 			});
 			expect(result.success).toBe(false);
 		}
@@ -101,7 +103,11 @@ describe("caseTypeRecordSchema", () => {
 		const result = caseTypeRecordSchema.safeParse({
 			...validRecord,
 			properties: [
-				{ name: "age", label: "Age", validation_msg: "Must be 0-150" },
+				{
+					name: "age",
+					label: proseText("Age"),
+					validation_msg: proseText("Must be 0-150"),
+				},
 			],
 		});
 		expect(result.success).toBe(false);
@@ -114,9 +120,9 @@ describe("caseTypeRecordSchema", () => {
 			properties: [
 				{
 					name: "age",
-					label: "Age",
+					label: proseText("Age"),
 					data_type: "int",
-					options: [{ value: "unused", label: "unused" }],
+					options: [{ value: "unused", label: proseText("unused") }],
 				},
 			],
 		});
@@ -130,11 +136,11 @@ describe("caseTypeRecordSchema", () => {
 			properties: [
 				{
 					name: "status",
-					label: "Status",
+					label: proseText("Status"),
 					data_type: "single_select",
 					options: [
-						{ value: "open", label: "Open" },
-						{ value: "closed", label: "Closed" },
+						{ value: "open", label: proseText("Open") },
+						{ value: "closed", label: proseText("Closed") },
 					],
 				},
 			],
@@ -152,10 +158,10 @@ describe("cleanCaseTypeRecord", () => {
 			properties: [
 				{
 					name: "age",
-					label: "Age",
+					label: proseText("Age"),
 					data_type: "int",
 					hint: null,
-					required: "true()",
+					required: xp("true()"),
 					validation: null,
 					validation_msg: null,
 					options: null,
@@ -166,7 +172,12 @@ describe("cleanCaseTypeRecord", () => {
 		expect(clean).toEqual({
 			name: "client",
 			properties: [
-				{ name: "age", label: "Age", data_type: "int", required: "true()" },
+				{
+					name: "age",
+					label: proseText("Age"),
+					data_type: "int",
+					required: xp("true()"),
+				},
 			],
 		});
 		expect("parent_type" in clean).toBe(false);
@@ -180,7 +191,7 @@ describe("cleanCaseTypeRecord", () => {
 	])("canonicalizes legacy catalog property %s to %s", (legacy, canonical) => {
 		const parsed = caseTypeRecordSchema.parse({
 			name: "client",
-			properties: [{ name: legacy, label: "Value" }],
+			properties: [{ name: legacy, label: proseText("Value") }],
 		});
 		expect(cleanCaseTypeRecord(parsed).properties[0]?.name).toBe(canonical);
 	});
@@ -189,8 +200,8 @@ describe("cleanCaseTypeRecord", () => {
 		const result = caseTypeRecordSchema.safeParse({
 			name: "client",
 			properties: [
-				{ name: "case_name", label: "Case name" },
-				{ name: "name", label: "Name" },
+				{ name: "case_name", label: proseText("Case name") },
+				{ name: "name", label: proseText("Name") },
 			],
 		});
 		expect(result.success).toBe(false);

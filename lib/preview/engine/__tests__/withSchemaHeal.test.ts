@@ -27,6 +27,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type { CaseStore } from "@/lib/case-store";
 import {
 	CasePropertiesValidationError,
@@ -271,7 +272,7 @@ describe("schemaHealingCaseStore — the whole submission envelope is one healed
 
 		const mutation: SubmissionMutation = {
 			kind: "followup",
-			formUuid: "10000000-0000-4000-8000-000000000001",
+			formUuid: testUuid("10000000-0000-4000-8000-000000000001"),
 			entryKey: "10000000-0000-4000-8000-000000000002",
 			attachmentRefs: [],
 			caseId: "mother-1",
@@ -288,7 +289,7 @@ describe("schemaHealingCaseStore — the whole submission envelope is one healed
 		const envelope = submissionEnvelopeArgs(mutation, "app-1", {
 			submissionReceipt: {
 				entryKey: mutation.entryKey,
-				formUuid: mutation.formUuid,
+				formUuid: testUuid(mutation.formUuid),
 				expectedAppMutationSeq: 0,
 				requestDigest: "schema-heal-submission",
 			},

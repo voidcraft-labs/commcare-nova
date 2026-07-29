@@ -59,8 +59,10 @@ import {
 } from "@/lib/db/mediaAssets";
 import { getAppDb } from "@/lib/db/pg";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
+import { type IconRef, isBuiltinIconRef } from "@/lib/domain/builtinIcons";
 import type { AssetRef, MediaSlotKind } from "@/lib/domain/mediaRefs";
 import { walkAssetRefs } from "@/lib/domain/mediaRefs";
+import { partitionAssetRefs } from "@/lib/media/builtinIconAssets";
 import { printHeader, printKV, printSection } from "./lib/format";
 import { runMain } from "./lib/main";
 import { targetProdDb } from "./lib/prodDb";
@@ -132,8 +134,9 @@ type RefState = "ready" | "pending" | "missing" | "kind-mismatch";
 /**
  * One classified reference: the raw `AssetRef` (carrier location +
  * expected slot kind), the resolved state, and the resolved row when
- * one was found. `record` is `undefined` only for `missing` refs —
- * every other state implies a row.
+ * one was found. `record` is also absent for a ready built-in icon,
+ * because built-ins resolve from the shipped catalog rather than a
+ * Project-scoped database row.
  */
 interface ClassifiedRef {
 	readonly ref: AssetRef;
@@ -160,6 +163,9 @@ function classifyRef(
 	ref: AssetRef,
 	assetsById: ReadonlyMap<string, MediaAssetRecord>,
 ): ClassifiedRef {
+	if (isBuiltinIconRef(ref.assetId)) {
+		return { ref, state: "ready", record: undefined };
+	}
 	const record = assetsById.get(ref.assetId);
 	if (!record) return { ref, state: "missing", record: undefined };
 	if (record.status !== "ready") return { ref, state: "pending", record };
@@ -390,18 +396,18 @@ async function scanProject(projectId: string): Promise<void> {
 	// Union of every referenced asset id across all the Project's apps —
 	// the input to the single batched load AND the referenced-set the
 	// orphan analysis subtracts from the ready library list.
-	const referencedIds = new Set<string>();
+	const referencedIds = new Set<IconRef>();
 	for (const app of apps) {
 		for (const ref of walkAssetRefs(app.doc)) referencedIds.add(ref.assetId);
 	}
+	const { realIds } = partitionAssetRefs([...referencedIds]);
+	const realReferencedIds = new Set<string>(realIds);
 
 	// One Project-filtered load resolves ready + pending rows for every
 	// referenced id; a foreign-Project or deleted id simply isn't returned
 	// (→ classified `missing`), so the load doubles as the tenant gate.
 	const rows =
-		referencedIds.size === 0
-			? []
-			: await loadAssetsByIds([...referencedIds], projectId);
+		realIds.length === 0 ? [] : await loadAssetsByIds(realIds, projectId);
 	const assetsById = new Map(rows.map((row) => [row.id as string, row]));
 
 	const readiness = apps.map((app) =>
@@ -410,7 +416,7 @@ async function scanProject(projectId: string): Promise<void> {
 	for (const app of readiness) printAppBlock(app);
 
 	printProjectTotals(readiness);
-	await printOrphans(projectId, referencedIds);
+	await printOrphans(projectId, realReferencedIds);
 }
 
 /**
@@ -537,13 +543,12 @@ async function scanApp(appId: string): Promise<void> {
 		doc: hydratePersistedBlueprint(app.blueprint),
 	};
 
-	const referencedIds = new Set<string>();
+	const referencedIds = new Set<IconRef>();
 	for (const ref of walkAssetRefs(loaded.doc)) referencedIds.add(ref.assetId);
+	const { realIds } = partitionAssetRefs([...referencedIds]);
 
 	const rows =
-		referencedIds.size === 0
-			? []
-			: await loadAssetsByIds([...referencedIds], projectId);
+		realIds.length === 0 ? [] : await loadAssetsByIds(realIds, projectId);
 	const assetsById = new Map(rows.map((row) => [row.id as string, row]));
 
 	const readiness = classifyApp(appId, loaded.appName, loaded.doc, assetsById);

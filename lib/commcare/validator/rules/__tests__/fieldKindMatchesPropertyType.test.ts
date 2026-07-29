@@ -1,7 +1,7 @@
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { proseText } from "@/lib/domain/prose";
 import { runValidation } from "../../runner";
 
 describe("fieldKindMatchesPropertyType", () => {
@@ -23,13 +23,13 @@ describe("fieldKindMatchesPropertyType", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 								f({
 									kind: "int",
 									id: "label",
-									label: "Label",
+									label: proseText("Label"),
 									case_property_on: "patient",
 								}),
 							],
@@ -72,7 +72,7 @@ describe("fieldKindMatchesPropertyType", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 							],
@@ -116,19 +116,19 @@ describe("fieldKindMatchesPropertyType", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 								f({
 									kind: "barcode",
 									id: "tag",
-									label: "Tag",
+									label: proseText("Tag"),
 									case_property_on: "patient",
 								}),
 								f({
 									kind: "secret",
 									id: "pin",
-									label: "PIN",
+									label: proseText("PIN"),
 									case_property_on: "patient",
 								}),
 							],
@@ -174,7 +174,7 @@ describe("fieldKindMatchesPropertyType", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 								// Hidden field with `case_property_on` — the rule must
@@ -231,13 +231,13 @@ describe("fieldKindMatchesPropertyType", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 								f({
 									kind: "int",
 									id: "untyped",
-									label: "Untyped",
+									label: proseText("Untyped"),
 									case_property_on: "patient",
 								}),
 							],
@@ -284,13 +284,13 @@ describe("fieldKindMatchesPropertyType", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 								f({
 									kind: "int",
 									id: "weight",
-									label: "Weight",
+									label: proseText("Weight"),
 									case_property_on: "patient",
 								}),
 							],
@@ -302,7 +302,7 @@ describe("fieldKindMatchesPropertyType", () => {
 								f({
 									kind: "decimal",
 									id: "weight",
-									label: "Weight",
+									label: proseText("Weight"),
 									case_property_on: "patient",
 								}),
 							],
@@ -346,18 +346,18 @@ describe("fieldKindMatchesPropertyType", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 								f({
 									kind: "group",
 									id: "demographics",
-									label: "Demographics",
+									label: proseText("Demographics"),
 									children: [
 										f({
 											kind: "int",
 											id: "label",
-											label: "Label",
+											label: proseText("Label"),
 											case_property_on: "patient",
 										}),
 									],
@@ -410,13 +410,13 @@ describe("tuple-key encoding is collision-free over arbitrary docs", () => {
 								f({
 									kind: "text",
 									id: "c",
-									label: "C",
+									label: proseText("C"),
 									case_property_on: "a::b",
 								}),
 								f({
 									kind: "int",
 									id: "b::c",
-									label: "BC",
+									label: proseText("BC"),
 									case_property_on: "a",
 								}),
 							],

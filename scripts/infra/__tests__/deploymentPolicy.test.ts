@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 
@@ -21,6 +22,10 @@ const cleanupEntrypoint = readFileSync(
 );
 const captureBucketPolicy = readFileSync(
 	"scripts/infra/capture-bucket-policy.mjs",
+	"utf8",
+);
+const deployPolicy = readFileSync(
+	"scripts/rollout/deploy-cloud-run.py",
 	"utf8",
 );
 
@@ -55,6 +60,7 @@ describe("durable deployment policy", () => {
 		}
 		expect(dockerfile).not.toContain("rollout.cjs");
 		expect(dockerfile).not.toContain("capacity-preflight.cjs");
+		expect(cloudBuild).toContain("python3 scripts/rollout/deploy-cloud-run.py");
 		expect(dockerignore).toContain("!scripts/infra/databaseOwnerBootstrap.ts");
 		expect(cloudBuild).toContain("https://commcare.app/");
 		expect(cloudBuild).toContain("https://docs.commcare.app/");
@@ -71,7 +77,9 @@ describe("durable deployment policy", () => {
 		expect(cloudBuild).toContain(
 			"--no-default-url --ingress=internal-and-cloud-load-balancing",
 		);
-		expect(cloudBuild).toContain("--min-instances=1 --max=4 --max-instances=4");
+		expect(cloudBuild).toContain(
+			"--min=1 --max=4 --min-instances=1 --max-instances=4",
+		);
 		expect(cloudSqlProvisioning).toContain(
 			"readonly CLOUD_RUN_MAX_INSTANCES=4",
 		);
@@ -84,6 +92,36 @@ describe("durable deployment policy", () => {
 			'--max-instances="$CLOUD_RUN_MAX_INSTANCES"',
 		);
 		expect(cloudSqlProvisioning).toContain("NOVA_DB_WORKLOAD=service");
+	});
+
+	test("preserves manual-zero until the exact candidate owns traffic", () => {
+		expect(
+			execFileSync(
+				"python3",
+				["scripts/rollout/deploy-cloud-run.py", "--policy-self-test"],
+				{ encoding: "utf8" },
+			),
+		).toContain("policy self-test passed");
+		expect(deployPolicy).toContain(
+			'"Cloud Run deploy accepts only automatic scaling or manual scaling "',
+		);
+		expect(deployPolicy).toContain(
+			'"The exact candidate must own 100% traffic and every old revision "',
+		);
+		expect(deployPolicy).toContain(
+			'"Scaling-only update created or removed a revision."',
+		);
+		expect(deployPolicy).toContain('"--scaling=auto"');
+		expect(deployPolicy).toContain("NOVA_DEPLOY_PRESTATE=");
+		expect(deployPolicy).toContain("NOVA_DEPLOY_CANDIDATE=");
+		expect(deployPolicy).toContain("NOVA_DEPLOY_RESULT=");
+		const deployStep = cloudBuild.slice(
+			stepOffset("deploy"),
+			stepOffset("verify"),
+		);
+		expect(deployStep).not.toMatch(/^\s+--scaling=/m);
+		expect(cloudBuild).not.toContain("--no-deploy-health-check");
+		expect(cloudBuild).not.toMatch(/^\s*status=/m);
 	});
 
 	test("preserves the exact Cloud SQL flags and dedicated database identities", () => {
@@ -135,9 +173,16 @@ describe("durable deployment policy", () => {
 			expect(dockerignore).toContain(`!${entrypoint}`);
 		}
 		expect(migrateEntrypoint).not.toContain("DatabaseCapacityPreflight");
+		expect(migrateEntrypoint).toContain("runCanonicalRuntimeDatabaseProbe");
+		expect(migrateEntrypoint).toContain(
+			"terminateAndAssertNoRuntimeDatabaseSessions",
+		);
 		expect(cleanupEntrypoint).not.toContain("DatabaseCapacityPreflight");
 		expect(cleanupEntrypoint).not.toContain("CaptureCleanupMode");
 		expect(cleanupEntrypoint).not.toContain("probeCaptureStorageAuthority");
+		expect(dockerfile).toContain(
+			"npx esbuild scripts/migrate.ts \\\n      --bundle --platform=node --target=node24 --format=cjs \\\n      --conditions=react-server",
+		);
 	});
 
 	test("keeps build, migration, runtime, and cleanup authority distinct", () => {
@@ -185,6 +230,14 @@ describe("durable deployment policy", () => {
 		expect(cloudBuild).not.toContain(
 			"gcloud run jobs execute commcare-nova-capture-cleanup",
 		);
+		expect(cloudBuild).toContain("--args=capture-cleanup.cjs,--probe-schema");
+		expect(cloudBuild).toContain(
+			'scheduler_state_after="$$(gcloud scheduler jobs describe',
+		);
+		expect(cloudBuild).toContain(
+			'"$${scheduler_state_after}" != "$${scheduler_state_before}"',
+		);
+		expect(cleanupEntrypoint).toContain("runCaptureCleanupSchemaProbe");
 		expect(cloudBuild).toContain('--schedule="*/5 * * * *"');
 		expect(cloudBuild).toContain("NOVA_DB_WORKLOAD=capture-cleanup");
 		expect(cloudBuild).toContain("NOVA_DB_WORKLOAD=migration");

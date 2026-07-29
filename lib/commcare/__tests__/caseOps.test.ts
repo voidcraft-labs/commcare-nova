@@ -1,4 +1,3 @@
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
@@ -12,7 +11,6 @@ import {
 	caseOperationTextValueGuard,
 } from "@/lib/commcare/xform/caseOps";
 import { addMetaBlock } from "@/lib/commcare/xform/metaBlock";
-
 import {
 	authoredCaseIdPrefix,
 	type CaseOperation,
@@ -34,6 +32,7 @@ import {
 	term,
 	unowned,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { evaluate } from "@/lib/preview/xpath/evaluator";
 
 const XMLNS = "http://openrosa.org/formdesigner/nova-case-operations-test";
@@ -47,7 +46,7 @@ const FORM = testUuid("66666666-6666-4666-8666-666666666666");
 function emit(
 	operations: readonly CaseOperation[],
 	fields: Parameters<typeof f>[0][] = [
-		f({ uuid: NAME, kind: "text", id: "name", label: "Name" }),
+		f({ uuid: NAME, kind: "text", id: "name", label: proseText("Name") }),
 	],
 ): string {
 	const doc = buildDoc({
@@ -286,10 +285,15 @@ describe("case-operation XForm emission", () => {
 				uuid: REPEAT,
 				kind: "repeat",
 				id: "items",
-				label: "Items",
+				label: proseText("Items"),
 				repeat_mode: "user_controlled",
 				children: [
-					f({ uuid: ITEM_ID, kind: "text", id: "item_id", label: "ID" }),
+					f({
+						uuid: ITEM_ID,
+						kind: "text",
+						id: "item_id",
+						label: proseText("ID"),
+					}),
 				],
 			}),
 		];
@@ -334,13 +338,18 @@ describe("case-operation XForm emission", () => {
 				uuid: REPEAT,
 				kind: "repeat",
 				id: "items",
-				label: "Items",
+				label: proseText("Items"),
 				repeat_mode: "query_bound",
 				data_source: {
 					ids_query: "instance('casedb')/casedb/case/@case_id",
 				},
 				children: [
-					f({ uuid: ITEM_ID, kind: "text", id: "item_id", label: "ID" }),
+					f({
+						uuid: ITEM_ID,
+						kind: "text",
+						id: "item_id",
+						label: proseText("ID"),
+					}),
 				],
 			}),
 		];
@@ -369,10 +378,15 @@ describe("case-operation XForm emission", () => {
 				uuid: REPEAT,
 				kind: "repeat",
 				id: "items",
-				label: "Items",
+				label: proseText("Items"),
 				repeat_mode: "user_controlled",
 				children: [
-					f({ uuid: ITEM_ID, kind: "text", id: "item_id", label: "ID" }),
+					f({
+						uuid: ITEM_ID,
+						kind: "text",
+						id: "item_id",
+						label: proseText("ID"),
+					}),
 				],
 			}),
 		];
@@ -409,10 +423,15 @@ describe("case-operation XForm emission", () => {
 				uuid: REPEAT,
 				kind: "repeat",
 				id: "items",
-				label: "Items",
+				label: proseText("Items"),
 				repeat_mode: "user_controlled",
 				children: [
-					f({ uuid: ITEM_ID, kind: "text", id: "item_id", label: "ID" }),
+					f({
+						uuid: ITEM_ID,
+						kind: "text",
+						id: "item_id",
+						label: proseText("ID"),
+					}),
 				],
 			}),
 		];
@@ -462,7 +481,7 @@ describe("case-operation XForm emission", () => {
 									uuid: NAME,
 									kind: "text",
 									id: "nickname",
-									label: "Nickname",
+									label: proseText("Nickname"),
 									case_property_on: "patient",
 								}),
 							],

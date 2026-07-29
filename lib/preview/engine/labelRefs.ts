@@ -5,8 +5,8 @@
  * bare hashtag refs and returns the resolved text.
  */
 import {
-	printProseTemplate,
 	type ProseTemplate,
+	printProseTemplate,
 	resolveProseTemplate,
 	type XPathPrintableDoc,
 } from "@/lib/domain";

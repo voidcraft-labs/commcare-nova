@@ -86,6 +86,7 @@
  */
 
 import type { SchemaChangeKind } from "@/lib/case-store";
+import { deepEqual } from "@/lib/doc/deepEqual";
 import {
 	type BlueprintDoc,
 	type CaseProperty,
@@ -389,36 +390,5 @@ function caseTypePropertySurfaceDiffers(
  * embeds is compared verbatim.
  */
 function propertyDiffers(a: CaseProperty, b: CaseProperty): boolean {
-	if (a.name !== b.name) return true;
-	if (a.data_type !== b.data_type) return true;
-	if (a.label !== b.label) return true;
-	if (a.hint !== b.hint) return true;
-	if (a.required !== b.required) return true;
-	if (a.validation !== b.validation) return true;
-	if (a.validation_msg !== b.validation_msg) return true;
-	return optionsDiffer(a.options, b.options);
-}
-
-/**
- * Compare two option lists by value+label tuple in order. Options
- * never reach the emitted JSON Schema (select values validate as
- * plain strings), so any option edit — including a pure reorder —
- * triggers only the cheap opportunistic re-sync described on
- * `caseTypePropertySurfaceDiffers`.
- */
-function optionsDiffer(
-	a: CaseProperty["options"],
-	b: CaseProperty["options"],
-): boolean {
-	if (a === undefined && b === undefined) return false;
-	if (a === undefined || b === undefined) return true;
-	if (a.length !== b.length) return true;
-	for (let i = 0; i < a.length; i++) {
-		const oa = a[i];
-		const ob = b[i];
-		if (oa === undefined || ob === undefined) return true;
-		if (oa.value !== ob.value) return true;
-		if (oa.label !== ob.label) return true;
-	}
-	return false;
+	return !deepEqual(a, b);
 }

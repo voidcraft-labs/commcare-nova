@@ -15,9 +15,9 @@
 //      valid AST. The schema's parse pass is the structural
 //      contract.
 
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { type CaseType, type Column, columnSchema } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import {
 	type ColumnEditContext,
 	columnCardSchemas,

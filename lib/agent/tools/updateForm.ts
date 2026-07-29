@@ -26,7 +26,7 @@
  *
  * Four exit branches:
  *
- *   1. Form index out of range → `{ error }`, no mutations.
+ *   1. Form UUID address does not resolve → `{ error }`, no mutations.
  *   2. An explicit connect id is invalid/duplicate → `{ error }`, no
  *      mutations (nothing written).
  *   3. Form disappeared after the patch (reducer-level rejection) →
@@ -52,14 +52,14 @@ import {
 } from "./common";
 import { collectConnectIds, enforceConnectIds } from "./shared/connectIds";
 import { buildConnectConfig } from "./shared/connectInput";
-import type {
-	MutationSuccess,
-	ToolCallSummary,
-} from "./shared/toolCallSummary";
 import {
 	formAddressSchema,
 	resolveFormAddress,
 } from "./shared/entityAddresses";
+import type {
+	MutationSuccess,
+	ToolCallSummary,
+} from "./shared/toolCallSummary";
 
 export const updateFormInputSchema = formAddressSchema
 	.extend({

@@ -17,6 +17,7 @@
 import type { CaseType } from "../blueprint";
 import type { Uuid } from "../uuid";
 import { relationPropertyDestinationCaseType } from "./normalizeRelationReads";
+import type { SearchInputDecl } from "./typeChecker";
 import type {
 	ComparisonKind,
 	Predicate,
@@ -25,7 +26,6 @@ import type {
 	SwitchCase,
 	ValueExpression,
 } from "./types";
-import type { SearchInputDecl } from "./typeChecker";
 
 export type RelationEvaluationScopeIssue =
 	| "mixed-property-scopes"

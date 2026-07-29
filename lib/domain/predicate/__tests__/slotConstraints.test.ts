@@ -36,6 +36,7 @@ import {
 	type ValueExpression,
 	valueExpressionKindResultClass,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 
 // The real case-property data types — excludes the internal sentinels
 // (`_any` = null literal, `_sequence` = unwrap-list), which never resolve
@@ -85,8 +86,8 @@ describe("comparisonOperatorsFor", () => {
 			{
 				name: "patient",
 				properties: [
-					{ name: "age", label: "Age", data_type: "int" },
-					{ name: "name", label: "Name", data_type: "text" },
+					{ name: "age", label: proseText("Age"), data_type: "int" },
+					{ name: "name", label: proseText("Name"), data_type: "text" },
 				],
 			} as CaseType,
 		];

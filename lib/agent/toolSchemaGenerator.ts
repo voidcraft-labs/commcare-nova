@@ -499,7 +499,7 @@ function buildEditFieldUpdatesSchema(kinds: readonly FieldKind[]) {
  * Bundle of generated SA tool schemas. The `addFieldsItemSchema` is the
  * per-item shape used inside `z.array(...)` for the batch-add tool —
  * exposed separately so consumers that wrap it in their own input
- * schema (which adds `moduleIndex`/`formIndex`) can reuse the same
+ * schema (which adds the canonical module/form UUID address) can reuse the same
  * inferred TS type; its inferred type is also the `FlatField` processing
  * shape the add-path pipeline types against.
  */

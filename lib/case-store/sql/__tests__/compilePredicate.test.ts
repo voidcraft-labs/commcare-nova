@@ -40,7 +40,6 @@
 // tuple-with-rest non-empty arms, etc.) are enforced at parse time
 // rather than at compile time.
 
-import { proseText } from "@/lib/domain/prose";
 import {
 	type CompiledQuery,
 	DummyDriver,
@@ -50,6 +49,7 @@ import {
 	PostgresQueryCompiler,
 } from "kysely";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type { CaseType } from "@/lib/domain";
 import {
 	ancestorPath,
@@ -88,6 +88,7 @@ import {
 	whenInput,
 	within,
 } from "@/lib/domain/predicate/builders";
+import { proseText } from "@/lib/domain/prose";
 import {
 	compilePredicate,
 	type PredicateCompileContext,
@@ -711,14 +712,16 @@ describe("compilePredicate — exists / missing", () => {
 describe("compilePredicate — when-input-present", () => {
 	it("compiles the inner clause when the input is bound", () => {
 		const pred = whenInput(
-			input("region_filter"),
+			input(testUuid("region_filter")),
 			eq(prop("patient", "nickname"), literal("Alice")),
 		);
 		const compiled = compileWith(
 			compilePredicate(
 				pred,
 				makeCtx({
-					bindings: { searchInputs: new Map([["region_filter", "north"]]) },
+					bindings: {
+						searchInputs: new Map([[testUuid("region_filter"), "north"]]),
+					},
 				}),
 			),
 		);
@@ -729,7 +732,7 @@ describe("compilePredicate — when-input-present", () => {
 
 	it("collapses to true when the input is unbound", () => {
 		const pred = whenInput(
-			input("region_filter"),
+			input(testUuid("region_filter")),
 			eq(prop("patient", "nickname"), literal("Alice")),
 		);
 		const compiled = compileWith(compilePredicate(pred, makeCtx()));
@@ -775,12 +778,14 @@ describe("compilePredicate — Postgres-strict null semantics", () => {
 		// `session-context` as scalars, so the strict-absent JSONB
 		// semantic doesn't apply — the standard SQL `IS NULL` is the
 		// right shape.
-		const pred = isNull(input("region_filter"));
+		const pred = isNull(input(testUuid("region_filter")));
 		const compiled = compileWith(
 			compilePredicate(
 				pred,
 				makeCtx({
-					bindings: { searchInputs: new Map([["region_filter", "north"]]) },
+					bindings: {
+						searchInputs: new Map([[testUuid("region_filter"), "north"]]),
+					},
 				}),
 			),
 		);

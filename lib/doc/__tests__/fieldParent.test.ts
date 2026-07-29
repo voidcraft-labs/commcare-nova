@@ -21,7 +21,6 @@
  * same code path as production callers.
  */
 
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
@@ -30,6 +29,7 @@ import type { BlueprintDocStoreApi } from "@/lib/doc/store";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 
 // ── Invariant checker ────────────────────────────────────────────────────────
 
@@ -142,7 +142,7 @@ describe("after addField", () => {
 					uuid: FLD_A,
 					kind: "text",
 					id: "first",
-					label: "First",
+					label: proseText("First"),
 				} as BlueprintDoc["fields"][Uuid],
 				after: null,
 			},
@@ -180,7 +180,7 @@ describe("after addField", () => {
 					uuid: FLD_A,
 					kind: "text",
 					id: "last",
-					label: "Last",
+					label: proseText("Last"),
 				} as BlueprintDoc["fields"][Uuid],
 			},
 		]);
@@ -216,7 +216,7 @@ describe("after addField", () => {
 					uuid: FLD_A,
 					kind: "text",
 					id: "middle",
-					label: "Middle",
+					label: proseText("Middle"),
 				} as BlueprintDoc["fields"][Uuid],
 				after: Object.keys(doc.fields)[0] as Uuid,
 			},
@@ -256,7 +256,7 @@ describe("after addField", () => {
 					uuid: FLD_A,
 					kind: "text",
 					id: "nested",
-					label: "Nested",
+					label: proseText("Nested"),
 				} as BlueprintDoc["fields"][Uuid],
 			},
 		]);
@@ -303,7 +303,7 @@ describe("after addField", () => {
 					uuid: FLD_A,
 					kind: "text",
 					id: "deep",
-					label: "Deep",
+					label: proseText("Deep"),
 				} as BlueprintDoc["fields"][Uuid],
 			},
 		]);
@@ -798,7 +798,7 @@ describe("after applyMany batches", () => {
 					uuid: FLD_A,
 					kind: "text",
 					id: "q1",
-					label: "Q1",
+					label: proseText("Q1"),
 				} as BlueprintDoc["fields"][Uuid],
 			},
 			{
@@ -808,7 +808,7 @@ describe("after applyMany batches", () => {
 					uuid: FLD_B,
 					kind: "text",
 					id: "q2",
-					label: "Q2",
+					label: proseText("Q2"),
 				} as BlueprintDoc["fields"][Uuid],
 			},
 			{
@@ -818,7 +818,7 @@ describe("after applyMany batches", () => {
 					uuid: FLD_C,
 					kind: "text",
 					id: "q3",
-					label: "Q3",
+					label: proseText("Q3"),
 				} as BlueprintDoc["fields"][Uuid],
 			},
 		]);
@@ -862,7 +862,7 @@ describe("after applyMany batches", () => {
 					uuid: FLD_A,
 					kind: "text",
 					id: "new_q",
-					label: "New Q",
+					label: proseText("New Q"),
 				} as BlueprintDoc["fields"][Uuid],
 			},
 			{ kind: "moveField", uuid: FLD_B, toParentUuid: GRP, after: null },
@@ -893,7 +893,7 @@ describe("after applyMany batches", () => {
 					uuid,
 					kind: "text",
 					id: `q${i}`,
-					label: `Q${i}`,
+					label: proseText(`Q${i}`),
 				} as BlueprintDoc["fields"][Uuid],
 			};
 		});

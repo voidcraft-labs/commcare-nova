@@ -13,10 +13,9 @@
 // NOTHING. Both record methods return `{ events, committedDoc }` — the
 // writer's hydrated `nextDoc` — and the SA continues against it.
 
-import { proseText } from "@/lib/domain/prose";
 import type { LanguageModelUsage } from "ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { testUuid } from "@/__tests__/helpers/uuid";
+import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import type { ClassifiedError } from "@/lib/agent/errorClassifier";
 import { applyBlueprintChange } from "@/lib/db/applyBlueprintChange";
 import { commitGuardedBatch } from "@/lib/db/apps";
@@ -26,6 +25,7 @@ import {
 	CommitReauthError,
 } from "@/lib/db/commitGuard";
 import type { Mutation } from "@/lib/doc/types";
+import { proseText } from "@/lib/domain/prose";
 
 import { conversationPayloadSchema } from "@/lib/log/types";
 import { log } from "@/lib/logger";
@@ -442,7 +442,11 @@ describe("GenerationContext.recordMutations", () => {
 
 	it("forwards mediaExpectations into the guarded commit for the in-txn re-check", async () => {
 		const mediaExpectations = [
-			{ assetId: "asset-1", kind: "image", slot: "label media" },
+			{
+				assetId: testMediaAssetId("asset-1"),
+				kind: "image",
+				slot: "label media",
+			},
 		] as const;
 		await ctx.recordMutations(
 			[TEXT_FIELD_MUTATION],

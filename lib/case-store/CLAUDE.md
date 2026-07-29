@@ -632,6 +632,13 @@ harness, and dev). Kysely records applied migration names in its
 `kysely_migration` ledger and serializes concurrent runs with a Postgres
 advisory lock.
 
+`runCaseStoreMigrationsWithReport` is the production form of that entrypoint:
+it returns the exact migration names applied by this invocation.
+`runCaseStoreMigrations` remains the no-result wrapper for ordinary local/test
+callers. The canonical-identity cutover uses the report to distinguish the one
+deployment that must re-fence direct runtime sessions after convergence; no
+schema guess or ledger reread substitutes for the migrator's result.
+
 ### Authoring workflow
 
 1. Add a timestamp-prefixed module to `lib/case-store/migrations/`
@@ -661,7 +668,7 @@ actor-bound `threads.active_holder_nonce`. Every holder-touching writer uses
 
 ### Destructive changes — expand-contract
 
-There is no automated destructive-change lint. A schema change that
+There is no automated destructive-change lint. An ordinary schema change that
 removes a column / table must go through expand-contract across
 deploys — **enforce it by review**, not a tool:
 
@@ -673,6 +680,14 @@ deploys — **enforce it by review**, not a tool:
 
 The testcontainers harness replays every migration against a real
 Postgres on each run, so an authoring-time SQL error fails CI loudly.
+
+The canonical-identity migration is the deliberate non-rolling exception: its
+old and new document/mutation schemas cannot coexist without preserving the
+dual dialect the change exists to delete. It therefore runs only inside Unit
+18's reviewed maintenance fence, after all old writers are drained and the
+authoritative backup is complete. It converts snapshots and authored-identity
+SQL columns in one transaction, establishes a new per-app fold horizon, and
+admits no compatibility reader, alias, or transitive rollout state.
 
 Review must also cover two hazards no tool gates:
 (1) a `DROP TABLE`/`DROP COLUMN` in a migration runs against live
@@ -730,6 +745,16 @@ env wires `NOVA_DB_USER` / `NOVA_DB_INSTANCE_CONNECTION_NAME` /
 `NOVA_DB_NAME` plus `NOVA_DB_WORKLOAD=migration`. Privilege convergence
 requires the migration and runtime role identities after migrations.
 
+Every production migration invocation finishes with the rollback-only runtime
+database probe in `lib/db/runtimeDatabaseProbe.ts`: it assumes the runtime role
+inside the migration transaction, strictly parses every app, reauthorizes an
+existing editable Project member, and exercises the real guarded writer before
+rolling the synthetic batch back. When the migration report includes
+`20260728000000_canonical_identity_foundation`, the entrypoint first terminates
+every direct runtime-login session and proves none reconnects through the
+stabilization interval. This is an in-image serving-schema proof before
+deployment, not an external health check after traffic resumes.
+
 The one-time bootstrap happens outside Nova: create runtime, migration, and
 capture-cleanup as non-superuser direct LOGIN roles; make only migration a
 member of runtime (never the reverse); leave cleanup without an application
@@ -750,12 +775,24 @@ schema. Convergence deliberately does not create roles, alter role limits, or
 transfer the database ownership it needs to authorize its own `REVOKE`,
 `GRANT`, and ownership changes.
 
-The first schema split is a maintenance cutover, not a rolling migration. The
-migration transaction moves `public.cases` before the new revision starts; an
-old revision without the two-schema search path cannot serve during that gap.
-Pause traffic for that one execution, verify convergence, then deploy the new
-runtime. There is no bridge, compatibility view, or database cutover journal;
-later deploys rerun the idempotent convergence normally.
+Cloud Build separately runs the same image's
+`cleanup-form-attachments.cjs --probe-schema` under the cleanup identity while
+its scheduler remains paused. That probe asserts the exact final ordered
+column/type/nullability contract and zero-row read/update/delete authority in
+an intentional rollback; the build also proves updating the Job did not change
+the scheduler's recorded enabled/paused state.
+
+The first schema split and the canonical-identity conversion are maintenance
+cutovers, not rolling migrations. Their transaction may make the old revision
+unable to serve before the new one starts. Unit 18's binding runbook keeps
+ingress detached and the service at manual zero, then
+`scripts/rollout/deploy-cloud-run.py` deploys the exact immutable image without
+a scaling override, proves the candidate Ready at 100% with no old/tagged
+traffic while manual zero is preserved, and only afterward performs a separate
+scaling-only return to automatic that must create no revision. Ordinary later
+deploys use the same permanent path from automatic prestate. There is no
+bridge, compatibility view, or database cutover journal; later migrations
+rerun the idempotent convergence normally.
 
 The same entrypoint also owns the **auth** schema: after the case-store
 migrations it runs Better Auth's own migrator (`getMigrations(...)

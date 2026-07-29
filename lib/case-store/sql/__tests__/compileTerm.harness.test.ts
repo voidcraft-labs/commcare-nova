@@ -36,7 +36,6 @@
 //      Postgres layer; the AST distinguishes absent / null /
 //      empty and this compiler emits the strict SQL).
 
-import { proseText } from "@/lib/domain/prose";
 import { sql } from "kysely";
 import { describe } from "vitest";
 import type { CaseType } from "@/lib/domain";
@@ -49,6 +48,7 @@ import {
 	relationStep,
 	timeLiteral,
 } from "@/lib/domain/predicate/builders";
+import { proseText } from "@/lib/domain/prose";
 import { compileRelationPath } from "../compileRelationPath";
 import { compileTerm, type TermCompileContext } from "../compileTerm";
 import { expect, makeCaseRow, test } from "./setup";

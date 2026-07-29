@@ -1,4 +1,3 @@
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
@@ -8,6 +7,7 @@ import {
 	simpleSearchInputDef,
 } from "@/lib/domain";
 import { matchAll } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { moduleTypeContext } from "../shared";
 
 describe("moduleTypeContext search-input runtime values", () => {
@@ -86,10 +86,26 @@ describe("moduleTypeContext search-input runtime values", () => {
 		if (moduleUuid === undefined) throw new Error("missing module fixture");
 		expect(moduleTypeContext(doc.modules[moduleUuid], doc).knownInputs).toEqual(
 			[
-				{ name: "simple_date", data_type: "date" },
-				{ name: "advanced_date", data_type: "date" },
-				{ name: "simple_range", data_type: "text" },
-				{ name: "advanced_range", data_type: "text" },
+				{
+					uuid: config.searchInputs[0]?.uuid,
+					name: "simple_date",
+					data_type: "date",
+				},
+				{
+					uuid: config.searchInputs[1]?.uuid,
+					name: "advanced_date",
+					data_type: "date",
+				},
+				{
+					uuid: config.searchInputs[2]?.uuid,
+					name: "simple_range",
+					data_type: "text",
+				},
+				{
+					uuid: config.searchInputs[3]?.uuid,
+					name: "advanced_range",
+					data_type: "text",
+				},
 			],
 		);
 	});

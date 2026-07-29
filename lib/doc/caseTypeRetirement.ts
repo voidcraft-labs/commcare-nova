@@ -25,10 +25,8 @@
  * "References" are the slots that NAME the case type:
  *   - another case-type record declaring it as `parent_type`;
  *   - a field's `case_property_on` (the field writes to it);
- *   - a `#<type>/<prop>` hashtag in any XPath or prose slot
- *     (the reference-slot registry enumerates them; XPath surfaces are
- *     read through the Lezer grammar, prose through the shared
- *     bare-hashtag matcher);
+ *   - a typed `case-ref` atom in any XPath or prose slot (the reference-slot
+ *     registry enumerates them);
  *   - a predicate/expression AST leaf whose `PropertyRef.caseType` or
  *     relation-walk hints (`throughCaseType` / `ofCaseType`) name it,
  *     and a simple search input whose `via` hints name it.
@@ -279,13 +277,12 @@ function userBlockedRetirementMessage(
  * The carriers come from ONE reference-index lookup on the case type's
  * name — never a doc walk. The index's `t:` bucket holds exactly the
  * type-NAMING reference classes this planner adjudicates (a field's
- * `case_property_on`, explicit `#<type>/…` hashtags in XPath and
- * prose, AST origin types and relation-walk hints) and deliberately
- * excludes the contextual shapes that follow a module's current type
- * (`#case/…`, column `field`s, simple search-input properties). The
+ * `case_property_on`, typed XPath/prose case atoms, AST origin types and
+ * relation-walk hints) and deliberately excludes contextual shapes that follow
+ * a module's current type (column `field`s, simple search-input properties). The
  * per-entity collectors below then re-derive each carrier's
- * person-readable descriptions — re-parsing only the named carrier's
- * own slots — and the module's own `case_type` slot edge contributes
+ * person-readable descriptions by walking only the named carrier's typed
+ * slots, and the module's own `case_type` slot edge contributes
  * nothing because the module collector treats ownership as the
  * planner's other-owner check's concern, not a reference.
  *

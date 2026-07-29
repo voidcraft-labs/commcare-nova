@@ -1,8 +1,11 @@
 /** Numeric constraints imposed by CCHQ's server-side case-search parser. */
 
-import type { Predicate, ValueExpression } from "@/lib/domain/predicate";
-import type { SearchInputDecl } from "@/lib/domain/predicate";
 import type { Uuid } from "@/lib/domain";
+import type {
+	Predicate,
+	SearchInputDecl,
+	ValueExpression,
+} from "@/lib/domain/predicate";
 
 export type RuntimeCsqlNumericConstraint =
 	| "whole-number"
@@ -40,6 +43,17 @@ export function classifyCalendarDateAddQuantity(
 	return { kind: "unsupported" };
 }
 
+/** Structural admission used before a runtime-name projection is needed. */
+export function isRepresentableCalendarDateAddQuantity(
+	expression: ValueExpression,
+): boolean {
+	const known = staticallyKnownNumber(expression);
+	return (
+		(known !== undefined && Number.isInteger(known)) ||
+		numericInputUuid(expression, false) !== undefined
+	);
+}
+
 /** CCHQ's subcase-count parser calls `int(...)`; Nova forbids truncation. */
 export function classifySubcaseCountBound(
 	expression: ValueExpression,
@@ -60,6 +74,17 @@ export function classifySubcaseCountBound(
 		};
 	}
 	return { kind: "unsupported" };
+}
+
+/** Structural admission used before a runtime-name projection is needed. */
+export function isRepresentableSubcaseCountBound(
+	expression: ValueExpression,
+): boolean {
+	const known = staticallyKnownNumber(expression);
+	return (
+		(known !== undefined && Number.isInteger(known) && known >= 0) ||
+		numericInputUuid(expression, true) !== undefined
+	);
 }
 
 export function invalidWholeNumberXPath(xpath: string): string {

@@ -8,6 +8,7 @@
 
 import { describe, expect, it } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
+import { proseText } from "@/lib/domain/prose";
 import { blueprintDocSchema } from "../blueprint";
 import { builtinIconRef, isBuiltinIconRef } from "../builtinIcons";
 import {
@@ -94,7 +95,7 @@ function fixtureDoc() {
 				kind: "text",
 				uuid: TEXT_FIELD,
 				id: "patient_name",
-				label: "Name",
+				label: proseText("Name"),
 				label_media: {
 					image: media("lbl-img"),
 					audio: media("lbl-aud"),
@@ -108,15 +109,26 @@ function fixtureDoc() {
 				kind: "single_select",
 				uuid: SELECT_FIELD,
 				id: "symptom",
-				label: "Symptom",
-				options: [
-					{
-						value: "fever",
-						label: "Fever",
-						media: { image: media("opt-img"), audio: media("opt-aud") },
-					},
-					{ value: "cough", label: "Cough" },
-				],
+				label: proseText("Symptom"),
+				optionsSource: {
+					kind: "inline",
+					options: [
+						{
+							uuid: testUuid("option-fever"),
+							value: "fever",
+							label: proseText("Fever"),
+							media: {
+								image: media("opt-img"),
+								audio: media("opt-aud"),
+							},
+						},
+						{
+							uuid: testUuid("option-cough"),
+							value: "cough",
+							label: proseText("Cough"),
+						},
+					],
+				},
 			},
 		},
 	});

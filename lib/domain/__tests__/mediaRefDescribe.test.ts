@@ -82,6 +82,7 @@ describe("describeCarrier", () => {
 						formName: "Intake",
 						fieldUuid: U,
 						fieldId: "symptom",
+						optionUuid: U,
 						optionValue: "fever",
 					},
 					"audio",

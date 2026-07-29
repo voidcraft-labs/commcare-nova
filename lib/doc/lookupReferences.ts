@@ -4,8 +4,8 @@
  * Lookup rows live outside `BlueprintDoc`, while domain carriers store stable
  * lookup table/column identities in the doc. This module is the
  * client-safe seam between those structural carriers, validation, and the
- * normalized reference-edge writer. S05a registers the first production
- * carriers after the dormant schemas and rolling envelope can preserve them.
+ * normalized reference-edge writer. The frozen production registry covers
+ * every schema-owned lookup carrier.
  *
  * Extractors are explicit immutable values. Tests may inject a synthetic
  * registry; production validation imports the frozen registry below. There is no

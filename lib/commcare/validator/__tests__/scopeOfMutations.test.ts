@@ -1,9 +1,9 @@
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import type { Mutation } from "@/lib/doc/types";
 import { type BlueprintDoc, calculatedColumn, type Field } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { buildDoc, caseListConfig, f } from "../../../__tests__/docHelpers";
 import type { ValidationScope } from "../index";
 import { scopeOfMutations } from "../scopeOfMutations";
@@ -31,15 +31,17 @@ function twoTypeDoc(): BlueprintDoc {
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Name",
+								label: proseText("Name"),
 								case_property_on: "patient",
 							}),
-							f({ kind: "text", id: "notes", label: "Notes" }),
+							f({ kind: "text", id: "notes", label: proseText("Notes") }),
 							f({
 								kind: "group",
 								id: "grp",
-								label: "Group",
-								children: [f({ kind: "text", id: "inner", label: "Inner" })],
+								label: proseText("Group"),
+								children: [
+									f({ kind: "text", id: "inner", label: proseText("Inner") }),
+								],
 							}),
 						],
 					},
@@ -55,7 +57,9 @@ function twoTypeDoc(): BlueprintDoc {
 					{
 						name: "Visit",
 						type: "followup",
-						fields: [f({ kind: "text", id: "visit_notes", label: "Notes" })],
+						fields: [
+							f({ kind: "text", id: "visit_notes", label: proseText("Notes") }),
+						],
 					},
 				],
 			},
@@ -65,7 +69,9 @@ function twoTypeDoc(): BlueprintDoc {
 					{
 						name: "Feedback",
 						type: "survey",
-						fields: [f({ kind: "text", id: "answer", label: "Answer" })],
+						fields: [
+							f({ kind: "text", id: "answer", label: proseText("Answer") }),
+						],
 					},
 				],
 			},
@@ -100,7 +106,7 @@ describe("scopeOfMutations", () => {
 				kind: "updateField",
 				uuid: notes.uuid,
 				targetKind: "text",
-				patch: { label: "Renamed" },
+				patch: { label: proseText("Renamed") },
 			} as Mutation,
 		]);
 		expectScope(scope);
@@ -171,7 +177,7 @@ describe("scopeOfMutations", () => {
 				kind: "updateField",
 				uuid: caseName.uuid,
 				targetKind: "text",
-				patch: { label: "Full name" },
+				patch: { label: proseText("Full name") },
 			} as Mutation,
 		]);
 		expectScope(scope);
@@ -256,7 +262,7 @@ describe("scopeOfMutations", () => {
 								f({
 									kind: "int",
 									id: "age",
-									label: "Age",
+									label: proseText("Age"),
 									case_property_on: "patient",
 								}),
 							],
@@ -274,10 +280,10 @@ describe("scopeOfMutations", () => {
 								f({
 									kind: "int",
 									id: "age",
-									label: "Age",
+									label: proseText("Age"),
 									case_property_on: "patient",
 								}),
-								f({ kind: "int", id: "weight", label: "Weight" }),
+								f({ kind: "int", id: "weight", label: proseText("Weight") }),
 							],
 						},
 					],
@@ -307,7 +313,7 @@ describe("scopeOfMutations", () => {
 						uuid: testUuid("fld-age"),
 						kind: "date",
 						id: "age",
-						label: "Age",
+						label: proseText("Age"),
 						case_property_on: "patient",
 					} as Field,
 				},
@@ -334,11 +340,11 @@ describe("scopeOfMutations", () => {
 		]);
 	});
 
-	it("updateModule keeps module scope unless the patch touches caseType", () => {
+	it("renameModule keeps module scope while a caseType patch widens it", () => {
 		const doc = twoTypeDoc();
 		const moduleUuid = doc.moduleOrder[0];
 		const rename = scopeOfMutations(doc, [
-			{ kind: "updateModule", uuid: moduleUuid, patch: { name: "Renamed" } },
+			{ kind: "renameModule", uuid: moduleUuid, newId: "Renamed" },
 		]);
 		expectScope(rename);
 		expect([...(rename.moduleUuids ?? [])]).toEqual([moduleUuid]);
@@ -539,7 +545,7 @@ describe("scopeOfMutations", () => {
 					uuid: testUuid("fld-new"),
 					kind: "text",
 					id: "q1",
-					label: "Q1",
+					label: proseText("Q1"),
 				} as Field,
 			},
 		]);
@@ -559,7 +565,7 @@ describe("scopeOfMutations", () => {
 						uuid: testUuid("fld-x"),
 						kind: "text",
 						id: "q",
-						label: "Q",
+						label: proseText("Q"),
 					} as Field,
 				},
 			]),
@@ -574,7 +580,7 @@ describe("scopeOfMutations", () => {
 				kind: "updateField",
 				uuid: notes.uuid,
 				targetKind: "text",
-				patch: { label: "x" },
+				patch: { label: proseText("x") },
 			} as Mutation,
 			{
 				kind: "setModuleMedia",
@@ -593,7 +599,7 @@ describe("scopeOfMutations", () => {
 					kind: "updateField",
 					uuid: notes.uuid,
 					targetKind: "text",
-					patch: { label: "x" },
+					patch: { label: proseText("x") },
 				} as Mutation,
 				{ kind: "setCaseTypes", caseTypes: null },
 			]),

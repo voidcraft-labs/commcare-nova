@@ -56,7 +56,10 @@ import { fieldSlotAfter } from "@/lib/doc/fieldSlot";
 import { findRenameSiblingConflict } from "@/lib/doc/identifierVerdicts";
 import { planKindConversion } from "@/lib/doc/kindConversionCascade";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { modulePatchMutations } from "@/lib/doc/modulePatchMutations";
+import {
+	type ModuleAuthoringPatch,
+	modulePatchMutations,
+} from "@/lib/doc/modulePatchMutations";
 import { notifyRejectedCommit } from "@/lib/doc/mutations/notify";
 import {
 	BlueprintDocContext,
@@ -108,7 +111,6 @@ import {
 	fieldRegistry,
 	HIDDEN_INERT_DEFAULT_VALUE,
 	type MediaAssetId,
-	type Module,
 	type ModuleIconRef,
 	ownRecordValue,
 	type Persona,
@@ -209,13 +211,7 @@ export interface DuplicateFieldResult {
 	newUuid: string;
 }
 
-type ModuleUpdatePatch = Omit<
-	Partial<Omit<Module, "uuid">>,
-	"caseSearchConfig"
-> & {
-	/** Explicit null survives JSON and clears the optional search config. */
-	caseSearchConfig?: Module["caseSearchConfig"] | null;
-};
+type ModuleUpdatePatch = ModuleAuthoringPatch;
 
 /**
  * The full mutation surface returned by `useBlueprintMutations()`.

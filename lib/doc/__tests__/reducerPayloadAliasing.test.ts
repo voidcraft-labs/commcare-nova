@@ -17,7 +17,6 @@
  * in ONE batch.
  */
 
-import { proseText } from "@/lib/domain/prose";
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -25,6 +24,7 @@ import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import { literal, term } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 
 const MODULE = testUuid("11111111-1111-4111-8111-111111111111");
 const FORM = testUuid("22222222-2222-4222-8222-222222222222");
@@ -50,7 +50,7 @@ function base(): BlueprintDoc {
 								uuid: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
 								kind: "text",
 								id: "case_name",
-								label: "Name",
+								label: proseText("Name"),
 								case_property_on: "patient",
 							}),
 						],
@@ -105,25 +105,6 @@ describe("a batch applies twice", () => {
 				kind: "updateForm",
 				uuid: FORM,
 				patch: {},
-				caseOperationChange: {
-					operation: "update",
-					uuid: OPERATION,
-					value: {
-						uuid: OPERATION,
-						id: "update_patient",
-						action: "update",
-						caseType: "patient",
-						target: { kind: "session" },
-						links: [
-							{
-								identifier: "parent",
-								targetType: "patient",
-								target: null,
-								relationship: "child",
-							},
-						],
-					},
-				},
 				caseOperationPatch: {
 					operation: "add-link",
 					uuid: OPERATION,
@@ -140,25 +121,6 @@ describe("a batch applies twice", () => {
 				kind: "updateForm",
 				uuid: FORM,
 				patch: {},
-				caseOperationChange: {
-					operation: "update",
-					uuid: OPERATION,
-					value: {
-						uuid: OPERATION,
-						id: "update_patient",
-						action: "update",
-						caseType: "patient",
-						target: { kind: "session" },
-						links: [
-							{
-								identifier: "parent",
-								targetType: "household",
-								target: null,
-								relationship: "child",
-							},
-						],
-					},
-				},
 				caseOperationPatch: {
 					operation: "update-link",
 					uuid: OPERATION,
@@ -193,11 +155,6 @@ describe("a batch applies twice", () => {
 				kind: "updateForm",
 				uuid: FORM,
 				patch: {},
-				caseOperationChange: {
-					operation: "update",
-					uuid: OPERATION,
-					value: { ...operation, writes: [write] },
-				},
 				caseOperationPatch: {
 					operation: "add-write",
 					uuid: OPERATION,
@@ -209,14 +166,6 @@ describe("a batch applies twice", () => {
 				kind: "updateForm",
 				uuid: FORM,
 				patch: {},
-				caseOperationChange: {
-					operation: "update",
-					uuid: OPERATION,
-					value: {
-						...operation,
-						writes: [{ property: "status", value: term(literal("filed")) }],
-					},
-				},
 				caseOperationPatch: {
 					operation: "update-write",
 					uuid: OPERATION,
@@ -236,7 +185,7 @@ describe("a batch applies twice", () => {
 			{
 				kind: "updateModule",
 				uuid: MODULE,
-				patch: { caseListConfig: null },
+				patch: {},
 				ensureCaseListConfig: true,
 			},
 			{
@@ -256,7 +205,6 @@ describe("a batch applies twice", () => {
 				moduleUuid: MODULE,
 				uuid: COLUMN,
 				column: {
-					uuid: COLUMN,
 					kind: "plain",
 					field: "case_name",
 					header: "Patient name",
@@ -321,6 +269,6 @@ describe("a batch applies twice", () => {
 		]);
 
 		const field = doc.fields[FIELD];
-		expect("label" in field && field.label).toBe("Visit notes");
+		expect("label" in field && field.label).toEqual(proseText("Visit notes"));
 	});
 });

@@ -1,6 +1,5 @@
 // @vitest-environment happy-dom
 
-import { proseText } from "@/lib/domain/prose";
 import { fireEvent, render, screen } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -19,6 +18,7 @@ import {
 	plainColumn,
 } from "@/lib/domain";
 import { prop, term } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import type { CaseRowWithCalculated } from "@/lib/preview/engine/caseDataBindingTypes";
 import {
 	type ColumnDisplayContext,
@@ -280,7 +280,7 @@ describe("case-list Preview cell formatting", () => {
 					properties: [
 						{
 							name: "date_opened",
-							label: "Date opened",
+							label: proseText("Date opened"),
 							data_type: "date" as const,
 						},
 					],

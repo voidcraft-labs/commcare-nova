@@ -8,7 +8,6 @@
  * persistent Postgres volume.
  */
 
-import { proseText } from "@/lib/domain/prose";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { CaseInsert } from "@/lib/case-store";
 import {
@@ -24,6 +23,7 @@ import {
 	startsWithMode,
 	tileCell,
 } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import { buildUrl } from "@/lib/routing/location";
 
 export const CASE_WORKSPACE_SEED = {
@@ -327,7 +327,7 @@ export function buildCaseWorkspaceBlueprint(appId: string): BlueprintDoc {
 							f({
 								kind: "text",
 								id: "visit_note",
-								label: "Visit note",
+								label: proseText("Visit note"),
 								case_property_on: ids.caseType,
 							}),
 							// The two answers whose stored shape a native browser
@@ -338,13 +338,13 @@ export function buildCaseWorkspaceBlueprint(appId: string): BlueprintDoc {
 							f({
 								kind: "datetime",
 								id: "visit_started",
-								label: "Visit started",
+								label: proseText("Visit started"),
 								case_property_on: ids.caseType,
 							}),
 							f({
 								kind: "time",
 								id: "next_dose",
-								label: "Next dose",
+								label: proseText("Next dose"),
 								case_property_on: ids.caseType,
 							}),
 						],

@@ -56,7 +56,7 @@ Form-wide hashtag metadata rides HEAD elements after `</model>` — `<vellum:has
 
 ### Bare hashtags in prose
 
-Hashtag wrapping in label/hint text uses regex (`proseHashtags.ts::BARE_HASHTAG_PATTERN`), NOT the Lezer XPath parser. Labels are prose; surrounding characters like `**` (markdown bold) parse as XPath operators, which swallows the `#`. The pattern matches ANY `#<namespace>/<segments>` — including per-case-type refs (`#mother/age`) — not just `case`/`form`/`user`; deciding which refs actually resolve is the emitter's / validator's job, so don't narrow the pattern to a fixed namespace set. The segment vocabulary itself comes from ONE shared source, `lib/domain/hashtagSegments.ts` — it builds this pattern, `lib/references/config.ts::HASHTAG_REF_PATTERN`, and (via the divergence-corpus test at `xpath/__tests__/hashtagMatchers.divergence.test.ts`) holds the grammar's `HashtagType`/`HashtagSegment` tokens in lockstep, since the grammar can't import TS.
+Reference-capable label/hint text is a typed `ProseTemplate`; only explicit reference atoms lower to `<output>`, while hashtag-looking text remains literal. `lib/domain/hashtagSegments.ts` still owns the friendly projection's segment vocabulary for editor chips and, via `xpath/__tests__/hashtagMatchers.divergence.test.ts`, keeps that projection in lockstep with the Lezer grammar's `HashtagType`/`HashtagSegment` tokens.
 
 ### Markdown itext
 

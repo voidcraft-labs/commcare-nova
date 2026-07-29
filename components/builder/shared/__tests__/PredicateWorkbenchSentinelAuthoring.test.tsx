@@ -1,6 +1,5 @@
 // @vitest-environment happy-dom
 
-import { proseText } from "@/lib/domain/prose";
 import {
 	cleanup,
 	fireEvent,
@@ -11,6 +10,7 @@ import {
 } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type { CaseType } from "@/lib/domain";
 import {
 	eq,
@@ -20,6 +20,7 @@ import {
 	prop,
 	whenInput,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { PredicateWorkbench } from "../PredicateWorkbench";
 
 const CASE_TYPES: readonly CaseType[] = [
@@ -44,7 +45,12 @@ function ControlledWorkbench({ initial }: { readonly initial: Predicate }) {
 				caseTypes={CASE_TYPES}
 				currentCaseType="patient"
 				knownInputs={[
-					{ name: "query", label: "Client search", data_type: "text" },
+					{
+						uuid: testUuid("query"),
+						name: "query",
+						label: "Client search",
+						data_type: "text",
+					},
 				]}
 			/>
 		</>
@@ -122,7 +128,11 @@ describe("PredicateWorkbench special-condition authoring", () => {
 	);
 
 	it("authors a special condition inside a recursive wrapper", async () => {
-		render(<ControlledWorkbench initial={whenInput(input("query"), NORTH)} />);
+		render(
+			<ControlledWorkbench
+				initial={whenInput(input(testUuid("query")), NORTH)}
+			/>,
+		);
 		const originalTrigger = screen.getByRole("button", {
 			name: "Condition is",
 		});

@@ -3,7 +3,7 @@
  *
  * The conversion contract these tests pin:
  *
- *   - converting INTO a select kind requires `options` in the SAME call;
+ *   - converting INTO a select kind requires `optionsSource` in the SAME call;
  *     they ride the `convertField` mutation itself (a post-convert patch
  *     can't help — the convert would already have no-opped), and are
  *     consumed there, never double-applied by the patch stage;
@@ -17,10 +17,15 @@
  *     survivable slots and drop the rest.
  */
 
-import { proseText } from "@/lib/domain/prose";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import type { BlueprintDoc, SelectOption } from "@/lib/domain";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, f, xp } from "@/lib/__tests__/docHelpers";
+import {
+	type BlueprintDoc,
+	fallbackProseProjection,
+	type SelectOption,
+} from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import { makeStubToolContext } from "../../__tests__/fixtures";
 import { editFieldTool } from "../editField";
 
@@ -55,6 +60,53 @@ function soleField(doc: BlueprintDoc, id: string) {
 	return field;
 }
 
+function address(doc: BlueprintDoc, id: string) {
+	const moduleUuid = doc.moduleOrder[0];
+	const formUuid = doc.formOrder[moduleUuid]?.[0];
+	if (formUuid === undefined) throw new Error("fixture form missing");
+	return {
+		moduleUuid,
+		formUuid,
+		fieldUuid: soleField(doc, id).uuid,
+	};
+}
+
+function toolInlineOptions(
+	...options: ReadonlyArray<readonly [string, string]>
+) {
+	return {
+		kind: "inline" as const,
+		options: options.map(([value, label]) => ({
+			optionUuid: testUuid(`tool-option-${value}`),
+			value,
+			label: proseText(label),
+		})),
+	};
+}
+
+function storedInlineOptions(
+	...options: ReadonlyArray<readonly [string, string]>
+) {
+	return {
+		kind: "inline" as const,
+		options: options.map(([value, label]) => ({
+			uuid: testUuid(`stored-option-${value}`),
+			value,
+			label: proseText(label),
+		})),
+	};
+}
+
+function inlineOptions(field: ReturnType<typeof soleField>): SelectOption[] {
+	if (
+		(field.kind !== "single_select" && field.kind !== "multi_select") ||
+		field.optionsSource.kind !== "inline"
+	) {
+		throw new Error(`field "${field.id}" has no inline options`);
+	}
+	return field.optionsSource.options;
+}
+
 beforeEach(() => {
 	vi.clearAllMocks();
 });
@@ -64,20 +116,18 @@ describe("editField — convert to single_select", () => {
 		const doc = makeDoc({
 			id: "facility",
 			kind: "text",
-			label: "Specialist facility",
+			label: proseText("Specialist facility"),
 		});
 		const { ctx } = makeStubToolContext();
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "facility",
+				...address(doc, "facility"),
 				updates: {
 					kind: "single_select",
-					options: [
-						{ value: "clinic_a", label: proseText("Clinic A") },
-						{ value: "clinic_b", label: proseText("Clinic B") },
-					],
+					optionsSource: toolInlineOptions(
+						["clinic_a", "Clinic A"],
+						["clinic_b", "Clinic B"],
+					),
 				},
 			},
 			ctx,
@@ -87,7 +137,8 @@ describe("editField — convert to single_select", () => {
 
 		const after = result.newDoc.fields[soleField(doc, "facility").uuid];
 		expect(after?.kind).toBe("single_select");
-		const options = (after as { options?: SelectOption[] }).options ?? [];
+		if (!after) throw new Error("converted field missing");
+		const options = inlineOptions(after);
 		expect(options.map((o) => o.value)).toEqual(["clinic_a", "clinic_b"]);
 		// Identity minted at the batch-building layer — every landed option
 		// carries a uuid + order key, so the per-uuid option diff and a
@@ -103,24 +154,28 @@ describe("editField — convert to single_select", () => {
 		);
 		expect(convertMuts).toHaveLength(1);
 		expect(
-			convertMuts[0] && "options" in convertMuts[0]
-				? convertMuts[0].options?.length
+			convertMuts[0] && "optionsSource" in convertMuts[0]
+				? convertMuts[0].optionsSource?.kind === "inline"
+					? convertMuts[0].optionsSource.options.length
+					: 0
 				: 0,
 		).toBe(2);
 		const optionPatches = result.mutations.filter(
-			(m) => m.kind === "updateField" && "options" in m.patch,
+			(m) => m.kind === "updateField" && "optionsSource" in m.patch,
 		);
 		expect(optionPatches).toHaveLength(0);
 	});
 
 	it("refuses a seedless select conversion, naming the same-call fix", async () => {
-		const doc = makeDoc({ id: "facility", kind: "text", label: "Facility" });
+		const doc = makeDoc({
+			id: "facility",
+			kind: "text",
+			label: proseText("Facility"),
+		});
 		const { ctx, recordMutationStages } = makeStubToolContext();
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "facility",
+				...address(doc, "facility"),
 				updates: { kind: "single_select" },
 			},
 			ctx,
@@ -133,23 +188,25 @@ describe("editField — convert to single_select", () => {
 	});
 
 	it("refuses a one-option seed (the select schemas need at least 2)", async () => {
-		const doc = makeDoc({ id: "facility", kind: "text", label: "Facility" });
+		const doc = makeDoc({
+			id: "facility",
+			kind: "text",
+			label: proseText("Facility"),
+		});
 		const { ctx, recordMutationStages } = makeStubToolContext();
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "facility",
+				...address(doc, "facility"),
 				updates: {
 					kind: "single_select",
-					options: [{ value: "only", label: proseText("Only") }],
+					optionsSource: toolInlineOptions(["only", "Only"]),
 				},
 			},
 			ctx,
 			doc,
 		);
 		if (!("error" in result.result)) throw new Error("expected error");
-		expect(result.result.error).toContain("at least 2");
+		expect(result.result.error).toContain("target kind's schema");
 		expect(recordMutationStages).not.toHaveBeenCalled();
 	});
 });
@@ -159,16 +216,14 @@ describe("editField — convert to hidden", () => {
 		const doc = makeDoc({
 			id: "full_name",
 			kind: "text",
-			label: "Full name",
-			hint: "first and last",
+			label: proseText("Full name"),
+			hint: proseText("first and last"),
 		});
 		const { ctx } = makeStubToolContext();
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "full_name",
-				updates: { kind: "hidden", calculate: 'concat("a", " ", "b")' },
+				...address(doc, "full_name"),
+				updates: { kind: "hidden", calculate: xp('concat("a", " ", "b")') },
 			},
 			ctx,
 			doc,
@@ -182,13 +237,15 @@ describe("editField — convert to hidden", () => {
 	});
 
 	it("gate-rejects text → hidden with neither calculate nor default_value, persisting nothing", async () => {
-		const doc = makeDoc({ id: "full_name", kind: "text", label: "Full name" });
+		const doc = makeDoc({
+			id: "full_name",
+			kind: "text",
+			label: proseText("Full name"),
+		});
 		const { ctx, recordMutationStages } = makeStubToolContext();
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "full_name",
+				...address(doc, "full_name"),
 				updates: { kind: "hidden" },
 			},
 			ctx,
@@ -205,15 +262,13 @@ describe("editField — convert to hidden", () => {
 		const doc = makeDoc({
 			id: "visit_stage",
 			kind: "text",
-			label: "Stage",
+			label: proseText("Stage"),
 			default_value: '"intake"',
 		});
 		const { ctx } = makeStubToolContext();
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "visit_stage",
+				...address(doc, "visit_stage"),
 				updates: { kind: "hidden" },
 			},
 			ctx,
@@ -231,15 +286,13 @@ describe("editField — demotions", () => {
 		const doc = makeDoc({
 			id: "sample_id",
 			kind: "barcode",
-			label: "Sample",
-			hint: "scan the vial",
+			label: proseText("Sample"),
+			hint: proseText("scan the vial"),
 		});
 		const { ctx } = makeStubToolContext();
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "sample_id",
+				...address(doc, "sample_id"),
 				updates: { kind: "text" },
 			},
 			ctx,
@@ -248,25 +301,27 @@ describe("editField — demotions", () => {
 		if ("error" in result.result) throw new Error(result.result.error);
 		const after = result.newDoc.fields[soleField(doc, "sample_id").uuid];
 		expect(after?.kind).toBe("text");
-		expect((after as { hint?: string }).hint).toBe("scan the vial");
+		expect(
+			after && "hint" in after && after.hint
+				? fallbackProseProjection(after.hint)
+				: undefined,
+		).toBe("scan the vial");
 	});
 
 	it("single_select → text drops the options and keeps the rest", async () => {
 		const doc = makeDoc({
 			id: "status",
 			kind: "single_select",
-			label: "Status",
-			options: [
-				{ value: "open", label: "Open" },
-				{ value: "closed", label: "Closed" },
-			],
+			label: proseText("Status"),
+			optionsSource: storedInlineOptions(
+				["open", "Open"],
+				["closed", "Closed"],
+			),
 		});
 		const { ctx } = makeStubToolContext();
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "status",
+				...address(doc, "status"),
 				updates: { kind: "text" },
 			},
 			ctx,
@@ -275,8 +330,12 @@ describe("editField — demotions", () => {
 		if ("error" in result.result) throw new Error(result.result.error);
 		const after = result.newDoc.fields[soleField(doc, "status").uuid];
 		expect(after?.kind).toBe("text");
-		expect((after as { options?: unknown }).options).toBeUndefined();
-		expect((after as { label?: string }).label).toBe("Status");
+		expect("optionsSource" in (after ?? {})).toBe(false);
+		expect(after && "label" in after).toBe(true);
+		if (!after || !("label" in after) || !after.label) {
+			throw new Error("field label missing");
+		}
+		expect(fallbackProseProjection(after.label)).toBe("Status");
 	});
 
 	it("case-bound, declared-type property: the conversion re-declares the data_type in the same batch", async () => {
@@ -310,13 +369,13 @@ describe("editField — demotions", () => {
 								f({
 									id: "case_name",
 									kind: "text",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 								f({
 									id: "facility",
 									kind: "text",
-									label: "Facility",
+									label: proseText("Facility"),
 									case_property_on: "patient",
 								}),
 							],
@@ -328,15 +387,13 @@ describe("editField — demotions", () => {
 		const { ctx } = makeStubToolContext();
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "facility",
+				...address(doc, "facility"),
 				updates: {
 					kind: "single_select",
-					options: [
-						{ value: "clinic_a", label: proseText("Clinic A") },
-						{ value: "clinic_b", label: proseText("Clinic B") },
-					],
+					optionsSource: toolInlineOptions(
+						["clinic_a", "Clinic A"],
+						["clinic_b", "Clinic B"],
+					),
 				},
 			},
 			ctx,
@@ -351,7 +408,12 @@ describe("editField — demotions", () => {
 			?.find((ct) => ct.name === "patient")
 			?.properties.find((p) => p.name === "facility");
 		expect(entry?.data_type).toBe("single_select");
-		expect(entry?.options).toEqual([
+		expect(
+			entry?.options?.map((option) => ({
+				value: option.value,
+				label: fallbackProseProjection(option.label),
+			})),
+		).toEqual([
 			{ value: "clinic_a", label: "Clinic A" },
 			{ value: "clinic_b", label: "Clinic B" },
 		]);
@@ -383,13 +445,13 @@ describe("editField — demotions", () => {
 								f({
 									id: "case_name",
 									kind: "text",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 								f({
 									id: "status",
 									kind: "text",
-									label: "Status",
+									label: proseText("Status"),
 									case_property_on: "patient",
 								}),
 							],
@@ -401,7 +463,7 @@ describe("editField — demotions", () => {
 								f({
 									id: "status",
 									kind: "text",
-									label: "Status",
+									label: proseText("Status"),
 									case_property_on: "patient",
 								}),
 							],
@@ -413,15 +475,13 @@ describe("editField — demotions", () => {
 		const { ctx } = makeStubToolContext();
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "status",
+				...address(doc, "status"),
 				updates: {
 					kind: "single_select",
-					options: [
-						{ value: "open", label: proseText("Open") },
-						{ value: "closed", label: proseText("Closed") },
-					],
+					optionsSource: toolInlineOptions(
+						["open", "Open"],
+						["closed", "Closed"],
+					),
 				},
 			},
 			ctx,
@@ -439,7 +499,7 @@ describe("editField — demotions", () => {
 		const optionUuids = new Set<string>();
 		for (const fld of converted) {
 			expect(fld.kind).toBe("single_select");
-			const options = (fld as { options?: SelectOption[] }).options ?? [];
+			const options = inlineOptions(fld);
 			expect(options.map((o) => o.value)).toEqual(["open", "closed"]);
 			for (const o of options) {
 				expect(o.uuid).toBeTruthy();
@@ -476,13 +536,13 @@ describe("editField — demotions", () => {
 								f({
 									id: "case_name",
 									kind: "text",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 								f({
 									id: "sample_id",
 									kind: "text",
-									label: "Sample",
+									label: proseText("Sample"),
 									case_property_on: "patient",
 								}),
 							],
@@ -494,7 +554,7 @@ describe("editField — demotions", () => {
 								f({
 									id: "sample_id",
 									kind: "barcode",
-									label: "Sample scan",
+									label: proseText("Sample scan"),
 									case_property_on: "patient",
 								}),
 							],
@@ -506,15 +566,10 @@ describe("editField — demotions", () => {
 		const { ctx, recordMutationStages } = makeStubToolContext();
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "sample_id",
+				...address(doc, "sample_id"),
 				updates: {
 					kind: "single_select",
-					options: [
-						{ value: "a", label: proseText("A") },
-						{ value: "b", label: proseText("B") },
-					],
+					optionsSource: toolInlineOptions(["a", "A"], ["b", "B"]),
 				},
 			},
 			ctx,
@@ -550,13 +605,13 @@ describe("editField — demotions", () => {
 								f({
 									id: "case_name",
 									kind: "text",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 								f({
 									id: "status",
 									kind: "text",
-									label: "Status",
+									label: proseText("Status"),
 									case_property_on: "patient",
 								}),
 							],
@@ -568,7 +623,7 @@ describe("editField — demotions", () => {
 								f({
 									id: "status",
 									kind: "text",
-									label: "Status",
+									label: proseText("Status"),
 									case_property_on: "patient",
 								}),
 							],
@@ -578,20 +633,22 @@ describe("editField — demotions", () => {
 			],
 		});
 		const registerStatus = Object.values(doc.fields).find(
-			(fld) => fld.id === "status" && "label" in fld && fld.label === "Status",
+			(fld) =>
+				fld.id === "status" &&
+				"label" in fld &&
+				fld.label !== undefined &&
+				fallbackProseProjection(fld.label) === "Status",
 		);
 		const { ctx } = makeStubToolContext();
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "status",
+				...address(doc, "status"),
 				updates: {
 					kind: "single_select",
-					options: [
-						{ value: "open", label: proseText("Open") },
-						{ value: "closed", label: proseText("Closed") },
-					],
+					optionsSource: toolInlineOptions(
+						["open", "Open"],
+						["closed", "Closed"],
+					),
 					case_property_on: null,
 				},
 			},
@@ -651,18 +708,18 @@ describe("editField — demotions", () => {
 								f({
 									id: "case_name",
 									kind: "text",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 								f({
 									id: "language",
 									kind: "single_select",
-									label: "Language",
+									label: proseText("Language"),
 									case_property_on: "patient",
-									options: [
-										{ value: "en", label: "English" },
-										{ value: "fr", label: "French" },
-									],
+									optionsSource: storedInlineOptions(
+										["en", "English"],
+										["fr", "French"],
+									),
 								}),
 							],
 						},
@@ -673,9 +730,7 @@ describe("editField — demotions", () => {
 		const { ctx, recordMutationStages } = makeStubToolContext();
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "language",
+				...address(doc, "language"),
 				updates: { kind: "multi_select" },
 			},
 			ctx,
@@ -693,7 +748,12 @@ describe("editField — demotions", () => {
 			?.find((ct) => ct.name === "patient")
 			?.properties.find((p) => p.name === "language");
 		expect(entry?.data_type).toBe("multi_select");
-		expect(entry?.options).toEqual([
+		expect(
+			entry?.options?.map((option) => ({
+				value: option.value,
+				label: fallbackProseProjection(option.label),
+			})),
+		).toEqual([
 			{ value: "en", label: "English" },
 			{ value: "fr", label: "French" },
 		]);
@@ -726,13 +786,13 @@ describe("editField — demotions", () => {
 								f({
 									id: "case_name",
 									kind: "text",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 								f({
 									id: "visit_note",
 									kind: "text",
-									label: "Visit note",
+									label: proseText("Visit note"),
 									case_property_on: "patient",
 								}),
 							],
@@ -744,10 +804,8 @@ describe("editField — demotions", () => {
 		const { ctx } = makeStubToolContext();
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "visit_note",
-				updates: { kind: "hidden", calculate: "today()" },
+				...address(doc, "visit_note"),
+				updates: { kind: "hidden", calculate: xp("today()") },
 			},
 			ctx,
 			doc,
@@ -770,18 +828,16 @@ describe("editField — demotions", () => {
 		const doc = makeDoc({
 			id: "symptoms",
 			kind: "single_select",
-			label: "Symptoms",
-			options: [
-				{ value: "fever", label: "Fever" },
-				{ value: "cough", label: "Cough" },
-			],
+			label: proseText("Symptoms"),
+			optionsSource: storedInlineOptions(
+				["fever", "Fever"],
+				["cough", "Cough"],
+			),
 		});
 		const { ctx } = makeStubToolContext();
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "symptoms",
+				...address(doc, "symptoms"),
 				updates: { kind: "multi_select" },
 			},
 			ctx,
@@ -792,12 +848,14 @@ describe("editField — demotions", () => {
 		expect(after?.kind).toBe("multi_select");
 		const convertMut = result.mutations.find((m) => m.kind === "convertField");
 		expect(
-			convertMut && "options" in convertMut ? convertMut.options : undefined,
+			convertMut && "optionsSource" in convertMut
+				? convertMut.optionsSource
+				: undefined,
 		).toBeUndefined();
-		expect(
-			((after as { options?: SelectOption[] }).options ?? []).map(
-				(o) => o.value,
-			),
-		).toEqual(["fever", "cough"]);
+		if (!after) throw new Error("converted symptoms missing");
+		expect(inlineOptions(after).map((option) => option.value)).toEqual([
+			"fever",
+			"cough",
+		]);
 	});
 });

@@ -1,4 +1,3 @@
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
@@ -11,6 +10,7 @@ import {
 import type { BlueprintDoc } from "@/lib/domain";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import { literal, matchAll, tableLookup, term } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import type { LookupRevision, LookupTableDefinition } from "@/lib/lookup/types";
 import { errorIdentity, evaluateCommit } from "../gate";
 import { validateLookupReferences } from "../lookupReferences";

@@ -21,6 +21,7 @@ import { LocationRecoveryEffect } from "@/components/builder/LocationRecoveryEff
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
+import { proseText } from "@/lib/domain/prose";
 
 const replaceStateSpy = vi.spyOn(window.history, "replaceState");
 const pathname = "/build/app-1";
@@ -87,13 +88,13 @@ function makeStore() {
 									uuid: "q-a-0000-0000-0000-000000000000",
 									kind: "text",
 									id: "a",
-									label: "A",
+									label: proseText("A"),
 								}),
 								f({
 									uuid: "q-b-0000-0000-0000-000000000000",
 									kind: "text",
 									id: "b",
-									label: "B",
+									label: proseText("B"),
 								}),
 							],
 						},

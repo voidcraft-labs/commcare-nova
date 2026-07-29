@@ -1,10 +1,12 @@
 import { z } from "zod";
-import { addCaseOperationMutations } from "@/lib/doc/caseOperationMutations";
+import { addCaseOperationAfterMutations } from "@/lib/doc/caseOperationMutations";
 import {
 	asUuid,
 	type BlueprintDoc,
 	findAuthoredBlueprintIdentity,
+	orderedCaseOperations,
 	type Uuid,
+	uuidSchema,
 } from "@/lib/domain";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import {
@@ -77,12 +79,12 @@ export const addCaseOperationsInputSchema = operationAddressSchema.extend({
 		.describe(
 			"Operations in execution order. Cross-operation references use stable UUIDs; operation ids remain editable wire names.",
 		),
-	index: z
-		.number()
-		.int()
-		.nonnegative()
+	afterOperationUuid: uuidSchema
+		.nullable()
 		.optional()
-		.describe("Insertion index for the first item; defaults to the end"),
+		.describe(
+			"UUID of the existing operation the new contiguous block should follow, null for first, or omit to append.",
+		),
 });
 
 export type AddCaseOperationsInput = z.infer<
@@ -138,6 +140,28 @@ export const addCaseOperationsTool = {
 					},
 				};
 			}
+			const initialAfter =
+				input.afterOperationUuid === undefined ||
+				input.afterOperationUuid === null
+					? input.afterOperationUuid
+					: asUuid(input.afterOperationUuid);
+			if (
+				initialAfter !== undefined &&
+				initialAfter !== null &&
+				!orderedCaseOperations(working.forms[address.formUuid] ?? {}).some(
+					(operation) => operation.uuid === initialAfter,
+				)
+			) {
+				return {
+					kind: "mutate",
+					mutations: [],
+					newDoc: doc,
+					result: {
+						error: `Case operation UUID "${initialAfter}" is not an existing operation in form "${doc.forms[address.formUuid]?.name ?? input.formUuid}".`,
+					},
+				};
+			}
+			let afterOperationUuid = initialAfter;
 			for (const [offset, item] of input.operations.entries()) {
 				const authorOperation = item.operation;
 				const formOperations =
@@ -160,14 +184,15 @@ export const addCaseOperationsTool = {
 					authorOperation,
 					operationUuids[offset] as Uuid,
 				);
-				const planned = addCaseOperationMutations(
+				const planned = addCaseOperationAfterMutations(
 					working,
 					address.formUuid,
 					operation,
-					input.index === undefined ? undefined : input.index + offset,
+					afterOperationUuid,
 				);
 				mutations.push(...planned);
 				working = applyToDoc(working, planned);
+				afterOperationUuid = operation.uuid;
 			}
 
 			const commit = await guardedMutate(

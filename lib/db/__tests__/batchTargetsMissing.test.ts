@@ -13,20 +13,23 @@
  * against its live set — a present target → `false`, a missing one → `true`.
  */
 
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { batchTargetsMissing } from "@/lib/db/commitGuard";
-import type { Mutation } from "@/lib/doc/types";
+import { columnContentSnapshot } from "@/lib/doc/caseListColumnMutations";
+import type { Mutation, Uuid } from "@/lib/doc/types";
 import {
 	type BlueprintDoc,
 	type CaseOperation,
 	emptyCaseListConfig,
 } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 
 const OPERATION = testUuid("11111111-1111-4111-8111-111111111111");
 const OTHER_OPERATION = testUuid("22222222-2222-4222-8222-222222222222");
+const RED_OPTION = testUuid("33333333-3333-4333-8333-333333333333");
+const GREEN_OPTION = testUuid("44444444-4444-4444-8444-444444444444");
 
 function value(value: string) {
 	return {
@@ -42,14 +45,14 @@ function value(value: string) {
  */
 function fixture(): {
 	doc: BlueprintDoc;
-	moduleUuid: string;
-	formUuid: string;
-	fieldUuid: string;
-	selectUuid: string;
-	columnUuid: string;
-	searchInputUuid: string;
-	optionUuid: string;
-	operationUuid: string;
+	moduleUuid: Uuid;
+	formUuid: Uuid;
+	fieldUuid: Uuid;
+	selectUuid: Uuid;
+	columnUuid: Uuid;
+	searchInputUuid: Uuid;
+	optionUuid: Uuid;
+	operationUuid: Uuid;
 } {
 	const doc = buildDoc({
 		modules: [
@@ -64,15 +67,26 @@ function fixture(): {
 						name: "Intake",
 						type: "survey",
 						fields: [
-							f({ kind: "text", id: "note", label: "Note" }),
+							f({ kind: "text", id: "note", label: proseText("Note") }),
 							f({
 								kind: "single_select",
 								id: "color",
-								label: "Color",
-								options: [
-									{ value: "red", label: "Red" },
-									{ value: "green", label: "Green" },
-								],
+								label: proseText("Color"),
+								optionsSource: {
+									kind: "inline",
+									options: [
+										{
+											uuid: RED_OPTION,
+											value: "red",
+											label: proseText("Red"),
+										},
+										{
+											uuid: GREEN_OPTION,
+											value: "green",
+											label: proseText("Green"),
+										},
+									],
+								},
 							}),
 						],
 					},
@@ -93,12 +107,12 @@ function fixture(): {
 	const selectField = Object.values(doc.fields).find((fl) => fl.id === "color");
 	if (!noteField || !selectField) throw new Error("fixture fields missing");
 
-	// Inject a search input + option uuids the concise builder doesn't mint.
+	// Inject a search input; every authored identity is already present.
 	const mod = doc.modules[moduleUuid] as {
 		caseListConfig: {
-			columns: { uuid: string }[];
+			columns: { uuid: Uuid }[];
 			searchInputs: {
-				uuid: string;
+				uuid: Uuid;
 				name: string;
 				label: string;
 				type: string;
@@ -137,13 +151,6 @@ function fixture(): {
 		},
 	];
 
-	const select = doc.fields[selectField.uuid] as {
-		options: { value: string; uuid?: string }[];
-	};
-	const optionUuid = testUuid("option-red");
-	select.options[0].uuid = optionUuid;
-	select.options[1].uuid = testUuid("option-green");
-
 	return {
 		doc,
 		moduleUuid,
@@ -152,12 +159,12 @@ function fixture(): {
 		selectUuid: selectField.uuid,
 		columnUuid,
 		searchInputUuid,
-		optionUuid,
+		optionUuid: RED_OPTION,
 		operationUuid: OPERATION,
 	};
 }
 
-const MISSING = "00000000-0000-4000-8000-000000000000";
+const MISSING = testUuid("00000000-0000-4000-8000-000000000000");
 
 describe("batchTargetsMissing — entity kinds", () => {
 	it("returns false for edits to live module / form / field targets", () => {
@@ -173,8 +180,8 @@ describe("batchTargetsMissing — entity kinds", () => {
 				kind: "updateField",
 				uuid: fieldUuid,
 				targetKind: "text",
-				patch: { label: "Note!" },
-			} as Mutation,
+				patch: { label: proseText("Note!") },
+			},
 		];
 		expect(batchTargetsMissing(doc, live)).toBe(false);
 	});
@@ -235,8 +242,8 @@ describe("batchTargetsMissing — granular catalog kinds", () => {
 			{
 				kind: "addCaseProperty",
 				caseType: "patient",
-				property: { name: "age", label: "Age" },
-			} as Mutation,
+				property: { name: "age", label: proseText("Age") },
+			},
 			{
 				kind: "removeCaseProperty",
 				caseType: "patient",
@@ -245,8 +252,8 @@ describe("batchTargetsMissing — granular catalog kinds", () => {
 			{
 				kind: "setCaseProperty",
 				caseType: "patient",
-				property: { name: "age", label: "Age" },
-			} as Mutation,
+				property: { name: "age", label: proseText("Age") },
+			},
 			{ kind: "setCaseTypeMeta", caseType: "patient" } as Mutation,
 		];
 		expect(batchTargetsMissing(doc, live)).toBe(false);
@@ -259,7 +266,7 @@ describe("batchTargetsMissing — granular catalog kinds", () => {
 				{
 					kind: "addCaseProperty",
 					caseType: "household",
-					property: { name: "x", label: "X" },
+					property: { name: "x", label: proseText("X") },
 				} as unknown as Mutation,
 			]),
 		).toBe(true);
@@ -277,8 +284,8 @@ describe("batchTargetsMissing — granular catalog kinds", () => {
 			{
 				kind: "addCaseProperty",
 				caseType: "household",
-				property: { name: "size", label: "Size" },
-			} as Mutation,
+				property: { name: "size", label: proseText("Size") },
+			},
 		];
 		expect(batchTargetsMissing(doc, batch)).toBe(false);
 	});
@@ -326,7 +333,7 @@ describe("batchTargetsMissing — granular collection kinds (item uuid)", () => 
 				kind: "updateColumn",
 				moduleUuid,
 				uuid: columnUuid,
-				column: { ...column, visibleInDetail: false },
+				column: columnContentSnapshot(column),
 				visibilityPatch: { surface: "detail", visible: false },
 			} as Mutation,
 			{
@@ -358,11 +365,9 @@ describe("batchTargetsMissing — granular collection kinds (item uuid)", () => 
 					moduleUuid,
 					uuid: MISSING,
 					column: {
-						uuid: MISSING,
 						kind: "plain",
 						field: "x",
 						header: "X",
-						visibleInList: false,
 					},
 					visibilityPatch: { surface: "list", visible: false },
 				} as Mutation,
@@ -433,7 +438,7 @@ describe("batchTargetsMissing — granular collection kinds (item uuid)", () => 
 					kind: "updateColumn",
 					moduleUuid: owner,
 					uuid,
-					column: { ...column, visibleInDetail: false },
+					column: columnContentSnapshot(column),
 					visibilityPatch: { surface: "detail", visible: false },
 				},
 			]),
@@ -461,7 +466,11 @@ describe("batchTargetsMissing — granular collection kinds (item uuid)", () => 
 				{
 					kind: "addOption",
 					fieldUuid: MISSING,
-					option: { value: "v", label: "V", uuid: testUuid("o-new") },
+					option: {
+						value: "v",
+						label: proseText("V"),
+						uuid: testUuid("o-new"),
+					},
 				} as unknown as Mutation,
 			]),
 		).toBe(true);
@@ -578,7 +587,11 @@ describe("batchTargetsMissing — granular collection kinds (item uuid)", () => 
 			{
 				kind: "addOption",
 				fieldUuid: selectUuid,
-				option: { value: "blue", label: "Blue", uuid: newOptUuid },
+				option: {
+					value: "blue",
+					label: proseText("Blue"),
+					uuid: newOptUuid,
+				},
 			} as unknown as Mutation,
 			{
 				kind: "removeOption",
@@ -599,7 +612,7 @@ describe("batchTargetsMissing — case-operation logical identities", () => {
 
 	function granular(
 		formUuid: string,
-		fallback: CaseOperation,
+		_fallback: CaseOperation,
 		caseOperationPatch: NonNullable<
 			Extract<Mutation, { kind: "updateForm" }>["caseOperationPatch"]
 		>,
@@ -608,11 +621,6 @@ describe("batchTargetsMissing — case-operation logical identities", () => {
 			kind: "updateForm",
 			uuid: testUuid(formUuid),
 			patch: {},
-			caseOperationChange: {
-				operation: "update",
-				uuid: fallback.uuid,
-				value: fallback,
-			},
 			caseOperationPatch,
 		};
 	}
@@ -814,7 +822,6 @@ describe("batchTargetsMissing — case-operation logical identities", () => {
 			kind: "updateForm",
 			uuid: testUuid(formUuid),
 			patch: {},
-			caseOperationChange: { operation: "move", uuid: OPERATION, after },
 			caseOperationPatch: { operation: "move", uuid: OPERATION, after },
 		});
 
@@ -838,7 +845,7 @@ describe("batchTargetsMissing — case-operation logical identities", () => {
 		expect(batchTargetsMissing(doc, [move(null), move(null)])).toBe(false);
 	});
 
-	it("advances births, removals, and full replacements across one batch", () => {
+	it("advances births, removals, and granular member replacements across one batch", () => {
 		const { doc, formUuid } = fixture();
 		const operation = operationIn(doc, formUuid);
 		const born: CaseOperation = {
@@ -868,27 +875,22 @@ describe("batchTargetsMissing — case-operation logical identities", () => {
 			]),
 		).toBe(false);
 
-		const replaced = {
-			...operation,
-			writes: [{ property: "note", value: value("replacement") }],
-			links: undefined,
-		};
 		expect(
 			batchTargetsMissing(doc, [
-				{
-					kind: "updateForm",
-					uuid: testUuid(formUuid),
-					patch: {},
-					caseOperationChange: {
-						operation: "update",
-						uuid: OPERATION,
-						value: replaced,
-					},
-				},
+				granular(formUuid, operation, {
+					operation: "remove-write",
+					uuid: OPERATION,
+					property: "status",
+				}),
+				granular(formUuid, operation, {
+					operation: "add-write",
+					uuid: OPERATION,
+					value: { property: "note", value: value("replacement") },
+				}),
 				granular(
 					formUuid,
 					{
-						...replaced,
+						...operation,
 						writes: [{ property: "note", value: value("next") }],
 					},
 					{
@@ -902,17 +904,17 @@ describe("batchTargetsMissing — case-operation logical identities", () => {
 		).toBe(false);
 		expect(
 			batchTargetsMissing(doc, [
-				{
-					kind: "updateForm",
-					uuid: testUuid(formUuid),
-					patch: {},
-					caseOperationChange: {
-						operation: "update",
-						uuid: OPERATION,
-						value: replaced,
-					},
-				},
-				granular(formUuid, replaced, {
+				granular(formUuid, operation, {
+					operation: "remove-write",
+					uuid: OPERATION,
+					property: "status",
+				}),
+				granular(formUuid, operation, {
+					operation: "add-write",
+					uuid: OPERATION,
+					value: { property: "note", value: value("replacement") },
+				}),
+				granular(formUuid, operation, {
 					operation: "update-write",
 					uuid: OPERATION,
 					property: "status",
@@ -964,8 +966,8 @@ describe("batchTargetsMissing — app-level scalars", () => {
 			{
 				kind: "addCaseProperty",
 				caseType: "household",
-				property: { name: "size", label: "Size" },
-			} as Mutation,
+				property: { name: "size", label: proseText("Size") },
+			},
 			// `patient` was replaced by the wholesale set → now a conflict.
 			{ kind: "retireCaseType", caseType: "patient" } as Mutation,
 		];

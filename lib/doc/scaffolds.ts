@@ -35,9 +35,13 @@ import {
 	type Uuid,
 	uniqueSlug,
 } from "@/lib/domain";
-import { addModuleMutation, updateModuleMutation } from "./addModuleMutation";
+import { addModuleMutation } from "./addModuleMutation";
 import type { CaseTypeRetirement } from "./caseTypeRetirement";
 import { orderedFormUuids, orderedModuleUuids } from "./fieldWalk";
+import {
+	type ModuleAuthoringPatch,
+	modulePatchMutations,
+} from "./modulePatchMutations";
 import type { Mutation } from "./types";
 
 /** The module a new one inserted at `index` (default append) should follow —
@@ -413,11 +417,11 @@ export function formScaffoldMutations(
 		mutations.push(...declareCaseTypeForField(doc, field));
 	}
 	if (mod.caseListOnly) {
-		const patch: Partial<Omit<Module, "uuid">> = { caseListOnly: false };
+		const patch: ModuleAuthoringPatch = { caseListOnly: false };
 		if ((mod.caseListConfig?.columns.length ?? 0) === 0) {
 			patch.caseListConfig = caseListConfigWithName(mod.caseListConfig);
 		}
-		mutations.push(updateModuleMutation(moduleUuid, patch));
+		mutations.push(...modulePatchMutations(mod, patch));
 	}
 	const after = anchorForIndex(doc.formOrder[moduleUuid] ?? [], index);
 	mutations.push({
@@ -462,7 +466,7 @@ export function caseTypeSetPatch(
 	mod: Module,
 	hasForms: boolean,
 	caseType: string,
-): Partial<Omit<Module, "uuid">> {
+): ModuleAuthoringPatch {
 	if (!hasForms)
 		return {
 			caseType,
@@ -486,7 +490,7 @@ export function caseTypeSetPatch(
  * flag off. (Clears travel as `undefined` per the `updateModule` convention;
  * the wholesale snapshot save strips them, so absence is the cleared state.)
  */
-export function caseTypeClearPatch(): Partial<Omit<Module, "uuid">> {
+export function caseTypeClearPatch(): ModuleAuthoringPatch {
 	return {
 		caseType: undefined,
 		caseListOnly: undefined,

@@ -59,12 +59,20 @@ describe("preview case-search expression evaluation", () => {
 	});
 
 	it("binds submitted search inputs before evaluating a dependent expression", () => {
+		const clinicInput = simpleSearchInputDef(
+			testUuid("clinic"),
+			"clinic",
+			"Clinic",
+			"text",
+			"clinic",
+		);
 		const values: SearchInputValues = new Map([["clinic", "Kolda"]]);
 		expect(
 			evaluatePreviewSearchExpression(
-				concat(term(literal("owner-")), term(input("clinic"))),
+				concat(term(literal("owner-")), term(input(clinicInput.uuid))),
 				SESSION,
 				values,
+				[clinicInput],
 			),
 		).toBe("owner-Kolda");
 	});
@@ -93,7 +101,7 @@ describe("preview case-search expression evaluation", () => {
 		);
 		expect(
 			evaluatePreviewSearchExpression(
-				dateAdd(term(input("visit_day")), "days", term(literal(1))),
+				dateAdd(term(input(visitDay.uuid)), "days", term(literal(1))),
 				SESSION,
 				new Map([["visit_day", "2026-07-17"]]),
 				[visitDay],
@@ -113,7 +121,7 @@ describe("preview case-search expression evaluation", () => {
 
 		expect(
 			evaluatePreviewSearchPredicate(
-				eq(input("clinic"), literal("Kolda")),
+				eq(input(clinicInput.uuid), literal("Kolda")),
 				[clinicInput],
 				SESSION,
 				values,

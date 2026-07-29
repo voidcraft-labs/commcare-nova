@@ -1,7 +1,6 @@
 "use client";
 import type { UIMessage } from "ai";
 import { useCallback, useContext, useEffect, useRef } from "react";
-import { type FieldPath, fpathId } from "@/lib/doc/fieldPath";
 import {
 	orderedFieldUuids,
 	orderedFormUuids,
@@ -22,19 +21,16 @@ import type { SignalGridController } from "@/lib/signalGridController";
 
 /**
  * Walk the form's normalized subtree depth-first and return the flat
- * 0-based index of the first field whose bare `id` matches. Returns -1
- * when the form is empty or the id is not present.
+ * 0-based index of the field with the requested stable UUID. Returns -1 when
+ * the form is empty or that field is not part of the form.
  *
- * The SA's tool events reference fields by their semantic id; the signal
- * grid consumes flat indices so its activity gauge can compute a focus
- * range over the form's linear field sequence. This helper replaces the
- * old wire-format `flatIndexById` walk — the normalized doc's
- * `fieldOrder` is the single source of ordering truth.
+ * SA tool events carry UUID identity; the signal grid locally projects it to
+ * the flat rendered index its activity gauge consumes.
  */
 function flatIndexInForm(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
-	bareId: string,
+	targetUuid: Uuid,
 ): number {
 	let index = 0;
 	let found = -1;
@@ -45,12 +41,12 @@ function flatIndexInForm(
 		// array position.
 		const children = orderedFieldUuids(doc, parent);
 		for (const childUuid of children) {
-			const field = doc.fields[childUuid];
-			if (!field) continue;
-			if (field.id === bareId) {
+			if (childUuid === targetUuid) {
 				found = index;
 				return true;
 			}
+			const field = doc.fields[childUuid];
+			if (!field) continue;
 			index++;
 			if (walk(childUuid)) return true;
 		}
@@ -120,34 +116,31 @@ export function SignalGrid({ controller, messages }: SignalGridProps) {
 				contentLen += JSON.stringify(part.input).length;
 
 				const input = part.input as Record<string, unknown>;
-				if (typeof input.moduleIndex === "number") {
-					latestToolScope = { moduleIndex: input.moduleIndex };
-					if (typeof input.formIndex === "number") {
-						latestToolScope.formIndex = input.formIndex;
-
-						const rawRef = input.fieldPath ?? input.questionId ?? input.path;
-						const qRef = typeof rawRef === "string" ? rawRef : undefined;
-						if (typeof qRef === "string" && qRef) {
-							/* Resolve the field's flat index within its form by
-							 * walking the doc's normalized entity maps directly —
-							 * no wire-shape assembly needed. */
-							const doc = docStoreRef.current?.getState();
-							// The SA's `moduleIndex` / `formIndex` are DISPLAY-order
-							// positions (its resolvers speak `orderedModule/FormUuids`),
-							// so resolve them the same way — not by `moduleOrder` /
-							// `formOrder` array position.
-							const moduleId = doc
-								? orderedModuleUuids(doc)[input.moduleIndex as number]
+				const doc = docStoreRef.current?.getState();
+				const moduleUuid =
+					typeof input.moduleUuid === "string"
+						? (input.moduleUuid as Uuid)
+						: undefined;
+				const moduleIndex =
+					doc && moduleUuid ? orderedModuleUuids(doc).indexOf(moduleUuid) : -1;
+				if (doc && moduleUuid && moduleIndex >= 0) {
+					latestToolScope = { moduleIndex };
+					const formUuid =
+						typeof input.formUuid === "string"
+							? (input.formUuid as Uuid)
+							: undefined;
+					const formIndex = formUuid
+						? orderedFormUuids(doc, moduleUuid).indexOf(formUuid)
+						: -1;
+					if (formUuid && formIndex >= 0) {
+						latestToolScope.formIndex = formIndex;
+						const fieldUuid =
+							typeof input.fieldUuid === "string"
+								? (input.fieldUuid as Uuid)
 								: undefined;
-							const formId =
-								doc && moduleId
-									? orderedFormUuids(doc, moduleId)[input.formIndex as number]
-									: undefined;
-							if (doc && formId) {
-								const bareId = fpathId(qRef as FieldPath);
-								const flatIdx = flatIndexInForm(doc, formId, bareId);
-								if (flatIdx >= 0) latestToolScope.fieldIndex = flatIdx;
-							}
+						if (fieldUuid) {
+							const flatIdx = flatIndexInForm(doc, formUuid, fieldUuid);
+							if (flatIdx >= 0) latestToolScope.fieldIndex = flatIdx;
 						}
 					}
 				}

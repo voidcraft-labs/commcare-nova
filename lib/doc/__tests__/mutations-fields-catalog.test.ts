@@ -16,7 +16,6 @@
  * and a move that doesn't rename adds nothing.
  */
 
-import { proseText } from "@/lib/domain/prose";
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -24,8 +23,8 @@ import { validateBlueprintDeep } from "@/lib/commcare/validator";
 import { duplicateFieldMutations } from "@/lib/doc/duplicateFieldMutations";
 import { applyMutation, applyMutations } from "@/lib/doc/mutations";
 import type { BlueprintDoc, Mutation, Uuid } from "@/lib/doc/types";
-
 import type { CaseProperty, Field, Form, Module } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import { buildDoc, f } from "../../__tests__/docHelpers";
 
 const M = (s: string) => testUuid(`mod${s}-0000-0000-0000-000000000000`);
@@ -39,7 +38,7 @@ function field_(
 	patch: Record<string, unknown> & { kind?: Field["kind"] } = {},
 ): Field {
 	const { kind = "text", ...rest } = patch;
-	return { uuid, id, kind, label: id, ...rest } as unknown as Field;
+	return { uuid, id, kind, label: proseText(id), ...rest } as unknown as Field;
 }
 
 /**
@@ -105,8 +104,8 @@ describe("addField catalog sync", () => {
 			),
 		);
 		expect(catalogProps(next, "patient")).toEqual([
-			{ name: "case_name", label: "Name" },
-			{ name: "age", label: "age", data_type: "int" },
+			{ name: "case_name", label: proseText("Name") },
+			{ name: "age", label: proseText("age"), data_type: "int" },
 		]);
 	});
 
@@ -192,7 +191,7 @@ describe("addField catalog sync", () => {
 		} as unknown as Field;
 		const next = apply(start, addField(F("1"), hidden));
 		expect(catalogProps(next, "patient")).toEqual([
-			{ name: "score", label: "score" },
+			{ name: "score", label: proseText("score") },
 		]);
 	});
 });
@@ -213,7 +212,7 @@ describe("updateField catalog sync", () => {
 			patch: { case_property_on: "patient" },
 		});
 		expect(catalogProps(next, "patient")).toEqual([
-			{ name: "age", label: "age", data_type: "text" },
+			{ name: "age", label: proseText("age"), data_type: "text" },
 		]);
 	});
 
@@ -241,8 +240,8 @@ describe("updateField catalog sync", () => {
 			patch: { id: "years" },
 		});
 		expect(catalogProps(next, "patient")).toEqual([
-			{ name: "age", label: "age", data_type: "text" },
-			{ name: "years", label: "years", data_type: "text" },
+			{ name: "age", label: proseText("age"), data_type: "text" },
+			{ name: "years", label: proseText("years"), data_type: "text" },
 		]);
 	});
 });
@@ -265,7 +264,7 @@ describe("convertField catalog sync", () => {
 			toKind: "decimal",
 		});
 		expect(catalogProps(next, "patient")).toEqual([
-			{ name: "age", label: "age", data_type: "decimal" },
+			{ name: "age", label: proseText("age"), data_type: "decimal" },
 		]);
 	});
 
@@ -319,8 +318,8 @@ describe("duplicateField catalog sync", () => {
 			applyMutations(d, plan.mutations);
 		});
 		expect(catalogProps(next, "patient")).toEqual([
-			{ name: "age", label: "age", data_type: "int" },
-			{ name: "age_2", label: "age_2", data_type: "int" },
+			{ name: "age", label: proseText("age"), data_type: "int" },
+			{ name: "age_2", label: proseText("age_2"), data_type: "int" },
 		]);
 	});
 });
@@ -362,8 +361,8 @@ describe("moveField catalog sync", () => {
 		});
 		expect(next.fields[Q("b")]?.id).toBe("age_2");
 		expect(catalogProps(next, "patient")).toEqual([
-			{ name: "age", label: "age", data_type: "int" },
-			{ name: "age_2", label: "age_2", data_type: "int" },
+			{ name: "age", label: proseText("age"), data_type: "int" },
+			{ name: "age_2", label: proseText("age_2"), data_type: "int" },
 		]);
 	});
 
@@ -402,7 +401,7 @@ describe("removeField — catalog is never pruned", () => {
 		);
 		expect(next.fields[Q("a")]).toBeUndefined();
 		expect(catalogProps(next, "patient")).toEqual([
-			{ name: "age", label: "age", data_type: "int" },
+			{ name: "age", label: proseText("age"), data_type: "int" },
 		]);
 	});
 });
@@ -420,7 +419,7 @@ describe("renameField interplay", () => {
 			{ kind: "renameField", uuid: Q("a"), newId: "years" },
 		);
 		expect(catalogProps(next, "patient")).toEqual([
-			{ name: "years", label: "age", data_type: "int" },
+			{ name: "years", label: proseText("age"), data_type: "int" },
 		]);
 	});
 
@@ -451,7 +450,7 @@ describe("renameField interplay", () => {
 			{ kind: "renameField", uuid: Q("a"), newId: "name" },
 		);
 		expect(catalogProps(next, "patient")).toEqual([
-			{ name: "name", label: "Name", data_type: "text" },
+			{ name: "name", label: proseText("Name"), data_type: "text" },
 		]);
 	});
 });

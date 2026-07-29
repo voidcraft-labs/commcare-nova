@@ -310,26 +310,24 @@ exactly as it was (`operationScopeFailsClosed.test.ts` pins it).
 
 The same vocabulary is authorable through the Solutions Architect and MCP.
 `getCaseOperations`/`get_case_operations` projects the ordered sequence with
-operation ids and form-field paths; batch add plus singular update, move, and
-remove use those same author identities and cross to immutable UUID leaves
-before checking. Batch add resolves earlier creates within its working overlay
-and commits the complete sequence atomically. Full-shape updates emit only
+immutable operation UUIDs and canonical identity-backed ASTs; the editable
+operation id remains readable wire metadata. Batch add plus singular update,
+move, and remove address operations by UUID. Same-call references predeclare
+their final operation UUIDs, and batch add resolves earlier creates within its
+working overlay before committing the complete sequence atomically. Full-shape
+updates emit only
 identity-keyed scalar, write-property, link-identifier, and order mutations, so
 unrelated concurrent edits compose. Builder full-shape edits additionally
 rebase only the slots changed from their render snapshot onto the
 invocation-time operation; peer-deleted targets and same-key write/link adds
-fail before local state changes. Each non-order granular event carries the
-deployed full-operation `caseOperationChange.update.value` as the
-immediate-parent fallback and its current intent in top-level
-`caseOperationPatch`; an ordinary move uses the deployed carrier-blind
-`caseOperationChange.move` as its exact fallback. Current reducers apply only
-the intent, immediate-parent reducers apply the equivalent fallback, and
-immediate-parent events still replay with their established semantics. Schema
-integrity binds both views to one UUID and value. The authoritative commit guard
-tracks operation UUIDs, requested move ranks, and write-property/link-identifier
-sets through the batch, rejecting peer-deleted targets, shifted destinations,
-and same-key peer adds instead of allowing a total reducer no-op to report
-success.
+fail before local state changes. There is one mutation dialect:
+`caseOperationPatch` carries granular edits, while `caseOperationChange`
+contains only add/remove. Moves name the UUID the operation should follow, so
+there is no numeric rank or whole-operation fallback to race with peer inserts.
+The authoritative commit guard tracks operation UUIDs and
+write-property/link-identifier sets through the batch, rejecting peer-deleted
+targets and same-key peer adds instead of allowing a total reducer no-op to
+report success.
 
 The operation id, write property, and link identifier vocabularies share their
 validator-owned grammar with the builder and tool schemas: ASCII letters,
@@ -342,18 +340,11 @@ operation ids normalize each hyphen to an underscore for every create, update,
 and close seed before the first commit.
 
 Lookup-backed predicates and expressions already persisted on a case operation
-remain preserved. The builder keeps the operation visible and movable but
-renders both the rail and recursive canvas persistently read-only, with the
-reason, until lookup authoring owns those slots. The carrier inventory is the
-single exhaustive oracle. `getCaseOperations` and `getForm` preserve the full
-ordered operation sequence: each carrier-bearing operation keeps its author id,
-action, and case type plus
-`unavailable: { kind: "lookup-table-logic", reason }`, while every lookup AST
-detail is withheld. The id remains addressable by `moveCaseOperation`, so the
-operation can move without a partial read ever posing as an editable shape.
-Builder edits refuse before dispatching local state, full-shape SA/MCP updates
-and removals refuse, and moves stay persistable because their deployed fallback
-carries only UUID plus order.
+remain preserved as their exact canonical AST. `getCaseOperations` and
+`getForm` return that complete ordered shape, including lookup carriers, so
+SA/MCP reads round-trip directly through the full-shape UUID-addressed update
+without a hidden or partial author dialect. Unit 2 adds builder authoring for
+those table terms and filters.
 
 `content/docs/case-changes.mdx` is the user-facing guide.
 
@@ -510,10 +501,10 @@ MCP); values cross those JSON tool boundaries as
 one boundary. On an initial build, custom properties land immediately after the
 app name and before the data model, modules, forms, conditions, or calculations
 can reference them; roles and personas may follow the reference-bearing app
-structure. Update omission keeps a slot and explicit `null` clears one. Each
-changed role/persona value persists as its own semantic mutation, with the
-cumulative record only as an origin-compatible fallback, so concurrent edits
-to different properties merge instead of replacing one another. In the
+structure. Update omission keeps a slot and explicit `null` clears one.
+Role/persona updates accept one UUID-addressed `valuePatch` at a time, and each
+changed value persists as its own semantic mutation, so concurrent edits to
+different properties merge instead of replacing one another. In the
 builder an absent persona value inherits its role, an explicit `""` overrides
 the role with blank, and a nonempty value overrides it with that value; control
 item identities are separate from authored strings, so no valid choice is
@@ -556,7 +547,7 @@ immediately. The parallel name-backed `session-user { field }` and XPath
 CommCare-provided or external fields that have no Nova entity — they are not
 compatibility spellings of the identity arm. The builder exposes those as two
 explicit sources: **Worker information** selects only from the UUID catalog,
-while **Other user field** authors only the raw name-backed arm, admits
+while **Other user field** authors only the external name-backed arm, admits
 hyphens after an XML-safe first character, and never infers identity from its
 text. An unavailable custom UUID stays visible as a recovery state rather than
 falling back to text or exposing the UUID.
@@ -567,7 +558,7 @@ has exactly one match, and the slug passes the same reserved-name/format
 verdict as construction. A built-in, reserved/invalid legacy custom,
 case-insensitive duplicate, case-only match, missing, or external spelling
 remains name-backed permanently; a later catalog rename cannot retarget that
-raw leaf. While an XPath editor is open, a clean draft adopts a peer's identity
+external leaf. While an XPath editor is open, a clean draft adopts a peer's identity
 rename. A dirty draft rebases only when the peer projection changes exactly one
 complete `#user/<slug>` token and no other byte, that rename is the catalog's
 only identity change, the before/after entries prove the same unique

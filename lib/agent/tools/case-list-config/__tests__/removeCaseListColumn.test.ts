@@ -57,7 +57,7 @@ describe("removeCaseListColumn", () => {
 		const doc = fixtureWithColumns();
 
 		const result = await removeCaseListColumnTool.execute(
-			{ moduleIndex: 0, columnUuid: TARGET_UUID },
+			{ moduleUuid: MOD_A, columnUuid: TARGET_UUID },
 			ctx,
 			doc,
 		);
@@ -71,7 +71,7 @@ describe("removeCaseListColumn", () => {
 		const { ctx } = makeCaseListFixture();
 		const doc = fixtureWithColumns();
 		const result = await removeCaseListColumnTool.execute(
-			{ moduleIndex: 0, columnUuid: TARGET_UUID },
+			{ moduleUuid: MOD_A, columnUuid: TARGET_UUID },
 			ctx,
 			doc,
 		);
@@ -83,11 +83,11 @@ describe("removeCaseListColumn", () => {
 		expect(result.result.message).toContain(String(TARGET_UUID));
 	});
 
-	it("returns an Elm-style error on out-of-range moduleIndex", async () => {
+	it("returns the canonical UUID-address error for an unknown module", async () => {
 		const { ctx } = makeCaseListFixture();
 		const doc = fixtureWithColumns();
 		const result = await removeCaseListColumnTool.execute(
-			{ moduleIndex: 99, columnUuid: TARGET_UUID },
+			{ moduleUuid: testUuid("unknown-module"), columnUuid: TARGET_UUID },
 			ctx,
 			doc,
 		);
@@ -96,8 +96,7 @@ describe("removeCaseListColumn", () => {
 		if (!("error" in result.result)) {
 			throw new Error("expected error result");
 		}
-		expect(result.result.error).toContain("Tried to remove");
-		expect(result.result.error).toContain("module index 99");
+		expect(result.result.error).toContain("No module with UUID");
 	});
 
 	it("returns an Elm-style error when the column uuid is unknown", async () => {
@@ -105,7 +104,7 @@ describe("removeCaseListColumn", () => {
 		const doc = fixtureWithColumns();
 		const unknown = testUuid("dddddddd-dddd-dddd-dddd-dddddddddddd");
 		const result = await removeCaseListColumnTool.execute(
-			{ moduleIndex: 0, columnUuid: unknown },
+			{ moduleUuid: MOD_A, columnUuid: unknown },
 			ctx,
 			doc,
 		);

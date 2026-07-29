@@ -6,7 +6,10 @@
 import type { Kysely } from "kysely";
 import { sql } from "kysely";
 import { describe, expect, it } from "vitest";
-import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
+import {
+	runCaseStoreMigrations,
+	runCaseStoreMigrationsWithReport,
+} from "@/lib/case-store/migrate";
 import { caseStoreMigrations } from "@/lib/case-store/migrations";
 import { setupPerTestDatabase } from "./perTestDatabase";
 
@@ -49,8 +52,9 @@ async function columnExists(
 describe("runCaseStoreMigrations", () => {
 	it("creates the full schema and records the ledger on a fresh database", async () => {
 		const db = dbHandle.db;
-		await runCaseStoreMigrations(db);
+		const report = await runCaseStoreMigrationsWithReport(db);
 
+		expect(report.appliedMigrationNames).toEqual(EXPECTED_LEDGER);
 		expect(await regclassExists(db, "public.cases")).toBe(true);
 		expect(await regclassExists(db, "public.case_indices")).toBe(true);
 		expect(await regclassExists(db, "public.case_type_schemas")).toBe(true);
@@ -71,6 +75,9 @@ describe("runCaseStoreMigrations", () => {
 	it("is idempotent — a second run applies nothing and does not throw", async () => {
 		const db = dbHandle.db;
 		await runCaseStoreMigrations(db);
+		await expect(runCaseStoreMigrationsWithReport(db)).resolves.toEqual({
+			appliedMigrationNames: [],
+		});
 		await expect(runCaseStoreMigrations(db)).resolves.toBeUndefined();
 		expect(await ledgerNames(db)).toEqual(EXPECTED_LEDGER);
 	});

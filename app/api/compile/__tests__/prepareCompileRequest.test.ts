@@ -11,7 +11,6 @@
  * `resolveAppAccess`, the boundary gate, and the manifest.
  */
 
-import { proseText } from "@/lib/domain/prose";
 import type { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
@@ -19,6 +18,7 @@ import { ApiError } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
 import { validationError } from "@/lib/commcare/validator/errors";
 import { resolveAppAccess } from "@/lib/db/appAccess";
+import { proseText } from "@/lib/domain/prose";
 import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
 import { resolveMediaManifest } from "@/lib/media/manifest";
 import { prepareCompileRequest } from "../prepareCompileRequest";
@@ -54,7 +54,7 @@ function validDoc() {
 							{
 								kind: "text",
 								id: "case_name",
-								label: "Name",
+								label: proseText("Name"),
 								case_property_on: "patient",
 							},
 						],

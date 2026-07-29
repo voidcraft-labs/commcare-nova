@@ -1,10 +1,11 @@
 // @vitest-environment happy-dom
 
-import { proseText } from "@/lib/domain/prose";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type { CaseType } from "@/lib/domain";
 import { eq, input, literal, prop, term } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { AssignedCasesSetting } from "../canvas/AssignedCasesSetting";
 import { SearchConditionCanvas } from "../canvas/SearchConditionCanvas";
 
@@ -20,7 +21,7 @@ const caseTypes: readonly CaseType[] = [
 
 describe("Search-field dependency review focus", () => {
 	it("reopens Assigned cases and focuses its labeled select", async () => {
-		const value = term(input("query"));
+		const value = term(input(testUuid("query")));
 		const { rerender } = render(
 			<AssignedCasesSetting value={value} onChange={vi.fn()} canEdit />,
 		);
@@ -51,13 +52,18 @@ describe("Search-field dependency review focus", () => {
 		render(
 			<SearchConditionCanvas
 				context={{ kind: "input", label: "Region" }}
-				value={eq(prop("client", "region"), input("query"))}
+				value={eq(prop("client", "region"), input(testUuid("query")))}
 				onChange={vi.fn()}
 				onBack={vi.fn()}
 				caseTypes={caseTypes}
 				currentCaseType="client"
 				knownInputs={[
-					{ name: "query", label: "Client name", data_type: "text" },
+					{
+						uuid: testUuid("query"),
+						name: "query",
+						label: "Client name",
+						data_type: "text",
+					},
 				]}
 				dependencyReview={{
 					token: 1,

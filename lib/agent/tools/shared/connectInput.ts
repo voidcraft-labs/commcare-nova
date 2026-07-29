@@ -9,12 +9,9 @@
  * shape: `updateForm` calls it with the form's
  * existing config (a structural partial-update merge), and the
  * creation tools (`createForm` / `createModule`) call it with no
- * existing config against the batch-aware resolver from
- * `fieldAssembly`, so a `user_score` referencing a field landing in
- * the same call resolves to an identity leaf. A connect block that
- * skips this bridge would persist raw strings the next load's Zod
- * gate rejects — which is exactly why no tool builds a
- * `ConnectConfig` from its input by cast.
+ * existing config. Same-call field references already contain their
+ * predeclared final UUIDs. This bridge never parses or resolves text;
+ * the strict input schema admits only the stored AST shape.
  */
 
 import type { ConnectConfig, XPathExpression } from "@/lib/domain";

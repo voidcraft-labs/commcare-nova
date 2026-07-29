@@ -19,6 +19,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import type { BlueprintDoc } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 
 import { reasoningProviderOptions, SA_EDIT_MODEL } from "@/lib/models";
 import {
@@ -53,7 +54,12 @@ function fixtureDoc(): BlueprintDoc {
 			},
 		},
 		fields: {
-			[fieldUuid]: { uuid: fieldUuid, id: "name", kind: "text", label: "Name" },
+			[fieldUuid]: {
+				uuid: fieldUuid,
+				id: "name",
+				kind: "text",
+				label: proseText("Name"),
+			},
 		},
 		moduleOrder: [modUuid],
 		formOrder: { [modUuid]: [formUuid] },

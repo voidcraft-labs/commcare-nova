@@ -127,8 +127,8 @@ describe("expression round-trip law", () => {
 		}
 	});
 
-	it("normalizes absolute identity leaves to one spelling", () => {
-		expect(canonical("//data//age")).toBe("/data/age");
+	it("normalizes admitted absolute identities and preserves rejected spelling as text", () => {
+		expect(canonical("//data//age")).toBe("//data//age");
 		expect(canonical("/ data / grp / inner")).toBe("/data/grp/inner");
 	});
 

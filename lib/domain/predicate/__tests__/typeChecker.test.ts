@@ -14,9 +14,10 @@
 // (numeric promotion both directions, select-to-text, null-as-universal,
 // session-user / session-context refs, boolean literals).
 
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type { CaseType } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import {
 	ancestorPath,
 	and,
@@ -140,7 +141,7 @@ const ctxWithGeo = {
 				...PATIENT.properties,
 				{
 					name: "location",
-					label: "Location",
+					label: proseText("Location"),
 					data_type: "geopoint" as const,
 				},
 			],
@@ -249,14 +250,20 @@ describe("checkPredicate — comparison operators", () => {
 	it("accepts input ref against int prop when input is declared", () => {
 		const ctxWithInput = {
 			...ctx,
-			knownInputs: [{ name: "min_age", data_type: "int" as const }],
+			knownInputs: [
+				{
+					uuid: testUuid("min_age"),
+					name: "min_age",
+					data_type: "int" as const,
+				},
+			],
 		};
-		const p = gt(prop("patient", "age"), input("min_age"));
+		const p = gt(prop("patient", "age"), input(testUuid("min_age")));
 		expect(checkPredicate(p, ctxWithInput).ok).toBe(true);
 	});
 
 	it("rejects input ref when input isn't declared", () => {
-		const p = gt(prop("patient", "age"), input("undeclared"));
+		const p = gt(prop("patient", "age"), input(testUuid("undeclared")));
 		const result = checkPredicate(p, ctx);
 		expect(result.ok).toBe(false);
 		if (!result.ok) {
@@ -271,7 +278,7 @@ describe("checkPredicate — comparison operators", () => {
 	// problems in one pass. The editor relies on this behavior to
 	// highlight every failing card simultaneously.
 	it("accumulates errors from both operands when both fail to resolve", () => {
-		const p = eq(prop("patient", "bogus"), input("undeclared"));
+		const p = eq(prop("patient", "bogus"), input(testUuid("undeclared")));
 		const result = checkPredicate(p, ctx);
 		expect(result.ok).toBe(false);
 		if (!result.ok) {
@@ -420,10 +427,10 @@ describe("checkPredicate — recursion through logical wrappers", () => {
 	it("propagates errors from inside when-input-present's clause", () => {
 		const ctxWithInput = {
 			...ctx,
-			knownInputs: [{ name: "phone" }],
+			knownInputs: [{ uuid: testUuid("phone"), name: "phone" }],
 		};
 		const p = whenInput(
-			input("phone"),
+			input(testUuid("phone")),
 			eq(prop("patient", "age"), literal("forty-two")),
 		);
 		const result = checkPredicate(p, ctxWithInput);
@@ -443,7 +450,7 @@ describe("checkPredicate — recursion through logical wrappers", () => {
 	// than its `clause` slot.
 	it("rejects when-input-present with an undeclared trigger input", () => {
 		const p = whenInput(
-			input("undeclared"),
+			input(testUuid("undeclared")),
 			eq(prop("patient", "name"), literal("Alice")),
 		);
 		const result = checkPredicate(p, ctx);
@@ -481,7 +488,7 @@ describe("checkPredicate — operand resolution on in / within-distance / match 
 	it("rejects within-distance(...) with an unknown property and unknown input", () => {
 		const p = within(
 			prop("alien_type", "loc"),
-			input("undeclared"),
+			input(testUuid("undeclared")),
 			50,
 			"miles",
 		);
@@ -590,11 +597,17 @@ describe("checkPredicate — within-distance geopoint requirement", () => {
 	it("accepts within-distance with a geopoint property and a typed-geopoint search input as center", () => {
 		const ctxWithGeoInput = {
 			...ctxWithGeo,
-			knownInputs: [{ name: "user_loc", data_type: "geopoint" as const }],
+			knownInputs: [
+				{
+					uuid: testUuid("user_loc"),
+					name: "user_loc",
+					data_type: "geopoint" as const,
+				},
+			],
 		};
 		const p = within(
 			prop("patient", "location"),
-			input("user_loc"),
+			input(testUuid("user_loc")),
 			50,
 			"miles",
 		);
@@ -1663,9 +1676,9 @@ describe("checkPredicate — is-null and is-blank operand-shape rules", () => {
 		// not match — the wire-emission rule is what diverges.
 		const ctxWithInput = {
 			...ctx,
-			knownInputs: [{ name: "phone" }],
+			knownInputs: [{ uuid: testUuid("phone"), name: "phone" }],
 		};
-		const p = isNull(input("phone"));
+		const p = isNull(input(testUuid("phone")));
 		expect(checkPredicate(p, ctxWithInput).ok).toBe(true);
 	});
 
@@ -1722,9 +1735,9 @@ describe("checkPredicate — is-null and is-blank operand-shape rules", () => {
 	it("accepts is-blank on a search-input reference", () => {
 		const ctxWithInput = {
 			...ctx,
-			knownInputs: [{ name: "phone" }],
+			knownInputs: [{ uuid: testUuid("phone"), name: "phone" }],
 		};
-		const p = isBlank(input("phone"));
+		const p = isBlank(input(testUuid("phone")));
 		expect(checkPredicate(p, ctxWithInput).ok).toBe(true);
 	});
 
@@ -1773,7 +1786,7 @@ describe("checkPredicate — is-null and is-blank operand-shape rules", () => {
 		// Symmetric with `is-null` — input refs flow through the same
 		// resolution path. An undeclared input emits the same shape of
 		// error a comparison's `input` operand would.
-		const p = isBlank(input("phone"));
+		const p = isBlank(input(testUuid("phone")));
 		const result = checkPredicate(p, ctx);
 		expect(result.ok).toBe(false);
 		if (!result.ok) {
@@ -2178,16 +2191,24 @@ describe("checkExpression — count + unwrap-list + format-date", () => {
 			{
 				name: "household",
 				properties: [
-					{ name: "region", label: "Region", data_type: "text" as const },
+					{
+						name: "region",
+						label: proseText("Region"),
+						data_type: "text" as const,
+					},
 				],
 			},
 			{
 				name: "patient",
 				parent_type: "household",
 				properties: [
-					{ name: "age", label: "Age", data_type: "int" as const },
-					{ name: "name", label: "Name", data_type: "text" as const },
-					{ name: "dob", label: "DOB", data_type: "date" as const },
+					{ name: "age", label: proseText("Age"), data_type: "int" as const },
+					{
+						name: "name",
+						label: proseText("Name"),
+						data_type: "text" as const,
+					},
+					{ name: "dob", label: proseText("DOB"), data_type: "date" as const },
 				],
 			},
 		],

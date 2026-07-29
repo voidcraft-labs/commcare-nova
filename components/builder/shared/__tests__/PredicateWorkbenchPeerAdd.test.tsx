@@ -1,6 +1,5 @@
 // @vitest-environment happy-dom
 
-import { proseText } from "@/lib/domain/prose";
 import {
 	cleanup,
 	fireEvent,
@@ -12,6 +11,7 @@ import {
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { activateWithEnter } from "@/__tests__/helpers/baseUiInteractions";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type { CaseType } from "@/lib/domain";
 import {
 	ancestorPath,
@@ -29,6 +29,7 @@ import {
 	relationStep,
 	whenInput,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { comparisonDefault } from "../cards/ComparisonCard";
 import { PredicateWorkbench } from "../PredicateWorkbench";
 
@@ -50,7 +51,12 @@ const CASE_TYPES: readonly CaseType[] = [
 ];
 
 const KNOWN_INPUTS = [
-	{ name: "query", label: "Client search", data_type: "text" },
+	{
+		uuid: testUuid("query"),
+		name: "query",
+		label: "Client search",
+		data_type: "text",
+	},
 ] as const;
 const NORTH = eq(prop("patient", "region"), literal("North"));
 const SOUTH = eq(prop("patient", "region"), literal("South"));
@@ -324,7 +330,7 @@ describe("PredicateWorkbench structural peer addition", () => {
 	});
 
 	it("uses the authored search-field label throughout the focused condition", () => {
-		renderWorkbench(whenInput(input("query"), NORTH));
+		renderWorkbench(whenInput(input(testUuid("query")), NORTH));
 		expect(screen.getByText("When Client search is answered")).toBeDefined();
 		expect(
 			screen.getByRole("button", { name: "Search field Client search" }),
@@ -334,7 +340,10 @@ describe("PredicateWorkbench structural peer addition", () => {
 
 	it.each([
 		["Exclude when", () => not(NORTH)],
-		["Search-answer condition", () => whenInput(input("query"), NORTH)],
+		[
+			"Search-answer condition",
+			() => whenInput(input(testUuid("query")), NORTH),
+		],
 		["Related case exists", () => exists(VIA)],
 		["Related case is missing", () => missing(VIA)],
 	] as const)(
@@ -423,7 +432,7 @@ describe("PredicateWorkbench structural peer addition", () => {
 	});
 
 	it("keeps complete labels available in the condition trail", () => {
-		const focused = whenInput(input("query"), SOUTH);
+		const focused = whenInput(input(testUuid("query")), SOUTH);
 		renderWorkbench(and(NORTH, focused));
 
 		fireEvent.click(ruleFocusTarget(["and", 1]));
@@ -559,7 +568,7 @@ describe("PredicateWorkbench structural peer addition", () => {
 				NORTH,
 				not(
 					whenInput(
-						input("query"),
+						input(testUuid("query")),
 						exists(VIA, and(householdRegion, not(householdRegion))),
 					),
 				),

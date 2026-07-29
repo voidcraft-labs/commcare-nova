@@ -1,10 +1,8 @@
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { LookupTypeIndex } from "@/lib/commcare/validator/lookupTypeContext";
 import { validateCaseOperations } from "@/lib/commcare/validator/rules/caseOperations";
-
 import {
 	type BlueprintDoc,
 	CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
@@ -35,6 +33,7 @@ import {
 	today,
 	unwrapList,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import type { ValidationErrorCode } from "../errors";
 
 const CREATE = testUuid("11111111-1111-4111-8111-111111111111");
@@ -129,8 +128,18 @@ function fixture(
 						name: "Edit",
 						type: formType,
 						fields: [
-							f({ uuid: TEXT, kind: "text", id: "text", label: "Text" }),
-							f({ uuid: NUMBER, kind: "int", id: "number", label: "Number" }),
+							f({
+								uuid: TEXT,
+								kind: "text",
+								id: "text",
+								label: proseText("Text"),
+							}),
+							f({
+								uuid: NUMBER,
+								kind: "int",
+								id: "number",
+								label: proseText("Number"),
+							}),
 							f({
 								uuid: HIDDEN_ID,
 								kind: "hidden",
@@ -141,7 +150,7 @@ function fixture(
 								uuid: MULTI,
 								kind: "multi_select",
 								id: "choices",
-								label: "Choices",
+								label: proseText("Choices"),
 								options: [
 									{ value: "a", label: "A" },
 									{ value: "b", label: "B" },
@@ -151,14 +160,14 @@ function fixture(
 								uuid: REPEAT_A,
 								kind: "repeat",
 								id: "rows_a",
-								label: "Rows A",
+								label: proseText("Rows A"),
 								repeat_mode: "user_controlled",
 								children: [
 									f({
 										uuid: REPEAT_A_TEXT,
 										kind: "text",
 										id: "row_a_text",
-										label: "Row A text",
+										label: proseText("Row A text"),
 									}),
 								],
 							}),
@@ -166,14 +175,14 @@ function fixture(
 								uuid: REPEAT_B,
 								kind: "repeat",
 								id: "rows_b",
-								label: "Rows B",
+								label: proseText("Rows B"),
 								repeat_mode: "user_controlled",
 								children: [
 									f({
 										uuid: REPEAT_B_TEXT,
 										kind: "text",
 										id: "row_b_text",
-										label: "Row B text",
+										label: proseText("Row B text"),
 									}),
 								],
 							}),
@@ -199,42 +208,47 @@ function nestedRepeatFixture(): Fixture {
 						name: "Edit",
 						type: "followup",
 						fields: [
-							f({ uuid: TEXT, kind: "text", id: "root", label: "Root" }),
+							f({
+								uuid: TEXT,
+								kind: "text",
+								id: "root",
+								label: proseText("Root"),
+							}),
 							f({
 								uuid: REPEAT_A,
 								kind: "repeat",
 								id: "outer",
-								label: "Outer",
+								label: proseText("Outer"),
 								children: [
 									f({
 										uuid: REPEAT_A_TEXT,
 										kind: "text",
 										id: "outer_text",
-										label: "Outer text",
+										label: proseText("Outer text"),
 									}),
 									f({
 										uuid: REPEAT_B,
 										kind: "repeat",
 										id: "inner",
-										label: "Inner",
+										label: proseText("Inner"),
 										children: [
 											f({
 												uuid: REPEAT_B_TEXT,
 												kind: "text",
 												id: "inner_text",
-												label: "Inner text",
+												label: proseText("Inner text"),
 											}),
 											f({
 												uuid: REPEAT_CHILD,
 												kind: "repeat",
 												id: "child",
-												label: "Child",
+												label: proseText("Child"),
 												children: [
 													f({
 														uuid: REPEAT_CHILD_TEXT,
 														kind: "text",
 														id: "child_text",
-														label: "Child text",
+														label: proseText("Child text"),
 													}),
 												],
 											}),
@@ -244,13 +258,13 @@ function nestedRepeatFixture(): Fixture {
 										uuid: REPEAT_SIBLING,
 										kind: "repeat",
 										id: "sibling",
-										label: "Sibling",
+										label: proseText("Sibling"),
 										children: [
 											f({
 												uuid: REPEAT_SIBLING_TEXT,
 												kind: "text",
 												id: "sibling_text",
-												label: "Sibling text",
+												label: proseText("Sibling text"),
 											}),
 										],
 									}),

@@ -1,4 +1,3 @@
-import { proseText } from "@/lib/domain/prose";
 import AdmZip from "adm-zip";
 import { type Document, type Element, isTag } from "domhandler";
 import { findAll, getAttributeValue, getChildren } from "domutils";
@@ -21,6 +20,7 @@ import {
 	tableColumn,
 	tableLookup,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import type { LookupRevision, LookupRowId } from "@/lib/lookup/types";
 
 const REGIONS = "018f3e8a-7b2c-7def-8abc-0000000000a1" as LookupTableId;
@@ -110,16 +110,15 @@ function lookupApp() {
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Name",
+								label: proseText("Name"),
 								case_property_on: "patient",
 							}),
 							f({
 								kind: "single_select",
 								id: "region_select",
-								label: "Region",
-								options: [{ value: "manual", label: "Manual" }],
+								label: proseText("Region"),
 								optionsSource: {
-									kind: "lookup-table",
+									kind: "lookup",
 									tableId: REGIONS,
 									valueColumnId: VALUE,
 									labelColumnId: LABEL,

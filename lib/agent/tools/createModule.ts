@@ -24,11 +24,11 @@
  * goes through the case-list-config tools once the module exists; this
  * tool's `case_list_columns` exists so the module can BE BORN complete.
  *
- * Each form's `connect` block crosses the text → AST parse boundary
+ * Each form's `connect` block carries the exact canonical expression AST
  * (`shared/connectInput.ts::buildConnectConfig`, same as `updateForm` /
- * `createForm`) against that form's batch-aware assembly resolver — an
- * `assessment.user_score` referencing a field landing in the same form
- * resolves to an identity leaf — and then runs through
+ * `createForm`). A reference to a field landing in the same form uses
+ * that field's predeclared final UUID, so no name/path resolution occurs
+ * here. The merged block then runs through
  * `enforceConnectIds` (the agent-path source guard). One app-wide id
  * set threads through every form in the call, so an omitted id
  * autofills valid + unique across the whole creation and an explicit
@@ -54,8 +54,8 @@ import { z } from "zod";
 import type { BlueprintDoc, ConnectConfig } from "@/lib/domain";
 import {
 	asUuid,
-	findAuthoredBlueprintIdentity,
 	FORM_TYPES,
+	findAuthoredBlueprintIdentity,
 	USER_FACING_DESTINATIONS,
 	uuidSchema,
 } from "@/lib/domain";
@@ -126,7 +126,7 @@ const createModuleFormSchema = z
 			.nullable()
 			.optional()
 			.describe(
-				"Close forms only — close the case only when the named field matches (the field may be one landing in this same call). null for an unconditional close.",
+				"Close forms only — close the case only when the UUID-addressed field matches (the field may be predeclared in this same call). null for an unconditional close.",
 			),
 		connect: connectFormConfigSchema
 			.nullable()
@@ -348,8 +348,8 @@ export const createModuleTool = {
 					};
 				}
 				callEntityUuids.add(formUuid);
-				// Assembled BEFORE the connect block so the block's XPath
-				// slots can parse against this form's batch-aware resolver.
+				// Assemble fields first so their predeclared UUIDs are present
+				// in the same atomic mutation batch as connect references.
 				// Catalog defaulting reads `doc.caseTypes` — the records
 				// generateSchema committed ahead of this call.
 				const assembly = assembleFieldMutations({
@@ -389,9 +389,9 @@ export const createModuleTool = {
 						},
 					};
 				}
-				// Text → AST parse boundary for the connect XPath slots
-				// (against this form's batch resolver), then the id source
-				// guard against the call-wide threaded set.
+				// Connect XPath slots already carry canonical AST, including
+				// predeclared UUIDs for same-call fields. Then apply the id
+				// source guard against the call-wide threaded set.
 				let enforcedConnect: ConnectConfig | undefined;
 				if (formInput.connect) {
 					const enforced = enforceConnectIds(

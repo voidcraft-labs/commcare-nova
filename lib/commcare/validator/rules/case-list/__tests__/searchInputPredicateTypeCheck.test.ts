@@ -1,6 +1,6 @@
-import { proseText } from "@/lib/domain/prose";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { proseText } from "@/lib/domain/prose";
 /**
  * Tests for the `searchInputPredicateTypeCheck` rule. One invariant
  * per `it(...)` block; the rule's domain is the advanced-arm
@@ -49,7 +49,7 @@ describe("searchInputPredicateTypeCheck", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 							],
@@ -105,7 +105,7 @@ describe("searchInputPredicateTypeCheck", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 							],
@@ -136,6 +136,7 @@ describe("searchInputPredicateTypeCheck", () => {
 		// because `moduleTypeContext` populates `knownInputs` from
 		// the full `searchInputs` list. Pin the cross-input case
 		// so the rule's `knownInputs` wiring stays load-bearing.
+		const nameSearchUuid = testUuid("si-name");
 		const doc = buildDoc({
 			appName: "Test",
 			modules: [
@@ -148,7 +149,7 @@ describe("searchInputPredicateTypeCheck", () => {
 						detailColumnOrder: [testUuid("col-name")],
 						searchInputs: [
 							simpleSearchInputDef(
-								testUuid("si-name"),
+								nameSearchUuid,
 								"name_search",
 								"Name",
 								"text",
@@ -159,7 +160,7 @@ describe("searchInputPredicateTypeCheck", () => {
 								"adv_search",
 								"Advanced",
 								"text",
-								eq(prop("patient", "case_name"), input("name_search")),
+								eq(prop("patient", "case_name"), input(nameSearchUuid)),
 							),
 						],
 					},
@@ -171,7 +172,7 @@ describe("searchInputPredicateTypeCheck", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 							],
@@ -227,7 +228,7 @@ describe("searchInputPredicateTypeCheck", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 							],
@@ -272,7 +273,7 @@ describe("searchInputPredicateTypeCheck", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 							],

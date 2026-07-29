@@ -61,7 +61,31 @@ import {
 	today,
 	unwrapList,
 } from "@/lib/domain/predicate/builders";
-import { emitOnDeviceExpression } from "../onDeviceEmitter";
+import { emitOnDeviceExpression as emitOnDeviceExpressionRaw } from "../onDeviceEmitter";
+
+const TEST_SEARCH_INPUTS = ["dob_text", "dt_text", "name_query"].map(
+	(name) => ({
+		uuid: testUuid(name),
+		name,
+		data_type: "text" as const,
+	}),
+);
+
+function emitOnDeviceExpression(
+	...args: Parameters<typeof emitOnDeviceExpressionRaw>
+): string {
+	const [expression, root, relationContext, anchor, termContext] = args;
+	return emitOnDeviceExpressionRaw(
+		expression,
+		root,
+		{
+			...relationContext,
+			knownInputs: relationContext?.knownInputs ?? TEST_SEARCH_INPUTS,
+		},
+		anchor,
+		termContext,
+	);
+}
 
 // ============================================================
 // SHELL 1 — per-operator emissions
@@ -79,7 +103,7 @@ describe("emitOnDeviceExpression — discriminator-only constants", () => {
 
 describe("emitOnDeviceExpression — coercion functions", () => {
 	it("emits date(<value>) for date-coerce", () => {
-		const expr = dateCoerce(term(input("dob_text")));
+		const expr = dateCoerce(term(input(testUuid("dob_text"))));
 		expect(emitOnDeviceExpression(expr)).toBe(
 			`date(instance('search-input:results')/input/field[@name='dob_text'])`,
 		);
@@ -105,7 +129,7 @@ describe("emitOnDeviceExpression — coercion functions", () => {
 		// session as an unknown function. `date()`'s String arm
 		// (`FunctionUtils::toDate` → `DateUtils::parseDateTime`)
 		// preserves time-of-day, so it IS the datetime coercion here.
-		const expr = datetimeCoerce(term(input("dt_text")));
+		const expr = datetimeCoerce(term(input(testUuid("dt_text"))));
 		expect(emitOnDeviceExpression(expr)).toBe(
 			`date(instance('search-input:results')/input/field[@name='dt_text'])`,
 		);
@@ -543,7 +567,7 @@ describe("emitOnDeviceExpression — term arm structural lifter", () => {
 	});
 
 	it("emits a search-input ref via the term arm", () => {
-		expect(emitOnDeviceExpression(term(input("name_query")))).toBe(
+		expect(emitOnDeviceExpression(term(input(testUuid("name_query"))))).toBe(
 			`instance('search-input:results')/input/field[@name='name_query']`,
 		);
 	});

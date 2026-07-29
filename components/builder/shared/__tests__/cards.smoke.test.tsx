@@ -9,15 +9,16 @@
 // (drag-drop, recursive scope flip, type-mismatch rendering)
 // lives in dedicated test files.
 
-import { proseText } from "@/lib/domain/prose";
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type { CaseType } from "@/lib/domain";
 import {
 	type Predicate,
 	predicateSchema,
 	type SearchInputDecl,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import {
 	type PredicateEditContext,
 	predicateCardSchemas,
@@ -56,7 +57,7 @@ const PATIENT: CaseType = {
 };
 
 const KNOWN_INPUTS: readonly SearchInputDecl[] = [
-	{ name: "name_search", data_type: "text" },
+	{ uuid: testUuid("name_search"), name: "name_search", data_type: "text" },
 ];
 
 const ctx: PredicateEditContext = {

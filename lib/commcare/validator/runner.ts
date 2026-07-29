@@ -428,17 +428,6 @@ function humanizeXPathError(error: XPathError, where: string): string {
 			// the dominant authoring mistake: `#form/consent` for a field that
 			// lives at `#form/consent_grp/consent`.
 			const hint = suggestionHint(error.suggestions);
-			// A reference held as plain text doesn't follow its field through
-			// renames — the visible-field-yet-unknown-path bounce. When no
-			// nesting suggestion explains it, the performable repair is to
-			// re-commit the referencing expression (which re-links the
-			// reference to the field) before retrying the bounced change.
-			if (error.storedRef === "raw-text") {
-				return `${where} has a reference that doesn't exist in this form: ${error.message}. That expression holds the reference as plain text, so it doesn't follow its field through renames. ${
-					hint ??
-					"If the field it names exists in the form right now, re-commit that expression first — open it on the named field and save it again unchanged, which links the reference to the field — then retry this change. If it doesn't, fix the reference to name an existing field."
-				}`;
-			}
 			if (hint) {
 				return `${where} has a reference that doesn't exist in this form: ${error.message}. ${hint}`;
 			}

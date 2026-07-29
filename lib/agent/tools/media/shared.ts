@@ -204,7 +204,13 @@ export function resolveIconInput<Slug extends IconSlug>(
 	}
 	return {
 		icon: value as MediaAssetId,
-		expectations: [{ assetId: value, kind: "image", slot: slotPhrase }],
+		expectations: [
+			{
+				assetId: value as MediaAssetId,
+				kind: "image",
+				slot: slotPhrase,
+			},
+		],
 	};
 }
 

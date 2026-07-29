@@ -91,7 +91,7 @@ export type OrdinarySubmissionAction =
 
 export interface SubmissionReceiptIdentity {
 	readonly entryKey: string;
-	readonly formUuid: string;
+	readonly formUuid: Uuid;
 	readonly requestDigest: string;
 }
 
@@ -217,7 +217,7 @@ export interface ApplySubmissionArgs {
 	 */
 	readonly captureIntent?: {
 		readonly entryKey: string;
-		readonly formUuid: string;
+		readonly formUuid: Uuid;
 		readonly expectedAppMutationSeq: number;
 		readonly requestDigest: string;
 		/**
@@ -227,11 +227,11 @@ export interface ApplySubmissionArgs {
 		 */
 		readonly attachments: ReadonlyArray<{
 			readonly attachmentName: string;
-			readonly fieldUuid: string;
+			readonly fieldUuid: Uuid;
 			readonly instancePath: string;
 		}>;
 		readonly allowedAttachments: ReadonlyArray<{
-			readonly fieldUuid: string;
+			readonly fieldUuid: Uuid;
 			/** Engine path with `[0]` at every authored repeat segment. */
 			readonly instancePathTemplate: string;
 			/** The committed question kind at the submission snapshot. */
@@ -306,7 +306,7 @@ export function adjudicateSubmissionReceipt(
 	identity: SubmissionReceiptIdentity,
 	prior:
 		| {
-				readonly formUuid: string;
+				readonly formUuid: Uuid;
 				readonly requestDigest: string;
 				readonly result: unknown;
 		  }

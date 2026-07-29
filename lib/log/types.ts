@@ -1,8 +1,9 @@
 /**
- * Event log types — one time-ordered stream, two event families.
+ * Event log types — one time-ordered stream, three final event families.
  *
  * `MutationEvent` captures every doc state change (actor=user or agent).
- * `ConversationEvent` captures user messages, assistant output, tool calls,
+ * `ArchivedMutationEvent` preserves pre-canonical mutation payloads as
+ * non-dereferenced audit JSON. `ConversationEvent` captures user messages, assistant output, tool calls,
  * tool results, and classified errors. The log is supplemental: blueprint
  * state lives on the `AppDoc.blueprint` snapshot. If the event log is lost
  * or corrupt, the app still loads — only admin inspection is affected.
@@ -203,6 +204,19 @@ export const mutationEventSchema = envelopeSchema.extend({
 });
 export type MutationEvent = z.infer<typeof mutationEventSchema>;
 
+/**
+ * A mutation event written before the canonical-identity fold horizon.
+ *
+ * `archived` is the exact former event JSONB value. No reducer, validator,
+ * model message, or current tool schema consumes it; admin inspection may
+ * render it only as historical audit data.
+ */
+export const archivedMutationEventSchema = envelopeSchema.extend({
+	kind: z.literal("archived-mutation"),
+	archived: z.unknown(),
+});
+export type ArchivedMutationEvent = z.infer<typeof archivedMutationEventSchema>;
+
 /** A conversation-visible artifact from the current run. */
 export const conversationEventSchema = envelopeSchema.extend({
 	kind: z.literal("conversation"),
@@ -218,6 +232,7 @@ export type ConversationEvent = z.infer<typeof conversationEventSchema>;
  */
 export const eventSchema = z.discriminatedUnion("kind", [
 	mutationEventSchema,
+	archivedMutationEventSchema,
 	conversationEventSchema,
 ]);
 export type Event = z.infer<typeof eventSchema>;

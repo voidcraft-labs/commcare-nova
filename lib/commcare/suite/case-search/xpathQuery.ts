@@ -33,7 +33,10 @@
 // time AND silently filter case data on the server, so the inline
 // shape is the only wire-correct option.
 
-import type { CaseListConfig } from "@/lib/domain";
+import {
+	type CaseListConfig,
+	SEARCH_INPUT_RUNTIME_VALUE_TYPES,
+} from "@/lib/domain";
 import { and, effectiveFilterForEmission } from "@/lib/domain/predicate";
 import { compilerBugMessage } from "@/lib/domain/predicate/errors";
 import { normalizeRelationEvaluationScopes } from "@/lib/domain/predicate/normalizeRelationEvaluationScopes";
@@ -194,6 +197,14 @@ export function composeXPathQueryEmission(
 		typeContext,
 	);
 	if (composed === undefined) return undefined;
+	const emissionTypeContext: TypeContext = {
+		...(typeContext ?? { caseTypes: [] }),
+		knownInputs: caseListConfig.searchInputs.map((input) => ({
+			uuid: input.uuid,
+			name: input.name,
+			data_type: SEARCH_INPUT_RUNTIME_VALUE_TYPES[input.type],
+		})),
+	};
 
 	// Defense in depth — the validator rule
 	// `searchInputRefUsesWhenInputPresent` rejects every bare
@@ -212,10 +223,10 @@ export function composeXPathQueryEmission(
 	assertCsqlRepresentable(composed);
 
 	return {
-		...emitCsql(composed, typeContext),
+		...emitCsql(composed, emissionTypeContext),
 		predicate: normalizeRelationEvaluationScopes(
 			normalizeCsqlPredicate(composed),
-			typeContext ?? {},
+			emissionTypeContext,
 		),
 	};
 }
@@ -305,7 +316,7 @@ function assertCsqlRepresentable(predicate: Predicate): void {
 		compilerBugMessage({
 			where: "composeXPathQueryEmission",
 			invariant:
-				"the composed _xpath_query predicate is representable in CCHQ's server query language",
+				"the composed _xpath_query predicate is not representable in CCHQ's server query language",
 			detail: [
 				"The validator rule `csqlPredicateRepresentability` should have rejected this authored shape before compilation. Reaching this throw means validation was bypassed.",
 				"",

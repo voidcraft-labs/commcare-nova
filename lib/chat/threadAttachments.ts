@@ -1,5 +1,7 @@
 /** Canonical chat-thread attachment traversal and identity rewrites. */
 
+import { type MediaAssetId, mediaAssetIdSchema } from "@/lib/domain/multimedia";
+
 type UnknownRecord = Record<string, unknown>;
 
 function asRecord(value: unknown): UnknownRecord | null {
@@ -16,12 +18,13 @@ function attachmentArray(message: unknown): unknown[] | null {
 /** Every canonical `metadata.attachments[*].assetId` in stored order. */
 export function collectThreadAttachmentAssetIds(
 	messages: readonly unknown[],
-): string[] {
-	const ids: string[] = [];
+): MediaAssetId[] {
+	const ids: MediaAssetId[] = [];
 	for (const message of messages) {
 		for (const attachment of attachmentArray(message) ?? []) {
 			const assetId = asRecord(attachment)?.assetId;
-			if (typeof assetId === "string" && assetId.length > 0) ids.push(assetId);
+			if (assetId === undefined) continue;
+			ids.push(mediaAssetIdSchema.parse(assetId));
 		}
 	}
 	return ids;
@@ -34,7 +37,7 @@ export function collectThreadAttachmentAssetIds(
  */
 export function remapThreadAttachmentAssetIds(
 	messages: readonly unknown[],
-	assetIdMap: ReadonlyMap<string, string>,
+	assetIdMap: ReadonlyMap<MediaAssetId, MediaAssetId>,
 ): unknown[] {
 	return messages.map((message) => {
 		const messageRecord = asRecord(message);
@@ -47,7 +50,9 @@ export function remapThreadAttachmentAssetIds(
 			const record = asRecord(attachment);
 			const assetId = record?.assetId;
 			const destination =
-				typeof assetId === "string" ? assetIdMap.get(assetId) : undefined;
+				assetId === undefined
+					? undefined
+					: assetIdMap.get(mediaAssetIdSchema.parse(assetId));
 			if (!record || destination === undefined || destination === assetId) {
 				return attachment;
 			}

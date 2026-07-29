@@ -23,13 +23,12 @@
  * (one op per batch, so a kind whose lowering always no-ops can't ride
  * a changing batch) — plus occurrence floors for the three
  * at-a-distance arms that motivated the maintenance buckets, each
- * tied to the shape it names: a root add of the pending id that
- * provably materialized the standing dangling carrier's edge, a
+ * tied to the shape it names: a root add carrying the predeclared pending
+ * UUID that provably materialized the standing dangling carrier's edge, a
  * case-bound rename with a genuinely new id, and a cross-module form
  * move.
  */
 
-import { proseText } from "@/lib/domain/prose";
 import * as fc from "fast-check";
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
@@ -52,9 +51,12 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { eq, literal, prop, subcasePath, term } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
+
+const PENDING_X_UUID = testUuid("reference-index-pending-x");
 
 /** Reference-rich seed: two modules, every reference surface kind, and
- *  a standing dangling `#form/pending_x` ref the add pool can satisfy. */
+ *  a standing dangling field UUID the add pool can satisfy. */
 function seedDoc(): BlueprintDoc {
 	return buildDoc({
 		appName: "Fuzz Clinic",
@@ -131,45 +133,51 @@ function seedDoc(): BlueprintDoc {
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Name",
+								label: proseText("Name"),
 								case_property_on: "patient",
 							}),
 							f({
 								kind: "int",
 								id: "age",
-								label: "Age",
+								label: proseText("Age"),
 								case_property_on: "patient",
 							}),
 							f({
 								kind: "group",
 								id: "grp",
-								children: [f({ kind: "text", id: "inner", label: "Inner" })],
+								children: [
+									f({ kind: "text", id: "inner", label: proseText("Inner") }),
+								],
 							}),
 							f({
 								kind: "text",
 								id: "watcher",
-								label: "See #patient/age and #form/grp/inner",
+								label: proseText("See #patient/age and #form/grp/inner"),
 								relevant: "#form/grp/inner != '' and /data/age > 0",
 								required: "/data/case_name != ''",
 							}),
 							f({
 								kind: "text",
 								id: "pending",
-								// The standing dangling ref lives in PROSE: label refs
-								// resolve at extraction, so a later add re-keys the
-								// edge through the `local` bucket. The relevant's AST
-								// raw leaf deliberately extracts nothing — unresolved
-								// identity stays text forever.
-								label: "Pending #form/pending_x",
-								relevant: "#form/pending_x = '1'",
+								label: proseText("Pending"),
+								// The canonical AST carries the predeclared identity
+								// even while its field is absent. A later add with
+								// that exact UUID materializes the index edge without
+								// mutable path matching.
+								relevant: {
+									parts: [
+										{ kind: "field-ref", uuid: PENDING_X_UUID },
+										{ kind: "text", text: " = '1'" },
+									],
+								},
 							}),
 							f({
 								kind: "text",
 								id: "ctx_ref",
-								label: "Ctx #case/age",
+								label: proseText("Ctx #case/age"),
 								relevant: "#case/age > 1",
 							}),
-							f({ kind: "text", id: "outcome", label: "Outcome" }),
+							f({ kind: "text", id: "outcome", label: proseText("Outcome") }),
 						],
 					},
 					{
@@ -179,7 +187,7 @@ function seedDoc(): BlueprintDoc {
 							f({
 								kind: "text",
 								id: "village",
-								label: "Village",
+								label: proseText("Village"),
 								case_property_on: "patient",
 							}),
 							f({
@@ -211,13 +219,13 @@ function seedDoc(): BlueprintDoc {
 							f({
 								kind: "text",
 								id: "region",
-								label: "Region",
+								label: proseText("Region"),
 								case_property_on: "household",
 							}),
 							f({
 								kind: "text",
 								id: "hh_ctx",
-								label: "HH",
+								label: proseText("HH"),
 								relevant: "#case/region != ''",
 							}),
 						],
@@ -231,7 +239,7 @@ function seedDoc(): BlueprintDoc {
 // ── Pools ───────────────────────────────────────────────────────────
 
 const ID_POOL = [
-	"pending_x", // satisfies the seed's standing dangling ref
+	"pending_x", // carries the seed's predeclared dangling UUID
 	"age",
 	"village",
 	"note",
@@ -517,18 +525,23 @@ function lower(doc: BlueprintDoc, op: FuzzOp): Mutation[] {
 			const parentUuid = pickParent(doc, op.parentPick);
 			if (!parentUuid) return [];
 			const caseProp = CASE_TYPE_POOL[op.casePropPick];
+			const id = ID_POOL[op.idPick];
+			const uuid =
+				id === "pending_x" && doc.fields[PENDING_X_UUID] === undefined
+					? PENDING_X_UUID
+					: mintUuid();
 			const field = op.asGroup
 				? ({
-						uuid: mintUuid(),
+						uuid,
 						kind: "group",
-						id: ID_POOL[op.idPick],
-						label: "Group",
+						id,
+						label: proseText("Group"),
 					} as never)
 				: ({
-						uuid: mintUuid(),
+						uuid,
 						kind: "text",
-						id: ID_POOL[op.idPick],
-						label: LABEL_POOL[op.labelPick],
+						id,
+						label: proseText(LABEL_POOL[op.labelPick]),
 						relevant: parseRelevant(doc, parentUuid, op.relevantPick),
 						...(caseProp && { case_property_on: caseProp }),
 					} as never);
@@ -581,7 +594,7 @@ function lower(doc: BlueprintDoc, op: FuzzOp): Mutation[] {
 							uuid,
 							XPATH_POOL[op.relevantPick],
 						),
-						label: LABEL_POOL[op.labelPick],
+						label: proseText(LABEL_POOL[op.labelPick]),
 					},
 				} as Mutation,
 			];
@@ -775,12 +788,10 @@ describe("reference index fuzz — incremental ≡ rebuild after every batch", (
 				(ops) => {
 					let doc = seedDoc();
 					/* Seed landmarks for the dangling-ref tally: the standing
-					 * `#form/pending_x` ref lives on the `pending` field at the
-					 * Register form's ROOT, so only a root add of `pending_x`
-					 * THERE can satisfy it. Uuids are stable, so the landmarks
-					 * survive renames/moves; if the sequence deletes them the
-					 * edge check below simply never credits. */
-					const registerRoot = doc.formOrder[doc.moduleOrder[0]]?.[0];
+					 * identity ref lives on the `pending` field. Only an add
+					 * carrying `PENDING_X_UUID` can satisfy it. UUIDs are stable,
+					 * so the landmarks survive renames/moves; if the sequence
+					 * deletes them the edge check below simply never credits. */
 					const pendingUuid = Object.values(doc.fields).find(
 						(field) => field.id === "pending",
 					)?.uuid;
@@ -791,8 +802,7 @@ describe("reference index fuzz — incremental ≡ rebuild after every batch", (
 						for (const mut of lowered) {
 							if (
 								mut.kind === "addField" &&
-								(mut.field as { id?: string }).id === "pending_x" &&
-								mut.parentUuid === registerRoot
+								(mut.field as { uuid?: string }).uuid === PENDING_X_UUID
 							) {
 								satisfyingAddUuid = (mut.field as { uuid: string }).uuid;
 							}
@@ -850,7 +860,7 @@ describe("reference index fuzz — incremental ≡ rebuild after every batch", (
 		}
 		expect(
 			danglingSatisfiedAdds,
-			"no add ever satisfied the standing dangling #form/pending_x ref",
+			"no add ever satisfied the standing dangling field identity",
 		).toBeGreaterThan(0);
 		expect(
 			caseBoundRenames,

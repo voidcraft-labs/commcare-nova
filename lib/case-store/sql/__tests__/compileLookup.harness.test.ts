@@ -14,7 +14,6 @@
 // type, present in the harness because one Migrator owns every table.
 // `lookup_rows` rides the typed handle (the compiler's read view).
 
-import { proseText } from "@/lib/domain/prose";
 import { sql } from "kysely";
 import { describe } from "vitest";
 import type { CaseType } from "@/lib/domain";
@@ -28,6 +27,7 @@ import {
 	tableColumn,
 	tableLookup,
 } from "@/lib/domain/predicate/builders";
+import { proseText } from "@/lib/domain/prose";
 import { compileExpression } from "../compileExpression";
 import type { LookupTableSchemas } from "../compileLookup";
 import {

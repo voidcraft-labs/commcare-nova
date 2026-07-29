@@ -1,11 +1,6 @@
 import { z } from "zod";
-import {
-	type LookupColumnId,
-	type LookupTableId,
-	lookupColumnIdSchema,
-	lookupTableIdSchema,
-} from "./lookupIds";
-import { type Predicate, predicateSchema } from "./predicate/types";
+import { lookupColumnIdSchema, lookupTableIdSchema } from "./lookupIds";
+import { predicateSchema } from "./predicate/types";
 
 /**
  * A select whose choices come from one Project lookup table.

@@ -69,6 +69,7 @@ import {
 	renameFieldMutations,
 	updateFieldMutations,
 } from "../blueprintHelpers";
+import { prepareToolOptionsSource } from "../contentProcessing";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import { editFieldUpdatesSchema } from "../toolSchemas";
 import {
@@ -78,15 +79,14 @@ import {
 	type StagedMutationBatch,
 	toToolErrorResult,
 } from "./common";
-import { prepareToolOptionsSource } from "../contentProcessing";
-import type {
-	MutationSuccess,
-	ToolCallSummary,
-} from "./shared/toolCallSummary";
 import {
 	fieldAddressSchema,
 	resolveFieldAddress,
 } from "./shared/entityAddresses";
+import type {
+	MutationSuccess,
+	ToolCallSummary,
+} from "./shared/toolCallSummary";
 
 export const editFieldInputSchema = fieldAddressSchema
 	.extend({

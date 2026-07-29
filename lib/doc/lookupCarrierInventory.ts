@@ -14,9 +14,8 @@
  * the table/column leaf, so two carriers naming the same ids are still distinct
  * when they evaluate differently — changing a `table-column` term's comparison
  * operator or peer literal changes the lookup's meaning while both stable ids
- * stay put. Inline select options sit deliberately outside an `optionsSource`
- * fingerprint: they are the origin-compatible fallback, and editing only that
- * fallback leaves the carrier itself untouched.
+ * stay put. A select-source fingerprint covers the canonical
+ * `optionsSource` value itself.
  */
 
 import type {

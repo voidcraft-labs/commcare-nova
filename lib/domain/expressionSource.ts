@@ -32,8 +32,8 @@ import type { Field } from "./fields";
 import type { Form } from "./forms";
 import {
 	isProseTemplate,
-	printProseTemplate,
 	type ProseTemplate,
+	printProseTemplate,
 } from "./prose";
 import {
 	FIELD_REFERENCE_SLOTS,
@@ -220,8 +220,8 @@ export function fieldProseTemplate(
 
 /**
  * The source text a scalar form expression slot (the Connect-block
- * bindings) reads as, or `undefined` when absent. AST-stored values
- * print against `doc`; legacy strings read verbatim.
+ * bindings) reads as, or `undefined` when absent. Stored AST values
+ * print against `doc`.
  */
 export function formExpressionSource(
 	form: Form,
@@ -236,8 +236,8 @@ export function formExpressionSource(
  * The stored expression AST behind a scalar form expression slot, when
  * the slot is AST-stored — the structural twin of
  * `formExpressionSource` for consumers that classify the stored shape
- * (the deep validator's stored-reference diagnosis). A prose/legacy
- * string has no AST and reads as `undefined`.
+ * (the deep validator's stored-reference diagnosis). A prose slot has
+ * no XPath AST and reads as `undefined`.
  */
 export function formExpressionValue(
 	form: Form,
@@ -259,8 +259,7 @@ export interface ExpressionRead<
 	readonly indices: readonly number[];
 	/**
 	 * The stored expression AST when the slot is AST-stored — `text` is
-	 * its printed projection. Absent for prose slots and for legacy
-	 * strings a degenerate doc never migrated. Consumers that classify
+	 * its printed projection. Absent for prose slots. Consumers that classify
 	 * how a reference is STORED (the deep validator's stored-reference
 	 * diagnosis) read this; text-only consumers ignore it.
 	 */

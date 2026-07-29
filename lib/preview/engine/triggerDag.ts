@@ -1,7 +1,7 @@
 import {
 	expressionSource,
-	fieldProseTemplate,
 	type Field,
+	fieldProseTemplate,
 	type XPathPrintableDoc,
 } from "@/lib/domain";
 import { walkTerms } from "@/lib/domain/predicate";

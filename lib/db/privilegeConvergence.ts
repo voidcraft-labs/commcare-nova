@@ -20,6 +20,7 @@ export class DatabasePrivilegeConvergenceError extends Error {
 		| "role_config_partial"
 		| "role_config_invalid"
 		| "role_policy_invalid"
+		| "runtime_sessions_remain"
 		| "schema_inventory_drift";
 
 	constructor(
@@ -1051,4 +1052,71 @@ export async function convergeDatabasePrivileges(
 	await db
 		.transaction()
 		.execute((tx) => convergePrivilegesInTransaction(tx, config));
+}
+
+interface RuntimeSessionTerminationRow {
+	readonly pid: number;
+	readonly terminated: boolean;
+}
+
+/**
+ * One-time maintenance-cutover fence after runtime grants are restored.
+ *
+ * The migration role is a direct MEMBER of the runtime role, so PostgreSQL
+ * permits it to terminate those sessions without granting the broad
+ * `pg_signal_backend` role. After a short stabilization interval, any
+ * reappearance proves an old service revision is still alive and the
+ * migration Job fails before deployment.
+ */
+export async function terminateAndAssertNoRuntimeDatabaseSessions(
+	db: Kysely<unknown>,
+	runtimeRole: string,
+	options: { readonly stabilizationMs?: number } = {},
+): Promise<number> {
+	const terminated = await sql<RuntimeSessionTerminationRow>`
+		SELECT
+			activity.pid,
+			pg_catalog.pg_terminate_backend(activity.pid) AS terminated
+		FROM pg_catalog.pg_stat_activity AS activity
+		WHERE activity.usename = ${runtimeRole}
+			AND activity.pid <> pg_catalog.pg_backend_pid()
+			AND activity.backend_type = 'client backend'
+		ORDER BY activity.pid
+	`.execute(db);
+	const failed = terminated.rows.filter((row) => !row.terminated);
+	if (failed.length > 0) {
+		throw new DatabasePrivilegeConvergenceError(
+			"runtime_sessions_remain",
+			"The migration identity could not terminate every pre-cutover runtime database session.",
+		);
+	}
+
+	const stabilizationMs = options.stabilizationMs ?? 5_000;
+	if (
+		!Number.isSafeInteger(stabilizationMs) ||
+		stabilizationMs < 0 ||
+		stabilizationMs > 60_000
+	) {
+		throw new Error(
+			"Runtime-session stabilization must be an integer from 0 through 60000 milliseconds.",
+		);
+	}
+	if (stabilizationMs > 0) {
+		await new Promise((resolve) => setTimeout(resolve, stabilizationMs));
+	}
+
+	const remaining = await sql<{ count: string | number }>`
+		SELECT count(*) AS count
+		FROM pg_catalog.pg_stat_activity AS activity
+		WHERE activity.usename = ${runtimeRole}
+			AND activity.pid <> pg_catalog.pg_backend_pid()
+			AND activity.backend_type = 'client backend'
+	`.execute(db);
+	if (Number(remaining.rows[0]?.count ?? -1) !== 0) {
+		throw new DatabasePrivilegeConvergenceError(
+			"runtime_sessions_remain",
+			"A runtime database session reappeared after the maintenance cutover fence.",
+		);
+	}
+	return terminated.rows.length;
 }

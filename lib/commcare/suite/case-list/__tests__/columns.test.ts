@@ -18,7 +18,6 @@
 //      up the matching directive when `ctx.sortByUuid` carries one
 //      keyed under the column's uuid.
 
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import {
@@ -33,6 +32,7 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { literal, prop, term } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { emitColumnField } from "../columns";
 import type { ResolvedSortDirective } from "../sortKeys";
 import type { CaseListEmitContext } from "../types";

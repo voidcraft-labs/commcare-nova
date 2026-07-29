@@ -1,6 +1,5 @@
 // @vitest-environment happy-dom
 
-import { proseText } from "@/lib/domain/prose";
 import {
 	act,
 	fireEvent,
@@ -36,6 +35,7 @@ import {
 	relationStep,
 	term,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { loadFilterPreviewAction } from "@/lib/preview/engine/caseDataBinding";
 import { invalidateCaseData } from "@/lib/preview/hooks/caseDataInvalidation";
 import { expressionCardSchemaList } from "../../shared/expressionEditorSchemas";

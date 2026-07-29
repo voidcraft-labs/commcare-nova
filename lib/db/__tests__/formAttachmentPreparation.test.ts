@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { preparePendingFormAttachments } from "../formAttachmentPreparation";
 import type { FormAttachmentRecord } from "../formAttachments";
 
@@ -45,7 +46,7 @@ const candidate: FormAttachmentRecord = {
 	projectId: "project-1",
 	createdBy: "user-1",
 	entryKey: "22222222-2222-4222-8222-222222222222",
-	fieldUuid: "33333333-3333-4333-8333-333333333333",
+	fieldUuid: testUuid("33333333-3333-4333-8333-333333333333"),
 	instancePath: "/data/photo",
 	originalFilename: "photo.jpg",
 	extension: ".jpg",

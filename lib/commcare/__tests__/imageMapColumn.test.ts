@@ -10,7 +10,6 @@
  * inlines `jr://file/commcare/<hash><ext>` literals.
  */
 
-import { proseText } from "@/lib/domain/prose";
 import AdmZip from "adm-zip";
 import { describe, expect, it } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
@@ -23,6 +22,7 @@ import type {
 } from "@/lib/commcare/multimedia/assetWirePath";
 import { columnSchema, imageMapColumn, imageMapEntry } from "@/lib/domain";
 import type { MediaAssetId } from "@/lib/domain/multimedia";
+import { proseText } from "@/lib/domain/prose";
 
 const HASH_ACTIVE = "a".repeat(64);
 const HASH_CLOSED = "c".repeat(64);
@@ -82,7 +82,7 @@ function imageMapDoc() {
 							{
 								kind: "text",
 								id: "case_name",
-								label: "Name",
+								label: proseText("Name"),
 								case_property_on: "patient",
 							},
 						],

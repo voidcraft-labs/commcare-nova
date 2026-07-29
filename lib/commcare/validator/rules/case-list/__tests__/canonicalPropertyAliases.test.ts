@@ -1,4 +1,3 @@
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
@@ -9,6 +8,7 @@ import {
 	simpleSearchInputDef,
 } from "@/lib/domain";
 import { arith, prop, term } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { runValidation } from "../../../runner";
 import { propertyExists, resolvePropertyDataType } from "../shared";
 
@@ -82,7 +82,7 @@ describe("canonical case-property aliases in case-list validation", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 							],
@@ -147,7 +147,7 @@ describe("canonical case-property aliases in case-list validation", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 							],
@@ -186,7 +186,7 @@ describe("canonical case-property aliases in case-list validation", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 							],

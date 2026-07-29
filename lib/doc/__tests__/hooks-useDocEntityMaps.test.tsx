@@ -13,6 +13,7 @@ import { useDocEntityMaps } from "@/lib/doc/hooks/useDocEntityMaps";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { BlueprintDoc } from "@/lib/doc/types";
+import { proseText } from "@/lib/domain/prose";
 
 const MOD_UUID = testUuid("module-1-uuid");
 const FORM_UUID = testUuid("form-1-uuid");
@@ -41,7 +42,7 @@ function setup() {
 				uuid: Q_UUID,
 				id: "name",
 				kind: "text",
-				label: "Name",
+				label: proseText("Name"),
 			} as BlueprintDoc["fields"][string],
 		},
 		moduleOrder: [MOD_UUID],

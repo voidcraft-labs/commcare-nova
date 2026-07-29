@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest";
+import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import {
 	collectThreadAttachmentAssetIds,
 	remapThreadAttachmentAssetIds,
 } from "../threadAttachments";
 
 describe("thread attachment identity", () => {
+	const imageSource = testMediaAssetId("image-source");
+	const documentSource = testMediaAssetId("document-source");
+	const imageDestination = testMediaAssetId("image-destination");
+	const documentDestination = testMediaAssetId("document-destination");
 	const messages = [
 		{
 			id: "user-1",
@@ -13,13 +18,13 @@ describe("thread attachment identity", () => {
 			metadata: {
 				attachments: [
 					{
-						assetId: "image-source",
+						assetId: imageSource,
 						kind: "image",
 						filename: "map.png",
 						mimeType: "image/png",
 					},
 					{
-						assetId: "document-source",
+						assetId: documentSource,
 						kind: "pdf",
 						filename: "brief.pdf",
 						mimeType: "application/pdf",
@@ -38,15 +43,15 @@ describe("thread attachment identity", () => {
 				{ metadata: { attachments: [{ filename: "missing id" }] } },
 				{ attachments: [{ assetId: "legacy-wrong-path" }] },
 			]),
-		).toEqual(["image-source", "document-source"]);
+		).toEqual([imageSource, documentSource]);
 	});
 
 	it("rewrites only assetId while preserving the transcript payload", () => {
 		const remapped = remapThreadAttachmentAssetIds(
 			messages,
 			new Map([
-				["image-source", "image-destination"],
-				["document-source", "document-destination"],
+				[imageSource, imageDestination],
+				[documentSource, documentDestination],
 			]),
 		);
 
@@ -57,11 +62,11 @@ describe("thread attachment identity", () => {
 					attachments: [
 						{
 							...messages[0].metadata.attachments[0],
-							assetId: "image-destination",
+							assetId: imageDestination,
 						},
 						{
 							...messages[0].metadata.attachments[1],
-							assetId: "document-destination",
+							assetId: documentDestination,
 						},
 					],
 				},

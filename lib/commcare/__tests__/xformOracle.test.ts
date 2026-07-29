@@ -1,10 +1,10 @@
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { expandDoc } from "@/lib/commcare/expander";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { validateXForm } from "@/lib/commcare/validator/xformOracle";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { proseText } from "@/lib/domain/prose";
 
 // ── XForm XML Validator ────────────────────────────────────────────
 
@@ -424,7 +424,7 @@ describe("case list column validation", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 							],
@@ -468,7 +468,7 @@ describe("case list column validation", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 							],
@@ -508,13 +508,13 @@ describe("case list column validation", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 								f({
 									kind: "int",
 									id: "age",
-									label: "Age",
+									label: proseText("Age"),
 									case_property_on: "patient",
 								}),
 							],
@@ -560,13 +560,13 @@ describe("expanded XForm validation", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Full Name",
+									label: proseText("Full Name"),
 									case_property_on: "patient",
 								}),
 								f({
 									kind: "int",
 									id: "age",
-									label: "Age",
+									label: proseText("Age"),
 									case_property_on: "patient",
 								}),
 								f({
@@ -608,20 +608,26 @@ describe("expanded XForm validation", () => {
 							name: "Survey",
 							type: "survey",
 							fields: [
-								f({ kind: "text", id: "intro", label: "Intro" }),
+								f({ kind: "text", id: "intro", label: proseText("Intro") }),
 								f({
 									kind: "group",
 									id: "details",
-									label: "Details",
-									children: [f({ kind: "text", id: "item", label: "Item" })],
+									label: proseText("Details"),
+									children: [
+										f({ kind: "text", id: "item", label: proseText("Item") }),
+									],
 								}),
 								f({
 									kind: "repeat",
 									id: "visits",
-									label: "Visits",
+									label: proseText("Visits"),
 									children: [
-										f({ kind: "date", id: "visit_date", label: "Date" }),
-										f({ kind: "text", id: "notes", label: "Notes" }),
+										f({
+											kind: "date",
+											id: "visit_date",
+											label: proseText("Date"),
+										}),
+										f({ kind: "text", id: "notes", label: proseText("Notes") }),
 									],
 								}),
 							],
@@ -655,7 +661,7 @@ describe("expanded XForm validation", () => {
 								f({
 									kind: "single_select",
 									id: "color",
-									label: "Color",
+									label: proseText("Color"),
 									options: [
 										{ value: "red", label: "Red" },
 										{ value: "blue", label: "Blue" },
@@ -664,7 +670,7 @@ describe("expanded XForm validation", () => {
 								f({
 									kind: "multi_select",
 									id: "tags",
-									label: "Tags",
+									label: proseText("Tags"),
 									options: [
 										{ value: "a", label: "A" },
 										{ value: "b", label: "B" },

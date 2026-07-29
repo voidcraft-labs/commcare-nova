@@ -12,9 +12,9 @@
  * same mutation batch on both surfaces.
  */
 
-import { proseText } from "@/lib/domain/prose";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import type { BlueprintDoc, Form, Module } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import {
 	type MakeMcpTestContextHandles,
 	makeMcpTestContext,

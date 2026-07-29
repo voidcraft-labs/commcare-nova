@@ -54,6 +54,7 @@ import { textFieldSchema } from "../fields/text";
 import { timeFieldSchema } from "../fields/time";
 import { videoFieldSchema } from "../fields/video";
 import { type Form, formSchema } from "../forms";
+import { proseText } from "../prose";
 import {
 	FIELD_REFERENCE_SLOTS,
 	type FieldReferenceSlot,
@@ -133,14 +134,25 @@ function rawFixture(
 			return {
 				...base,
 				kind,
-				label: "Pick one",
-				options: [
-					{ value: "a", label: "Option A" },
-					{ value: "b", label: "Option B" },
-				],
+				label: proseText("Pick one"),
+				optionsSource: {
+					kind: "inline",
+					options: [
+						{
+							uuid: crypto.randomUUID(),
+							value: "a",
+							label: proseText("Option A"),
+						},
+						{
+							uuid: crypto.randomUUID(),
+							value: "b",
+							label: proseText("Option B"),
+						},
+					],
+				},
 			};
 		default:
-			return { ...base, kind, label: "Fixture" };
+			return { ...base, kind, label: proseText("Fixture") };
 	}
 }
 
@@ -218,7 +230,7 @@ describe("expressionSource resolves every registry xpath/prose slot", () => {
 					plantAtPath(raw, slot.path, (indices) =>
 						slot.kind === "xpath-ast"
 							? opaqueXPathExpression(plantedText(slot.slot, indices))
-							: plantedText(slot.slot, indices),
+							: proseText(plantedText(slot.slot, indices)),
 					);
 					const field = parseFixture(raw, kind, mode);
 
@@ -249,8 +261,8 @@ describe("expressionSource resolves every registry xpath/prose slot", () => {
 
 	it("fans out option_label with pairing indices, one per option", () => {
 		const raw = rawFixture("single_select");
-		plantAtPath(raw, "options[].label", (indices) =>
-			plantedText("option_label", indices),
+		plantAtPath(raw, "optionsSource.options[].label", (indices) =>
+			proseText(plantedText("option_label", indices)),
 		);
 		const field = parseFixture(raw, "single_select");
 		expect(expressionSourceEntries(field, "option_label", EMPTY_DOC)).toEqual([
@@ -305,7 +317,7 @@ describe("expressionSurfaceReads", () => {
 	it("walks prose slots in registry order, options fanned out last", () => {
 		const raw = rawFixture("single_select");
 		for (const path of ["hint", "help", "validate_msg"]) {
-			plantAtPath(raw, path, () => `text ${path}`);
+			plantAtPath(raw, path, () => proseText(`text ${path}`));
 		}
 		const field = parseFixture(raw, "single_select");
 		expect(

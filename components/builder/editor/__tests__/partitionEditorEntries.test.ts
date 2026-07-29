@@ -13,10 +13,10 @@
  *     hidden non-addable" so empty labelled cards never mount.
  */
 
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import type { TextField } from "@/lib/domain";
 import type { FieldEditorEntry } from "@/lib/domain/kinds";
+import { proseText } from "@/lib/domain/prose";
 import {
 	partitionEditorEntries,
 	sectionHasContent,

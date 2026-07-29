@@ -1,13 +1,14 @@
 /** Actor case writes reauthorize against fresh app + membership state. */
 
-import { proseText } from "@/lib/domain/prose";
 import type { Kysely } from "kysely";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { CaptureSubmissionRejectedError } from "@/lib/case-store";
 import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
 import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
 import type { Database as CaseDatabase } from "@/lib/case-store/sql/database";
 import { caseTypeToJsonSchema } from "@/lib/domain/predicate/jsonSchema";
+import { proseText } from "@/lib/domain/prose";
 import { authorizeCaseMutationInTransaction } from "../caseMutationAuthorization";
 import { setupAppStateTestDb } from "./appStateTestDb";
 
@@ -77,7 +78,7 @@ describe("case mutation authorization", () => {
 		const appId = await seedAuthorizedApp();
 		const receipt = {
 			entryKey: crypto.randomUUID(),
-			formUuid: crypto.randomUUID(),
+			formUuid: testUuid(crypto.randomUUID()),
 			expectedAppMutationSeq: 0,
 			requestDigest: "authorized-text-registration",
 		};

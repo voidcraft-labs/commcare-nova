@@ -6,7 +6,6 @@ import type { BlueprintDoc, Mutation, Uuid } from "@/lib/doc/types";
 import {
 	caseDataTypeForFieldKind,
 	casePropertyTargetKey,
-	entityTargetKey,
 	type Field,
 	fieldCasePropertyOn,
 	fieldKindDeclaresKey,
@@ -17,17 +16,12 @@ import {
 	reconcileFieldForKind,
 } from "@/lib/domain";
 import {
-	rewriteHashtagRefs,
-	rewriteXPathRefs,
-} from "@/lib/preview/xpath/rewrite";
-import {
 	cascadeDeleteField,
 	computeFieldPath,
 	dedupeSiblingId,
 	findContainingForm,
 	findFieldParent,
 } from "./helpers";
-import { rewriteXPathOnMove } from "./pathRewrite";
 import {
 	rewriteFieldReferenceSlots,
 	rewriteFormReferenceSlots,
@@ -49,16 +43,12 @@ import {
  *
  * `renamed` is populated when a cross-level move triggers sibling-id
  * deduplication (CommCare requires unique IDs per parent level). Within
- * the form, reference rewriting is total: absolute paths AND `#form/`
- * hashtag refs re-anchor across any depth change (`rewriteXPathOnMove`),
- * refs to a moved CONTAINER's descendants included (segment-prefix
- * re-anchor), so a move never leaves a dangling reference behind.
+ * the form, references need no rewrite: every XPath/prose field atom stores
+ * UUID identity and prints through the field's current path.
  *
- * `xpathFieldsRewritten` counts the reference-carrying SLOTS whose
- * value changed across the move's rewrite pass — sibling fields'
- * expression/prose slots plus the containing form's own wiring slots
- * (form-link conditions/datums, Connect expressions). It feeds the
- * "N references updated" toast (`notify.ts::notifyMoveRename`).
+ * `xpathFieldsRewritten` remains zero for a move because identity-backed
+ * references re-project without stored changes. It feeds the existing
+ * move/rename notification result shape.
  */
 export interface MoveFieldResult {
 	renamed?: {
@@ -72,20 +62,16 @@ export interface MoveFieldResult {
 /**
  * Metadata returned by `renameField`.
  *
- * A rename is either **form-local** (the field does not write to a case, so
- * only its own form's XPath references change) or **cascaded** (the field
- * has a `case_property_on` — renaming its id is semantically a rename of the
- * case property it holds, so the reducer propagates the change across every
- * module/form that references the property).
+ * A field-id rename needs no form-local reference rewrite: field UUID atoms
+ * project the current path. When the field has `case_property_on`, however,
+ * its id is the deliberately name-keyed case property identity, so the reducer
+ * cascades that property rename through every structural carrier.
  *
  * Sub-counts let callers surface precise toast copy without having to
  * re-derive what changed:
  *   - `xpathFieldsRewritten` — count of DISTINCT fields whose contents were
- *     modified. A single field is counted once regardless of how many refs
- *     inside it matched and regardless of how many passes (form-local
- *     `/data/…`+`#form/…` pass plus cross-form `#case/…` pass) touched it.
- *     This is the "how many expressions moved with me" number and drives
- *     the UI toast ("N references updated").
+ *     modified by the case-property cascade. A field is counted once no
+ *     matter how many typed leaves inside it matched.
  *   - `peerFieldsRenamed` — how many OTHER fields were renamed because
  *     they represented the same case property (same `id` + same
  *     `case_property_on`) in a different form. Those are authoritative peers
@@ -96,10 +82,8 @@ export interface MoveFieldResult {
  *     skipped during the rewrite (their expressions are ASTs and
  *     count under `moduleRefsRewritten`).
  *   - `formWiringRewritten` — count of DISTINCT FORMS whose
- *     form-level wiring slots (form-link conditions / datum values,
- *     Connect expressions, `closeCondition.field`) were rewritten by
- *     any pass. Per-form (not per-slot) so a form touched by both the
- *     path pass and the case-hashtag pass counts once.
+ *     form-level typed wiring slots were structurally rewritten by the
+ *     case-property cascade. Per-form, not per-slot.
  *   - `moduleRefsRewritten` — count of case-property reference NODES
  *     renamed inside module-level ASTs (case-list filter, calculated
  *     column expressions, search-input predicates/defaults,
@@ -108,19 +92,13 @@ export interface MoveFieldResult {
  *     non-zero value forces `cascadedAcrossForms`.
  *   - `catalogEntryRenamed` — `true` iff `doc.caseTypes[caseType].properties[]`
  *     had a matching entry renamed (or merged into an already-declared
- *     `newId` entry). The catalog is the authoritative list
- *     of known case properties for the XPath linter, `#case/` chip
- *     hydrator, and autocompleter; a stale catalog makes freshly-valid
- *     refs look "unknown." Consumers can use this to invalidate autocomplete
- *     / lint caches; for most callers it's informational.
+ *     `newId` entry). The catalog is the authoritative list of known case
+ *     properties for linting, chips, and autocomplete.
  *   - `cascadedAcrossForms` — `true` iff the rename visibly touched state
  *     OUTSIDE the primary field's containing form: any peer rename, any
- *     column rewrite, any catalog entry rename, or any `#case/` ref rewrite
- *     in a non-primary form. Consumers (the SA's egress emitter, the UI
- *     toast) branch on this to decide whether a single-form update is
- *     sufficient or a full blueprint refresh is needed. A `#case/` rewrite
- *     in the primary's own form does NOT set this flag — same-form rewrites
- *     can be handled by a form-level refresh alone.
+ *     column rewrite, catalog rename, or typed case-property rewrite in a
+ *     non-primary form. Consumers use it to choose a form-level or whole-doc
+ *     refresh.
  */
 export interface FieldRenameMeta {
 	xpathFieldsRewritten: number;
@@ -415,8 +393,6 @@ export function applyFieldMutation(
 				draft as unknown as BlueprintDoc,
 				mut.uuid,
 			);
-			const oldPathStr =
-				computeFieldPath(draft as unknown as BlueprintDoc, mut.uuid) ?? "";
 			const crossParent =
 				sourceParent !== undefined &&
 				sourceParent.parentUuid !== mut.toParentUuid;
@@ -459,40 +435,12 @@ export function applyFieldMutation(
 				mut.after,
 			);
 
-			// Rewrite absolute-path / hashtag references that now point at a
-			// stale path. Covers cross-level moves (where the prefix changes —
-			// hashtag refs re-anchor across depth, `#form/foo` ↔
-			// `#form/grp/foo`, descendants of a moved container included) and
-			// reorder+rename (where the leaf segment changes from dedup).
-			// Same-form by the cross-form guard above — XPath references
-			// never cross form boundaries. The carriers come from the
-			// reference index: refs into a moved CONTAINER's subtree carry a
-			// prefix edge to the container itself, so one lookup on the moved
-			// field's uuid names every field whose slots can match. Only
-			// PROSE rewrites remain: expression slots store identity leaves
-			// that re-anchor at print, and every form wiring slot is
-			// identity-stored too — so the carriers here are fields whose
-			// label/hint/help text embeds a `#form/…` hashtag into the
-			// moved subtree.
-			let xpathFieldsRewritten = 0;
+			// Identity-backed references need no stored rewrite. Compute only
+			// the new friendly path for move metadata when sibling dedup renamed
+			// the field.
+			const xpathFieldsRewritten = 0;
 			const newPathStr =
 				computeFieldPath(draft as unknown as BlueprintDoc, mut.uuid) ?? "";
-			if (oldPathStr && newPathStr && oldPathStr !== newPathStr) {
-				const oldSegments = oldPathStr.split("/");
-				const newSegments = newPathStr.split("/");
-				const moveRewriter = (expr: string) =>
-					rewriteXPathOnMove(expr, oldSegments, newSegments);
-				for (const carrierUuid of referencingCarrierUuids(
-					draft as unknown as BlueprintDoc,
-					entityTargetKey(mut.uuid),
-				)) {
-					const target = draft.fields[carrierUuid as Uuid];
-					if (!target) continue;
-					xpathFieldsRewritten += rewriteFieldReferenceSlots(target, {
-						xpath: moveRewriter,
-					});
-				}
-			}
 
 			// Build rename metadata when cross-level dedup changed the id.
 			const renamed =
@@ -524,20 +472,15 @@ export function applyFieldMutation(
 			// value — the case type this field WRITES TO, which may differ
 			// from the containing module's `caseType` when the field creates
 			// a child case. A non-empty value triggers the case-property
-			// cascade: #case/<oldId> hashtags across every form bound to a
-			// module with the matching caseType, column renames on those
-			// modules, and peer-field renames of any other field that
-			// declares the same (id, case_property_on) pair.
+			// cascade: typed case-property leaves, contextual module slots,
+			// columns, and peer fields declaring the same
+			// (id, case_property_on) pair.
 			const caseType = fieldCasePropertyOn(field);
 			const doc = draft as unknown as BlueprintDoc;
 
-			// Track state across both passes:
-			//   - `touchedFields` dedupes multi-pass rewrites on the same
-			//     field (e.g. a field with both `/data/old` and `#case/old`
-			//     refs is touched by both passes but counts once).
-			//   - `rewiredForms` does the same for form-level wiring slots —
-			//     per-form, so a form whose wiring is touched by both the
-			//     path pass and the case-hashtag pass counts once.
+			// Track structural cascade state:
+			//   - `touchedFields` dedupes multiple matching leaves in a field.
+			//   - `rewiredForms` does the same for form-level wiring slots.
 			//   - `affectedForms` records every form that had ANY change
 			//     (field or wiring); used to compute `cascadedAcrossForms`
 			//     without resorting to fragile subtraction arithmetic.
@@ -550,9 +493,8 @@ export function applyFieldMutation(
 			// to decide which forms count as "other" for the cross-form flag.
 			const primaryFormUuid = findContainingForm(doc, mut.uuid);
 
-			// (1) Rename the primary field and rewrite its containing form's
-			//     path / hashtag references + form-level wiring.
-			renameSingleField(doc, mut.uuid, newId, tracking);
+			// (1) Rename the primary field. UUID references re-project.
+			renameSingleField(doc, mut.uuid, newId);
 
 			// (2) Case-property cascade, when applicable. Safe to run even
 			//     when no module has matching caseType — the walkers visit
@@ -860,95 +802,16 @@ function ensureCatalogProperty(doc: BlueprintDoc, field: Field): void {
 }
 
 /**
- * Rename one field's `id` and rewrite XPath / hashtag references that live
- * inside the same form. This is the form-local half of the rename: it does
- * NOT walk modules or other forms. Used both for the primary rename and
- * for every peer rename discovered by the case-property cascade.
- *
- * Reference coverage is the registry's per-kind projection
- * (`referenceRewrites.ts::rewriteFieldReferenceSlots`): every XPath
- * slot runs through `rewriteXPathRefs`, which surgically edits
- * matching absolute paths (`/data/…/old_id` → `/data/…/new_id`) and
- * `#form/` hashtags at any depth (`#form/grp/old_id` →
- * `#form/grp/new_id`), prefix-matched on the renamed field's segments
- * so renaming a CONTAINER re-anchors refs to its descendants too
- * (`#form/grp/inner` → `#form/grp2/inner`) while a cousin sharing the
- * leaf under a different group is untouched; every prose slot is
- * regex-located first so only the embedded hashtag refs are rewritten
- * while the surrounding text is preserved verbatim. The containing form's own wiring slots
- * (form-link conditions/datums, Connect expressions,
- * `closeCondition.field`) are rewritten in the same pass — they
- * reference this form's fields (see `FormSlotRewriteContext`).
- *
- * `tracking` is passed in so multiple invocations (primary rename plus
- * each peer rename plus the cascade's `#case/` pass) share one view of
- * "what was touched" — the meta's distinct-entity counts and
- * `cascadedAcrossForms` both need a view that spans every pass.
+ * Rename one field's authored `id`. Form-local XPath/prose references store
+ * UUID identity and therefore need no rewrite; the printer immediately
+ * projects the new path. This helper is used both for the primary rename and
+ * for peer writers discovered by the case-property cascade.
  */
-function renameSingleField(
-	doc: BlueprintDoc,
-	uuid: Uuid,
-	newId: string,
-	tracking: RenameTracking,
-): void {
+function renameSingleField(doc: BlueprintDoc, uuid: Uuid, newId: string): void {
 	const field = doc.fields[uuid];
 	if (!field) return;
 
-	// Capture the path BEFORE mutating so `computeFieldPath` produces
-	// the pre-rename path segments that references will match against.
-	const oldPath = computeFieldPath(doc, uuid);
-	const formUuid = findContainingForm(doc, uuid);
 	field.id = newId;
-
-	// An unreachable field (not in any form) still has its id updated, but
-	// there's no form to walk for reference rewrites.
-	if (oldPath === undefined || formUuid === undefined) return;
-
-	rewriteFormLocalRefs(doc, uuid, formUuid, oldPath, newId, tracking);
-	// The containing form's own wiring needs nothing from a rename:
-	// `closeCondition.field` holds the checked field's stable uuid and
-	// every form expression slot stores identity leaves — both resolve
-	// to the new name at print.
-}
-
-/**
- * Rewrite path / hashtag references to the renamed field (`targetUuid`,
- * whose pre-rename path was `oldPath`) across the fields that carry
- * them. The carriers come from the reference index — one lookup on the
- * renamed field's uuid, which covers refs into a renamed CONTAINER's
- * subtree too (every ref carries a prefix edge to each resolved
- * ancestor) — and the rewriter then re-parses just those carriers'
- * slots. Form-scoped by construction: XPath references don't cross
- * form boundaries, so every carrier of a `u:` edge to this field lives
- * in its own form.
- *
- * Records every modified field in `tracking.touchedFields` (so callers
- * dedupe multi-pass hits) and adds `formUuid` to `affectedForms` on
- * any change.
- */
-function rewriteFormLocalRefs(
-	doc: BlueprintDoc,
-	targetUuid: Uuid,
-	formUuid: Uuid,
-	oldPath: string,
-	newLeafId: string,
-	tracking: RenameTracking,
-): void {
-	const xpathRewriter = (expr: string) =>
-		rewriteXPathRefs(expr, oldPath, newLeafId);
-	for (const carrierUuid of referencingCarrierUuids(
-		doc,
-		entityTargetKey(targetUuid),
-	)) {
-		// The containing form's own wiring slots rewrite in
-		// `renameSingleField` — only field carriers rewrite here.
-		const target = doc.fields[carrierUuid as Uuid];
-		if (!target) continue;
-		if (rewriteFieldReferenceSlots(target, { xpath: xpathRewriter }) > 0) {
-			tracking.touchedFields.add(carrierUuid as Uuid);
-			tracking.affectedForms.add(formUuid);
-		}
-	}
 }
 
 /**
@@ -962,18 +825,14 @@ function rewriteFormLocalRefs(
  *      `case_property_on === caseType`. Those are not references; they're
  *      authoritative declarations of the same property in a different
  *      form (common when multiple forms read/write the same case
- *      property). Each peer is renamed + has its own form's local refs
- *      rewritten via `renameSingleField`.
+ *      property). Each peer is renamed through `renameSingleField`.
  *
- *   2. **Transitional `#case/` hashtag references** — `#case/<oldId>` inside
- *      XPath expressions, prose, or form-level wiring (form-link
- *      conditions/datums, Connect expressions) on ANY form bound to a
- *      module whose `caseType === caseType`. `#case/` resolves to the
- *      containing module's case type, so refs in modules with a different
- *      caseType point at a different property and must NOT be rewritten.
+ *   2. **Typed carriers** — XPath/prose `case-ref` atoms and form-level
+ *      Predicate/ValueExpression leaves that name the exact case type and
+ *      property.
  *
  *   3. **Module-level slots** — `col.field` cells holding a bare case
- *      property name (same caseType scope as (2)) plus the predicate /
+ *      property name in the module's case-type scope plus the predicate /
  *      value-expression ASTs and search-input property slots, all owned
  *      by `referenceRewrites.ts::rewriteModuleCaseRefs` (per-slot
  *      scoping documented there — AST `PropertyRef` leaves self-encode
@@ -981,27 +840,16 @@ function rewriteFormLocalRefs(
  *
  *   4. **Case-type catalog** — `doc.caseTypes[<caseType>].properties[]` is
  *      the authoritative list of known case properties for a case type.
- *      Every builder-time consumer (XPath linter, chip hydrator,
- *      validator, autocompleter) reads it via `buildLintContext`. If the
- *      catalog still advertises `age` after we've renamed to `age_1`, the
- *      linter rejects `#mother/age_1` as an unknown property and the chip
- *      decorator refuses to render a chip (hashtag name not recognized).
- *
- *   5. **Per-type hashtag references** — `#<caseType>/<oldId>` inside XPath
- *      expressions or prose on ANY field APP-WIDE. Unlike `#case/`, a
- *      per-type ref names its case type explicitly, so it resolves to the
- *      same type from any form that can reach it (own or ancestor) — the
- *      rewrite spans every module, matching the namespace exactly so a
- *      `#<otherType>/<oldId>` ref to a different type is never touched.
+ *      Every builder-time consumer (XPath linting, chips, validation, and
+ *      autocomplete) reads it via `buildLintContext`.
  *
  * The cascade runs entirely on the Immer draft. `excludeUuid` is the
  * primary field's uuid — excluded from the peer-field rename walk so it
- * doesn't get renamed twice. The primary field IS included in the hashtag
- * rewrite walks because it may reference its own old property name in a
- * label or calculate (unusual but legal).
+ * doesn't get renamed twice. The primary field remains eligible as a typed
+ * carrier because it may reference its own property.
  *
  * Returns counts for metadata surfacing; callers add them to any
- * form-local counts produced by the primary rename.
+ * the final rename metadata.
  */
 interface CaseCascadeResult {
 	peerFieldsRenamed: number;
@@ -1045,14 +893,14 @@ function cascadeCasePropertyRename(
 		peers.push(peerUuid as Uuid);
 	}
 	for (const peerUuid of peers) {
-		renameSingleField(doc, peerUuid, newId, tracking);
+		renameSingleField(doc, peerUuid, newId);
 		peerFieldsRenamed++;
 	}
 
 	// ── (4) Case-type catalog rename ────────────────────────────────────
 	// The catalog is the single source of truth for which property names
 	// the XPath linter + chip hydrator recognize. Rename BEFORE the column
-	// / hashtag passes so any code reading the draft mid-traversal sees
+	// / typed-carrier passes so any code reading the draft mid-traversal sees
 	// the updated catalog — matches the ordering invariant that a given
 	// name is either `oldId` or `newId` but never both.
 	//
@@ -1086,35 +934,12 @@ function cascadeCasePropertyRename(
 		}
 	}
 
-	// ── (2) + (3) + (5) Hashtag + module-slot rewrites, driven by ONE
-	// reference-index lookup: the carriers of the (caseType, oldId)
-	// property edge. The index keys every spelling under that one
-	// identity — explicit `#<caseType>/<oldId>` hashtags app-wide,
-	// contextual `#case/<oldId>` refs in modules whose own caseType
-	// matches (extraction keys them under the module's CURRENT type, so
-	// a non-matching module's `#case/` refs are simply not in the
-	// bucket), AST `PropertyRef` leaves whose relation walk lands on the
-	// type, and the module config's contextual property slots. The
-	// rewriters then re-parse just those carriers' slots:
-	//
-	//   - The per-type ref `#<caseType>/<oldId>` names its case type
-	//     explicitly, so it resolves to the SAME type from every form that can
-	//     reach it (own OR ancestor) — a child module's followup form can read
-	//     `#mother/<oldId>`. So it's rewritten on every carrier. The namespace
-	//     match is EXACT, so a `#<otherType>/<oldId>` ref to a different type
-	//     that shares the property name is untouched.
-	//   - The transitional `#case/<oldId>` rewriter joins only on carriers
-	//     whose owning module's caseType matches — a module with a
-	//     different caseType references a different case entity.
-	//
-	// Module-level slots route through `rewriteModuleCaseRefs`, which
-	// owns the per-slot scoping (columns + simple search-input
-	// properties key on the module's contextual case type; AST
-	// `PropertyRef` leaves self-encode theirs and are matched per node).
-	const caseRewriter = (expr: string) =>
-		rewriteHashtagRefs(expr, "#case/", oldId, newId);
-	const perTypeRewriter = (expr: string) =>
-		rewriteHashtagRefs(expr, `#${caseType}/`, oldId, newId);
+	// ── (2) + (3) Typed carrier rewrites, driven by one reference-index
+	// lookup for `(caseType, oldId)`. Explicit XPath/prose atoms and
+	// Predicate/ValueExpression leaves carry the case type structurally;
+	// module property slots are keyed through their owning module context.
+	// Module-level slots route through `rewriteModuleCaseRefs`; field/form
+	// slots route through the registry-driven structural walkers below.
 	const rename = { caseType, oldName: oldId, newName: newId };
 	for (const carrierUuid of referencingCarrierUuids(
 		doc,
@@ -1128,40 +953,17 @@ function cascadeCasePropertyRename(
 			continue;
 		}
 
-		// Field / form carriers pick their rewriter by the owning module:
-		// in a matching-caseType module both rewriters run (the per-type
-		// AND the context-dependent `#case/`); elsewhere only the per-type
-		// one. A field touched here may also have been touched by a
-		// form-local pass earlier (peer renames rewrite their own forms);
-		// adding to `touchedFields` dedupes so `xpathFieldsRewritten`
-		// counts each field once, not once per pass. Form wiring carries
-		// case hashtags too (Connect expressions and form-link conditions
-		// validate against case refs), so the same rewriter runs over the
-		// form's XPath wiring slots — `closeCondition.field` is a form-
-		// local field id, untouched by a case pass (peer renames handle
-		// their own forms' close conditions).
+		// Field/form carriers already passed the exact case-property edge
+		// lookup, so each walker renames matching typed leaves. Tracking counts
+		// a carrier once even when several leaves changed.
 		const formUuid = doc.forms[carrierUuid as Uuid]
 			? (carrierUuid as Uuid)
 			: findContainingForm(doc, carrierUuid as Uuid);
 		if (formUuid === undefined) continue;
-		let owningModule: Uuid | undefined;
-		for (const [modUuid, formUuids] of Object.entries(doc.formOrder)) {
-			if (formUuids.includes(formUuid)) {
-				owningModule = modUuid as Uuid;
-				break;
-			}
-		}
-		const matchesCaseType =
-			owningModule !== undefined &&
-			doc.modules[owningModule]?.caseType === caseType;
-		const rewriter = matchesCaseType
-			? (expr: string) => caseRewriter(perTypeRewriter(expr))
-			: perTypeRewriter;
 		const field = doc.fields[carrierUuid as Uuid];
 		if (field) {
 			const fieldOps = {
-				xpath: rewriter,
-				caseLeafRename: { rename, contextualMatches: matchesCaseType },
+				caseLeafRename: { rename },
 			};
 			if (rewriteFieldReferenceSlots(field, fieldOps) > 0) {
 				tracking.touchedFields.add(carrierUuid as Uuid);
@@ -1171,7 +973,7 @@ function cascadeCasePropertyRename(
 		}
 		const form = doc.forms[carrierUuid as Uuid];
 		const formOps = {
-			caseLeafRename: { rename, contextualMatches: matchesCaseType },
+			caseLeafRename: { rename },
 		};
 		if (form && rewriteFormReferenceSlots(form, formOps) > 0) {
 			tracking.rewiredForms.add(formUuid);

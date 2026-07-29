@@ -22,12 +22,13 @@
  * Postgres transaction in `commitGuardedBatch.integration.test.ts`.
  */
 
-import { proseText } from "@/lib/domain/prose";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import { applyBlueprintChange } from "../applyBlueprintChange";
 import {
 	BlueprintCommitRejectedError,
@@ -144,13 +145,13 @@ function minDoc(appName = "Test"): BlueprintDoc {
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Name",
+								label: proseText("Name"),
 								case_property_on: "patient",
 							}),
 							f({
 								kind: "text",
 								id: "village",
-								label: "Village",
+								label: proseText("Village"),
 								case_property_on: "patient",
 							}),
 						],
@@ -269,16 +270,29 @@ describe("applyBlueprintChange — routes the guard through commitGuardedBatch",
 			batchId: "batch-uuid-media",
 			kind: "autosave",
 			guard: {
-				mutations: [{ kind: "setAppLogo", logo: "asset-live" } as Mutation],
+				mutations: [
+					{
+						kind: "setAppLogo",
+						logo: testMediaAssetId("asset-live"),
+					} as Mutation,
+				],
 				mediaExpectations: [
-					{ assetId: "asset-live", kind: "image", slot: "the app logo" },
+					{
+						assetId: testMediaAssetId("asset-live"),
+						kind: "image",
+						slot: "the app logo",
+					},
 				],
 			},
 		});
 
 		const args = commitGuardedBatchMock.mock.calls[0]?.[0];
 		expect(args?.mediaExpectations).toEqual([
-			{ assetId: "asset-live", kind: "image", slot: "the app logo" },
+			{
+				assetId: testMediaAssetId("asset-live"),
+				kind: "image",
+				slot: "the app logo",
+			},
 		]);
 		// An autosave omits runId entirely (not `undefined`).
 		expect("runId" in (args ?? {})).toBe(false);

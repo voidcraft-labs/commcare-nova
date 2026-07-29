@@ -14,12 +14,12 @@
  * `vertical_align`, `font_size`, `show_border`, `show_shading`.
  */
 
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { projectCaseListForHq } from "@/lib/commcare/hqJson/caseList";
 import type { BlueprintDoc, CaseTileLayout, TileCell } from "@/lib/domain";
 import { tileCell } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 
 function tiledDoc(
 	tile: CaseTileLayout | undefined,
@@ -51,7 +51,7 @@ function tiledDoc(
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Name",
+								label: proseText("Name"),
 								case_property_on: "patient",
 							}),
 						],

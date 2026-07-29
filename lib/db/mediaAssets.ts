@@ -1157,7 +1157,7 @@ export async function loadAssetById(
  * the cross-tenant distinction below the surface.
  */
 export async function loadAssetsByIds(
-	ids: readonly string[],
+	ids: readonly MediaAssetId[],
 	projectId: string,
 ): Promise<MediaAssetRecord[]> {
 	const unique = [...new Set(ids)];
@@ -1186,10 +1186,10 @@ export async function loadAssetsByIds(
  */
 export async function getAssetsInTransaction(
 	tx: Transaction<AppDatabase>,
-	ids: readonly string[],
-): Promise<Map<string, MediaAssetRecord>> {
+	ids: readonly MediaAssetId[],
+): Promise<Map<MediaAssetId, MediaAssetRecord>> {
 	const unique = [...new Set(ids)];
-	const out = new Map<string, MediaAssetRecord>();
+	const out = new Map<MediaAssetId, MediaAssetRecord>();
 	if (unique.length === 0) return out;
 	const rows = await tx
 		.selectFrom("media_assets")
@@ -1290,7 +1290,7 @@ export async function listReadyAssetsForProject(
  * value would not round-trip through `getTime()` and could straddle a page
  * boundary. Keep inserts passing an explicit `new Date()`.
  */
-export function encodeLibraryCursor(createdAt: Date, id: string): string {
+export function encodeLibraryCursor(createdAt: Date, id: MediaAssetId): string {
 	return Buffer.from(
 		JSON.stringify({ createdAtMs: createdAt.getTime(), id }),
 	).toString("base64url");
@@ -1298,7 +1298,7 @@ export function encodeLibraryCursor(createdAt: Date, id: string): string {
 
 export function decodeLibraryCursor(cursor: string): {
 	createdAtMs: number;
-	id: string;
+	id: MediaAssetId;
 } {
 	try {
 		const parsed = JSON.parse(
@@ -1308,7 +1308,10 @@ export function decodeLibraryCursor(cursor: string): {
 			Number.isFinite(parsed?.createdAtMs) &&
 			typeof parsed?.id === "string"
 		) {
-			return { createdAtMs: parsed.createdAtMs, id: parsed.id };
+			return {
+				createdAtMs: parsed.createdAtMs,
+				id: asMediaAssetId(parsed.id),
+			};
 		}
 	} catch {
 		/* malformed cursor falls through to the throw below */
@@ -1352,7 +1355,7 @@ export class MalformedCursorError extends Error {
  * edge still lands.
  */
 export async function addReferencingApp(
-	assetIds: readonly string[],
+	assetIds: readonly MediaAssetId[],
 	appId: string,
 ): Promise<void> {
 	const unique = [...new Set(assetIds)];
@@ -1389,7 +1392,7 @@ export async function addReferencingApp(
  */
 export async function addReferencingAppInTransaction(
 	tx: Transaction<AppDatabase>,
-	assetIds: readonly string[],
+	assetIds: readonly MediaAssetId[],
 	appId: string,
 ): Promise<void> {
 	const unique = [...new Set(assetIds)].sort();
@@ -1409,7 +1412,7 @@ export async function addReferencingAppInTransaction(
  * confirm.
  */
 export async function listReferencingAppIds(
-	assetId: string,
+	assetId: MediaAssetId,
 ): Promise<string[]> {
 	const db = await getAppDb();
 	const rows = await db

@@ -12,10 +12,10 @@
 // the full chain — including the `opaque_case_ids` widening — so
 // these tests always run against the exact production schema.
 
-import { proseText } from "@/lib/domain/prose";
 import { type Kysely, sql } from "kysely";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { CaseType } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import { runCaseStoreMigrations } from "../../migrate";
 import { retenantAppCasesOn } from "../../retenant";
 import { HeuristicCaseGenerator } from "../../sample/heuristic";

@@ -1,6 +1,6 @@
-import { proseText } from "@/lib/domain/prose";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { proseText } from "@/lib/domain/prose";
 /**
  * Fix-registry dissolution proofs — one test per entry of the RETIRED
  * `FIX_REGISTRY` (deleted with the validate-fix loop), each showing the
@@ -84,13 +84,13 @@ function minDoc(): BlueprintDoc {
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Name",
+								label: proseText("Name"),
 								case_property_on: "patient",
 							}),
 							f({
 								kind: "text",
 								id: "village",
-								label: "Village",
+								label: proseText("Village"),
 								case_property_on: "patient",
 							}),
 						],
@@ -123,7 +123,9 @@ function caseTypelessDoc(): BlueprintDoc {
 					{
 						name: "Feedback",
 						type: "survey",
-						fields: [f({ kind: "text", id: "comments", label: "Comments" })],
+						fields: [
+							f({ kind: "text", id: "comments", label: proseText("Comments") }),
+						],
 					},
 				],
 			},
@@ -144,20 +146,34 @@ function fieldByBareId(doc: BlueprintDoc, id: string) {
 	return field;
 }
 
+function moduleAddress(doc: BlueprintDoc) {
+	return { moduleUuid: doc.moduleOrder[0] };
+}
+
+function formAddress(doc: BlueprintDoc, formIndex = 0) {
+	const moduleUuid = doc.moduleOrder[0];
+	const formUuid = doc.formOrder[moduleUuid]?.[formIndex];
+	if (!formUuid) throw new Error("fixture missing addressed form");
+	return { moduleUuid, formUuid };
+}
+
 // ── NO_CASE_TYPE ────────────────────────────────────────────────────
 
 describe("NO_CASE_TYPE — rejected at the introducing commit; updateModule is the repair", () => {
 	it("createForm(registration) on a case-typeless module fails the call, nothing persisted", async () => {
 		const { ctx, recordMutations } = makeCtx();
+		const doc = caseTypelessDoc();
 		const out = await createFormTool.execute(
 			{
-				moduleIndex: 0,
+				...moduleAddress(doc),
 				name: "Register",
 				type: "registration",
-				fields: [{ kind: "text", id: "case_name", label: "Name" } as never],
+				fields: [
+					{ kind: "text", id: "case_name", label: proseText("Name") } as never,
+				],
 			},
 			ctx,
-			caseTypelessDoc(),
+			doc,
 		);
 		expect("error" in out.result && out.result.error).toContain("case_type");
 		expect(out.mutations).toEqual([]);
@@ -165,17 +181,14 @@ describe("NO_CASE_TYPE — rejected at the introducing commit; updateModule is t
 	});
 
 	it("updateModule with neither name nor case_type returns the corrective error, not a fake success", async () => {
-		// The schema deliberately admits a bare { moduleIndex } (so the SA
+		// The schema deliberately admits a UUID-only address (so the SA
 		// reads a corrective message rather than an opaque parse failure);
 		// the tool body owns the rejection. Without this branch, a no-op
 		// call would report "Successfully updated" for an edit that never
 		// happened.
 		const { ctx, recordMutations } = makeCtx();
-		const out = await updateModuleTool.execute(
-			{ moduleIndex: 0 },
-			ctx,
-			caseTypelessDoc(),
-		);
+		const doc = caseTypelessDoc();
+		const out = await updateModuleTool.execute(moduleAddress(doc), ctx, doc);
 		expect("error" in out.result && out.result.error).toContain(
 			"Nothing to update",
 		);
@@ -191,7 +204,7 @@ describe("NO_CASE_TYPE — rejected at the introducing commit; updateModule is t
 		 * module has a form), so the columns ride the same call — the
 		 * rejection's findings are satisfiable without a second tool. */
 		const bare = await updateModuleTool.execute(
-			{ moduleIndex: 0, case_type: "respondent" },
+			{ ...moduleAddress(doc), case_type: "respondent" },
 			ctx,
 			doc,
 		);
@@ -199,7 +212,7 @@ describe("NO_CASE_TYPE — rejected at the introducing commit; updateModule is t
 
 		const fixed = await updateModuleTool.execute(
 			{
-				moduleIndex: 0,
+				...moduleAddress(doc),
 				case_type: "respondent",
 				case_list_columns: [
 					{ kind: "plain", field: "case_name", header: "Name" } as never,
@@ -212,20 +225,20 @@ describe("NO_CASE_TYPE — rejected at the introducing commit; updateModule is t
 
 		const out = await createFormTool.execute(
 			{
-				moduleIndex: 0,
+				...moduleAddress(fixed.newDoc),
 				name: "Register",
 				type: "registration",
 				fields: [
 					{
 						kind: "text",
 						id: "case_name",
-						label: "Name",
+						label: proseText("Name"),
 						case_property_on: "respondent",
 					} as never,
 					{
 						kind: "text",
 						id: "village",
-						label: "Village",
+						label: proseText("Village"),
 						case_property_on: "respondent",
 					} as never,
 				],
@@ -243,16 +256,17 @@ describe("NO_CASE_TYPE — rejected at the introducing commit; updateModule is t
 		// can't resolve (`CASE_LIST_COLUMN_UNKNOWN_FIELD`) and the gate rejects,
 		// so the SA/MCP could not do what the builder gesture does.
 		const { ctx, recordMutations } = makeCtx();
+		const doc = caseTypelessDoc();
 		const out = await updateModuleTool.execute(
 			{
-				moduleIndex: 0,
+				...moduleAddress(doc),
 				case_type: "household",
 				case_list_columns: [
 					{ kind: "plain", field: "case_name", header: "Name" } as never,
 				],
 			},
 			ctx,
-			caseTypelessDoc(),
+			doc,
 		);
 		expect("message" in out.result).toBe(true);
 		expect(recordMutations).toHaveBeenCalled();
@@ -290,22 +304,22 @@ describe("NO_CASE_NAME_FIELD — the gate owns it (no construction default exist
 describe("RESERVED_CASE_PROPERTY — rejected at the introducing commit", () => {
 	it("addFields with a case-bound reserved property name fails the call", async () => {
 		const { ctx, recordMutations } = makeCtx();
+		const doc = minDoc();
 		const out = await addFieldsTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
+				...formAddress(doc),
 				fields: [
 					// `date` is on CommCare's reserved case-property list.
 					{
 						kind: "date",
 						id: "date",
-						label: "Date",
+						label: proseText("Date"),
 						case_property_on: "patient",
 					} as never,
 				],
 			},
 			ctx,
-			minDoc(),
+			doc,
 		);
 		expect("error" in out.result && out.result.error).toContain("reserved");
 		expect(recordMutations).not.toHaveBeenCalled();
@@ -319,7 +333,7 @@ describe("MEDIA_CASE_PROPERTY — no construction surface can express it", () =>
 		const parsed = addFieldsItemSchema.safeParse({
 			kind: "image",
 			id: "photo",
-			label: "Photo",
+			label: proseText("Photo"),
 			case_property_on: "patient",
 		});
 		// `.strict()` arms reject the unknown key outright.
@@ -341,7 +355,7 @@ describe("MEDIA_CASE_PROPERTY — no construction surface can express it", () =>
 			uuid: "00000000-0000-4000-8000-000000000001",
 			kind: "image",
 			id: "photo",
-			label: "Photo",
+			label: proseText("Photo"),
 			case_property_on: "patient",
 		});
 		expect(parsed.success).toBe(false);
@@ -418,16 +432,20 @@ describe("XPath soundness fixes — rejected at the introducing commit", () => {
 describe("SELECT_NO_OPTIONS — selects can't land without options", () => {
 	it("the SA add path skips a single_select whose options are missing (assembly fails the domain schema)", async () => {
 		const { ctx } = makeCtx();
+		const doc = minDoc();
 		const out = await addFieldsTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
+				...formAddress(doc),
 				fields: [
-					{ kind: "single_select", id: "choice", label: "Choice" } as never,
+					{
+						kind: "single_select",
+						id: "choice",
+						label: proseText("Choice"),
+					} as never,
 				],
 			},
 			ctx,
-			minDoc(),
+			doc,
 		);
 		// The field never assembles — no select entity lands on the doc.
 		const landed = Object.values(out.newDoc.fields).find(
@@ -441,7 +459,13 @@ describe("SELECT_NO_OPTIONS — selects can't land without options", () => {
 			"@/components/preview/form/newFieldDefaults"
 		);
 		const fresh = NEW_FIELD_BUILDERS.single_select("choice", "Choice");
-		expect(fresh.options).toHaveLength(2);
+		expect(fresh.kind).toBe("single_select");
+		if (fresh.kind !== "single_select") throw new Error("wrong field kind");
+		expect(fresh.optionsSource.kind).toBe("inline");
+		if (fresh.optionsSource.kind !== "inline") {
+			throw new Error("wrong options source");
+		}
+		expect(fresh.optionsSource.options).toHaveLength(2);
 	});
 });
 
@@ -466,13 +490,13 @@ function closeFormDoc(): BlueprintDoc {
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Name",
+								label: proseText("Name"),
 								case_property_on: "patient",
 							}),
 							f({
 								kind: "text",
 								id: "village",
-								label: "Village",
+								label: proseText("Village"),
 								case_property_on: "patient",
 							}),
 						],
@@ -484,7 +508,7 @@ function closeFormDoc(): BlueprintDoc {
 							f({
 								kind: "single_select",
 								id: "outcome",
-								label: "Outcome",
+								label: proseText("Outcome"),
 								options: [
 									{ value: "done", label: "Done" },
 									{ value: "moved", label: "Moved" },
@@ -588,14 +612,16 @@ describe("CLOSE_CONDITION_* — rejected at the introducing commit", () => {
 describe("field-id format fixes — rejected at source", () => {
 	it("INVALID_FIELD_ID: an XML-illegal id never enters through addFields (identifier verdict)", async () => {
 		const { ctx, recordMutations } = makeCtx();
+		const doc = minDoc();
 		const out = await addFieldsTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fields: [{ kind: "text", id: "bad id!", label: "Bad" } as never],
+				...formAddress(doc),
+				fields: [
+					{ kind: "text", id: "bad id!", label: proseText("Bad") } as never,
+				],
 			},
 			ctx,
-			minDoc(),
+			doc,
 		);
 		expect("error" in out.result && out.result.error).toContain("bad id!");
 		expect(recordMutations).not.toHaveBeenCalled();
@@ -606,21 +632,21 @@ describe("field-id format fixes — rejected at source", () => {
 		// legal) but case property names must start with a letter — the
 		// identifier verdicts pass it, the commit gate catches it.
 		const { ctx, recordMutations } = makeCtx();
+		const doc = minDoc();
 		const out = await addFieldsTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
+				...formAddress(doc),
 				fields: [
 					{
 						kind: "text",
 						id: "_temp",
-						label: "Temp",
+						label: proseText("Temp"),
 						case_property_on: "patient",
 					} as never,
 				],
 			},
 			ctx,
-			minDoc(),
+			doc,
 		);
 		expect("error" in out.result && out.result.error).toContain("_temp");
 		expect(recordMutations).not.toHaveBeenCalled();

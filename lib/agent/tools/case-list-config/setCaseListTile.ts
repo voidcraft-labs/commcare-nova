@@ -37,7 +37,7 @@
  * Both the SA chat factory and the MCP adapter call this through the shared
  * `ToolExecutionContext` interface. Five exit branches:
  *
- *   1. Module index out of range → `{ error }`, no mutations.
+ *   1. Module UUID address does not resolve → `{ error }`, no mutations.
  *   2. Module has no case list at all → `{ error }`, no mutations. There is
  *      nothing to lay out, and the metadata reducer would no-op silently.
  *   3. The call named neither `tile` nor `placements` → `{ error }`.
@@ -64,11 +64,11 @@ import {
 	type MutatingToolResult,
 	toToolErrorResult,
 } from "../common";
-import type { MutationSuccess } from "../shared/toolCallSummary";
 import {
 	moduleAddressSchema,
 	resolveModuleAddress,
 } from "../shared/entityAddresses";
+import type { MutationSuccess } from "../shared/toolCallSummary";
 import { caseTileLayoutInputSchema, tilePlacementInputSchema } from "./shared";
 
 export const setCaseListTileInputSchema = moduleAddressSchema

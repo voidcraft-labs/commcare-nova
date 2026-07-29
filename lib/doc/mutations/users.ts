@@ -14,10 +14,8 @@ import { assertNever } from "@/lib/utils/assertNever";
  * Three flat UUID-keyed collections with one shape between them: add
  * writes the whole entity, update applies a patch key-by-key, remove
  * deletes the entry. Each collection's slot is optional on the doc and
- * born on first write, so an app that never touches them serializes
- * byte-identically to one authored before they existed — and dropping the
- * last entry gives the slot back rather than leaving an empty record
- * behind.
+ * born on first write, and dropping the last entry gives the slot back rather
+ * than leaving an empty record behind.
  *
  * TOTAL, like every reducer here: an update or remove naming an absent
  * uuid is a no-op rather than a throw, so a historical event whose target
@@ -126,10 +124,9 @@ export function applyUserMutation(
 }
 
 /**
- * Apply an entity patch carrying the rolling-compatible representation of one
- * value edit. A current receiver ignores the whole-bag fallback and changes
- * only `valuePatch.userPropertyUuid`; an older receiver strips `valuePatch`
- * while parsing and applies the cumulative `patch.values` snapshot.
+ * Apply one final semantic entity/value edit. Metadata slots live in `patch`;
+ * one value-bag key lives in `valuePatch`, so peers editing different worker
+ * information values cannot replace one another's work.
  */
 function applyUserDataPatch(
 	entity:
@@ -146,10 +143,7 @@ function applyUserDataPatch(
 		return;
 	}
 
-	const metadataPatch = Object.fromEntries(
-		Object.entries(patch).filter(([key]) => key !== "values"),
-	);
-	applyPatch(entity as Record<string, unknown>, metadataPatch);
+	applyPatch(entity as Record<string, unknown>, patch);
 	const nextValues =
 		valuePatch.value === null
 			? recordWithoutKey(entity.values, valuePatch.userPropertyUuid)

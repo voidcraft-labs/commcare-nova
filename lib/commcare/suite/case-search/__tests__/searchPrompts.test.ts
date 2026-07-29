@@ -106,10 +106,10 @@ const MODULE_ID = "m0";
 describe("emitSearchPrompts — per-input-type attribute mapping", () => {
 	it("combines quote and calendar-number rules into Core's one validation slot", () => {
 		const predicate = whenInput(
-			input("months"),
+			input(INPUT_UUIDS.a),
 			eq(
 				prop("patient", "due_date"),
-				dateAdd(today(), "months", double(term(input("months")))),
+				dateAdd(today(), "months", double(term(input(INPUT_UUIDS.a)))),
 			),
 		);
 		const inputDef = advancedSearchInputDef(
@@ -143,8 +143,8 @@ describe("emitSearchPrompts — per-input-type attribute mapping", () => {
 
 	it("uses a nonnegative whole-number rule for prompted child counts", () => {
 		const predicate = whenInput(
-			input("minimum"),
-			gt(count(subcasePath("child")), double(term(input("minimum")))),
+			input(INPUT_UUIDS.a),
+			gt(count(subcasePath("child")), double(term(input(INPUT_UUIDS.a)))),
 		);
 		const inputDef = advancedSearchInputDef(
 			INPUT_UUIDS.a,
@@ -175,10 +175,10 @@ describe("emitSearchPrompts — per-input-type attribute mapping", () => {
 			"Near home",
 			"text",
 			whenInput(
-				input("near_home"),
+				input(INPUT_UUIDS.a),
 				within(
 					prop("patient", "home_location"),
-					input("near_home"),
+					input(INPUT_UUIDS.a),
 					5,
 					"kilometers",
 				),
@@ -190,10 +190,10 @@ describe("emitSearchPrompts — per-input-type attribute mapping", () => {
 			"Near work",
 			"text",
 			whenInput(
-				input("near_work"),
+				input(INPUT_UUIDS.b),
 				within(
 					prop("patient", "work_location"),
-					input("near_work"),
+					input(INPUT_UUIDS.b),
 					5,
 					"kilometers",
 				),
@@ -286,25 +286,26 @@ describe("emitSearchPrompts — per-input-type attribute mapping", () => {
 			"Owner row",
 			"text",
 			whenInput(
-				input("sibling"),
-				eq(prop("patient", "region"), input("sibling")),
+				input(INPUT_UUIDS.b),
+				eq(prop("patient", "region"), input(INPUT_UUIDS.b)),
 			),
 		);
+		const triggerOnlyUuid = testUuid("00000000-0000-4000-8000-aaaa00000004");
 		const triggerOnly = advancedSearchInputDef(
-			testUuid("00000000-0000-4000-8000-aaaa00000004"),
+			triggerOnlyUuid,
 			"trigger_only",
 			"Optional rule",
 			"text",
 			whenInput(
-				input("trigger_only"),
+				input(triggerOnlyUuid),
 				eq(prop("patient", "status"), literal("active")),
 			),
 		);
 		const config: CaseListConfig = resolveCaseListConfig({
 			columns: [],
 			filter: whenInput(
-				input("filter_value"),
-				eq(prop("patient", "status"), input("filter_value")),
+				input(INPUT_UUIDS.a),
+				eq(prop("patient", "status"), input(INPUT_UUIDS.a)),
 			),
 			searchInputs: [filterValue, sibling, owner, triggerOnly],
 		});
@@ -334,8 +335,8 @@ describe("emitSearchPrompts — per-input-type attribute mapping", () => {
 				"Query",
 				type,
 				whenInput(
-					input(inputName),
-					eq(prop("patient", "case_name"), input(inputName)),
+					input(INPUT_UUIDS.a),
+					eq(prop("patient", "case_name"), input(INPUT_UUIDS.a)),
 				),
 			);
 			const config: CaseListConfig = resolveCaseListConfig({
@@ -831,7 +832,7 @@ describe("emitSearchPrompts — per-arm dispatch", () => {
 
 	it("advanced-arm predicates surface via getAdvancedArmPredicates", () => {
 		const predicate = whenInput(
-			input("full_name"),
+			input(testUuid("full_name")),
 			eq(prop("patient", "full_name"), literal("Alice")),
 		);
 

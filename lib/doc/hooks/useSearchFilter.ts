@@ -25,9 +25,9 @@ import { useMemo } from "react";
 import { type FieldPath, fpath } from "@/lib/doc/fieldPath";
 import { useBlueprintDocShallow } from "@/lib/doc/hooks/useBlueprintDoc";
 import {
-	fallbackProseProjection,
 	type Field,
 	type Form,
+	fallbackProseProjection,
 	type Module,
 	type Uuid,
 } from "@/lib/domain";

@@ -11,8 +11,11 @@ import type {
 	FieldKind,
 	Form,
 	FormType,
+	ProseTemplate,
+	SelectOptionsSource,
 	Uuid,
 } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 
 import { FormEngine, type FormEngineInput } from "../formEngine";
 
@@ -21,8 +24,8 @@ const ENTRY_KEY = "11111111-1111-4111-8111-111111111111";
 interface DField {
 	id: string;
 	kind: FieldKind;
-	label?: string;
-	options?: Array<{ value: string; label: string }>;
+	label?: ProseTemplate;
+	optionsSource?: SelectOptionsSource;
 	children?: DField[];
 }
 
@@ -75,7 +78,7 @@ function valuesOf(
 describe("computeOperationAnswers", () => {
 	it("returns undefined for an operation-free form", () => {
 		const engine = new FormEngine(
-			dTree([{ id: "name", kind: "text", label: "Name" }]),
+			dTree([{ id: "name", kind: "text", label: proseText("Name") }]),
 		);
 		expect(engine.computeOperationAnswers()).toBeUndefined();
 	});
@@ -84,17 +87,28 @@ describe("computeOperationAnswers", () => {
 		const engine = new FormEngine(
 			dTree(
 				[
-					{ id: "name", kind: "text", label: "Name" },
+					{ id: "name", kind: "text", label: proseText("Name") },
 					{
 						id: "symptoms",
 						kind: "multi_select",
-						label: "Symptoms",
-						options: [
-							{ value: "fever", label: "Fever" },
-							{ value: "cough", label: "Cough" },
-						],
+						label: proseText("Symptoms"),
+						optionsSource: {
+							kind: "inline",
+							options: [
+								{
+									uuid: testUuid("symptom-fever"),
+									value: "fever",
+									label: proseText("Fever"),
+								},
+								{
+									uuid: testUuid("symptom-cough"),
+									value: "cough",
+									label: proseText("Cough"),
+								},
+							],
+						},
 					},
-					{ id: "note", kind: "label", label: "Just a label" },
+					{ id: "note", kind: "label", label: proseText("Just a label") },
 				],
 				[OPERATION],
 			),
@@ -115,18 +129,20 @@ describe("computeOperationAnswers", () => {
 		const engine = new FormEngine(
 			dTree(
 				[
-					{ id: "region", kind: "text", label: "Region" },
+					{ id: "region", kind: "text", label: proseText("Region") },
 					{
 						id: "visits",
 						kind: "repeat",
-						label: "Visits",
+						label: proseText("Visits"),
 						children: [
-							{ id: "visit_note", kind: "text", label: "Note" },
+							{ id: "visit_note", kind: "text", label: proseText("Note") },
 							{
 								id: "meds",
 								kind: "repeat",
-								label: "Meds",
-								children: [{ id: "med_name", kind: "text", label: "Med" }],
+								label: proseText("Meds"),
+								children: [
+									{ id: "med_name", kind: "text", label: proseText("Med") },
+								],
 							},
 						],
 					},
@@ -181,7 +197,10 @@ describe("computeOperationAnswers", () => {
 
 	it("rides the submission mutation on every arm", () => {
 		const engine = new FormEngine(
-			dTree([{ id: "name", kind: "text", label: "Name" }], [OPERATION]),
+			dTree(
+				[{ id: "name", kind: "text", label: proseText("Name") }],
+				[OPERATION],
+			),
 		);
 		const mutation = engine.computeSubmissionMutation({
 			caseTypes: [],

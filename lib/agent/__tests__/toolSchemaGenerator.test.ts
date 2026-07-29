@@ -10,7 +10,9 @@
 // which keeps them robust to Zod's serialization choices.
 
 import { describe, expect, it } from "vitest";
+import { xp } from "@/lib/__tests__/docHelpers";
 import { fieldKinds, fieldRegistry } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import { buildSolutionsArchitectPrompt } from "../prompts";
 import { fieldKindGuide, generateToolSchemas } from "../toolSchemaGenerator";
 
@@ -26,23 +28,26 @@ const generated = generateToolSchemas();
 function validAddPayload(kind: string): Record<string, unknown> {
 	const p: Record<string, unknown> = { id: `f_${kind}`, kind };
 	if (kind === "hidden") {
-		p.calculate = "today()";
+		p.calculate = xp("today()");
 	} else if (kind === "repeat") {
-		p.label = "Repeat";
+		p.label = proseText("Repeat");
 		p.repeat = { mode: "user_controlled" };
 	} else if (kind === "group") {
-		p.label = "Group";
+		p.label = proseText("Group");
 	} else {
 		// text / int / decimal / date / time / datetime / select / multi /
 		// geopoint / barcode / secret / image / audio / video / signature /
 		// label — all carry a required non-empty label.
-		p.label = "Label";
+		p.label = proseText("Label");
 	}
 	if (kind === "single_select" || kind === "multi_select") {
-		p.options = [
-			{ value: "a", label: "A" },
-			{ value: "b", label: "B" },
-		];
+		p.optionsSource = {
+			kind: "inline",
+			options: [
+				{ value: "a", label: proseText("A") },
+				{ value: "b", label: proseText("B") },
+			],
+		};
 	}
 	return p;
 }
@@ -96,7 +101,10 @@ describe("toolSchemaGenerator", () => {
 				id: "blood_type",
 				kind: "single_select",
 				case_property_on: "patient",
-				options: [{ value: "a", label: "A" }],
+				optionsSource: {
+					kind: "inline",
+					options: [{ value: "a", label: proseText("A") }],
+				},
 			}).success,
 		).toBe(false);
 	});
@@ -126,7 +134,7 @@ describe("toolSchemaGenerator", () => {
 		expect(
 			generated.addFieldsItemSchema.safeParse({
 				...base,
-				calculate: "if(1, 'a', 'b')",
+				calculate: xp("if(1, 'a', 'b')"),
 			}).success,
 		).toBe(false);
 		// Same for a text field.
@@ -134,15 +142,18 @@ describe("toolSchemaGenerator", () => {
 			generated.addFieldsItemSchema.safeParse({
 				id: "t",
 				kind: "text",
-				label: "T",
-				calculate: "x",
+				label: proseText("T"),
+				calculate: xp("1"),
 			}).success,
 		).toBe(false);
 	});
 
 	it("accepts `default_value` on selects + barcode (now a declared slot)", () => {
 		for (const kind of ["single_select", "multi_select", "barcode"] as const) {
-			const payload = { ...validAddPayload(kind), default_value: "#patient/x" };
+			const payload = {
+				...validAddPayload(kind),
+				default_value: xp("#patient/x"),
+			};
 			expect(
 				generated.addFieldsItemSchema.safeParse(payload).success,
 				`default_value on ${kind}`,
@@ -156,8 +167,8 @@ describe("toolSchemaGenerator", () => {
 			generated.addFieldsItemSchema.safeParse({
 				id: "h",
 				kind: "hidden",
-				calculate: "today()",
-				label: "nope",
+				calculate: xp("today()"),
+				label: proseText("nope"),
 			}).success,
 		).toBe(false);
 		// calculate-only and default_value-only hidden fields both parse.
@@ -165,14 +176,14 @@ describe("toolSchemaGenerator", () => {
 			generated.addFieldsItemSchema.safeParse({
 				id: "h",
 				kind: "hidden",
-				calculate: "today()",
+				calculate: xp("today()"),
 			}).success,
 		).toBe(true);
 		expect(
 			generated.addFieldsItemSchema.safeParse({
 				id: "h",
 				kind: "hidden",
-				default_value: "today()",
+				default_value: xp("today()"),
 			}).success,
 		).toBe(true);
 	});
@@ -183,7 +194,7 @@ describe("toolSchemaGenerator", () => {
 			generated.addFieldsItemSchema.safeParse({
 				id: "t",
 				kind: "text",
-				label: "",
+				label: proseText(""),
 			}).success,
 		).toBe(false);
 		// hidden with a label key → rejected (no label slot).
@@ -191,8 +202,8 @@ describe("toolSchemaGenerator", () => {
 			generated.addFieldsItemSchema.safeParse({
 				id: "h",
 				kind: "hidden",
-				calculate: "1",
-				label: "",
+				calculate: xp("1"),
+				label: proseText(""),
 			}).success,
 		).toBe(false);
 	});
@@ -212,7 +223,7 @@ describe("toolSchemaGenerator", () => {
 		const repeatPayload = (repeat: unknown) => ({
 			id: "r",
 			kind: "repeat",
-			label: "R",
+			label: proseText("R"),
 			repeat,
 		});
 		// user_controlled needs nothing extra.
@@ -224,7 +235,7 @@ describe("toolSchemaGenerator", () => {
 		// count_bound REQUIRES count; query_bound REQUIRES ids_query.
 		expect(
 			generated.addFieldsItemSchema.safeParse(
-				repeatPayload({ mode: "count_bound", count: "#form/n" }),
+				repeatPayload({ mode: "count_bound", count: xp("#form/n") }),
 			).success,
 		).toBe(true);
 		expect(
@@ -234,7 +245,7 @@ describe("toolSchemaGenerator", () => {
 		).toBe(false);
 		expect(
 			generated.addFieldsItemSchema.safeParse(
-				repeatPayload({ mode: "query_bound", ids_query: "#form/ids" }),
+				repeatPayload({ mode: "query_bound", ids_query: xp("#form/ids") }),
 			).success,
 		).toBe(true);
 		expect(
@@ -249,13 +260,15 @@ describe("toolSchemaGenerator", () => {
 	it("requires `kind` on the edit patch (it's the union discriminator)", () => {
 		// Without `kind`, the discriminated union can't pick an arm.
 		expect(
-			generated.editFieldUpdatesSchema.safeParse({ label: "x" }).success,
+			generated.editFieldUpdatesSchema.safeParse({
+				label: proseText("x"),
+			}).success,
 		).toBe(false);
 		// With `kind`, an in-place patch validates against that kind's props.
 		expect(
 			generated.editFieldUpdatesSchema.safeParse({
 				kind: "text",
-				label: "x",
+				label: proseText("x"),
 			}).success,
 		).toBe(true);
 	});

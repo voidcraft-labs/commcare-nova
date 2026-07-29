@@ -28,7 +28,6 @@
 //      `navigate.openForm` with the module's first form — the same
 //      case-select → confirm → form flow the shipped app runs.
 
-import { proseText } from "@/lib/domain/prose";
 import {
 	act,
 	fireEvent,
@@ -44,7 +43,6 @@ import {
 	BlueprintDocProvider,
 	type BlueprintDocStore,
 } from "@/lib/doc/provider";
-
 import {
 	type CaseProperty,
 	calculatedColumn,
@@ -63,6 +61,7 @@ import {
 	term,
 	today,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import type { CaseRowWithCalculated } from "@/lib/preview/engine/caseDataBindingTypes";
 import { invalidateCaseData } from "@/lib/preview/hooks/caseDataInvalidation";
 import type { Location } from "@/lib/routing/types";
@@ -286,8 +285,16 @@ function renderCaseListScreen(opts: {
 						properties: opts.caseProperties
 							? [...opts.caseProperties]
 							: [
-									{ name: "name", label: "Name", data_type: "text" },
-									{ name: "age", label: "Age", data_type: "int" },
+									{
+										name: "name",
+										label: proseText("Name"),
+										data_type: "text",
+									},
+									{
+										name: "age",
+										label: proseText("Age"),
+										data_type: "int",
+									},
 								],
 					},
 				],
@@ -404,7 +411,10 @@ beforeEach(() => {
 	currentLocation = { kind: "cases", moduleUuid: MODULE_UUID };
 	setPreviewSelectedCaseMock.mockClear();
 	signInMock.mockClear();
-	vi.mocked(loadCasesAction).mockResolvedValue({ kind: "empty" });
+	vi.mocked(loadCasesAction).mockResolvedValue({
+		constraintSource: "unconstrained",
+		kind: "empty",
+	});
 	vi.mocked(loadCaseCountAction).mockResolvedValue({ kind: "count", count: 2 });
 	vi.mocked(loadCaseDataAction).mockResolvedValue({ kind: "missing" });
 });
@@ -426,6 +436,7 @@ describe("CaseListScreen — heading", () => {
 		// without short-circuiting to the "no case list configured"
 		// empty fallback.
 		vi.mocked(loadCasesAction).mockResolvedValueOnce({
+			constraintSource: "unconstrained",
 			kind: "rows",
 			rows: [
 				makeRow("11111111-1111-1111-1111-111111111111", { name: "Alice" }),
@@ -447,6 +458,7 @@ describe("CaseListScreen — heading", () => {
 
 	it("keeps the Search utility out of the page heading hierarchy", async () => {
 		vi.mocked(loadCasesAction).mockResolvedValue({
+			constraintSource: "unconstrained",
 			kind: "rows",
 			rows: [
 				makeRow("11111111-1111-1111-1111-111111111111", { name: "Alice" }),
@@ -482,6 +494,7 @@ describe("CaseListScreen — heading", () => {
 		const longFormName =
 			"CompleteTheCommunityFollowUpAndMedicationReconciliationWorkflow";
 		vi.mocked(loadCasesAction).mockResolvedValue({
+			constraintSource: "unconstrained",
 			kind: "rows",
 			rows: [makeRow(SELECTED_CASE_ID, { name: longCaseName })],
 		});
@@ -644,22 +657,6 @@ describe("CaseListScreen — empty case type", () => {
 		expect(
 			screen.queryByText("Create a case or add sample cases in Case data"),
 		).toBeNull();
-	});
-
-	it("stays neutral when an older action cannot report whether the query was narrowed", async () => {
-		vi.mocked(loadCasesAction).mockResolvedValue({ kind: "empty" });
-		renderCaseListScreen({
-			columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
-			filter: eq(prop("patient", "name"), literal("Nobody")),
-		});
-
-		expect(
-			await screen.findByText("Cases aren’t available right now"),
-		).toBeDefined();
-		expect(screen.getByText("Try again to view cases")).toBeDefined();
-		expect(screen.getByRole("button", { name: "Try again" })).toBeDefined();
-		expect(screen.queryByText("No cases yet")).toBeNull();
-		expect(screen.queryByText("No cases are available")).toBeNull();
 	});
 
 	it("treats an empty baseline-filter result as constrained, not an empty case type", async () => {
@@ -871,6 +868,7 @@ describe("CaseListScreen — empty case type", () => {
 			Promise.resolve(
 				loadSucceeds
 					? {
+							constraintSource: "unconstrained",
 							kind: "rows",
 							rows: [makeRow(SELECTED_CASE_ID, { name: "Alice" })],
 						}
@@ -948,6 +946,7 @@ describe("CaseListScreen — empty case type", () => {
 describe("CaseListScreen — visibleInList filter", () => {
 	it("hides columns with visibleInList: false from the rendered table", async () => {
 		vi.mocked(loadCasesAction).mockResolvedValueOnce({
+			constraintSource: "unconstrained",
 			kind: "rows",
 			rows: [
 				makeRow("11111111-1111-1111-1111-111111111111", {
@@ -980,6 +979,7 @@ describe("CaseListScreen — visibleInList filter", () => {
 
 	it("renders columns with absent visibility slots (default visible)", async () => {
 		vi.mocked(loadCasesAction).mockResolvedValueOnce({
+			constraintSource: "unconstrained",
 			kind: "rows",
 			rows: [
 				makeRow("11111111-1111-1111-1111-111111111111", {
@@ -1006,6 +1006,7 @@ describe("CaseListScreen — visibleInList filter", () => {
 describe("CaseListScreen — worker-facing column labels", () => {
 	it("uses friendly case-property labels and human fallbacks in Results and Details", async () => {
 		vi.mocked(loadCasesAction).mockResolvedValueOnce({
+			constraintSource: "unconstrained",
 			kind: "rows",
 			rows: [
 				makeRow(
@@ -1057,6 +1058,7 @@ describe("CaseListScreen — worker-facing column labels", () => {
 describe("CaseListScreen — per-surface field order", () => {
 	it("reorders Results without rearranging the Details screen", async () => {
 		vi.mocked(loadCasesAction).mockResolvedValueOnce({
+			constraintSource: "unconstrained",
 			kind: "rows",
 			rows: [
 				makeRow(SELECTED_CASE_ID, {
@@ -1103,6 +1105,7 @@ describe("CaseListScreen — calculated columns", () => {
 		// directly. Test fixture supplies the materialized value;
 		// the assertion pins the read path.
 		vi.mocked(loadCasesAction).mockResolvedValueOnce({
+			constraintSource: "unconstrained",
 			kind: "rows",
 			rows: [
 				makeRow(
@@ -1132,6 +1135,7 @@ describe("CaseListScreen — calculated columns", () => {
 		// canonical missing-value treatment: a quiet visual marker with explicit
 		// assistive copy, rather than an ambiguous blank space.
 		vi.mocked(loadCasesAction).mockResolvedValueOnce({
+			constraintSource: "unconstrained",
 			kind: "rows",
 			rows: [
 				makeRow("11111111-1111-1111-1111-111111111111", { name: "Alice" }, {}),
@@ -1162,6 +1166,7 @@ describe("CaseListScreen — calculated columns", () => {
 describe("CaseListScreen — responsive results", () => {
 	it("keeps every visible field in a labelled card without a horizontal-scroll minimum", async () => {
 		vi.mocked(loadCasesAction).mockResolvedValueOnce({
+			constraintSource: "unconstrained",
 			kind: "rows",
 			rows: [
 				makeRow(
@@ -1240,6 +1245,7 @@ describe("CaseListScreen — responsive results", () => {
 				]),
 			);
 			vi.mocked(loadCasesAction).mockResolvedValueOnce({
+				constraintSource: "unconstrained",
 				kind: "rows",
 				rows: [makeRow(SELECTED_CASE_ID, properties)],
 			});
@@ -1384,7 +1390,8 @@ describe("CaseListScreen — bounded result pages", () => {
 				{
 					kind: "updateModule",
 					uuid: MODULE_UUID,
-					patch: { caseSearchConfig: { excludedOwnerIds: nextOwnerRule } },
+					patch: {},
+					caseSearchConfigPatch: { excludedOwnerIds: nextOwnerRule },
 				},
 			]);
 		});
@@ -1629,6 +1636,7 @@ describe("CaseListScreen — search-input form", () => {
 
 	it("wraps a long Search title without crowding the Clear search action", async () => {
 		vi.mocked(loadCasesAction).mockResolvedValue({
+			constraintSource: "unconstrained",
 			kind: "rows",
 			rows: [ALICE_ROW],
 		});
@@ -1660,6 +1668,7 @@ describe("CaseListScreen — search-input form", () => {
 
 	it("hides the whole Search pane when its action condition is false", async () => {
 		vi.mocked(loadCasesAction).mockResolvedValue({
+			constraintSource: "unconstrained",
 			kind: "rows",
 			rows: [ALICE_ROW],
 		});
@@ -1688,6 +1697,7 @@ describe("CaseListScreen — search-input form", () => {
 		// fallback: the emitter's tripwire must propagate instead of
 		// silently hiding the Search pane.
 		vi.mocked(loadCasesAction).mockResolvedValue({
+			constraintSource: "unconstrained",
 			kind: "rows",
 			rows: [ALICE_ROW],
 		});
@@ -1732,6 +1742,7 @@ describe("CaseListScreen — search-input form", () => {
 
 	it("evaluates the whole Search pane condition against the preview worker session", async () => {
 		vi.mocked(loadCasesAction).mockResolvedValue({
+			constraintSource: "unconstrained",
 			kind: "rows",
 			rows: [ALICE_ROW],
 		});
@@ -1750,6 +1761,7 @@ describe("CaseListScreen — search-input form", () => {
 
 	it("hides the whole Search pane when the worker session condition is false", async () => {
 		vi.mocked(loadCasesAction).mockResolvedValue({
+			constraintSource: "unconstrained",
 			kind: "rows",
 			rows: [ALICE_ROW],
 		});
@@ -1793,12 +1805,11 @@ describe("CaseListScreen — search-input form", () => {
 				{
 					kind: "updateModule",
 					uuid: MODULE_UUID,
-					patch: {
-						caseSearchConfig: {
-							searchButtonDisplayCondition: {
-								kind: "not",
-								clause: { kind: "match-all" },
-							},
+					patch: {},
+					caseSearchConfigPatch: {
+						searchButtonDisplayCondition: {
+							kind: "not",
+							clause: { kind: "match-all" },
 						},
 					},
 				},
@@ -1816,10 +1827,9 @@ describe("CaseListScreen — search-input form", () => {
 				{
 					kind: "updateModule",
 					uuid: MODULE_UUID,
-					patch: {
-						caseSearchConfig: {
-							searchButtonDisplayCondition: { kind: "match-all" },
-						},
+					patch: {},
+					caseSearchConfigPatch: {
+						searchButtonDisplayCondition: { kind: "match-all" },
 					},
 				},
 			]);
@@ -1838,6 +1848,7 @@ describe("CaseListScreen — search-input form", () => {
 		// is the structural signal that the form mounted. happy-dom emits the
 		// HTML5 element but does not expose its implicit role to ARIA queries.
 		vi.mocked(loadCasesAction).mockResolvedValue({
+			constraintSource: "unconstrained",
 			kind: "rows",
 			rows: [ALICE_ROW],
 		});
@@ -1913,6 +1924,7 @@ describe("CaseListScreen — search-input form", () => {
 
 	it("applies assigned-case exclusions before the worker submits Search", async () => {
 		vi.mocked(loadCasesAction).mockResolvedValue({
+			constraintSource: "unconstrained",
 			kind: "rows",
 			rows: [ALICE_ROW],
 		});
@@ -2016,6 +2028,7 @@ describe("CaseListScreen — search-input form", () => {
 
 	it("keeps the list-filter empty copy ahead of authored-rule guidance", async () => {
 		vi.mocked(loadCasesAction).mockResolvedValue({
+			constraintSource: "unconstrained",
 			kind: "rows",
 			rows: [ALICE_ROW],
 		});
@@ -2052,6 +2065,7 @@ describe("CaseListScreen — search-input form", () => {
 
 	it("applies ownership exclusions immediately for genuine filter-only search", async () => {
 		vi.mocked(loadCasesAction).mockResolvedValue({
+			constraintSource: "unconstrained",
 			kind: "rows",
 			rows: [ALICE_ROW],
 		});
@@ -2071,6 +2085,7 @@ describe("CaseListScreen — search-input form", () => {
 
 	it("applies assigned-case exclusions when they are the only Results rule", async () => {
 		vi.mocked(loadCasesAction).mockResolvedValue({
+			constraintSource: "unconstrained",
 			kind: "rows",
 			rows: [ALICE_ROW],
 		});
@@ -2093,6 +2108,7 @@ describe("CaseListScreen — search-input form", () => {
 
 	it("keeps assigned-case exclusions when the final Search field is removed", async () => {
 		vi.mocked(loadCasesAction).mockResolvedValue({
+			constraintSource: "unconstrained",
 			kind: "rows",
 			rows: [ALICE_ROW],
 		});
@@ -2295,6 +2311,7 @@ describe("CaseListScreen — search-input form", () => {
 		// labelled-but-empty `<search>` landmark to assistive tech;
 		// the assertion targets the landmark element's absence directly.
 		vi.mocked(loadCasesAction).mockResolvedValue({
+			constraintSource: "unconstrained",
 			kind: "rows",
 			rows: [ALICE_ROW],
 		});
@@ -2314,6 +2331,7 @@ describe("CaseListScreen — search-input form", () => {
 
 	it("offers an explicit zero-input Search as one manual Results action", async () => {
 		vi.mocked(loadCasesAction).mockResolvedValue({
+			constraintSource: "unconstrained",
 			kind: "rows",
 			rows: [ALICE_ROW],
 		});
@@ -2348,6 +2366,7 @@ describe("CaseListScreen — search-input form", () => {
 
 	it("auto-launches a relevant zero-input filtered Search once", async () => {
 		vi.mocked(loadCasesAction).mockResolvedValue({
+			constraintSource: "unconstrained",
 			kind: "rows",
 			rows: [ALICE_ROW],
 		});
@@ -2371,6 +2390,7 @@ describe("CaseListScreen — search-input form", () => {
 
 	it("does not launch a zero-input filtered Search while its action is irrelevant", async () => {
 		vi.mocked(loadCasesAction).mockResolvedValue({
+			constraintSource: "unconstrained",
 			kind: "rows",
 			rows: [ALICE_ROW],
 		});
@@ -2393,6 +2413,7 @@ describe("CaseListScreen — search-input form", () => {
 
 	it("does not invent a Search action for an always-on Results filter", async () => {
 		vi.mocked(loadCasesAction).mockResolvedValue({
+			constraintSource: "unconstrained",
 			kind: "rows",
 			rows: [ALICE_ROW],
 		});
@@ -2414,6 +2435,7 @@ describe("CaseListScreen — search-input form", () => {
 describe("CaseListScreen — detail confirm step", () => {
 	it("renders informational rows as non-interactive content when the module has no destination", async () => {
 		vi.mocked(loadCasesAction).mockResolvedValue({
+			constraintSource: "unconstrained",
 			kind: "rows",
 			rows: [makeRow(SELECTED_CASE_ID, { name: "Alice" })],
 		});
@@ -2437,6 +2459,7 @@ describe("CaseListScreen — detail confirm step", () => {
 
 	it("keeps phone calls independent from the full-row case action", async () => {
 		vi.mocked(loadCasesAction).mockResolvedValue({
+			constraintSource: "unconstrained",
 			kind: "rows",
 			rows: [
 				makeRow(SELECTED_CASE_ID, {
@@ -2500,6 +2523,7 @@ describe("CaseListScreen — detail confirm step", () => {
 
 	it("opens an in-cell value explanation without opening the case", async () => {
 		vi.mocked(loadCasesAction).mockResolvedValue({
+			constraintSource: "unconstrained",
 			kind: "rows",
 			rows: [
 				makeRow(
@@ -2549,6 +2573,7 @@ describe("CaseListScreen — detail confirm step", () => {
 		// step is configured, so the row click opens it in place
 		// rather than navigating.
 		vi.mocked(loadCasesAction).mockResolvedValue({
+			constraintSource: "unconstrained",
 			kind: "rows",
 			rows: [
 				makeRow(SELECTED_CASE_ID, {
@@ -2637,7 +2662,10 @@ describe("CaseListScreen — detail confirm step", () => {
 			moduleUuid: MODULE_UUID,
 			caseId: SELECTED_CASE_ID,
 		};
-		vi.mocked(loadCasesAction).mockResolvedValue({ kind: "empty" });
+		vi.mocked(loadCasesAction).mockResolvedValue({
+			constraintSource: "unconstrained",
+			kind: "empty",
+		});
 		vi.mocked(loadCaseDataAction).mockResolvedValue({
 			kind: "row",
 			row: {
@@ -2674,6 +2702,7 @@ describe("CaseListScreen — detail confirm step", () => {
 		// The selected record is outside the current Results page. Details must
 		// use the identity read rather than depend on this bounded result window.
 		vi.mocked(loadCasesAction).mockResolvedValue({
+			constraintSource: "unconstrained",
 			kind: "rows",
 			rows: [
 				makeRow("22222222-2222-2222-2222-222222222222", {
@@ -2758,7 +2787,10 @@ describe("CaseListScreen — detail confirm step", () => {
 			moduleUuid: MODULE_UUID,
 			caseId: SELECTED_CASE_ID,
 		};
-		vi.mocked(loadCasesAction).mockResolvedValue({ kind: "empty" });
+		vi.mocked(loadCasesAction).mockResolvedValue({
+			constraintSource: "unconstrained",
+			kind: "empty",
+		});
 		let resolveCase:
 			| ((value: Awaited<ReturnType<typeof loadCaseDataAction>>) => void)
 			| undefined;
@@ -2796,7 +2828,10 @@ describe("CaseListScreen — detail confirm step", () => {
 			moduleUuid: MODULE_UUID,
 			caseId: SELECTED_CASE_ID,
 		};
-		vi.mocked(loadCasesAction).mockResolvedValue({ kind: "empty" });
+		vi.mocked(loadCasesAction).mockResolvedValue({
+			constraintSource: "unconstrained",
+			kind: "empty",
+		});
 		vi.mocked(loadCaseDataAction)
 			.mockResolvedValueOnce({
 				kind: "error",
@@ -2838,7 +2873,10 @@ describe("CaseListScreen — detail confirm step", () => {
 			moduleUuid: MODULE_UUID,
 			caseId: SELECTED_CASE_ID,
 		};
-		vi.mocked(loadCasesAction).mockResolvedValue({ kind: "empty" });
+		vi.mocked(loadCasesAction).mockResolvedValue({
+			constraintSource: "unconstrained",
+			kind: "empty",
+		});
 		vi.mocked(loadCaseDataAction).mockResolvedValue({
 			kind: "error",
 			message: "private decoder detail",
@@ -2858,6 +2896,7 @@ describe("CaseListScreen — detail confirm step", () => {
 
 	it("drops the retained record when a preview exit removes the case id from the URL", async () => {
 		vi.mocked(loadCasesAction).mockResolvedValue({
+			constraintSource: "unconstrained",
 			kind: "rows",
 			rows: [makeRow(SELECTED_CASE_ID, { name: "Alice", age: 31 })],
 		});
@@ -2903,6 +2942,7 @@ describe("CaseListScreen — detail confirm step", () => {
 		// confirm step in this shape, so the row click goes straight
 		// into the form with the case in hand.
 		vi.mocked(loadCasesAction).mockResolvedValue({
+			constraintSource: "unconstrained",
 			kind: "rows",
 			rows: [makeRow(SELECTED_CASE_ID, { name: "Alice" })],
 		});
@@ -2939,6 +2979,7 @@ describe("CaseListScreen — post-selection form menu", () => {
 		// shows the case list, then a menu of those forms — so selecting a case
 		// must NOT silently pick one.
 		vi.mocked(loadCasesAction).mockResolvedValue({
+			constraintSource: "unconstrained",
 			kind: "rows",
 			rows: [makeRow(SELECTED_CASE_ID, { name: "Alice", age: 30 })],
 		});
@@ -2993,6 +3034,7 @@ describe("CaseListScreen — post-selection form menu", () => {
 	it("skips the menu and goes straight to the form when only one case-loading form exists", async () => {
 		// The single-form module: no menu, the case goes straight into the form.
 		vi.mocked(loadCasesAction).mockResolvedValue({
+			constraintSource: "unconstrained",
 			kind: "rows",
 			rows: [makeRow(SELECTED_CASE_ID, { name: "Alice" })],
 		});

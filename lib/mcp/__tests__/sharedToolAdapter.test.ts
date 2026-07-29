@@ -25,28 +25,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import type { ToolExecutionContext } from "@/lib/agent/toolExecutionContext";
 import type { MutatingToolResult } from "@/lib/agent/tools/common";
 import { AppAccessError, resolveAppAccess } from "@/lib/db/appAccess";
 import { loadApp } from "@/lib/db/apps";
 import type { AppDoc } from "@/lib/db/types";
 import type { Mutation } from "@/lib/doc/types";
-import type {
-	BlueprintDoc,
-	LookupColumnId,
-	LookupTableId,
-	Uuid,
-} from "@/lib/domain";
-import { calculatedColumn, plainColumn } from "@/lib/domain";
-import {
-	concat,
-	eq,
-	literal,
-	tableColumn,
-	tableLookup,
-	term,
-} from "@/lib/domain/predicate";
+import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import {
 	projectResult,
 	registerSharedTool,
@@ -481,280 +467,7 @@ describe("registerSharedTool — real read tool integration (searchBlueprint)", 
 	});
 });
 
-describe("registerSharedTool — dormant lookup read projection", () => {
-	it("keeps a real getModule MCP result carrier-blind without touching persisted input", async () => {
-		const { blueprint, modUuid } = mockBlueprintWithForm();
-		const table = "018f3e8a-7b2c-7def-8abc-1234567890ab" as LookupTableId;
-		const valueColumn =
-			"018f3e8a-7b2c-7def-8abc-1234567890ad" as LookupColumnId;
-		const labelColumn =
-			"018f3e8a-7b2c-7def-8abc-1234567890ae" as LookupColumnId;
-		const where = eq(tableColumn(table, labelColumn), literal("enabled"));
-		const lookup = concat(
-			term(literal("prefix:")),
-			tableLookup(table, valueColumn, where),
-		);
-		const safeColumn = testUuid("71111111-1111-4111-8111-111111111111");
-		const dormantColumn = testUuid("72222222-2222-4222-8222-222222222222");
-
-		blueprint.modules[modUuid] = {
-			...blueprint.modules[modUuid],
-			caseListConfig: resolveCaseListConfig({
-				columns: [
-					plainColumn(safeColumn, "name", "Name"),
-					calculatedColumn(dormantColumn, "Lookup result", lookup),
-				],
-				filter: eq(lookup, literal("active")),
-				searchInputs: [],
-			}),
-			caseSearchConfig: {
-				searchScreenTitle: "Find people",
-				excludedOwnerIds: lookup,
-			},
-		};
-		const persistedBefore = JSON.stringify(blueprint);
-		vi.mocked(loadApp).mockResolvedValueOnce(
-			buildLoadedApp({ blueprint: blueprint as unknown as BlueprintDoc }),
-		);
-
-		const { getModuleTool } = await import("@/lib/agent/tools/getModule");
-		const { server, capture } = makeFakeServer();
-		registerSharedTool(server, "get_module", getModuleTool, toolCtx, "view");
-
-		const out = (await capture()({ app_id: "a1", moduleIndex: 0 }, {})) as {
-			content: Array<{ type: "text"; text: string }>;
-		};
-		const wireText = out.content[0]?.text ?? "{}";
-		const payload = JSON.parse(wireText) as {
-			case_list_config: {
-				columns: Array<{ uuid: string; header: string }>;
-				filter?: unknown;
-			};
-			results_column_order: string[];
-			case_search_config: Record<string, unknown>;
-		};
-
-		expect(wireText).not.toContain("table-column");
-		expect(wireText).not.toContain("table-lookup");
-		expect(wireText).not.toContain("optionsSource");
-		expect(payload.case_list_config.columns).toEqual([
-			expect.objectContaining({ uuid: safeColumn, header: "Name" }),
-		]);
-		expect(payload.case_list_config.filter).toBeUndefined();
-		expect(payload.results_column_order).toEqual([safeColumn]);
-		expect(payload.case_search_config).toEqual({
-			searchScreenTitle: "Find people",
-		});
-		expect(JSON.stringify(blueprint)).toBe(persistedBefore);
-	});
-
-	it("projects a dormant case operation as wholly unavailable through the real getForm MCP path", async () => {
-		const { blueprint, formUuid } = mockBlueprintWithForm();
-		const table = "018f3e8a-7b2c-7def-8abc-1234567890ab" as LookupTableId;
-		const valueColumn =
-			"018f3e8a-7b2c-7def-8abc-1234567890ad" as LookupColumnId;
-		const labelColumn =
-			"018f3e8a-7b2c-7def-8abc-1234567890ae" as LookupColumnId;
-		const lookup = tableLookup(
-			table,
-			valueColumn,
-			eq(tableColumn(table, labelColumn), literal("enabled")),
-		);
-		blueprint.forms[formUuid] = {
-			...blueprint.forms[formUuid],
-			caseOperations: [
-				{
-					uuid: testUuid("73333333-3333-4333-8333-333333333333"),
-					id: "link_household",
-					action: "update",
-					caseType: "patient",
-					target: { kind: "session" },
-					links: [
-						{
-							identifier: "safe_null",
-							targetType: "household",
-							target: null,
-							relationship: "child",
-						},
-						{
-							identifier: "dormant_expression",
-							targetType: "household",
-							target: { kind: "expression", expr: lookup },
-							relationship: "extension",
-						},
-					],
-				},
-			],
-		};
-		const persistedBefore = JSON.stringify(blueprint);
-		vi.mocked(loadApp).mockResolvedValueOnce(
-			buildLoadedApp({ blueprint: blueprint as unknown as BlueprintDoc }),
-		);
-
-		const { getFormTool } = await import("@/lib/agent/tools/getForm");
-		const { server, capture } = makeFakeServer();
-		registerSharedTool(server, "get_form", getFormTool, toolCtx, "view");
-
-		const out = (await capture()(
-			{ app_id: "a1", moduleIndex: 0, formIndex: 0 },
-			{},
-		)) as {
-			content: Array<{ type: "text"; text: string }>;
-		};
-		const wireText = out.content[0]?.text ?? "{}";
-		const payload = JSON.parse(wireText) as {
-			form: {
-				caseOperations?: Array<{
-					id: string;
-					action: string;
-					caseType: string;
-					unavailable?: unknown;
-				}>;
-			};
-		};
-
-		expect(wireText).not.toContain("table-column");
-		expect(wireText).not.toContain("table-lookup");
-		expect(wireText).not.toContain("optionsSource");
-		expect(payload.form.caseOperations?.[0]).toEqual({
-			id: "link_household",
-			action: "update",
-			caseType: "patient",
-			unavailable: {
-				kind: "lookup-table-logic",
-				reason:
-					"This case change uses lookup-table logic that Nova preserves but cannot safely edit from this surface.",
-			},
-		});
-		expect(JSON.stringify(blueprint)).toBe(persistedBefore);
-	});
-});
-
 describe("registerSharedTool — real mutating tool integration (addFields)", () => {
-	it("refuses dormant case-operation update/removal through MCP while allowing an identity-only move", async () => {
-		const { blueprint, modUuid, formUuid } = mockBlueprintWithForm();
-		const table = "018f3e8a-7b2c-7def-8abc-1234567890ab" as LookupTableId;
-		const valueColumn =
-			"018f3e8a-7b2c-7def-8abc-1234567890ad" as LookupColumnId;
-		const labelColumn =
-			"018f3e8a-7b2c-7def-8abc-1234567890ae" as LookupColumnId;
-		blueprint.caseTypes = [{ name: "patient", properties: [] }];
-		blueprint.forms[formUuid] = {
-			...blueprint.forms[formUuid],
-			type: "followup",
-			caseOperations: [
-				{
-					uuid: testUuid("73333333-3333-4333-8333-333333333333"),
-					id: "dormant_update",
-					action: "update",
-					caseType: "patient",
-					target: { kind: "session" },
-					condition: eq(
-						tableLookup(
-							table,
-							valueColumn,
-							eq(tableColumn(table, labelColumn), literal("enabled")),
-						),
-						literal("yes"),
-					),
-				},
-				{
-					uuid: testUuid("74444444-4444-4444-8444-444444444444"),
-					id: "safe_peer",
-					action: "update",
-					caseType: "patient",
-					target: { kind: "session" },
-				},
-			],
-		};
-		const persistedBefore = JSON.stringify(blueprint);
-		const loaded = buildLoadedApp({
-			blueprint: blueprint as unknown as BlueprintDoc,
-		});
-		vi.mocked(loadApp).mockResolvedValue(loaded);
-
-		const { updateCaseOperationTool } = await import(
-			"@/lib/agent/tools/case-operations/updateCaseOperation"
-		);
-		const { removeCaseOperationTool } = await import(
-			"@/lib/agent/tools/case-operations/removeCaseOperation"
-		);
-		const { moveCaseOperationTool } = await import(
-			"@/lib/agent/tools/case-operations/moveCaseOperation"
-		);
-		const { McpContext } = await import("../context");
-		const originalRecord = McpContext.prototype.recordMutations;
-		const recordSpy = vi.fn(async (_muts: unknown, doc: unknown) => ({
-			events: [],
-			committedDoc: doc,
-		}));
-		McpContext.prototype.recordMutations =
-			recordSpy as unknown as typeof originalRecord;
-
-		const invoke = async (
-			name: string,
-			tool: SharedToolModule,
-			payload: Record<string, unknown>,
-		): Promise<Record<string, unknown>> => {
-			const { server, capture } = makeFakeServer();
-			registerSharedTool(server, name, tool, toolCtx, "edit");
-			const out = (await capture()({ app_id: "a1", ...payload }, {})) as {
-				content: Array<{ type: "text"; text: string }>;
-			};
-			return JSON.parse(out.content[0]?.text ?? "{}") as Record<
-				string,
-				unknown
-			>;
-		};
-
-		try {
-			const update = await invoke(
-				"update_case_operation",
-				updateCaseOperationTool,
-				{
-					moduleUuid: modUuid,
-					formUuid,
-					operationId: "dormant_update",
-					operation: {
-						id: "renamed_update",
-						action: "update",
-						caseType: "patient",
-						target: { kind: "session" },
-					},
-				},
-			);
-			expect(update.error).toContain(
-				"uses lookup-table logic that Nova preserves but cannot safely edit from this surface",
-			);
-
-			const remove = await invoke(
-				"remove_case_operation",
-				removeCaseOperationTool,
-				{
-					moduleUuid: modUuid,
-					formUuid,
-					operationId: "dormant_update",
-				},
-			);
-			expect(remove.error).toContain(
-				"uses lookup-table logic that Nova preserves but cannot safely edit from this surface",
-			);
-			expect(recordSpy).not.toHaveBeenCalled();
-
-			const move = await invoke("move_case_operation", moveCaseOperationTool, {
-				moduleUuid: modUuid,
-				formUuid,
-				operationId: "dormant_update",
-				index: 1,
-			});
-			expect(move).toMatchObject({ index: 1 });
-			expect(recordSpy).toHaveBeenCalledTimes(1);
-			expect(JSON.stringify(blueprint)).toBe(persistedBefore);
-		} finally {
-			McpContext.prototype.recordMutations = originalRecord;
-		}
-	});
-
 	it("projects MutatingToolResult → result on the error branch and does not re-persist", async () => {
 		/* Covers the projection + error-shape contract on a real
 		 * mutating tool, not the double-persistence invariant per se:
@@ -790,9 +503,9 @@ describe("registerSharedTool — real mutating tool integration (addFields)", ()
 			const out = (await capture()(
 				{
 					app_id: "a1",
-					moduleIndex: 0,
-					formIndex: 0,
-					fields: [{ id: "q1", kind: "text", label: "Q1" }],
+					moduleUuid: testUuid("missing-module"),
+					formUuid: testUuid("missing-form"),
+					fields: [{ id: "q1", kind: "text", label: proseText("Q1") }],
 				},
 				{},
 			)) as { content: Array<{ type: "text"; text: string }> };
@@ -822,7 +535,7 @@ describe("registerSharedTool — real mutating tool integration (addFields)", ()
 		 * one-module-one-form fixture. `fieldParent` is deliberately
 		 * absent — the adapter's `loadAppBlueprint` rebuilds it on the
 		 * way in. */
-		const { blueprint } = mockBlueprintWithForm();
+		const { blueprint, modUuid, formUuid } = mockBlueprintWithForm();
 		vi.mocked(loadApp).mockResolvedValueOnce({
 			owner: "u1",
 			project_id: null,
@@ -864,9 +577,9 @@ describe("registerSharedTool — real mutating tool integration (addFields)", ()
 			const out = (await capture()(
 				{
 					app_id: "a1",
-					moduleIndex: 0,
-					formIndex: 0,
-					fields: [{ id: "q1", kind: "text", label: "Q1" }],
+					moduleUuid: modUuid,
+					formUuid,
+					fields: [{ id: "q1", kind: "text", label: proseText("Q1") }],
 				},
 				{},
 			)) as { content: Array<{ type: "text"; text: string }> };
@@ -898,13 +611,13 @@ describe("registerSharedTool — real mutating tool integration (addFields)", ()
 		/* One-module-one-form fixture seeded with an existing `age`
 		 * field so the incoming duplicate has a sibling to collide
 		 * with. */
-		const { blueprint, formUuid } = mockBlueprintWithForm();
+		const { blueprint, modUuid, formUuid } = mockBlueprintWithForm();
 		const existingUuid = testUuid("66666666-6666-6666-6666-666666666666");
 		blueprint.fields[existingUuid] = {
 			uuid: existingUuid,
 			id: "age",
 			kind: "int",
-			label: "Age",
+			label: proseText("Age"),
 		} as BlueprintDoc["fields"][Uuid];
 		blueprint.fieldOrder[formUuid] = [existingUuid];
 		vi.mocked(loadApp).mockResolvedValueOnce(
@@ -930,9 +643,9 @@ describe("registerSharedTool — real mutating tool integration (addFields)", ()
 			const out = (await capture()(
 				{
 					app_id: "a1",
-					moduleIndex: 0,
-					formIndex: 0,
-					fields: [{ id: "age", kind: "text", label: "Age again" }],
+					moduleUuid: modUuid,
+					formUuid,
+					fields: [{ id: "age", kind: "text", label: proseText("Age again") }],
 				},
 				{},
 			)) as { content: Array<{ type: "text"; text: string }> };

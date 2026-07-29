@@ -9,7 +9,6 @@
 // So both directions are pinned here, against the verb menu's own
 // admission function rather than a restatement of it.
 
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import {
 	subjectOf,
@@ -29,6 +28,7 @@ import {
 	prop,
 	term,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 
 const CASE_TYPES: readonly CaseType[] = [
 	{

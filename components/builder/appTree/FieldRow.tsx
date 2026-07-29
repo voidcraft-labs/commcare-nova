@@ -34,8 +34,8 @@ import type { SearchResult } from "@/lib/doc/hooks/useSearchFilter";
 import {
 	fallbackProseProjection,
 	fieldRegistry,
-	proseTemplateIsEmpty,
 	type ProseTemplate,
+	proseTemplateIsEmpty,
 	type Uuid,
 } from "@/lib/domain";
 import { textWithChips } from "@/lib/references/LabelContent";

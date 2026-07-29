@@ -8,14 +8,13 @@
  * on load.
  */
 
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { xp } from "@/lib/__tests__/docHelpers";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { CaseType, Field, Uuid } from "@/lib/domain";
-
 import type { PersistableDoc } from "@/lib/domain/blueprint";
+import { proseText } from "@/lib/domain/prose";
 import { DEFAULT_RUNTIME_STATE, EngineController } from "../engineController";
 import { previewAsMe, type ResolvedPreviewIdentity } from "../identity";
 
@@ -29,8 +28,18 @@ const Q2_UUID = testUuid("aaaaaaaa-0002-0002-0002-000000000002");
 /** Build a minimal survey doc with the given fields attached to a single form. */
 function makeDoc(
 	fields: Record<string, Field> = {
-		[Q1_UUID]: { uuid: Q1_UUID, id: "name", kind: "text", label: "Name" },
-		[Q2_UUID]: { uuid: Q2_UUID, id: "age", kind: "int", label: "Age" },
+		[Q1_UUID]: {
+			uuid: Q1_UUID,
+			id: "name",
+			kind: "text",
+			label: proseText("Name"),
+		},
+		[Q2_UUID]: {
+			uuid: Q2_UUID,
+			id: "age",
+			kind: "int",
+			label: proseText("Age"),
+		},
 	},
 	fieldOrder: Record<string, Uuid[]> = {
 		[FORM_UUID]: [Q1_UUID, Q2_UUID],
@@ -137,7 +146,7 @@ describe("EngineController", () => {
 							uuid: captureUuid,
 							id: "signature",
 							kind: "signature",
-							label: "Signature",
+							label: proseText("Signature"),
 							relevant: xp("false()"),
 						},
 					},
@@ -182,14 +191,14 @@ describe("EngineController", () => {
 							uuid: repeatUuid,
 							id: "visits",
 							kind: "repeat",
-							label: "Visits",
+							label: proseText("Visits"),
 							repeat_mode: "user_controlled",
 						},
 						[captureUuid]: {
 							uuid: captureUuid,
 							id: "photo",
 							kind: "image",
-							label: "Photo",
+							label: proseText("Photo"),
 						},
 					},
 					{
@@ -224,14 +233,14 @@ describe("EngineController", () => {
 							uuid: repeatUuid,
 							id: "members",
 							kind: "repeat",
-							label: "Members",
+							label: proseText("Members"),
 							repeat_mode: "user_controlled",
 						},
 						[childUuid]: {
 							uuid: childUuid,
 							id: "name",
 							kind: "text",
-							label: "Name",
+							label: proseText("Name"),
 						},
 					},
 					{
@@ -407,7 +416,7 @@ describe("EngineController", () => {
 						uuid: groupUuid,
 						id: "container",
 						kind: "group",
-						label: "Container",
+						label: proseText("Container"),
 					},
 				},
 				{ [FORM_UUID]: [groupUuid] },
@@ -442,19 +451,19 @@ describe("EngineController", () => {
 						uuid: groupUuid,
 						id: "container",
 						kind: "group",
-						label: "Container",
+						label: proseText("Container"),
 					},
 					[childAUuid]: {
 						uuid: childAUuid,
 						id: "child_a",
 						kind: "text",
-						label: "Child A",
+						label: proseText("Child A"),
 					},
 					[childBUuid]: {
 						uuid: childBUuid,
 						id: "child_b",
 						kind: "text",
-						label: "Child B",
+						label: proseText("Child B"),
 					},
 				},
 				{
@@ -497,14 +506,14 @@ describe("EngineController", () => {
 						uuid: repeatUuid,
 						id: "container",
 						kind: "repeat",
-						label: "Container",
+						label: proseText("Container"),
 						repeat_mode: "user_controlled",
 					},
 					[childUuid]: {
 						uuid: childUuid,
 						id: "child",
 						kind: "text",
-						label: "Child",
+						label: proseText("Child"),
 					},
 				},
 				{
@@ -578,20 +587,20 @@ describe("EngineController", () => {
 						uuid: nameUuid,
 						id: "case_name",
 						kind: "text",
-						label: "Name",
+						label: proseText("Name"),
 						case_property_on: "patient",
 					},
 					[groupUuid]: {
 						uuid: groupUuid,
 						id: "container",
 						kind: "group",
-						label: "Container",
+						label: proseText("Container"),
 					},
 					[noteUuid]: {
 						uuid: noteUuid,
 						id: "note",
 						kind: "text",
-						label: "Note",
+						label: proseText("Note"),
 						case_property_on: "patient",
 					},
 				},
@@ -719,14 +728,14 @@ describe("EngineController", () => {
 						uuid: repeatUuid,
 						id: "orders",
 						kind: "repeat",
-						label: "Orders",
+						label: proseText("Orders"),
 						repeat_mode: "user_controlled",
 					},
 					[nameUuid]: {
 						uuid: nameUuid,
 						id: "name",
 						kind: "text",
-						label: "Name",
+						label: proseText("Name"),
 					},
 				},
 				{
@@ -747,7 +756,7 @@ describe("EngineController", () => {
 							uuid: repeatUuid,
 							id: "orders",
 							kind: "group",
-							label: "Orders",
+							label: proseText("Orders"),
 						};
 			doc.fields[nameUuid] = {
 				uuid: nameUuid,
@@ -948,13 +957,13 @@ describe("EngineController", () => {
 							uuid: firstUuid,
 							id: "photo",
 							kind: "image",
-							label: "Photo",
+							label: proseText("Photo"),
 						},
 						[secondUuid]: {
 							uuid: secondUuid,
 							id: "document",
 							kind: "file",
-							label: "Document",
+							label: proseText("Document"),
 						},
 					},
 					{ [FORM_UUID]: [firstUuid, secondUuid] },
@@ -1037,20 +1046,20 @@ describe("EngineController", () => {
 							uuid: groupUuid,
 							id: "visit",
 							kind: "group",
-							label: "Visit",
+							label: proseText("Visit"),
 						},
 						[repeatParentUuid]: {
 							uuid: repeatParentUuid,
 							id: "rounds",
 							kind: "repeat",
-							label: "Rounds",
+							label: proseText("Rounds"),
 							repeat_mode: "user_controlled",
 						},
 						[captureUuid]: {
 							uuid: captureUuid,
 							id: "photo",
 							kind: "image",
-							label: "Photo",
+							label: proseText("Photo"),
 						},
 					},
 					{
@@ -1136,20 +1145,20 @@ describe("EngineController", () => {
 							uuid: repeatParentUuid,
 							id: "rounds",
 							kind: "repeat",
-							label: "Rounds",
+							label: proseText("Rounds"),
 							repeat_mode: "user_controlled",
 						},
 						[ancestorUuid]: {
 							uuid: ancestorUuid,
 							id: "visit",
 							kind: "group",
-							label: "Visit",
+							label: proseText("Visit"),
 						},
 						[captureUuid]: {
 							uuid: captureUuid,
 							id: "photo",
 							kind: "image",
-							label: "Photo",
+							label: proseText("Photo"),
 						},
 					},
 					{
@@ -1547,14 +1556,14 @@ describe("EngineController", () => {
 						uuid: nameUuid,
 						id: "case_name",
 						kind: "text",
-						label: "Name",
+						label: proseText("Name"),
 						case_property_on: "patient",
 					},
 					[ageUuid]: {
 						uuid: ageUuid,
 						id: "age",
 						kind: "int",
-						label: "Age",
+						label: proseText("Age"),
 						case_property_on: "patient",
 					},
 				},
@@ -1617,7 +1626,12 @@ describe("EngineController", () => {
 		function docWithUserCalc(): PersistableDoc {
 			return makeDoc(
 				{
-					[Q1_UUID]: { uuid: Q1_UUID, id: "name", kind: "text", label: "Name" },
+					[Q1_UUID]: {
+						uuid: Q1_UUID,
+						id: "name",
+						kind: "text",
+						label: proseText("Name"),
+					},
 					[WHO_UUID]: {
 						uuid: WHO_UUID,
 						id: "who",
@@ -1715,7 +1729,12 @@ describe("EngineController", () => {
 		it("a custom worker-property rename reprints the same AST identity in an open form", () => {
 			const doc = makeDoc(
 				{
-					[Q1_UUID]: { uuid: Q1_UUID, id: "name", kind: "text", label: "Name" },
+					[Q1_UUID]: {
+						uuid: Q1_UUID,
+						id: "name",
+						kind: "text",
+						label: proseText("Name"),
+					},
 					[WHO_UUID]: {
 						uuid: WHO_UUID,
 						id: "region",

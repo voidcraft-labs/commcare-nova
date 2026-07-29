@@ -1510,9 +1510,6 @@ function ResultsBody({
 		if (emptyResultContext === "authored-rules") {
 			return <AvailabilityConditionsEmptyNotice canEdit={canEdit} />;
 		}
-		if (emptyResultContext === "unknown") {
-			return <UnavailableCasesNotice onRetry={onRetryCases} />;
-		}
 		return <NoCaseDataNotice canEdit={canEdit} />;
 	}
 
@@ -1538,9 +1535,6 @@ function ResultsBody({
 		}
 		if (emptyResultContext === "authored-rules") {
 			return <AvailabilityConditionsEmptyNotice canEdit={canEdit} />;
-		}
-		if (emptyResultContext === "unknown") {
-			return <UnavailableCasesNotice onRetry={onRetryCases} />;
 		}
 		return (
 			<CaseListEmptyNotice
@@ -1676,23 +1670,6 @@ function AvailabilityConditionsEmptyNotice({
 					? "To show cases, update Cases available in Results or create a matching case"
 					: "Ask an app editor to review Cases available or create a matching case"
 			}
-		/>
-	);
-}
-
-/** Neutral compatibility copy for an older action response that cannot tell
- * the new client whether the settled query was narrowed. */
-function UnavailableCasesNotice({
-	onRetry,
-}: {
-	readonly onRetry: () => Promise<void>;
-}) {
-	return (
-		<CaseListEmptyNotice
-			title="Cases aren’t available right now"
-			description="Try again to view cases"
-			tone="error"
-			action={{ label: "Try again", onClick: () => void onRetry() }}
 		/>
 	);
 }

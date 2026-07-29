@@ -7,7 +7,6 @@
  * DOM state.
  */
 
-import { proseText } from "@/lib/domain/prose";
 import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -19,6 +18,7 @@ import {
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
+import { proseText } from "@/lib/domain/prose";
 
 /* Mock the client path hook — segments control the current location. */
 const mockSegments = { current: [] as string[] };
@@ -97,13 +97,13 @@ function makeStore() {
 									uuid: "q-a-0000-0000-0000-000000000000",
 									kind: "text",
 									id: "a",
-									label: "A",
+									label: proseText("A"),
 								}),
 								f({
 									uuid: "q-b-0000-0000-0000-000000000000",
 									kind: "text",
 									id: "b",
-									label: "B",
+									label: proseText("B"),
 								}),
 							],
 						},

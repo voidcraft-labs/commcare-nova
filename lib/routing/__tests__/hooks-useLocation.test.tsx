@@ -1,17 +1,18 @@
 // @vitest-environment happy-dom
 
-/**
- * Tests for URL-driven location hooks.
- *
- * We mock `useBuilderPathSegments` to simulate different URL paths,
- * and provide a doc store with known entities for UUID disambiguation.
- */
 import { renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
+/**
+ * Tests for URL-driven location hooks.
+ *
+ * We mock `useBuilderPathSegments` to simulate different URL paths,
+ * and provide a doc store with known entities for UUID disambiguation.
+ */
+import { proseText } from "@/lib/domain/prose";
 
 /* Mock the client path hook to return controlled segments. */
 const mockSegments = { current: [] as string[] };
@@ -67,7 +68,12 @@ function makeStore() {
 							name: "F",
 							type: "survey",
 							fields: [
-								f({ uuid: "q-uuid", kind: "text", id: "q", label: "Q" }),
+								f({
+									uuid: "q-uuid",
+									kind: "text",
+									id: "q",
+									label: proseText("Q"),
+								}),
 							],
 						},
 					],

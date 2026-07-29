@@ -1,10 +1,10 @@
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { CaseType } from "@/lib/domain";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import { eq, formField, literal } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import {
 	buildDoc,
 	caseListConfig,
@@ -625,12 +625,8 @@ function lookupSelectForDag(
 		kind: "single_select",
 		id,
 		label: id.toUpperCase(),
-		options: [
-			{ value: "yes", label: "Yes" },
-			{ value: "no", label: "No" },
-		],
 		optionsSource: {
-			kind: "lookup-table",
+			kind: "lookup",
 			tableId: DAG_LOOKUP_TABLE,
 			valueColumnId: DAG_LOOKUP_COLUMN,
 			labelColumnId: DAG_LOOKUP_COLUMN,
@@ -646,7 +642,7 @@ describe("TriggerDag.reportCycles", () => {
 	it("returns empty for acyclic graph", () => {
 		const dag = new TriggerDag();
 		const { tree, doc } = treeFromFields([
-			f({ kind: "int", id: "a", label: "A" }),
+			f({ kind: "int", id: "a", label: proseText("A") }),
 			f({ kind: "hidden", id: "b", calculate: "/data/a + 1" }),
 		]);
 		expect(dag.reportCycles(tree, doc)).toEqual([]);
@@ -664,7 +660,7 @@ describe("TriggerDag.reportCycles", () => {
 	it("handles diamond dependency (no cycle)", () => {
 		const dag = new TriggerDag();
 		const { tree, doc } = treeFromFields([
-			f({ kind: "int", id: "a", label: "A" }),
+			f({ kind: "int", id: "a", label: proseText("A") }),
 			f({ kind: "hidden", id: "b", calculate: "/data/a + 1" }),
 			f({ kind: "hidden", id: "c", calculate: "/data/a + 2" }),
 			f({
@@ -684,7 +680,7 @@ describe("TriggerDag.reportCycles", () => {
 				uuid: fieldA,
 				kind: "text",
 				id: "a",
-				label: "A",
+				label: proseText("A"),
 				default_value: "/data/b",
 			}),
 			lookupSelectForDag(fieldB, "b", fieldA),
@@ -734,7 +730,7 @@ describe("TriggerDag.reportCycles", () => {
 				uuid: fieldA,
 				kind: "text",
 				id: "a",
-				label: "A",
+				label: proseText("A"),
 				relevant: "/data/c = 'yes'",
 			}),
 			lookupSelectForDag(fieldB, "b", fieldA),
@@ -763,7 +759,7 @@ describe("TriggerDag.reportCycles", () => {
 				uuid: fieldA,
 				kind: "text",
 				id: "a",
-				label: "A",
+				label: proseText("A"),
 				default_value: "/data/b",
 			}),
 			lookupSelectForDag(fieldB, "b", fieldA),
@@ -771,7 +767,7 @@ describe("TriggerDag.reportCycles", () => {
 				uuid: fieldC,
 				kind: "text",
 				id: "c",
-				label: "C",
+				label: proseText("C"),
 				relevant: "/data/a = 'yes'",
 			}),
 		]);
@@ -837,13 +833,13 @@ describe("validateBlueprintDeep", () => {
 				f({
 					kind: "text",
 					id: "case_name",
-					label: "Name",
+					label: proseText("Name"),
 					case_property_on: "patient",
 				}),
 				f({
 					kind: "int",
 					id: "age",
-					label: "Age",
+					label: proseText("Age"),
 					relevant: "/data/case_name != ''",
 				}),
 			],
@@ -859,7 +855,7 @@ describe("validateBlueprintDeep", () => {
 
 	it("catches unknown function in XPath", () => {
 		const doc = makeDoc([
-			f({ kind: "text", id: "name", label: "Name" }),
+			f({ kind: "text", id: "name", label: proseText("Name") }),
 			f({ kind: "hidden", id: "val", calculate: "foobar(1)" }),
 		]);
 		// Typed assertion — the discriminant + the underlying `XPathError.code`
@@ -874,7 +870,7 @@ describe("validateBlueprintDeep", () => {
 
 	it("catches wrong arity", () => {
 		const doc = makeDoc([
-			f({ kind: "text", id: "name", label: "Name" }),
+			f({ kind: "text", id: "name", label: proseText("Name") }),
 			f({ kind: "hidden", id: "val", calculate: "round(3.14, 2)" }),
 		]);
 		expect(
@@ -912,7 +908,7 @@ describe("validateBlueprintDeep", () => {
 				f({
 					kind: "text",
 					id: "case_name",
-					label: "Name",
+					label: proseText("Name"),
 					case_property_on: "patient",
 				}),
 				f({ kind: "hidden", id: "val", calculate: "#patient/nonexistent + 1" }),
@@ -938,7 +934,7 @@ describe("validateBlueprintDeep", () => {
 				f({
 					kind: "text",
 					id: "case_name",
-					label: "Name",
+					label: proseText("Name"),
 					case_property_on: "patient",
 				}),
 				f({ kind: "hidden", id: "val", calculate: "#mother/code + 1" }),
@@ -979,7 +975,7 @@ describe("runValidation with deep validation", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 								f({ kind: "hidden", id: "calc", calculate: "foobar(1)" }),
@@ -1027,10 +1023,12 @@ describe("runValidation deep XPath on repeat fields", () => {
 								f({
 									kind: "repeat",
 									id: "visits",
-									label: "Visits",
+									label: proseText("Visits"),
 									repeat_mode: "count_bound",
 									repeat_count: "if(true(, 1, 2)",
-									children: [f({ kind: "text", id: "note", label: "Note" })],
+									children: [
+										f({ kind: "text", id: "note", label: proseText("Note") }),
+									],
 								}),
 							],
 						},
@@ -1056,10 +1054,12 @@ describe("runValidation deep XPath on repeat fields", () => {
 								f({
 									kind: "repeat",
 									id: "visits",
-									label: "Visits",
+									label: proseText("Visits"),
 									repeat_mode: "count_bound",
 									repeat_count: "noSuchFunction(5)",
-									children: [f({ kind: "text", id: "note", label: "Note" })],
+									children: [
+										f({ kind: "text", id: "note", label: proseText("Note") }),
+									],
 								}),
 							],
 						},
@@ -1085,10 +1085,12 @@ describe("runValidation deep XPath on repeat fields", () => {
 								f({
 									kind: "repeat",
 									id: "open_cases",
-									label: "Open cases",
+									label: proseText("Open cases"),
 									repeat_mode: "query_bound",
 									data_source: { ids_query: "instance('casedb')//[bad" },
-									children: [f({ kind: "text", id: "note", label: "Note" })],
+									children: [
+										f({ kind: "text", id: "note", label: proseText("Note") }),
+									],
 								}),
 							],
 						},
@@ -1114,10 +1116,12 @@ describe("runValidation deep XPath on repeat fields", () => {
 								f({
 									kind: "repeat",
 									id: "open_cases",
-									label: "Open cases",
+									label: proseText("Open cases"),
 									repeat_mode: "query_bound",
-									data_source: { ids_query: "boguscall(#case/x)" },
-									children: [f({ kind: "text", id: "note", label: "Note" })],
+									data_source: { ids_query: "boguscall('x')" },
+									children: [
+										f({ kind: "text", id: "note", label: proseText("Note") }),
+									],
 								}),
 							],
 						},
@@ -1148,10 +1152,12 @@ describe("runValidation deep XPath on repeat fields", () => {
 								f({
 									kind: "repeat",
 									id: "visits",
-									label: "Visits",
+									label: proseText("Visits"),
 									repeat_mode: "count_bound",
 									repeat_count: "#form/desired_count",
-									children: [f({ kind: "text", id: "note", label: "Note" })],
+									children: [
+										f({ kind: "text", id: "note", label: proseText("Note") }),
+									],
 								}),
 							],
 						},
@@ -1184,13 +1190,15 @@ describe("runValidation deep XPath on repeat fields", () => {
 								f({
 									kind: "repeat",
 									id: "open_cases",
-									label: "Open cases",
+									label: proseText("Open cases"),
 									repeat_mode: "query_bound",
 									data_source: {
 										ids_query:
 											"instance('casedb')/casedb/case[@case_type='visit']/@case_id",
 									},
-									children: [f({ kind: "text", id: "note", label: "Note" })],
+									children: [
+										f({ kind: "text", id: "note", label: proseText("Note") }),
+									],
 								}),
 							],
 						},
@@ -1230,10 +1238,12 @@ describe("runValidation deep XPath on repeat fields", () => {
 								f({
 									kind: "repeat",
 									id: "visits",
-									label: "Visits",
+									label: proseText("Visits"),
 									repeat_mode: "count_bound",
 									repeat_count: "   ",
-									children: [f({ kind: "text", id: "note", label: "Note" })],
+									children: [
+										f({ kind: "text", id: "note", label: proseText("Note") }),
+									],
 								}),
 							],
 						},
@@ -1272,10 +1282,12 @@ describe("runValidation deep XPath on repeat fields", () => {
 								f({
 									kind: "repeat",
 									id: "open_cases",
-									label: "Open cases",
+									label: proseText("Open cases"),
 									repeat_mode: "query_bound",
 									data_source: { ids_query: "\n\t " },
-									children: [f({ kind: "text", id: "note", label: "Note" })],
+									children: [
+										f({ kind: "text", id: "note", label: proseText("Note") }),
+									],
 								}),
 							],
 						},
@@ -1316,10 +1328,12 @@ describe("runValidation deep XPath on repeat fields", () => {
 								f({
 									kind: "repeat",
 									id: "visits",
-									label: "Visits",
+									label: proseText("Visits"),
 									repeat_mode: "count_bound",
 									repeat_count: "/data/nonexistent_field",
-									children: [f({ kind: "text", id: "note", label: "Note" })],
+									children: [
+										f({ kind: "text", id: "note", label: proseText("Note") }),
+									],
 								}),
 							],
 						},
@@ -1354,12 +1368,14 @@ describe("runValidation deep XPath on repeat fields", () => {
 								f({
 									kind: "repeat",
 									id: "open_cases",
-									label: "Open cases",
+									label: proseText("Open cases"),
 									repeat_mode: "query_bound",
 									data_source: {
 										ids_query: "/data/nonexistent_field",
 									},
-									children: [f({ kind: "text", id: "note", label: "Note" })],
+									children: [
+										f({ kind: "text", id: "note", label: proseText("Note") }),
+									],
 								}),
 							],
 						},
@@ -1396,9 +1412,11 @@ describe("runValidation deep XPath on repeat fields", () => {
 								f({
 									kind: "repeat",
 									id: "members",
-									label: "Members",
+									label: proseText("Members"),
 									repeat_mode: "user_controlled",
-									children: [f({ kind: "text", id: "name", label: "Name" })],
+									children: [
+										f({ kind: "text", id: "name", label: proseText("Name") }),
+									],
 								}),
 							],
 						},
@@ -1434,10 +1452,12 @@ describe("runValidation deep XPath on repeat fields", () => {
 								f({
 									kind: "repeat",
 									id: "visits",
-									label: "Visits",
+									label: proseText("Visits"),
 									repeat_mode: "count_bound",
 									repeat_count: "if(true(, 1, 2)",
-									children: [f({ kind: "text", id: "note", label: "Note" })],
+									children: [
+										f({ kind: "text", id: "note", label: proseText("Note") }),
+									],
 								}),
 							],
 						},
@@ -1474,12 +1494,12 @@ describe("runValidation — bare-id reference suggestion (group-path DX)", () =>
 								f({
 									kind: "group",
 									id: "consent_grp",
-									label: "Consent",
+									label: proseText("Consent"),
 									children: [
 										f({
 											kind: "single_select",
 											id: "consent",
-											label: "Consent given?",
+											label: proseText("Consent given?"),
 											options: [
 												{ value: "yes", label: "Yes" },
 												{ value: "no", label: "No" },
@@ -1491,7 +1511,7 @@ describe("runValidation — bare-id reference suggestion (group-path DX)", () =>
 								f({
 									kind: "label",
 									id: "consent_stop",
-									label: "Enrollment stopped.",
+									label: proseText("Enrollment stopped."),
 									relevant: "#form/consent = 'no'",
 								}),
 							],
@@ -1523,32 +1543,10 @@ describe("INVALID_REF stored-reference classification", () => {
 			],
 		});
 
-	it("classifies a plain-text #form leaf as raw-text and renders the re-commit repair", () => {
-		// `xp` parses with no resolution, so the leaf stays raw text — the
-		// shape a migrated legacy expression holds when its reference never
-		// re-resolved.
-		const doc = makeDoc([
-			f({ kind: "int", id: "score", label: "Score" }),
-			f({ kind: "hidden", id: "total", calculate: xp("#form/old_score") }),
-		]);
-		const deepErr = validateBlueprintDeep(doc).find(
-			(e): e is Extract<DeepValidationError, { kind: "field-xpath" }> =>
-				e.kind === "field-xpath" && e.error.code === "INVALID_REF",
-		);
-		expect(deepErr?.error.storedRef).toBe("raw-text");
-
-		const rendered = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).find(
-			(e) => e.code === "INVALID_REF",
-		);
-		expect(rendered?.message).toContain('Field "total"');
-		expect(rendered?.message).toContain("plain text");
-		expect(rendered?.message).toContain("re-commit");
-	});
-
 	it("classifies a dangling identity leaf and never prints the bare uuid as a path", () => {
 		const ghost = testUuid("dead0000-0000-4000-8000-000000000001");
 		const doc = makeDoc([
-			f({ kind: "int", id: "score", label: "Score" }),
+			f({ kind: "int", id: "score", label: proseText("Score") }),
 			f({
 				kind: "hidden",
 				id: "total",
@@ -1572,17 +1570,16 @@ describe("INVALID_REF stored-reference classification", () => {
 		expect(rendered?.message).not.toContain(ghost);
 	});
 
-	it("keeps the did-you-mean hint when a raw leaf is the bare-id-for-nested-field mistake", () => {
-		// A fresh typo parses to the same raw-leaf shape (parsing is total),
-		// so when the leaf id matches an existing nested field the nesting
-		// hint stays the repair — re-committing identical text would change
-		// nothing.
+	it("keeps the did-you-mean hint for a bare nested-field id", () => {
+		// A fresh unresolved token remains inert text (parsing is total). When
+		// its id matches an existing nested field, validation can still offer
+		// the canonical nested path as the repair.
 		const doc = makeDoc([
 			f({
 				kind: "group",
 				id: "grp",
-				label: "Group",
-				children: [f({ kind: "int", id: "score", label: "Score" })],
+				label: proseText("Group"),
+				children: [f({ kind: "int", id: "score", label: proseText("Score") })],
 			}),
 			f({ kind: "hidden", id: "total", calculate: xp("#form/score") }),
 		]);
@@ -1596,7 +1593,7 @@ describe("INVALID_REF stored-reference classification", () => {
 
 	it("leaves an unresolved absolute path unclassified — the generic typo prose", () => {
 		const doc = makeDoc([
-			f({ kind: "int", id: "score", label: "Score" }),
+			f({ kind: "int", id: "score", label: proseText("Score") }),
 			f({ kind: "hidden", id: "total", calculate: xp("/data/scroe + 1") }),
 		]);
 		const deepErr = validateBlueprintDeep(doc).find(

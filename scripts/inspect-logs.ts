@@ -297,6 +297,10 @@ function printEventSummary(event: Event): void {
 		console.log(`${prefix}  [mutation:${event.actor}]${stage} ${mutationKind}`);
 		return;
 	}
+	if (event.kind === "archived-mutation") {
+		console.log(`${prefix}  [archived-mutation] historical audit payload`);
+		return;
+	}
 	console.log(
 		`${prefix}  [conversation] ${summarizeConversation(event.payload)}`,
 	);
@@ -313,6 +317,11 @@ function printEventVerbose(event: Event): void {
 		if (event.stage) console.log(`  │ stage:    ${event.stage}`);
 		console.log(`  │ mutation: ${event.mutation.kind}`);
 		console.log(`  │ payload:  ${JSON.stringify(event.mutation)}`);
+		console.log("  └─");
+		return;
+	}
+	if (event.kind === "archived-mutation") {
+		console.log(`  │ archived: ${JSON.stringify(event.archived)}`);
 		console.log("  └─");
 		return;
 	}
@@ -393,6 +402,9 @@ function printRunSummary(summary: RunSummaryDoc): void {
 function formatEventCounts(events: Event[]): string {
 	const counts = computeEventKindCounts(events);
 	const parts = [`${counts.total} events`, `mutations: ${counts.mutation}`];
+	if (counts.archivedMutation > 0) {
+		parts.push(`archived mutations: ${counts.archivedMutation}`);
+	}
 	for (const [type, count] of Object.entries(counts.conversation)) {
 		parts.push(`${type}: ${count}`);
 	}

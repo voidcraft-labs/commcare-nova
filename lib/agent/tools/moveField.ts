@@ -11,7 +11,7 @@
  * Addressing mirrors `addFields`' anchor vocabulary, with one deliberate
  * upgrade: an anchor resolves ANYWHERE in the form and the destination
  * parent is the anchor's own parent, so "move X after Y" lands X beside
- * Y wherever Y nests — no separate parent bookkeeping. `parentId` covers
+ * Y wherever Y nests — no separate parent bookkeeping. `parentUuid` covers
  * the anchor-less placements: a group/repeat to append into, or `null`
  * for the form's top level.
  *
@@ -30,10 +30,10 @@
  *
  *   1. Form / field / anchor / parent not resolved (missing, ambiguous
  *      bare id, or a uuid living in another form) → `{ error }`.
- *   2. No placement given (no anchor, no `parentId`) → `{ error }`
+ *   2. No placement given (no anchor, no `parentUuid`) → `{ error }`
  *      naming the three ways to say where.
- *   3. Anchor is the moved field itself, `parentId` contradicts the
- *      anchor's parent, `parentId` names a non-container, or the
+ *   3. Anchor is the moved field itself, `parentUuid` contradicts the
+ *      anchor's parent, `parentUuid` names a non-container, or the
  *      destination sits inside the moved field's own subtree →
  *      `{ error }`, no mutations.
  *   4. Commit-gate rejection (the move would introduce a validator
@@ -45,7 +45,7 @@
  *      auto-rename when the reducer deduped the id) + a UI `summary`.
  */
 
-import { z } from "zod";
+import type { z } from "zod";
 import { fieldSlotAfter } from "@/lib/doc/fieldSlot";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, Field, Uuid } from "@/lib/domain";
@@ -56,14 +56,14 @@ import {
 	type MutatingToolResult,
 	toToolErrorResult,
 } from "./common";
-import type {
-	MutationSuccess,
-	ToolCallSummary,
-} from "./shared/toolCallSummary";
 import {
 	fieldAddressSchema,
 	resolveFieldAddress,
 } from "./shared/entityAddresses";
+import type {
+	MutationSuccess,
+	ToolCallSummary,
+} from "./shared/toolCallSummary";
 
 export const moveFieldInputSchema = fieldAddressSchema
 	.extend({
@@ -117,7 +117,7 @@ export const moveFieldTool = {
 			const resolveOther = (fieldUuid: string) =>
 				resolveFieldAddress(doc, { moduleUuid, formUuid, fieldUuid });
 
-			// `beforeFieldId` wins when both anchors are given — the same
+			// `beforeFieldUuid` wins when both anchors are given — the same
 			// precedence `addFields` documents on its anchor pair.
 			const anchorRef = input.beforeFieldUuid ?? input.afterFieldUuid;
 			const anchorSide =
@@ -134,14 +134,14 @@ export const moveFieldTool = {
 				if (!resolvedAnchor.ok) return fail(`Anchor: ${resolvedAnchor.error}`);
 				if (resolvedAnchor.field.uuid === moved.uuid) {
 					return fail(
-						`"${moved.id}" can't anchor to itself — beforeFieldId/afterFieldId name the field it should land beside, not the field being moved.`,
+						`"${moved.id}" can't anchor to itself — beforeFieldUuid/afterFieldUuid name the field it should land beside, not the field being moved.`,
 					);
 				}
 				anchor = resolvedAnchor.field;
 			}
 
 			// Destination parent: the anchor's own parent when anchored, else
-			// the named container, else the form root. An explicit `parentId`
+			// the named container, else the form root. An explicit `parentUuid`
 			// alongside an anchor must AGREE with the anchor's real parent —
 			// a contradiction means the SA's picture of the form is stale, so
 			// name the actual parent instead of silently picking a side.
@@ -180,7 +180,7 @@ export const moveFieldTool = {
 				}
 				if (!isContainer(resolvedParent.field)) {
 					return fail(
-						`"${resolvedParent.field.id}" is a ${resolvedParent.field.kind} field, not a group or repeat — a field can only move into a container. To place "${moved.id}" beside it, anchor with beforeFieldId or afterFieldId instead.`,
+						`"${resolvedParent.field.id}" is a ${resolvedParent.field.kind} field, not a group or repeat — a field can only move into a container. To place "${moved.id}" beside it, anchor with beforeFieldUuid or afterFieldUuid instead.`,
 					);
 				}
 				destParentUuid = resolvedParent.field.uuid;

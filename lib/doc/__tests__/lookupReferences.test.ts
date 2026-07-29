@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
-import { collectDormantLookupCarriers } from "@/lib/doc/dormantLookupCarriers";
 import {
 	canonicalLookupReferenceSubpath,
 	EMPTY_LOOKUP_REFERENCE_TARGETS,
@@ -173,12 +172,8 @@ describe("lookup reference extraction", () => {
 									uuid: fieldUuid,
 									kind: "single_select",
 									id: "choice",
-									options: [
-										{ value: "yes", label: "Yes" },
-										{ value: "no", label: "No" },
-									],
 									optionsSource: {
-										kind: "lookup-table",
+										kind: "lookup",
 										tableId: sourceTable,
 										valueColumnId: columnId("11"),
 										labelColumnId: columnId("12"),
@@ -269,15 +264,6 @@ describe("lookup reference extraction", () => {
 		].sort();
 
 		expect(slotOwners).toEqual(expectedSlotOwners);
-		expect(
-			[
-				...new Set(
-					collectDormantLookupCarriers(doc).map(
-						(carrier) => `${carrier.slot}:${carrier.ownerUuid}`,
-					),
-				),
-			].sort(),
-		).toEqual(expectedSlotOwners);
 		expect(occurrences).toHaveLength(39);
 		expect(
 			occurrences.every((occurrence) => occurrence.columnId !== undefined),
@@ -488,12 +474,8 @@ describe("lookup reference extraction", () => {
 								{
 									kind: "multi_select",
 									id: "choices",
-									options: [
-										{ value: "a", label: "A" },
-										{ value: "b", label: "B" },
-									],
 									optionsSource: {
-										kind: "lookup-table",
+										kind: "lookup",
 										tableId: sharedTable,
 										valueColumnId: sharedColumn,
 										labelColumnId: sharedColumn,

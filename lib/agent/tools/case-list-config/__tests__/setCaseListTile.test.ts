@@ -100,7 +100,7 @@ describe("setCaseListTile", () => {
 
 		const result = await setCaseListTileTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				tile: {},
 				placements: [
 					{
@@ -142,7 +142,7 @@ describe("setCaseListTile", () => {
 
 		const result = await setCaseListTileTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				tile: { persistOnForms: true },
 				placements: [
 					{
@@ -173,8 +173,7 @@ describe("setCaseListTile", () => {
 			{
 				kind: "setCaseListMeta",
 				uuid: MOD_A,
-				patch: {},
-				tilePatch: { persistOnForms: true },
+				patch: { tile: { persistOnForms: true } },
 			},
 		]);
 		expect(result.newDoc.modules[MOD_A]?.caseListConfig?.tile).toEqual({
@@ -187,7 +186,7 @@ describe("setCaseListTile", () => {
 
 		const result = await setCaseListTileTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				tile: {},
 				placements: [
 					{
@@ -248,7 +247,7 @@ describe("setCaseListTile", () => {
 		};
 
 		const result = await setCaseListTileTool.execute(
-			{ moduleIndex: 0, tile: null },
+			{ moduleUuid: MOD_A, tile: null },
 			ctx,
 			doc,
 		);
@@ -260,7 +259,7 @@ describe("setCaseListTile", () => {
 		expect(columnTile(result.newDoc, NAME_COLUMN)).toBeDefined();
 		expect(columnTile(result.newDoc, STATUS_COLUMN)).toBeDefined();
 		expect(result.mutations).toEqual([
-			{ kind: "setCaseListMeta", uuid: MOD_A, patch: {}, tilePatch: null },
+			{ kind: "setCaseListMeta", uuid: MOD_A, patch: { tile: null } },
 		]);
 	});
 
@@ -271,7 +270,7 @@ describe("setCaseListTile", () => {
 
 		const result = await setCaseListTileTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				placements: [{ columnUuid: STATUS_COLUMN, cell: null }],
 			},
 			ctx,
@@ -308,7 +307,7 @@ describe("setCaseListTile", () => {
 
 		const result = await setCaseListTileTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				placements: [
 					{
 						columnUuid: STATUS_COLUMN,
@@ -335,7 +334,7 @@ describe("setCaseListTile", () => {
 
 		const result = await setCaseListTileTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				placements: [
 					{
 						columnUuid: STATUS_COLUMN,
@@ -371,7 +370,7 @@ describe("setCaseListTile", () => {
 
 		const result = await setCaseListTileTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				tile: {},
 				placements: [
 					{
@@ -395,7 +394,7 @@ describe("setCaseListTile", () => {
 
 		const result = await setCaseListTileTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				placements: [
 					{
 						columnUuid: NAME_COLUMN,
@@ -431,7 +430,7 @@ describe("setCaseListTile", () => {
 
 		const result = await setCaseListTileTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				placements: [
 					{
 						columnUuid: NAME_COLUMN,
@@ -455,7 +454,7 @@ describe("setCaseListTile", () => {
 
 		const result = await setCaseListTileTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				tile: {},
 				placements: [
 					{
@@ -478,7 +477,7 @@ describe("setCaseListTile", () => {
 
 		const result = await setCaseListTileTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				placements: [
 					{
 						columnUuid: NAME_COLUMN,
@@ -502,7 +501,7 @@ describe("setCaseListTile", () => {
 
 		const result = await setCaseListTileTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				placements: [
 					{
 						columnUuid: NAME_COLUMN,
@@ -528,7 +527,7 @@ describe("setCaseListTile", () => {
 
 		const result = await setCaseListTileTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				placements: [
 					{
 						columnUuid: testUuid("unknown-column"),
@@ -549,7 +548,7 @@ describe("setCaseListTile", () => {
 		const { doc, ctx } = docWithColumns(placedColumns());
 
 		const result = await setCaseListTileTool.execute(
-			{ moduleIndex: 0 },
+			{ moduleUuid: MOD_A },
 			ctx,
 			doc,
 		);
@@ -565,7 +564,7 @@ describe("setCaseListTile", () => {
 		const { doc, ctx } = makeCaseListFixture();
 
 		const result = await setCaseListTileTool.execute(
-			{ moduleIndex: 0, tile: {} },
+			{ moduleUuid: MOD_A, tile: {} },
 			ctx,
 			doc,
 		);
@@ -576,28 +575,25 @@ describe("setCaseListTile", () => {
 		expect(result.newDoc.modules[MOD_A]?.caseListConfig).toBeUndefined();
 	});
 
-	it("returns an Elm-style error on out-of-range moduleIndex", async () => {
+	it("returns the canonical UUID-address error for an unknown module", async () => {
 		const { doc, ctx } = docWithColumns(placedColumns());
 
 		const result = await setCaseListTileTool.execute(
-			{ moduleIndex: 99, tile: {} },
+			{ moduleUuid: testUuid("unknown-module"), tile: {} },
 			ctx,
 			doc,
 		);
 
 		expect(result.mutations).toEqual([]);
 		if (!("error" in result.result)) throw new Error("expected error result");
-		expect(result.result.error).toContain(
-			"Tried to lay out the case list as a tile",
-		);
-		expect(result.result.error).toContain("module index 99");
+		expect(result.result.error).toContain("No module with UUID");
 	});
 
 	it("emits the same mutation batch through chat + MCP contexts", async () => {
 		const { doc, ctx: chatCtx } = docWithColumns(placedColumns());
 		const { ctx: mcpCtx } = makeCaseListMcpFixture();
 		const input = {
-			moduleIndex: 0,
+			moduleUuid: MOD_A,
 			tile: { persistOnForms: true } as const,
 			placements: [
 				{

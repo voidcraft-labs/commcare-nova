@@ -1,8 +1,6 @@
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
-
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import {
 	actingUser,
@@ -26,6 +24,7 @@ import {
 	tableLookup,
 	unowned,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import {
 	formDisplayCondition,
 	moduleDisplayCondition,
@@ -127,9 +126,9 @@ describe("module display-condition validation", () => {
 	});
 
 	it("rejects Search answers and conditions that simplify to false", () => {
-		expect(validateModule(eq(input("name"), literal("Ada")))).toContain(
-			"DISPLAY_CONDITION_SEARCH_INPUT_UNAVAILABLE",
-		);
+		expect(
+			validateModule(eq(input(testUuid("name")), literal("Ada"))),
+		).toContain("DISPLAY_CONDITION_SEARCH_INPUT_UNAVAILABLE");
 		expect(validateModule(matchNone())).toContain(
 			"DISPLAY_CONDITION_ALWAYS_FALSE",
 		);

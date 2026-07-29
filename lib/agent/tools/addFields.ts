@@ -5,12 +5,12 @@
  * which properties exist — see `toolSchemaGenerator.ts`). This tool runs
  * each through the three-step pipeline in `contentProcessing.ts` —
  * `stripEmpty` → `applyDefaults` → `flatFieldToField` — mints uuids,
- * resolves semantic parent ids (including parents added earlier in the
+ * resolves stable parent UUIDs (including parents predeclared earlier in the
  * same batch), and emits one mutation batch tagged `form:M-F`.
  *
  * Appends to existing fields by default (the SA relies on that contract
  * when it splits a large add across multiple calls); an optional
- * `beforeFieldId` / `afterFieldId` anchor instead inserts the batch's
+ * `beforeFieldUuid` / `afterFieldUuid` anchor instead inserts the batch's
  * top-level fields as a contiguous block at that position (fields nested
  * under their own `parentUuid` are unaffected). This is the only field-add
  * tool — one field is just a length-1 `fields` array.
@@ -19,7 +19,7 @@
  * shared `ToolExecutionContext` interface. Five legal exit branches
  * all land on the `MutatingToolResult` shape:
  *
- *   1. Index resolution miss (module / form) → `{ error }`, no
+ *   1. UUID address miss or parent-membership mismatch → `{ error }`, no
  *      mutations.
  *   2. Identifier guard rejection (any field id illegal / reserved /
  *      over-long / sibling-conflicting per the shared verdicts in
@@ -45,6 +45,10 @@ import {
 	toToolErrorResult,
 } from "./common";
 import {
+	formAddressSchema,
+	resolveFormAddress,
+} from "./shared/entityAddresses";
+import {
 	assembleFieldMutations,
 	describeRejectedFieldIds,
 } from "./shared/fieldAssembly";
@@ -52,10 +56,6 @@ import type {
 	MutationSuccess,
 	ToolCallSummary,
 } from "./shared/toolCallSummary";
-import {
-	formAddressSchema,
-	resolveFormAddress,
-} from "./shared/entityAddresses";
 
 export const addFieldsInputSchema = formAddressSchema
 	.extend({

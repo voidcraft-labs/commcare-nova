@@ -14,13 +14,12 @@
  *      Add Property pill returns.
  */
 
-import { proseText } from "@/lib/domain/prose";
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-
 import type { TextField } from "@/lib/domain";
 import type { FieldEditorEntry } from "@/lib/domain/kinds";
+import { proseText } from "@/lib/domain/prose";
 import { useSectionActivation } from "../useSectionActivation";
 
 // Trivial stub component — only its identity matters for the partition.

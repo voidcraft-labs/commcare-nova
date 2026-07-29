@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	enableCaseSearchMutation,
-	legacyCompatibleCaseSearchConfig,
 	setOwnerOnlyCaseSearchMutation,
 } from "@/lib/doc/caseSearchConfigMutations";
 import { applyMutations } from "@/lib/doc/mutations";
@@ -70,18 +69,11 @@ describe("case-search owner-only provenance", () => {
 		);
 	});
 
-	it("uses an old-schema Never projection without placing the private bit in the fallback", () => {
-		expect(
-			legacyCompatibleCaseSearchConfig({
-				searchActionEnabled: false,
-				excludedOwnerIds: OWNER_EXPRESSION,
-			}),
-		).toEqual(AUTHORED_NEVER);
-	});
-
-	it("keeps an origin-compatible Never projection inert with zero inputs without rewriting it", () => {
+	it("keeps an authored Never condition active with zero inputs without rewriting it", () => {
 		const doc = docWith(AUTHORED_NEVER);
-		expect(effectiveCaseSearchConfig(doc.modules[MODULE])).toBeUndefined();
+		expect(effectiveCaseSearchConfig(doc.modules[MODULE])).toEqual(
+			AUTHORED_NEVER,
+		);
 		expect(doc.modules[MODULE].caseSearchConfig).toEqual(AUTHORED_NEVER);
 	});
 

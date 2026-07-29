@@ -66,7 +66,6 @@
 // cross-layer round-trip (filter narrowing, write-through, reset) once
 // per concern.
 
-import { proseText } from "@/lib/domain/prose";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { Kysely } from "kysely";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -83,6 +82,7 @@ import type { Database } from "@/lib/case-store/sql/database";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
 import type { Uuid } from "@/lib/doc/types";
 import {
+	asUuid,
 	type BlueprintDoc,
 	calculatedColumn,
 	plainColumn,
@@ -96,6 +96,7 @@ import {
 	qualifiedLiteral,
 	term,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import type {
 	LoadCasesResult,
 	PopulateSampleCasesResult,
@@ -339,19 +340,19 @@ function buildFixtureDoc(): BlueprintDoc {
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Patient name",
+								label: proseText("Patient name"),
 								case_property_on: "patient",
 							}),
 							f({
 								kind: "text",
 								id: "name",
-								label: "Full name",
+								label: proseText("Full name"),
 								case_property_on: "patient",
 							}),
 							f({
 								kind: "int",
 								id: "age",
-								label: "Age",
+								label: proseText("Age"),
 								case_property_on: "patient",
 							}),
 						],
@@ -364,7 +365,7 @@ function buildFixtureDoc(): BlueprintDoc {
 							f({
 								kind: "int",
 								id: "age",
-								label: "Age",
+								label: proseText("Age"),
 								case_property_on: "patient",
 							}),
 						],
@@ -575,7 +576,7 @@ beforeEach(async () => {
 				submissionEnvelopeArgs(mutation, appId, {
 					submissionReceipt: {
 						entryKey: mutation.entryKey,
-						formUuid: mutation.formUuid,
+						formUuid: asUuid(mutation.formUuid),
 						expectedAppMutationSeq: 0,
 						requestDigest: "case-list-running-app-submission",
 					},

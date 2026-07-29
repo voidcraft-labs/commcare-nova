@@ -1,4 +1,3 @@
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import {
@@ -7,6 +6,7 @@ import {
 	effectiveCaseTypes,
 	standardCasePropertyDisplayLabel,
 } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 
 describe("Nova standard case-property vocabulary", () => {
 	it.each([
@@ -75,7 +75,7 @@ describe("Nova standard case-property vocabulary", () => {
 		).toEqual([
 			{
 				name: "external_id",
-				label: "Legacy external ID",
+				label: proseText("Legacy external ID"),
 				data_type: "text",
 			},
 		]);
@@ -108,8 +108,8 @@ describe("Nova standard case-property vocabulary", () => {
 
 		expect(property).toMatchObject({
 			name: "case_name",
-			label: "Patient name",
-			hint: "As shown on their card",
+			label: proseText("Patient name"),
+			hint: proseText("As shown on their card"),
 			data_type: "text",
 		});
 	});
@@ -134,6 +134,12 @@ describe("Nova standard case-property vocabulary", () => {
 					data_type: "text",
 				},
 			]),
-		).toEqual([{ name: "toString", label: "Display text", data_type: "text" }]);
+		).toEqual([
+			{
+				name: "toString",
+				label: proseText("Display text"),
+				data_type: "text",
+			},
+		]);
 	});
 });

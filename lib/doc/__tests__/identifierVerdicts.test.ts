@@ -18,6 +18,7 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import type { BlueprintDoc, Field, Form, Module, Uuid } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import {
 	caseOperationIdVerdict,
 	caseOperationLinkIdentifierVerdict,
@@ -66,33 +67,43 @@ function makeDoc(): BlueprintDoc {
 		type: "followup",
 	};
 	const fields: Record<Uuid, Field> = {
-		[AGE]: { uuid: AGE, id: "age", kind: "int", label: "Age" } as Field,
-		[GRP]: { uuid: GRP, id: "grp", kind: "group", label: "Group" } as Field,
+		[AGE]: {
+			uuid: AGE,
+			id: "age",
+			kind: "int",
+			label: proseText("Age"),
+		} as Field,
+		[GRP]: {
+			uuid: GRP,
+			id: "grp",
+			kind: "group",
+			label: proseText("Group"),
+		} as Field,
 		[KID_NAME]: {
 			uuid: KID_NAME,
 			id: "kid_name",
 			kind: "text",
-			label: "Kid name",
+			label: proseText("Kid name"),
 		} as Field,
 		[WEIGHT_F1]: {
 			uuid: WEIGHT_F1,
 			id: "weight",
 			kind: "decimal",
-			label: "Weight",
+			label: proseText("Weight"),
 			case_property_on: "patient",
 		} as Field,
 		[WEIGHT_F2]: {
 			uuid: WEIGHT_F2,
 			id: "weight",
 			kind: "decimal",
-			label: "Weight",
+			label: proseText("Weight"),
 			case_property_on: "patient",
 		} as Field,
 		[TARGET_F2]: {
 			uuid: TARGET_F2,
 			id: "target",
 			kind: "decimal",
-			label: "Target",
+			label: proseText("Target"),
 		} as Field,
 	};
 	return {

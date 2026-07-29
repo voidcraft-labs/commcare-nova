@@ -1,6 +1,5 @@
 // @vitest-environment happy-dom
 
-import { proseText } from "@/lib/domain/prose";
 import {
 	cleanup,
 	fireEvent,
@@ -10,6 +9,7 @@ import {
 	within as withinElement,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type { CaseType } from "@/lib/domain";
 import {
 	ancestorPath,
@@ -31,6 +31,7 @@ import {
 	whenInput,
 	within,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import {
 	buildPredicateKindReplacement,
 	planPredicateTransition,
@@ -72,8 +73,12 @@ const EDIT_CTX: PredicateEditContext = {
 	caseTypes: CASE_TYPES,
 	currentCaseType: "patient",
 	knownInputs: [
-		{ name: "query", data_type: "text" },
-		{ name: "location_query", data_type: "geopoint" },
+		{ uuid: testUuid("query"), name: "query", data_type: "text" },
+		{
+			uuid: testUuid("location-query"),
+			name: "location_query",
+			data_type: "geopoint",
+		},
 	],
 	caseDataScope: "per-case",
 };
@@ -222,7 +227,7 @@ describe("predicate transition planning", () => {
 	});
 
 	it("keeps a nearby center but warns that its distance settings cannot map", () => {
-		const center = term(input("location_query"));
+		const center = term(input(testUuid("location_query")));
 		const current = within(
 			prop("patient", "location"),
 			center,
@@ -270,7 +275,7 @@ describe("predicate transition planning", () => {
 
 	it("preserves a wrapper's child but confirms before removing its search-answer gate", () => {
 		const clause = eq(prop("patient", "name"), literal("Alice"));
-		const current = whenInput(input("query"), clause);
+		const current = whenInput(input(testUuid("query")), clause);
 		const next = buildPredicateKindReplacement(current, "eq", EDIT_CTX);
 
 		expect(next).toBe(clause);

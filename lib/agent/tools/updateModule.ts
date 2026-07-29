@@ -21,15 +21,14 @@
  * authoring lives on the parallel case-search-config family
  * (`setCaseSearchDisplay` for the display cluster + `setCaseSearchAdvanced`
  * for the advanced cluster). Those tools accept complete cluster projections
- * at the model boundary but persist each changed Search setting independently;
- * their full config snapshot is only the rolling-deploy fallback.
+ * at the model boundary but persist each changed Search setting independently.
  *
  * Both the SA chat factory and the MCP adapter call this through the
  * shared `ToolExecutionContext` interface.
  *
  * Three exit branches:
  *
- *   1. Module index out of range → `{ error }`, no mutations.
+ *   1. Module UUID is invalid or not found → `{ error }`, no mutations.
  *   2. Module disappeared between resolution and patch (shouldn't
  *      happen under normal flow) → `{ error }`.
  *   3. Success → human-readable summary listing the changed keys,
@@ -57,14 +56,14 @@ import {
 	type MutatingToolResult,
 	toToolErrorResult,
 } from "./common";
-import type {
-	MutationSuccess,
-	ToolCallSummary,
-} from "./shared/toolCallSummary";
 import {
 	moduleAddressSchema,
 	resolveModuleAddress,
 } from "./shared/entityAddresses";
+import type {
+	MutationSuccess,
+	ToolCallSummary,
+} from "./shared/toolCallSummary";
 
 export const updateModuleInputSchema = moduleAddressSchema
 	.extend({

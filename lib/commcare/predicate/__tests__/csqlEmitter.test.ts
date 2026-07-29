@@ -40,10 +40,8 @@
 //      a sibling `<data>` slot's value never reaches the instance —
 //      the inline shape is the only wire-correct option.
 
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-
 import {
 	ancestorPath,
 	and,
@@ -93,11 +91,44 @@ import {
 	within,
 } from "@/lib/domain/predicate/builders";
 import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
-import { type CsqlEmissionResult, emitCsql } from "../csqlEmitter";
+import { proseText } from "@/lib/domain/prose";
+import {
+	type CsqlEmissionResult,
+	emitCsql as emitCsqlRaw,
+} from "../csqlEmitter";
+
+const TEST_INPUT_CONTEXT: TypeContext = {
+	caseTypes: [],
+	knownInputs: [
+		"base_date",
+		"minimum_children",
+		"month_offset",
+		"name_query",
+		"phone_query",
+		"q",
+		"user_date",
+		"user_dt",
+		"user_loc",
+		"user_region",
+	].map((name) => ({
+		uuid: testUuid(name),
+		name,
+		data_type: name === "base_date" ? ("date" as const) : ("text" as const),
+	})),
+};
+
+function emitCsql(
+	predicate: Parameters<typeof emitCsqlRaw>[0],
+	context: TypeContext = TEST_INPUT_CONTEXT,
+): CsqlEmissionResult {
+	return emitCsqlRaw(predicate, context);
+}
 
 const TEMPORAL_INPUT_CONTEXT: TypeContext = {
 	caseTypes: [],
-	knownInputs: [{ name: "base_date", data_type: "date" }],
+	knownInputs: [
+		{ uuid: testUuid("base_date"), name: "base_date", data_type: "date" },
+	],
 };
 
 function expectDynamicallyQuotedNativeArgument(
@@ -414,7 +445,7 @@ describe("emitCsql — is-blank", () => {
 		// concat-of-alternating-quotes idiom built on
 		// `lib/commcare/xpath/grammar.lezer.grammar::StringLiteral`
 		// produces the segment chain.
-		const result = emitCsql(isBlank(input("name_query")));
+		const result = emitCsql(isBlank(input(testUuid("name_query"))));
 		expectRuntimeGuarded(
 			result,
 			`instance('search-input:results')/input/field[@name='name_query']`,
@@ -460,8 +491,8 @@ describe("emitCsql — when-input-present conditional dispatch", () => {
 		// inner clause's CSQL fragment.
 		const result = emitCsql(
 			whenInput(
-				input("name_query"),
-				eq(prop("patient", "full_name"), input("name_query")),
+				input(testUuid("name_query")),
+				eq(prop("patient", "full_name"), input(testUuid("name_query"))),
 			),
 		);
 		expectRuntimeGuarded(
@@ -480,8 +511,8 @@ describe("emitCsql — when-input-present conditional dispatch", () => {
 			and(
 				eq(prop("patient", "age"), literal(18)),
 				whenInput(
-					input("name_query"),
-					eq(prop("patient", "full_name"), input("name_query")),
+					input(testUuid("name_query")),
+					eq(prop("patient", "full_name"), input(testUuid("name_query"))),
 				),
 			),
 		);
@@ -663,7 +694,12 @@ describe("emitCsql — within-distance", () => {
 		// styles and the wrap step splits via the XPath
 		// concat-of-alternating-quotes idiom.
 		const result = emitCsql(
-			within(prop("clinic", "location"), input("user_loc"), 25, "kilometers"),
+			within(
+				prop("clinic", "location"),
+				input(testUuid("user_loc")),
+				25,
+				"kilometers",
+			),
 		);
 		expect(result.wrapper).toContain("'match-none()'");
 		expect(result.wrapper).not.toContain(
@@ -824,7 +860,10 @@ describe("emitCsql — exists / missing", () => {
 		// concat. The segment-list IR composes filter segments into
 		// the outer concat at the call site.
 		const result = emitCsql(
-			exists(subcasePath("child"), eq(prop("child", "x"), input("q"))),
+			exists(
+				subcasePath("child"),
+				eq(prop("child", "x"), input(testUuid("q"))),
+			),
 		);
 		expectRuntimeGuarded(
 			result,
@@ -1042,7 +1081,10 @@ describe("emitCsql — subcase-count in comparison-LHS (native)", () => {
 	it("emits a prompted child-count bound as a guarded raw integer token", () => {
 		const path = `instance('search-input:results')/input/field[@name='minimum_children']`;
 		const result = emitCsql(
-			gt(count(subcasePath("child")), double(term(input("minimum_children")))),
+			gt(
+				count(subcasePath("child")),
+				double(term(input(testUuid("minimum_children")))),
+			),
 		);
 
 		expect(result.wrapper).toContain(`subcase-count('child') > `);
@@ -1073,7 +1115,7 @@ describe("emitCsql — concat() wrapping shape", () => {
 
 	it("lifts a single input ref as a separate concat() arg", () => {
 		const result = emitCsql(
-			eq(prop("patient", "full_name"), input("name_query")),
+			eq(prop("patient", "full_name"), input(testUuid("name_query"))),
 		);
 		expectRuntimeGuarded(
 			result,
@@ -1085,7 +1127,7 @@ describe("emitCsql — concat() wrapping shape", () => {
 	it("lifts multiple interpolation points as separate concat() args in document order", () => {
 		const result = emitCsql(
 			and(
-				eq(prop("patient", "full_name"), input("name_query")),
+				eq(prop("patient", "full_name"), input(testUuid("name_query"))),
 				eq(prop("patient", "region"), sessionUser("region")),
 			),
 		);
@@ -1114,7 +1156,7 @@ describe("emitCsql — concat() wrapping shape", () => {
 		const result = emitCsql(
 			and(
 				eq(prop("patient", "full_name"), literal("Alice")),
-				eq(prop("patient", "region"), input("user_region")),
+				eq(prop("patient", "region"), input(testUuid("user_region"))),
 			),
 		);
 		expectRuntimeGuarded(
@@ -1713,10 +1755,10 @@ describe("emitCsql — property-via lift (recursion)", () => {
 		// through as a single runtime segment in the outer concat.
 		const result = emitCsql(
 			whenInput(
-				input("q"),
+				input(testUuid("q")),
 				eq(
 					prop("patient", "full_name", ancestorPath(relationStep("parent"))),
-					term(input("q")),
+					term(input(testUuid("q"))),
 				),
 			),
 		);
@@ -1787,7 +1829,9 @@ describe("emitCsql — term-arm unwrap (happy path)", () => {
 	});
 
 	it("unwraps a search-input reference in a comparison's right operand", () => {
-		const result = emitCsql(eq(prop("patient", "phone"), input("phone_query")));
+		const result = emitCsql(
+			eq(prop("patient", "phone"), input(testUuid("phone_query"))),
+		);
 		expectRuntimeGuarded(
 			result,
 			"phone = ",
@@ -1889,7 +1933,10 @@ describe("emitCsql — date-coerce / datetime-coerce rename", () => {
 		const xpath =
 			"instance('search-input:results')/input/field[@name='user_date']";
 		const result = emitCsql(
-			eq(prop("patient", "dob"), dateCoerce(term(input("user_date")))),
+			eq(
+				prop("patient", "dob"),
+				dateCoerce(term(input(testUuid("user_date")))),
+			),
 		);
 		expectDynamicallyQuotedNativeArgument(
 			result.wrapper,
@@ -1904,7 +1951,7 @@ describe("emitCsql — date-coerce / datetime-coerce rename", () => {
 		const result = emitCsql(
 			eq(
 				prop("patient", "modified_on"),
-				datetimeCoerce(term(input("user_dt"))),
+				datetimeCoerce(term(input(testUuid("user_dt")))),
 			),
 		);
 		expectDynamicallyQuotedNativeArgument(
@@ -1981,7 +2028,11 @@ describe("emitCsql — value-function whitelist arms in operand position", () =>
 		const result = emitCsql(
 			eq(
 				prop("patient", "due_date"),
-				dateAdd(today(), "months", double(term(input("month_offset")))),
+				dateAdd(
+					today(),
+					"months",
+					double(term(input(testUuid("month_offset")))),
+				),
 			),
 		);
 
@@ -2002,7 +2053,7 @@ describe("emitCsql — value-function whitelist arms in operand position", () =>
 		const result = emitCsql(
 			eq(
 				prop("patient", "due_date"),
-				dateAdd(term(input("base_date")), "days", term(literal(7))),
+				dateAdd(term(input(testUuid("base_date"))), "days", term(literal(7))),
 			),
 			TEMPORAL_INPUT_CONTEXT,
 		);

@@ -1,11 +1,10 @@
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { caseOperationWriteValueType } from "@/lib/doc/caseOperationWriteTypes";
-
 import type { BlueprintDoc, CaseOperation, Form, Uuid } from "@/lib/domain";
 import { formField, literal, term } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 
 const SUBJECT = testUuid("11111111-1111-4111-8111-111111111111");
 const SIBLING = testUuid("22222222-2222-4222-8222-222222222222");
@@ -58,7 +57,7 @@ function fixture(): {
 								uuid: DATE_FIELD,
 								kind: "date",
 								id: "field_written",
-								label: "Field written",
+								label: proseText("Field written"),
 								case_property_on: "patient",
 							}),
 						],

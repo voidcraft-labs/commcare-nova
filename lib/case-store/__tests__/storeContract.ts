@@ -48,7 +48,6 @@
 // `seedSchema` helper below makes that one line per test rather
 // than four.
 
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import type {
@@ -72,6 +71,7 @@ import {
 	term,
 	today,
 } from "@/lib/domain/predicate/builders";
+import { proseText } from "@/lib/domain/prose";
 import {
 	CaseNotFoundError,
 	CasePropertiesValidationError,
@@ -144,7 +144,7 @@ function submissionReceipt() {
 	submissionReceiptSequence += 1;
 	return {
 		entryKey: `store-contract-entry-${submissionReceiptSequence}`,
-		formUuid: "66666666-6666-4666-8666-666666666666",
+		formUuid: testUuid("66666666-6666-4666-8666-666666666666"),
 		expectedAppMutationSeq: 0,
 		requestDigest: `store-contract-request-${submissionReceiptSequence}`,
 	};
@@ -2441,7 +2441,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				name: "sweep",
 				properties: casePropertyDataTypes.map((dataType) => ({
 					name: `p_${dataType}`,
-					label: dataType,
+					label: proseText(dataType),
 					data_type: dataType,
 				})),
 			};

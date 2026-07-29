@@ -15,6 +15,8 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testMediaAssetId } from "@/__tests__/helpers/uuid";
+import type { MediaAssetId } from "@/lib/domain";
 import { setupAppStateTestDb } from "./appStateTestDb";
 
 const { warnSpy } = vi.hoisted(() => ({ warnSpy: vi.fn() }));
@@ -23,9 +25,13 @@ vi.mock("@/lib/logger", () => ({
 }));
 
 const h = setupAppStateTestDb("add_ref_");
+const ASSET_A = testMediaAssetId("asset-a");
+const ASSET_B = testMediaAssetId("asset-b");
+const GOOD_ASSET = testMediaAssetId("asset-good");
+const MISSING_ASSET = testMediaAssetId("asset-missing");
 
 /** Seed a `ready` `media_assets` row so a `media_asset_refs` edge can reference it. */
-async function seedAsset(id: string): Promise<void> {
+async function seedAsset(id: MediaAssetId): Promise<void> {
 	await h
 		.db()
 		.insertInto("media_assets")
@@ -46,7 +52,7 @@ async function seedAsset(id: string): Promise<void> {
 }
 
 /** The referencing-app ids recorded for an asset. */
-async function refsFor(assetId: string): Promise<string[]> {
+async function refsFor(assetId: MediaAssetId): Promise<string[]> {
 	const rows = await h
 		.db()
 		.selectFrom("media_asset_refs")
@@ -74,34 +80,34 @@ describe("addReferencingApp", () => {
 
 	it("writes one edge per UNIQUE asset id and is idempotent on a re-add", async () => {
 		const { addReferencingApp } = await import("../mediaAssets");
-		await seedAsset("a");
-		await seedAsset("b");
+		await seedAsset(ASSET_A);
+		await seedAsset(ASSET_B);
 
-		await addReferencingApp(["a", "b", "a"], "app-1");
-		expect(await refsFor("a")).toEqual(["app-1"]);
-		expect(await refsFor("b")).toEqual(["app-1"]);
+		await addReferencingApp([ASSET_A, ASSET_B, ASSET_A], "app-1");
+		expect(await refsFor(ASSET_A)).toEqual(["app-1"]);
+		expect(await refsFor(ASSET_B)).toEqual(["app-1"]);
 
 		// A re-add of a present edge changes nothing (ON CONFLICT DO NOTHING).
-		await addReferencingApp(["a"], "app-1");
-		expect(await refsFor("a")).toEqual(["app-1"]);
+		await addReferencingApp([ASSET_A], "app-1");
+		expect(await refsFor(ASSET_A)).toEqual(["app-1"]);
 	});
 
 	it("a dangling ref (no asset row → FK violation) is logged and skipped; valid edges still land", async () => {
 		const { addReferencingApp } = await import("../mediaAssets");
-		await seedAsset("good");
+		await seedAsset(GOOD_ASSET);
 		warnSpy.mockClear();
 
 		// Must NOT throw — the bad ref can't poison the batch.
 		await expect(
-			addReferencingApp(["good", "missing"], "app-1"),
+			addReferencingApp([GOOD_ASSET, MISSING_ASSET], "app-1"),
 		).resolves.toBeUndefined();
 
 		// The valid edge landed; the dangling one did not.
-		expect(await refsFor("good")).toEqual(["app-1"]);
-		expect(await refsFor("missing")).toEqual([]);
+		expect(await refsFor(GOOD_ASSET)).toEqual(["app-1"]);
+		expect(await refsFor(MISSING_ASSET)).toEqual([]);
 		// The failure was logged, naming the offending asset.
 		const warned = warnSpy.mock.calls.find(
-			(c) => c[1]?.assetId === "missing" && c[1]?.appId === "app-1",
+			(c) => c[1]?.assetId === MISSING_ASSET && c[1]?.appId === "app-1",
 		);
 		expect(warned).toBeDefined();
 	});

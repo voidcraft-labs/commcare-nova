@@ -43,10 +43,11 @@ import render from "dom-serializer";
 import type { Element } from "domhandler";
 import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
-import type {
-	SearchInputDef,
-	SearchInputType,
-	SimpleSearchInputDef,
+import {
+	SEARCH_INPUT_RUNTIME_VALUE_TYPES,
+	type SearchInputDef,
+	type SearchInputType,
+	type SimpleSearchInputDef,
 } from "@/lib/domain";
 import type { Predicate, ValueExpression } from "@/lib/domain/predicate";
 import type { RelationEvaluationScopeContext } from "@/lib/domain/predicate/normalizeRelationEvaluationScopes";
@@ -188,6 +189,14 @@ export function buildSearchPrompts(
 ): SearchPromptsEmission {
 	const elements: Element[] = [];
 	const strings: Record<string, string> = {};
+	const promptRelationContext: RelationEvaluationScopeContext = {
+		...relationContext,
+		knownInputs: searchInputs.map((input) => ({
+			uuid: input.uuid,
+			name: input.name,
+			data_type: SEARCH_INPUT_RUNTIME_VALUE_TYPES[input.type],
+		})),
+	};
 
 	for (const input of searchInputs) {
 		// When `input.label` is empty the locale registers `input.name`
@@ -210,7 +219,7 @@ export function buildSearchPrompts(
 				searchInputSuppressesAutoMatch(input),
 				validationLocaleId,
 				runtimeValidation?.test,
-				relationContext,
+				promptRelationContext,
 				lookupNaming,
 			),
 		);

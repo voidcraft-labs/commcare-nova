@@ -1,6 +1,5 @@
 // @vitest-environment happy-dom
 
-import { proseText } from "@/lib/domain/prose";
 import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { useContext } from "react";
@@ -11,6 +10,7 @@ import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { BlueprintDocContext, BlueprintDocProvider } from "@/lib/doc/provider";
 import { simpleSearchInputDef } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 
 describe("useBlueprintMutations.moveColumnOnSurface", () => {
 	it("one gesture commits exactly one moved column", () => {
@@ -42,7 +42,7 @@ describe("useBlueprintMutations.moveColumnOnSurface", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 							],

@@ -5,6 +5,7 @@ import { jsonArrayFrom } from "kysely/helpers/postgres";
 import { type AppCapability, roleAllowsApp } from "@/lib/auth/projectRoles";
 import { collectThreadAttachmentAssetIds } from "@/lib/chat/threadAttachments";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
+import type { MediaAssetId } from "@/lib/domain";
 import {
 	asWalkableDoc,
 	describeCarrier,
@@ -28,7 +29,7 @@ export type MediaMetadataDeleteResult =
  * lock instead.
  */
 export async function deleteMediaAssetForActor(args: {
-	assetId: string;
+	assetId: MediaAssetId;
 	actorUserId: string;
 	expectedProjectId?: string;
 }): Promise<MediaMetadataDeleteResult> {
@@ -42,7 +43,7 @@ export async function deleteMediaAssetForActor(args: {
 export async function deleteMediaAssetMetadataInTransaction(
 	tx: Transaction<AppDatabase>,
 	args: {
-		assetId: string;
+		assetId: MediaAssetId;
 		actorUserId: string;
 		expectedProjectId?: string;
 		requiredCapability?: AppCapability;
@@ -93,7 +94,7 @@ export async function deleteMediaAssetMetadataInTransaction(
 
 async function persistedAppReferencesInTransaction(
 	tx: Transaction<AppDatabase>,
-	args: { assetId: string; projectId: string },
+	args: { assetId: MediaAssetId; projectId: string },
 ): Promise<string[]> {
 	const state = await tx
 		.selectFrom("media_reference_index_state")

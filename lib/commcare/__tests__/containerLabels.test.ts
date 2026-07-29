@@ -29,6 +29,7 @@ import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { expandDoc } from "@/lib/commcare/expander";
 import { validateXForm } from "@/lib/commcare/validator/xformOracle";
+import { proseText } from "@/lib/domain/prose";
 
 /**
  * Pull the first form's XForm XML out of an expanded HQ application's
@@ -60,9 +61,13 @@ describe("empty-label containers — XForm emission", () => {
 								f({
 									kind: "group",
 									id: "structural_only",
-									label: "",
+									label: proseText(""),
 									children: [
-										f({ kind: "text", id: "answer", label: "Answer" }),
+										f({
+											kind: "text",
+											id: "answer",
+											label: proseText("Answer"),
+										}),
 									],
 								}),
 							],
@@ -110,8 +115,10 @@ describe("empty-label containers — XForm emission", () => {
 								f({
 									kind: "repeat",
 									id: "iterations",
-									label: "",
-									children: [f({ kind: "text", id: "value", label: "Value" })],
+									label: proseText(""),
+									children: [
+										f({ kind: "text", id: "value", label: proseText("Value") }),
+									],
 								}),
 							],
 						},
@@ -145,9 +152,13 @@ describe("empty-label containers — XForm emission", () => {
 								f({
 									kind: "group",
 									id: "section",
-									label: "Visible Section",
+									label: proseText("Visible Section"),
 									children: [
-										f({ kind: "text", id: "answer", label: "Answer" }),
+										f({
+											kind: "text",
+											id: "answer",
+											label: proseText("Answer"),
+										}),
 									],
 								}),
 							],

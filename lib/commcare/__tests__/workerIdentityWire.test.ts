@@ -9,8 +9,8 @@ import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import { parseXPathForForm } from "@/lib/doc/expressionText";
-
 import { eq, literal, sessionUserProperty } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 
 const PROPERTY_UUID = testUuid("worker-property-supervisor");
 const SESSION_PROPERTY =
@@ -64,7 +64,7 @@ function workerReferenceDoc() {
 							f({
 								kind: "text",
 								id: "supervisor_note",
-								label: "Supervisor note",
+								label: proseText("Supervisor note"),
 							}),
 						],
 					},

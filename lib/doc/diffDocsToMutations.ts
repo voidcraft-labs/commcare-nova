@@ -122,6 +122,7 @@ import {
 	caseSearchConfigHasAuthoredSettings,
 	convertNeedsOptionSeed,
 	emptyCaseListConfig,
+	fieldKindDeclaresKey,
 	hasOwnRecordKey,
 	ownRecordValue,
 } from "@/lib/domain";
@@ -507,7 +508,7 @@ export function diffDocsToMutations(
 			updates.push({
 				kind: "updateModule",
 				uuid,
-				patch: patch as Partial<Module>,
+				patch: patch as Extract<Mutation, { kind: "updateModule" }>["patch"],
 			});
 		}
 		if (menuMediaChanged(p, n)) {
@@ -560,9 +561,10 @@ export function diffDocsToMutations(
 	//
 	// A field's `id` is reconciled through the `updateField` patch, NOT
 	// `renameField`. `renameField` runs a case-property cascade — peer-field
-	// renames + `#case/`/`#<type>/` prose rewrites + a catalog rename — whose
+	// renames + structural case-property rewrites + a catalog rename — whose
 	// side effects collide with the rest of a multi-entity diff (it can drag
-	// a freshly-added peer's id, or re-key prose this diff separately pins).
+	// a freshly-added peer's id, or re-key typed carriers this diff separately
+	// pins).
 	// `updateField` sets `id` with none of that: it's a plain key on the
 	// per-kind patch schema (only `uuid` / `kind` are immutable), the reducer
 	// applies it in place, and every OTHER entity's slots + the catalog are
@@ -602,7 +604,7 @@ export function diffDocsToMutations(
 		// convert may have carried that `next` doesn't have.
 		const skip = FIELD_PATCH_SKIP;
 		const patch = kindChanged
-			? fieldPatchForConvertedField(p, n, skip)
+			? fieldPatchForConvertedField(p, n, nField.kind, skip)
 			: propertyPatch(p, n, skip);
 		// Force-pin `id` for a cross-parent-moved field even when it didn't
 		// change: the move's sibling-id dedup may have suffixed it
@@ -791,11 +793,6 @@ function diffCaseOperations(
 			kind: "updateForm",
 			uuid: formUuid,
 			patch: {},
-			caseOperationChange: {
-				operation: "move",
-				uuid: move.uuid,
-				after: move.after,
-			},
 			caseOperationPatch: {
 				operation: "move",
 				uuid: move.uuid,
@@ -814,15 +811,15 @@ function diffCaseOperations(
  * the destination kind's shared slots), so the patch must restore every
  * differing slot to `next`'s value — set each key `next` declares (that
  * isn't skipped) whose value the convert couldn't have produced, and
- * clear any non-skipped key that survived the carry-over but is absent in
- * `next`. Since the post-convert intermediate state isn't computed here,
- * the patch conservatively sets EVERY key `next` declares and clears every
- * key `prev` declared but `next` doesn't — both are reducer-safe and the
- * final state equals `next`.
+ * clear any non-skipped DESTINATION key that could have survived the
+ * carry-over but is absent in `next`. Source-only keys are already dropped
+ * by `convertField`; emitting them as `null` would put a key the destination
+ * schema does not own into its strict patch.
  */
 function fieldPatchForConvertedField(
 	prev: Record<string, unknown>,
 	next: Record<string, unknown>,
+	targetKind: Field["kind"],
 	skip: ReadonlySet<string>,
 ): Record<string, unknown> {
 	const patch: Record<string, unknown> = {};
@@ -835,7 +832,9 @@ function fieldPatchForConvertedField(
 	}
 	for (const key of Object.keys(prev)) {
 		if (key === "uuid" || key === "kind" || skip.has(key)) continue;
-		if (!Object.hasOwn(next, key)) patch[key] = null;
+		if (fieldKindDeclaresKey(targetKind, key) && !Object.hasOwn(next, key)) {
+			patch[key] = null;
+		}
 	}
 	return patch;
 }
@@ -1210,7 +1209,7 @@ function diffCaseListConfig(
 			{
 				kind: "updateModule",
 				uuid: moduleUuid,
-				patch: { caseListConfig: null } as unknown as Partial<Module>,
+				patch: { caseListConfig: null },
 			},
 		];
 	}
@@ -1512,6 +1511,18 @@ function diffCaseSearchConfig(
 				caseSearchConfig: null,
 			},
 		},
+	];
+}
+
+/** Lower one module's authored config snapshot change to the final granular
+ * mutation dialect. No whole present-config snapshot crosses this boundary. */
+export function diffModuleConfigMutations(
+	prevMod: Module,
+	nextMod: Module,
+): Mutation[] {
+	return [
+		...diffCaseListConfig(prevMod, nextMod, prevMod.uuid),
+		...diffCaseSearchConfig(prevMod, nextMod, prevMod.uuid),
 	];
 }
 

@@ -6,7 +6,6 @@
 // The card's drag surface targets `cases` (one per row); the `on`
 // and `fallback` slots stay structurally fixed.
 
-import { proseText } from "@/lib/domain/prose";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
@@ -27,6 +26,7 @@ import {
 	term,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { ExpressionCardEditor } from "../../../ExpressionCardEditor";
 
 const PATIENT: CaseType = {

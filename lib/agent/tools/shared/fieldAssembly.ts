@@ -213,7 +213,7 @@ export function assembleFieldMutations(
 		// Resolve parentUuid: the field's OWN value wins; if it didn't
 		// set one, fall back to the batch-level value; if neither is
 		// set, the field lands at the form's top level.
-		let parentUuid = processed.parentUuid ?? batchParentUuid ?? formUuid;
+		const parentUuid = processed.parentUuid ?? batchParentUuid ?? formUuid;
 		if (parentUuid !== formUuid) {
 			const earlier = earlierFields.get(parentUuid);
 			if (earlier) {
@@ -285,7 +285,7 @@ export function assembleFieldMutations(
 
 	if (rejected.length > 0) return { ok: false, rejected };
 	// Place every born field. An ANCHORED batch (a top-level block placed at
-	// `beforeFieldId` / `afterFieldId`) lands AT the anchor rather than at the
+	// `beforeFieldUuid` / `afterFieldUuid`) lands AT the anchor rather than at the
 	// end, so its first field follows the anchor's predecessor and each
 	// subsequent one follows its own predecessor in the batch. Every other field
 	// appends under its parent, and a chain of `after` through the batch is what

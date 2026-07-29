@@ -24,7 +24,6 @@
  * chains `useOrderedModules → useOrderedForms → useOrderedFields`.
  */
 
-import { proseText } from "@/lib/domain/prose";
 import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { useContext } from "react";
@@ -51,6 +50,7 @@ import {
 } from "@/lib/doc/provider";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
 import type { FieldKind } from "@/lib/domain";
+import { printProseTemplate, proseText } from "@/lib/domain/prose";
 import { toastStore } from "@/lib/ui/toastStore";
 
 // ── Fixed UUIDs ────────────────────────────────────────────────────────
@@ -93,31 +93,31 @@ const bp: BlueprintDoc = {
 			uuid: Q_A,
 			id: "a",
 			kind: "text",
-			label: "A",
+			label: proseText("A"),
 		} as BlueprintDoc["fields"][typeof Q_A],
 		[Q_B]: {
 			uuid: Q_B,
 			id: "b",
 			kind: "text",
-			label: "B",
+			label: proseText("B"),
 		} as BlueprintDoc["fields"][typeof Q_B],
 		[Q_G]: {
 			uuid: Q_G,
 			id: "grp",
 			kind: "group",
-			label: "Group",
+			label: proseText("Group"),
 		} as BlueprintDoc["fields"][typeof Q_G],
 		[Q_C]: {
 			uuid: Q_C,
 			id: "c",
 			kind: "text",
-			label: "C",
+			label: proseText("C"),
 		} as BlueprintDoc["fields"][typeof Q_C],
 		[Q_X]: {
 			uuid: Q_X,
 			id: "x",
 			kind: "text",
-			label: "X",
+			label: proseText("X"),
 		} as BlueprintDoc["fields"][typeof Q_X],
 	},
 	moduleOrder: [MOD1],
@@ -150,11 +150,7 @@ function wrapper({ children }: { children: ReactNode }) {
  * re-render loop that plain `useStore` would cause, since the selector
  * allocates a fresh array on every call.
  */
-function useMaterialize(uuids: readonly Uuid[]): Array<{
-	uuid: Uuid;
-	id: string;
-	label?: string;
-}> {
+function useMaterialize(uuids: readonly Uuid[]) {
 	return useBlueprintDocShallow((s) =>
 		uuids
 			.map((u) => s.fields[u])
@@ -252,9 +248,13 @@ describe("useBlueprintMutations", () => {
 		// `Field` union includes variants (hidden) that omit label at the
 		// type level, even though the reducer merges it unconditionally.
 		const renamed = result.current.children.find((q) => q.id === "a") as
-			| { label?: string }
+			| { label?: ReturnType<typeof proseText> }
 			| undefined;
-		expect(renamed?.label).toBe("Renamed");
+		const store = result.current.store;
+		if (!renamed?.label || !store) {
+			throw new Error("expected renamed field label and initialized store");
+		}
+		expect(printProseTemplate(renamed.label, store.getState())).toBe("Renamed");
 	});
 
 	it("renameQuestion rewrites the id in order", () => {
@@ -487,14 +487,14 @@ describe("useBlueprintMutations", () => {
 					uuid: CP_PRIMARY,
 					id: "age",
 					kind: "text",
-					label: "Age",
+					label: proseText("Age"),
 					case_property_on: "patient",
 				} as BlueprintDoc["fields"][typeof CP_PRIMARY],
 				[CP_PEER]: {
 					uuid: CP_PEER,
 					id: "age",
 					kind: "text",
-					label: "Age",
+					label: proseText("Age"),
 					case_property_on: "patient",
 				} as BlueprintDoc["fields"][typeof CP_PEER],
 				// Blocker: lives in F2 alongside the peer. If we try to rename
@@ -504,7 +504,7 @@ describe("useBlueprintMutations", () => {
 					uuid: CP_BLOCKER,
 					id: "age_new",
 					kind: "text",
-					label: "Existing",
+					label: proseText("Existing"),
 				} as BlueprintDoc["fields"][typeof CP_BLOCKER],
 			},
 			moduleOrder: [CP_M],
@@ -635,7 +635,7 @@ describe("useBlueprintMutations", () => {
 						uuid: testUuid("q-n-0000-0000-0000-000000000000"),
 						id: "note",
 						kind: "text",
-						label: "Note",
+						label: proseText("Note"),
 					} as never,
 				},
 			]);
@@ -963,7 +963,9 @@ describe("useBlueprintMutations", () => {
 		expect(s?.caseTypes).toEqual([
 			{
 				name: "person",
-				properties: [{ name: "dob", label: "DOB", data_type: "text" }],
+				properties: [
+					{ name: "dob", label: proseText("DOB"), data_type: "text" },
+				],
 			},
 		]);
 	});
@@ -998,7 +1000,9 @@ describe("useBlueprintMutations", () => {
 		expect(s?.caseTypes).toEqual([
 			{
 				name: "person",
-				properties: [{ name: "dob", label: "DOB", data_type: "text" }],
+				properties: [
+					{ name: "dob", label: proseText("DOB"), data_type: "text" },
+				],
 			},
 		]);
 	});
@@ -1090,7 +1094,7 @@ describe("useBlueprintMutations", () => {
 					uuid: Q_SRC,
 					id: "source",
 					kind: "text",
-					label: "Source",
+					label: proseText("Source"),
 				} as BlueprintDoc["fields"][typeof Q_SRC],
 				// `calculate` lives on the hidden kind only — the rewrite pass
 				// walks the registry's per-kind slot projection, so the fixture
@@ -1220,7 +1224,10 @@ describe("useBlueprintMutations", () => {
 			const converted = result.current.store?.getState().fields[Q_A];
 			expect(converted?.kind).toBe("single_select");
 			const options =
-				converted && "options" in converted ? converted.options : [];
+				converted?.kind === "single_select" &&
+				converted.optionsSource.kind === "inline"
+					? converted.optionsSource.options
+					: [];
 			expect(options.map((o) => o.value)).toEqual(["option_1", "option_2"]);
 			for (const opt of options) {
 				expect(opt.uuid).toBeTruthy();

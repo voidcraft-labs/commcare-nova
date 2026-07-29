@@ -16,10 +16,13 @@ import {
 import {
 	type BlueprintDoc,
 	type LookupOptionsSource,
+	lookupColumnIdSchema,
+	lookupTableIdSchema,
 	personasOf,
 	userPropertiesOf,
 	userTypesOf,
 } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import {
 	assembleBlueprint,
 	blueprintScalars,
@@ -80,11 +83,17 @@ describe("blueprint entity-row round trip", () => {
 		const moduleUuid = testUuid("10000000-0000-4000-8000-000000000001");
 		const formUuid = testUuid("20000000-0000-4000-8000-000000000001");
 		const fieldUuid = testUuid("30000000-0000-4000-8000-000000000001");
-		const tableId = "018f3e8a-7b2c-7def-8abc-1234567890ab";
-		const valueColumnId = "018f3e8a-7b2c-7def-8abc-1234567890ad";
-		const labelColumnId = "018f3e8a-7b2c-7def-8abc-1234567890ae";
+		const tableId = lookupTableIdSchema.parse(
+			"018f3e8a-7b2c-7def-8abc-1234567890ab",
+		);
+		const valueColumnId = lookupColumnIdSchema.parse(
+			"018f3e8a-7b2c-7def-8abc-1234567890ad",
+		);
+		const labelColumnId = lookupColumnIdSchema.parse(
+			"018f3e8a-7b2c-7def-8abc-1234567890ae",
+		);
 		const optionsSource = {
-			kind: "lookup-table",
+			kind: "lookup",
 			tableId,
 			valueColumnId,
 			labelColumnId,
@@ -101,7 +110,7 @@ describe("blueprint entity-row round trip", () => {
 					where: { kind: "match-all" },
 				},
 			},
-		} as LookupOptionsSource;
+		} satisfies LookupOptionsSource;
 		const doc: BlueprintDoc = {
 			...emptyDoc("rt-app-lookup"),
 			modules: {
@@ -124,11 +133,7 @@ describe("blueprint entity-row round trip", () => {
 					uuid: fieldUuid,
 					id: "status",
 					kind: "single_select",
-					label: "Status",
-					options: [
-						{ value: "active", label: "Active" },
-						{ value: "closed", label: "Closed" },
-					],
+					label: proseText("Status"),
 					optionsSource,
 				},
 			},
@@ -435,7 +440,7 @@ describe("the user collections", () => {
 									uuid,
 									id: "question",
 									kind: "text" as const,
-									label: "Question",
+									label: proseText("Question"),
 								},
 							],
 						]),

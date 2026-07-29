@@ -1,6 +1,6 @@
-import { proseText } from "@/lib/domain/prose";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { proseText } from "@/lib/domain/prose";
 /**
  * Integration: a real `BlueprintDoc` round-trips through
  * `runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, { mediaAssets })` and the three media
@@ -105,9 +105,9 @@ describe("media validation integration", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Patient name",
+									label: proseText("Patient name"),
 									case_property_on: "patient",
-									help: "Help text",
+									help: proseText("Help text"),
 									// Pending asset — manifest carries the row but
 									// `status: "pending"`.
 									help_media: {
@@ -117,7 +117,7 @@ describe("media validation integration", () => {
 								f({
 									kind: "single_select",
 									id: "color",
-									label: "Color",
+									label: proseText("Color"),
 									options: [
 										{
 											value: "r",
@@ -200,7 +200,7 @@ describe("media validation integration", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Patient name",
+									label: proseText("Patient name"),
 									case_property_on: "patient",
 									label_media: {
 										image: testMediaAssetId("missing-asset"),

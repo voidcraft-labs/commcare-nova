@@ -48,7 +48,6 @@
 // optional `via` shape, etc.) are enforced at parse time rather
 // than at compile time.
 
-import { proseText } from "@/lib/domain/prose";
 import {
 	type CompiledQuery,
 	DummyDriver,
@@ -59,7 +58,6 @@ import {
 } from "kysely";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-
 import type { CaseType } from "@/lib/domain";
 import {
 	ancestorPath,
@@ -75,6 +73,7 @@ import {
 	sessionUser,
 	timeLiteral,
 } from "@/lib/domain/predicate/builders";
+import { proseText } from "@/lib/domain/prose";
 import { RELATION_PATH_LEAF_ALIAS } from "../compileRelationPath";
 import { compileTerm, type TermCompileContext } from "../compileTerm";
 import type { Database } from "../database";
@@ -481,9 +480,11 @@ describe("compileTerm — input (search-input ref)", () => {
 	it("resolves from the searchInputs binding map", () => {
 		const compiled = compileTerm_(
 			compileTerm(
-				input("region_filter"),
+				input(testUuid("region_filter")),
 				makeCtx({
-					bindings: { searchInputs: new Map([["region_filter", "north"]]) },
+					bindings: {
+						searchInputs: new Map([[testUuid("region_filter"), "north"]]),
+					},
 				}),
 			),
 		);
@@ -495,7 +496,9 @@ describe("compileTerm — input (search-input ref)", () => {
 		// miss is a misuse — the wider compiler must thread the
 		// runtime values through `bindings` before calling the
 		// term compiler.
-		expect(() => compileTerm(input("missing"), makeCtx())).toThrow(/missing/i);
+		expect(() => compileTerm(input(testUuid("missing")), makeCtx())).toThrow(
+			/missing/i,
+		);
 	});
 });
 

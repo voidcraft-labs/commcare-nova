@@ -15,6 +15,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import {
 	listReadyAssetsForProject,
 	loadAssetsByIds,
@@ -161,11 +162,13 @@ describe("GET /api/media/library kind filter", () => {
 
 describe("GET /api/media/library resolve mode", () => {
 	it("routes repeated ?id= to the Project-filtered id lookup, never the lister", async () => {
-		loadAssetsByIdsMock.mockResolvedValue([{ id: "a" }, { id: "b" }]);
-		const res = await GET(reqWith("?id=a&id=b"));
+		const first = testMediaAssetId("library-first");
+		const second = testMediaAssetId("library-second");
+		loadAssetsByIdsMock.mockResolvedValue([{ id: first }, { id: second }]);
+		const res = await GET(reqWith(`?id=${first}&id=${second}`));
 		expect(res.status).toBe(200);
 		expect(res.headers.get("Cache-Control")).toBe("private, no-store");
-		expect(loadAssetsByIds).toHaveBeenCalledWith(["a", "b"], "project-1");
+		expect(loadAssetsByIds).toHaveBeenCalledWith([first, second], "project-1");
 		expect(listReadyAssetsForProject).not.toHaveBeenCalled();
 		const body = JSON.parse(await drainBody(res));
 		expect(body.assets).toHaveLength(2);

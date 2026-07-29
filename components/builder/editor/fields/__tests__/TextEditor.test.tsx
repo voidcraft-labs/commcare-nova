@@ -16,12 +16,11 @@
 // of `DisplaySection`'s `OptionalTextRow` regression test, this time
 // at the field-editor consumer.
 
-import { proseText } from "@/lib/domain/prose";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-
 import type { TextField } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import { TextEditor } from "../TextEditor";
 
 const baseField: TextField = {
@@ -51,7 +50,7 @@ describe("TextEditor — onChange no-op gate", () => {
 			/>,
 		);
 
-		const input = screen.getByLabelText("Hint") as HTMLInputElement;
+		const input = screen.getByLabelText("Hint");
 		fireEvent.focus(input);
 		fireEvent.blur(input);
 
@@ -80,7 +79,7 @@ describe("TextEditor — onChange no-op gate", () => {
 		expect(onChange).not.toHaveBeenCalled();
 	});
 
-	it("fires onChange(undefined) when blurring after clearing a populated value", () => {
+	it("fires onChange(undefined) when blurring after clearing a populated value", async () => {
 		// The gate is "nothing to clear," not "never fire." When the
 		// field already has a hint and the user empties it, the editor
 		// still needs to dispatch the removal patch.
@@ -98,7 +97,7 @@ describe("TextEditor — onChange no-op gate", () => {
 		render(
 			<TextEditor
 				field={populatedField}
-				value="Tap to enter the patient's name."
+				value={proseText("Tap to enter the patient's name.")}
 				onChange={onChange}
 				label="Hint"
 				keyName="hint"
@@ -112,7 +111,11 @@ describe("TextEditor — onChange no-op gate", () => {
 		// `.focus()` dispatches the event outside act and trips the
 		// "update … was not wrapped in act(...)" warning.
 		fireEvent.focus(input);
-		fireEvent.change(input, { target: { value: "" } });
+		input.textContent = "";
+		fireEvent.input(input, { inputType: "deleteContentBackward" });
+		await act(async () => {
+			await Promise.resolve();
+		});
 		fireEvent.blur(input);
 
 		expect(onChange).toHaveBeenCalledTimes(1);

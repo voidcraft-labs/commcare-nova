@@ -1017,6 +1017,16 @@ export interface CommitGuardedBatchResult {
 	readonly deduped: boolean;
 }
 
+interface CommitGuardedBatchInternalOptions {
+	/**
+	 * Existing transaction used only by infrastructure probes that must exercise
+	 * the exact guarded writer and then roll the surrounding transaction back.
+	 * Ordinary callers always omit this and retain the retrying transaction plus
+	 * post-commit media-index synchronization below.
+	 */
+	readonly transaction?: Transaction<AppDatabase>;
+}
+
 /** Postgres unique-violation SQLSTATE — the dedup latch's concurrent-retry arm. */
 function isUniqueViolation(err: unknown): boolean {
 	return (err as { code?: unknown })?.code === "23505";
@@ -1046,6 +1056,7 @@ function isUniqueViolation(err: unknown): boolean {
  */
 export async function commitGuardedBatch(
 	args: CommitGuardedBatchArgs,
+	internalOptions: CommitGuardedBatchInternalOptions = {},
 ): Promise<CommitGuardedBatchResult> {
 	const { appId, batchId, runId, mutations, actorUserId, kind } = args;
 	const mediaExpectations = args.mediaExpectations;
@@ -1065,204 +1076,207 @@ export async function commitGuardedBatch(
 		persistable?: PersistedBlueprint;
 	};
 
-	const commitOnce = (): Promise<InternalResult> =>
-		withAppTx(async (tx) => {
-			const fresh = await lockAppRow(tx, appId);
-			if (!fresh) {
-				throw new Error(
-					`[commitGuardedBatch] app row missing for appId=${appId}`,
-				);
-			}
-			// Idempotent replay of an already-committed batch — the latch read
-			// happens under the app row lock, so it observes every prior commit.
-			const latch = await tx
-				.selectFrom("accepted_mutations")
-				.select("seq")
-				.where("app_id", "=", appId)
-				.where("batch_id", "=", batchId)
-				.executeTakeFirst();
-			// A migration-bearing saga held this Project while its separately
-			// committed schema Phase A ran. If the app moved after that lock released,
-			// reject so the saga compensates instead of committing mismatched work.
-			assertExpectedAppProject(fresh, args.expectedProjectId);
-			if (fresh.project_id === null) {
-				if (fresh.owner !== actorUserId) {
-					throw new CommitReauthError(
-						"You don't have edit access to this app.",
-					);
-				}
-			} else {
-				await assertProjectCapabilityInTransaction(
-					tx,
-					actorUserId,
-					fresh.project_id,
-					"edit",
-					"You no longer have edit access to this app's Project.",
-				);
-			}
-			const lease = runLeaseState(leaseView(fresh));
-			if (
-				args.chatRunHolder !== undefined &&
-				!exactRunHolderMatches(lease.holderIdentity, args.chatRunHolder)
-			) {
-				throw new RunHolderLostError(lease.present ? "superseded" : "released");
-			}
-			const entities = await loadEntities(tx, appId);
-			const freshPersistable = assembleBlueprint(
-				appId,
-				{
-					app_name: fresh.app_name,
-					connect_type: fresh.connect_type,
-					case_types: fresh.case_types,
-					logo: fresh.logo,
-				},
-				entities,
+	const commitInTransaction = async (
+		tx: Transaction<AppDatabase>,
+	): Promise<InternalResult> => {
+		const fresh = await lockAppRow(tx, appId);
+		if (!fresh) {
+			throw new Error(
+				`[commitGuardedBatch] app row missing for appId=${appId}`,
 			);
-			if (latch) {
-				const dedupedDoc = hydratePersistedBlueprint(freshPersistable);
-				dedupedDoc.refIndex = buildReferenceIndex(dedupedDoc);
-				return {
-					seq: Number(latch.seq),
-					committedDoc: dedupedDoc,
-					deduped: true,
-				};
+		}
+		// Idempotent replay of an already-committed batch — the latch read
+		// happens under the app row lock, so it observes every prior commit.
+		const latch = await tx
+			.selectFrom("accepted_mutations")
+			.select("seq")
+			.where("app_id", "=", appId)
+			.where("batch_id", "=", batchId)
+			.executeTakeFirst();
+		// A migration-bearing saga held this Project while its separately
+		// committed schema Phase A ran. If the app moved after that lock released,
+		// reject so the saga compensates instead of committing mismatched work.
+		assertExpectedAppProject(fresh, args.expectedProjectId);
+		if (fresh.project_id === null) {
+			if (fresh.owner !== actorUserId) {
+				throw new CommitReauthError("You don't have edit access to this app.");
 			}
-			// Rebuild the fresh doc, reject a concurrent-delete target, re-verdict.
-			const freshDoc = hydratePersistedBlueprint(freshPersistable);
-			if (batchTargetsMissing(freshDoc, mutations)) {
-				throw new BlueprintCommitRejectedError(
-					"This app changed while you were editing — something your change " +
-						"targeted was removed by someone else. Reload to get the latest " +
-						"version, then redo that change.",
-				);
-			}
-			const prepared = prepareMutationCandidate(freshDoc, mutations);
-			const previousTargets = extractLookupReferenceTargets(freshDoc);
-			const candidateTargets = extractLookupReferenceTargets(prepared.nextDoc);
-			if (
-				fresh.project_id === null &&
-				hasLookupReferenceTargets(candidateTargets)
-			) {
-				throw new BlueprintCommitRejectedError(
-					"This legacy app has no Project, so it cannot save lookup references. Move or repair the app, then try again.",
-				);
-			}
-			const lookupTargets = unionLookupReferenceTargetSets(
-				previousTargets,
-				candidateTargets,
-			);
-			const lookupContext = await lookupContextForAuthoritativeWrite(
+		} else {
+			await assertProjectCapabilityInTransaction(
 				tx,
-				fresh.project_id,
-				lookupTargets,
-			);
-			const verdict = evaluatePreparedMutationCandidate(
-				freshDoc,
-				prepared,
-				lookupContext,
-			);
-			if (!verdict.ok) {
-				throw new BlueprintCommitRejectedError(
-					describeIntroducedErrors(verdict.introduced),
-				);
-			}
-			// Rename-expectation gate — re-prove renames against the FRESH
-			// pair and require exact set equality with what Phase A migrated.
-			// A fresh-only pair would strand values after commit. An
-			// expected-only pair is unsafe too: it can mean a peer added an
-			// unchanged writer that now KEEPS the old property, in which case
-			// stale Phase A moved that keeper's values even though the fresh
-			// mutation is no longer a property rename. Conservatively reject
-			// even the harmless peer-already-renamed case; compensation is
-			// idempotent, while guessing wrong here relocates saved case data.
-			if (args.renameExpectations !== undefined) {
-				const proven = provenRenamePairs(freshDoc, verdict.nextDoc);
-				const freshExpectations: RenameExpectation[] = [];
-				for (const [renamedType, pairs] of proven) {
-					for (const pair of pairs) {
-						freshExpectations.push({
-							caseType: renamedType,
-							from: pair.from,
-							to: pair.to,
-						});
-						const covered = args.renameExpectations.some(
-							(expectation) =>
-								expectation.caseType === renamedType &&
-								expectation.from === pair.from &&
-								expectation.to === pair.to,
-						);
-						if (!covered) {
-							throw new BlueprintCommitRejectedError(
-								`This change would rename the case property "${pair.from}" to "${pair.to}" on "${renamedType}", but it was prepared against an older version of the app and the saved case data was migrated for a different rename. Reload to get the latest state, then redo the rename.`,
-							);
-						}
-					}
-				}
-				for (const expectation of args.renameExpectations) {
-					const stillProven = freshExpectations.some(
-						(freshExpectation) =>
-							freshExpectation.caseType === expectation.caseType &&
-							freshExpectation.from === expectation.from &&
-							freshExpectation.to === expectation.to,
-					);
-					if (!stillProven) {
-						throw new BlueprintCommitRejectedError(
-							`Saved case data was prepared for a rename of "${expectation.from}" to "${expectation.to}" on "${expectation.caseType}", but the current app no longer proves that exact rename. Reload to get the latest state, then redo the rename.`,
-						);
-					}
-				}
-			}
-			const seq = Number(fresh.mutation_seq) + 1;
-			const persistable = toPersistableDoc(verdict.nextDoc);
-			await admitIntroducedMediaReferences(tx, {
-				appId,
-				projectId: fresh.project_id,
-				previousDoc: freshDoc,
-				candidateDoc: verdict.nextDoc,
-				expectations: mediaExpectations,
-			});
-			/* Per-commit EDIT lease refresh — the run-lock analogue of the build's
-			 * per-commit `updated_at` stamp. Fires only when THIS commit's run OWNS
-			 * the edit lock (through the one liveness reader). */
-			const commitLease =
-				args.chatRunHolder !== undefined
-					? runLeaseState(leaseView(fresh))
-					: undefined;
-			const ownsEditLock =
-				args.chatRunHolder?.mode === "edit" &&
-				exactRunHolderMatches(
-					commitLease?.holderIdentity ?? null,
-					args.chatRunHolder,
-				);
-			await replaceLookupReferenceEdges(tx, {
-				appId,
-				projectId: fresh.project_id,
-				targets: candidateTargets,
-			});
-			await writeCommittedBatch(tx, {
-				appId,
-				seq,
-				batchId,
-				runId,
-				prevDoc: freshPersistable,
-				committedDoc: persistable,
-				mutations,
 				actorUserId,
-				kind,
-				...(args.chatRunHolder !== undefined && {
-					expectedHolder: args.chatRunHolder,
-				}),
-				...(ownsEditLock && {
-					extraAppFields: { lock_expire_at: new Date(editLeaseDeadlineMs()) },
-				}),
-			});
+				fresh.project_id,
+				"edit",
+				"You no longer have edit access to this app's Project.",
+			);
+		}
+		const lease = runLeaseState(leaseView(fresh));
+		if (
+			args.chatRunHolder !== undefined &&
+			!exactRunHolderMatches(lease.holderIdentity, args.chatRunHolder)
+		) {
+			throw new RunHolderLostError(lease.present ? "superseded" : "released");
+		}
+		const entities = await loadEntities(tx, appId);
+		const freshPersistable = assembleBlueprint(
+			appId,
+			{
+				app_name: fresh.app_name,
+				connect_type: fresh.connect_type,
+				case_types: fresh.case_types,
+				logo: fresh.logo,
+			},
+			entities,
+		);
+		if (latch) {
+			const dedupedDoc = hydratePersistedBlueprint(freshPersistable);
+			dedupedDoc.refIndex = buildReferenceIndex(dedupedDoc);
 			return {
-				seq,
-				committedDoc: verdict.nextDoc,
-				deduped: false,
-				persistable,
+				seq: Number(latch.seq),
+				committedDoc: dedupedDoc,
+				deduped: true,
 			};
+		}
+		// Rebuild the fresh doc, reject a concurrent-delete target, re-verdict.
+		const freshDoc = hydratePersistedBlueprint(freshPersistable);
+		if (batchTargetsMissing(freshDoc, mutations)) {
+			throw new BlueprintCommitRejectedError(
+				"This app changed while you were editing — something your change " +
+					"targeted was removed by someone else. Reload to get the latest " +
+					"version, then redo that change.",
+			);
+		}
+		const prepared = prepareMutationCandidate(freshDoc, mutations);
+		const previousTargets = extractLookupReferenceTargets(freshDoc);
+		const candidateTargets = extractLookupReferenceTargets(prepared.nextDoc);
+		if (
+			fresh.project_id === null &&
+			hasLookupReferenceTargets(candidateTargets)
+		) {
+			throw new BlueprintCommitRejectedError(
+				"This legacy app has no Project, so it cannot save lookup references. Move or repair the app, then try again.",
+			);
+		}
+		const lookupTargets = unionLookupReferenceTargetSets(
+			previousTargets,
+			candidateTargets,
+		);
+		const lookupContext = await lookupContextForAuthoritativeWrite(
+			tx,
+			fresh.project_id,
+			lookupTargets,
+		);
+		const verdict = evaluatePreparedMutationCandidate(
+			freshDoc,
+			prepared,
+			lookupContext,
+		);
+		if (!verdict.ok) {
+			throw new BlueprintCommitRejectedError(
+				describeIntroducedErrors(verdict.introduced),
+			);
+		}
+		// Rename-expectation gate — re-prove renames against the FRESH
+		// pair and require exact set equality with what Phase A migrated.
+		// A fresh-only pair would strand values after commit. An
+		// expected-only pair is unsafe too: it can mean a peer added an
+		// unchanged writer that now KEEPS the old property, in which case
+		// stale Phase A moved that keeper's values even though the fresh
+		// mutation is no longer a property rename. Conservatively reject
+		// even the harmless peer-already-renamed case; compensation is
+		// idempotent, while guessing wrong here relocates saved case data.
+		if (args.renameExpectations !== undefined) {
+			const proven = provenRenamePairs(freshDoc, verdict.nextDoc);
+			const freshExpectations: RenameExpectation[] = [];
+			for (const [renamedType, pairs] of proven) {
+				for (const pair of pairs) {
+					freshExpectations.push({
+						caseType: renamedType,
+						from: pair.from,
+						to: pair.to,
+					});
+					const covered = args.renameExpectations.some(
+						(expectation) =>
+							expectation.caseType === renamedType &&
+							expectation.from === pair.from &&
+							expectation.to === pair.to,
+					);
+					if (!covered) {
+						throw new BlueprintCommitRejectedError(
+							`This change would rename the case property "${pair.from}" to "${pair.to}" on "${renamedType}", but it was prepared against an older version of the app and the saved case data was migrated for a different rename. Reload to get the latest state, then redo the rename.`,
+						);
+					}
+				}
+			}
+			for (const expectation of args.renameExpectations) {
+				const stillProven = freshExpectations.some(
+					(freshExpectation) =>
+						freshExpectation.caseType === expectation.caseType &&
+						freshExpectation.from === expectation.from &&
+						freshExpectation.to === expectation.to,
+				);
+				if (!stillProven) {
+					throw new BlueprintCommitRejectedError(
+						`Saved case data was prepared for a rename of "${expectation.from}" to "${expectation.to}" on "${expectation.caseType}", but the current app no longer proves that exact rename. Reload to get the latest state, then redo the rename.`,
+					);
+				}
+			}
+		}
+		const seq = Number(fresh.mutation_seq) + 1;
+		const persistable = toPersistableDoc(verdict.nextDoc);
+		await admitIntroducedMediaReferences(tx, {
+			appId,
+			projectId: fresh.project_id,
+			previousDoc: freshDoc,
+			candidateDoc: verdict.nextDoc,
+			expectations: mediaExpectations,
 		});
+		/* Per-commit EDIT lease refresh — the run-lock analogue of the build's
+		 * per-commit `updated_at` stamp. Fires only when THIS commit's run OWNS
+		 * the edit lock (through the one liveness reader). */
+		const commitLease =
+			args.chatRunHolder !== undefined
+				? runLeaseState(leaseView(fresh))
+				: undefined;
+		const ownsEditLock =
+			args.chatRunHolder?.mode === "edit" &&
+			exactRunHolderMatches(
+				commitLease?.holderIdentity ?? null,
+				args.chatRunHolder,
+			);
+		await replaceLookupReferenceEdges(tx, {
+			appId,
+			projectId: fresh.project_id,
+			targets: candidateTargets,
+		});
+		await writeCommittedBatch(tx, {
+			appId,
+			seq,
+			batchId,
+			runId,
+			prevDoc: freshPersistable,
+			committedDoc: persistable,
+			mutations,
+			actorUserId,
+			kind,
+			...(args.chatRunHolder !== undefined && {
+				expectedHolder: args.chatRunHolder,
+			}),
+			...(ownsEditLock && {
+				extraAppFields: { lock_expire_at: new Date(editLeaseDeadlineMs()) },
+			}),
+		});
+		return {
+			seq,
+			committedDoc: verdict.nextDoc,
+			deduped: false,
+			persistable,
+		};
+	};
+	const commitOnce = (): Promise<InternalResult> =>
+		internalOptions.transaction === undefined
+			? withAppTx(commitInTransaction)
+			: commitInTransaction(internalOptions.transaction);
 
 	let result: InternalResult;
 	try {
@@ -1270,16 +1284,36 @@ export async function commitGuardedBatch(
 	} catch (err) {
 		// A concurrent commit of the SAME batchId slipped between our latch read
 		// and insert — the UNIQUE constraint caught it; converge on the dedup.
-		if (!isUniqueViolation(err)) throw err;
+		// An externally-owned transaction is already aborted by the violation,
+		// so its rollback-only probe must fail instead of attempting a retry.
+		if (internalOptions.transaction !== undefined || !isUniqueViolation(err)) {
+			throw err;
+		}
 		result = await commitOnce();
 	}
 
 	// Post-commit media reverse-index sync — best-effort, only on a real commit.
-	if (!result.deduped && result.persistable !== undefined) {
+	if (
+		internalOptions.transaction === undefined &&
+		!result.deduped &&
+		result.persistable !== undefined
+	) {
 		await syncMediaReferences(appId, result.persistable);
 	}
 	const { persistable: _persistable, ...publicResult } = result;
 	return publicResult;
+}
+
+/**
+ * Infrastructure-only transaction seam for the migration entrypoint's runtime
+ * authority probe. The caller owns commit/rollback; no post-commit side effect
+ * may escape that transaction.
+ */
+export async function commitGuardedBatchInTransaction(
+	tx: Transaction<AppDatabase>,
+	args: CommitGuardedBatchArgs,
+): Promise<CommitGuardedBatchResult> {
+	return commitGuardedBatch(args, { transaction: tx });
 }
 
 export type SyntheticBatchAuthority =
@@ -1874,11 +1908,11 @@ export async function commitAppProjectMoveInTransaction(
 		args.assetIdMap.has(sourceId),
 	);
 	const destinationIds = mappedFreshSources.map(
-		(sourceId) => args.assetIdMap.get(sourceId) as string,
+		(sourceId) => args.assetIdMap.get(sourceId) as MediaAssetId,
 	);
 	const destinationAssets = await getAssetsInTransaction(tx, destinationIds);
 	for (const sourceId of mappedFreshSources) {
-		const destinationId = args.assetIdMap.get(sourceId) as string;
+		const destinationId = args.assetIdMap.get(sourceId) as MediaAssetId;
 		const asset = destinationAssets.get(destinationId);
 		if (
 			asset === undefined ||

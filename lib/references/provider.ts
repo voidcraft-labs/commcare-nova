@@ -14,8 +14,8 @@
 import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
 import { type FieldPath, fpath } from "@/lib/doc/fieldPath";
 import {
-	caseRefAcceptMap,
 	BUILT_IN_USER_PROPERTIES,
+	caseRefAcceptMap,
 	type FieldKind,
 	fieldKinds,
 	fieldRegistry,
@@ -216,13 +216,13 @@ export class ReferenceProvider {
 	resolve(
 		raw: string,
 		formUuid?: string,
-		surface: ReferenceSurface = "prose",
+		_surface: ReferenceSurface = "prose",
 	): Reference | null {
 		const parsed = ReferenceProvider.parse(raw);
 		if (!parsed) return null;
 
 		if (parsed.type === "user") {
-			if (surface === "xpath" && formUuid !== undefined) {
+			if (formUuid !== undefined) {
 				// Custom worker properties are mutable identities. Resolve them
 				// from the live context rather than the cached form index so a
 				// rename updates chips immediately without rewriting the XPath

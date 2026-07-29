@@ -32,6 +32,7 @@
 // next to the code.
 
 import type { LookupTableId } from "@/lib/domain/lookupIds";
+import type { SearchInputDecl } from "@/lib/domain/predicate/typeChecker";
 import type {
 	PropertyRef,
 	RelationStep,
@@ -40,7 +41,6 @@ import type {
 	SessionUserRef,
 	Term,
 } from "@/lib/domain/predicate/types";
-import type { SearchInputDecl } from "@/lib/domain/predicate/typeChecker";
 import type { Uuid } from "@/lib/domain/uuid";
 import { emitCasePropertyWirePath } from "../casePropertyWire";
 import type { LookupWireNaming } from "../lookup/naming";

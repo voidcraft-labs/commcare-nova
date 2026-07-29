@@ -1,4 +1,3 @@
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
@@ -28,6 +27,7 @@ import {
 	term,
 	unwrapList,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { caseWorkspaceBoundaryVerdicts } from "../commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "../lookupReferences";
 

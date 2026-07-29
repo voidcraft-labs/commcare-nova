@@ -18,7 +18,6 @@
 //     happy-dom is unreliable; the render-time grip-presence
 //     assertion is the direct contract.
 
-import { proseText } from "@/lib/domain/prose";
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { CaseType } from "@/lib/domain";
@@ -32,6 +31,7 @@ import {
 	or,
 	prop,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { PredicateCardEditor } from "../../PredicateCardEditor";
 
 const PATIENT: CaseType = {

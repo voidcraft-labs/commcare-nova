@@ -33,7 +33,6 @@
 // halves of the contract: no twin carry-over, and the fresh shape
 // the user actually sees after the reset.
 
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import type { CaseType } from "@/lib/domain";
 import {
@@ -47,6 +46,7 @@ import {
 	relationStep,
 	term,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { preservedOperandSwap } from "../cards/ChildPredicateEditor";
 import {
 	type PredicateEditContext,

@@ -4,7 +4,7 @@ import type { UIMessage } from "ai";
 import type { Kysely } from "kysely";
 import { Client } from "pg";
 import { describe, expect, it } from "vitest";
-import { testMediaAssetId } from "@/__tests__/helpers/uuid";
+import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
 import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
 import type { Database } from "@/lib/case-store/sql/database";
@@ -79,7 +79,7 @@ async function commitMove(
 }
 
 async function seedReadyAsset(args: {
-	id: string;
+	id: MediaAssetId;
 	projectId: string;
 	kind: "image" | "document";
 }): Promise<void> {
@@ -772,7 +772,7 @@ describe("dormant atomic Project move", () => {
 				project_id: SOURCE,
 				created_by: ACTOR,
 				entry_key: crypto.randomUUID(),
-				field_uuid: crypto.randomUUID(),
+				field_uuid: testUuid(crypto.randomUUID()),
 				instance_path: "/data/photo",
 				original_filename: "photo.png",
 				extension: ".png",
@@ -805,7 +805,7 @@ describe("dormant atomic Project move", () => {
 				project_id: SOURCE,
 				created_by: ACTOR,
 				entry_key: crypto.randomUUID(),
-				form_uuid: crypto.randomUUID(),
+				form_uuid: testUuid(crypto.randomUUID()),
 				app_mutation_seq: 0,
 				request_digest: "request-digest",
 				result: null,

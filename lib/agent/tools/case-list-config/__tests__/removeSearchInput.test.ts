@@ -71,7 +71,7 @@ describe("removeSearchInput", () => {
 		const { ctx } = makeCaseListFixture();
 		const doc = fixtureWithInputs();
 		const result = await removeSearchInputTool.execute(
-			{ moduleIndex: 0, searchInputUuid: TARGET_UUID },
+			{ moduleUuid: MOD_A, searchInputUuid: TARGET_UUID },
 			ctx,
 			doc,
 		);
@@ -86,7 +86,7 @@ describe("removeSearchInput", () => {
 		const { ctx } = makeCaseListFixture();
 		const doc = fixtureWithInputs();
 		const result = await removeSearchInputTool.execute(
-			{ moduleIndex: 0, searchInputUuid: TARGET_UUID },
+			{ moduleUuid: MOD_A, searchInputUuid: TARGET_UUID },
 			ctx,
 			doc,
 		);
@@ -117,7 +117,7 @@ describe("removeSearchInput", () => {
 			},
 		} satisfies BlueprintDoc;
 		const result = await removeSearchInputTool.execute(
-			{ moduleIndex: 0, searchInputUuid: TARGET_UUID },
+			{ moduleUuid: MOD_A, searchInputUuid: TARGET_UUID },
 			ctx,
 			withOne,
 		);
@@ -153,7 +153,7 @@ describe("removeSearchInput", () => {
 		} satisfies BlueprintDoc;
 
 		const result = await removeSearchInputTool.execute(
-			{ moduleIndex: 0, searchInputUuid: TARGET_UUID },
+			{ moduleUuid: MOD_A, searchInputUuid: TARGET_UUID },
 			ctx,
 			customized,
 		);
@@ -167,7 +167,7 @@ describe("removeSearchInput", () => {
 			{
 				kind: "updateModule",
 				uuid: MOD_A,
-				patch: { caseSearchConfig: null },
+				patch: {},
 				caseSearchConfigOperation: "cleanup-after-final-input",
 			},
 		]);
@@ -179,11 +179,11 @@ describe("removeSearchInput", () => {
 		expect(result.result.remaining).toBe(0);
 	});
 
-	it("returns an Elm-style error on out-of-range moduleIndex", async () => {
+	it("returns the canonical UUID-address error for an unknown module", async () => {
 		const { ctx } = makeCaseListFixture();
 		const doc = fixtureWithInputs();
 		const result = await removeSearchInputTool.execute(
-			{ moduleIndex: 99, searchInputUuid: TARGET_UUID },
+			{ moduleUuid: testUuid("unknown-module"), searchInputUuid: TARGET_UUID },
 			ctx,
 			doc,
 		);
@@ -192,8 +192,7 @@ describe("removeSearchInput", () => {
 		if (!("error" in result.result)) {
 			throw new Error("expected error result");
 		}
-		expect(result.result.error).toContain("Tried to remove");
-		expect(result.result.error).toContain("module index 99");
+		expect(result.result.error).toContain("No module with UUID");
 	});
 
 	it("returns an Elm-style error when the search-input uuid is unknown", async () => {
@@ -201,7 +200,7 @@ describe("removeSearchInput", () => {
 		const doc = fixtureWithInputs();
 		const unknown = testUuid("dddddddd-dddd-dddd-dddd-dddddddddddd");
 		const result = await removeSearchInputTool.execute(
-			{ moduleIndex: 0, searchInputUuid: unknown },
+			{ moduleUuid: MOD_A, searchInputUuid: unknown },
 			ctx,
 			doc,
 		);

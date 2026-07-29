@@ -12,6 +12,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import {
 	decodeLibraryCursor,
 	encodeLibraryCursor,
@@ -21,11 +22,12 @@ import {
 describe("library cursor codec", () => {
 	it("round-trips the created_at ms + id (the tie-break composite key)", () => {
 		const createdAt = new Date("2026-06-03T04:05:06.789Z");
+		const assetId = testMediaAssetId("asset-1");
 		const { createdAtMs, id } = decodeLibraryCursor(
-			encodeLibraryCursor(createdAt, "asset-1"),
+			encodeLibraryCursor(createdAt, assetId),
 		);
 		expect(createdAtMs).toBe(createdAt.getTime());
-		expect(id).toBe("asset-1");
+		expect(id).toBe(assetId);
 	});
 
 	it("rejects a non-base64 / non-JSON token", () => {

@@ -14,12 +14,12 @@
  * maintenance cutover cannot silently retarget authored logic.
  */
 
-import { proseText } from "@/lib/domain/prose";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { ResolvedConnectConfig } from "@/lib/commcare/connectSlugs";
 import { expandDoc } from "@/lib/commcare/expander";
+import { proseText } from "@/lib/domain/prose";
 
 // HQ unique_ids/xmlns are random per expansion — pin them to a
 // deterministic counter so the pre/post comparison is over CONTENT
@@ -78,7 +78,7 @@ function richDoc(): BlueprintDoc {
 							f({
 								kind: "int",
 								id: "age",
-								label: "Age",
+								label: proseText("Age"),
 								case_property_on: "patient",
 								validate: ". >= 0 and . <= 120",
 								required: "true()",
@@ -86,7 +86,7 @@ function richDoc(): BlueprintDoc {
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Name",
+								label: proseText("Name"),
 								case_property_on: "patient",
 							}),
 							f({
@@ -96,7 +96,7 @@ function richDoc(): BlueprintDoc {
 									f({
 										kind: "text",
 										id: "inner",
-										label: "Inner",
+										label: proseText("Inner"),
 										relevant: "#form/age > 17 and /data/age != ''",
 									}),
 								],
@@ -125,7 +125,7 @@ function richDoc(): BlueprintDoc {
 							f({
 								kind: "text",
 								id: "notes",
-								label: "Notes",
+								label: proseText("Notes"),
 								default_value: "concat('a', \"b\")",
 								relevant: "#patient/age > 0 and #user/role != ''",
 								required: "#form/age >= 18",
@@ -133,24 +133,32 @@ function richDoc(): BlueprintDoc {
 							f({
 								kind: "repeat",
 								id: "kids",
-								label: "Children",
+								label: proseText("Children"),
 								repeat_mode: "count_bound",
 								repeat_count: "#form/age - 18",
 								children: [
-									f({ kind: "text", id: "kid_name", label: "Kid name" }),
+									f({
+										kind: "text",
+										id: "kid_name",
+										label: proseText("Kid name"),
+									}),
 								],
 							}),
 							f({
 								kind: "repeat",
 								id: "visits",
-								label: "Visits",
+								label: proseText("Visits"),
 								repeat_mode: "query_bound",
 								data_source: {
 									ids_query:
 										"instance('casedb')/casedb/case[@case_type='visit']/@case_id",
 								},
 								children: [
-									f({ kind: "text", id: "visit_note", label: "Note" }),
+									f({
+										kind: "text",
+										id: "visit_note",
+										label: proseText("Note"),
+									}),
 								],
 							}),
 						],
@@ -162,7 +170,7 @@ function richDoc(): BlueprintDoc {
 							f({
 								kind: "text",
 								id: "status",
-								label: "Status",
+								label: proseText("Status"),
 								relevant: "#case/age > 1",
 								case_property_on: "patient",
 							}),
@@ -187,7 +195,9 @@ function richDoc(): BlueprintDoc {
 								user_score: "#form/score + 0",
 							},
 						} as unknown as Form["connect"],
-						fields: [f({ kind: "int", id: "score", label: "Score" })],
+						fields: [
+							f({ kind: "int", id: "score", label: proseText("Score") }),
+						],
 					},
 					{
 						name: "Close case",
@@ -197,7 +207,7 @@ function richDoc(): BlueprintDoc {
 							f({
 								kind: "single_select",
 								id: "outcome",
-								label: "Outcome",
+								label: proseText("Outcome"),
 								options: [
 									{ value: "deceased", label: "Deceased" },
 									{ value: "moved", label: "Moved" },

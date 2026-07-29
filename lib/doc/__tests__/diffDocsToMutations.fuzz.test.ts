@@ -34,7 +34,6 @@
  * moment, so a batch is a sequence of dependent edits, not a static plan.
  */
 
-import { proseText } from "@/lib/domain/prose";
 import * as fc from "fast-check";
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
@@ -53,10 +52,10 @@ import {
 } from "@/lib/doc/fieldWalk";
 import { applyMutations } from "@/lib/doc/mutations";
 import { findContainingForm } from "@/lib/doc/mutations/helpers";
-import { backfillOptionUuids } from "@/lib/doc/optionIdentity";
 import { type Mutation, mutationSchema } from "@/lib/doc/types";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { eq, literal, prop } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 
 // ── Seeds ─────────────────────────────────────────────────────────────
 
@@ -77,8 +76,8 @@ function singleModuleDoc(): BlueprintDoc {
 						name: "Intake",
 						type: "survey",
 						fields: [
-							f({ kind: "text", id: "q1", label: "Q1" }),
-							f({ kind: "int", id: "q2", label: "Q2" }),
+							f({ kind: "text", id: "q1", label: proseText("Q1") }),
+							f({ kind: "int", id: "q2", label: proseText("Q2") }),
 						],
 					},
 				],
@@ -124,31 +123,37 @@ function richDoc(): BlueprintDoc {
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Name",
+								label: proseText("Name"),
 								case_property_on: "patient",
 							}),
 							f({
 								kind: "int",
 								id: "age",
-								label: "Age",
+								label: proseText("Age"),
 								case_property_on: "patient",
 							}),
 							f({
 								kind: "group",
 								id: "grp",
-								label: "Group",
+								label: proseText("Group"),
 								children: [
-									f({ kind: "text", id: "inner", label: "Inner" }),
-									f({ kind: "text", id: "inner2", label: "Inner 2" }),
+									f({ kind: "text", id: "inner", label: proseText("Inner") }),
+									f({
+										kind: "text",
+										id: "inner2",
+										label: proseText("Inner 2"),
+									}),
 								],
 							}),
 							f({
 								kind: "repeat",
 								id: "rep",
-								label: "Repeat",
-								children: [f({ kind: "text", id: "rep_q", label: "Rep Q" })],
+								label: proseText("Repeat"),
+								children: [
+									f({ kind: "text", id: "rep_q", label: proseText("Rep Q") }),
+								],
 							}),
-							f({ kind: "text", id: "outcome", label: "Outcome" }),
+							f({ kind: "text", id: "outcome", label: proseText("Outcome") }),
 						],
 					},
 					{
@@ -158,7 +163,7 @@ function richDoc(): BlueprintDoc {
 							f({
 								kind: "text",
 								id: "village",
-								label: "Village",
+								label: proseText("Village"),
 								case_property_on: "patient",
 							}),
 						],
@@ -176,7 +181,7 @@ function richDoc(): BlueprintDoc {
 							f({
 								kind: "text",
 								id: "region",
-								label: "Region",
+								label: proseText("Region"),
 								case_property_on: "household",
 							}),
 						],
@@ -516,13 +521,13 @@ function lower(doc: BlueprintDoc, op: FuzzOp): Mutation[] {
 						uuid: mintUuid(),
 						kind: "group",
 						id: ID_POOL[op.idPick],
-						label: "Group",
+						label: proseText("Group"),
 					} as never)
 				: ({
 						uuid: mintUuid(),
 						kind: "text",
 						id: ID_POOL[op.idPick],
-						label: LABEL_POOL[op.labelPick],
+						label: proseText(LABEL_POOL[op.labelPick]),
 						relevant: parseXPathForForm(
 							doc,
 							formUuid,
@@ -589,7 +594,7 @@ function lower(doc: BlueprintDoc, op: FuzzOp): Mutation[] {
 						relevant: op.clearRelevant
 							? null
 							: parseXPathForField(doc, uuid, XPATH_POOL[op.relevantPick]),
-						label: LABEL_POOL[op.labelPick],
+						label: proseText(LABEL_POOL[op.labelPick]),
 					},
 				} as Mutation,
 			];
@@ -740,7 +745,7 @@ function lower(doc: BlueprintDoc, op: FuzzOp): Mutation[] {
 						: [
 								{
 									name: "patient",
-									properties: [{ name: "case_name", label: "N" }],
+									properties: [{ name: "case_name", label: proseText("N") }],
 								},
 							],
 				},
@@ -847,12 +852,7 @@ describe("diffDocsToMutations — diff(prev, next) replayed on prev ≡ next", (
 				fc.array(opArb, { minLength: 0, maxLength: 16 }),
 				(seedPick, batchA, batchB) => {
 					iterations++;
-					// Backfill the seed ONCE so every initial entity is keyed (the
-					// hydration boundary does this in production); the fuzz's adds +
-					// order-key moves then keep prev/next consistently keyed.
-					const seed = produce(SEEDS[seedPick](), (draft) => {
-						backfillOptionUuids(draft);
-					});
+					const seed = SEEDS[seedPick]();
 					const prev = applyOps(seed, batchA);
 					const next = applyOps(prev, batchB);
 					assertRoundTrip(prev, next);
@@ -936,13 +936,13 @@ describe("diffDocsToMutations — explicit cases", () => {
 								{
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								},
 								{
 									kind: "int",
 									id: "age",
-									label: "Age",
+									label: proseText("Age"),
 									case_property_on: "patient",
 								},
 							],
@@ -990,8 +990,8 @@ describe("diffDocsToMutations — explicit cases", () => {
 								f({
 									kind: "text",
 									id: "pw",
-									label: "Password",
-									hint: "secret",
+									label: proseText("Password"),
+									hint: proseText("secret"),
 								}),
 							],
 						},
@@ -1003,7 +1003,7 @@ describe("diffDocsToMutations — explicit cases", () => {
 			const target = Object.values(draft.fields).find((fld) => fld.id === "pw");
 			if (target) {
 				(target as Record<string, unknown>).kind = "secret";
-				(target as Record<string, unknown>).label = "PIN";
+				(target as Record<string, unknown>).label = proseText("PIN");
 			}
 		});
 		const diff = diffDocsToMutations(prev, next);
@@ -1042,12 +1042,14 @@ describe("diffDocsToMutations — explicit cases", () => {
 							name: "F",
 							type: "survey",
 							fields: [
-								f({ kind: "text", id: "loose", label: "Loose" }),
+								f({ kind: "text", id: "loose", label: proseText("Loose") }),
 								f({
 									kind: "group",
 									id: "g",
-									label: "Group",
-									children: [f({ kind: "text", id: "child", label: "Child" })],
+									label: proseText("Group"),
+									children: [
+										f({ kind: "text", id: "child", label: proseText("Child") }),
+									],
 								}),
 							],
 						},
@@ -1090,12 +1092,14 @@ describe("diffDocsToMutations — explicit cases", () => {
 							name: "Reg",
 							type: "registration",
 							fields: [
-								f({ kind: "text", id: "a", label: "A" }),
+								f({ kind: "text", id: "a", label: proseText("A") }),
 								f({
 									kind: "group",
 									id: "grp",
-									label: "G",
-									children: [f({ kind: "text", id: "b", label: "B" })],
+									label: proseText("G"),
+									children: [
+										f({ kind: "text", id: "b", label: proseText("B") }),
+									],
 								}),
 							],
 						},

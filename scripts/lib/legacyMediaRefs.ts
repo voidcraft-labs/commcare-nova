@@ -24,9 +24,13 @@
 
 import type { Kysely } from "kysely";
 import type { AppDatabase } from "../../lib/db/pg";
-import { updateModuleMutation } from "../../lib/doc/addModuleMutation";
 import type { BlueprintDoc, Mutation, Uuid } from "../../lib/doc/types";
-import { asUuid, type Media, type SelectOption } from "../../lib/domain";
+import {
+	asUuid,
+	type Media,
+	type MediaAssetId,
+	mediaAssetIdSchema,
+} from "../../lib/domain";
 import {
 	type AssetRef,
 	describeCarrier,
@@ -55,7 +59,11 @@ export async function loadAssetRowsForScan(
 	db: Kysely<AppDatabase>,
 	ids: readonly string[],
 ): Promise<Map<string, ScanAssetRow>> {
-	const unique = [...new Set(ids)].filter((id) => id.length > 0);
+	const unique: MediaAssetId[] = [];
+	for (const id of new Set(ids)) {
+		const parsed = mediaAssetIdSchema.safeParse(id);
+		if (parsed.success) unique.push(parsed.data);
+	}
 	const out = new Map<string, ScanAssetRow>();
 	if (unique.length === 0) return out;
 	const rows = await db
@@ -216,7 +224,7 @@ export function planMediaRefClears(
 	};
 
 	// Group per carrier so wholesale writes compose: one mutation per
-	// module menu, form menu, field bundle, options array, or case-list
+	// module menu, form menu, field bundle, inline options source, or case-list
 	// config — whatever subset of its slots is dead.
 	interface MenuSlots {
 		icon?: ClassifiedMediaRef;
@@ -311,19 +319,14 @@ export function planMediaRefClears(
 	for (const [moduleUuid, slots] of caseList) {
 		const config = doc.modules[moduleUuid]?.caseListConfig;
 		if (!config) continue;
-		// Wholesale rebuild OMITTING the dead keys — a concrete object
-		// survives JSON whole, so the dropped key clears cleanly (the same
-		// path the case-list workspace's own clear uses).
-		const { icon, audioLabel, ...rest } = config;
-		mutations.push(
-			updateModuleMutation(moduleUuid, {
-				caseListConfig: {
-					...rest,
-					...(slots.icon || icon === undefined ? {} : { icon }),
-					...(slots.audio || audioLabel === undefined ? {} : { audioLabel }),
-				},
-			}),
-		);
+		mutations.push({
+			kind: "setCaseListMeta",
+			uuid: moduleUuid,
+			patch: {
+				...(slots.icon && { icon: null }),
+				...(slots.audio && { audioLabel: null }),
+			},
+		});
 		if (slots.icon) note(slots.icon);
 		if (slots.audio) note(slots.audio);
 	}
@@ -353,39 +356,40 @@ export function planMediaRefClears(
 
 	for (const [fieldUuid, entries] of optionMedia) {
 		const field = doc.fields[fieldUuid];
-		if (!field || !("options" in field) || !Array.isArray(field.options)) {
+		if (
+			!field ||
+			(field.kind !== "single_select" && field.kind !== "multi_select") ||
+			field.optionsSource.kind !== "inline"
+		) {
 			continue;
 		}
-		const deadByValue = new Map<string, ClassifiedMediaRef[]>();
+		const deadByUuid = new Map<Uuid, ClassifiedMediaRef[]>();
 		for (const entry of entries) {
 			if (entry.ref.location.kind !== "option_media") continue;
-			const value = entry.ref.location.optionValue;
-			deadByValue.set(value, [...(deadByValue.get(value) ?? []), entry]);
+			const optionUuid = entry.ref.location.optionUuid;
+			deadByUuid.set(optionUuid, [
+				...(deadByUuid.get(optionUuid) ?? []),
+				entry,
+			]);
 		}
-		const options: SelectOption[] = (field.options as SelectOption[]).map(
-			(option) => {
-				const deadHere = deadByValue.get(option.value);
-				if (!deadHere || !option.media) return option;
-				const cleaned: Media = { ...option.media };
-				for (const entry of deadHere) delete cleaned[entry.ref.slotKind];
-				const hasAny =
-					cleaned.image !== undefined ||
-					cleaned.audio !== undefined ||
-					cleaned.video !== undefined;
-				const { media: _was, ...rest } = option;
-				return hasAny ? { ...rest, media: cleaned } : rest;
-			},
-		);
-		// Wholesale concrete-array patch — the rebuilt option simply omits
-		// its `media` key, which survives JSON (the same shape the
-		// attach_option_media tool writes).
-		mutations.push({
-			kind: "updateField",
-			uuid: field.uuid,
-			targetKind: field.kind,
-			patch: { options },
-		} as unknown as Mutation);
-		for (const entry of entries) note(entry);
+		for (const option of field.optionsSource.options) {
+			const deadHere = deadByUuid.get(option.uuid);
+			if (!deadHere || !option.media) continue;
+			const cleaned: Media = { ...option.media };
+			for (const entry of deadHere) delete cleaned[entry.ref.slotKind];
+			const hasAny =
+				cleaned.image !== undefined ||
+				cleaned.audio !== undefined ||
+				cleaned.video !== undefined;
+			const { media: _was, ...rest } = option;
+			mutations.push({
+				kind: "updateOption",
+				fieldUuid: field.uuid,
+				uuid: option.uuid,
+				option: hasAny ? { ...rest, media: cleaned } : rest,
+			});
+			for (const entry of deadHere) note(entry);
+		}
 	}
 
 	return { notes, mutations, clearedIdentities, unclearable };

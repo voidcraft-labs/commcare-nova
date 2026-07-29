@@ -158,6 +158,18 @@ steps:
         set -euo pipefail
         cleanup_job=commcare-nova-capture-cleanup
         scheduler_account=nova-capture-scheduler@commcare-nova.iam.gserviceaccount.com
+        scheduler_existed=false
+        scheduler_error_file=/workspace/capture-cleanup-scheduler-describe.err
+        if scheduler_state_before="$$(gcloud scheduler jobs describe "$${cleanup_job}" \
+          --location=us-central1 --format='value(state)' \
+          2>"$${scheduler_error_file}")"; then
+          scheduler_existed=true
+        elif grep -Eqi 'not[ _-]?found|does not exist' "$${scheduler_error_file}"; then
+          scheduler_state_before=
+        else
+          cat "$${scheduler_error_file}" >&2
+          exit 1
+        fi
         gcloud run jobs deploy "$${cleanup_job}" \
           --image=us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/commcare-nova/app:$BUILD_ID \
           --region=us-central1 \
@@ -184,18 +196,39 @@ steps:
           --oauth-service-account-email="$${scheduler_account}"
           --oauth-token-scope=https://www.googleapis.com/auth/cloud-platform
         )
-        if gcloud scheduler jobs describe "$${cleanup_job}" --location=us-central1 >/dev/null 2>&1; then
+        if [[ "$${scheduler_existed}" == true ]]; then
           gcloud scheduler jobs update http "$${cleanup_job}" "$${scheduler_args[@]}" \
             --update-headers=Content-Type=application/json
         else
           gcloud scheduler jobs create http "$${cleanup_job}" "$${scheduler_args[@]}" \
             --headers=Content-Type=application/json
         fi
+        scheduler_state_after="$$(gcloud scheduler jobs describe "$${cleanup_job}" \
+          --location=us-central1 --format='value(state)')"
+        if [[ "$${scheduler_existed}" == true ]]; then
+          if [[ "$${scheduler_state_after}" != "$${scheduler_state_before}" ]]; then
+            echo "Capture-cleanup scheduler state changed from $${scheduler_state_before} to $${scheduler_state_after}." >&2
+            exit 1
+          fi
+        elif [[ "$${scheduler_state_after}" != ENABLED ]]; then
+          echo "New capture-cleanup scheduler is not enabled." >&2
+          exit 1
+        fi
+        gcloud run jobs execute "$${cleanup_job}" \
+          --region=us-central1 \
+          --wait \
+          --args=capture-cleanup.cjs,--probe-schema
 
-  # `--min-instances=1` is pinned here on purpose: a bare `gcloud run deploy`
-  # carries forward existing scaling, but pinning it means a fresh service or a
-  # reset can't silently drop back to scale-to-zero (which exposes the cold
-  # boot on every idle return). Keep it explicit.
+  # The checked-in deployment policy accepts only automatic scaling or the
+  # maintenance cutover's manual-zero state. `gcloud run deploy` deliberately
+  # receives no `--scaling` flag, then the policy proves the exact immutable
+  # candidate is Ready at 100% with no tags before a separate scaling-only
+  # `--scaling=auto` update. That last update must create no revision.
+  #
+  # Both service-level and revision-level min/max bounds are pinned. Manual
+  # scaling ignores them while the maintenance candidate passes its deployment
+  # health check; returning to automatic scaling restores the exact 1..4
+  # service range without a second revision.
   #
   # `--no-cpu-throttling` (CPU always allocated) is REQUIRED, not tuning: the
   # Cloud SQL connector refreshes its short-lived ephemeral mTLS certificate on
@@ -238,14 +271,19 @@ steps:
       - |
         set -euo pipefail
         source /workspace/rollout.env
-        gcloud run deploy commcare-nova \
-          --image=us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/commcare-nova/app:$BUILD_ID \
+        python3 scripts/rollout/deploy-cloud-run.py \
+          --project="$PROJECT_ID" \
           --region=us-central1 \
+          --service=commcare-nova \
+          --image=us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/commcare-nova/app:$BUILD_ID \
+          --expected-min=1 \
+          --expected-max=4 \
+          -- \
           --service-account=commcare-nova@commcare-nova.iam.gserviceaccount.com \
           --network=default --subnet=default --vpc-egress=private-ranges-only \
           --update-env-vars=NOVA_DB_WORKLOAD=service,NOVA_DB_USER=commcare-nova@commcare-nova.iam,NOVA_DB_INSTANCE_CONNECTION_NAME=commcare-nova:us-central1:nova-cases,NOVA_DB_NAME=nova_cases,NOVA_MEDIA_BUCKET=nova-multimedia-prod \
           --no-default-url --ingress=internal-and-cloud-load-balancing \
-          --min-instances=1 --max=4 --max-instances=4 \
+          --min=1 --max=4 --min-instances=1 --max-instances=4 \
           --timeout="$${NOVA_CLOUD_RUN_REQUEST_SECONDS}s" \
           --no-cpu-throttling \
           --update-secrets=OPENAI_API_KEY=nova-openai-api-key:latest \
@@ -267,19 +305,19 @@ steps:
             --retry 12 --retry-delay 5 --retry-all-errors \
             "$${url}" >/dev/null
         done
-        status=000
+        http_code=000
         for attempt in $$(seq 1 12); do
-          status="$$(curl --silent --show-error \
+          http_code="$$(curl --silent --show-error \
             --dump-header /workspace/mcp-headers \
             --output /workspace/mcp-body \
             --write-out '%{http_code}' \
             --header 'content-type: application/json' \
             --data '{"jsonrpc":"2.0","id":"cloud-build","method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"nova-cloud-build","version":"1"}}}' \
             https://mcp.commcare.app/mcp || true)"
-          if test "$${status}" = 401; then break; fi
+          if test "$${http_code}" = 401; then break; fi
           sleep 5
         done
-        test "$${status}" = 401
+        test "$${http_code}" = 401
         awk 'BEGIN { found=0 } {
           line=tolower($$0)
           if (line ~ /^www-authenticate:/ && line ~ /bearer / && line ~ /resource_metadata=/) found=1

@@ -16,7 +16,6 @@
 // relationships, and whole-envelope rollback across ordinary +
 // operation effects.
 
-import { proseText } from "@/lib/domain/prose";
 import { type Kysely, sql } from "kysely";
 import { beforeEach, describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -30,6 +29,7 @@ import {
 	term,
 	unowned,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { buildSimpleBlueprint } from "../../__tests__/fixtures/simpleBlueprint";
 import {
 	CaptureSubmissionRejectedError,
@@ -2203,7 +2203,7 @@ describe("durable text-only submission receipt", () => {
 async function seedPreparedCapture() {
 	const attachmentId = "55555555-5555-4555-8555-555555555555";
 	const entryKey = "77777777-7777-4777-8777-777777777777";
-	const fieldUuid = "88888888-8888-4888-8888-888888888888";
+	const fieldUuid = testUuid("88888888-8888-4888-8888-888888888888");
 	await sql`
 		INSERT INTO apps (
 			id, owner, project_id, app_name, app_name_lower

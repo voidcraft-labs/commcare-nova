@@ -18,16 +18,15 @@
  * in Playwright.
  */
 
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-
 import {
 	type Field,
 	fieldKinds,
 	type GroupField,
 	type TextField,
 } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import { fieldEditorSchemas } from "../fieldEditorSchemas";
 import { ALWAYS_REQUIRED_EXPRESSION } from "../fields/requiredState";
 import { sectionHasContent } from "../partitionEditorEntries";

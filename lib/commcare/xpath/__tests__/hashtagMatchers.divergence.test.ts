@@ -1,26 +1,19 @@
 /**
- * Divergence corpus — holds the THREE hashtag matchers in lockstep:
+ * Divergence corpus — holds the editor matcher and XPath grammar in lockstep:
  *
- *   1. `BARE_HASHTAG_PATTERN` (prose location: emitter + deep validator),
- *   2. `HASHTAG_REF_PATTERN` (editor surfaces: chips, TipTap, preview),
- *   3. the Lezer grammar's `HashtagRef` (XPath surfaces: wire emitter,
- *      rewriters, linter).
+ *   1. `HASHTAG_REF_PATTERN` (friendly editor chips),
+ *   2. the Lezer grammar's `HashtagRef` (human XPath parsing).
  *
- * Both regexes are built from `lib/domain/hashtagSegments.ts`; the grammar
+ * The regex is built from `lib/domain/hashtagSegments.ts`; the grammar
  * cannot import TS, so THIS corpus is the only thing keeping its
  * `HashtagType` / `HashtagSegment` tokens in agreement. Every entry is run
- * through all three and asserted to agree on match/no-match and captured
+ * through both and asserted to agree on match/no-match and captured
  * extent:
  *
- *   - Regex legs: global scans of the raw entry must produce exactly the
- *     expected spans — both patterns identically.
+ *   - Regex leg: a global scan must produce exactly the expected spans.
  *   - Grammar leg (a): each expected span, parsed STANDALONE, must be one
  *     clean (error-free) `HashtagRef` covering the whole span. This mirrors
- *     the real prose pipeline — prose is NEVER parsed as XPath wholesale
- *     (markdown around a ref parses as XPath operators and swallows the
- *     `#`); the regex locates each ref, then the located ref is parsed
- *     per-hashtag. Standalone agreement is exactly the contract that
- *     pipeline needs.
+ *     the editor's friendly chip projection.
  *   - Grammar leg (b): when the whole entry parses as VALID XPath (no
  *     error nodes anywhere), the clean `HashtagRef` spans inside the
  *     expression must equal the expected spans — the expression-surface
@@ -29,7 +22,6 @@
  *     clean `HashtagRef` nodes from a whole-entry parse.
  */
 import { describe, expect, it } from "vitest";
-import { BARE_HASHTAG_PATTERN } from "@/lib/commcare/proseHashtags";
 import { parser } from "@/lib/commcare/xpath";
 import { HASHTAG_REF_PATTERN } from "@/lib/references/config";
 
@@ -151,18 +143,13 @@ describe("hashtag matcher divergence corpus", () => {
 		describe(JSON.stringify(entry.text), () => {
 			const expected = expectedSpans(entry);
 
-			it("BARE_HASHTAG_PATTERN matches exactly the expected spans", () => {
-				expect(regexSpans(BARE_HASHTAG_PATTERN, entry.text)).toEqual(expected);
-			});
-
 			it("HASHTAG_REF_PATTERN matches exactly the expected spans", () => {
 				expect(regexSpans(HASHTAG_REF_PATTERN, entry.text)).toEqual(expected);
 			});
 
 			it("grammar agrees on each located ref's structure and extent", () => {
-				// The prose pipeline: the regex locates a ref, then the located
-				// ref is parsed per-hashtag. Each located span must parse
-				// standalone as ONE clean HashtagRef covering the whole span.
+				// Each friendly chip span must parse standalone as one clean
+				// HashtagRef covering the whole span.
 				for (const span of expected) {
 					const ref = entry.text.slice(span.from, span.to);
 					expect(cleanHashtagSpans(ref), ref).toEqual([

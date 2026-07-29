@@ -31,9 +31,13 @@ vi.mock("@/lib/db/formAttachments", () => ({
 	FormAttachmentWriteRejectedError: class extends Error {},
 }));
 
-vi.mock("@/lib/domain", () => ({
-	isCaptureFieldKind: vi.fn(() => true),
-}));
+vi.mock("@/lib/domain", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("@/lib/domain")>();
+	return {
+		...actual,
+		isCaptureFieldKind: vi.fn(() => true),
+	};
+});
 
 vi.mock("@/lib/domain/captureFormats", () => ({
 	CAPTURE_EXTENSIONS_BY_KIND: { image: [".jpg"] },

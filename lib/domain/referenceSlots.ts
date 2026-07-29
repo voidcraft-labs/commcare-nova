@@ -4,8 +4,8 @@
 // blueprint slot that can carry a reference to another part of the
 // app. A "reference" here is anything that names an entity, a case
 // property, or a case type — an XPath expression with hashtag refs, a
-// prose string with embedded hashtag refs, a predicate/value-expression
-// AST whose typed leaves name case properties, a field-id pointer, an
+// prose template whose typed atoms name references, a predicate/value-expression
+// AST whose typed leaves name case properties, an entity pointer, an
 // entity uuid, or a bare case-type/case-property name.
 //
 // The registry is shared vocabulary: the validator's per-surface
@@ -59,9 +59,10 @@ import type { ColumnKind, SearchInputDef } from "./modules";
  *     structurally; source text is a PROJECTION (`printXPath`), so
  *     consumers that speak text read the printed form and consumers
  *     that follow references walk the leaves — never a re-parse.
- *   - `prose` — markdown/plain text that may embed bare hashtag refs;
- *     only the hashtag substrings are reference-bearing, never the
- *     surrounding text.
+ *   - `prose` — a `ProseTemplate` whose reference atoms carry stable
+ *     identity. Hashtag-looking text is ordinary authored text; friendly
+ *     `#form/...` and `#<case_type>/...` spellings are projections of the
+ *     typed atoms, never reparsed storage.
  *   - `predicate-ast` — a structured AST from `lib/domain/predicate`
  *     (`Predicate`, `ValueExpression`, or `RelationPath`); references
  *     live on typed leaves (`PropertyRef`, relation steps' case-type

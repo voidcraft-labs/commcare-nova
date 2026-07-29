@@ -10,9 +10,12 @@
  * does not reject user input that never enters the CSQL grammar.
  */
 
-import type { Predicate, ValueExpression } from "@/lib/domain/predicate";
-import type { SearchInputDecl } from "@/lib/domain/predicate";
 import type { Uuid } from "@/lib/domain";
+import type {
+	Predicate,
+	SearchInputDecl,
+	ValueExpression,
+} from "@/lib/domain/predicate";
 import { isNativeCsqlValueExpression } from "../expression/csqlEmitter";
 import { normalizeCsqlPredicate } from "./csqlRepresentability";
 

@@ -198,8 +198,8 @@ export type ColumnInput = z.infer<typeof columnInputSchema>;
  *
  * A column's tile placement is preserved across every content replacement (the
  * `updateColumn` reducer carries the current cell onto the incoming body
- * unconditionally, because the cell has no origin-compatible spelling to travel
- * in). A `tile` supplied here would therefore be read, echoed back in the
+ * unconditionally because content and placement are independent merge units).
+ * A `tile` supplied here would therefore be read, echoed back in the
  * message, and silently discarded. Placement is authored through
  * `setCaseListTile`, which is also the only shape that can move two fields at
  * once — and a swap has to land in one batch, since no two cells may share a

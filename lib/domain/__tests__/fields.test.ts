@@ -2,6 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { proseText } from "@/lib/domain/prose";
 import { fieldKinds, fieldRegistry, fieldSchema, isContainer } from "../fields";
 
 import { opaqueXPathExpression } from "../xpath";
@@ -12,7 +13,7 @@ describe("fieldSchema", () => {
 			kind: "text",
 			uuid: testUuid("abc-123"),
 			id: "age",
-			label: "Age",
+			label: proseText("Age"),
 		});
 		expect(f.kind).toBe("text");
 	});
@@ -40,8 +41,17 @@ describe("fieldSchema", () => {
 				kind: "single_select",
 				uuid: testUuid("abc"),
 				id: "x",
-				label: "X",
-				options: [{ value: "a", label: "A" }],
+				label: proseText("X"),
+				optionsSource: {
+					kind: "inline",
+					options: [
+						{
+							uuid: testUuid("option-a"),
+							value: "a",
+							label: proseText("A"),
+						},
+					],
+				},
 			}),
 		).toThrow();
 	});
@@ -51,11 +61,22 @@ describe("fieldSchema", () => {
 			kind: "single_select",
 			uuid: testUuid("abc"),
 			id: "x",
-			label: "X",
-			options: [
-				{ value: "a", label: "A" },
-				{ value: "b", label: "B" },
-			],
+			label: proseText("X"),
+			optionsSource: {
+				kind: "inline",
+				options: [
+					{
+						uuid: testUuid("option-a"),
+						value: "a",
+						label: proseText("A"),
+					},
+					{
+						uuid: testUuid("option-b"),
+						value: "b",
+						label: proseText("B"),
+					},
+				],
+			},
 		});
 		expect(f.kind).toBe("single_select");
 	});
@@ -69,7 +90,7 @@ describe("fieldSchema", () => {
 			kind: "group",
 			uuid: testUuid("abc"),
 			id: "g",
-			label: "G",
+			label: proseText("G"),
 			options: [{ value: "a", label: "A" }],
 		});
 		expect(parsed.success).toBe(false);
@@ -116,10 +137,11 @@ describe("fieldSchema", () => {
 			kind: "group",
 			uuid: testUuid("abc"),
 			id: "structural_only",
-			label: "",
+			label: proseText(""),
 		});
 		expect(f.kind).toBe("group");
-		expect((f as { label?: string }).label).toBe("");
+		if (f.kind !== "group") throw new Error("fixture: expected group");
+		expect(f.label).toEqual(proseText(""));
 	});
 
 	it("accepts a repeat with absent label", () => {
@@ -161,7 +183,7 @@ describe("fieldSchema", () => {
 			kind: "hidden",
 			uuid: testUuid("abc"),
 			id: "h",
-			label: "should be rejected",
+			label: proseText("should be rejected"),
 			calculate: opaqueXPathExpression("today()"),
 		});
 		expect(parsed.success).toBe(false);
@@ -183,7 +205,7 @@ describe("isContainer", () => {
 			kind: "group",
 			uuid: testUuid("abc"),
 			id: "g",
-			label: "G",
+			label: proseText("G"),
 		});
 		expect(isContainer(g)).toBe(true);
 
@@ -191,7 +213,7 @@ describe("isContainer", () => {
 			kind: "repeat",
 			uuid: testUuid("abc"),
 			id: "r",
-			label: "R",
+			label: proseText("R"),
 			repeat_mode: "user_controlled",
 		});
 		expect(isContainer(r)).toBe(true);
@@ -202,7 +224,7 @@ describe("isContainer", () => {
 			kind: "text",
 			uuid: testUuid("abc"),
 			id: "t",
-			label: "T",
+			label: proseText("T"),
 		});
 		expect(isContainer(t)).toBe(false);
 	});

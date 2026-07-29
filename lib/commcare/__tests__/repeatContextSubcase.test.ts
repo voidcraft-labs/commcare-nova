@@ -1,5 +1,5 @@
-import { proseText } from "@/lib/domain/prose";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { proseText } from "@/lib/domain/prose";
 /**
  * Per-mode + per-nest compiler tests for repeat-context subcase
  * emission. Pins the wire shape across the (repeat_mode, nest)
@@ -146,7 +146,7 @@ function withRepeat(
 			? f({
 					kind: "repeat",
 					id: "children",
-					label: "Children",
+					label: proseText("Children"),
 					repeat_mode: "count_bound",
 					repeat_count: repeat.count,
 					children: repeatChildren,
@@ -155,7 +155,7 @@ function withRepeat(
 				? f({
 						kind: "repeat",
 						id: "children",
-						label: "Children",
+						label: proseText("Children"),
 						repeat_mode: "query_bound",
 						data_source: { ids_query: repeat.idsQuery },
 						children: repeatChildren,
@@ -163,7 +163,7 @@ function withRepeat(
 				: f({
 						kind: "repeat",
 						id: "children",
-						label: "Children",
+						label: proseText("Children"),
 						repeat_mode: "user_controlled",
 						children: repeatChildren,
 					});
@@ -184,7 +184,7 @@ function withRepeat(
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Parent name",
+								label: proseText("Parent name"),
 								case_property_on: "parent",
 							}),
 							repeatField,
@@ -369,19 +369,19 @@ describe("repeat-context subcase emission — cross-shape variants", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Household name",
+									label: proseText("Household name"),
 									case_property_on: "household",
 								}),
 								f({
 									kind: "repeat",
 									id: "family_members",
-									label: "Family members",
+									label: proseText("Family members"),
 									repeat_mode: "user_controlled",
 									children: [
 										f({
 											kind: "text",
 											id: "case_name",
-											label: "Family member name",
+											label: proseText("Family member name"),
 											case_property_on: "person",
 										}),
 									],
@@ -389,13 +389,13 @@ describe("repeat-context subcase emission — cross-shape variants", () => {
 								f({
 									kind: "repeat",
 									id: "neighbors",
-									label: "Neighbors",
+									label: proseText("Neighbors"),
 									repeat_mode: "user_controlled",
 									children: [
 										f({
 											kind: "text",
 											id: "case_name",
-											label: "Neighbor name",
+											label: proseText("Neighbor name"),
 											case_property_on: "person",
 										}),
 									],
@@ -461,7 +461,7 @@ describe("repeat-context subcase emission — cross-shape variants", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Household name",
+									label: proseText("Household name"),
 									case_property_on: "household",
 								}),
 								// Root-level subcase — wraps in `<subcase_N>`
@@ -470,12 +470,12 @@ describe("repeat-context subcase emission — cross-shape variants", () => {
 								f({
 									kind: "group",
 									id: "guardian_section",
-									label: "Guardian",
+									label: proseText("Guardian"),
 									children: [
 										f({
 											kind: "text",
 											id: "case_name",
-											label: "Guardian name",
+											label: proseText("Guardian name"),
 											case_property_on: "guardian",
 										}),
 									],
@@ -486,13 +486,13 @@ describe("repeat-context subcase emission — cross-shape variants", () => {
 								f({
 									kind: "repeat",
 									id: "children",
-									label: "Children",
+									label: proseText("Children"),
 									repeat_mode: "user_controlled",
 									children: [
 										f({
 											kind: "text",
 											id: "case_name",
-											label: "Child name",
+											label: proseText("Child name"),
 											case_property_on: "child",
 										}),
 									],

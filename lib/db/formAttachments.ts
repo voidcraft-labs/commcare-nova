@@ -46,7 +46,7 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { type Selectable, sql } from "kysely";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
-import { isCaptureFieldKind } from "@/lib/domain";
+import { isCaptureFieldKind, type Uuid } from "@/lib/domain";
 import {
 	captureAttachmentName,
 	captureExtensionFor,
@@ -88,7 +88,7 @@ export interface FormAttachmentRecord {
 	projectId: string;
 	createdBy: string;
 	entryKey: string;
-	fieldUuid: string;
+	fieldUuid: Uuid;
 	instancePath: string;
 	originalFilename: string;
 	extension: string;
@@ -106,7 +106,7 @@ export interface FormAttachmentRecord {
 }
 
 export interface FormSubmissionReceiptRecord {
-	readonly formUuid: string;
+	readonly formUuid: Uuid;
 	readonly requestDigest: string;
 	readonly result: unknown;
 }
@@ -239,7 +239,7 @@ export async function createPendingFormAttachment(args: {
 	expectedAppMutationSeq: number;
 	createdBy: string;
 	entryKey: string;
-	fieldUuid: string;
+	fieldUuid: Uuid;
 	instancePath: string;
 	originalFilename: string;
 	extension: string;
@@ -425,7 +425,7 @@ export async function compensatePendingFormAttachmentInitiation(args: {
 	projectId: string;
 	createdBy: string;
 	entryKey: string;
-	fieldUuid: string;
+	fieldUuid: Uuid;
 	instancePath: string;
 	objectKey: string;
 }): Promise<boolean> {
@@ -718,11 +718,11 @@ export async function beginFormAttachmentPreparation(args: {
 	projectId: string;
 	actorUserId: string;
 	entryKey: string;
-	formUuid: string;
+	formUuid: Uuid;
 	requestDigest: string;
 	attachments: ReadonlyArray<{
 		attachmentName: string;
-		fieldUuid: string;
+		fieldUuid: Uuid;
 		instancePath: string;
 	}>;
 }): Promise<

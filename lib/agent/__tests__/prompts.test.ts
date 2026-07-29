@@ -16,6 +16,7 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { xp } from "@/lib/__tests__/docHelpers";
 import type { BlueprintDoc } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 
 import {
 	buildAppStateMessage,
@@ -57,7 +58,7 @@ function fixtureDoc(appName: string, moduleName: string): BlueprintDoc {
 				uuid: fieldUuid,
 				id: "patient_name",
 				kind: "text",
-				label: "Patient Name",
+				label: proseText("Patient Name"),
 				required: xp("true()"),
 			},
 		},
@@ -105,7 +106,8 @@ describe("buildSolutionsArchitectPrompt", () => {
 		);
 		expect(sp).toContain("addUserProperties");
 		expect(sp).toContain("userPropertyUuid");
-		expect(sp).toContain("omission keeps a slot and null clears it");
+		expect(sp).toContain("valuePatch");
+		expect(sp).toContain("changes exactly one UUID-addressed value");
 		expect(sp).toContain("Removing a persona preserves");
 	});
 

@@ -12,8 +12,8 @@
 //     reorder handle, AST references), an optional `sort` (per-
 //     column direction + priority on the column itself), and optional
 //     `visibleInList` / `visibleInDetail` flags (absent ≡ visible),
-//     plus independent `listOrder` / `detailOrder` fractional keys for
-//     the two display surfaces (each falls back to the legacy `order`).
+//     plus independent `listColumnOrder` / `detailColumnOrder` UUID
+//     sequences on the containing config.
 //   - `filter?: Predicate` — single optional always-on predicate
 //     applied to every row before display.
 //   - `searchInputs: SearchInputDef[]` — discriminated union of
@@ -56,7 +56,7 @@ import { type Uuid, uuidSchema } from "./uuid";
 //
 // `priority` is a non-negative integer (the schema's `int().min(0)`
 // rejects negatives at parse). Two columns at the same priority
-// tie-break to Results display order (`listOrder ?? order`) — that
+// tie-break to Results display order (`listColumnOrder`) — that
 // rule binds at the saga, preview, and wire-emission layers; the
 // editor maintains uniqueness on save, but the tie-break exists for
 // transient (undo / partial-save) editor states. No layer assumes
@@ -139,17 +139,14 @@ export type IntervalDisplay = (typeof INTERVAL_DISPLAYS)[number];
 //
 // Every column kind carries the same base slots: `uuid` for UI
 // identity, optional `sort` for column-level sort directive,
-// optional `visibleInList` / `visibleInDetail` for surface
-// filtering, and optional `listOrder` / `detailOrder` fractional keys for
-// independent Results / Details sequencing. Centralized here so every
-// per-kind schema below extends the same base.
+// optional `visibleInList` / `visibleInDetail` for surface filtering.
+// Independent Results / Details sequencing belongs to the containing
+// `CaseListConfig`, not to a column. Centralized here so every per-kind
+// schema below extends the same base.
 
 /**
- * Optional surface-visibility, sort, and surface-order slots shared by every
- * column kind. Absent visibility defaults to "visible" at the wire layer;
- * absent surface order falls back to the generic `order`. The schema preserves
- * slot presence so the editor can distinguish an explicit override from an
- * inherited default.
+ * Optional surface-visibility and sort slots shared by every column kind.
+ * Absent visibility defaults to "visible" at the wire layer.
  */
 const columnCommonSlots = z
 	.object({
@@ -163,7 +160,7 @@ const columnCommonSlots = z
 //
 // A tile-laid-out case list places each Results column on a grid
 // instead of stacking it in a row. The cell is PLACEMENT, entirely
-// separate from `listOrder` / `detailOrder`, which remain the
+// separate from `listColumnOrder` / `detailColumnOrder`, which remain the
 // column's position in the Results / Details sequences: moving a
 // column in the Results sequence never moves its tile cell, and
 // vice versa.
@@ -435,12 +432,6 @@ export function tileHasBoxedCells(cells: readonly TileCell[]): boolean {
  *  propagates through every `columnBase.extend({...})` chain below,
  *  so per-kind schemas reject unknown keys without restating
  *  `.strict()` on each arm.
- *
- *  `order` is the column's legacy/generic absolute fractional sort key
- *  (`lib/doc/order`). `listOrder` and `detailOrder` independently sequence
- *  the Results and Details surfaces, each falling back to `order` when its
- *  surface key is absent. All three are optional (legacy columns predate
- *  them; `order` is backfilled at hydration) and never reach CommCare.
  *
  *  `tile` is the column's placement on the case list's tile grid. It
  *  sits here rather than in `columnCommonSlots` only because
@@ -1630,7 +1621,7 @@ export function orderedColumns(
 
 // ── CaseSearchConfig ─────────────────────────────────────────────
 //
-// Search-action configuration plus one legacy owner-availability slot:
+// Search-action configuration plus one owner-availability slot:
 //
 //   - The display cluster — the search-screen labels (title /
 //     subtitle / button labels / empty state) and the optional
@@ -1665,7 +1656,7 @@ export const caseSearchConfigSchema = z
 		 */
 		searchActionEnabled: z.literal(false).optional(),
 
-		// Legacy owner-availability slot.
+		// Owner-availability slot.
 		// `excludedOwnerIds` evaluates ONCE, before a case is selected, to a
 		// space-separated list of owner ids whose cases are excluded from every
 		// Results path. It may use literals, session/current-user values, Search
@@ -1707,7 +1698,7 @@ export const caseSearchConfigSchema = z
 export type CaseSearchConfig = z.infer<typeof caseSearchConfigSchema>;
 
 /** Whether the optional search-settings bag contains a real authored
- * override. Explicit `undefined` keys can survive legacy/editor objects, so
+ * override. Explicit `undefined` keys can survive editor objects, so
  * `Object.keys(config).length` is not a semantic emptiness check. */
 export function caseSearchConfigHasAuthoredSettings(
 	config: CaseSearchConfig | undefined,
@@ -1744,27 +1735,6 @@ export function normalizeOwnerOnlyCaseSearchConfig(
 		...ownerOnly
 	} = config;
 	return { ...ownerOnly, searchActionEnabled: false };
-}
-
-/**
- * Behavior-safe projection understood by a pre-deploy strict schema.
- *
- * This shape is deliberately NOT provenance. An author can legitimately pair
- * an assigned-case rule with a Never action condition, so callers may use this
- * predicate only to determine zero-input runtime behavior. They must retain
- * the raw condition and may not normalize it into Nova's private false bit.
- */
-function isZeroInputOwnerOnlyCompatibilityProjection(
-	config: CaseSearchConfig,
-): boolean {
-	return (
-		config.searchActionEnabled === undefined &&
-		config.excludedOwnerIds !== undefined &&
-		config.searchButtonDisplayCondition?.kind === "match-none" &&
-		config.searchScreenTitle === undefined &&
-		config.searchScreenSubtitle === undefined &&
-		config.searchButtonLabel === undefined
-	);
 }
 
 /**
@@ -1833,11 +1803,9 @@ export type Module = z.infer<typeof moduleSchema>;
  * A stored `caseSearchConfig` normally enables search, including an intentional
  * zero-input action. The internal false marker is the one exception: it records
  * that the shared bag exists only for assigned-case availability. Search inputs
- * also make search unambiguous, so legacy documents that predate the explicit
- * config marker receive Nova's friendly defaults instead of showing search in
- * the builder while silently omitting it from preview/export. A case-list
- * filter by itself does NOT turn on search; it remains the always-on "Cases
- * available" rule.
+ * also make search unambiguous, so a module with inputs and no separate config
+ * receives Nova's friendly defaults. A case-list filter by itself does NOT turn
+ * on search; it remains the always-on "Cases available" rule.
  */
 export function effectiveCaseSearchConfig(
 	module: Pick<Module, "caseListConfig" | "caseSearchConfig">,
@@ -1849,16 +1817,6 @@ export function effectiveCaseSearchConfig(
 			? undefined
 			: normalizeOwnerOnlyCaseSearchConfig(storedRaw);
 	if (stored === undefined) return hasInputs ? {} : undefined;
-	// During a rolling deploy, an older strict-schema receiver projects an
-	// owner-only edit as an ordinary Never condition. With no prompts this is
-	// behavior-identical to no Search action, but the raw condition remains
-	// untouched because it may be legitimate authoring. Once an input exists,
-	// the authored/projection ambiguity resolves conservatively in favor of
-	// preserving the condition rather than silently enabling an action the
-	// author may explicitly have hidden.
-	if (!hasInputs && isZeroInputOwnerOnlyCompatibilityProjection(stored)) {
-		return undefined;
-	}
 	if (stored.searchActionEnabled !== false) return stored;
 	if (!hasInputs) return undefined;
 

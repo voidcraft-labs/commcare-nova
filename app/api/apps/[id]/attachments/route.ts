@@ -36,7 +36,7 @@ import {
 	FormAttachmentWriteRejectedError,
 	purgeExpiredFormAttachments,
 } from "@/lib/db/formAttachments";
-import { isCaptureFieldKind } from "@/lib/domain";
+import { isCaptureFieldKind, uuidSchema } from "@/lib/domain";
 import {
 	CAPTURE_EXTENSIONS_BY_KIND,
 	captureContentType,
@@ -60,7 +60,7 @@ const requestBodySchema = z
 		entryKey: z.string().uuid(),
 		/** The capture question this answers. Its kind is read from the
 		 *  committed blueprint, never taken from the request. */
-		fieldUuid: z.string().uuid(),
+		fieldUuid: uuidSchema,
 		/** Concrete engine path, so a replace targets one repeat instance. */
 		instancePath: z.string().min(1).max(1024),
 		filename: z.string().min(1).max(255),

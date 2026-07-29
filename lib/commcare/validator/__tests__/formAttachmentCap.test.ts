@@ -20,6 +20,7 @@ import type { FieldSpec } from "@/lib/__tests__/docHelpers";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { MAX_FORM_ATTACHMENTS } from "@/lib/commcare/constants";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { proseText } from "@/lib/domain/prose";
 import { runValidation } from "../runner";
 
 function captures(count: number, prefix = "shot"): FieldSpec[] {
@@ -59,10 +60,10 @@ describe("FORM_TOO_MANY_ATTACHMENTS", () => {
 	it("counts every capture kind, not just images", () => {
 		const mixed: FieldSpec[] = [
 			...captures(MAX_FORM_ATTACHMENTS - 3),
-			f({ kind: "audio", id: "a", label: "Audio" }),
-			f({ kind: "video", id: "v", label: "Video" }),
-			f({ kind: "signature", id: "s", label: "Signature" }),
-			f({ kind: "file", id: "d", label: "Document" }),
+			f({ kind: "audio", id: "a", label: proseText("Audio") }),
+			f({ kind: "video", id: "v", label: proseText("Video") }),
+			f({ kind: "signature", id: "s", label: proseText("Signature") }),
+			f({ kind: "file", id: "d", label: proseText("Document") }),
 		];
 		expect(attachmentFindings(mixed)).toHaveLength(1);
 	});
@@ -73,8 +74,10 @@ describe("FORM_TOO_MANY_ATTACHMENTS", () => {
 			f({
 				kind: "group",
 				id: "extra",
-				label: "Extra",
-				children: [f({ kind: "image", id: "one_more", label: "One more" })],
+				label: proseText("Extra"),
+				children: [
+					f({ kind: "image", id: "one_more", label: proseText("One more") }),
+				],
 			}),
 		];
 		expect(attachmentFindings(nested)).toHaveLength(1);
@@ -89,9 +92,11 @@ describe("FORM_TOO_MANY_ATTACHMENTS", () => {
 			f({
 				kind: "repeat",
 				id: "visits",
-				label: "Visits",
+				label: proseText("Visits"),
 				repeat_mode: "user_controlled",
-				children: [f({ kind: "image", id: "visit_photo", label: "Photo" })],
+				children: [
+					f({ kind: "image", id: "visit_photo", label: proseText("Photo") }),
+				],
 			}),
 		];
 		expect(attachmentFindings(inRepeat)).toEqual([]);
@@ -103,7 +108,7 @@ describe("FORM_TOO_MANY_ATTACHMENTS", () => {
 			...Array.from({ length: 20 }, (_, i) =>
 				f({ kind: "text", id: `note_${i}`, label: `Note ${i}` }),
 			),
-			f({ kind: "barcode", id: "code", label: "Code" }),
+			f({ kind: "barcode", id: "code", label: proseText("Code") }),
 		];
 		expect(attachmentFindings(noisy)).toEqual([]);
 	});

@@ -15,7 +15,8 @@
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import type { Field, Form, Uuid } from "@/lib/domain";
+import type { Field, Form, ProseTemplate, Uuid } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 
 import { FormEngine, type FormEngineInput } from "../formEngine";
 
@@ -24,7 +25,7 @@ const ENTRY_KEY = "11111111-1111-4111-8111-111111111111";
 type Spec = {
 	id: string;
 	kind: Field["kind"];
-	label?: string;
+	label?: ProseTemplate;
 	relevant?: string;
 	repeat_mode?: string;
 	children?: Spec[];
@@ -69,14 +70,14 @@ function referenceNames(engine: FormEngine): string[] {
 describe("collectAttachmentReferences", () => {
 	it("returns nothing when no capture has an answer", () => {
 		const engine = new FormEngine(
-			input([{ id: "photo", kind: "image", label: "Photo" }]),
+			input([{ id: "photo", kind: "image", label: proseText("Photo") }]),
 		);
 		expect(engine.collectAttachmentReferences()).toEqual([]);
 	});
 
 	it("collects an answered capture's name", () => {
 		const engine = new FormEngine(
-			input([{ id: "photo", kind: "image", label: "Photo" }]),
+			input([{ id: "photo", kind: "image", label: proseText("Photo") }]),
 		);
 		engine.setValue("/data/photo", "att-1.jpg");
 		expect(referenceNames(engine)).toEqual(["att-1.jpg"]);
@@ -87,8 +88,8 @@ describe("collectAttachmentReferences", () => {
 		// it would ask the server to prepare a row that does not exist.
 		const engine = new FormEngine(
 			input([
-				{ id: "note", kind: "text", label: "Note" },
-				{ id: "code", kind: "barcode", label: "Code" },
+				{ id: "note", kind: "text", label: proseText("Note") },
+				{ id: "code", kind: "barcode", label: proseText("Code") },
 			]),
 		);
 		engine.setValue("/data/note", "hello");
@@ -99,11 +100,11 @@ describe("collectAttachmentReferences", () => {
 	it("collects every capture kind", () => {
 		const engine = new FormEngine(
 			input([
-				{ id: "a", kind: "image", label: "A" },
-				{ id: "b", kind: "audio", label: "B" },
-				{ id: "c", kind: "video", label: "C" },
-				{ id: "d", kind: "signature", label: "D" },
-				{ id: "e", kind: "file", label: "E" },
+				{ id: "a", kind: "image", label: proseText("A") },
+				{ id: "b", kind: "audio", label: proseText("B") },
+				{ id: "c", kind: "video", label: proseText("C") },
+				{ id: "d", kind: "signature", label: proseText("D") },
+				{ id: "e", kind: "file", label: proseText("E") },
 			]),
 		);
 		for (const id of ["a", "b", "c", "d", "e"]) {
@@ -124,8 +125,8 @@ describe("collectAttachmentReferences", () => {
 				{
 					id: "section",
 					kind: "group",
-					label: "Section",
-					children: [{ id: "photo", kind: "image", label: "Photo" }],
+					label: proseText("Section"),
+					children: [{ id: "photo", kind: "image", label: proseText("Photo") }],
 				},
 			]),
 		);
@@ -141,11 +142,11 @@ describe("collectAttachmentReferences", () => {
 		// uploads the file anyway. Nova does not.
 		const engine = new FormEngine(
 			input([
-				{ id: "gate", kind: "text", label: "Gate" },
+				{ id: "gate", kind: "text", label: proseText("Gate") },
 				{
 					id: "photo",
 					kind: "image",
-					label: "Photo",
+					label: proseText("Photo"),
 					relevant: "/data/gate = 'yes'",
 				},
 			]),
@@ -164,13 +165,13 @@ describe("collectAttachmentReferences", () => {
 	it("DROPS an answered capture beneath an irrelevant group", () => {
 		const engine = new FormEngine(
 			input([
-				{ id: "gate", kind: "text", label: "Gate" },
+				{ id: "gate", kind: "text", label: proseText("Gate") },
 				{
 					id: "section",
 					kind: "group",
-					label: "Section",
+					label: proseText("Section"),
 					relevant: "/data/gate = 'yes'",
-					children: [{ id: "photo", kind: "image", label: "Photo" }],
+					children: [{ id: "photo", kind: "image", label: proseText("Photo") }],
 				},
 			]),
 		);
@@ -190,14 +191,14 @@ describe("collectAttachmentReferences", () => {
 	it("DROPS an answered capture beneath an irrelevant repeat", () => {
 		const engine = new FormEngine(
 			input([
-				{ id: "gate", kind: "text", label: "Gate" },
+				{ id: "gate", kind: "text", label: proseText("Gate") },
 				{
 					id: "visits",
 					kind: "repeat",
-					label: "Visits",
+					label: proseText("Visits"),
 					repeat_mode: "user_controlled",
 					relevant: "/data/gate = 'yes'",
-					children: [{ id: "photo", kind: "image", label: "Photo" }],
+					children: [{ id: "photo", kind: "image", label: proseText("Photo") }],
 				},
 			]),
 		);
@@ -214,9 +215,9 @@ describe("collectAttachmentReferences", () => {
 				{
 					id: "visits",
 					kind: "repeat",
-					label: "Visits",
+					label: proseText("Visits"),
 					repeat_mode: "user_controlled",
-					children: [{ id: "photo", kind: "image", label: "Photo" }],
+					children: [{ id: "photo", kind: "image", label: proseText("Photo") }],
 				},
 			]),
 		);
@@ -235,9 +236,9 @@ describe("collectAttachmentReferences", () => {
 				{
 					id: "visits",
 					kind: "repeat",
-					label: "Visits",
+					label: proseText("Visits"),
 					repeat_mode: "user_controlled",
-					children: [{ id: "photo", kind: "image", label: "Photo" }],
+					children: [{ id: "photo", kind: "image", label: proseText("Photo") }],
 				},
 			]),
 		);
@@ -254,7 +255,7 @@ describe("the mutation's attachment slots", () => {
 		// Empty is the explicit final-protocol projection: this submission
 		// retains no staged attachment for the entry.
 		const engine = new FormEngine(
-			input([{ id: "photo", kind: "image", label: "Photo" }]),
+			input([{ id: "photo", kind: "image", label: proseText("Photo") }]),
 		);
 		const mutation = engine.computeSubmissionMutation({
 			caseTypes: [],
@@ -266,7 +267,7 @@ describe("the mutation's attachment slots", () => {
 
 	it("carries exact field/path provenance for a referenced capture", () => {
 		const engine = new FormEngine(
-			input([{ id: "photo", kind: "image", label: "Photo" }]),
+			input([{ id: "photo", kind: "image", label: proseText("Photo") }]),
 		);
 		engine.setValue("/data/photo", "att-1.jpg");
 		const mutation = engine.computeSubmissionMutation({

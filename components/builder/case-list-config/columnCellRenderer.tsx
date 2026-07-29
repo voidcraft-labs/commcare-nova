@@ -199,7 +199,7 @@ function projectPlainValue(
 			text: [
 				...(property.options ?? [])
 					.filter((option) => selected.has(option.value))
-					.map((option) => option.label),
+					.map((option) => fallbackProseProjection(option.label)),
 				...tokens.filter((token) => !knownValues.has(token)),
 			].join(" "),
 		};

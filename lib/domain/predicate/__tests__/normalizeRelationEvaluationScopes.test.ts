@@ -1,5 +1,5 @@
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type { CaseType } from "@/lib/domain";
 import {
 	ancestorPath,
@@ -39,6 +39,7 @@ import {
 	whenInput,
 	within,
 } from "@/lib/domain/predicate/builders";
+import { proseText } from "@/lib/domain/prose";
 import {
 	normalizeRelationEvaluationScopes,
 	RelationEvaluationScopeError,
@@ -503,12 +504,15 @@ describe("normalizeRelationEvaluationScopes — independent boundaries", () => {
 
 	it("keeps logical wrappers while normalizing their leaves", () => {
 		const authored = not(
-			whenInput(input("name"), eq(relatedPatient("name"), literal("Alice"))),
+			whenInput(
+				input(testUuid("name")),
+				eq(relatedPatient("name"), literal("Alice")),
+			),
 		);
 		expect(normalizeRelationEvaluationScopes(authored, CONTEXT)).toEqual(
 			not(
 				whenInput(
-					input("name"),
+					input(testUuid("name")),
 					exists(PATIENTS, eq(prop("patient", "name"), literal("Alice"))),
 				),
 			),
@@ -571,7 +575,7 @@ describe("normalizeRelationEvaluationScopes — fail-closed shapes", () => {
 				term(relatedPatient("name")),
 				today(),
 				now(),
-				term(input("suffix")),
+				term(input(testUuid("suffix"))),
 			),
 			literal("Alice"),
 		);

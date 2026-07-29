@@ -1,6 +1,6 @@
-import { proseText } from "@/lib/domain/prose";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { proseText } from "@/lib/domain/prose";
 // __tests__/integration/case-list-authoring.test.ts
 //
 // End-to-end coverage for the case-list authoring surface. Each
@@ -244,31 +244,31 @@ function buildFixtureDoc(): BlueprintDoc {
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Patient name",
+								label: proseText("Patient name"),
 								case_property_on: "patient",
 							}),
 							f({
 								kind: "text",
 								id: "name",
-								label: "Full name",
+								label: proseText("Full name"),
 								case_property_on: "patient",
 							}),
 							f({
 								kind: "int",
 								id: "age",
-								label: "Age",
+								label: proseText("Age"),
 								case_property_on: "patient",
 							}),
 							f({
 								kind: "text",
 								id: "region",
-								label: "Region",
+								label: proseText("Region"),
 								case_property_on: "patient",
 							}),
 							f({
 								kind: "date",
 								id: "last_visit",
-								label: "Last visit",
+								label: proseText("Last visit"),
 								case_property_on: "patient",
 							}),
 						],
@@ -283,7 +283,9 @@ function buildFixtureDoc(): BlueprintDoc {
 						// wire.
 						name: "Visit",
 						type: "followup",
-						fields: [f({ kind: "text", id: "notes", label: "Notes" })],
+						fields: [
+							f({ kind: "text", id: "notes", label: proseText("Notes") }),
+						],
 					},
 				],
 			},
@@ -301,7 +303,7 @@ function buildFixtureDoc(): BlueprintDoc {
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Household name",
+								label: proseText("Household name"),
 								case_property_on: "household",
 							}),
 						],
@@ -376,7 +378,7 @@ describe("SA tool path — column atomic ops", () => {
 	it("threads uuids through add → update → reorder → remove", async () => {
 		const { ctx } = makeStubToolContext({ appId: APP_ID });
 		// Single case-typed module — every SA tool invocation here
-		// targets `moduleIndex: 0`. The `f` helper auto-stamps field
+		// targets its stable UUID. The `f` helper auto-stamps field
 		// uuids; explicit case-list slot is omitted so the first
 		// `addCaseListColumns` initializes it.
 		const startDoc = buildDoc({
@@ -394,13 +396,13 @@ describe("SA tool path — column atomic ops", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Patient name",
+									label: proseText("Patient name"),
 									case_property_on: "patient",
 								}),
 								f({
 									kind: "int",
 									id: "age",
-									label: "Age",
+									label: proseText("Age"),
 									case_property_on: "patient",
 								}),
 							],
@@ -418,11 +420,12 @@ describe("SA tool path — column atomic ops", () => {
 				},
 			],
 		});
+		const moduleUuid = startDoc.moduleOrder[0];
 
 		// 1. Add the first column — capture the uuid the tool mints.
 		const addNameResult = await addCaseListColumnsTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid,
 				columns: [{ kind: "plain", field: "case_name", header: "Patient" }],
 			},
 			ctx,
@@ -442,7 +445,7 @@ describe("SA tool path — column atomic ops", () => {
 		// 2. Add a second column on the post-add doc.
 		const addAgeResult = await addCaseListColumnsTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid,
 				columns: [{ kind: "plain", field: "age", header: "Age" }],
 			},
 			ctx,
@@ -459,7 +462,7 @@ describe("SA tool path — column atomic ops", () => {
 		// existing uuid back onto the supplied body).
 		const updateResult = await updateCaseListColumnTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid,
 				columnUuid: ageUuid,
 				column: {
 					kind: "plain",
@@ -479,7 +482,7 @@ describe("SA tool path — column atomic ops", () => {
 		// 4. Reorder — supply both uuids in age-first order.
 		const reorderResult = await reorderCaseListColumnsTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid,
 				surface: "results",
 				columnUuids: [ageUuid, nameUuid],
 			},
@@ -501,7 +504,7 @@ describe("SA tool path — column atomic ops", () => {
 		// 5. Remove the original first column — still keyed by uuid
 		// so the address survives the prior reorder.
 		const removeResult = await removeCaseListColumnTool.execute(
-			{ moduleIndex: 0, columnUuid: nameUuid },
+			{ moduleUuid, columnUuid: nameUuid },
 			ctx,
 			reorderResult.newDoc,
 		);
@@ -522,9 +525,10 @@ describe("SA tool path — column atomic ops", () => {
 			modules: [{ name: "Patients", caseType: "patient" }],
 			caseTypes: [{ name: "patient", properties: [] }],
 		});
+		const moduleUuid = doc.moduleOrder[0];
 		const result = await updateCaseListColumnTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid,
 				columnUuid: testUuid("ffffffff-ffff-ffff-ffff-ffffffffffff"),
 				column: { kind: "plain", field: "case_name", header: "Patient" },
 			},
@@ -807,11 +811,12 @@ describe("SearchInputDef discriminated round-trip", () => {
 				},
 			],
 		});
+		const moduleUuid = baseDoc.moduleOrder[0];
 
 		// Add a simple input — capture the uuid the tool mints.
 		const addResult = await addSearchInputsTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid,
 				searchInputs: [
 					{
 						kind: "simple",
@@ -839,7 +844,7 @@ describe("SearchInputDef discriminated round-trip", () => {
 		// default across the call.
 		const toAdvancedResult = await updateSearchInputTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid,
 				searchInputUuid: inputUuid,
 				searchInput: {
 					kind: "advanced",
@@ -873,7 +878,7 @@ describe("SearchInputDef discriminated round-trip", () => {
 		// are distinct unions — there is no shared "predicate" slot).
 		const toSimpleResult = await updateSearchInputTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid,
 				searchInputUuid: inputUuid,
 				searchInput: {
 					kind: "simple",
@@ -907,23 +912,18 @@ describe("SearchInputDef discriminated round-trip", () => {
 });
 
 // =================================================================
-// 6. Search-input rename + orphan validator surface. Renaming a
-//    search input by `name` does NOT auto-rewrite predicate
-//    references; an orphan reference in `caseListConfig.filter`
-//    surfaces as `CASE_LIST_FILTER_TYPE_ERROR` via the predicate
-//    type checker. The rename pays the same cross-reference cost
-//    Field renames pay, by design.
+// 6. Orphan Search-input identity validator surface. An unresolved
+//    Search-input UUID in `caseListConfig.filter` surfaces as
+//    `CASE_LIST_FILTER_TYPE_ERROR` via the predicate type checker.
 // =================================================================
 
-describe("search-input rename — orphan reference surfaces validator error", () => {
-	it("flags an unresolvable input(name) reference inside the filter as CASE_LIST_FILTER_TYPE_ERROR", () => {
+describe("orphan Search-input identity surfaces a validator error", () => {
+	it("flags an unresolvable Search-input identity inside the filter as CASE_LIST_FILTER_TYPE_ERROR", () => {
 		const moduleUuid = testUuid("11111111-1111-1111-1111-111111111111");
 		const formUuid = testUuid("22222222-2222-2222-2222-222222222222");
-		// The filter references `input("orphan_input")` — no
-		// matching declaration in `searchInputs`. The predicate
-		// checker walks `term`s and surfaces "Unknown search input
-		// 'orphan_input'."; the validator wraps that as
-		// `CASE_LIST_FILTER_TYPE_ERROR`.
+		// The filter references an immutable UUID with no matching
+		// declaration in `searchInputs`; the validator reports the
+		// owning filter slot without inventing a mutable-name fallback.
 		const doc: BlueprintDoc = {
 			appId: APP_ID,
 			appName: "Orphan Input",
@@ -950,9 +950,12 @@ describe("search-input rename — orphan reference surfaces validator error", ()
 								"Name",
 							),
 						],
-						filter: eq(prop("patient", "name"), term(input("orphan_input"))),
+						filter: eq(
+							prop("patient", "name"),
+							term(input(testUuid("orphan_input"))),
+						),
 						searchInputs: [
-							// Different name — `orphan_input` is not declared.
+							// A different immutable identity is declared.
 							simpleSearchInputDef(
 								testUuid("00000000-0000-4000-8000-bbbb00000001"),
 								"declared_input",
@@ -979,13 +982,9 @@ describe("search-input rename — orphan reference surfaces validator error", ()
 			fieldParent: {},
 		};
 		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-		expect(
-			errors.some(
-				(e) =>
-					e.code === "CASE_LIST_FILTER_TYPE_ERROR" &&
-					e.message.includes("orphan_input"),
-			),
-		).toBe(true);
+		expect(errors.some((e) => e.code === "CASE_LIST_FILTER_TYPE_ERROR")).toBe(
+			true,
+		);
 	});
 });
 
@@ -1167,10 +1166,11 @@ describe("sort-priority collision tie-breaks to display order at every layer", (
 				},
 			],
 		});
+		const moduleUuid = startDoc.moduleOrder[0];
 
 		const firstUpdate = await updateCaseListColumnTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid,
 				columnUuid: colFirstUuid,
 				column: {
 					kind: "plain",
@@ -1187,7 +1187,7 @@ describe("sort-priority collision tie-breaks to display order at every layer", (
 		}
 		const secondUpdate = await updateCaseListColumnTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid,
 				columnUuid: colSecondUuid,
 				column: {
 					kind: "plain",

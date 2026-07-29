@@ -25,7 +25,6 @@
 // callback that emits a simple SQL fragment so the arm dispatch is
 // observable in isolation.
 
-import { proseText } from "@/lib/domain/prose";
 import {
 	type CompiledQuery,
 	DummyDriver,
@@ -38,7 +37,6 @@ import {
 } from "kysely";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-
 import type { CaseType } from "@/lib/domain";
 import {
 	actingUser,
@@ -70,6 +68,7 @@ import {
 	unwrapList,
 } from "@/lib/domain/predicate/builders";
 import type { ArithOp, DateAddInterval } from "@/lib/domain/predicate/types";
+import { proseText } from "@/lib/domain/prose";
 import {
 	compileExpression,
 	type ExpressionCompileContext,

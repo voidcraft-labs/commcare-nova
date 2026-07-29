@@ -16,7 +16,6 @@
  * cell so a leak would also flip the whole tile to boxed.
  */
 
-import { proseText } from "@/lib/domain/prose";
 import AdmZip from "adm-zip";
 import { Parser } from "htmlparser2";
 import { describe, expect, it } from "vitest";
@@ -26,6 +25,7 @@ import { expandDoc } from "@/lib/commcare/expander";
 import { projectCaseListForHq } from "@/lib/commcare/hqJson/caseList";
 import type { BlueprintDoc } from "@/lib/domain";
 import { orderedColumns, tileCell } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import { projectTileGrid } from "@/lib/preview/caseTileLayout";
 import { tileResultsColumns } from "@/lib/preview/caseTileRendering";
 
@@ -67,7 +67,9 @@ function tiledDoc(): BlueprintDoc {
 					{
 						name: "Visit",
 						type: "followup",
-						fields: [f({ kind: "text", id: "notes", label: "Notes" })],
+						fields: [
+							f({ kind: "text", id: "notes", label: proseText("Notes") }),
+						],
 					},
 				],
 			},

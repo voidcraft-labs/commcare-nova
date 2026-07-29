@@ -20,7 +20,6 @@ import {
 	barcodeFieldMetadata,
 	barcodeFieldSchema,
 } from "./barcode";
-import type { SelectOption } from "./base";
 import { type DateField, dateFieldMetadata, dateFieldSchema } from "./date";
 import {
 	type DatetimeField,
@@ -70,6 +69,7 @@ import {
 	secretFieldMetadata,
 	secretFieldSchema,
 } from "./secret";
+import type { SelectOptionsSource } from "./selectOptionsSource";
 import {
 	type SignatureField,
 	signatureFieldMetadata,
@@ -80,7 +80,6 @@ import {
 	singleSelectFieldMetadata,
 	singleSelectFieldSchema,
 } from "./singleSelect";
-import type { SelectOptionsSource } from "./selectOptionsSource";
 import { type TextField, textFieldMetadata, textFieldSchema } from "./text";
 import { type TimeField, timeFieldMetadata, timeFieldSchema } from "./time";
 import { type VideoField, videoFieldMetadata, videoFieldSchema } from "./video";
@@ -572,7 +571,7 @@ function partialOf<
 			(value as z.ZodTypeAny).nullable(),
 		]),
 	);
-	return z.object(nullableShape).partial() as unknown as z.ZodObject<{
+	return z.object(nullableShape).partial().strict() as unknown as z.ZodObject<{
 		[K in Exclude<keyof S, "uuid" | "kind">]: z.ZodOptional<
 			z.ZodNullable<S[K]>
 		>;

@@ -30,7 +30,6 @@
 // seeds are deliberately incomplete, so asserting them tested a path no
 // author can take.
 
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { firstComparisonDefault } from "@/components/builder/shared/cards/comparisonSeed";
@@ -60,7 +59,6 @@ import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { validateCaseOperations } from "@/lib/commcare/validator/rules/caseOperations";
 import { formFieldEntriesFor } from "@/lib/doc/formFieldEntries";
 import { isReservedCaseOperationProperty } from "@/lib/doc/identifierVerdicts";
-
 import {
 	type BlueprintDoc,
 	type CaseOperation,
@@ -88,6 +86,7 @@ import {
 	term,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import {
 	caseOperationTextConstraint,
 	operationCaseDataScope,
@@ -162,16 +161,31 @@ function fixture(formType: "followup" | "registration"): {
 								uuid: SUBJECT,
 								kind: "text",
 								id: "subject",
-								label: "Subject",
+								label: proseText("Subject"),
 							}),
-							f({ uuid: TEXT, kind: "text", id: "note", label: "Note" }),
-							f({ uuid: NUMBER, kind: "int", id: "rating", label: "Rating" }),
-							f({ uuid: WHEN, kind: "date", id: "held_on", label: "Held on" }),
+							f({
+								uuid: TEXT,
+								kind: "text",
+								id: "note",
+								label: proseText("Note"),
+							}),
+							f({
+								uuid: NUMBER,
+								kind: "int",
+								id: "rating",
+								label: proseText("Rating"),
+							}),
+							f({
+								uuid: WHEN,
+								kind: "date",
+								id: "held_on",
+								label: proseText("Held on"),
+							}),
 							f({
 								uuid: CHOICES,
 								kind: "multi_select",
 								id: "choices",
-								label: "Choices",
+								label: proseText("Choices"),
 								options: [
 									{ value: "a", label: "A" },
 									{ value: "b", label: "B" },

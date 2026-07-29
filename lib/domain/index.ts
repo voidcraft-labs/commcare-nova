@@ -3,8 +3,8 @@
 // Public barrel for the domain layer. Every consumer outside lib/domain/
 // imports from here or from the kind-specific files under ./fields.
 
-export * from "./blueprint";
 export * from "./authoredIdentities";
+export * from "./blueprint";
 export * from "./builtinIcons";
 export * from "./caseOperationIdentifiers";
 export * from "./caseOperationIdentity";

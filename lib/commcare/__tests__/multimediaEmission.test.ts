@@ -12,7 +12,6 @@
  * references at all (the validation-loop / asset-free-preview path).
  */
 
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
@@ -23,6 +22,7 @@ import type {
 } from "@/lib/commcare/multimedia/assetWirePath";
 import { validateXForm } from "@/lib/commcare/validator/xformOracle";
 import type { MediaAssetId } from "@/lib/domain/multimedia";
+import { proseText } from "@/lib/domain/prose";
 
 // Asset ids referenced by the fixture doc, each mapped to a distinct
 // content hash so the emitted jr:// paths are distinguishable.
@@ -81,19 +81,19 @@ function mediaDoc() {
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Patient name",
+								label: proseText("Patient name"),
 								case_property_on: "patient",
 								label_media: { image: testMediaAssetId("label-img") },
-								help: "Use the name on their ID.",
+								help: proseText("Use the name on their ID."),
 								help_media: { audio: testMediaAssetId("help-aud") },
 								validate: ". != ''",
-								validate_msg: "Name is required",
+								validate_msg: proseText("Name is required"),
 								validate_msg_media: { image: testMediaAssetId("vmsg-img") },
 							}),
 							f({
 								kind: "single_select",
 								id: "triage_color",
-								label: "Triage color",
+								label: proseText("Triage color"),
 								options: [
 									{
 										value: "red",
@@ -170,7 +170,7 @@ describe("XForm itext media emission", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 									validate: ". != ''",
 									// validate_msg deliberately absent — only the media.
@@ -222,7 +222,7 @@ describe("XForm itext media emission", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 									// Only media on hint / help / validate_msg — no text.
 									hint_media: { image: testMediaAssetId("label-img") },

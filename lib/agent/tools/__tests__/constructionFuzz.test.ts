@@ -1,4 +1,6 @@
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { proseText } from "@/lib/domain/prose";
 /**
  * Construction fuzz — the standing proof of the always-valid invariant:
  * a doc grown purely through ACCEPTED tool calls — from the empty doc a
@@ -250,17 +252,32 @@ const fieldItemArb = fc
 			// The hidden arm declares no `label` — supplying one would turn
 			// every hidden item into a schema refusal and starve the run of
 			// hidden-field coverage.
-			...(kind !== "hidden" && { label }),
+			...(kind !== "hidden" && { label: proseText(label) }),
 			...(kind === "single_select" &&
 				withOptions && {
-					options: [
-						{ value: "yes", label: "Yes" },
-						{ value: "no", label: "No" },
-					],
+					optionsSource: {
+						kind: "inline",
+						options: [
+							{
+								value: "yes",
+								label: proseText("Yes"),
+							},
+							{
+								value: "no",
+								label: proseText("No"),
+							},
+						],
+					},
 				}),
 			...(kind === "hidden"
-				? { calculate: withCalculate ?? "1 + 1" }
-				: withRelevant !== undefined && { relevant: withRelevant }),
+				? {
+						calculate: {
+							parts: [{ kind: "text", text: withCalculate ?? "1 + 1" }],
+						},
+					}
+				: withRelevant !== undefined && {
+						relevant: { parts: [{ kind: "text", text: withRelevant }] },
+					}),
 			// Deliberately also generated for media kinds, whose arms exclude
 			// the slot — those items become schema refusals, which is the
 			// exclusion under test.
@@ -277,11 +294,10 @@ const fieldItemArb = fc
  *  small pool (so explicit collisions — a fail-the-call outcome — occur
  *  alongside clean creations). The sub-config axis covers all three learn
  *  shapes — learn_module only, assessment only, and both — because
- *  `assessment.user_score` is the one creation-tool input that crosses the
- *  text → AST parse boundary: its pool mixes a literal, the
- *  `__same_call_field__` marker (resolved by `resolveConnectScoreRef` to a
- *  reference to a field landing in the same call — the batch-overlay
- *  resolution shape), and a dangling reference (a gate bounce).
+ *  `assessment.user_score` mixes a literal AST, the
+ *  `__same_call_field__` marker (resolved by `prepareConnectInput` to a
+ *  UUID-backed reference to a field landing in the same call), and a
+ *  dangling UUID reference (a gate bounce).
  *  `fc.option` keeps the no-block arm — on a Connect app that arm creates
  *  an AUXILIARY form (no participation, a legal commit), so the property
  *  exercises mixed apps alongside fully participating ones; `freq: 3`
@@ -494,27 +510,27 @@ const opArb = fc.oneof(
 
 type FuzzOp = typeof opArb extends fc.Arbitrary<infer T> ? T : never;
 
-/** Resolve a field id within a form by pick index (deterministic). */
-function pickFieldId(
+/** Resolve a top-level field UUID within a form by pick index. */
+function pickFieldUuid(
 	doc: BlueprintDoc,
 	moduleIndex: number,
 	formIndex: number,
 	pick: number,
-): string | undefined {
+): Uuid | undefined {
 	const moduleUuid = doc.moduleOrder[moduleIndex];
 	const formUuid = moduleUuid
 		? doc.formOrder[moduleUuid]?.[formIndex]
 		: undefined;
 	const order = formUuid ? (doc.fieldOrder[formUuid] ?? []) : [];
-	const uuid = order[pick % Math.max(order.length, 1)];
-	return uuid ? doc.fields[uuid]?.id : undefined;
+	return order[pick % Math.max(order.length, 1)];
 }
 
 /** The shape of one generated field item this file's steering reads. */
-type FieldItem = { id: string; case_property_on?: string } & Record<
-	string,
-	unknown
->;
+type FieldItem = {
+	id: string;
+	fieldUuid?: Uuid;
+	case_property_on?: string;
+} & Record<string, unknown>;
 
 /** One generated per-form connect block (the creation ops' optional slot). */
 type GeneratedConnectBlock = Exclude<
@@ -530,18 +546,71 @@ type GeneratedConnectBlock = Exclude<
  * the `__own__` case-binding marker. With no landable field the marker
  * falls back to a literal score so the block stays committable.
  */
-function resolveConnectScoreRef(
+let connectFieldIdentitySequence = 0;
+
+function prepareConnectInput(
 	connect: GeneratedConnectBlock,
 	fields: readonly FieldItem[],
-): GeneratedConnectBlock {
-	if (connect.assessment?.user_score !== "__same_call_field__") return connect;
+): {
+	readonly fields: FieldItem[];
+	readonly connect: Record<string, unknown>;
+} {
 	const first = fields[0];
+	const fieldUuid =
+		first?.fieldUuid ??
+		testUuid(
+			`construction-fuzz-connect-field-${++connectFieldIdentitySequence}`,
+		);
+	const preparedFields =
+		first === undefined
+			? [...fields]
+			: [{ ...first, fieldUuid }, ...fields.slice(1)];
+	const authoredScore = connect.assessment?.user_score;
+	const userScore =
+		authoredScore === "__same_call_field__"
+			? { parts: [{ kind: "field-ref", uuid: fieldUuid }] }
+			: authoredScore === "#form/missing_score"
+				? {
+						parts: [
+							{
+								kind: "field-ref",
+								uuid: testUuid("construction-fuzz-missing-score"),
+							},
+						],
+					}
+				: { parts: [{ kind: "text", text: "1" }] };
 	return {
-		...connect,
-		assessment: {
-			...connect.assessment,
-			user_score: first ? `#form/${first.id}` : "1",
+		fields: preparedFields,
+		connect: {
+			...connect,
+			...(connect.assessment && {
+				assessment: {
+					...connect.assessment,
+					user_score: userScore,
+				},
+			}),
 		},
+	};
+}
+
+function moduleUuidAt(doc: BlueprintDoc, moduleIndex: number): Uuid {
+	return (
+		doc.moduleOrder[moduleIndex] ??
+		testUuid(`construction-fuzz-missing-module-${moduleIndex}`)
+	);
+}
+
+function formAddressAt(
+	doc: BlueprintDoc,
+	moduleIndex: number,
+	formIndex: number,
+): { moduleUuid: Uuid; formUuid: Uuid } {
+	const moduleUuid = moduleUuidAt(doc, moduleIndex);
+	return {
+		moduleUuid,
+		formUuid:
+			doc.formOrder[moduleUuid]?.[formIndex] ??
+			testUuid(`construction-fuzz-missing-form-${moduleIndex}-${formIndex}`),
 	};
 }
 
@@ -652,13 +721,13 @@ function registrationUnitFields(caseType: string): FieldItem[] {
 		{
 			kind: "text",
 			id: "case_name",
-			label: "Name",
+			label: proseText("Name"),
 			case_property_on: caseType,
 		},
 		{
 			kind: "text",
 			id: "village",
-			label: "Village",
+			label: proseText("Village"),
 			case_property_on: caseType,
 		},
 	];
@@ -698,6 +767,9 @@ async function applyOp(
 						),
 					]
 				: generated;
+			const prepared = op.connect
+				? prepareConnectInput(op.connect, formFields)
+				: { fields: formFields, connect: undefined };
 			const needsRecord =
 				coherentType !== undefined &&
 				!doc.caseTypes?.some((ct) => ct.name === coherentType);
@@ -709,8 +781,8 @@ async function applyOp(
 							{
 								name: coherentType,
 								properties: [
-									{ name: "case_name", label: "Name" },
-									{ name: "village", label: "Village" },
+									{ name: "case_name", label: proseText("Name") },
+									{ name: "village", label: proseText("Village") },
 								],
 							},
 						],
@@ -729,9 +801,9 @@ async function applyOp(
 							{
 								name: "First form",
 								type: coherentType ? "registration" : op.formType,
-								fields: formFields,
-								...(op.connect && {
-									connect: resolveConnectScoreRef(op.connect, formFields),
+								fields: prepared.fields,
+								...(prepared.connect && {
+									connect: prepared.connect,
 								}),
 							},
 						],
@@ -750,7 +822,8 @@ async function applyOp(
 			/* Same steering for a registration form: it must open its case
 			 * with the registration unit bound to the module's type — when
 			 * the target module has one. */
-			const moduleType = doc.modules[doc.moduleOrder[op.moduleIndex]]?.caseType;
+			const moduleUuid = moduleUuidAt(doc, op.moduleIndex);
+			const moduleType = doc.modules[moduleUuid]?.caseType;
 			const generated = resolveOwnCaseBindings(op.fields, moduleType);
 			const fields =
 				op.formType === "registration" && moduleType
@@ -761,44 +834,49 @@ async function applyOp(
 							),
 						]
 					: generated;
+			const prepared = op.connect
+				? prepareConnectInput(op.connect, fields)
+				: { fields, connect: undefined };
 			return runParsed(
 				createFormTool,
 				{
-					moduleIndex: op.moduleIndex,
+					moduleUuid,
 					name: op.name,
 					type: op.formType,
-					fields,
-					...(op.connect && {
-						connect: resolveConnectScoreRef(op.connect, fields),
+					fields: prepared.fields,
+					...(prepared.connect && {
+						connect: prepared.connect,
 					}),
 				},
 				ctx,
 				doc,
 			);
 		}
-		case "addFields":
+		case "addFields": {
+			const address = formAddressAt(doc, op.moduleIndex, op.formIndex);
 			return runParsed(
 				addFieldsTool,
 				{
-					moduleIndex: op.moduleIndex,
-					formIndex: op.formIndex,
+					...address,
 					fields: resolveOwnCaseBindings(
 						op.fields,
-						doc.modules[doc.moduleOrder[op.moduleIndex]]?.caseType,
+						doc.modules[address.moduleUuid]?.caseType,
 					),
 				},
 				ctx,
 				doc,
 			);
+		}
 		case "editField": {
-			const fieldId = pickFieldId(
+			const fieldUuid = pickFieldUuid(
 				doc,
 				op.moduleIndex,
 				op.formIndex,
 				op.fieldPick,
 			);
-			if (!fieldId) return doc;
-			const target = Object.values(doc.fields).find((fl) => fl.id === fieldId);
+			if (!fieldUuid) return doc;
+			const target = doc.fields[fieldUuid];
+			const address = formAddressAt(doc, op.moduleIndex, op.formIndex);
 			// The kind the patch is validated against — the conversion
 			// target when the op carries one (the tool refuses targets
 			// outside the source's `convertTargets`; a refusal is a
@@ -807,26 +885,42 @@ async function applyOp(
 			return runParsed(
 				editFieldTool,
 				{
-					moduleIndex: op.moduleIndex,
-					formIndex: op.formIndex,
-					fieldId,
+					...address,
+					fieldUuid,
 					updates: {
 						kind: effectiveKind,
 						// A select conversion must bring its options; a hidden
 						// conversion must bring a value source. Both harmless
 						// on refused conversions (nothing persists).
 						...(op.convertTo === "single_select" && {
-							options: [
-								{ value: "opt_a", label: "Option A" },
-								{ value: "opt_b", label: "Option B" },
-							],
+							optionsSource: {
+								kind: "inline",
+								options: [
+									{
+										value: "opt_a",
+										label: proseText("Option A"),
+									},
+									{
+										value: "opt_b",
+										label: proseText("Option B"),
+									},
+								],
+							},
 						}),
-						...(op.convertTo === "hidden" && { calculate: "1 + 1" }),
+						...(op.convertTo === "hidden" && {
+							calculate: { parts: [{ kind: "text", text: "1 + 1" }] },
+						}),
 						...(op.newId !== undefined && { id: op.newId }),
 						...(op.relevant !== undefined &&
-							effectiveKind !== "hidden" && { relevant: op.relevant }),
+							effectiveKind !== "hidden" && {
+								relevant: {
+									parts: [{ kind: "text", text: op.relevant }],
+								},
+							}),
 						...(op.label !== undefined &&
-							effectiveKind !== "hidden" && { label: op.label }),
+							effectiveKind !== "hidden" && {
+								label: proseText(op.label),
+							}),
 					},
 				},
 				ctx,
@@ -840,33 +934,33 @@ async function applyOp(
 			 * exercises the non-container refusal, and a group picked into
 			 * its own anchor exercises the own-subtree guard. All legitimate
 			 * outcomes; the invariant judges the doc. */
-			const fieldId = pickFieldId(
+			const fieldUuid = pickFieldUuid(
 				doc,
 				op.moduleIndex,
 				op.formIndex,
 				op.fieldPick,
 			);
-			if (!fieldId) return doc;
-			const anchorId = pickFieldId(
+			if (!fieldUuid) return doc;
+			const anchorUuid = pickFieldUuid(
 				doc,
 				op.moduleIndex,
 				op.formIndex,
 				op.anchorPick,
 			);
+			const address = formAddressAt(doc, op.moduleIndex, op.formIndex);
 			const placement =
-				op.side === "top" || anchorId === undefined
-					? { parentId: null }
+				op.side === "top" || anchorUuid === undefined
+					? { parentUuid: null }
 					: op.side === "into"
-						? { parentId: anchorId }
+						? { parentUuid: anchorUuid }
 						: op.side === "before"
-							? { beforeFieldId: anchorId }
-							: { afterFieldId: anchorId };
+							? { beforeFieldUuid: anchorUuid }
+							: { afterFieldUuid: anchorUuid };
 			return runParsed(
 				moveFieldTool,
 				{
-					moduleIndex: op.moduleIndex,
-					formIndex: op.formIndex,
-					fieldId,
+					...address,
+					fieldUuid,
 					...placement,
 				},
 				ctx,
@@ -888,31 +982,32 @@ async function applyOp(
 				const close = findCloseForm(doc);
 				if (close) ({ moduleIndex, formIndex } = close);
 			}
-			const field =
+			const fieldUuid =
 				op.closeField === "ghost"
-					? "ghost"
-					: (pickFieldId(doc, moduleIndex, formIndex, op.fieldPick) ??
-						op.closeField);
+					? testUuid("construction-fuzz-ghost-close-field")
+					: (pickFieldUuid(doc, moduleIndex, formIndex, op.fieldPick) ??
+						testUuid(`construction-fuzz-close-${op.closeField}`));
+			const address = formAddressAt(doc, moduleIndex, formIndex);
 			return runParsed(
 				updateFormTool,
 				{
-					moduleIndex,
-					formIndex,
-					close_condition: { field, answer: op.closeAnswer },
+					...address,
+					close_condition: { fieldUuid, answer: op.closeAnswer },
 				},
 				ctx,
 				doc,
 			);
 		}
 		case "updateModule": {
+			const moduleUuid = moduleUuidAt(doc, op.moduleIndex);
 			const caseType =
 				op.caseType === "__own__"
-					? doc.modules[doc.moduleOrder[op.moduleIndex]]?.caseType
+					? doc.modules[moduleUuid]?.caseType
 					: op.caseType;
 			return runParsed(
 				updateModuleTool,
 				{
-					moduleIndex: op.moduleIndex,
+					moduleUuid,
 					...(caseType && { case_type: caseType }),
 				},
 				ctx,
@@ -920,19 +1015,18 @@ async function applyOp(
 			);
 		}
 		case "removeField": {
-			const fieldId = pickFieldId(
+			const fieldUuid = pickFieldUuid(
 				doc,
 				op.moduleIndex,
 				op.formIndex,
 				op.fieldPick,
 			);
-			if (!fieldId) return doc;
+			if (!fieldUuid) return doc;
 			return runParsed(
 				removeFieldTool,
 				{
-					moduleIndex: op.moduleIndex,
-					formIndex: op.formIndex,
-					fieldId,
+					...formAddressAt(doc, op.moduleIndex, op.formIndex),
+					fieldUuid,
 				},
 				ctx,
 				doc,
@@ -941,7 +1035,7 @@ async function applyOp(
 		case "removeForm":
 			return runParsed(
 				removeFormTool,
-				{ moduleIndex: op.moduleIndex, formIndex: op.formIndex },
+				formAddressAt(doc, op.moduleIndex, op.formIndex),
 				ctx,
 				doc,
 			);
@@ -952,7 +1046,7 @@ async function applyOp(
 			 * occurrences asserted by the retirement-arm tallies. */
 			return runParsed(
 				removeModuleTool,
-				{ moduleIndex: op.moduleIndex },
+				{ moduleUuid: moduleUuidAt(doc, op.moduleIndex) },
 				ctx,
 				doc,
 			);
@@ -960,7 +1054,7 @@ async function applyOp(
 			return runParsed(
 				addCaseListColumnsTool,
 				{
-					moduleIndex: op.moduleIndex,
+					moduleUuid: moduleUuidAt(doc, op.moduleIndex),
 					columns: [{ kind: "plain", field: op.field, header: op.header }],
 				},
 				ctx,
@@ -972,7 +1066,7 @@ async function applyOp(
 			return runParsed(
 				updateCaseListColumnTool,
 				{
-					moduleIndex: op.moduleIndex,
+					moduleUuid: moduleUuidAt(doc, op.moduleIndex),
 					columnUuid,
 					column: { kind: "plain", field: op.field, header: op.header },
 				},
@@ -985,7 +1079,7 @@ async function applyOp(
 			if (!columnUuid) return doc;
 			return runParsed(
 				removeCaseListColumnTool,
-				{ moduleIndex: op.moduleIndex, columnUuid },
+				{ moduleUuid: moduleUuidAt(doc, op.moduleIndex), columnUuid },
 				ctx,
 				doc,
 			);
@@ -1005,7 +1099,7 @@ async function applyOp(
 			return runParsed(
 				reorderCaseListColumnsTool,
 				{
-					moduleIndex: op.moduleIndex,
+					moduleUuid: moduleUuidAt(doc, op.moduleIndex),
 					surface: op.surface,
 					columnUuids: columns.map((c) => c.uuid).reverse(),
 				},
@@ -1019,11 +1113,11 @@ async function applyOp(
 			 * literal so the rejection arm stays alive. `clear` keeps the
 			 * null-clears convention exercised. */
 			const ownType =
-				doc.modules[doc.moduleOrder[op.moduleIndex]]?.caseType ?? "patient";
+				doc.modules[moduleUuidAt(doc, op.moduleIndex)]?.caseType ?? "patient";
 			return runParsed(
 				setCaseListFilterTool,
 				{
-					moduleIndex: op.moduleIndex,
+					moduleUuid: moduleUuidAt(doc, op.moduleIndex),
 					filter: op.clear
 						? null
 						: eq(prop(ownType, op.property), literal("x")),
@@ -1036,7 +1130,7 @@ async function applyOp(
 			return runParsed(
 				addSearchInputsTool,
 				{
-					moduleIndex: op.moduleIndex,
+					moduleUuid: moduleUuidAt(doc, op.moduleIndex),
 					searchInputs: [
 						{
 							kind: "simple",
@@ -1060,7 +1154,7 @@ async function applyOp(
 			return runParsed(
 				updateSearchInputTool,
 				{
-					moduleIndex: op.moduleIndex,
+					moduleUuid: moduleUuidAt(doc, op.moduleIndex),
 					searchInputUuid,
 					searchInput: {
 						kind: "simple",
@@ -1083,7 +1177,10 @@ async function applyOp(
 			if (!searchInputUuid) return doc;
 			return runParsed(
 				removeSearchInputTool,
-				{ moduleIndex: op.moduleIndex, searchInputUuid },
+				{
+					moduleUuid: moduleUuidAt(doc, op.moduleIndex),
+					searchInputUuid,
+				},
 				ctx,
 				doc,
 			);
@@ -1094,7 +1191,7 @@ async function applyOp(
 			return runParsed(
 				reorderSearchInputsTool,
 				{
-					moduleIndex: op.moduleIndex,
+					moduleUuid: moduleUuidAt(doc, op.moduleIndex),
 					searchInputUuids: inputs.map((i) => i.uuid).reverse(),
 				},
 				ctx,
@@ -1220,8 +1317,8 @@ async function growStandardPrelude(
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name" },
-						{ name: "village", label: "Village" },
+						{ name: "case_name", label: proseText("Name") },
+						{ name: "village", label: proseText("Village") },
 					],
 				},
 			],
@@ -1249,7 +1346,7 @@ async function growStandardPrelude(
 						{
 							kind: "text",
 							id: "notes",
-							label: "Notes",
+							label: proseText("Notes"),
 							case_property_on: "patient",
 						},
 					],
@@ -1261,7 +1358,7 @@ async function growStandardPrelude(
 						{
 							kind: "text",
 							id: "closure_reason",
-							label: "Closure reason",
+							label: proseText("Closure reason"),
 							case_property_on: "patient",
 						},
 					],
@@ -1282,7 +1379,9 @@ async function growStandardPrelude(
 				{
 					name: "Feedback survey",
 					type: "survey",
-					fields: [{ kind: "text", id: "comments", label: "Comments" }],
+					fields: [
+						{ kind: "text", id: "comments", label: proseText("Comments") },
+					],
 				},
 			],
 		},
@@ -1292,7 +1391,7 @@ async function growStandardPrelude(
 	doc = await runParsed(
 		addCaseListColumnsTool,
 		{
-			moduleIndex: 0,
+			moduleUuid: doc.moduleOrder[0],
 			columns: [{ kind: "plain", field: "village", header: "Village" }],
 		},
 		ctx,
@@ -1301,7 +1400,7 @@ async function growStandardPrelude(
 	doc = await runParsed(
 		addSearchInputsTool,
 		{
-			moduleIndex: 0,
+			moduleUuid: doc.moduleOrder[0],
 			searchInputs: [
 				{
 					kind: "simple",
@@ -1345,8 +1444,8 @@ async function growConnectPrelude(
 				{
 					name: "trainee",
 					properties: [
-						{ name: "case_name", label: "Name" },
-						{ name: "village", label: "Village" },
+						{ name: "case_name", label: proseText("Name") },
+						{ name: "village", label: proseText("Village") },
 					],
 				},
 			],
@@ -1381,7 +1480,7 @@ async function growConnectPrelude(
 						{
 							kind: "text",
 							id: "notes",
-							label: "Notes",
+							label: proseText("Notes"),
 							case_property_on: "trainee",
 						},
 					],
@@ -1401,7 +1500,7 @@ async function growConnectPrelude(
 						{
 							kind: "text",
 							id: "closure_reason",
-							label: "Closure reason",
+							label: proseText("Closure reason"),
 							case_property_on: "trainee",
 						},
 					],
@@ -1422,10 +1521,10 @@ async function growConnectPrelude(
 	doc = await runParsed(
 		createFormTool,
 		{
-			moduleIndex: 0,
+			moduleUuid: doc.moduleOrder[0],
 			name: "Reference sheet",
 			type: "survey",
-			fields: [{ kind: "text", id: "tips", label: "Tips" }],
+			fields: [{ kind: "text", id: "tips", label: proseText("Tips") }],
 		},
 		ctx,
 		doc,
@@ -1453,7 +1552,9 @@ async function growConnectPrelude(
 							time_estimate: 5,
 						},
 					},
-					fields: [{ kind: "text", id: "comments", label: "Comments" }],
+					fields: [
+						{ kind: "text", id: "comments", label: proseText("Comments") },
+					],
 				},
 			],
 		},
@@ -1463,7 +1564,7 @@ async function growConnectPrelude(
 	doc = await runParsed(
 		addCaseListColumnsTool,
 		{
-			moduleIndex: 0,
+			moduleUuid: doc.moduleOrder[0],
 			columns: [{ kind: "plain", field: "village", header: "Village" }],
 		},
 		ctx,
@@ -1472,7 +1573,7 @@ async function growConnectPrelude(
 	doc = await runParsed(
 		addSearchInputsTool,
 		{
-			moduleIndex: 0,
+			moduleUuid: doc.moduleOrder[0],
 			searchInputs: [
 				{
 					kind: "simple",

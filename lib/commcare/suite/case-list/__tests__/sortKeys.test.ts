@@ -41,6 +41,7 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { literal, prop, term, unwrapList } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import {
 	applicableSortTypes,
 	buildSortDirectives,
@@ -89,7 +90,7 @@ function buildDoc(args: {
 							name: args.caseType,
 							properties: (args.properties ?? []).map((p) => ({
 								name: p.name,
-								label: p.name,
+								label: proseText(p.name),
 								...(p.data_type !== undefined && { data_type: p.data_type }),
 							})),
 						},

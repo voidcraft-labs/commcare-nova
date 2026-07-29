@@ -1,6 +1,5 @@
 // @vitest-environment happy-dom
 
-import { proseText } from "@/lib/domain/prose";
 import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
@@ -15,6 +14,7 @@ import { useOrderedFields } from "@/lib/doc/hooks/useOrderedFields";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { BlueprintDoc } from "@/lib/doc/types";
+import { proseText } from "@/lib/domain/prose";
 
 // ── Fixed UUIDs ────────────────────────────────────────────────────────
 
@@ -52,7 +52,7 @@ function setup() {
 				uuid: Q_UUID,
 				id: "name",
 				kind: "text",
-				label: "Name",
+				label: proseText("Name"),
 			} as BlueprintDoc["fields"][typeof Q_UUID],
 		},
 		moduleOrder: [MOD_UUID],
@@ -197,7 +197,7 @@ describe("useOrderedFields", () => {
 						uuid: testUuid("q-222-0000-0000-0000-000000000000"),
 						id: "age",
 						kind: "int",
-						label: "Age",
+						label: proseText("Age"),
 					} as BlueprintDoc["fields"][string],
 				},
 			]);

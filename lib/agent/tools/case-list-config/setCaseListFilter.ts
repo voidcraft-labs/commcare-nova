@@ -28,15 +28,15 @@
  * Both the SA chat factory and the MCP adapter call this through the
  * shared `ToolExecutionContext` interface. Two exit branches:
  *
- *   1. Module index out of range → `{ error }`, no mutations.
+ *   1. Module UUID address does not resolve → `{ error }`, no mutations.
  *   2. Success → `{ message, kind }` plus the persisted mutation,
  *      tagged `module:M:filter`.
  */
 
-import { z } from "zod";
+import type { z } from "zod";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
-import { predicateSchema, type Predicate } from "@/lib/domain/predicate";
+import { type Predicate, predicateSchema } from "@/lib/domain/predicate";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import {
 	guardedMutate,
@@ -44,11 +44,11 @@ import {
 	toToolErrorResult,
 } from "../common";
 import { canonicalizePredicateCaseProperties } from "../shared/canonicalCaseProperties";
-import type { ToolCallSummary } from "../shared/toolCallSummary";
 import {
 	moduleAddressSchema,
 	resolveModuleAddress,
 } from "../shared/entityAddresses";
+import type { ToolCallSummary } from "../shared/toolCallSummary";
 
 export const setCaseListFilterInputSchema = moduleAddressSchema
 	.extend({

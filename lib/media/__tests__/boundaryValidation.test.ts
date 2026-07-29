@@ -20,7 +20,6 @@
  * validator finding, never just the media subset.
  */
 
-import { proseText } from "@/lib/domain/prose";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
@@ -32,6 +31,7 @@ import {
 	MAX_MEDIA_EXPORT_BYTES,
 	type MediaAssetId,
 } from "@/lib/domain/multimedia";
+import { proseText } from "@/lib/domain/prose";
 import { collectExportBoundaryViolations as collectBoundaryViolationsWithContext } from "@/lib/export/boundaryValidation";
 
 const PROJECT = "project-1";
@@ -90,14 +90,14 @@ function validDoc(assetId?: MediaAssetId) {
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Name",
+								label: proseText("Name"),
 								case_property_on: "patient",
 								...(assetId && { label_media: { image: assetId } }),
 							}),
 							f({
 								kind: "text",
 								id: "village",
-								label: "Village",
+								label: proseText("Village"),
 								case_property_on: "patient",
 							}),
 						],
@@ -298,14 +298,14 @@ describe("collectExportBoundaryViolations media arm", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 									label_media: { image: realAssetId },
 								}),
 								f({
 									kind: "text",
 									id: "village",
-									label: "Village",
+									label: proseText("Village"),
 									case_property_on: "patient",
 								}),
 							],

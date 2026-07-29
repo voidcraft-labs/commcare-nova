@@ -70,13 +70,13 @@ import type { CasePropertyDataType } from "./casePropertyTypes";
 import { caseDataTypeForFieldKind, fieldCasePropertyOn } from "./caseTypes";
 import type { Field, HiddenField } from "./fields";
 import { orderedCaseOperations } from "./forms";
-import { proseText } from "./prose";
 import {
 	ANY_TYPE,
 	type CheckError,
 	checkExpression,
 	SEQUENCE_TYPE,
 } from "./predicate/typeChecker";
+import { proseText } from "./prose";
 import {
 	isStandardCaseListProperty,
 	STANDARD_CASE_LIST_PROPERTY_DATA_TYPES,

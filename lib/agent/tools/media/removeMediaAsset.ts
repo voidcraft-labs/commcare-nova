@@ -106,8 +106,8 @@ export const removeMediaAssetTool = {
 		// check above, so skip it here.
 		const otherAppReferences = await findAppReferencesToAsset(
 			projectId,
-			input.assetId,
-			await listReferencingAppIds(input.assetId),
+			assetId,
+			await listReferencingAppIds(assetId),
 			{ skipAppId: ctx.appId },
 		);
 		if (otherAppReferences.length > 0) {

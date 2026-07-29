@@ -1,6 +1,5 @@
 // @vitest-environment happy-dom
 
-import { proseText } from "@/lib/domain/prose";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { produce } from "immer";
 import { type ReactNode, StrictMode, useLayoutEffect, useState } from "react";
@@ -23,6 +22,7 @@ import {
 	lt,
 	prop,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import {
 	CaseListWorkspaceCanvas,
 	CaseListWorkspaceProvider,
@@ -192,7 +192,7 @@ function makeDoc(): BlueprintDoc {
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Client name",
+								label: proseText("Client name"),
 								case_property_on: "client",
 							}),
 						],

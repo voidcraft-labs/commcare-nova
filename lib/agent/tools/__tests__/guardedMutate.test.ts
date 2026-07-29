@@ -15,12 +15,12 @@
  * layer is what gives both per-call gating.
  */
 
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { guardedMutate } from "../common";
 import { editFieldTool } from "../editField";
@@ -44,13 +44,13 @@ function minDoc(): BlueprintDoc {
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Name",
+								label: proseText("Name"),
 								case_property_on: "patient",
 							}),
 							f({
 								kind: "text",
 								id: "village",
-								label: "Village",
+								label: proseText("Village"),
 								case_property_on: "patient",
 							}),
 						],
@@ -117,6 +117,16 @@ function badRelevantMutation(doc: BlueprintDoc): Mutation[] {
 	];
 }
 
+function villageAddress(doc: BlueprintDoc) {
+	const moduleUuid = doc.moduleOrder[0];
+	const formUuid = doc.formOrder[moduleUuid][0];
+	const fieldUuid = Object.values(doc.fields).find(
+		(field) => field.id === "village",
+	)?.uuid;
+	if (!fieldUuid) throw new Error("fixture missing village");
+	return { moduleUuid, formUuid, fieldUuid };
+}
+
 describe("guardedMutate", () => {
 	it("persists a passing batch once, with the post-batch doc and stage tag", async () => {
 		const doc = minDoc();
@@ -127,7 +137,7 @@ describe("guardedMutate", () => {
 				kind: "updateField",
 				uuid: target?.uuid,
 				targetKind: "text",
-				patch: { label: "Home village" },
+				patch: { label: proseText("Home village") },
 			} as Mutation,
 		];
 
@@ -199,10 +209,8 @@ describe("tool-level gating (editField through the shared layer)", () => {
 
 		const out = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "village",
-				updates: { kind: "text", relevant: "if(" } as never,
+				...villageAddress(doc),
+				updates: { kind: "text", relevant: xp("if(") },
 			},
 			ctx,
 			doc,
@@ -228,14 +236,12 @@ describe("tool-level gating (editField through the shared layer)", () => {
 
 		const out = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "village",
+				...villageAddress(doc),
 				updates: {
 					kind: "text",
 					id: "village_name",
-					relevant: "if(",
-				} as never,
+					relevant: xp("if("),
+				},
 			},
 			ctx,
 			doc,
@@ -261,13 +267,11 @@ describe("tool-level gating (editField through the shared layer)", () => {
 
 		const out = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "village",
+				...villageAddress(doc),
 				updates: {
 					kind: "text",
 					id: "village_name",
-					label: "Home village",
+					label: proseText("Home village"),
 				} as never,
 			},
 			ctx,
@@ -281,7 +285,11 @@ describe("tool-level gating (editField through the shared layer)", () => {
 		const stages = recordMutationStages.mock.calls[0]?.[0] as Array<{
 			stage?: string;
 		}>;
-		expect(stages.map((s) => s.stage)).toEqual(["rename:0-0", "edit:0-0"]);
+		const formUuid = villageAddress(doc).formUuid;
+		expect(stages.map((s) => s.stage)).toEqual([
+			`rename:${formUuid}`,
+			`edit:${formUuid}`,
+		]);
 	});
 
 	it("commits a clean edit unchanged (the gate is transparent on pass)", async () => {
@@ -290,10 +298,8 @@ describe("tool-level gating (editField through the shared layer)", () => {
 
 		const out = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "village",
-				updates: { kind: "text", label: "Home village" } as never,
+				...villageAddress(doc),
+				updates: { kind: "text", label: proseText("Home village") },
 			},
 			ctx,
 			doc,

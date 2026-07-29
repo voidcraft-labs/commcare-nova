@@ -247,14 +247,15 @@ describe("emitRemoteRequest — <instance> declarations", () => {
 		// arm predicate here is the wire-valid shape that still
 		// references `instance('search-input:results')` (the envelope
 		// trigger itself), so the instance accumulator must walk it.
+		const advancedInputUuid = testUuid("00000000-0000-4000-8000-00000000aaaa");
 		const advancedInput = advancedSearchInputDef(
-			testUuid("00000000-0000-4000-8000-00000000aaaa"),
+			advancedInputUuid,
 			"city_q",
 			"City",
 			"text",
 			whenInput(
-				input("city_q"),
-				eq(prop("patient", "city"), term({ kind: "input", name: "city_q" })),
+				input(advancedInputUuid),
+				eq(prop("patient", "city"), input(advancedInputUuid)),
 			),
 		);
 		const { xml } = emitRemoteRequest({
@@ -321,7 +322,7 @@ describe("emitRemoteRequest — <instance> declarations", () => {
 				"text",
 				"name",
 			),
-			default: term({ kind: "input", name: "primary_q" }),
+			default: term(input(primaryInput.uuid)),
 		};
 		const { xml } = emitRemoteRequest({
 			module: makeModule({

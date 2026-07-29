@@ -32,6 +32,7 @@
 // fragment after.
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	and,
 	concat,
@@ -263,7 +264,7 @@ describe("unanswered-Search substitution on the ordinary nodeset", () => {
 		// `input(...)` reads blank before Search; blank means "exclude
 		// nobody", so the entire fragment collapses away instead of
 		// referencing the unloaded search-input instance.
-		const exclusion = term(input("excluded_owners"));
+		const exclusion = term(input(testUuid("excluded_owners")));
 		expect(emitExcludedOwnerFilterExpression(exclusion)).toBeUndefined();
 		expect(emitExcludedOwnerNodesetFilter(exclusion)).toBe("");
 	});
@@ -273,7 +274,7 @@ describe("unanswered-Search substitution on the ordinary nodeset", () => {
 		// blank; the session arm is real at ordinary-list evaluation time
 		// and must survive.
 		const exclusion = concat(
-			term(input("excluded_owners")),
+			term(input(testUuid("excluded_owners"))),
 			term(literal(" ")),
 			term(sessionUser("excluded_owner_ids")),
 		);
@@ -291,8 +292,8 @@ describe("unanswered-Search substitution on the ordinary nodeset", () => {
 		// left to crash the entry.
 		const filter = and(
 			whenInput(
-				input("name_query"),
-				eq(prop("patient", "full_name"), term(input("name_query"))),
+				input(testUuid("name_query")),
+				eq(prop("patient", "full_name"), term(input(testUuid("name_query")))),
 			),
 			eq(prop("patient", "is_priority"), literal(true)),
 		);
@@ -301,16 +302,16 @@ describe("unanswered-Search substitution on the ordinary nodeset", () => {
 
 	it("emits no bracket when the filter is only an envelope", () => {
 		const filter = whenInput(
-			input("name_query"),
-			eq(prop("patient", "full_name"), term(input("name_query"))),
+			input(testUuid("name_query")),
+			eq(prop("patient", "full_name"), term(input(testUuid("name_query")))),
 		);
 		expect(emitNodesetFilter(filter)).toBe("");
 	});
 
 	it("does not mutate the authored filter AST", () => {
 		const filter = whenInput(
-			input("name_query"),
-			eq(prop("patient", "full_name"), term(input("name_query"))),
+			input(testUuid("name_query")),
+			eq(prop("patient", "full_name"), term(input(testUuid("name_query")))),
 		);
 		const snapshot = structuredClone(filter);
 		emitNodesetFilter(filter);

@@ -9,6 +9,7 @@
 // structurally-equal tree when no identity is present.
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	and,
 	count,
@@ -125,7 +126,7 @@ describe("simplifyForEmission — not folds via the builder", () => {
 
 describe("simplifyForEmission — recursion through nested Predicate slots", () => {
 	it("recurses into a when-input-present clause", () => {
-		const i = input("q");
+		const i = input(testUuid("q"));
 		expect(simplifyForEmission(whenInput(i, and(matchAll(), a)))).toEqual(
 			whenInput(i, a),
 		);

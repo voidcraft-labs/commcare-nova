@@ -38,14 +38,13 @@
 // context hooks are stubbed since they have no bearing on the
 // regression.
 
-import { proseText } from "@/lib/domain/prose";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { xp } from "@/lib/__tests__/docHelpers";
-
 import type { TextField, XPathExpression } from "@/lib/domain";
 import { printXPath } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 
 // Stub XPathField — the real implementation mounts CodeMirror and
 // requires a ReferenceProvider context. The stub renders an opaque
@@ -54,6 +53,27 @@ import { printXPath } from "@/lib/domain";
 vi.mock("@/components/builder/XPathField", () => ({
 	XPathField: ({ value }: { value: string }) => (
 		<div data-testid="xpath-field-stub">{value}</div>
+	),
+}));
+vi.mock("@/components/builder/RefLabelInput", () => ({
+	RefLabelInput: ({
+		label,
+		value,
+		onEmpty,
+	}: {
+		label: string;
+		value: { parts: Array<{ kind: string; text?: string }> };
+		onEmpty?: () => void;
+	}) => (
+		<input
+			aria-label={label}
+			defaultValue={value.parts
+				.map((part) => (part.kind === "text" ? (part.text ?? "") : ""))
+				.join("")}
+			onBlur={(event) => {
+				if (event.currentTarget.value === "") onEmpty?.();
+			}}
+		/>
 	),
 }));
 

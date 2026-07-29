@@ -88,6 +88,7 @@ import {
 	term,
 	whenInput,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import {
 	buildField,
 	type FieldBuildCtx,
@@ -128,7 +129,7 @@ const PROPERTY_POOL: ReadonlyArray<{
 function poolProperties(): CaseProperty[] {
 	return PROPERTY_POOL.map((p) => ({
 		name: p.name,
-		label: p.name,
+		label: proseText(p.name),
 		data_type: p.dataType,
 	}));
 }
@@ -395,10 +396,10 @@ function lowerSearchInput(
 			// A `when-input-present`-wrapped equality against a text property: the
 			// canonical advanced shape the validator accepts (the bare `input(...)`
 			// ref must sit inside the envelope). The advanced arm's name is
-			// index-keyed since its predicate references its own `input(name)`.
+			// index-keyed while the predicate references the input by identity.
 			const name = `adv_${index}`;
 			// `whenInput(inputRef, clause)` — the first arg is a `SearchInputRef`
-			// (`input(name)`), not a bare string. The envelope gates the inner
+			// (`input(uuid)`), not a bare string. The envelope gates the inner
 			// comparison on the input being present so the bare `input(...)` ref
 			// inside the clause passes `searchInputRefUsesWhenInputPresent`.
 			return advancedSearchInputDef(
@@ -407,8 +408,8 @@ function lowerSearchInput(
 				name,
 				"text",
 				whenInput(
-					input(name),
-					eq(term(prop(caseType, "full_name")), term(input(name))),
+					input(uuid),
+					eq(term(prop(caseType, "full_name")), term(input(uuid))),
 				),
 			);
 		}
@@ -755,7 +756,7 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 					uuid: caseNameUuid,
 					kind: "text",
 					id: "case_name",
-					label: "Case name",
+					label: proseText("Case name"),
 					case_property_on: caseTypeName,
 				} as Field;
 
@@ -769,7 +770,7 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 					// `full_name` text property so calc-column / search references
 					// against it resolve to a real writer.
 					id: "full_name",
-					label: "Full name",
+					label: proseText("Full name"),
 					case_property_on: caseTypeName,
 				} as Field;
 			}

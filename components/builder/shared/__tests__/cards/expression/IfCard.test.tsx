@@ -12,11 +12,11 @@
 // level branch-mismatch error. The card's slot lookups thread
 // through both paths.
 
-import { proseText } from "@/lib/domain/prose";
 import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { CaseType } from "@/lib/domain";
 import { eq, gt, ifExpr, literal, prop, term } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { ExpressionCardEditor } from "../../../ExpressionCardEditor";
 
 const PATIENT: CaseType = {

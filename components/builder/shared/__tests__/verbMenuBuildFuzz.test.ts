@@ -19,8 +19,8 @@
 // COMPLETENESS states the editor leaves for the author to fill: an empty
 // property name and an empty `match` value. Pure — no React, no DOM.
 
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	type CaseProperty,
 	type CasePropertyDataType,
@@ -60,6 +60,7 @@ import {
 	whenInput,
 	within,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import {
 	STRUCTURE_ENTRIES,
 	subjectOf,
@@ -107,7 +108,9 @@ const CT: CaseType = {
 };
 const CASE_TYPES = [PARENT, CT];
 // One known input so `when-input-present` is admitted + resolves.
-const KNOWN_INPUTS = [{ name: "q", data_type: "text" as const }];
+const KNOWN_INPUTS = [
+	{ uuid: testUuid("q"), name: "q", data_type: "text" as const },
+];
 
 const EDIT_CTX: PredicateEditContext = {
 	caseTypes: CASE_TYPES,
@@ -172,7 +175,7 @@ const CURRENTS: Predicate[] = [
 	or(eq(P("text"), literal("x")), eq(P("int"), literal(5))),
 	not(eq(P("text"), literal("x"))),
 	exists(ancestorPath(relationStep("parent"))),
-	whenInput(input("q"), matchAll()),
+	whenInput(input(testUuid("q")), matchAll()),
 	matchAll(),
 	matchNone(),
 ];

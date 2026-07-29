@@ -23,6 +23,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, ConnectConfig } from "@/lib/domain";
 import { setupAppStateTestDb } from "./appStateTestDb";
@@ -41,8 +42,8 @@ const TEST_PROJECT = "project-blueprint-clear-test";
 const APP_ID = "app-blueprint-clear";
 const HOLDER_NONCE = "00000000-0000-4000-8000-000000000001";
 
-const MODULE_UUID = "11111111-1111-4111-8111-111111111111";
-const FORM_UUID = "22222222-2222-4222-8222-222222222222";
+const MODULE_UUID = testUuid("11111111-1111-4111-8111-111111111111");
+const FORM_UUID = testUuid("22222222-2222-4222-8222-222222222222");
 
 /** A minimal legal Connect learn-module block. */
 const CONNECT: ConnectConfig = {

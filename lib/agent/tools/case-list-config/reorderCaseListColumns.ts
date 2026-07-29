@@ -9,7 +9,7 @@
  *
  * Three exit branches:
  *
- *   1. Module index out of range → `{ error }`, no mutations.
+ *   1. Module UUID address does not resolve → `{ error }`, no mutations.
  *   2. The supplied order doesn't permute the screen's visible uuids — length
  *      mismatch, duplicates, unknown uuids, or missing uuids → `{ error }`,
  *      no mutations.
@@ -26,11 +26,11 @@ import {
 	type MutatingToolResult,
 	toToolErrorResult,
 } from "../common";
-import type { ToolCallSummary } from "../shared/toolCallSummary";
 import {
 	moduleAddressSchema,
 	resolveModuleAddress,
 } from "../shared/entityAddresses";
+import type { ToolCallSummary } from "../shared/toolCallSummary";
 import { uuidInputSchema } from "./shared";
 
 export const reorderCaseListColumnsInputSchema = moduleAddressSchema

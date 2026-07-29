@@ -29,7 +29,12 @@ import {
 import { getCaseStorePool } from "@/lib/case-store/postgres/connection";
 import type { EntityRowKind } from "@/lib/db/blueprintRows";
 import type { Mutation } from "@/lib/doc/types";
-import type { CaseType, ConnectType } from "@/lib/domain";
+import type { CaseType, ConnectType, MediaAssetId, Uuid } from "@/lib/domain";
+import type {
+	LookupColumnId,
+	LookupRowId,
+	LookupTableId,
+} from "@/lib/domain/lookupIds";
 import type { Location } from "@/lib/routing/types";
 import { delay } from "@/lib/utils/delay";
 
@@ -45,8 +50,12 @@ type DefaultedLookupRevisionColumn = ColumnType<
 	string | undefined,
 	string
 >;
-/** Server-defaulted UUIDv7 identity: optional on INSERT, immutable on UPDATE. */
-type DefaultedUuidV7Column = ColumnType<string, string | undefined, never>;
+/** Server-defaulted branded UUIDv7 identity: optional on INSERT, immutable on UPDATE. */
+type DefaultedUuidV7Column<Identity extends string> = ColumnType<
+	Identity,
+	Identity | undefined,
+	never
+>;
 
 export interface AppsTable {
 	id: string;
@@ -56,7 +65,7 @@ export interface AppsTable {
 	app_name_lower: string;
 	connect_type: ConnectType | null;
 	case_types: JSONColumnType<CaseType[] | null, string | null, string | null>;
-	logo: string | null;
+	logo: MediaAssetId | null;
 	module_count: number;
 	form_count: number;
 	mutation_seq: BigIntColumn;
@@ -99,12 +108,12 @@ export interface AppsTable {
 
 export interface BlueprintEntitiesTable {
 	app_id: string;
-	uuid: string;
+	uuid: Uuid;
 	/** The kind union lives on `EntityRowKind` in `lib/db/blueprintRows.ts`
 	 *  beside the decompose/assemble pair, and the SQL `CHECK` constraint
 	 *  mirrors it. */
 	kind: EntityRowKind;
-	parent_uuid: string | null;
+	parent_uuid: Uuid | null;
 	/** Index within the owning membership array at write time. Nested rows use
 	 *  their parent's array; Blueprint-root and flat rows use their root array.
 	 *  The array is the sequence, so every ordered kind — including the three
@@ -257,7 +266,7 @@ export interface CreditGrantsTable {
 }
 
 export interface MediaAssetsTable {
-	id: string;
+	id: MediaAssetId;
 	project_id: string;
 	owner: string;
 	content_hash: string;
@@ -285,16 +294,16 @@ export interface MediaAssetsTable {
 }
 
 export interface MediaAssetRefsTable {
-	asset_id: string;
+	asset_id: MediaAssetId;
 	app_id: string;
 }
 
 /** One successful pending-attempt id -> canonical ready asset replay record. */
 export interface MediaUploadAliasesTable {
-	attempt_asset_id: string;
+	attempt_asset_id: MediaAssetId;
 	project_id: string;
 	content_hash: string;
-	canonical_asset_id: string;
+	canonical_asset_id: MediaAssetId;
 	created_at: Timestamp;
 	expires_at: Timestamp;
 }
@@ -313,7 +322,7 @@ export interface LookupProjectStateTable {
 
 export interface LookupTablesTable {
 	project_id: string;
-	id: DefaultedUuidV7Column;
+	id: DefaultedUuidV7Column<LookupTableId>;
 	name: string;
 	tag: string;
 	/** Definition and row revisions are exact signed-int64 decimal strings. */
@@ -339,8 +348,8 @@ export type StoredLookupColumnDataType =
 
 export interface LookupColumnsTable {
 	project_id: string;
-	table_id: string;
-	id: DefaultedUuidV7Column;
+	table_id: LookupTableId;
+	id: DefaultedUuidV7Column<LookupColumnId>;
 	wire_name: string;
 	label: string;
 	data_type: StoredLookupColumnDataType;
@@ -349,11 +358,11 @@ export interface LookupColumnsTable {
 
 export interface LookupRowsTable {
 	project_id: string;
-	table_id: string;
-	id: DefaultedUuidV7Column;
+	table_id: LookupTableId;
+	id: DefaultedUuidV7Column<LookupRowId>;
 	order_key: string;
 	/** UUID-keyed scalar cells; runtime validation owns the per-column shape. */
-	values: JSONColumnType<Record<string, string | number>>;
+	values: JSONColumnType<Record<LookupColumnId, string | number>>;
 	/** Postgres-generated `octet_length(values::text)`; never caller-written. */
 	value_bytes: ColumnType<number, never, never>;
 	created_by: string;
@@ -365,15 +374,15 @@ export interface LookupRowsTable {
 /** One exact app -> lookup-table target. Structural occurrence paths stay in memory. */
 export interface LookupTableReferencesTable {
 	project_id: string;
-	table_id: string;
+	table_id: LookupTableId;
 	app_id: string;
 }
 
 /** One exact app -> lookup-column target; its parent table edge must also exist. */
 export interface LookupColumnReferencesTable {
 	project_id: string;
-	table_id: string;
-	column_id: string;
+	table_id: LookupTableId;
+	column_id: LookupColumnId;
 	app_id: string;
 }
 
@@ -394,7 +403,7 @@ export interface FormAttachmentsTable {
 	created_by: string;
 	/** One form entry (an `activateForm`), the idempotency/reservation scope. */
 	entry_key: string;
-	field_uuid: string;
+	field_uuid: Uuid;
 	/** Concrete engine path, so replace/clear targets one repeat instance. */
 	instance_path: string;
 	original_filename: string;
@@ -429,7 +438,7 @@ export interface FormSubmissionIntentsTable {
 	project_id: string;
 	created_by: string;
 	entry_key: string;
-	form_uuid: string;
+	form_uuid: Uuid;
 	app_mutation_seq: BigIntColumn;
 	request_digest: string;
 	/** Null exists only inside the transaction while the envelope executes. */

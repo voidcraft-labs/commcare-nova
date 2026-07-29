@@ -484,7 +484,11 @@ function emitWhenInputPresentSegments(
 	p: Extract<Predicate, { kind: "when-input-present" }>,
 	typeContext?: TypeContext,
 ): CsqlSegment[] {
-	const triggerXPath = emitSearchInputXPath(p.input);
+	const triggerXPath = emitSearchInputXPath(p.input, {
+		searchInputNames: new Map(
+			(typeContext?.knownInputs ?? []).map((input) => [input.uuid, input.name]),
+		),
+	});
 	const innerSegments = emitPredicateSegments(p.clause, 0, typeContext);
 	const inner = buildConcatExpression(innerSegments);
 	const conditionalXPath = `if(count(${triggerXPath}), ${inner.query}, 'match-all()')`;

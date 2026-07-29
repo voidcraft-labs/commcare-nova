@@ -9,6 +9,7 @@
 
 import { describe, expect, it } from "vitest";
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
+import type { MediaAssetId } from "@/lib/domain";
 import {
 	canonicalizePendingAssetForActor,
 	findReadyAssetByProjectAndHash,
@@ -21,10 +22,15 @@ const PROJECT = "upload-alias-project";
 const ACTOR = "upload-alias-editor";
 const VIEWER = "upload-alias-viewer";
 const HASH = "c".repeat(64);
+const READY_ASSET = testMediaAssetId("60000000-0000-4000-8000-000000000001");
+const PENDING_ASSET = testMediaAssetId("60000000-0000-4000-8000-000000000002");
+const EXPIRED_OLDEST = testMediaAssetId("attempt-expired-oldest");
+const EXPIRED_NEWER = testMediaAssetId("attempt-expired-newer");
+const ACTIVE_ATTEMPT = testMediaAssetId("attempt-active");
 const h = setupAppStateTestDb("media_upload_alias_");
 
 async function seedAsset(args: {
-	id: string;
+	id: MediaAssetId;
 	status: "pending" | "ready";
 	createdAt?: Date;
 }): Promise<void> {
@@ -63,22 +69,18 @@ describe("durable media upload aliases", () => {
 		await h.seedProjectMember(ACTOR, PROJECT, "editor");
 		await h.seedProjectMember(VIEWER, PROJECT, "viewer");
 		await seedAsset({
-			id: "60000000-0000-4000-8000-000000000001",
+			id: READY_ASSET,
 			status: "ready",
 		});
 		await seedAsset({
-			id: "60000000-0000-4000-8000-000000000002",
+			id: PENDING_ASSET,
 			status: "pending",
 		});
 
 		const result = await canonicalizePendingAssetForActor(
 			{
-				attemptAssetId: testMediaAssetId(
-					"60000000-0000-4000-8000-000000000002",
-				),
-				canonicalAssetId: testMediaAssetId(
-					"60000000-0000-4000-8000-000000000001",
-				),
+				attemptAssetId: PENDING_ASSET,
+				canonicalAssetId: READY_ASSET,
 				actorUserId: ACTOR,
 				expectedProjectId: PROJECT,
 				expectedContentHash: HASH,
@@ -98,7 +100,7 @@ describe("durable media upload aliases", () => {
 				.db()
 				.selectFrom("media_assets")
 				.select("id")
-				.where("id", "=", "60000000-0000-4000-8000-000000000002")
+				.where("id", "=", PENDING_ASSET)
 				.executeTakeFirst(),
 		).toBeUndefined();
 
@@ -106,7 +108,7 @@ describe("durable media upload aliases", () => {
 			.db()
 			.selectFrom("media_upload_aliases")
 			.selectAll()
-			.where("attempt_asset_id", "=", "60000000-0000-4000-8000-000000000002")
+			.where("attempt_asset_id", "=", PENDING_ASSET)
 			.executeTakeFirstOrThrow();
 		expect(alias).toMatchObject({
 			project_id: PROJECT,
@@ -120,9 +122,7 @@ describe("durable media upload aliases", () => {
 		// Model a dropped 200 response: the next request has only the original id.
 		await expect(
 			resolveReadyUploadAliasForActor({
-				attemptAssetId: testMediaAssetId(
-					"60000000-0000-4000-8000-000000000002",
-				),
+				attemptAssetId: PENDING_ASSET,
 				actorUserId: ACTOR,
 			}),
 		).resolves.toMatchObject({
@@ -132,12 +132,8 @@ describe("durable media upload aliases", () => {
 		await expect(
 			canonicalizePendingAssetForActor(
 				{
-					attemptAssetId: testMediaAssetId(
-						"60000000-0000-4000-8000-000000000002",
-					),
-					canonicalAssetId: testMediaAssetId(
-						"60000000-0000-4000-8000-000000000001",
-					),
+					attemptAssetId: PENDING_ASSET,
+					canonicalAssetId: READY_ASSET,
 					actorUserId: ACTOR,
 					expectedProjectId: PROJECT,
 					expectedContentHash: HASH,
@@ -152,9 +148,7 @@ describe("durable media upload aliases", () => {
 		// A Project viewer cannot spend the write-capable confirm endpoint.
 		await expect(
 			resolveReadyUploadAliasForActor({
-				attemptAssetId: testMediaAssetId(
-					"60000000-0000-4000-8000-000000000002",
-				),
+				attemptAssetId: PENDING_ASSET,
 				actorUserId: VIEWER,
 			}),
 		).resolves.toBeNull();
@@ -163,23 +157,19 @@ describe("durable media upload aliases", () => {
 	it("keeps rejected authority non-mutating", async () => {
 		await h.seedProjectMember(VIEWER, PROJECT, "viewer");
 		await seedAsset({
-			id: "60000000-0000-4000-8000-000000000001",
+			id: READY_ASSET,
 			status: "ready",
 		});
 		await seedAsset({
-			id: "60000000-0000-4000-8000-000000000002",
+			id: PENDING_ASSET,
 			status: "pending",
 		});
 
 		await expect(
 			canonicalizePendingAssetForActor(
 				{
-					attemptAssetId: testMediaAssetId(
-						"60000000-0000-4000-8000-000000000002",
-					),
-					canonicalAssetId: testMediaAssetId(
-						"60000000-0000-4000-8000-000000000001",
-					),
+					attemptAssetId: PENDING_ASSET,
+					canonicalAssetId: READY_ASSET,
 					actorUserId: VIEWER,
 					expectedProjectId: PROJECT,
 					expectedContentHash: HASH,
@@ -192,7 +182,7 @@ describe("durable media upload aliases", () => {
 				.db()
 				.selectFrom("media_assets")
 				.select("status")
-				.where("id", "=", "60000000-0000-4000-8000-000000000002")
+				.where("id", "=", PENDING_ASSET)
 				.executeTakeFirst(),
 		).resolves.toEqual({ status: "pending" });
 		await expect(
@@ -207,23 +197,19 @@ describe("durable media upload aliases", () => {
 	it("converges simultaneous canonicalization attempts on one durable result", async () => {
 		await h.seedProjectMember(ACTOR, PROJECT, "editor");
 		await seedAsset({
-			id: "60000000-0000-4000-8000-000000000001",
+			id: READY_ASSET,
 			status: "ready",
 		});
 		await seedAsset({
-			id: "60000000-0000-4000-8000-000000000002",
+			id: PENDING_ASSET,
 			status: "pending",
 		});
 
 		const canonicalize = () =>
 			canonicalizePendingAssetForActor(
 				{
-					attemptAssetId: testMediaAssetId(
-						"60000000-0000-4000-8000-000000000002",
-					),
-					canonicalAssetId: testMediaAssetId(
-						"60000000-0000-4000-8000-000000000001",
-					),
+					attemptAssetId: PENDING_ASSET,
+					canonicalAssetId: READY_ASSET,
 					actorUserId: ACTOR,
 					expectedProjectId: PROJECT,
 					expectedContentHash: HASH,
@@ -250,9 +236,7 @@ describe("durable media upload aliases", () => {
 		]);
 		await expect(
 			resolveReadyUploadAliasForActor({
-				attemptAssetId: testMediaAssetId(
-					"60000000-0000-4000-8000-000000000002",
-				),
+				attemptAssetId: PENDING_ASSET,
 				actorUserId: ACTOR,
 			}),
 		).resolves.toMatchObject({
@@ -264,7 +248,7 @@ describe("durable media upload aliases", () => {
 	it("ignores expired aliases and purges only the bounded oldest batch", async () => {
 		await h.seedProjectMember(ACTOR, PROJECT, "editor");
 		await seedAsset({
-			id: "60000000-0000-4000-8000-000000000001",
+			id: READY_ASSET,
 			status: "ready",
 		});
 		const now = Date.now();
@@ -273,26 +257,26 @@ describe("durable media upload aliases", () => {
 			.insertInto("media_upload_aliases")
 			.values([
 				{
-					attempt_asset_id: "attempt-expired-oldest",
+					attempt_asset_id: EXPIRED_OLDEST,
 					project_id: PROJECT,
 					content_hash: HASH,
-					canonical_asset_id: "60000000-0000-4000-8000-000000000001",
+					canonical_asset_id: READY_ASSET,
 					created_at: new Date(now - 3 * 86_400_000),
 					expires_at: new Date(now - 2 * 86_400_000),
 				},
 				{
-					attempt_asset_id: "attempt-expired-newer",
+					attempt_asset_id: EXPIRED_NEWER,
 					project_id: PROJECT,
 					content_hash: HASH,
-					canonical_asset_id: "60000000-0000-4000-8000-000000000001",
+					canonical_asset_id: READY_ASSET,
 					created_at: new Date(now - 2 * 86_400_000),
 					expires_at: new Date(now - 86_400_000),
 				},
 				{
-					attempt_asset_id: "attempt-active",
+					attempt_asset_id: ACTIVE_ATTEMPT,
 					project_id: PROJECT,
 					content_hash: HASH,
-					canonical_asset_id: "60000000-0000-4000-8000-000000000001",
+					canonical_asset_id: READY_ASSET,
 					created_at: new Date(now),
 					expires_at: new Date(now + 86_400_000),
 				},
@@ -301,7 +285,7 @@ describe("durable media upload aliases", () => {
 
 		await expect(
 			resolveReadyUploadAliasForActor({
-				attemptAssetId: testMediaAssetId("attempt-expired-newer"),
+				attemptAssetId: EXPIRED_NEWER,
 				actorUserId: ACTOR,
 			}),
 		).resolves.toBeNull();
@@ -314,8 +298,8 @@ describe("durable media upload aliases", () => {
 				.orderBy("attempt_asset_id")
 				.execute(),
 		).resolves.toEqual([
-			{ attempt_asset_id: "attempt-active" },
-			{ attempt_asset_id: "attempt-expired-newer" },
+			{ attempt_asset_id: ACTIVE_ATTEMPT },
+			{ attempt_asset_id: EXPIRED_NEWER },
 		]);
 		await expect(purgeExpiredMediaUploadAliases()).resolves.toBe(1);
 		await expect(
@@ -324,22 +308,22 @@ describe("durable media upload aliases", () => {
 				.selectFrom("media_upload_aliases")
 				.select("attempt_asset_id")
 				.execute(),
-		).resolves.toEqual([{ attempt_asset_id: "attempt-active" }]);
+		).resolves.toEqual([{ attempt_asset_id: ACTIVE_ATTEMPT }]);
 	});
 
 	it("chooses the oldest ready row with an id tie-break deterministically", async () => {
 		await seedAsset({
-			id: "60000000-0000-4000-8000-000000000003",
+			id: testMediaAssetId("60000000-0000-4000-8000-000000000003"),
 			status: "ready",
 			createdAt: new Date("2026-07-22T12:00:00.000Z"),
 		});
 		await seedAsset({
-			id: "60000000-0000-4000-8000-000000000005",
+			id: testMediaAssetId("60000000-0000-4000-8000-000000000005"),
 			status: "ready",
 			createdAt: new Date("2026-07-21T12:00:00.000Z"),
 		});
 		await seedAsset({
-			id: "60000000-0000-4000-8000-000000000004",
+			id: testMediaAssetId("60000000-0000-4000-8000-000000000004"),
 			status: "ready",
 			createdAt: new Date("2026-07-21T12:00:00.000Z"),
 		});

@@ -15,7 +15,7 @@
  * module would introduce `MISSING_CHILD_CASE_MODULE` with no
  * satisfiable repair in the direction the user is going.
  *
- * Like `removeForm`, the tool tolerates a missing module index. Rather
+ * Like `removeForm`, the tool tolerates an already-missing module UUID. Rather
  * than returning an error (which would poison the SA's follow-up
  * reasoning), it returns a clear "does not exist, no change" success
  * message. The SA sees the target-already-gone state explicitly and
@@ -23,13 +23,13 @@
  *
  * Three exit branches:
  *
- *   - Missing index → no mutations, "does not exist, no change" message.
+ *   - Missing UUID → no mutations, "does not exist, no change" message.
  *   - Retirement blocked → `{ error }` naming the references.
  *   - Success → human-readable "Successfully removed" summary tagged
  *     `module:remove:M`.
  */
 
-import { z } from "zod";
+import type { z } from "zod";
 import { planCaseTypeRetirementOnRemove } from "@/lib/doc/caseTypeRetirement";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
@@ -40,14 +40,14 @@ import {
 	type MutatingToolResult,
 	toToolErrorResult,
 } from "./common";
-import type {
-	MutationSuccess,
-	ToolCallSummary,
-} from "./shared/toolCallSummary";
 import {
 	moduleAddressSchema,
 	resolveModuleAddress,
 } from "./shared/entityAddresses";
+import type {
+	MutationSuccess,
+	ToolCallSummary,
+} from "./shared/toolCallSummary";
 
 export const removeModuleInputSchema = moduleAddressSchema;
 
@@ -68,7 +68,7 @@ export const removeModuleTool = {
 		try {
 			const address = resolveModuleAddress(doc, input);
 
-			// Missing index → clear "no change" summary. A
+			// Missing UUID → clear "no change" summary. A
 			// "Successfully removed" string on a missing target would
 			// poison the SA's follow-up reasoning; it would assume the
 			// module is gone and e.g. skip a subsequent recreate step.

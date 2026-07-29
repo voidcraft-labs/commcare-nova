@@ -3,8 +3,8 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { xp } from "@/lib/__tests__/docHelpers";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { Field, Uuid } from "@/lib/domain";
-
 import type { PersistableDoc } from "@/lib/domain/blueprint";
+import { proseText } from "@/lib/domain/prose";
 import { EngineController } from "@/lib/preview/engine/engineController";
 import {
 	__resetAttachmentCoordinatorForTests,
@@ -160,14 +160,14 @@ describe("engine-to-attachment migration boundary", () => {
 						uuid: firstUuid,
 						id: "photo",
 						kind: "signature",
-						label: "Signature",
+						label: proseText("Signature"),
 						relevant: xp("false()"),
 					},
 					[secondUuid]: {
 						uuid: secondUuid,
 						id: "document",
 						kind: "file",
-						label: "Document",
+						label: proseText("Document"),
 					},
 				},
 				{ [FORM_UUID]: [firstUuid, secondUuid] },
@@ -302,21 +302,21 @@ describe("engine-to-attachment migration boundary", () => {
 						uuid: leftUuid,
 						id: "left",
 						kind: "repeat",
-						label: "Left",
+						label: proseText("Left"),
 						repeat_mode: "user_controlled",
 					},
 					[rightUuid]: {
 						uuid: rightUuid,
 						id: "right",
 						kind: "repeat",
-						label: "Right",
+						label: proseText("Right"),
 						repeat_mode: "user_controlled",
 					},
 					[captureUuid]: {
 						uuid: captureUuid,
 						id: "photo",
 						kind: "image",
-						label: "Photo",
+						label: proseText("Photo"),
 					},
 				},
 				{
@@ -394,21 +394,21 @@ describe("engine-to-attachment migration boundary", () => {
 						uuid: outerUuid,
 						id: "rounds",
 						kind: "repeat",
-						label: "Rounds",
+						label: proseText("Rounds"),
 						repeat_mode: "user_controlled",
 					},
 					[innerUuid]: {
 						uuid: innerUuid,
 						id: "visits",
 						kind: "repeat",
-						label: "Visits",
+						label: proseText("Visits"),
 						repeat_mode: "user_controlled",
 					},
 					[captureUuid]: {
 						uuid: captureUuid,
 						id: "photo",
 						kind: "image",
-						label: "Photo",
+						label: proseText("Photo"),
 					},
 				},
 				{

@@ -6,15 +6,15 @@
  * detection, child-case-type coverage, form-link cycle detection.
  */
 
+import { parseXPathExpressionWithIssues } from "@/lib/commcare/xpath";
 import {
 	authoredBlueprintIdentities,
 	type BlueprintAuthoredIdentityKind,
 	type BlueprintDoc,
-	type Uuid,
 	printXPath,
+	type Uuid,
 	xpathPrintContext,
 } from "@/lib/domain";
-import { parseXPathExpressionWithIssues } from "@/lib/commcare/xpath";
 import { proseTemplateSurvivesTiptapRoundTrip } from "@/lib/tiptap/proseTemplateCodec";
 import { type ValidationError, validationError } from "../errors";
 import { RESERVED_CASE_TYPE_NAMES } from "../reservedNamespaces";

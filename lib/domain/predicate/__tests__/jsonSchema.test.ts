@@ -14,9 +14,9 @@
 // implementation; running it as a regex catches format bugs that a
 // snapshot can't.
 
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import type { CaseType } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import { caseTypeToJsonSchema } from "../jsonSchema";
 
 describe("caseTypeToJsonSchema", () => {

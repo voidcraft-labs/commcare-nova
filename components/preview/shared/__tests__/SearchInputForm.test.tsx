@@ -29,7 +29,6 @@
 // unless wired through `advanceTimers`. Sticking to `fireEvent.change`
 // keeps the timing model deterministic.
 
-import { proseText } from "@/lib/domain/prose";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import {
 	afterEach,
@@ -44,6 +43,7 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import type { CaseType } from "@/lib/domain";
 import { advancedSearchInputDef, simpleSearchInputDef } from "@/lib/domain";
 import { matchAll } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import {
 	DATE_RANGE_ORDER_MESSAGE,
 	DATE_RANGE_PAIR_REQUIRED_MESSAGE,
@@ -621,8 +621,8 @@ describe("select dispatch", () => {
 					? {
 							...property,
 							options: [
-								{ value: "any", label: "Any" },
-								{ value: "closed", label: "Closed" },
+								{ value: "any", label: proseText("Any") },
+								{ value: "closed", label: proseText("Closed") },
 							],
 						}
 					: property,
@@ -660,8 +660,14 @@ describe("select dispatch", () => {
 					? {
 							...property,
 							options: [
-								{ value: "follow_up", label: longSpacedLabel },
-								{ value: "imported", label: longUnbrokenLabel },
+								{
+									value: "follow_up",
+									label: proseText(longSpacedLabel),
+								},
+								{
+									value: "imported",
+									label: proseText(longUnbrokenLabel),
+								},
 							],
 						}
 					: property,

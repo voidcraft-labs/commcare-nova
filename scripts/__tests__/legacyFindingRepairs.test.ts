@@ -25,7 +25,6 @@
 // type-level references to `lib/db` — so no import-boundary stub is
 // needed; only the CLI wrappers read the app-state tables.
 
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import {
@@ -39,6 +38,7 @@ import {
 	validationError,
 } from "@/lib/commcare/validator/errors";
 import { type BlueprintDoc, type Form, plainColumn } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import {
 	evaluateLegacyFindings,
 	gatingValidationCodes,
@@ -78,13 +78,13 @@ function minDoc(extraFields: Parameters<typeof f>[0][] = []): BlueprintDoc {
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Name",
+								label: proseText("Name"),
 								case_property_on: "patient",
 							}),
 							f({
 								kind: "text",
 								id: "village",
-								label: "Village",
+								label: proseText("Village"),
 								case_property_on: "patient",
 							}),
 							...extraFields,
@@ -165,7 +165,7 @@ describe("XPath text repairs", () => {
 			f({
 				kind: "text",
 				id: "status",
-				label: "Status",
+				label: proseText("Status"),
 				default_value: "approved",
 			}),
 		]);
@@ -188,7 +188,7 @@ describe("XPath text repairs", () => {
 			f({
 				kind: "text",
 				id: "gated",
-				label: "Gated",
+				label: proseText("Gated"),
 				relevant: "Today() > '2026-01-01'",
 			}),
 		]);
@@ -204,7 +204,7 @@ describe("XPath text repairs", () => {
 			f({
 				kind: "text",
 				id: "gated",
-				label: "Gated",
+				label: proseText("Gated"),
 				relevant: "frobnicate(1) > 0",
 			}),
 		]);
@@ -232,7 +232,7 @@ describe("XPath text repairs", () => {
 			f({
 				kind: "text",
 				id: "gated",
-				label: "Gated",
+				label: proseText("Gated"),
 				relevant: "round(2.4, 2) = 2",
 			}),
 		]);
@@ -254,7 +254,9 @@ describe("XPath text repairs", () => {
 
 describe("identifier repairs", () => {
 	it("INVALID_FIELD_ID: sanitizes to a legal element name", () => {
-		const doc = minDoc([f({ kind: "text", id: "bad id!", label: "Bad" })]);
+		const doc = minDoc([
+			f({ kind: "text", id: "bad id!", label: proseText("Bad") }),
+		]);
 		const outcome = expectRepaired(doc, "INVALID_FIELD_ID");
 		expect(
 			Object.values(outcome.doc.fields).some((field) => field.id === "bad_id_"),
@@ -263,7 +265,7 @@ describe("identifier repairs", () => {
 
 	it("RESERVED_FIELD_ID_PREFIX: drops the reserved prefix", () => {
 		const doc = minDoc([
-			f({ kind: "text", id: "__nova_count_x", label: "Count" }),
+			f({ kind: "text", id: "__nova_count_x", label: proseText("Count") }),
 		]);
 		const outcome = expectRepaired(doc, "RESERVED_FIELD_ID_PREFIX");
 		expect(
@@ -276,7 +278,7 @@ describe("identifier repairs", () => {
 			f({
 				kind: "text",
 				id: "_temp",
-				label: "Temp",
+				label: proseText("Temp"),
 				case_property_on: "patient",
 			}),
 		]);
@@ -288,7 +290,7 @@ describe("identifier repairs", () => {
 			f({
 				kind: "text",
 				id: `p${"x".repeat(300)}`,
-				label: "Long",
+				label: proseText("Long"),
 				case_property_on: "patient",
 			}),
 		]);
@@ -300,7 +302,7 @@ describe("identifier repairs", () => {
 			f({
 				kind: "date",
 				id: "date",
-				label: "Date",
+				label: proseText("Date"),
 				case_property_on: "patient",
 			}),
 		]);
@@ -314,8 +316,8 @@ describe("identifier repairs", () => {
 
 	it("DUPLICATE_FIELD_ID: suffix-renames the later non-case-bound sibling", () => {
 		const doc = minDoc([
-			f({ kind: "text", id: "notes", label: "Notes" }),
-			f({ kind: "text", id: "notes", label: "More notes" }),
+			f({ kind: "text", id: "notes", label: proseText("Notes") }),
+			f({ kind: "text", id: "notes", label: proseText("More notes") }),
 		]);
 		const outcome = expectRepaired(doc, "DUPLICATE_FIELD_ID");
 		expect(
@@ -327,11 +329,16 @@ describe("identifier repairs", () => {
 		// Renaming either twin would cascade the shared case property — an
 		// ambiguous data model only the owner can split.
 		const doc = minDoc([
-			f({ kind: "int", id: "age", label: "Age", case_property_on: "patient" }),
 			f({
 				kind: "int",
 				id: "age",
-				label: "Age again",
+				label: proseText("Age"),
+				case_property_on: "patient",
+			}),
+			f({
+				kind: "int",
+				id: "age",
+				label: proseText("Age again"),
 				case_property_on: "patient",
 			}),
 		]);
@@ -361,7 +368,7 @@ describe("debris-clearing repairs", () => {
 			f({
 				kind: "image",
 				id: "photo",
-				label: "Photo",
+				label: proseText("Photo"),
 				case_property_on: "patient",
 			}),
 		]);
@@ -374,7 +381,12 @@ describe("debris-clearing repairs", () => {
 
 	it("VALIDATION_ON_NON_INPUT_KIND: clears validation on a non-input kind", () => {
 		const doc = minDoc([
-			f({ kind: "label", id: "note", label: "Note", validate_msg: "msg" }),
+			f({
+				kind: "label",
+				id: "note",
+				label: proseText("Note"),
+				validate_msg: proseText("msg"),
+			}),
 		]);
 		expectRepaired(doc, "VALIDATION_ON_NON_INPUT_KIND");
 	});
@@ -419,7 +431,7 @@ describe("close-condition repairs", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 							],
@@ -431,7 +443,7 @@ describe("close-condition repairs", () => {
 								f({
 									kind: "single_select",
 									id: "outcome",
-									label: "Outcome",
+									label: proseText("Outcome"),
 									options: [
 										{ value: "done", label: "Done" },
 										{ value: "moved", label: "Moved" },
@@ -507,7 +519,11 @@ describe("Connect repairs", () => {
 							name: "Intro",
 							type: "survey",
 							fields: [
-								f({ kind: "label", id: "intro_text", label: "Welcome" }),
+								f({
+									kind: "label",
+									id: "intro_text",
+									label: proseText("Welcome"),
+								}),
 							],
 							connect: {
 								// No id — CONNECT_ID_MISSING; the autofill derivation
@@ -523,7 +539,9 @@ describe("Connect repairs", () => {
 						{
 							name: "Quiz",
 							type: "survey",
-							fields: [f({ kind: "label", id: "quiz_text", label: "Quiz" })],
+							fields: [
+								f({ kind: "label", id: "quiz_text", label: proseText("Quiz") }),
+							],
 							connect: {
 								learn_module: {
 									id: "bad id!",
@@ -593,7 +611,9 @@ describe("Connect repairs", () => {
 						{
 							name: "Visit",
 							type: "survey",
-							fields: [f({ kind: "text", id: "notes", label: "Notes" })],
+							fields: [
+								f({ kind: "text", id: "notes", label: proseText("Notes") }),
+							],
 							connect: {
 								deliver_unit: {
 									id: "visits",
@@ -735,7 +755,7 @@ describe("case-list repairs", () => {
 				(column) =>
 					column.kind !== "calculated" && column.field === "case_name",
 			),
-		).toMatchObject({ visibleInList: true });
+		).not.toMatchObject({ visibleInList: false });
 		expect(
 			columns?.find(
 				(column) => column.kind !== "calculated" && column.field === "village",
@@ -788,11 +808,11 @@ describe("repairOutcomeVerdict", () => {
 describe("idempotence — a repaired doc re-repairs to itself", () => {
 	it("second run plans nothing and changes nothing", () => {
 		const doc = minDoc([
-			f({ kind: "text", id: "bad id!", label: "Bad" }),
+			f({ kind: "text", id: "bad id!", label: proseText("Bad") }),
 			f({
 				kind: "text",
 				id: "status",
-				label: "Status",
+				label: proseText("Status"),
 				default_value: "approved",
 			}),
 			f({
@@ -836,7 +856,7 @@ describe("toLegacyBlueprintView — reads pre-AST blueprints the migration's way
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 							],
@@ -848,7 +868,7 @@ describe("toLegacyBlueprintView — reads pre-AST blueprints the migration's way
 								f({
 									kind: "single_select",
 									id: "outcome",
-									label: "Outcome",
+									label: proseText("Outcome"),
 									options: [
 										{ value: "done", label: "Done" },
 										{ value: "moved", label: "Moved" },
@@ -950,7 +970,9 @@ describe("guarded per-app entry points — one broken doc never takes down the r
 	});
 
 	it("a healthy doc passes through both guards unchanged", () => {
-		const doc = minDoc([f({ kind: "text", id: "bad id!", label: "Bad" })]);
+		const doc = minDoc([
+			f({ kind: "text", id: "bad id!", label: proseText("Bad") }),
+		]);
 		const raw = structuredClone(doc) as unknown as Record<string, unknown>;
 		delete raw.fieldParent;
 

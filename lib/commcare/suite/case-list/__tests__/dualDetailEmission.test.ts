@@ -48,6 +48,7 @@ import {
 	plainColumn,
 } from "@/lib/domain";
 import { ancestorPath, prop, relationStep, term } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { emitLongDetail } from "../longDetail";
 import { emitShortDetail } from "../shortDetail";
 
@@ -133,7 +134,7 @@ function buildDoc(args: {
 		name: ct.name,
 		properties: ct.properties.map((p) => ({
 			name: p.name,
-			label: p.name,
+			label: proseText(p.name),
 			...(p.data_type !== undefined && { data_type: p.data_type }),
 			...(p.parent_type !== undefined && { parent_type: p.parent_type }),
 		})),

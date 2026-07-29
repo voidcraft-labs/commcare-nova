@@ -15,7 +15,6 @@
  * fixture doc is schema-valid (built via `buildDoc`).
  */
 
-import { proseText } from "@/lib/domain/prose";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { requireSession } from "@/lib/auth-utils";
@@ -24,6 +23,7 @@ import { expandDoc } from "@/lib/commcare/expander";
 import { validationError } from "@/lib/commcare/validator/errors";
 import { resolveAppAccess } from "@/lib/db/appAccess";
 import { getCredentialsForUpload } from "@/lib/db/settings";
+import { proseText } from "@/lib/domain/prose";
 import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
 import { resolveMediaManifest } from "@/lib/media/manifest";
 import { POST } from "../route";
@@ -90,7 +90,7 @@ function validDoc() {
 							{
 								kind: "text",
 								id: "case_name",
-								label: "Name",
+								label: proseText("Name"),
 								case_property_on: "patient",
 							},
 						],
@@ -128,13 +128,13 @@ function docWithFieldImage(assetId: string) {
 							{
 								kind: "text",
 								id: "case_name",
-								label: "Name",
+								label: proseText("Name"),
 								case_property_on: "patient",
 							},
 							{
 								kind: "text",
 								id: "photo",
-								label: "Photo",
+								label: proseText("Photo"),
 								label_media: { image: assetId },
 							},
 						],

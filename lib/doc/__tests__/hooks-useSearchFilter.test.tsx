@@ -13,6 +13,7 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { SEARCH_IDLE, useSearchFilter } from "@/lib/doc/hooks/useSearchFilter";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
 import type { BlueprintDoc } from "@/lib/doc/types";
+import { proseText } from "@/lib/domain/prose";
 
 /**
  * Build a small deterministic blueprint for filter testing: one module,
@@ -46,13 +47,13 @@ function buildFixture(): BlueprintDoc {
 				uuid: Q_NAME,
 				id: "patient_name",
 				kind: "text",
-				label: "Patient Full Name",
+				label: proseText("Patient Full Name"),
 			} as BlueprintDoc["fields"][typeof Q_NAME],
 			[Q_AGE]: {
 				uuid: Q_AGE,
 				id: "age",
 				kind: "int",
-				label: "Age in Years",
+				label: proseText("Age in Years"),
 			} as BlueprintDoc["fields"][typeof Q_AGE],
 		},
 		moduleOrder: [MOD],

@@ -15,13 +15,13 @@
  * `commitGuardedBatch.integration.test.ts`.)
  */
 
-import { proseText } from "@/lib/domain/prose";
 import { Kysely, PostgresDialect, type PostgresPool } from "kysely";
 import { Pool } from "pg";
 import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import type { Mutation } from "@/lib/doc/types";
-import type { BlueprintDoc } from "@/lib/domain";
+import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import { __setAppDbForTests, type AppDatabase } from "../pg";
 import { setupAppStateTestDb } from "./appStateTestDb";
 
@@ -48,13 +48,13 @@ function minDoc(): BlueprintDoc {
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Name",
+								label: proseText("Name"),
 								case_property_on: "patient",
 							}),
 							f({
 								kind: "text",
 								id: "village",
-								label: "Village",
+								label: proseText("Village"),
 								case_property_on: "patient",
 							}),
 						],
@@ -74,7 +74,7 @@ function minDoc(): BlueprintDoc {
 	});
 }
 
-function villageUuid(doc: BlueprintDoc): string {
+function villageUuid(doc: BlueprintDoc): Uuid {
 	const uuid = Object.values(doc.fields).find(
 		(fld) => fld.id === "village",
 	)?.uuid;
@@ -88,7 +88,7 @@ function renameVillageLabel(doc: BlueprintDoc, label: string): Mutation[] {
 			kind: "updateField",
 			uuid: villageUuid(doc),
 			targetKind: "text",
-			patch: { label },
+			patch: { label: proseText(label) },
 		} as Mutation,
 	];
 }

@@ -28,6 +28,8 @@
  */
 import type { UIMessage } from "ai";
 import { beforeEach, describe, expect, it } from "vitest";
+import { testMediaAssetId } from "@/__tests__/helpers/uuid";
+import type { MediaAssetId } from "@/lib/domain";
 import { RunHolderLostError } from "../commitGuard";
 import { deleteMediaAssetForActor } from "../mediaDeletion";
 import { getAppDb } from "../pg";
@@ -79,7 +81,7 @@ function attachmentMsg(id: string, assetId: string): UIMessage {
 	} as UIMessage;
 }
 
-async function seedReadyDocument(assetId: string): Promise<void> {
+async function seedReadyDocument(assetId: MediaAssetId): Promise<void> {
 	await h
 		.db()
 		.insertInto("media_assets")
@@ -291,7 +293,7 @@ describe("mergeTranscript", () => {
 
 describe("thread attachment admission", () => {
 	it("locks and indexes new attachments and deletion re-walks old thread history", async () => {
-		const assetId = "70000000-0000-4000-8000-000000000001";
+		const assetId = testMediaAssetId("70000000-0000-4000-8000-000000000001");
 		await seedReadyDocument(assetId);
 		await upsertThreadTurn({
 			appId: APP,
@@ -339,7 +341,12 @@ describe("thread attachment admission", () => {
 				streamId: "stream-missing-document",
 				holderNonce: NONCE,
 				threadType: "build",
-				messages: [attachmentMsg("message-missing", "missing-document")],
+				messages: [
+					attachmentMsg(
+						"message-missing",
+						testMediaAssetId("missing-document"),
+					),
+				],
 			}),
 		).rejects.toBeInstanceOf(ThreadAttachmentUnavailableError);
 		expect(await loadThread(APP, "thread-missing-document")).toBeNull();

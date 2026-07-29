@@ -47,13 +47,8 @@ export interface XPathError {
 	/**
 	 * For `INVALID_REF`: how the failing reference is STORED in the
 	 * slot's expression AST, when the deep walk could classify it.
-	 * Drives the runner's repair prose — these two shapes need a
+	 * Drives the runner's repair prose because this shape needs a
 	 * different fix than a typo:
-	 *
-	 *   - `"raw-text"` — the slot holds the reference as plain text (a
-	 *     migrated legacy leaf that never re-resolved), so it doesn't
-	 *     follow its field through renames; re-committing the
-	 *     expression is the repair.
 	 *   - `"dangling-identity"` — the slot tracks a field directly and
 	 *     that field no longer exists; the printed text shows an
 	 *     internal id, not a path a person can look up.
@@ -61,7 +56,7 @@ export interface XPathError {
 	 * Set by `validateBlueprintDeep`'s slot walk — `validateXPath`
 	 * itself sees only printed text and never sets it.
 	 */
-	storedRef?: "raw-text" | "dangling-identity";
+	storedRef?: "dangling-identity";
 	/**
 	 * For `INVALID_REF` on a `/data/...` path: the existing field path(s)
 	 * whose leaf id matches the unknown reference's leaf — the classic

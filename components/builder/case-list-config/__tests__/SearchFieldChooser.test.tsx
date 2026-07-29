@@ -1,6 +1,6 @@
-import { proseText } from "@/lib/domain/prose";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import { emptyCaseListConfig } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 // @vitest-environment happy-dom
 
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";

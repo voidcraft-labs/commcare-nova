@@ -15,9 +15,9 @@
  *      counts, tagged `form:M-F`.
  */
 
-import { z } from "zod";
+import type { z } from "zod";
 import { countFieldsUnder } from "@/lib/doc/fieldWalk";
-import { fallbackProseProjection, type BlueprintDoc } from "@/lib/domain";
+import { type BlueprintDoc, fallbackProseProjection } from "@/lib/domain";
 import { removeFieldMutations } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import {
@@ -25,14 +25,14 @@ import {
 	type MutatingToolResult,
 	toToolErrorResult,
 } from "./common";
-import type {
-	MutationSuccess,
-	ToolCallSummary,
-} from "./shared/toolCallSummary";
 import {
 	fieldAddressSchema,
 	resolveFieldAddress,
 } from "./shared/entityAddresses";
+import type {
+	MutationSuccess,
+	ToolCallSummary,
+} from "./shared/toolCallSummary";
 
 export const removeFieldInputSchema = fieldAddressSchema;
 

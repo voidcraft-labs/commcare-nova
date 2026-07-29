@@ -41,8 +41,8 @@ import {
 import {
 	expressionReadsCaseData,
 	type Predicate,
-	predicateSchema,
 	predicateReadsCaseData,
+	predicateSchema,
 	type ValueExpression,
 	valueExpressionSchema,
 } from "@/lib/domain/predicate";
@@ -229,9 +229,9 @@ const globallyResolvedDisplayConditionSchema = predicateInputSchema.superRefine(
 );
 
 /**
- * SA boundary shape for `setCaseSearchAdvanced`. `moduleIndex` is
- * omitted from this body schema so `setCaseSearchAdvanced` can wrap
- * it back in its full tool input schema.
+ * SA boundary shape for `setCaseSearchAdvanced`. The module UUID address is
+ * omitted from this body schema so the tool can compose it once at the outer
+ * input boundary.
  */
 export const setCaseSearchAdvancedBodySchema = z
 	.object({

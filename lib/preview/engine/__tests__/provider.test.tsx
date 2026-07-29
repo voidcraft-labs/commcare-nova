@@ -19,8 +19,8 @@ import { describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
-
 import type { PersistableDoc } from "@/lib/domain/blueprint";
+import { proseText } from "@/lib/domain/prose";
 import { useFormEngine } from "@/lib/preview/hooks/useFormEngine";
 import {
 	BuilderSessionContext,
@@ -84,7 +84,7 @@ const DOC: PersistableDoc = {
 			uuid: FIELD_UUID,
 			id: "q1",
 			kind: "text",
-			label: "Q1",
+			label: proseText("Q1"),
 		},
 	},
 	moduleOrder: [MODULE_UUID],

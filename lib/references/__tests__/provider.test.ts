@@ -1,4 +1,3 @@
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
@@ -7,6 +6,7 @@ import {
 	reachableCaseTypes,
 	toReachableIndex,
 } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import { ReferenceProvider } from "../provider";
 
 /** Minimal lint context carrying just the `#form/` slice this suite exercises.
@@ -20,6 +20,7 @@ function formCtx(
 		validPaths: new Set(entries.map(([p]) => `/data/${p}`)),
 		reachableCaseTypes: undefined,
 		formEntries: entries.map(([path, label]) => ({
+			uuid: testUuid(`${formUuid}:${path}`),
 			path,
 			label,
 			kind: "text" as const,
@@ -119,28 +120,38 @@ describe("ReferenceProvider.parse — namespace classification", () => {
 });
 
 describe("ReferenceProvider — custom worker properties", () => {
-	it("keeps prose name-based while XPath exposes the identity-backed catalog", () => {
+	it("offers friendly worker names with identity-backed parts on both surfaces", () => {
+		const propertyUuid = testUuid("property-1");
 		const provider = new ReferenceProvider(() => ({
 			...formCtx("formA", []),
 			userProperties: [
 				{
-					uuid: testUuid("property-1"),
+					uuid: propertyUuid,
 					slug: "supervisor_area",
 					label: "Supervisor area",
 				},
 			],
 		}));
 
-		expect(provider.search("user", "supervisor", "formA")).toEqual([]);
-		expect(provider.search("user", "supervisor", "formA", "xpath")).toEqual([
+		const expected = [
 			{
-				type: "user",
+				type: "user" as const,
 				path: "supervisor_area",
 				label: "Supervisor area (supervisor_area)",
 				raw: "#user/supervisor_area",
+				part: {
+					kind: "user-property-ref" as const,
+					userPropertyUuid: propertyUuid,
+				},
 			},
-		]);
-		expect(provider.resolve("#user/supervisor_area", "formA")).toBeNull();
+		];
+		expect(provider.search("user", "supervisor", "formA")).toEqual(expected);
+		expect(provider.search("user", "supervisor", "formA", "xpath")).toEqual(
+			expected,
+		);
+		expect(provider.resolve("#user/supervisor_area", "formA")).toMatchObject(
+			expected[0],
+		);
 		expect(
 			provider.resolve("#user/supervisor_area", "formA", "xpath"),
 		).toMatchObject({
@@ -177,11 +188,12 @@ describe("ReferenceProvider — custom worker properties", () => {
 	});
 
 	it("prefers a custom XPath identity when its slug overlaps a built-in", () => {
+		const propertyUuid = testUuid("property-1");
 		const provider = new ReferenceProvider(() => ({
 			...formCtx("formA", []),
 			userProperties: [
 				{
-					uuid: testUuid("property-1"),
+					uuid: propertyUuid,
 					slug: "username",
 					label: "Program username",
 				},
@@ -194,6 +206,10 @@ describe("ReferenceProvider — custom worker properties", () => {
 				path: "username",
 				label: "Program username (username)",
 				raw: "#user/username",
+				part: {
+					kind: "user-property-ref",
+					userPropertyUuid: propertyUuid,
+				},
 			},
 		]);
 		expect(provider.resolve("#user/username", "formA", "xpath")?.label).toBe(

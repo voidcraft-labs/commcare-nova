@@ -31,6 +31,7 @@ import { AppAccessError, resolveAppAccess } from "@/lib/db/appAccess";
 import { loadApp } from "@/lib/db/apps";
 import type { AppDoc } from "@/lib/db/types";
 import type { BlueprintDoc } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 
 import { registerGetApp } from "../tools/getApp";
 import type { ToolContext } from "../types";
@@ -95,7 +96,7 @@ function mockBlueprint(
 				uuid: fieldUuid,
 				id: "patient_name",
 				kind: "text",
-				label: "Patient Name",
+				label: proseText("Patient Name"),
 				/* `required` on an input field is an XPath string, not a
 				 * boolean — "true()" is the canonical always-required
 				 * form used throughout the blueprint. */

@@ -21,8 +21,13 @@ import {
 	planCaseTypeRetirementOnRemove,
 	planCaseTypeRetirementOnRetype,
 } from "@/lib/doc/caseTypeRetirement";
-import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import type { BlueprintDoc, ProseTemplate, Uuid } from "@/lib/domain";
 import { eq, literal, prop } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
+
+function prose(...parts: ProseTemplate["parts"]): ProseTemplate {
+	return { parts };
+}
 
 const PATIENT_RECORD = {
 	name: "patient",
@@ -89,7 +94,7 @@ function twoModuleDoc(overrides?: {
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Name",
+								label: proseText("Name"),
 								case_property_on: "patient",
 							}),
 							...(overrides?.patientExtraFields ?? []),
@@ -111,7 +116,7 @@ function twoModuleDoc(overrides?: {
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Name",
+								label: proseText("Name"),
 								case_property_on: "visit",
 							}),
 						],
@@ -182,7 +187,7 @@ describe("planCaseTypeRetirementOnRemove", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 							],
@@ -260,7 +265,7 @@ describe("planCaseTypeRetirementOnRemove", () => {
 				f({
 					kind: "text",
 					id: "visit_note",
-					label: "Visit note",
+					label: proseText("Visit note"),
 					case_property_on: "visit",
 				}),
 			],
@@ -286,7 +291,14 @@ describe("planCaseTypeRetirementOnRemove", () => {
 				f({
 					kind: "text",
 					id: "summary",
-					label: "Last visit was #visit/case_name",
+					label: prose(
+						{ kind: "text", text: "Last visit was " },
+						{
+							kind: "case-ref",
+							caseType: "visit",
+							property: "case_name",
+						},
+					),
 					case_property_on: "visit",
 				}),
 			],
@@ -319,7 +331,14 @@ describe("planCaseTypeRetirementOnRemove", () => {
 				f({
 					kind: "text",
 					id: "summary",
-					label: "Last visit was #visit/case_name",
+					label: prose(
+						{ kind: "text", text: "Last visit was " },
+						{
+							kind: "case-ref",
+							caseType: "visit",
+							property: "case_name",
+						},
+					),
 					relevant: "#visit/case_name != ''",
 				}),
 			],
@@ -394,7 +413,7 @@ describe("planCaseTypeRetirementOnRemove", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Visit for #visit/case_name",
+									label: proseText("Visit for #visit/case_name"),
 									case_property_on: "visit",
 									relevant: "#visit/case_name != ''",
 								}),
@@ -445,7 +464,13 @@ describe("planCaseTypeRetirementOnRetype", () => {
 						{
 							name: "Feedback",
 							type: "survey",
-							fields: [f({ kind: "text", id: "comments", label: "Comments" })],
+							fields: [
+								f({
+									kind: "text",
+									id: "comments",
+									label: proseText("Comments"),
+								}),
+							],
 						},
 					],
 				},

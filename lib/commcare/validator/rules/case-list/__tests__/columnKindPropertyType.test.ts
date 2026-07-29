@@ -1,5 +1,6 @@
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { proseText } from "@/lib/domain/prose";
 // The gate half of the shared column-kind ↔ property-type predicate:
 // a RESOLVED mismatch is a finding; unknown passes (honest-unknown-
 // permissive — the same verdict the workspace + pickers derive, so
@@ -41,7 +42,7 @@ describe("columnKindPropertyType", () => {
 				f({
 					kind: "text",
 					id: "nickname",
-					label: "Nickname",
+					label: proseText("Nickname"),
 					case_property_on: "patient",
 				}),
 			],
@@ -59,7 +60,7 @@ describe("columnKindPropertyType", () => {
 				f({
 					kind: "date",
 					id: "dob",
-					label: "DOB",
+					label: proseText("DOB"),
 					case_property_on: "patient",
 				}),
 			],
@@ -120,7 +121,7 @@ describe("columnKindPropertyType", () => {
 				f({
 					kind: "text",
 					id: "case_name",
-					label: "Name",
+					label: proseText("Name"),
 					case_property_on: "patient",
 				}),
 			],

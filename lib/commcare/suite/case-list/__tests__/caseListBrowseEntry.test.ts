@@ -27,7 +27,6 @@
  * instance refs, and its locale ids.
  */
 
-import { proseText } from "@/lib/domain/prose";
 import AdmZip from "adm-zip";
 import { describe, expect, it } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
@@ -40,6 +39,7 @@ import type {
 } from "@/lib/commcare/multimedia/assetWirePath";
 import { type ModuleIconRef, plainColumn } from "@/lib/domain";
 import { eq, literal, sessionUser, term } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 
 const ICON_HASH = "c".repeat(64);
 const ICON_BYTES = Buffer.from("CASE-LIST-ICON-PNG-BYTES");

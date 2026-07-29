@@ -141,6 +141,7 @@ export type MediaRefLocation =
 			readonly formName: string;
 			readonly fieldUuid: Uuid;
 			readonly fieldId: string;
+			readonly optionUuid: Uuid;
 			readonly optionValue: string;
 	  }
 	| {
@@ -439,11 +440,8 @@ function* yieldBundleSlots(
 
 /**
  * Per-option media walk for select-shaped fields. Discriminator-
- * narrowed on `field.kind` so `field.options` reads off the two select
- * arms with their declared `SelectOption[]` type — a future schema
- * change that ships an `options` slot of a different shape on a new
- * arm fails to compile here, rather than getting laundered through a
- * structural cast.
+ * narrowed on `field.kind` and the inline source discriminator so option
+ * UUIDs, values, and media are read from the one canonical carrier.
  */
 function* walkFieldOptionMedia(
 	field: Field,
@@ -469,6 +467,7 @@ function* walkFieldOptionMedia(
 					formName: ctx.formName,
 					fieldUuid,
 					fieldId: field.id,
+					optionUuid: option.uuid,
 					optionValue: option.value,
 				},
 			};

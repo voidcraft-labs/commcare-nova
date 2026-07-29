@@ -1,15 +1,15 @@
 // lib/doc/expressionText.ts
 //
-// The doc-aware text ⇄ AST bridge every commit surface shares: builder
-// editors, the SA tool layer's field assembly/patching, and the
-// one-time migration scripts all turn authored XPath TEXT into the
-// stored expression AST through here, so reference resolution (which
-// textual shapes become identity leaves) has exactly one definition.
+// The doc-aware text ⇄ AST bridge for human builder editors. SA/MCP tools
+// receive the canonical AST directly and never call this parser. The legacy
+// operator repair helper also uses this boundary on its private clone; Unit
+// 18's canonical production migration owns a frozen parser copy instead.
 //
-// Parsing is TOTAL — a reference that doesn't resolve stays a raw
-// leaf and a syntax-broken source stays one opaque text run; the
-// commit gate adjudicates the PRINTED text with the same validator
-// findings it always used, so there is no parse-failure channel here.
+// Parsing is total as a projection: a reference-shaped span that does not
+// resolve remains text, and a syntax-broken source stays one opaque text run.
+// The machine-authoring gate rejects hidden/reference-looking text and syntax
+// findings before commit; no unresolved reference enters the stored leaf
+// vocabulary.
 
 import { parseXPathExpression } from "@/lib/commcare/xpath";
 import { userPropertySlugVerdict } from "@/lib/doc/identifierVerdicts";
@@ -29,7 +29,8 @@ const NO_CLAIMED_USER_PROPERTY_SLUGS: ReadonlySet<string> = new Set();
 
 /**
  * Resolve only one exact, case-insensitively unambiguous, CommCare-valid
- * custom worker-property slug. Everything else remains a raw user reference.
+ * custom worker-property slug. Everything else remains the final
+ * external-name `user-ref` arm.
  */
 export function resolvableUserPropertySlug(
 	doc: Pick<XPathPrintableDoc, "userProperties">,
@@ -43,8 +44,8 @@ export function resolvableUserPropertySlug(
 /**
  * Parse expression text authored for `fieldUuid`'s slot, resolving
  * form-local references against the field's containing form. A field
- * not reachable from any form resolves nothing — its references stay
- * raw leaves.
+ * not reachable from any form resolves nothing — its reference-shaped spans
+ * remain text and the commit gate rejects them.
  */
 export function parseXPathForField(
 	doc: BlueprintDoc,
@@ -92,7 +93,7 @@ export interface FieldRefResolvableDoc {
 }
 
 /**
- * Resolve an authored close-condition field reference (a bare leaf id)
+ * Resolve a builder-authored close-condition field reference (a bare leaf id)
  * to the target field's stable uuid — pre-order first match across the
  * form's tree, the same rule the wire emitter's `findField` applies —
  * or return the text verbatim when nothing answers to it (a dangling

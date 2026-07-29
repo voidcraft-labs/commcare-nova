@@ -21,6 +21,7 @@
  * through `expandDoc` (wire-surface consistency) and `runValidation` (the
  * valid-path set).
  */
+
 import { describe, expect, it } from "vitest";
 import { buildDoc, f, xp } from "@/lib/__tests__/docHelpers";
 import {
@@ -34,6 +35,7 @@ import { expandDoc } from "@/lib/commcare/expander";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 
 // ── Fixture helpers ──────────────────────────────────────────────────
 
@@ -460,7 +462,9 @@ describe("Connect id — end-to-end XForm consistency", () => {
 								time_estimate: 30,
 							},
 						},
-						fields: [f({ kind: "text", id: "feedback", label: "Feedback" })],
+						fields: [
+							f({ kind: "text", id: "feedback", label: proseText("Feedback") }),
+						],
 					},
 				],
 			},
@@ -509,7 +513,9 @@ describe("Connect id — end-to-end XForm consistency", () => {
 									entity_id: xp("#case/beneficiary_id"),
 								},
 							},
-							fields: [f({ kind: "text", id: "notes", label: "Notes" })],
+							fields: [
+								f({ kind: "text", id: "notes", label: proseText("Notes") }),
+							],
 						},
 					],
 				},
@@ -549,7 +555,7 @@ describe("Connect id — end-to-end XForm consistency", () => {
 									time_estimate: 5,
 								},
 							},
-							fields: [f({ kind: "text", id: "q", label: "Q" })],
+							fields: [f({ kind: "text", id: "q", label: proseText("Q") })],
 						},
 					],
 				},
@@ -585,7 +591,9 @@ describe("Connect assessment — user_score value lives in the bind, not the ele
 								user_score: xp("42"),
 							},
 						},
-						fields: [f({ kind: "text", id: "answer", label: "Answer" })],
+						fields: [
+							f({ kind: "text", id: "answer", label: proseText("Answer") }),
+						],
 					},
 				],
 			},
@@ -640,7 +648,7 @@ describe("Connect id — validator valid-path set exposes the stored id", () => 
 								f({
 									kind: "text",
 									id: "note",
-									label: "Note",
+									label: proseText("Note"),
 									relevant: `${refPath} = 'x'`,
 								}),
 							],
@@ -669,7 +677,7 @@ describe("Connect id — validator valid-path set exposes the stored id", () => 
 								f({
 									kind: "text",
 									id: "note",
-									label: "Note",
+									label: proseText("Note"),
 									relevant: `${refPath} = 'x'`,
 								}),
 							],

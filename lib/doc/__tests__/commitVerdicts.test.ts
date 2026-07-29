@@ -1,6 +1,6 @@
-import { proseText } from "@/lib/domain/prose";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { proseText } from "@/lib/domain/prose";
 /**
  * `mutationCommitVerdict` — the shared pre-dispatch gate every commit
  * surface (SA/MCP tool layer, builder dispatch hook) consults. These
@@ -43,13 +43,13 @@ function minDoc(): BlueprintDoc {
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Name",
+								label: proseText("Name"),
 								case_property_on: "patient",
 							}),
 							f({
 								kind: "text",
 								id: "village",
-								label: "Village",
+								label: proseText("Village"),
 								case_property_on: "patient",
 							}),
 						],
@@ -78,13 +78,14 @@ describe("mutationCommitVerdict", () => {
 	it("accepts a clean edit and returns the post-batch doc", () => {
 		const doc = minDoc();
 		const target = Object.values(doc.fields).find((fl) => fl.id === "village");
+		if (!target) throw new Error("fixture must have a village field");
 		const mutations: Mutation[] = [
 			{
 				kind: "updateField",
-				uuid: target?.uuid as never,
+				uuid: target.uuid,
 				targetKind: "text",
-				patch: { label: "Home village" },
-			} as Mutation,
+				patch: { label: proseText("Home village") },
+			},
 		];
 
 		const verdict = mutationCommitVerdict(
@@ -96,7 +97,9 @@ describe("mutationCommitVerdict", () => {
 		const updated = Object.values(verdict.nextDoc.fields).find(
 			(fl) => fl.id === "village",
 		);
-		expect(updated && "label" in updated && updated.label).toBe("Home village");
+		expect(updated && "label" in updated && updated.label).toEqual(
+			proseText("Home village"),
+		);
 	});
 
 	it("rejects removing the final Results field but allows empty Details", () => {
@@ -112,7 +115,6 @@ describe("mutationCommitVerdict", () => {
 					kind: "updateColumn",
 					moduleUuid,
 					uuid: column.uuid,
-					column: { ...column, visibleInList: false },
 					visibilityPatch: { surface: "list", visible: false },
 				},
 			],
@@ -132,7 +134,6 @@ describe("mutationCommitVerdict", () => {
 					kind: "updateColumn",
 					moduleUuid,
 					uuid: column.uuid,
-					column: { ...column, visibleInDetail: false },
 					visibilityPatch: { surface: "detail", visible: false },
 				},
 			],
@@ -218,7 +219,7 @@ describe("mutationCommitVerdict", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 							],
@@ -284,11 +285,9 @@ describe("mutationCommitVerdict", () => {
 // ── Stored-reference bounces — the repair the prose must name ────────
 
 describe("stored-reference bounce prose", () => {
-	/** minDoc plus a hidden total whose calculate references `village`.
-	 *  `raw` keeps the reference as plain text (the never-re-resolved
-	 *  legacy shape); otherwise it resolves to an identity leaf — the two
-	 *  storage shapes whose bounces need different repairs. */
-	function docWithReference(raw: boolean): BlueprintDoc {
+	/** minDoc plus a hidden total whose calculate references `village` by
+	 * stable identity after the fixture's authoring boundary resolves it. */
+	function docWithReference(): BlueprintDoc {
 		return buildDoc({
 			appName: "Test",
 			modules: [
@@ -306,19 +305,19 @@ describe("stored-reference bounce prose", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 								f({
 									kind: "text",
 									id: "village",
-									label: "Village",
+									label: proseText("Village"),
 									case_property_on: "patient",
 								}),
 								f({
 									kind: "hidden",
 									id: "total",
-									calculate: raw ? xp("#form/village") : "#form/village",
+									calculate: "#form/village",
 								}),
 							],
 						},
@@ -337,31 +336,8 @@ describe("stored-reference bounce prose", () => {
 		});
 	}
 
-	it("rename bounce on a plain-text leaf names the carrier and the re-commit repair", () => {
-		const doc = docWithReference(true);
-		// Valid as it stands — the raw leaf's target exists.
-		expect(mutationCommitVerdict(doc, [], LOOKUP_CONTEXT_UNAVAILABLE).ok).toBe(
-			true,
-		);
-		const village = Object.values(doc.fields).find((fl) => fl.id === "village");
-		const verdict = mutationCommitVerdict(
-			doc,
-			[{ kind: "renameField", uuid: village?.uuid as never, newId: "town" }],
-			LOOKUP_CONTEXT_UNAVAILABLE,
-		);
-		expect(verdict.ok).toBe(false);
-		if (verdict.ok) return;
-		const message = describeIntroducedErrors(verdict.introduced);
-		// The repair is performable: the carrier expression is named, and
-		// the user is told to re-commit it before the rename can land.
-		expect(message).toContain('Field "total"');
-		expect(message).toContain("calculated value");
-		expect(message).toContain("plain text");
-		expect(message).toContain("re-commit");
-	});
-
 	it("delete bounce on an identity reference names the carrier, never the bare uuid", () => {
-		const doc = docWithReference(false);
+		const doc = docWithReference();
 		const village = Object.values(doc.fields).find((fl) => fl.id === "village");
 		const verdict = mutationCommitVerdict(
 			doc,
@@ -380,7 +356,7 @@ describe("stored-reference bounce prose", () => {
 	});
 
 	it("a same-batch rename of a resolved reference still lands (identity needs no repair)", () => {
-		const doc = docWithReference(false);
+		const doc = docWithReference();
 		const village = Object.values(doc.fields).find((fl) => fl.id === "village");
 		const verdict = mutationCommitVerdict(
 			doc,

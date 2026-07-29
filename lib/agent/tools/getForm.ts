@@ -3,12 +3,11 @@
  *
  * Pure read — no mutations, no SSE emission. Returns the form entity in
  * domain vocabulary (`closeCondition`, `postSubmit`, `formLinks`, `connect`)
- * augmented with the ordered field tree. The shared dormant-carrier
- * projection hides S05a lookup-only carriers without changing the canonical
- * document.
+ * augmented with the ordered field tree. UUID-backed expression and lookup
+ * references remain in their canonical round-trippable shapes.
  */
 
-import { z } from "zod";
+import type { z } from "zod";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { type FormSnapshot, formSnapshot } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
@@ -23,11 +22,8 @@ export const getFormInputSchema = formAddressSchema;
 export type GetFormInput = z.infer<typeof getFormInputSchema>;
 
 /**
- * Two legal return shapes — `{ error }` on any lookup miss (module
- * index, form index, or form record) and `{ moduleIndex, formIndex,
- * form }` on success. The error branch collapses all three miss
- * conditions into one identical message so the SA has a single failure
- * mode to diagnose.
+ * Two legal return shapes — `{ error }` on any UUID or membership miss,
+ * and `{ moduleUuid, formUuid, form }` on success.
  */
 export type GetFormResult =
 	| { error: string }

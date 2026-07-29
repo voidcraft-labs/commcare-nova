@@ -4,8 +4,8 @@
 // worker-facing words, never AST jargon; vacuous predicates summarize
 // to nothing; exotic shapes degrade to honest generic phrases.
 
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type { CaseType } from "@/lib/domain";
 import {
 	ancestorPath,
@@ -30,6 +30,7 @@ import {
 	today,
 	whenInput,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { humanizeName, summarizeFilter } from "../predicateSummary";
 
 const status = () => term(prop("patient", "status"));
@@ -317,21 +318,27 @@ describe("summarizeFilter", () => {
 
 	it("leads with the search-answer condition instead of adding an afterthought", () => {
 		expect(
-			summarizeFilter(whenInput(input("name_search"), statusIsntClosed)),
-		).toBe("When Name search has an answer, status isn't closed");
+			summarizeFilter(
+				whenInput(input(testUuid("name_search")), statusIsntClosed),
+			),
+		).toBe("When Search field has an answer, status isn't closed");
 	});
 
 	it("uses the authored search-field label while preserving its identity", () => {
 		expect(
-			summarizeFilter(whenInput(input("name_search"), statusIsntClosed), {
-				knownInputs: [
-					{
-						name: "name_search",
-						label: "Client name",
-						data_type: "text",
-					},
-				],
-			}),
+			summarizeFilter(
+				whenInput(input(testUuid("name_search")), statusIsntClosed),
+				{
+					knownInputs: [
+						{
+							uuid: testUuid("name_search"),
+							name: "name_search",
+							label: "Client name",
+							data_type: "text",
+						},
+					],
+				},
+			),
 		).toBe("When Client name has an answer, status isn't closed");
 	});
 
@@ -390,15 +397,19 @@ describe("summarizeFilter", () => {
 			summarizeFilter(not(exists(ancestorPath(relationStep("parent"))))),
 		).toBe("Exclude cases when a related case exists");
 		expect(
-			summarizeFilter(not(whenInput(input("name_search"), statusIsntClosed)), {
-				knownInputs: [
-					{
-						name: "name_search",
-						label: "Client name",
-						data_type: "text",
-					},
-				],
-			}),
+			summarizeFilter(
+				not(whenInput(input(testUuid("name_search")), statusIsntClosed)),
+				{
+					knownInputs: [
+						{
+							uuid: testUuid("name_search"),
+							name: "name_search",
+							label: "Client name",
+							data_type: "text",
+						},
+					],
+				},
+			),
 		).toBe(
 			"Exclude cases when Client name has an answer and status isn't closed",
 		);

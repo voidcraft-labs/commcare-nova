@@ -1,7 +1,5 @@
-import { proseText } from "@/lib/domain/prose";
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
-import { z } from "zod";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { batchTargetsMissing } from "@/lib/db/commitGuard";
@@ -16,7 +14,6 @@ import {
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { applyMutations } from "@/lib/doc/mutations";
-import { rewriteFormSearchInputRefs } from "@/lib/doc/mutations/referenceRewrites";
 import {
 	buildReferenceIndex,
 	declarersOf,
@@ -33,16 +30,15 @@ import {
 	orderedCaseOperations,
 } from "@/lib/domain";
 import {
-	eq,
 	exists,
 	formField,
 	idOf,
-	input,
 	literal,
 	prop,
 	subcasePath,
 	term,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 
 const CREATE = testUuid("11111111-1111-4111-8111-111111111111");
 const CONSUMER = testUuid("22222222-2222-4222-8222-222222222222");
@@ -78,14 +74,14 @@ function fixture(): {
 								uuid: NAME,
 								kind: "text",
 								id: "nickname",
-								label: "Nickname",
+								label: proseText("Nickname"),
 								case_property_on: "patient",
 							}),
 							f({
 								uuid: REPEAT,
 								kind: "repeat",
 								id: "visits",
-								label: "Visits",
+								label: proseText("Visits"),
 								repeat_mode: "user_controlled",
 								children: [],
 							}),
@@ -154,7 +150,7 @@ describe("case-operation mutation planning", () => {
 		const next = apply(doc, mutations);
 		expect(next.caseTypes?.find((type) => type.name === "message")).toEqual({
 			name: "message",
-			properties: [{ name: "payload", label: "Payload" }],
+			properties: [{ name: "payload", label: proseText("Payload") }],
 		});
 		expect(next.forms[formUuid].caseOperations).toHaveLength(1);
 	});
@@ -240,15 +236,8 @@ describe("case-operation mutation planning", () => {
 				},
 			}),
 		);
-		expect(rename).toContainEqual(
-			expect.objectContaining({
-				caseOperationChange: {
-					operation: "update",
-					uuid: CREATE,
-					value: expect.objectContaining({ id: "create_encounter" }),
-				},
-			}),
-		);
+		expect(rename).toHaveLength(1);
+		expect(rename[0]).not.toHaveProperty("caseOperationChange");
 		expect(changeName).toContainEqual(
 			expect.objectContaining({
 				kind: "updateForm",
@@ -903,42 +892,7 @@ describe("case-operation persistence and reference participation", () => {
 		).toBe(false);
 	});
 
-	it("renames defensive Search-input references carried by case operations", () => {
-		const { doc, formUuid } = fixture();
-		const form = doc.forms[formUuid] as Form;
-		form.caseOperations = [
-			createOperation({
-				name: term(input("old_name")),
-				condition: eq(input("old_name"), literal("enabled")),
-			}),
-		];
-
-		expect(rewriteFormSearchInputRefs(form, "old_name", "new_name")).toBe(2);
-		expect(form.caseOperations[0].name).toEqual(term(input("new_name")));
-		expect(form.caseOperations[0].condition).toEqual(
-			eq(input("new_name"), literal("enabled")),
-		);
-	});
-
-	it("uses an old-receiver-safe updateForm extension while the writer gate is closed", () => {
-		const legacyUpdateFormSchema = z.object({
-			kind: z.literal("updateForm"),
-			uuid: z.string(),
-			patch: z.object({}).default({}),
-		});
-		const parsed = legacyUpdateFormSchema.parse({
-			kind: "updateForm",
-			uuid: "form-1",
-			patch: {},
-			caseOperationChange: {
-				operation: "add",
-				value: createOperation(),
-			},
-		});
-		expect(parsed).toEqual({ kind: "updateForm", uuid: "form-1", patch: {} });
-	});
-
-	it("diffs add/update/move/remove as semantic updateForm extensions and replays over JSON", () => {
+	it("diffs add/update/move/remove as final updateForm payloads and replays over JSON", () => {
 		const { doc: prev, formUuid } = fixture();
 		const next = produce(prev, (draft) => {
 			draft.forms[formUuid].caseOperations = [
@@ -1016,7 +970,7 @@ describe("case-operation persistence and reference participation", () => {
 		);
 	});
 
-	it("keeps stale update and move extensions reducer-no-op when identity is absent", () => {
+	it("keeps stale update and move patches reducer-no-op when identity is absent", () => {
 		const { doc, formUuid } = fixture();
 		const before = toPersistableDoc(doc);
 		const after = apply(doc, [
@@ -1024,11 +978,6 @@ describe("case-operation persistence and reference participation", () => {
 				kind: "updateForm",
 				uuid: formUuid,
 				patch: {},
-				caseOperationChange: {
-					operation: "update",
-					uuid: CREATE,
-					value: createOperation({ id: "still_absent" }),
-				},
 				caseOperationPatch: {
 					operation: "update",
 					uuid: CREATE,
@@ -1039,7 +988,7 @@ describe("case-operation persistence and reference participation", () => {
 				kind: "updateForm",
 				uuid: formUuid,
 				patch: {},
-				caseOperationChange: {
+				caseOperationPatch: {
 					operation: "move",
 					uuid: CREATE,
 					after: null,

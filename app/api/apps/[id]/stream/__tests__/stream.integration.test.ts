@@ -74,6 +74,7 @@ import {
 	lookupOptionsSourceSchema,
 	type PersistableDoc,
 } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 
 // ── Auth mocks (no Better Auth / membership tables for the relay) ──────────
 const {
@@ -161,13 +162,13 @@ const LOOKUP_FIELD = testUuid("30000000-0000-4000-8000-000000000000");
 const LOOKUP_OPTION_A = testUuid("40000000-0000-4000-8000-000000000000");
 const LOOKUP_OPTION_B = testUuid("50000000-0000-4000-8000-000000000000");
 const LOOKUP_SOURCE_A = lookupOptionsSourceSchema.parse({
-	kind: "lookup-table",
+	kind: "lookup",
 	tableId: "018f3e8a-7b2c-7def-8abc-1234567890ab",
 	valueColumnId: "018f3e8a-7b2c-7def-8abc-1234567890ad",
 	labelColumnId: "018f3e8a-7b2c-7def-8abc-1234567890ae",
 });
 const LOOKUP_SOURCE_B = lookupOptionsSourceSchema.parse({
-	kind: "lookup-table",
+	kind: "lookup",
 	tableId: "018f3e8a-7b2c-7def-8abc-1234567890ac",
 	valueColumnId: "018f3e8a-7b2c-7def-8abc-1234567890af",
 	labelColumnId: "018f3e8a-7b2c-7def-8abc-1234567890b0",
@@ -241,15 +242,12 @@ async function writeEntry(
 	});
 }
 
-function lookupSourceMutation(
-	optionsSource: LookupOptionsSource | null,
-): Mutation {
+function lookupSourceMutation(optionsSource: LookupOptionsSource): Mutation {
 	return {
 		kind: "updateField",
 		uuid: LOOKUP_FIELD,
 		targetKind: "single_select",
-		patch: {},
-		optionsSource,
+		patch: { optionsSource },
 	};
 }
 
@@ -279,29 +277,28 @@ function lookupReceiverDoc(appId: string): PersistableDoc {
 				uuid: LOOKUP_FIELD,
 				id: "status",
 				kind: "single_select",
-				label: "Status",
-				options: [
-					{
-						uuid: LOOKUP_OPTION_A,
-						value: "active",
-						label: "Active",
-					},
-					{
-						uuid: LOOKUP_OPTION_B,
-						value: "closed",
-						label: "Closed",
-					},
-				],
+				label: proseText("Status"),
+				optionsSource: {
+					kind: "inline",
+					options: [
+						{
+							uuid: LOOKUP_OPTION_A,
+							value: "active",
+							label: proseText("Active"),
+						},
+						{
+							uuid: LOOKUP_OPTION_B,
+							value: "closed",
+							label: proseText("Closed"),
+						},
+					],
+				},
 			},
 		},
 		moduleOrder: [LOOKUP_MODULE],
 		formOrder: { [LOOKUP_MODULE]: [LOOKUP_FORM] },
 		fieldOrder: { [LOOKUP_FORM]: [LOOKUP_FIELD] },
 	};
-}
-
-function owns(value: object, key: PropertyKey): boolean {
-	return Object.hasOwn(value, key);
 }
 
 /** Insert one `presence` row directly. */
@@ -532,46 +529,36 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 		expect((first.data as { seq: number }).seq).toBe(1);
 	});
 
-	it("replays lookup-source set, replace, and explicit-null clear through Postgres and raw HTTP SSE", async () => {
-		const appId = await seedApp(3);
+	it("replays canonical lookup-source replacements through Postgres and raw HTTP SSE", async () => {
+		const appId = await seedApp(2);
 		const setSource = lookupSourceMutation(LOOKUP_SOURCE_A);
 		const replaceSource = lookupSourceMutation(LOOKUP_SOURCE_B);
-		const clearSource = lookupSourceMutation(null);
-
-		/* The clear starts as an own, top-level null. `undefined` would disappear
-		 * at the first JSON.stringify and silently turn the clear into a no-op. */
-		expect(owns(clearSource, "optionsSource")).toBe(true);
-		expect(clearSource).toHaveProperty("optionsSource", null);
 
 		await writeEntry(appId, 1, { mutations: [setSource] });
 		await writeEntry(appId, 2, { mutations: [replaceSource] });
-		await writeEntry(appId, 3, { mutations: [clearSource] });
 
-		/* Hop 1: the accepted_mutations jsonb value has survived the writer-side
-		 * JSON.stringify plus Postgres' jsonb decode with the explicit null
-		 * intact and still at the rolling-compatible top level. */
-		const persistedClearRow = await appDb
+		/* Hop 1: the canonical nested source has survived the writer-side
+		 * JSON.stringify plus Postgres' jsonb decode. */
+		const persistedRow = await appDb
 			.selectFrom("accepted_mutations")
 			.select("mutations")
 			.where("app_id", "=", appId)
-			.where("seq", "=", 3)
+			.where("seq", "=", 2)
 			.executeTakeFirstOrThrow();
-		const persistedClear = (
-			persistedClearRow.mutations as unknown as Record<string, unknown>[]
+		const persisted = (
+			persistedRow.mutations as unknown as Record<string, unknown>[]
 		)[0];
-		if (!persistedClear) throw new Error("persisted clear mutation is missing");
-		expect(owns(persistedClear, "optionsSource")).toBe(true);
-		expect(persistedClear.optionsSource).toBeNull();
-		expect(persistedClear.patch).toEqual({});
-		expect(persistedClear.patch).not.toHaveProperty("optionsSource");
+		if (!persisted) throw new Error("persisted mutation is missing");
+		expect(persisted).not.toHaveProperty("optionsSource");
+		expect(persisted.patch).toEqual({ optionsSource: LOOKUP_SOURCE_B });
 
 		const { frames } = await collectUntil(appId, {
 			since: 0,
 			predicate: (current) =>
-				current.filter((frame) => frame.event === "mutation").length >= 3,
+				current.filter((frame) => frame.event === "mutation").length >= 2,
 		});
 		const mutationFrames = frames.filter((frame) => frame.event === "mutation");
-		expect(mutationFrames.map((frame) => frame.id)).toEqual(["1", "2", "3"]);
+		expect(mutationFrames.map((frame) => frame.id)).toEqual(["1", "2"]);
 
 		const docStore = createBlueprintDocStore();
 		docStore.getState().load(lookupReceiverDoc(appId));
@@ -601,7 +588,6 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 			for (const [index, expectedSource] of [
 				LOOKUP_SOURCE_A,
 				LOOKUP_SOURCE_B,
-				null,
 			].entries()) {
 				const rawFrame = mutationFrames[index]?.data as
 					| MutationFrame
@@ -614,35 +600,19 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 					throw new Error(`missing mutation payload ${index + 1}`);
 
 				/* Hop 2: the route's JSON.stringify and the raw SSE parser's
-				 * JSON.parse preserve the semantic extension. The strict nested
-				 * fallback remains carrier-blind for an origin receiver. */
-				expect(owns(rawMutation, "optionsSource")).toBe(true);
-				expect(rawMutation.optionsSource).toEqual(expectedSource);
-				expect(rawMutation.patch).toEqual({});
-				expect(rawMutation.patch).not.toHaveProperty("optionsSource");
+				 * JSON.parse preserve the one canonical nested source. */
+				expect(rawMutation).not.toHaveProperty("optionsSource");
+				expect(rawMutation.patch).toEqual({ optionsSource: expectedSource });
 
 				reconciler.onFrame(rawFrame);
 				const field = docStore.getState().fields[LOOKUP_FIELD];
 				if (field?.kind !== "single_select") {
 					throw new Error("lookup receiver field is missing");
 				}
-				expect(field.optionsSource).toEqual(expectedSource ?? undefined);
-				expect(
-					field.options.map(({ value, label }) => ({ value, label })),
-				).toEqual([
-					{ value: "active", label: "Active" },
-					{ value: "closed", label: "Closed" },
-				]);
+				expect(field.optionsSource).toEqual(expectedSource);
 			}
 
-			const rawClear = mutationFrames[2]?.data as MutationFrame | undefined;
-			const rawClearMutation = rawClear?.mutations[0] as
-				| Record<string, unknown>
-				| undefined;
-			if (!rawClearMutation) throw new Error("raw clear mutation is missing");
-			expect(owns(rawClearMutation, "optionsSource")).toBe(true);
-			expect(rawClearMutation.optionsSource).toBeNull();
-			expect(reconciler.getSnapshot().baseSeq).toBe(3);
+			expect(reconciler.getSnapshot().baseSeq).toBe(2);
 		} finally {
 			reconciler.dispose();
 		}
@@ -993,6 +963,22 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 		expect(frames.some((f) => f.event === "mutation")).toBe(false);
 	});
 
+	it("emits no ordinary replay frames when a later row in the fetched suffix is a migration", async () => {
+		const appId = await seedApp(2);
+		await writeEntry(appId, 1);
+		await writeEntry(appId, 2, { kind: "migration" });
+
+		const { frames } = await collectUntil(appId, {
+			since: 0,
+			predicate: (current) => current.some((frame) => frame.event === "reload"),
+		});
+
+		const reload = frames.find((frame) => frame.event === "reload");
+		expect(reload?.id).toBeUndefined();
+		expect(reload?.data).toEqual({ reason: "app-migrated" });
+		expect(frames.some((frame) => frame.event === "mutation")).toBe(false);
+	});
+
 	it.each([
 		["editor", true],
 		["viewer", false],
@@ -1031,8 +1017,9 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 	);
 
 	it("keeps cursor M-1 across a transient migration reauthorization failure and retries row M", async () => {
-		const appId = await seedApp(1);
-		await writeEntry(appId, 1, { kind: "migration" });
+		const appId = await seedApp(2);
+		await writeEntry(appId, 1);
+		await writeEntry(appId, 2, { kind: "migration" });
 		let attempts = 0;
 		__setStreamReadTestHooksForTests({
 			beforeMigrationReauthorization() {
@@ -1055,8 +1042,9 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 	});
 
 	it("revokes seq-less when a source-only user loses view after migration", async () => {
-		const appId = await seedApp(1);
-		await writeEntry(appId, 1, { kind: "migration" });
+		const appId = await seedApp(2);
+		await writeEntry(appId, 1);
+		await writeEntry(appId, 2, { kind: "migration" });
 		resolveAppScopeInTransactionMock
 			.mockResolvedValueOnce({
 				projectId: PROJECT,

@@ -1,4 +1,3 @@
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
@@ -7,9 +6,9 @@ import {
 	validateCaseOperationTargetDescriptor,
 	validateResolvedCaseOperationTypeSequence,
 } from "@/lib/case-store";
-
 import type { Form } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 
 describe("case-operation runtime target descriptors", () => {
 	const expected = {

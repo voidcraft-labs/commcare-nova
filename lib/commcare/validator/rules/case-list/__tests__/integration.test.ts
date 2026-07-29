@@ -1,6 +1,6 @@
-import { proseText } from "@/lib/domain/prose";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { proseText } from "@/lib/domain/prose";
 /**
  * Cross-rule integration tests for the case-list-config validator
  * surface. Each test pins an interaction across rules: a single
@@ -59,7 +59,7 @@ describe("case-list validator — cross-rule integration", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 								// Kind-mismatch — `text` field writing to an `int`
@@ -67,7 +67,7 @@ describe("case-list validator — cross-rule integration", () => {
 								f({
 									kind: "text",
 									id: "age",
-									label: "Age",
+									label: proseText("Age"),
 									case_property_on: "patient",
 								}),
 								// Drives the mode-mismatch — `name` is text-typed, so
@@ -76,7 +76,7 @@ describe("case-list validator — cross-rule integration", () => {
 								f({
 									kind: "text",
 									id: "name",
-									label: "Name (full)",
+									label: proseText("Name (full)"),
 									case_property_on: "patient",
 								}),
 							],
@@ -128,13 +128,13 @@ describe("case-list validator — cross-rule integration", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 								f({
 									kind: "int",
 									id: "weight",
-									label: "Weight",
+									label: proseText("Weight"),
 									case_property_on: "patient",
 								}),
 							],
@@ -146,7 +146,7 @@ describe("case-list validator — cross-rule integration", () => {
 								f({
 									kind: "decimal",
 									id: "weight",
-									label: "Weight",
+									label: proseText("Weight"),
 									case_property_on: "patient",
 								}),
 							],
@@ -212,7 +212,7 @@ describe("case-list validator — cross-rule integration", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 							],
@@ -224,7 +224,7 @@ describe("case-list validator — cross-rule integration", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 							],
@@ -294,7 +294,7 @@ describe("case-list validator — cross-rule integration", () => {
 							calculatedColumn(
 								testUuid("col-bare-input"),
 								"Old input calculation",
-								term(input("missing_search_input")),
+								term(input(testUuid("missing_search_input"))),
 								dormant,
 							),
 							{
@@ -327,7 +327,7 @@ describe("case-list validator — cross-rule integration", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Name",
+									label: proseText("Name"),
 									case_property_on: "patient",
 								}),
 							],

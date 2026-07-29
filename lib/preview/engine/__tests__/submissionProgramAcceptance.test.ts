@@ -7,7 +7,6 @@
 // repeat expansion; the ordinary action landing LAST with its
 // caseType folded into the rolling proof).
 
-import { proseText } from "@/lib/domain/prose";
 import type { Kysely } from "kysely";
 import { beforeEach, describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -29,7 +28,6 @@ import type {
 	LookupTableId,
 	Uuid,
 } from "@/lib/domain";
-
 import {
 	eq,
 	formField,
@@ -39,6 +37,7 @@ import {
 	tableLookup,
 	term,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { buildDoc, f } from "../../../__tests__/docHelpers";
 import { validateCaptureSubmissionProjection } from "../captureSubmissionValidation";
 import {
@@ -145,17 +144,21 @@ function acceptanceDoc(
 							f({
 								kind: "text",
 								id: "status",
-								label: "Status",
+								label: proseText("Status"),
 								case_property_on: "patient",
 							}),
-							f({ kind: "text", id: "note", label: "Note" }),
-							f({ kind: "text", id: "extra", label: "Extra" }),
+							f({ kind: "text", id: "note", label: proseText("Note") }),
+							f({ kind: "text", id: "extra", label: proseText("Extra") }),
 							f({
 								kind: "repeat",
 								id: "visits",
-								label: "Visits",
+								label: proseText("Visits"),
 								children: [
-									f({ kind: "text", id: "visit_note", label: "Visit note" }),
+									f({
+										kind: "text",
+										id: "visit_note",
+										label: proseText("Visit note"),
+									}),
 								],
 							}),
 						],

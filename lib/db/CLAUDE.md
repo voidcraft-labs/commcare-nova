@@ -47,29 +47,28 @@ empty) name; list projections apply the `UNTITLED_APP_NAME` display fallback.
 
 **`accepted_mutations` is permanent history.** Every committed blueprint batch
 appends one row — no TTL, no prune. It is the realtime catch-up stream AND the
-app's durable edit history: folding every batch from an app's first seq
-reproduces its entity rows (an app whose history was seeded from a snapshot
-starts at that snapshot's seq, not seq 1). A `migration` row tells live clients
-to reload, but it still stores the deterministic mutations when the blueprint
-changed; an empty migration batch is reserved for an atomic non-blueprint
-change such as a Project-only move, never a fake whole-document replacement.
+app's durable edit history from its current fold horizon: folding every
+post-horizon batch reproduces its entity rows. A `migration` row tells live
+clients to reload. It normally stores the deterministic mutations when the
+blueprint changed; an empty migration batch is valid only when it deliberately
+establishes a new snapshot baseline (the canonical-identity cutover) or records
+an atomic non-blueprint change such as a Project-only move. It is never a
+general whole-document replacement mutation.
 System repair/migration writers use a named `system:<task>` actor; user-driven
 synthetic writes retain the actual user id. `UNIQUE (app_id, batch_id)` is the idempotency latch (the guarded
 commit reads it under the app row lock; a concurrent same-batch retry that
 races past the read is caught by the constraint and converges on the deduped
-result). A blueprint-shape migration must either migrate the STORED MUTATIONS
-alongside the entity rows, or MOVE THE FOLD HORIZON by appending one
-`kind: "migration"` batch per app — historical folds otherwise stop reproducing
-state, and a live client whose stream cursor predates the change replays
-old-vocabulary payloads into a new reducer. The sequence-is-array-position
-cutover took the second route deliberately (see its migration's header): a
-fractional order key only means anything against the sibling keys of its own
-moment, so rewriting one in place would take a per-app fold through a reducer
-that still understands both vocabularies — the parallel machinery that change
-existed to delete. Its marker carries EMPTY mutations because the document did
-not change, only where its sequence is written down. Folds for every app
-therefore start at that marker, exactly as an app seeded from a snapshot starts
-at the snapshot's seq.
+result). A blueprint-shape migration must either migrate every replayable stored
+mutation alongside the entity rows, or MOVE THE FOLD HORIZON by appending one
+`kind: "migration"` batch per app—historical folds otherwise feed old
+vocabulary into a new reducer. The canonical-identity cutover takes the second
+route: pre-marker rows remain immutable opaque audit history, the converted
+snapshot is the baseline, and every post-marker row uses the one strict
+`mutationSchema`. The marker is intentionally empty because it names that
+baseline rather than pretending the incompatible old representation has a
+replayable edit. Stream readers inspect the complete suffix before emitting:
+if it contains the marker they emit no mutation frame, freshly reauthorize,
+then send one sequence-less reload.
 
 **Realtime pokes ride LISTEN/NOTIFY.** `writeCommittedBatch` calls
 `pg_notify('nova_app_stream', {appId, seq})` INSIDE the commit transaction
@@ -163,6 +162,15 @@ boundary.
 Migration is a one-way member of runtime solely to maintain runtime-owned
 `nova_case_runtime.cases`; runtime cannot inherit migration. Runtime gets
 `CREATE` only in that isolated case schema for concurrent index DDL.
+
+`runtimeDatabaseProbe.ts` is the production post-migration proof for this
+boundary. On the migration connection it `SET LOCAL ROLE`s to runtime, strictly
+loads every app through `loadAppInTransaction`, reauthorizes a real editable
+Project member, and sends an empty batch through the real guarded writer inside
+one transaction. Its intentional rollback must leave both the app sequence and
+stream unchanged. `commitGuardedBatchInTransaction` is the narrow seam for that
+probe: ordinary callers use `commitGuardedBatch`, while an externally-owned
+transaction neither retries nor emits post-commit side effects.
 
 Run claim/reserve, paused-run reacquire, soft-delete, and restore use that same
 app-row-first membership protocol; no route preflight decides their admission.
@@ -524,6 +532,14 @@ dispatch; a `53300` after this process owns the lock is an active-worker
 failure. After winning, the owner prewarms its second connection with a bounded
 retry so Kysely reuses that admitted session; a stuck reservation fails the
 Job.
+
+`captureCleanupSchemaProbe.ts` is the cleanup image's strict post-migration
+proof. Under the cleanup login it compares the ordered
+`form_attachments` column/type/nullability inventory to the checked-in final
+contract, then executes zero-row `SELECT`/`UPDATE`/`DELETE` statements and
+intentionally rolls the transaction back. `scripts/cleanup-form-attachments.ts
+--probe-schema` runs only that proof; Cloud Build invokes it while the scheduler
+remains paused and verifies the scheduler's preexisting state was not changed.
 
 GCS lifecycle remains the traffic-independent
 backstop for ordinary staged/browser-abandoned source bytes, but cannot

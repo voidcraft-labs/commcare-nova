@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type { HqFormLink } from "@/lib/commcare";
 import {
 	deriveCaseListEntryDefinition,
@@ -14,6 +15,7 @@ import {
 import {
 	concat as concatExpr,
 	eq,
+	input,
 	literal,
 	matchAll,
 	matchNone,
@@ -397,10 +399,7 @@ describe("deriveEntryDefinition", () => {
 		// `search-input:results` instance would itself throw
 		// `XPathMissingInstanceException` in Core the moment the nodeset
 		// referenced it.
-		const filter = eq(
-			prop("patient", "city"),
-			term({ kind: "input", name: "city_q" }),
-		);
+		const filter = eq(prop("patient", "city"), input(testUuid("city_q")));
 		const entry = deriveEntryDefinition(
 			"http://openrosa.org/formdesigner/abc",
 			0,
@@ -533,10 +532,7 @@ describe("deriveEntryDefinition", () => {
 	});
 
 	it("accumulates search-input:results when the search-button display condition references a search input", () => {
-		const displayCondition = eq(
-			term({ kind: "input", name: "city_q" }),
-			literal("active"),
-		);
+		const displayCondition = eq(input(testUuid("city_q")), literal("active"));
 		const entry = deriveEntryDefinition(
 			"http://openrosa.org/formdesigner/abc",
 			0,

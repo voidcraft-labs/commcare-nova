@@ -18,6 +18,7 @@ import type { FormFieldEntry } from "@/lib/doc/hooks/useFormFieldEntries";
 import type { BlueprintDoc } from "@/lib/doc/types";
 import type { CaseOperation } from "@/lib/domain";
 import { formField, literal, term } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import {
 	identityKeyFieldDecls,
 	operationFormFieldDecls,
@@ -195,26 +196,26 @@ describe("canonical picker order", () => {
 		[ROOT_A]: {
 			uuid: ROOT_A,
 			id: "root_a",
-			label: "Root A",
+			label: proseText("Root A"),
 			kind: "text",
 		},
 		[ROOT_B]: {
 			uuid: ROOT_B,
 			id: "root_b",
-			label: "Root B",
+			label: proseText("Root B"),
 			kind: "text",
 		},
 		[REPEAT]: {
 			uuid: REPEAT,
 			id: "visits",
-			label: "Visits",
+			label: proseText("Visits"),
 			kind: "repeat",
 			repeat_mode: "user_controlled",
 		},
 		[CHILD_A]: {
 			uuid: CHILD_A,
 			id: "child_a",
-			label: "Child A",
+			label: proseText("Child A"),
 			kind: "text",
 		},
 		[CHILD_B]: {

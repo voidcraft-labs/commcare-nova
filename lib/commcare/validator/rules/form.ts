@@ -22,16 +22,21 @@ import {
 	deriveCaseConfig,
 } from "@/lib/commcare/deriveCaseConfig";
 import { readFieldString } from "@/lib/commcare/fieldProps";
-import { detectUnquotedStringLiteral, parser } from "@/lib/commcare/xpath";
+import { detectUnquotedStringLiteral } from "@/lib/commcare/xpath";
 import {
 	type BlueprintDoc,
 	type Field,
+	FORM_REFERENCE_SLOTS,
 	type Form,
+	fieldReferenceSlotsFor,
 	formExpressionSource,
 	type Module,
 	POST_SUBMIT_DESTINATIONS,
+	type ProseTemplate,
 	printXPath,
+	readSlotValues,
 	type Uuid,
+	type XPathExpression,
 	xpathPrintContext,
 } from "@/lib/domain";
 import { type ValidationError, validationError } from "../errors";
@@ -869,115 +874,47 @@ function casePropertyBadFormat(
 	return errors;
 }
 
-/**
- * Lezer node-type handles for the case-hashtag scan. Resolved at module
- * load (one lookup, zero string comparisons in the hot path).
- */
-const HASHTAG_NODE_TYPES = (() => {
-	const all = parser.nodeSet.types;
-	const one = (name: string) => {
-		const found = all.find((t) => t.name === name);
-		if (!found) throw new Error(`Missing parser node type: ${name}`);
-		return found;
-	};
-	return {
-		HashtagRef: one("HashtagRef"),
-		HashtagType: one("HashtagType"),
-		HashtagSegment: one("HashtagSegment"),
-	};
-})();
-
-/**
- * Find every `#case/<X>` hashtag in an XPath EXPRESSION whose segment
- * list is NOT exactly `["case_id"]`. Walks the Lezer parse tree so the
- * match is segment-boundary aware (`#case/case_id_extension` is NOT
- * mistaken for `#case/case_id` by prefix). Use this for true XPath
- * surfaces: `relevant` / `validate` / `calculate` / `default_value` /
- * `required` and Connect bindings.
- *
- * Returns the authored span (e.g. `"#case/total_visits"`) so the error
- * message can quote the user's exact text.
- */
-function findInvalidCaseHashtagsInXPath(expr: string): string[] {
-	if (!expr) return [];
-	const out: string[] = [];
-	const tree = parser.parse(expr);
-	tree.iterate({
-		enter(node) {
-			if (node.type !== HASHTAG_NODE_TYPES.HashtagRef) return;
-			const ref = node.node;
-			const type = ref.getChild(HASHTAG_NODE_TYPES.HashtagType.id);
-			if (!type) return false;
-			if (expr.slice(type.from, type.to) !== "case") return false;
-			const segments = ref.getChildren(HASHTAG_NODE_TYPES.HashtagSegment.id);
-			if (segments.length === 1) {
-				const seg = expr.slice(segments[0].from, segments[0].to);
-				if (seg === "case_id") return false;
-			}
-			out.push(expr.slice(node.from, node.to));
-			return false;
-		},
-	});
-	return out;
-}
-
-/**
- * Match the same bare-hashtag pattern the XForm builder uses to lower
- * inline label / hint / validate_msg prose to `<output value>` elements
- * (`lib/commcare/xform/builder.ts::BARE_HASHTAG_RE`). Label text is
- * natural-language prose, NOT XPath, so the Lezer XPath grammar would
- * parse a label like `"Age: #case/age"` as something other than the
- * intended hashtag reference. Use this for prose surfaces — `label` /
- * `hint` / `validate_msg` — to mirror exactly which prose hashtags the
- * emitter would lower (and therefore which ones JavaRosa would try to
- * resolve at install time).
- *
- * Filters to `#case/<X>` references where the path is not the single
- * segment `case_id`; same exception rule as the XPath scanner above.
- */
-const PROSE_HASHTAG_RE = /#case((?:\/[a-zA-Z_][a-zA-Z0-9_-]*)+)/g;
-function findInvalidCaseHashtagsInProse(textContent: string): string[] {
-	if (!textContent) return [];
-	const out: string[] = [];
-	for (const match of textContent.matchAll(PROSE_HASHTAG_RE)) {
-		const segments = match[1].split("/").filter((s) => s.length > 0);
-		if (segments.length === 1 && segments[0] === "case_id") continue;
-		out.push(match[0]);
+/** Find typed case-property atoms a registration form cannot read. */
+function invalidRegistrationCaseRefs(
+	value: XPathExpression | ProseTemplate,
+	createdCaseType: string | undefined,
+): string[] {
+	const invalid: string[] = [];
+	// The general schema validator reports malformed carriers separately. Keep
+	// this semantic rule total when it receives a damaged or pre-schema doc.
+	if (
+		typeof value !== "object" ||
+		value === null ||
+		!Array.isArray(value.parts)
+	) {
+		return invalid;
 	}
-	return out;
+	for (const part of value.parts) {
+		if (typeof part !== "object" || part === null) continue;
+		if (part.kind !== "case-ref") continue;
+		if (part.caseType === createdCaseType && part.property === "case_id") {
+			continue;
+		}
+		invalid.push(`#${part.caseType}/${part.property}`);
+	}
+	return invalid;
 }
 
 /**
  * On a registration form, the case the form creates does not exist in
  * `casedb` at form-init — `casedb` only sees it after the
- * post-submission case transaction lands. The context-free hashtag
- * expander rewrites `#case/<X>` to the case-loading XPath
- * (`instance('casedb')/casedb/case[@case_id = instance('commcaresession')/
- *  session/data/case_id]/<X>`), but a case-create entry declares no
- * `case_id` session datum (only `case_id_new_<casetype>_0`), so JavaRosa
- * rejects the calculate at form-init with `XPathTypeMismatchException`,
- * surfaced on device as "A part of your application is invalid."
+ * post-submission case transaction lands. A case-create entry declares no
+ * loaded-case session datum, so reading a property from the new case during
+ * form initialization cannot resolve.
  *
- * One exception: `#case/case_id` refers to the form's own newly-
- * allocated case_id, populated at `xforms-ready` into
- * `/data/case/@case_id` by the case-management scaffolding the compiler
- * emits. The form-context-aware expander
- * (`lib/commcare/hashtags/formContext.ts`) rewrites that ref to the
- * form-local path.
+ * One exception: the typed `case-ref` for the created case type's `case_id`
+ * points to the newly allocated id populated at `xforms-ready`.
  *
- * Every other `#case/<X>` on a registration form is semantically
- * invalid — the property is being SET by the form right now, not read
- * from a pre-existing case — and Nova rejects it at authoring time so
- * the SA / user sees the error in the editor (not at compile-time
- * after they hit "Generate App"). The fix is to reference the form
- * question directly: `#form/<question_id>` or `/data/<question_id>`.
+ * Every other case-property atom is invalid: the property is being set now,
+ * not read from a pre-existing case. The fix is a typed form-field reference.
  *
- * Scope of surfaces walked: every field's expression slots
- * (`relevant` / `validate` / `calculate` / `default_value` / `required`)
- * plus its text slots (`label` / `hint` / `validate_msg`, which can
- * carry inline hashtags that lower to `<output value>` at emit), plus
- * the form's Connect XPath bindings
- * (`deliver_unit.entity_id` / `entity_name`, `assessment.user_score`).
+ * The reference-slot registry supplies every field/form XPath or prose
+ * carrier, including repeat cardinality and Connect bindings.
  */
 function caseHashtagOnCreateForm(
 	doc: BlueprintDoc,
@@ -987,31 +924,23 @@ function caseHashtagOnCreateForm(
 	if (form.type !== "registration") return [];
 	const errors: ValidationError[] = [];
 	const loc = baseLocation(ctx);
+	const createdCaseType = doc.modules[ctx.moduleUuid]?.caseType;
 
 	/**
-	 * Emit one error per offending hashtag occurrence. Quotes the
-	 * authored text exactly so the user can find it in the editor by
-	 * search. `kind` picks the scanner that matches the wire emitter's
-	 * own pattern for that surface (Lezer for XPath, prose-regex for
-	 * label / hint / validate_msg).
+	 * Emit one error per offending typed case atom. The friendly projection
+	 * names the exact reference the author sees.
 	 */
 	const flag = (
-		kind: "xpath" | "prose",
 		surface: string,
 		where: string,
-		value: string | undefined,
+		value: XPathExpression | ProseTemplate,
 	) => {
-		if (!value) return;
-		const hashtags =
-			kind === "xpath"
-				? findInvalidCaseHashtagsInXPath(value)
-				: findInvalidCaseHashtagsInProse(value);
-		for (const hashtag of hashtags) {
+		for (const hashtag of invalidRegistrationCaseRefs(value, createdCaseType)) {
 			errors.push(
 				validationError(
 					"CASE_HASHTAG_ON_CREATE_FORM",
 					"form",
-					`"${ctx.formName}" references "${hashtag}" in ${surface}${where ? ` of ${where}` : ""}. On a registration form the case being created doesn't exist yet, so case-property references can't resolve. Use "#form/<question_id>" to reference a form question by id, or "/data/<path>" for a fully-qualified XPath. The only valid case reference on a registration form is "#case/case_id" — it points to the newly-allocated case_id.`,
+					`"${ctx.formName}" references "${hashtag}" in ${surface}${where ? ` of ${where}` : ""}. On a registration form the case being created doesn't exist yet, so case-property references can't resolve. Reference the form question instead. The only valid case reference is the created case type's "case_id" — it points to the newly allocated case id.`,
 					loc,
 					{ hashtag, surface },
 				),
@@ -1019,51 +948,21 @@ function caseHashtagOnCreateForm(
 		}
 	};
 
-	// Walk every field's XPath + prose surfaces. Containers count too —
-	// `readFieldString` returns the configured value or undefined.
-	// Expression surfaces (relevant/validate/calculate/default_value/
-	// required) flow through the hashtag expander as XPath; prose
-	// surfaces (label/hint/validate_msg) lower their inline hashtags to
-	// `<output value="...">` at emit. Both must be screened here.
-	const XPATH_FIELD_SURFACES = [
-		"relevant",
-		"validate",
-		"calculate",
-		"default_value",
-		"required",
-	] as const;
-	const PROSE_FIELD_SURFACES = ["label", "hint", "validate_msg"] as const;
 	const walkFields = (parentUuid: Uuid): void => {
 		for (const uuid of doc.fieldOrder[parentUuid] ?? []) {
 			const field = doc.fields[uuid];
 			if (!field) continue;
 			const fieldRef = `field "${field.id}"`;
-			for (const surface of XPATH_FIELD_SURFACES) {
-				flag("xpath", surface, fieldRef, readFieldString(field, surface, doc));
-			}
-			for (const surface of PROSE_FIELD_SURFACES) {
-				flag("prose", surface, fieldRef, readFieldString(field, surface, doc));
-			}
-			// Repeat-cardinality surfaces — XPath the wire emitter threads
-			// through the hashtag expander on both count-bound and
-			// query-bound repeats. Skipping these would let `#case/<X>` on
-			// a registration form's `repeat_count` or `data_source.ids_query`
-			// slip past authoring validation and surface as a compile-time
-			// throw, the failure mode this rule exists to close.
-			if (field.kind === "repeat") {
-				if (field.repeat_mode === "count_bound") {
+			for (const slot of fieldReferenceSlotsFor(
+				field.kind,
+				field.kind === "repeat" ? field.repeat_mode : undefined,
+			)) {
+				if (slot.kind !== "xpath-ast" && slot.kind !== "prose") continue;
+				for (const entry of readSlotValues(field, slot.path)) {
 					flag(
-						"xpath",
-						"repeat_count",
+						slot.slot,
 						fieldRef,
-						readFieldString(field, "repeat_count", doc),
-					);
-				} else if (field.repeat_mode === "query_bound") {
-					flag(
-						"xpath",
-						"data_source.ids_query",
-						fieldRef,
-						readFieldString(field, "ids_query", doc),
+						entry.value as XPathExpression | ProseTemplate,
 					);
 				}
 			}
@@ -1072,30 +971,11 @@ function caseHashtagOnCreateForm(
 	};
 	walkFields(ctx.formUuid);
 
-	// Connect XPath surfaces — the bind emitter lowers them to
-	// `calculate="..."` on the per-form Connect element; treat them as
-	// raw XPath expressions.
-	if (form.connect?.deliver_unit) {
-		flag(
-			"xpath",
-			"connect deliver_unit.entity_id",
-			"",
-			formExpressionSource(form, "deliver_entity_id", doc),
-		);
-		flag(
-			"xpath",
-			"connect deliver_unit.entity_name",
-			"",
-			formExpressionSource(form, "deliver_entity_name", doc),
-		);
-	}
-	if (form.connect?.assessment) {
-		flag(
-			"xpath",
-			"connect assessment.user_score",
-			"",
-			formExpressionSource(form, "assessment_user_score", doc),
-		);
+	for (const slot of FORM_REFERENCE_SLOTS) {
+		if (slot.kind !== "xpath-ast") continue;
+		for (const entry of readSlotValues(form, slot.path)) {
+			flag(slot.slot, "", entry.value as XPathExpression);
+		}
 	}
 
 	return errors;

@@ -137,12 +137,34 @@ export function applyFormMutation(
 					else target[key] = value;
 				}
 			};
+			const reorderNamed = <T>(
+				items: readonly T[],
+				order: readonly string[],
+				keyOf: (item: T) => string,
+			): T[] => {
+				const rank = new Map(order.map((key, index) => [key, index]));
+				const result = [...items];
+				const slots: number[] = [];
+				const mentioned: T[] = [];
+				for (const [index, item] of result.entries()) {
+					if (!rank.has(keyOf(item))) continue;
+					slots.push(index);
+					mentioned.push(item);
+				}
+				mentioned.sort(
+					(left, right) =>
+						(rank.get(keyOf(left)) ?? 0) - (rank.get(keyOf(right)) ?? 0),
+				);
+				for (const [position, index] of slots.entries()) {
+					const item = mentioned[position];
+					if (item !== undefined) result[index] = item;
+				}
+				return result;
+			};
 
-			/* The established fallback and current granular extension deliberately
-			 * have different consumers. A current reducer applies ONLY the granular
-			 * intent when present so peer edits to other slots compose. An event from
-			 * an immediate-parent tab has no extension, so it takes the exact
-			 * full-operation fallback path that tab authored. */
+			/* Existing-operation edits have one final identity-keyed payload.
+			 * Scalar, member, and member-order edits each touch only their named
+			 * merge unit; no whole-operation fallback accompanies them. */
 			const semantic = mut.caseOperationPatch;
 			if (semantic !== undefined) {
 				switch (semantic.operation) {
@@ -205,6 +227,18 @@ export function applyFormMutation(
 						form.caseOperations = operations;
 						return;
 					}
+					case "reorder-writes": {
+						const current = operation(semantic.uuid);
+						if (current === undefined) return;
+						const writes = current.writes ?? [];
+						current.writes = reorderNamed(
+							writes,
+							semantic.properties,
+							(write) => write.property,
+						);
+						form.caseOperations = operations;
+						return;
+					}
 					case "add-link": {
 						const current = operation(semantic.uuid);
 						if (current === undefined) return;
@@ -259,6 +293,18 @@ export function applyFormMutation(
 						form.caseOperations = operations;
 						return;
 					}
+					case "reorder-links": {
+						const current = operation(semantic.uuid);
+						if (current === undefined) return;
+						const links = current.links ?? [];
+						current.links = reorderNamed(
+							links,
+							semantic.identifiers,
+							(link) => link.identifier,
+						);
+						form.caseOperations = operations;
+						return;
+					}
 					case "move": {
 						const current = operation(semantic.uuid);
 						if (current === undefined) return;
@@ -295,15 +341,6 @@ export function applyFormMutation(
 						form.caseOperations = operations;
 					}
 					return;
-				case "update": {
-					const index = operations.findIndex(
-						(operation) => operation.uuid === change.uuid,
-					);
-					if (index === -1) return;
-					operations[index] = structuredClone(change.value);
-					form.caseOperations = operations;
-					return;
-				}
 				case "remove": {
 					const index = operations.findIndex(
 						(operation) => operation.uuid === change.uuid,
@@ -311,18 +348,6 @@ export function applyFormMutation(
 					if (index !== -1) operations.splice(index, 1);
 					if (operations.length === 0) delete form.caseOperations;
 					else form.caseOperations = operations;
-					return;
-				}
-				case "move": {
-					const current = operations.find(
-						(candidate) => candidate.uuid === change.uuid,
-					);
-					if (current === undefined) return;
-					form.caseOperations = spliceOperation(
-						operations,
-						change.uuid,
-						change.after,
-					);
 					return;
 				}
 			}

@@ -16,6 +16,7 @@ import {
 	moduleSchema,
 	selectOptionSchema,
 } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import { opaqueXPathExpression } from "../xpath";
 
 const NEUTRAL_MEDIA = {
@@ -29,7 +30,7 @@ describe("field schema — media slots", () => {
 			kind: "text",
 			uuid: "10000000-0000-4000-8000-000000000001",
 			id: "patient_name",
-			label: "Patient name",
+			label: proseText("Patient name"),
 			label_media: { image: "00000000-0000-4000-8000-000000000001" },
 			hint_media: { audio: "00000000-0000-4000-8000-000000000002" },
 		});
@@ -49,15 +50,15 @@ describe("field schema — media slots", () => {
 			kind: "text",
 			uuid: "10000000-0000-4000-8000-000000000001",
 			id: "patient_name",
-			label: "Patient name",
-			help: "Enter the legal name shown on their ID document.",
+			label: proseText("Patient name"),
+			help: proseText("Enter the legal name shown on their ID document."),
 			help_media: { image: "00000000-0000-4000-8000-000000000001" },
 			required: opaqueXPathExpression("true()"),
 		});
 		expect(parsed.kind).toBe("text");
 		if (parsed.kind === "text") {
-			expect(parsed.help).toBe(
-				"Enter the legal name shown on their ID document.",
+			expect(parsed.help).toEqual(
+				proseText("Enter the legal name shown on their ID document."),
 			);
 			expect(parsed.help_media?.image).toBe(
 				"00000000-0000-4000-8000-000000000001",
@@ -70,7 +71,7 @@ describe("field schema — media slots", () => {
 			kind: "text",
 			uuid: "10000000-0000-4000-8000-000000000001",
 			id: "name",
-			label: "Name",
+			label: proseText("Name"),
 		});
 		expect(parsed.kind).toBe("text");
 		if (parsed.kind === "text") {
@@ -86,7 +87,7 @@ describe("field schema — media slots", () => {
 			kind: "group",
 			uuid: "10000000-0000-4000-8000-000000000004",
 			id: "screening",
-			label: "Screening section",
+			label: proseText("Screening section"),
 			label_media: { image: "00000000-0000-4000-8000-000000000001" },
 		});
 		expect(parsed.kind).toBe("group");
@@ -97,9 +98,9 @@ describe("field schema — media slots", () => {
 			kind: "int",
 			uuid: "10000000-0000-4000-8000-000000000005",
 			id: "age",
-			label: "Age",
+			label: proseText("Age"),
 			validate: opaqueXPathExpression(". >= 0 and . <= 120"),
-			validate_msg: "Enter a realistic age (0–120).",
+			validate_msg: proseText("Enter a realistic age (0–120)."),
 			validate_msg_media: { audio: "00000000-0000-4000-8000-000000000009" },
 		});
 		expect(parsed.kind).toBe("int");
@@ -116,7 +117,7 @@ describe("selectOption schema — media slot", () => {
 		const parsed = selectOptionSchema.parse({
 			uuid: "90000000-0000-4000-8000-000000000001",
 			value: "fever",
-			label: "Fever",
+			label: proseText("Fever"),
 			media: NEUTRAL_MEDIA,
 		});
 		expect(parsed.media).toEqual(NEUTRAL_MEDIA);

@@ -23,12 +23,12 @@
  * regress and only show up in production logs.
  */
 
-import { proseText } from "@/lib/domain/prose";
 import { produce } from "immer";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { BlueprintDoc, Field, Form, Module } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import type { GenerationContext } from "../generationContext";
 import { createSolutionsArchitect } from "../solutionsArchitect";
 import { makeTestContext } from "./fixtures";
@@ -90,7 +90,7 @@ function makeDoc(): BlueprintDoc {
 		uuid: SEED_FIELD,
 		id: "case_name",
 		kind: "text",
-		label: "Patient name",
+		label: proseText("Patient name"),
 		case_property_on: "case_name",
 	} as Field;
 	return {
@@ -148,14 +148,14 @@ describe("solutionsArchitect — tool execution serializer", () => {
 		// earlier resolver's `doc = newDoc` write; with the serializer,
 		// the chain forces them to run end-to-end one after the other.
 		const inFlightA = runTool(sa, "addFields", {
-			moduleIndex: 0,
-			formIndex: 0,
-			fields: [{ id: "dob", kind: "date", label: "Date of birth" }],
+			moduleUuid: MOD,
+			formUuid: FORM,
+			fields: [{ id: "dob", kind: "date", label: proseText("Date of birth") }],
 		});
 		const inFlightB = runTool(sa, "addFields", {
-			moduleIndex: 0,
-			formIndex: 0,
-			fields: [{ id: "phone", kind: "text", label: "Phone" }],
+			moduleUuid: MOD,
+			formUuid: FORM,
+			fields: [{ id: "phone", kind: "text", label: proseText("Phone") }],
 		});
 		await Promise.all([inFlightA, inFlightB]);
 
@@ -163,8 +163,8 @@ describe("solutionsArchitect — tool execution serializer", () => {
 		// addFields was lost from the closure, this read will be missing
 		// it — the seed field plus only one of the two new fields.
 		const formResult = (await runTool(sa, "getForm", {
-			moduleIndex: 0,
-			formIndex: 0,
+			moduleUuid: MOD,
+			formUuid: FORM,
 		})) as { form: { fields: Array<{ id: string }> } };
 
 		const fieldIds = formResult.form.fields.map((f) => f.id).sort();
@@ -181,13 +181,13 @@ describe("solutionsArchitect — tool execution serializer", () => {
 		const sa = createSolutionsArchitect(ctx, doc, false);
 
 		const inFlightWrite = runTool(sa, "addFields", {
-			moduleIndex: 0,
-			formIndex: 0,
-			fields: [{ id: "dob", kind: "date", label: "Date of birth" }],
+			moduleUuid: MOD,
+			formUuid: FORM,
+			fields: [{ id: "dob", kind: "date", label: proseText("Date of birth") }],
 		});
 		const inFlightRead = runTool(sa, "getForm", {
-			moduleIndex: 0,
-			formIndex: 0,
+			moduleUuid: MOD,
+			formUuid: FORM,
 		}) as Promise<{ form: { fields: Array<{ id: string }> } }>;
 
 		const [, readResult] = await Promise.all([inFlightWrite, inFlightRead]);

@@ -33,7 +33,6 @@
 // pattern (`beforeEach` runs `runCaseStoreMigrations` — Kysely's
 // `Migrator` in process — against the per-test handle).
 
-import { proseText } from "@/lib/domain/prose";
 import { Kysely, PostgresDialect, type PostgresPool } from "kysely";
 import { v7 as uuidv7 } from "uuid";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -53,6 +52,7 @@ import {
 	toPersistableDoc,
 } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc, CaseType, PersistableDoc } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 
 // ── Hoisted spy shells ─────────────────────────────────────────────
 //
@@ -208,7 +208,7 @@ function renameFixtureDocs(): {
 									uuid: testUuid("field-age"),
 									id: "age",
 									kind: "text",
-									label: "Age",
+									label: proseText("Age"),
 									case_property_on: "patient",
 								}),
 							],

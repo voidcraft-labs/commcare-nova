@@ -16,10 +16,10 @@
 //      throw would crash the whole case-list-config Display
 //      section.
 
-import { proseText } from "@/lib/domain/prose";
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { type CaseType, type Column, columnSchema } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import { ColumnEditor } from "../../../ColumnEditor";
 import {
 	type ColumnEditContext,

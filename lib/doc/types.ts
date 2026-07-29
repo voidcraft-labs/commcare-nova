@@ -14,18 +14,16 @@ export { asUuid } from "@/lib/domain";
 import { z } from "zod";
 import {
 	CONNECT_TYPES,
-	caseListConfigSchema,
+	type Column,
 	caseOperationSchema,
 	casePropertySchema,
 	caseSearchConfigSchema,
-	caseTargetSchema,
 	caseTileLayoutSchema,
 	caseTypeSchema,
-	type Column,
 	columnSchema,
 	columnSortSchema,
-	fieldPatchSchemaByKind,
 	fieldKinds,
+	fieldPatchSchemaByKind,
 	fieldSchema,
 	formIconRefSchema,
 	formSchema,
@@ -34,8 +32,8 @@ import {
 	moduleIconRefSchema,
 	moduleSchema,
 	personaSchema,
-	searchInputDefSchema,
 	type SearchInputDef,
+	searchInputDefSchema,
 	selectOptionSchema,
 	selectOptionsSourceSchema,
 	tileCellSchema,
@@ -44,7 +42,6 @@ import {
 	uuidSchema,
 } from "@/lib/domain";
 import { predicateSchema } from "@/lib/domain/predicate";
-import { deepEqual } from "./deepEqual";
 
 /**
  * The four field message slots a `Media` bundle attaches to. The
@@ -118,7 +115,7 @@ function clearablePartialPatch<
 	// Required slots stay non-nullable at RUNTIME (a `null` for them is a
 	// parse error), but the inferred type marks every key nullable-optional —
 	// a uniform partial-patch shape consumers build typed patches against.
-	return z.object(shape).partial() as unknown as z.ZodObject<{
+	return z.object(shape).partial().strict() as unknown as z.ZodObject<{
 		[K in Exclude<keyof S, "uuid">]: z.ZodOptional<z.ZodNullable<S[K]>>;
 	}>;
 }
@@ -133,40 +130,17 @@ function caseOperationChangeSchemaFor(
 				value: operationValueSchema,
 			})
 			.strict(),
-		z
-			.object({
-				operation: z.literal("update"),
-				uuid: uuidSchema,
-				value: operationValueSchema,
-			})
-			.strict()
-			.superRefine((change, ctx) => {
-				if (change.uuid === change.value.uuid) return;
-				ctx.addIssue({
-					code: "custom",
-					path: ["value", "uuid"],
-					message: "A case-operation replacement must preserve UUID identity.",
-				});
-			}),
 		z.object({ operation: z.literal("remove"), uuid: uuidSchema }).strict(),
-		z
-			.object({
-				operation: z.literal("move"),
-				uuid: uuidSchema,
-				/** The uuid this operation now follows, or `null` for first. */
-				after: uuidSchema.nullable(),
-			})
-			.strict(),
 	]);
 }
 
 /**
- * Current granular intent for an established `updateForm` event.
+ * Final granular edit for an established case operation.
  *
- * `caseOperationChange` above is already deployed and therefore stays exact:
- * its full-operation `update` is the fallback a pre-granular reducer applies.
- * This separate top-level extension is stripped by that parser and interpreted
- * by current reducers against fresh peer state.
+ * Adds and removals use `caseOperationChange`; every edit to an existing
+ * operation uses this identity-keyed union. There is no paired whole-operation
+ * fallback: the migration horizon archives the older dialect, and all
+ * post-horizon readers consume this one payload.
  */
 function caseOperationPatchSchemaFor(
 	operationValueSchema: typeof caseOperationSchema,
@@ -202,6 +176,13 @@ function caseOperationPatchSchemaFor(
 		.refine((patch) => Object.keys(patch).length > 0, {
 			message: "A case-operation link patch must change at least one slot.",
 		});
+	const uniqueOrder = <T extends z.ZodTypeAny>(member: T, noun: string) =>
+		z
+			.array(member)
+			.min(2)
+			.refine((values) => new Set(values).size === values.length, {
+				message: `A case-operation ${noun} order cannot repeat a key.`,
+			});
 
 	return z.discriminatedUnion("operation", [
 		z
@@ -236,6 +217,13 @@ function caseOperationPatchSchemaFor(
 			.strict(),
 		z
 			.object({
+				operation: z.literal("reorder-writes"),
+				uuid: uuidSchema,
+				properties: uniqueOrder(writeSchema.shape.property, "write"),
+			})
+			.strict(),
+		z
+			.object({
 				operation: z.literal("add-link"),
 				uuid: uuidSchema,
 				value: linkSchema,
@@ -255,6 +243,13 @@ function caseOperationPatchSchemaFor(
 				operation: z.literal("remove-link"),
 				uuid: uuidSchema,
 				identifier: linkSchema.shape.identifier,
+			})
+			.strict(),
+		z
+			.object({
+				operation: z.literal("reorder-links"),
+				uuid: uuidSchema,
+				identifiers: uniqueOrder(linkSchema.shape.identifier, "link"),
 			})
 			.strict(),
 		z
@@ -316,9 +311,27 @@ const userDataValuePatchSchema = z
 	})
 	.strict();
 
-const canonicalModuleUpdatePatchSchema = clearablePartialPatch(moduleSchema);
+const canonicalModuleUpdatePatchSchema = clearablePartialPatch(moduleSchema)
+	.omit({
+		id: true,
+		name: true,
+		caseListConfig: true,
+		caseSearchConfig: true,
+		icon: true,
+		audioLabel: true,
+	})
+	.extend({
+		/** Whole config snapshots have granular owners. These null-only slots are
+		 * the direct structural teardown payloads. */
+		caseListConfig: z.null().optional(),
+		caseSearchConfig: z.null().optional(),
+	});
 const canonicalFormUpdatePatchSchema = clearablePartialPatch(formSchema).omit({
+	id: true,
+	name: true,
 	caseOperations: true,
+	icon: true,
+	audioLabel: true,
 });
 const canonicalCaseOperationChangeSchema =
 	caseOperationChangeSchemaFor(caseOperationSchema);
@@ -380,7 +393,7 @@ type UpdateFieldArm = {
 		kind: z.ZodLiteral<"updateField">;
 		uuid: typeof uuidSchema;
 		targetKind: z.ZodLiteral<K>;
-		patch: z.ZodDefault<(typeof fieldPatchSchemaByKind)[K]>;
+		patch: (typeof fieldPatchSchemaByKind)[K];
 	}>;
 }[(typeof fieldKinds)[number]];
 
@@ -391,28 +404,9 @@ const updateFieldArms = fieldKinds.map(
 				kind: z.literal("updateField"),
 				uuid: uuidSchema,
 				targetKind: z.literal(targetKind),
-				// `patch` defaults to `{}` when it is absent on read. A field
-				// clear travels as an explicit `null` value (which survives JSON
-				// serialization), so a normal clear-only edit produces a NON-empty
-				// patch and never needs this default. The default exists for a
-				// patch that is genuinely empty on the wire: a degenerate
-				// no-property update, or a legacy event written before clears
-				// carried `null` — back then a clear lowered to an all-`undefined`
-				// patch, and JSON serialization drops `undefined`-valued keys, so
-				// the persisted patch was an empty map. Defaulting to
-				// `{}` lets such an event parse and replay as a no-op (the reducer
-				// applies no keys) instead of the strict arm throwing and taking
-				// down the whole event scan — the log is supplemental, so one
-				// degenerate event must never block reading the rest. The blueprint
-				// snapshot stays authoritative for the field's actual state.
-				//
-				// Cast needed because under the generic `targetKind` the schema is a
-				// union of every kind's patch schema, which isn't directly
-				// `.default()`-callable; the outer `as UpdateFieldArm` restores the
-				// precise per-kind type.
-				patch: (fieldPatchSchemaByKind[targetKind] as z.ZodTypeAny).default(
-					() => ({}),
-				),
+				// A final update always carries its patch. Pre-horizon events are
+				// archived by the migration and never parse through this schema.
+				patch: fieldPatchSchemaByKind[targetKind],
 			})
 			.strict() as unknown as UpdateFieldArm,
 ) as [UpdateFieldArm, ...UpdateFieldArm[]];
@@ -487,8 +481,8 @@ function reportImmutableCaseOperationIdentity(
  * The callback below returns its input unchanged and the direct schema remains
  * the sole parser/output producer, so explicitly restoring that schema's
  * `z.input` and `z.output` contract matches the runtime behavior. Compile-time
- * equality assertions in `mutationEnvelopeStrictness.test.ts` lock both
- * mutation families to their direct discriminated unions.
+ * equality assertions in `mutationEnvelopeStrictness.test.ts` lock the final
+ * mutation schema to its direct discriminated union.
  */
 function prevalidateRawMutationInput<Schema extends z.ZodType>(
 	schema: Schema,
@@ -516,7 +510,7 @@ function createMutationSchema({
 	searchInput: mutationSearchInputSchema,
 	predicate: mutationPredicateSchema,
 }: MutationSchemaFamily) {
-	const schema = z.discriminatedUnion("kind", [
+	const mutationArms = [
 		// Module
 		z.object({
 			kind: z.literal("addModule"),
@@ -686,21 +680,22 @@ function createMutationSchema({
 					ctx.addIssue({
 						code: "custom",
 						path: ["caseOperationPatch"],
-						message:
-							"A case-operation edit carries exactly one final change or patch payload.",
+						message: "A case-operation event carries one final change payload.",
 					});
 				}
 			}),
 		// Field
-		z.object({
-			kind: z.literal("addField"),
-			parentUuid: uuidSchema,
-			field: fieldSchema,
-			/** The sibling this field follows under `parentUuid`, or `null` for
-			 *  first. Absent appends — the common case, and distinct from `null`
-			 *  so "add at the top" stays expressible. */
-			after: uuidSchema.nullable().optional(),
-		}),
+		z
+			.object({
+				kind: z.literal("addField"),
+				parentUuid: uuidSchema,
+				field: fieldSchema,
+				/** The sibling this field follows under `parentUuid`, or `null` for
+				 *  first. Absent appends — the common case, and distinct from `null`
+				 *  so "add at the top" stays expressible. */
+				after: uuidSchema.nullable().optional(),
+			})
+			.strict(),
 		z.object({ kind: z.literal("removeField"), uuid: uuidSchema }),
 		// A same-parent reorder splices the field to a new position in its
 		// parent's membership array; a cross-parent move splices it into the
@@ -852,9 +847,8 @@ function createMutationSchema({
 		// uuid + item uuid, so concurrent edits merge. New column content updates
 		// preserve all three current order keys plus both current visibility slots;
 		// each move or visibility mutation changes only its named surface.
-		// A config's absent -> present transition is the semantic extension on
-		// `updateModule` above. Its old-client fallback is an empty config snapshot;
-		// new reducers treat it as an idempotent ensure before the granular edits.
+		// A config's absent -> present transition is the semantic ensure on
+		// `updateModule` above.
 		z.object({
 			kind: z.literal("addColumn"),
 			moduleUuid: uuidSchema,
@@ -882,6 +876,7 @@ function createMutationSchema({
 					.strict()
 					.optional(),
 			})
+			.strict()
 			.superRefine((mutation, ctx) => {
 				const payloadCount = [
 					mutation.column,
@@ -923,12 +918,14 @@ function createMutationSchema({
 			/** The uuid this input now follows; `null` first, absent appends. */
 			after: uuidSchema.nullable().optional(),
 		}),
-		z.object({
-			kind: z.literal("updateSearchInput"),
-			moduleUuid: uuidSchema,
-			uuid: uuidSchema,
-			searchInput: searchInputContentSchema,
-		}),
+		z
+			.object({
+				kind: z.literal("updateSearchInput"),
+				moduleUuid: uuidSchema,
+				uuid: uuidSchema,
+				searchInput: searchInputContentSchema,
+			})
+			.strict(),
 		z.object({
 			kind: z.literal("removeSearchInput"),
 			moduleUuid: uuidSchema,
@@ -942,8 +939,7 @@ function createMutationSchema({
 			after: uuidSchema.nullable(),
 		}),
 		// Presence-only Search transitions and final-input cleanup are the semantic
-		// `updateModule` extension above. Keeping their fallback on the established
-		// discriminator lets an open pre-deploy client parse and safely replay them.
+		// `updateModule` operations above.
 		// The module's case-list metadata that is NOT a membership array — the
 		// always-on `filter` predicate and the case-list-link `icon` / `audioLabel`.
 		// Each slot is nullable so a clear crosses the JSON wire as `null`.
@@ -1024,7 +1020,11 @@ function createMutationSchema({
 			icon: formIconRefSchema.nullable(),
 			audioLabel: mediaAssetIdSchema.nullable(),
 		}),
-	]);
+	] as const;
+	const strictMutationArms = mutationArms.map((arm) =>
+		arm instanceof z.ZodObject ? arm.strict() : arm,
+	) as unknown as typeof mutationArms;
+	const schema = z.discriminatedUnion("kind", strictMutationArms);
 	// Placement is a rule about the untouched envelope, including subtrees that
 	// an object arm would otherwise strip. Validate that raw value first, then
 	// hand the SAME input to the discriminated union and return only the union's

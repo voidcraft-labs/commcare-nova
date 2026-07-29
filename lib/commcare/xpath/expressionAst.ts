@@ -256,8 +256,9 @@ function classifyHashtag(
 	}
 	if (namespace === "case") {
 		// Contextual — follows the owning module's CURRENT case type
-		// rather than naming one. Transitional authoring shape; stays raw
-		// so a module retype changes what it MEANS without touching it.
+		// rather than naming the canonical `(caseType, property)` identity.
+		// Report it as unresolved; the machine-authoring gate does not admit
+		// a mutable contextual-reference dialect.
 		return { kind: "unresolved-reference", namespace, segments };
 	}
 	if (segments.length === 1) {

@@ -1,7 +1,7 @@
-import { proseText } from "@/lib/domain/prose";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { proseText } from "@/lib/domain/prose";
 // @vitest-environment happy-dom
 
 import {
@@ -28,6 +28,7 @@ import {
 	caseSearchConfigAfterFinalInputRemoval,
 	type SearchInputDef,
 	simpleSearchInputDef,
+	type Uuid,
 } from "@/lib/domain";
 import {
 	effectiveFilterForEmission,
@@ -444,10 +445,10 @@ function makeModule(
 	};
 }
 
-function inputDrivenCondition(name: string): Predicate {
+function inputDrivenCondition(searchInputUuid: Uuid): Predicate {
 	return whenInput(
-		inputRef(name),
-		eq(prop("client", "case_name"), inputRef(name)),
+		inputRef(searchInputUuid),
+		eq(prop("client", "case_name"), inputRef(searchInputUuid)),
 	);
 }
 
@@ -481,13 +482,13 @@ function workspaceDoc(args: {
 							f({
 								kind: "text",
 								id: "case_name",
-								label: "Client name",
+								label: proseText("Client name"),
 								case_property_on: "client",
 							}),
 							f({
 								kind: "text",
 								id: "external_id",
-								label: "External ID",
+								label: proseText("External ID"),
 								case_property_on: "client",
 							}),
 						],
@@ -527,6 +528,20 @@ function applyMutations(batch: readonly Mutation[]): { readonly ok: true } {
 					);
 				break;
 			case "updateModule": {
+				if (mutation.caseSearchConfigPatch !== undefined) {
+					const fresh = module.caseSearchConfig ?? {};
+					for (const [key, value] of Object.entries(
+						mutation.caseSearchConfigPatch,
+					)) {
+						if (value === null || value === undefined) {
+							delete (fresh as Record<string, unknown>)[key];
+						} else {
+							(fresh as Record<string, unknown>)[key] = value;
+						}
+					}
+					module.caseSearchConfig = fresh;
+					break;
+				}
 				if (mutation.caseSearchConfigOperation === "enable") {
 					if (module.caseSearchConfig === undefined)
 						module.caseSearchConfig = {};
@@ -599,7 +614,7 @@ describe("Search field removal", () => {
 			{
 				kind: "updateModule",
 				uuid: MODULE_UUID,
-				patch: { caseSearchConfig: {} },
+				patch: {},
 				caseSearchConfigOperation: "enable",
 			},
 		]);
@@ -708,9 +723,9 @@ describe("Search field removal", () => {
 			"external_id",
 			"External ID",
 			"text",
-			inputDrivenCondition("case_name"),
+			inputDrivenCondition(FIRST_UUID),
 		);
-		const filter = inputDrivenCondition("case_name");
+		const filter = inputDrivenCondition(FIRST_UUID);
 		const doc = buildDoc({
 			appName: "Search removal",
 			caseTypes: CASE_TYPES,
@@ -732,13 +747,13 @@ describe("Search field removal", () => {
 								f({
 									kind: "text",
 									id: "case_name",
-									label: "Client name",
+									label: proseText("Client name"),
 									case_property_on: "client",
 								}),
 								f({
 									kind: "text",
 									id: "external_id",
-									label: "External ID",
+									label: proseText("External ID"),
 									case_property_on: "client",
 								}),
 							],
@@ -813,12 +828,12 @@ describe("Search field removal", () => {
 			"external_id",
 			"External ID",
 			"text",
-			inputDrivenCondition("case_name"),
+			inputDrivenCondition(FIRST_UUID),
 		);
 		const module = makeModule(
 			[first, second],
 			{},
-			inputDrivenCondition("case_name"),
+			inputDrivenCondition(FIRST_UUID),
 		);
 		testState.module = module;
 		const { rerender } = render(
@@ -853,7 +868,7 @@ describe("Search field removal", () => {
 
 		module.caseListConfig.filter = eq(
 			prop("client", "case_name"),
-			inputRef("case_name"),
+			inputRef(FIRST_UUID),
 		);
 		fireEvent.click(
 			screen.getByRole("button", { name: "Return to field review" }),
@@ -1077,13 +1092,13 @@ describe("Search field removal", () => {
 			"external_id",
 			"External ID",
 			"text",
-			inputDrivenCondition("case_name"),
+			inputDrivenCondition(FIRST_UUID),
 		);
 		const base = workspaceDoc({
 			searchInputs: [first, second],
-			filter: inputDrivenCondition("case_name"),
+			filter: inputDrivenCondition(FIRST_UUID),
 			caseSearchConfig: {
-				excludedOwnerIds: term(inputRef("case_name")),
+				excludedOwnerIds: term(inputRef(FIRST_UUID)),
 			},
 		});
 		testState.module = base.modules[MODULE_UUID];
@@ -1133,7 +1148,7 @@ describe("Search field removal", () => {
 		expect(
 			predicateReferencesSearchInput(
 				replayedConfig?.filter ?? matchNone(),
-				"case_name_renamed",
+				FIRST_UUID,
 			),
 		).toBe(true);
 		const sibling = replayedConfig?.searchInputs.find(
@@ -1141,11 +1156,11 @@ describe("Search field removal", () => {
 		);
 		expect(
 			sibling?.kind === "advanced" &&
-				predicateReferencesSearchInput(sibling.predicate, "case_name_renamed"),
+				predicateReferencesSearchInput(sibling.predicate, FIRST_UUID),
 		).toBe(true);
 		expect(replayedModule.caseSearchConfig?.excludedOwnerIds).toMatchObject({
 			kind: "term",
-			term: { kind: "input", name: "case_name_renamed" },
+			term: { kind: "input", searchInputUuid: FIRST_UUID },
 		});
 	});
 

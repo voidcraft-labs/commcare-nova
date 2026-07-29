@@ -74,7 +74,7 @@ describe("setCaseListFilter", () => {
 		const filter: Predicate = eq(prop("patient", "status"), literal("active"));
 
 		const result = await setCaseListFilterTool.execute(
-			{ moduleIndex: 0, filter },
+			{ moduleUuid: MOD_A, filter },
 			ctx,
 			doc,
 		);
@@ -89,7 +89,7 @@ describe("setCaseListFilter", () => {
 		const filter = eq(prop("patient", "name"), literal("Ada"));
 
 		const result = await setCaseListFilterTool.execute(
-			{ moduleIndex: 0, filter },
+			{ moduleUuid: MOD_A, filter },
 			ctx,
 			doc,
 		);
@@ -109,7 +109,7 @@ describe("setCaseListFilter", () => {
 		const filter: Predicate = eq(prop("patient", "status"), literal("active"));
 
 		const result = await setCaseListFilterTool.execute(
-			{ moduleIndex: 0, filter },
+			{ moduleUuid: MOD_A, filter },
 			ctx,
 			doc,
 		);
@@ -138,7 +138,7 @@ describe("setCaseListFilter", () => {
 		};
 
 		const result = await setCaseListFilterTool.execute(
-			{ moduleIndex: 0, filter: null },
+			{ moduleUuid: MOD_A, filter: null },
 			ctx,
 			seededDoc,
 		);
@@ -174,7 +174,7 @@ describe("setCaseListFilter", () => {
 		};
 
 		const result = await setCaseListFilterTool.execute(
-			{ moduleIndex: 0, filter: null },
+			{ moduleUuid: MOD_A, filter: null },
 			ctx,
 			doc,
 		);
@@ -218,7 +218,7 @@ describe("setCaseListFilter", () => {
 
 		const filter = matchAll();
 		const result = await setCaseListFilterTool.execute(
-			{ moduleIndex: 0, filter },
+			{ moduleUuid: MOD_A, filter },
 			ctx,
 			seededDoc,
 		);
@@ -234,12 +234,12 @@ describe("setCaseListFilter", () => {
 		const filter = eq(prop("patient", "status"), literal("active"));
 
 		const r1 = await setCaseListFilterTool.execute(
-			{ moduleIndex: 0, filter },
+			{ moduleUuid: MOD_A, filter },
 			ctx,
 			doc,
 		);
 		const r2 = await setCaseListFilterTool.execute(
-			{ moduleIndex: 0, filter },
+			{ moduleUuid: MOD_A, filter },
 			ctx,
 			r1.newDoc,
 		);
@@ -261,13 +261,13 @@ describe("setCaseListFilter", () => {
 		// nested-term-lift) need to round-trip through the SA-boundary
 		// schema, not just through the reducer.
 		const parseResult = setCaseListFilterTool.inputSchema.safeParse({
-			moduleIndex: 0,
+			moduleUuid: MOD_A,
 			filter,
 		});
 		expect(parseResult.success).toBe(true);
 
 		const result = await setCaseListFilterTool.execute(
-			{ moduleIndex: 0, filter },
+			{ moduleUuid: MOD_A, filter },
 			ctx,
 			doc,
 		);
@@ -277,10 +277,10 @@ describe("setCaseListFilter", () => {
 		);
 	});
 
-	it("returns an Elm-style error on out-of-range moduleIndex", async () => {
+	it("returns the canonical UUID-address error for an unknown module", async () => {
 		const { doc, ctx } = makeCaseListFixture();
 		const result = await setCaseListFilterTool.execute(
-			{ moduleIndex: 99, filter: null },
+			{ moduleUuid: testUuid("unknown-module"), filter: null },
 			ctx,
 			doc,
 		);
@@ -289,11 +289,7 @@ describe("setCaseListFilter", () => {
 		if (!("error" in result.result)) {
 			throw new Error("expected error result");
 		}
-		// Voice mirrors the atomic-op family — "Tried to <X>. Found
-		// no <Y>. Look at <Z>."
-		expect(result.result.error).toContain("Tried to set the case list filter");
-		expect(result.result.error).toContain("module index 99");
-		expect(result.result.error).toContain("Found no module");
+		expect(result.result.error).toContain("No module with UUID");
 	});
 
 	it("does NOT resurrect a config on a config-less module (concurrent-removal signal)", async () => {
@@ -316,7 +312,7 @@ describe("setCaseListFilter", () => {
 
 		const filter: Predicate = eq(prop("patient", "status"), literal("active"));
 		const result = await setCaseListFilterTool.execute(
-			{ moduleIndex: 0, filter },
+			{ moduleUuid: MOD_A, filter },
 			ctx,
 			docWithoutConfig,
 		);
@@ -336,12 +332,12 @@ describe("setCaseListFilter", () => {
 		const filter: Predicate = eq(prop("patient", "status"), literal("active"));
 
 		const r1 = await setCaseListFilterTool.execute(
-			{ moduleIndex: 0, filter },
+			{ moduleUuid: MOD_A, filter },
 			chatCtx,
 			doc,
 		);
 		const r2 = await setCaseListFilterTool.execute(
-			{ moduleIndex: 0, filter },
+			{ moduleUuid: MOD_A, filter },
 			mcpCtx,
 			doc,
 		);
@@ -363,7 +359,7 @@ describe("setCaseListFilter", () => {
 		};
 
 		const result = await setCaseListFilterTool.execute(
-			{ moduleIndex: 0, filter: null },
+			{ moduleUuid: MOD_A, filter: null },
 			ctx,
 			docWithoutConfig,
 		);

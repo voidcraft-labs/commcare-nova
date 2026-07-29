@@ -42,6 +42,7 @@ import {
 	plainColumn,
 } from "@/lib/domain";
 import { prop, term } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import { emitLongDetail } from "../longDetail";
 
 // ============================================================
@@ -97,7 +98,7 @@ function buildDoc(args: {
 		name: ct.name,
 		properties: ct.properties.map((p) => ({
 			name: p.name,
-			label: p.name,
+			label: proseText(p.name),
 			...(p.data_type !== undefined && { data_type: p.data_type }),
 		})),
 	}));

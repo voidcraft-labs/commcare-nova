@@ -45,7 +45,7 @@ describe("addSearchInputs", () => {
 		const { doc, ctx } = makeCaseListFixture();
 		const result = await addSearchInputsTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				searchInputs: [
 					{
 						kind: "simple",
@@ -75,7 +75,7 @@ describe("addSearchInputs", () => {
 		const { doc, ctx } = makeCaseListFixture();
 		const result = await addSearchInputsTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				searchInputs: [
 					{
 						kind: "simple",
@@ -107,7 +107,7 @@ describe("addSearchInputs", () => {
 		]);
 		expect(result.mutations[0]).toMatchObject({
 			caseSearchConfigOperation: "enable",
-			patch: { caseSearchConfig: {} },
+			patch: {},
 		});
 		const inputs =
 			result.newDoc.modules[MOD_A]?.caseListConfig?.searchInputs ?? [];
@@ -122,7 +122,7 @@ describe("addSearchInputs", () => {
 		const predicate = matchAll();
 		const result = await addSearchInputsTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				searchInputs: [
 					{
 						kind: "advanced",
@@ -151,7 +151,7 @@ describe("addSearchInputs", () => {
 		const { doc, ctx } = makeCaseListFixture();
 		const result = await addSearchInputsTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				searchInputs: [
 					{
 						kind: "simple",
@@ -198,7 +198,7 @@ describe("addSearchInputs", () => {
 
 		const result = await addSearchInputsTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				searchInputs: [
 					{
 						kind: "simple",
@@ -236,7 +236,7 @@ describe("addSearchInputs", () => {
 		};
 		const result = await addSearchInputsTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				searchInputs: [
 					{
 						kind: "simple",
@@ -259,11 +259,11 @@ describe("addSearchInputs", () => {
 		});
 	});
 
-	it("returns an Elm-style error on out-of-range moduleIndex", async () => {
+	it("returns the canonical UUID-address error for an unknown module", async () => {
 		const { doc, ctx } = makeCaseListFixture();
 		const result = await addSearchInputsTool.execute(
 			{
-				moduleIndex: 99,
+				moduleUuid: testUuid("unknown-module"),
 				searchInputs: [
 					{
 						kind: "simple",
@@ -282,8 +282,7 @@ describe("addSearchInputs", () => {
 		if (!("error" in result.result)) {
 			throw new Error("expected error result");
 		}
-		expect(result.result.error).toContain("Tried to add");
-		expect(result.result.error).toContain("module index 99");
+		expect(result.result.error).toContain("No module with UUID");
 	});
 
 	it("initializes the caseListConfig when the module has none", async () => {
@@ -298,7 +297,7 @@ describe("addSearchInputs", () => {
 
 		const result = await addSearchInputsTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				searchInputs: [
 					{
 						kind: "simple",

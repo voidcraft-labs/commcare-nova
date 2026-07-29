@@ -40,7 +40,6 @@
 //      base `casedb` + `commcaresession` + the chosen results
 //      instance.
 
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
@@ -66,6 +65,7 @@ import {
 	whenInput,
 } from "@/lib/domain/predicate";
 import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
+import { proseText } from "@/lib/domain/prose";
 import { emitSearchSession } from "../searchSession";
 import type { WireShape } from "../types";
 
@@ -361,13 +361,28 @@ describe("emitSearchSession — _xpath_query AND-composition", () => {
 		// satisfies the validator rule
 		// `searchInputRefUsesWhenInputPresent` (every bare input ref
 		// in the composed `_xpath_query` must be gated).
-		const baseAge = { kind: "input" as const, name: "base_age" };
+		const baseAgeUuid = testUuid("base_age");
+		const baseAge = {
+			kind: "input" as const,
+			searchInputUuid: baseAgeUuid,
+		};
 		const filter = whenInput(
 			baseAge,
 			eq(prop("patient", "age"), arith("+", term(baseAge), term(literal(1)))),
 		);
 		const { instances, xml } = emitSearchSession({
-			caseListConfig: makeListConfig({ filter }),
+			caseListConfig: makeListConfig({
+				filter,
+				searchInputs: [
+					advancedSearchInputDef(
+						baseAgeUuid,
+						"base_age",
+						"Base age",
+						"text",
+						matchAll(),
+					),
+				],
+			}),
 			caseSearchConfig: {},
 			wire: WEB_LIST_FIRST,
 			caseType: "patient",
@@ -681,7 +696,13 @@ describe("emitSearchSession — simple-arm-with-via _xpath_query routing", () =>
 					],
 				},
 			],
-			knownInputs: [{ name: "household_visit", data_type: "date" }],
+			knownInputs: [
+				{
+					uuid: INPUT_UUIDS.a,
+					name: "household_visit",
+					data_type: "date",
+				},
+			],
 			currentCaseType: "patient",
 		};
 		const { xml } = emitSearchSession({
@@ -729,7 +750,13 @@ describe("emitSearchSession — simple-arm-with-via _xpath_query routing", () =>
 					],
 				},
 			],
-			knownInputs: [{ name: "household_seen", data_type: "date" }],
+			knownInputs: [
+				{
+					uuid: INPUT_UUIDS.a,
+					name: "household_seen",
+					data_type: "date",
+				},
+			],
 			currentCaseType: "patient",
 		};
 		const { xml } = emitSearchSession({
@@ -1319,7 +1346,7 @@ describe("composeXPathQueryEmission — defense in depth on bare input refs", ()
 	it("throws when an advanced-arm predicate carries a bare input ref outside any when-input-present envelope", () => {
 		const bareRefPredicate = eq(
 			prop("patient", "city"),
-			term({ kind: "input", name: "city_q" }),
+			term({ kind: "input", searchInputUuid: INPUT_UUIDS.a }),
 		);
 		expect(() =>
 			emitSearchSession({
@@ -1358,6 +1385,6 @@ describe("composeXPathQueryEmission — CSQL representability defense", () => {
 				caseType: "patient",
 				moduleIndex: 0,
 			}),
-		).toThrow(/composed _xpath_query predicate is representable/);
+		).toThrow(/composed _xpath_query predicate is not representable/);
 	});
 });

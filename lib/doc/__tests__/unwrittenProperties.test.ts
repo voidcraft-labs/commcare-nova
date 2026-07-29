@@ -9,11 +9,11 @@
  * filter: display and data-flow reads count exactly like gates.
  */
 
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import type { CaseType, Module, Uuid } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 
 import {
 	describeUnwrittenProperty,

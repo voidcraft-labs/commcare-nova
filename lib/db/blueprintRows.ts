@@ -17,16 +17,18 @@
 // reducer side effect by construction.
 
 import {
+	asUuid,
 	ownRecordValue,
 	type PersistableDoc,
 	recordWithValue,
+	type Uuid,
 } from "@/lib/domain";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
 
 export interface EntityRow {
-	uuid: string;
+	uuid: Uuid;
 	kind: EntityRowKind;
-	parent_uuid: string | null;
+	parent_uuid: Uuid | null;
 	ordinal: number;
 	data: Record<string, unknown>;
 }
@@ -162,7 +164,7 @@ export function decomposeBlueprint(doc: PersistableDoc): EntityRow[] {
 				rows.push({
 					uuid,
 					kind: "form",
-					parent_uuid: moduleUuid,
+					parent_uuid: asUuid(moduleUuid),
 					ordinal: i,
 					data: form as unknown as Record<string, unknown>,
 				});
@@ -178,7 +180,7 @@ export function decomposeBlueprint(doc: PersistableDoc): EntityRow[] {
 				rows.push({
 					uuid,
 					kind: "field",
-					parent_uuid: parentUuid,
+					parent_uuid: asUuid(parentUuid),
 					ordinal: i,
 					data: field as unknown as Record<string, unknown>,
 				});
@@ -189,7 +191,7 @@ export function decomposeBlueprint(doc: PersistableDoc): EntityRow[] {
 	for (const [uuid, field] of Object.entries(doc.fields)) {
 		if (!placedFields.has(uuid)) {
 			rows.push({
-				uuid,
+				uuid: field.uuid,
 				kind: "field",
 				parent_uuid: null,
 				ordinal: 0,
@@ -312,7 +314,7 @@ export function assembleBlueprint(
 
 	const byOrdinal = (a: EntityRow, b: EntityRow) => a.ordinal - b.ordinal;
 	moduleRows.sort(byOrdinal);
-	let formOrder: Record<string, string[]> = {};
+	let formOrder: Record<string, Uuid[]> = {};
 	for (const [moduleUuid, list] of formsByModule) {
 		list.sort(byOrdinal);
 		formOrder = recordWithValue(
@@ -321,7 +323,7 @@ export function assembleBlueprint(
 			list.map((r) => r.uuid),
 		);
 	}
-	let fieldOrder: Record<string, string[]> = {};
+	let fieldOrder: Record<string, Uuid[]> = {};
 	for (const [parentUuid, list] of fieldsByParent) {
 		list.sort(byOrdinal);
 		fieldOrder = recordWithValue(
@@ -339,13 +341,13 @@ export function assembleBlueprint(
 	 * after a reload. */
 	for (const row of moduleRows) {
 		if (!Object.hasOwn(formOrder, row.uuid)) {
-			formOrder = recordWithValue<string[]>(formOrder, row.uuid, []);
+			formOrder = recordWithValue<Uuid[]>(formOrder, row.uuid, []);
 		}
 	}
 	for (const [uuid, form] of Object.entries(forms)) {
 		void form;
 		if (!Object.hasOwn(fieldOrder, uuid)) {
-			fieldOrder = recordWithValue<string[]>(fieldOrder, uuid, []);
+			fieldOrder = recordWithValue<Uuid[]>(fieldOrder, uuid, []);
 		}
 	}
 	for (const [uuid, field] of Object.entries(fields)) {
@@ -354,7 +356,7 @@ export function assembleBlueprint(
 			(kind === "group" || kind === "repeat") &&
 			!Object.hasOwn(fieldOrder, uuid)
 		) {
-			fieldOrder = recordWithValue<string[]>(fieldOrder, uuid, []);
+			fieldOrder = recordWithValue<Uuid[]>(fieldOrder, uuid, []);
 		}
 	}
 
@@ -400,7 +402,7 @@ export function assembleBlueprint(
 /** The minimal write-set between two docs' entity rows. */
 export interface EntityDiff {
 	upserts: EntityRow[];
-	deletedUuids: string[];
+	deletedUuids: Uuid[];
 }
 
 /** Deterministic serialization for the entity diff: object keys sorted at

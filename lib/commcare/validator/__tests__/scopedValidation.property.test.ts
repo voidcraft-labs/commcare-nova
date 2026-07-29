@@ -1,5 +1,6 @@
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { proseText } from "@/lib/domain/prose";
 /**
  * The scoped-runner law, property-tested (the load-bearing oracle for the
  * gate's correctness):
@@ -159,7 +160,7 @@ function mutationArb(doc: BlueprintDoc): fc.Arbitrary<Mutation> {
 							uuid: testUuid(`genfld-${n}`),
 							kind: "text",
 							id,
-							label: id,
+							label: proseText(id),
 							...(casePropertyOn ? { case_property_on: casePropertyOn } : {}),
 						} as Field,
 					}),
@@ -202,9 +203,9 @@ function mutationArb(doc: BlueprintDoc): fc.Arbitrary<Mutation> {
 				),
 			fc.constantFrom(...moduleUuids).map(
 				(uuid): Mutation => ({
-					kind: "updateModule",
+					kind: "renameModule",
 					uuid,
-					patch: { name: "Renamed Module" },
+					newId: "Renamed Module",
 				}),
 			),
 			fc
@@ -262,20 +263,16 @@ describe("scoped validation ≡ full validation filtered to scope", () => {
 									uuid: sourceUuid,
 									kind: "text",
 									id: "source",
-									label: "Source",
+									label: proseText("Source"),
 									default_value: "/data/choice",
 								}),
 								f({
 									uuid: selectUuid,
 									kind: "single_select",
 									id: "choice",
-									label: "Choice",
-									options: [
-										{ value: "yes", label: "Yes" },
-										{ value: "no", label: "No" },
-									],
+									label: proseText("Choice"),
 									optionsSource: {
-										kind: "lookup-table",
+										kind: "lookup",
 										tableId: lookupTable,
 										valueColumnId: lookupColumn,
 										labelColumnId: lookupColumn,
@@ -291,7 +288,7 @@ describe("scoped validation ≡ full validation filtered to scope", () => {
 								f({
 									kind: "text",
 									id: "broken",
-									label: "Broken",
+									label: proseText("Broken"),
 									relevant: "if(",
 								}),
 							],

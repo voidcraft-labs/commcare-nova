@@ -16,18 +16,18 @@ import { Icon } from "@iconify/react/offline";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import { useCallback, useId, useRef, useState } from "react";
 import { AddPropertyButton } from "@/components/builder/editor/AddPropertyButton";
-import { RefLabelInput } from "@/components/builder/RefLabelInput";
 import { INSPECTOR_LABEL_CLS } from "@/components/builder/inspector/inspectorChrome";
 import { MediaSlot } from "@/components/builder/media/MediaSlot";
+import { RefLabelInput } from "@/components/builder/RefLabelInput";
 import { RejectionInline } from "@/components/builder/RejectionNotice";
 import {
 	asUuid,
 	type CommitOutcome,
 	type Field,
 	fallbackProseProjection,
+	type ProseTemplate,
 	proseTemplateIsEmpty,
 	proseText,
-	type ProseTemplate,
 	type SelectOption,
 	type SelectOptionsSource,
 } from "@/lib/domain";
@@ -264,8 +264,8 @@ function OptionsEditorWidget({
 						className="flex flex-wrap items-center gap-1.5 group"
 					>
 						<div className="flex-1 min-w-0 flex gap-1">
-							<div
-								className="flex-1 min-w-0"
+							<fieldset
+								className="flex-1 min-w-0 border-0 p-0 m-0"
 								onBlur={(event) => event.stopPropagation()}
 							>
 								<RefLabelInput
@@ -274,7 +274,7 @@ function OptionsEditorWidget({
 									onSave={(label) => saveLabel(i, label)}
 									autoFocus={focusIndex === i || (autoFocus && i === 0)}
 								/>
-							</div>
+							</fieldset>
 							<input
 								value={opt.value}
 								onChange={(e) => updateOption(i, "value", e.target.value)}

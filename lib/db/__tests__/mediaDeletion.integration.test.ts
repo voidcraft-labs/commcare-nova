@@ -13,7 +13,7 @@ import { Client } from "pg";
 import { describe, expect, it } from "vitest";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import type { Mutation } from "@/lib/doc/types";
-import { asMediaAssetId } from "@/lib/domain/multimedia";
+import { asMediaAssetId, type MediaAssetId } from "@/lib/domain/multimedia";
 import { setupAppStateTestDb } from "./appStateTestDb";
 import { createPerTestAppDb } from "./perTestAppDb";
 
@@ -31,7 +31,9 @@ const PROJECT = "media-project";
 const ACTOR = "media-owner";
 const h = setupAppStateTestDb("media_delete_");
 
-async function seedReadyAsset(id = crypto.randomUUID()): Promise<string> {
+async function seedReadyAsset(
+	id: MediaAssetId = asMediaAssetId(crypto.randomUUID()),
+): Promise<MediaAssetId> {
 	await h
 		.db()
 		.insertInto("media_assets")
@@ -56,7 +58,9 @@ async function seedReadyAsset(id = crypto.randomUUID()): Promise<string> {
 	return id;
 }
 
-async function seedPendingAsset(id = crypto.randomUUID()): Promise<string> {
+async function seedPendingAsset(
+	id: MediaAssetId = asMediaAssetId(crypto.randomUUID()),
+): Promise<MediaAssetId> {
 	await h
 		.db()
 		.insertInto("media_assets")
@@ -81,8 +85,10 @@ async function seedPendingAsset(id = crypto.randomUUID()): Promise<string> {
 	return id;
 }
 
-async function seedExtractingDocumentAsset(id = crypto.randomUUID()): Promise<{
-	id: string;
+async function seedExtractingDocumentAsset(
+	id: MediaAssetId = asMediaAssetId(crypto.randomUUID()),
+): Promise<{
+	id: MediaAssetId;
 	claim: { version: number; model: string; extractedAt: number };
 }> {
 	const claim = {
@@ -131,8 +137,8 @@ async function seedApp(): Promise<{
 	return { appId, doc: { ...doc, appId } };
 }
 
-function attachLogo(assetId: string): Mutation[] {
-	return [{ kind: "setAppLogo", logo: asMediaAssetId(assetId) }];
+function attachLogo(assetId: MediaAssetId): Mutation[] {
+	return [{ kind: "setAppLogo", logo: assetId }];
 }
 
 async function waitForBlockedLocks(

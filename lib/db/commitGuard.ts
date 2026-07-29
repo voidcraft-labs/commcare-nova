@@ -227,9 +227,8 @@ export function batchTargetsMissing(
 				break;
 			case "updateModule":
 				if (!modules.has(m.uuid)) return true;
-				// A historical/direct whole-config birth or the live diff's explicit
-				// clear: non-null births it, `null` clears it. Track both so the
-				// guard remains compatible with replayed events and same-batch edits.
+				// A direct whole-config birth or explicit clear: non-null births it,
+				// `null` clears it. Track both for later same-batch edits.
 				if ("caseListConfig" in m.patch) {
 					if (m.patch.caseListConfig == null) modulesWithConfig.delete(m.uuid);
 					else modulesWithConfig.add(m.uuid);
@@ -291,6 +290,13 @@ export function batchTargetsMissing(
 							if (!writes.has(semantic.property)) return true;
 							writes.delete(semantic.property);
 							break;
+						case "reorder-writes":
+							if (
+								semantic.properties.some((property) => !writes.has(property))
+							) {
+								return true;
+							}
+							break;
 						case "add-link":
 							if (links.has(semantic.value.identifier) && !born) return true;
 							links.add(semantic.value.identifier);
@@ -301,6 +307,15 @@ export function batchTargetsMissing(
 						case "remove-link":
 							if (!links.has(semantic.identifier)) return true;
 							links.delete(semantic.identifier);
+							break;
+						case "reorder-links":
+							if (
+								semantic.identifiers.some(
+									(identifier) => !links.has(identifier),
+								)
+							) {
+								return true;
+							}
 							break;
 						case "move":
 							// A placement named by the uuid it follows cannot be shifted
@@ -313,10 +328,8 @@ export function batchTargetsMissing(
 					break;
 				}
 
-				// An event authored by the immediate-parent grammar has no granular
-				// extension. Simulate its exact full-operation reducer semantics so a
-				// later mutation in the same batch sees births, removals, and replaced
-				// write/link collections.
+				// Adds and removals are the only whole-operation events. Simulate
+				// their membership effect for later edits in this same batch.
 				const change = m.caseOperationChange;
 				if (change === undefined) break;
 				switch (change.operation) {
@@ -327,16 +340,9 @@ export function batchTargetsMissing(
 							caseOperationKey(m.uuid, change.value.uuid),
 						);
 						break;
-					case "update":
-						if (!operationUuids.has(change.uuid)) return true;
-						seedCaseOperation(m.uuid, change.value);
-						break;
 					case "remove":
 						if (!operationUuids.has(change.uuid)) return true;
 						removeSeededCaseOperation(m.uuid, change.uuid);
-						break;
-					case "move":
-						if (!operationUuids.has(change.uuid)) return true;
 						break;
 				}
 				break;

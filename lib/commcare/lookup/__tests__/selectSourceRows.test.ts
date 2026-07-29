@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { BlueprintDoc, LookupOptionsSource } from "@/lib/domain";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
+import { proseText } from "@/lib/domain/prose";
 import type {
 	LookupCellValue,
 	LookupDataType,
@@ -21,7 +22,7 @@ const LABEL_COL = "018f0000-0000-7000-8000-0000000000b2" as LookupColumnId;
 const ABSENT_COL = "018f0000-0000-7000-8000-0000000000bf" as LookupColumnId;
 
 const SOURCE: LookupOptionsSource = {
-	kind: "lookup-table",
+	kind: "lookup",
 	tableId: TABLE,
 	valueColumnId: VALUE_COL,
 	labelColumnId: LABEL_COL,
@@ -41,7 +42,7 @@ function carrierDoc(source: LookupOptionsSource = SOURCE): BlueprintDoc {
 							f({
 								kind: "single_select",
 								id: "status",
-								label: "Status",
+								label: proseText("Status"),
 								optionsSource: source,
 							}),
 						],

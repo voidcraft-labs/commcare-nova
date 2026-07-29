@@ -17,8 +17,8 @@
 //      name is rejected by the type checker but accepted by the
 //      schema).
 
-import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type { CaseType } from "@/lib/domain";
 import {
 	ancestorPath,
@@ -30,6 +30,7 @@ import {
 	subcasePath,
 	walkTerms,
 } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
 import {
 	isAuthorablePredicateKind,
 	type PredicateEditContext,
@@ -76,7 +77,7 @@ const PATIENT: CaseType = {
 };
 
 const KNOWN_INPUTS: readonly SearchInputDecl[] = [
-	{ name: "name_search", data_type: "text" },
+	{ uuid: testUuid("name-search"), name: "name_search", data_type: "text" },
 ];
 
 const ctx: PredicateEditContext = {

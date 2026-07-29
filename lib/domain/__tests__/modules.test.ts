@@ -965,7 +965,7 @@ describe("effectiveCaseSearchConfig", () => {
 		).toBeUndefined();
 	});
 
-	it("gives legacy search inputs the friendly default search config", () => {
+	it("gives search inputs the friendly default search config", () => {
 		expect(
 			effectiveCaseSearchConfig({
 				caseListConfig: resolveCaseListConfig({
@@ -1000,16 +1000,17 @@ describe("effectiveCaseSearchConfig", () => {
 		).toBeUndefined();
 	});
 
-	it("does not resurrect Search from an owner-only rolling-deploy fallback", () => {
+	it("preserves an authored Never condition instead of inferring owner-only provenance", () => {
+		const authored = {
+			excludedOwnerIds: term(literal("owner-a")),
+			searchButtonDisplayCondition: { kind: "match-none" as const },
+		};
 		expect(
 			effectiveCaseSearchConfig({
 				caseListConfig: emptyCaseListConfig(),
-				caseSearchConfig: {
-					excludedOwnerIds: term(literal("owner-a")),
-					searchButtonDisplayCondition: { kind: "match-none" },
-				},
+				caseSearchConfig: authored,
 			}),
-		).toBeUndefined();
+		).toBe(authored);
 	});
 
 	it("lets inputs override and strip stale no-action provenance", () => {
@@ -1051,7 +1052,7 @@ describe("effectiveCaseSearchConfig", () => {
 });
 
 describe("caseSearchConfigHasAuthoredSettings", () => {
-	it("treats legacy own keys with undefined values as empty", () => {
+	it("treats own keys with undefined values as empty", () => {
 		expect(
 			caseSearchConfigHasAuthoredSettings({
 				searchScreenTitle: undefined,

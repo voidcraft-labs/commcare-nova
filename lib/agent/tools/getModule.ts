@@ -1,6 +1,6 @@
 /**
  * SA tool: `getModule` — read one module's metadata + menu media + case
- * list config + case search config + form summary by positional index.
+ * list config + case search config + form summary by stable UUID.
  *
  * Pure read — no mutations, no SSE emission. Useful to the SA mid-edit
  * when it needs to confirm a module's case type, inspect the structured
@@ -23,7 +23,7 @@
  * covers every tile of the module, matching the batch shape.
  */
 
-import { z } from "zod";
+import type { z } from "zod";
 import { countFieldsUnder, orderedFormUuids } from "@/lib/doc/fieldWalk";
 import type {
 	BlueprintDoc,
@@ -72,7 +72,7 @@ export interface GetModuleFormSummary {
 /**
  * Two legal result shapes:
  *
- *   - `{ error }` when the moduleIndex is out of range.
+ *   - `{ error }` when the module UUID is not in the app.
  *   - Module snapshot — metadata + menu media + structured case list
  *     config + case search config + per-form summary. Each config field
  *     is `null` when the module has not yet authored that surface (a
