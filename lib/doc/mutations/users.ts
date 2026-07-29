@@ -1,5 +1,11 @@
 import type { Draft } from "immer";
+import { spliceAfter } from "@/lib/doc/mutations/sequence";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
+import {
+	ownRecordValue,
+	recordWithoutKey,
+	recordWithValue,
+} from "@/lib/domain";
 import { assertNever } from "@/lib/utils/assertNever";
 
 /**
@@ -47,37 +53,115 @@ export function applyUserMutation(
 ): void {
 	switch (mut.kind) {
 		case "addUserProperty":
-			draft.userProperties ??= {};
-			draft.userProperties[mut.property.uuid] = mut.property;
+			draft.userProperties = recordWithValue(
+				draft.userProperties,
+				mut.property.uuid,
+				// Cloned: `update*` patches the stored entity in place, and a batch is
+				// applied more than once per save against a frozen produced state.
+				structuredClone(mut.property),
+			);
+			draft.userPropertyOrder = spliceAfter(
+				draft.userPropertyOrder,
+				mut.property.uuid,
+				mut.after,
+			);
 			return;
 		case "updateUserProperty":
-			applyPatch(draft.userProperties?.[mut.uuid], mut.patch);
+			applyPatch(ownRecordValue(draft.userProperties, mut.uuid), mut.patch);
 			return;
 		case "removeUserProperty":
 			dropEntry(draft, "userProperties", mut.uuid);
 			return;
 		case "addUserType":
-			draft.userTypes ??= {};
-			draft.userTypes[mut.userType.uuid] = mut.userType;
+			draft.userTypes = recordWithValue(
+				draft.userTypes,
+				mut.userType.uuid,
+				// Cloned: `update*` patches the stored entity in place, and a batch is
+				// applied more than once per save against a frozen produced state.
+				structuredClone(mut.userType),
+			);
+			draft.userTypeOrder = spliceAfter(
+				draft.userTypeOrder,
+				mut.userType.uuid,
+				mut.after,
+			);
 			return;
 		case "updateUserType":
-			applyPatch(draft.userTypes?.[mut.uuid], mut.patch);
+			applyUserDataPatch(
+				ownRecordValue(draft.userTypes, mut.uuid),
+				mut.patch,
+				mut.valuePatch,
+			);
 			return;
 		case "removeUserType":
 			dropEntry(draft, "userTypes", mut.uuid);
 			return;
 		case "addPersona":
-			draft.personas ??= {};
-			draft.personas[mut.persona.uuid] = mut.persona;
+			draft.personas = recordWithValue(
+				draft.personas,
+				mut.persona.uuid,
+				// Cloned: `update*` patches the stored entity in place, and a batch is
+				// applied more than once per save against a frozen produced state.
+				structuredClone(mut.persona),
+			);
+			draft.personaOrder = spliceAfter(
+				draft.personaOrder,
+				mut.persona.uuid,
+				mut.after,
+			);
 			return;
 		case "updatePersona":
-			applyPatch(draft.personas?.[mut.uuid], mut.patch);
+			applyUserDataPatch(
+				ownRecordValue(draft.personas, mut.uuid),
+				mut.patch,
+				mut.valuePatch,
+			);
 			return;
 		case "removePersona":
 			dropEntry(draft, "personas", mut.uuid);
 			return;
 		default:
 			assertNever(mut, "applyUserMutation");
+	}
+}
+
+/**
+ * Apply an entity patch carrying the rolling-compatible representation of one
+ * value edit. A current receiver ignores the whole-bag fallback and changes
+ * only `valuePatch.userPropertyUuid`; an older receiver strips `valuePatch`
+ * while parsing and applies the cumulative `patch.values` snapshot.
+ */
+function applyUserDataPatch(
+	entity:
+		| Draft<{
+				values?: Record<string, string>;
+		  }>
+		| undefined,
+	patch: Record<string, unknown>,
+	valuePatch: { userPropertyUuid: string; value: string | null } | undefined,
+): void {
+	if (entity === undefined) return;
+	if (valuePatch === undefined) {
+		applyPatch(entity as Record<string, unknown>, patch);
+		return;
+	}
+
+	const metadataPatch = Object.fromEntries(
+		Object.entries(patch).filter(([key]) => key !== "values"),
+	);
+	applyPatch(entity as Record<string, unknown>, metadataPatch);
+	const nextValues =
+		valuePatch.value === null
+			? recordWithoutKey(entity.values, valuePatch.userPropertyUuid)
+			: recordWithValue(
+					entity.values,
+					valuePatch.userPropertyUuid,
+					valuePatch.value,
+				);
+	if (Object.keys(nextValues).length === 0) {
+		delete entity.values;
+	} else {
+		entity.values = nextValues;
 	}
 }
 
@@ -111,17 +195,61 @@ function applyPatch(
  * empty, and the two shapes would otherwise diff as a spurious change on
  * every hydration boundary.
  */
+/** Which membership array carries each flat collection's sequence. */
+const ORDER_SLOT = {
+	userProperties: "userPropertyOrder",
+	userTypes: "userTypeOrder",
+	personas: "personaOrder",
+} as const;
+
+/**
+ * Place `uuid` immediately after `after` — `null` meaning first, and an anchor
+ * that is no longer present meaning append.
+ *
+ * TOTAL by construction, because historical replay must never block: a batch
+ * whose anchor a peer removed still applies, landing the entity at the end
+ * rather than throwing. The authoritative commit guard is what rejects a batch
+ * whose anchor genuinely vanished; this reducer only has to stay reducible.
+ *
+ * Idempotent on the uuid: an entity already in the sequence is moved rather
+ * than duplicated, so replaying a batch twice cannot double an entry.
+ */
 function dropEntry(
 	draft: Draft<BlueprintDoc>,
 	slot: "userProperties" | "userTypes" | "personas",
 	uuid: string,
 ): void {
-	const collection = draft[slot];
+	// The sequence loses the entity whether or not the record did — an array
+	// naming an entity the record no longer holds is exactly the disagreement
+	// `assembleBlueprint` refuses to persist.
+	const orderSlot = ORDER_SLOT[slot];
+	const sequence = (draft as unknown as Record<string, string[] | undefined>)[
+		orderSlot
+	];
+	if (sequence !== undefined) {
+		const remaining = sequence.filter((entry) => entry !== uuid);
+		(draft as unknown as Record<string, string[] | undefined>)[orderSlot] =
+			remaining.length === 0 ? undefined : remaining;
+		if (remaining.length === 0) {
+			delete (draft as unknown as Record<string, unknown>)[orderSlot];
+		}
+	}
+
+	const collections = draft as unknown as Record<
+		typeof slot,
+		Record<string, unknown> | undefined
+	>;
+	const collection = collections[slot];
 	if (collection === undefined) return;
-	delete collection[uuid];
+	if (ownRecordValue(collection, uuid) === undefined) return;
+	const remaining = recordWithoutKey(collection, uuid);
 	// `delete`, not `= undefined`: an explicitly-undefined key still shows up
 	// in `Object.keys`, so the in-memory doc would carry a slot that every
 	// reader treats as absent and every serializer drops — a difference with
 	// no meaning that a future equality check would nonetheless see.
-	if (Object.keys(collection).length === 0) delete draft[slot];
+	if (Object.keys(remaining).length === 0) {
+		delete collections[slot];
+	} else {
+		collections[slot] = remaining;
+	}
 }

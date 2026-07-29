@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
 	advancedSearchInputDef,
 	asUuid,
@@ -47,7 +48,7 @@ function locationInput(uuid: typeof FIRST, name: string, property: string) {
 
 describe("searchInputRuntimeQuoteErrors", () => {
 	it("rejects only the direct prompt value CSQL cannot quote faithfully", () => {
-		const config: CaseListConfig = {
+		const config: CaseListConfig = resolveCaseListConfig({
 			columns: [],
 			searchInputs: [
 				advancedSearchInputDef(
@@ -61,7 +62,7 @@ describe("searchInputRuntimeQuoteErrors", () => {
 					),
 				),
 			],
-		};
+		});
 
 		expect(
 			searchInputRuntimeQuoteErrors(
@@ -88,7 +89,7 @@ describe("searchInputRuntimeQuoteErrors", () => {
 		// matched instance path and collapse `$$`, so the gate would judge a
 		// different value than the worker typed — `$'` (apostrophe-bearing)
 		// must still flag, and quote-safe `$&`/`$$` values must stay clean.
-		const config: CaseListConfig = {
+		const config: CaseListConfig = resolveCaseListConfig({
 			columns: [],
 			searchInputs: [
 				advancedSearchInputDef(
@@ -102,7 +103,7 @@ describe("searchInputRuntimeQuoteErrors", () => {
 					),
 				),
 			],
-		};
+		});
 
 		expect(
 			searchInputRuntimeQuoteErrors(
@@ -134,13 +135,13 @@ describe("searchInputRuntimeQuoteErrors", () => {
 				),
 			),
 		);
-		const config: CaseListConfig = {
+		const config: CaseListConfig = resolveCaseListConfig({
 			columns: [],
 			searchInputs: [
 				advancedSearchInputDef(FIRST, "first", "First", "text", combined),
 				advancedSearchInputDef(SECOND, "second", "Second", "text", matchAll()),
 			],
-		};
+		});
 
 		const errors = searchInputRuntimeQuoteErrors(
 			config,
@@ -164,7 +165,7 @@ describe("searchInputRuntimeQuoteErrors", () => {
 	});
 
 	it("evaluates session bytes inside the same computed rejection condition", () => {
-		const config: CaseListConfig = {
+		const config: CaseListConfig = resolveCaseListConfig({
 			columns: [],
 			searchInputs: [
 				advancedSearchInputDef(
@@ -181,13 +182,17 @@ describe("searchInputRuntimeQuoteErrors", () => {
 					),
 				),
 			],
-		};
+		});
 
 		const errors = searchInputRuntimeQuoteErrors(
 			config,
 			"patient",
 			new Map([["query", "O'Brien"]]),
-			{ context: {}, user: { nickname: 'The "Boss"' } },
+			{
+				context: {},
+				user: { nickname: 'The "Boss"' },
+				userPropertySlugs: {},
+			},
 		);
 		expect([...errors.keys()]).toEqual(["query"]);
 	});
@@ -200,12 +205,12 @@ describe("searchInputRuntimeQuoteErrors", () => {
 				dateAdd(today(), "months", double(term(input("months")))),
 			),
 		);
-		const config: CaseListConfig = {
+		const config: CaseListConfig = resolveCaseListConfig({
 			columns: [],
 			searchInputs: [
 				advancedSearchInputDef(FIRST, "months", "Months", "text", predicate),
 			],
-		};
+		});
 
 		expect(
 			searchInputSubmissionErrors(
@@ -229,12 +234,12 @@ describe("searchInputRuntimeQuoteErrors", () => {
 			input("minimum"),
 			gt(count(subcasePath("child")), double(term(input("minimum")))),
 		);
-		const config: CaseListConfig = {
+		const config: CaseListConfig = resolveCaseListConfig({
 			columns: [],
 			searchInputs: [
 				advancedSearchInputDef(FIRST, "minimum", "Minimum", "text", predicate),
 			],
-		};
+		});
 
 		for (const invalid of ["-1", "+1", "1e3", "1.5", "not a number"]) {
 			expect(
@@ -257,13 +262,13 @@ describe("searchInputRuntimeQuoteErrors", () => {
 	});
 
 	it("keeps two independent location prompts' errors independent", () => {
-		const config: CaseListConfig = {
+		const config: CaseListConfig = resolveCaseListConfig({
 			columns: [],
 			searchInputs: [
 				locationInput(FIRST, "near_home", "home_location"),
 				locationInput(SECOND, "near_work", "work_location"),
 			],
-		};
+		});
 
 		const errors = searchInputSubmissionErrors(
 			config,
@@ -278,10 +283,10 @@ describe("searchInputRuntimeQuoteErrors", () => {
 	});
 
 	it("accepts Nova's intentional location forms", () => {
-		const config: CaseListConfig = {
+		const config: CaseListConfig = resolveCaseListConfig({
 			columns: [],
 			searchInputs: [locationInput(FIRST, "nearby", "location")],
-		};
+		});
 
 		for (const value of [
 			"42.3601 -71.0589",
@@ -301,10 +306,10 @@ describe("searchInputRuntimeQuoteErrors", () => {
 	});
 
 	it("rejects malformed, ambiguous, and target-incompatible locations", () => {
-		const config: CaseListConfig = {
+		const config: CaseListConfig = resolveCaseListConfig({
 			columns: [],
 			searchInputs: [locationInput(FIRST, "nearby", "location")],
-		};
+		});
 
 		for (const value of [
 			"42",
@@ -340,7 +345,7 @@ describe("searchInputRuntimeQuoteErrors", () => {
 			input("nearby"),
 			within(prop("patient", "location"), input("nearby"), 10, "kilometers"),
 		);
-		const config: CaseListConfig = {
+		const config: CaseListConfig = resolveCaseListConfig({
 			columns: [],
 			searchInputs: [
 				advancedSearchInputDef(
@@ -353,7 +358,7 @@ describe("searchInputRuntimeQuoteErrors", () => {
 				advancedSearchInputDef(SECOND, "months", "Months", "text", matchAll()),
 				advancedSearchInputDef(THIRD, "nearby", "Nearby", "text", matchAll()),
 			],
-		};
+		});
 
 		expect(
 			searchInputSubmissionErrors(
@@ -369,28 +374,41 @@ describe("searchInputRuntimeQuoteErrors", () => {
 	});
 
 	it("stops a promptless session quote failure before Preview reaches SQL", () => {
-		const config: CaseListConfig = {
+		const config: CaseListConfig = resolveCaseListConfig({
 			columns: [],
 			searchInputs: [],
 			filter: eq(prop("patient", "label"), term(sessionUser("search_label"))),
-		};
+		});
 
 		expect(
 			searchInputRuntimeGlobalError(config, "patient", new Map(), {
 				context: {},
 				user: { search_label: `O'Brien "Clinic"` },
+				userPropertySlugs: {},
 			}),
 		).toContain("quotation marks");
 		expect(
 			searchInputRuntimeGlobalError(config, "patient", new Map(), {
 				context: {},
 				user: { search_label: "O'Brien Clinic" },
+				userPropertySlugs: {},
+			}),
+		).toBeUndefined();
+
+		const inherited = Object.create({
+			search_label: `O'Brien "Clinic"`,
+		}) as Record<string, string>;
+		expect(
+			searchInputRuntimeGlobalError(config, "patient", new Map(), {
+				context: {},
+				user: inherited,
+				userPropertySlugs: {},
 			}),
 		).toBeUndefined();
 	});
 
 	it("stops a promptless invalid session location before Preview reaches SQL", () => {
-		const config: CaseListConfig = {
+		const config: CaseListConfig = resolveCaseListConfig({
 			columns: [],
 			searchInputs: [],
 			filter: within(
@@ -399,18 +417,20 @@ describe("searchInputRuntimeQuoteErrors", () => {
 				10,
 				"kilometers",
 			),
-		};
+		});
 
 		expect(
 			searchInputRuntimeGlobalError(config, "patient", new Map(), {
 				context: {},
 				user: { default_location: "not a location" },
+				userPropertySlugs: {},
 			}),
 		).toContain("latitude and longitude");
 		expect(
 			searchInputRuntimeGlobalError(config, "patient", new Map(), {
 				context: {},
 				user: { default_location: "42.3601 -71.0589" },
+				userPropertySlugs: {},
 			}),
 		).toBeUndefined();
 	});

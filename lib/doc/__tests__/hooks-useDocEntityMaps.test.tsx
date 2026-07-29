@@ -71,7 +71,7 @@ describe("useDocEntityMaps", () => {
 		const { store, wrapper } = setup();
 		const { result } = renderHook(() => useDocEntityMaps(), { wrapper });
 		const first = result.current;
-		store.temporal.getState().resume();
+		store.getState().startTracking();
 		// `setAppName` doesn't touch any entity map — shallow equality on the
 		// selector output should return the same object, preventing re-render.
 		act(() => {

@@ -193,7 +193,21 @@ export type CaseTarget = z.infer<typeof caseTargetSchema>;
 export const CASE_OPERATION_ACTIONS = ["create", "update", "close"] as const;
 export type CaseOperationAction = (typeof CASE_OPERATION_ACTIONS)[number];
 
-const caseOperationWriteSchema = z
+/**
+ * Platform-owned case types that an authored case operation may never create,
+ * update, close, link to, or retype into.
+ *
+ * This is domain vocabulary, not an emitter detail: every authoring surface
+ * filters the same closed set before construction, while the validator remains
+ * the import/replay backstop.
+ */
+export const RESERVED_CASE_OPERATION_TYPES: ReadonlySet<string> = new Set([
+	"commcare-user",
+	"commcare-case-claim",
+	"user-owner-mapping-case",
+]);
+
+export const caseOperationWriteSchema = z
 	.object({
 		property: z.string(),
 		value: valueExpressionSchema,
@@ -206,7 +220,7 @@ export type CaseOperationWrite = {
 	condition?: Predicate;
 };
 
-const caseOperationLinkSchema = z
+export const caseOperationLinkSchema = z
 	.object({
 		identifier: z.string(),
 		targetType: z.string(),
@@ -219,17 +233,16 @@ export type CaseOperationLink = z.infer<typeof caseOperationLinkSchema>;
 /**
  * One declared case effect of a form submission.
  *
- * `uuid` is reference identity; `id` is the author-facing/wire slug; `order`
- * is the fractional execution key. Array position is membership only. Facet
- * legality intentionally stays out of the shape schema so legacy documents
- * remain parseable and the rule engine can return precise, repairable
- * findings instead of a generic Zod failure.
+ * `uuid` is reference identity and `id` is the author-facing/wire slug;
+ * execution order is the array's own position, so an operation carries no
+ * ordering slot at all. Facet legality intentionally stays out of the shape
+ * schema so legacy documents remain parseable and the rule engine can return
+ * precise, repairable findings instead of a generic Zod failure.
  */
 export const caseOperationSchema = z
 	.object({
 		uuid: uuidSchema,
 		id: z.string(),
-		order: z.string().optional(),
 		action: z.enum(CASE_OPERATION_ACTIONS),
 		caseType: z.string(),
 		target: caseTargetSchema,
@@ -245,20 +258,18 @@ export const caseOperationSchema = z
 	.strict();
 export type CaseOperation = z.infer<typeof caseOperationSchema>;
 
-/** Canonical operation sequence: fractional order, then immutable identity. */
+/**
+ * The operation sequence — which is simply the array, copied so callers can
+ * sort or splice it without reaching into the form.
+ *
+ * `caseOperations` is ordered, so there is nothing to derive and this reads as
+ * a no-op. It stays because every emitter and planner names the sequence
+ * through it: one seam means no two of them can order a form differently.
+ */
 export function orderedCaseOperations(form: {
 	readonly caseOperations?: readonly CaseOperation[];
 }): CaseOperation[] {
-	return [...(form.caseOperations ?? [])].sort((left, right) => {
-		if (left.order !== undefined && right.order !== undefined) {
-			if (left.order < right.order) return -1;
-			if (left.order > right.order) return 1;
-			return left.uuid.localeCompare(right.uuid);
-		}
-		if (left.order !== undefined) return -1;
-		if (right.order !== undefined) return 1;
-		return left.uuid.localeCompare(right.uuid);
-	});
+	return [...(form.caseOperations ?? [])];
 }
 
 // Connect config. Each sub-config's `id` stays `z.string().optional()` on
@@ -332,11 +343,6 @@ export const formSchema = z
 		uuid: uuidSchema,
 		id: z.string(),
 		name: z.string(),
-		// Absolute fractional sort key (`lib/doc/order`): form sequence is
-		// `sort-by-(order, uuid)`, not `formOrder[module]` array position.
-		// Optional (legacy forms predate it, backfilled at hydration); never
-		// reaches CommCare.
-		order: z.string().optional(),
 		type: z.enum(FORM_TYPES),
 		purpose: z.string().optional(),
 		/**
@@ -349,7 +355,8 @@ export const formSchema = z
 		connect: connectConfigSchema.nullable().optional(),
 		postSubmit: z.enum(POST_SUBMIT_DESTINATIONS).optional(),
 		formLinks: z.array(formLinkSchema).optional(),
-		/** Ordered, typed case effects. Dormant until the S07 runtime activation. */
+		/** Ordered, typed case effects: what one submission does to the case
+		 *  universe, in the order the runtime applies it. */
 		caseOperations: z.array(caseOperationSchema).optional(),
 		/**
 		 * Image shown on the form's menu tile — the per-form

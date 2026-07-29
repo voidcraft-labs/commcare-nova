@@ -1,7 +1,6 @@
 import type { Draft } from "immer";
 import type { FieldPath } from "@/lib/doc/fieldPath";
-import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
-import { keysForSlot } from "@/lib/doc/order/keys";
+import { spliceAfter, spliceEntryAfter } from "@/lib/doc/mutations/sequence";
 import { declarersOf, referencingCarrierUuids } from "@/lib/doc/referenceIndex";
 import type { BlueprintDoc, Mutation, Uuid } from "@/lib/doc/types";
 import {
@@ -22,7 +21,6 @@ import {
 } from "@/lib/preview/xpath/rewrite";
 import {
 	cascadeDeleteField,
-	cloneFieldSubtree,
 	computeFieldPath,
 	dedupeSiblingId,
 	findContainingForm,
@@ -139,7 +137,6 @@ export interface FieldRenameMeta {
  *   - removeField: cascade delete subtree
  *   - moveField: cross-parent reorder + xpath rewrite + sibling dedup
  *   - renameField: id change + xpath rewrite of any referencing fields
- *   - duplicateField: deep clone with new UUIDs, dedupe sibling id
  */
 export function applyFieldMutation(
 	draft: Draft<BlueprintDoc>,
@@ -151,7 +148,6 @@ export function applyFieldMutation(
 				| "removeField"
 				| "moveField"
 				| "renameField"
-				| "duplicateField"
 				| "updateField"
 				| "convertField"
 				| "setFieldMedia"
@@ -176,7 +172,10 @@ export function applyFieldMutation(
 			// semantic extension. Accepted history can bypass the current mutation
 			// schema, so re-parsing every legacy field here would turn previously
 			// applicable events into silent no-ops.
-			let field = mut.field;
+			// Cloned: `updateField` edits the stored field in place, and the payload
+			// must not be the object it edits — a second apply of the same batch
+			// would be assigning to a frozen produced state.
+			let field = structuredClone(mut.field);
 			if (mut.optionsSource !== undefined) {
 				const parsedField = fieldSchema.safeParse({
 					...mut.field,
@@ -191,11 +190,13 @@ export function applyFieldMutation(
 				}
 				field = parsedField.data;
 			}
-			const order = draft.fieldOrder[mut.parentUuid] ?? [];
-			const index = mut.index ?? order.length;
-			const clamped = Math.max(0, Math.min(index, order.length));
-			order.splice(clamped, 0, field.uuid);
-			draft.fieldOrder[mut.parentUuid] = order;
+			// `after` absent appends, `null` puts it first — the two are distinct
+			// so "add at the top" survives the wire, where JSON drops `undefined`.
+			draft.fieldOrder[mut.parentUuid] = spliceAfter(
+				draft.fieldOrder[mut.parentUuid] ?? [],
+				field.uuid,
+				mut.after,
+			);
 			draft.fields[field.uuid] = field;
 			// If the new field is a group/repeat, pre-seed its order slot
 			// so child insertions have a valid parent to target immediately.
@@ -325,21 +326,22 @@ export function applyFieldMutation(
 		case "moveField": {
 			const field = draft.fields[mut.uuid];
 			if (!field) return;
-			// New emission carrying an `order` key. A SAME-parent reorder is the
-			// hot path: it touches only the sort key, never membership, so it
-			// skips the destination / subtree / same-form guards (the field is
-			// already in a valid position) and the reference rewrites (the path
-			// is unchanged). A cross-parent move falls through to the full
-			// machinery below and sets `order` at the insertion step.
-			if (mut.order !== undefined) {
-				const currentParent = findFieldParent(
-					draft as unknown as BlueprintDoc,
+			// A SAME-parent reorder is the hot path: it splices one membership
+			// array and nothing else, so it skips the destination / subtree /
+			// same-form guards (the field is already in a valid position) and the
+			// reference rewrites (its path is unchanged). A cross-parent move
+			// falls through to the full machinery below.
+			const currentParent = findFieldParent(
+				draft as unknown as BlueprintDoc,
+				mut.uuid,
+			);
+			if (currentParent?.parentUuid === mut.toParentUuid) {
+				draft.fieldOrder[mut.toParentUuid] = spliceAfter(
+					draft.fieldOrder[mut.toParentUuid] ?? [],
 					mut.uuid,
+					mut.after,
 				);
-				if (currentParent?.parentUuid === mut.toParentUuid) {
-					field.order = mut.order;
-					return {} satisfies MoveFieldResult;
-				}
+				return {} satisfies MoveFieldResult;
 			}
 			// Destination parent must exist as either a form or a group/repeat.
 			const destIsForm = draft.forms[mut.toParentUuid] !== undefined;
@@ -471,21 +473,14 @@ export function applyFieldMutation(
 				ensureCatalogProperty(draft as unknown as BlueprintDoc, field);
 			}
 
-			// Insert at destination. A new emission carries the fractional
-			// `order` (membership position is arbitrary — append + stamp the
-			// sort key); a legacy event places by `toIndex`.
-			const destOrder = draft.fieldOrder[mut.toParentUuid] ?? [];
-			if (mut.order !== undefined) {
-				field.order = mut.order;
-				destOrder.push(mut.uuid);
-			} else {
-				const clamped = Math.max(
-					0,
-					Math.min(mut.toIndex ?? destOrder.length, destOrder.length),
-				);
-				destOrder.splice(clamped, 0, mut.uuid);
-			}
-			draft.fieldOrder[mut.toParentUuid] = destOrder;
+			// Land in the destination sequence at the named placement. `after`
+			// names a sibling in the DESTINATION, so a cross-parent move needs no
+			// separate index arm — it is the same splice as a same-parent one.
+			draft.fieldOrder[mut.toParentUuid] = spliceAfter(
+				draft.fieldOrder[mut.toParentUuid] ?? [],
+				mut.uuid,
+				mut.after,
+			);
 
 			// Rewrite absolute-path / hashtag references that now point at a
 			// stale path. Covers cross-level moves (where the prefix changes —
@@ -635,110 +630,6 @@ export function applyFieldMutation(
 				cascadedAcrossForms,
 			} satisfies FieldRenameMeta;
 		}
-		case "duplicateField": {
-			const src = draft.fields[mut.uuid];
-			if (!src) return;
-			const parent = findFieldParent(
-				draft as unknown as BlueprintDoc,
-				mut.uuid,
-			);
-			if (!parent) return;
-
-			// Clone the subtree off the current draft state. `cloneFieldSubtree`
-			// returns undefined if the source or a descendant is missing — we
-			// already guarded on the source above, so undefined here means
-			// something is structurally wrong with the doc. Skip the duplicate
-			// rather than propagating a throw out of the reducer.
-			const cloned = cloneFieldSubtree(
-				draft as unknown as BlueprintDoc,
-				mut.uuid,
-			);
-			if (!cloned) return;
-			const { fields: clonedF, fieldOrder: clonedO, rootUuid } = cloned;
-
-			// Install all cloned entities into the draft.
-			for (const [uuid, f] of Object.entries(clonedF)) {
-				// Duplication is a generic builder gesture and stays
-				// carrier-blind until S09. A receiver-preserved lookup-backed
-				// select duplicates as its complete inline fallback rather than
-				// silently minting a second dormant carrier.
-				if (
-					(f.kind === "single_select" || f.kind === "multi_select") &&
-					f.optionsSource !== undefined
-				) {
-					delete f.optionsSource;
-				}
-				draft.fields[uuid as Uuid] = f;
-			}
-			for (const [parentUuid, order] of Object.entries(clonedO)) {
-				draft.fieldOrder[parentUuid as Uuid] = order;
-			}
-
-			// Dedupe the top-level clone's id against existing siblings at this
-			// parent level. Nested clones live under the new (cloned) parent and
-			// therefore can't conflict with the originals — no dedup needed there.
-			const clone = draft.fields[rootUuid];
-			if (clone) {
-				const deduped = dedupeSiblingId(
-					draft as unknown as BlueprintDoc,
-					parent.parentUuid,
-					clone.id,
-					rootUuid,
-				);
-				clone.id = deduped;
-			}
-
-			// Splice the clone into the parent's membership array (position
-			// arbitrary — sequence is the `order` key).
-			const parentOrder = draft.fieldOrder[parent.parentUuid];
-			if (parentOrder) {
-				parentOrder.splice(parent.index + 1, 0, rootUuid);
-				draft.fieldOrder[parent.parentUuid] = parentOrder;
-			}
-			// The root clone must sort RIGHT AFTER the source. `cloneFieldSubtree`
-			// copied the source's `order` onto it (a collision that would
-			// tie-break arbitrarily on uuid), so assign a fresh key between the
-			// source and its next DISPLAY-order sibling. (Descendant clones keep
-			// their copied keys — they live under the new clone root, a distinct
-			// subtree, so they can't collide with the originals.)
-			if (clone) {
-				const siblings = orderedFieldUuids(
-					draft as unknown as BlueprintDoc,
-					parent.parentUuid,
-				).filter((u) => u !== rootUuid);
-				// Slot the clone right AFTER the source in display order. The slot
-				// index must be computed over the SAME keyed-only list `keysForSlot`
-				// receives — indexing a full-list position into the filtered list
-				// would mis-slot the clone whenever a keyless (un-backfilled)
-				// sibling precedes the source. Walk display order once, keeping the
-				// keyed keys and the count of keyed siblings up to and including the
-				// source. `keysForSlot` widens past a tied run at the source so a
-				// copied-order collision doesn't yield a degenerate interval.
-				const siblingKeys: string[] = [];
-				let slotIndex = -1;
-				for (const u of siblings) {
-					const order = draft.fields[u]?.order;
-					if (order !== undefined) siblingKeys.push(order);
-					if (u === mut.uuid) slotIndex = siblingKeys.length;
-				}
-				clone.order = keysForSlot(
-					siblingKeys,
-					slotIndex === -1 ? siblingKeys.length : slotIndex,
-					1,
-				)[0];
-			}
-			// Every cloned writer declares its (case type, property) pair —
-			// the deduped root clone introduces a NEW pair (suffixed id);
-			// descendant clones keep their source ids, so their sync is an
-			// idempotent re-assert. Read post-dedup state off the draft.
-			for (const uuid of Object.keys(clonedF)) {
-				const clonedField = draft.fields[uuid as Uuid];
-				if (clonedField) {
-					ensureCatalogProperty(draft as unknown as BlueprintDoc, clonedField);
-				}
-			}
-			return;
-		}
 		case "convertField": {
 			const field = draft.fields[mut.uuid];
 			if (!field) return;
@@ -839,8 +730,8 @@ export function applyFieldMutation(
 }
 
 /**
- * Granular select-option mutations. The `options` array is a membership set
- * keyed by per-option `uuid`; sequence is `sort-by-(order, uuid)`, so two
+ * Granular select-option mutations. The `options` array IS the sequence,
+ * keyed by per-option `uuid` for addressing, so two
  * members editing different options merge.
  *
  * These reducers mutate `field.options` IN PLACE and DELIBERATELY do not
@@ -848,8 +739,8 @@ export function applyFieldMutation(
  * a `removeOption` dropping below two options must reach the commit gate as a
  * sub-2 candidate so `SELECT_TOO_FEW_OPTIONS` can reject it — a re-parse here
  * would warn-skip the reducer and the gate would see no change. `update`
- * preserves the option's CURRENT `order` so a content edit never clobbers a
- * concurrent `moveOption`; `move` writes the new `order` verbatim.
+ * A content `update` cannot clobber a concurrent `moveOption`: place is the
+ * array position, which an update never touches.
  */
 function applyOptionMutation(
 	draft: Draft<BlueprintDoc>,
@@ -865,18 +756,20 @@ function applyOptionMutation(
 		case "addOption": {
 			// Idempotent on uuid (a re-applied add is a no-op).
 			if (options.some((o) => o.uuid === mut.option.uuid)) return;
-			options.push(mut.option);
+			field.options = spliceEntryAfter(
+				options,
+				structuredClone(mut.option),
+				mut.after,
+			) as typeof field.options;
 			return;
 		}
 		case "updateOption": {
 			const idx = options.findIndex((o) => o.uuid === mut.uuid);
 			if (idx === -1) return;
-			const order = options[idx].order;
-			options[idx] = {
-				...mut.option,
-				uuid: mut.uuid,
-				...(order !== undefined && { order }),
-			};
+			// Replace content in place. The option keeps its position because
+			// position is the index it already occupies, so there is nothing to
+			// carry across — a content edit cannot clobber a concurrent move.
+			options[idx] = { ...mut.option, uuid: mut.uuid };
 			return;
 		}
 		case "removeOption": {
@@ -885,8 +778,15 @@ function applyOptionMutation(
 			return;
 		}
 		case "moveOption": {
+			// The `options` array IS the sequence, so the move reorders it. An
+			// option a peer removed cannot be moved back into it.
 			const opt = options.find((o) => o.uuid === mut.uuid);
-			if (opt) opt.order = mut.order;
+			if (opt === undefined) return;
+			field.options = spliceEntryAfter(
+				options,
+				opt,
+				mut.after,
+			) as typeof field.options;
 			return;
 		}
 	}
@@ -931,7 +831,7 @@ interface RenameTracking {
  * declaration of that property, so every reducer arm that lands a
  * field with (or changes a field to have) a non-empty
  * `case_property_on` calls this — `addField`, `updateField`,
- * `convertField`, `duplicateField`, and `moveField`'s dedup-rename —
+ * `convertField`, and `moveField`'s dedup-rename —
  * mirroring the in-place entry rename `cascadeCasePropertyRename`
  * already performs. Reducer-side so server, client, and event-log
  * replay derive byte-identical catalogs from the same mutation.

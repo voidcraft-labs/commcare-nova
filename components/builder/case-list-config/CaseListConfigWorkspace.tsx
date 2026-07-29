@@ -72,13 +72,7 @@ import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useEffectiveCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useCaseWorkspaceBoundaryVerdicts } from "@/lib/doc/hooks/useCaseWorkspaceVerdicts";
 import { useModule } from "@/lib/doc/hooks/useEntity";
-import { appendOrderKey } from "@/lib/doc/order/append";
-import {
-	type ColumnSurface,
-	orderedColumnsOnSurface,
-	resolvedColumnSurfaceOrder,
-} from "@/lib/doc/order/columnSurface";
-import { bySortKey } from "@/lib/doc/order/compare";
+import { useUserProperties } from "@/lib/doc/hooks/useUserCollections";
 import { searchInputUpdateMutation } from "@/lib/doc/searchInputMutations";
 import type { Mutation, Uuid } from "@/lib/doc/types";
 import {
@@ -89,6 +83,7 @@ import {
 	caseSearchConfigAfterFinalInputRemoval,
 	DEFAULT_CASE_SEARCH_TITLE,
 	effectiveCaseSearchConfig,
+	emptyCaseListConfig,
 	isOwnerOnlyCaseSearchConfig,
 	normalizeOwnerOnlyCaseSearchConfig,
 	type SearchInputDef,
@@ -148,6 +143,7 @@ import {
 } from "./tile/tileMutationPlan";
 import { TILE_PRESETS, type TilePresetId } from "./tile/tilePresets";
 import {
+	type CaseDisplaySurface,
 	projectCaseWorkspaceColumns,
 	pruneStoppedSortOrphans,
 	removeColumnFromDisplay,
@@ -262,7 +258,7 @@ const PROPERTYLESS_HINT = "Add case information before adding fields";
 
 /** Stable empty config for modules whose `caseListConfig` slot is
  *  still absent — first edit persists the seeded shape. */
-const EMPTY_CONFIG: CaseListConfig = { columns: [], searchInputs: [] };
+const EMPTY_CONFIG: CaseListConfig = emptyCaseListConfig();
 
 /** Stable empty tile-issue list — a fresh array per render would defeat
  *  the inspector body's memoization. */
@@ -317,20 +313,6 @@ function authoredSearchActionSettings(
 		.map((key) => SEARCH_ACTION_SETTING_LABELS[key]);
 }
 
-/** Append to the active surface's resolved sequence, including legacy columns
- * that still use the shared `order` fallback. */
-function appendSurfaceOrderKey(
-	columns: readonly Column[],
-	surface: ColumnSurface,
-): string {
-	return appendOrderKey(
-		orderedColumnsOnSurface(columns, surface).map((column) => ({
-			uuid: column.uuid,
-			order: resolvedColumnSurfaceOrder(column, surface),
-		})),
-	);
-}
-
 /** The friendly name used when a display field moves on or off a surface. */
 function columnDisplayLabel(column: Column): string {
 	return (
@@ -341,7 +323,9 @@ function columnDisplayLabel(column: Column): string {
 	);
 }
 
-function surfaceDisplayName(surface: ColumnSurface): "Results" | "Details" {
+function surfaceDisplayName(
+	surface: CaseDisplaySurface,
+): "Results" | "Details" {
 	return surface === "list" ? "Results" : "Details";
 }
 
@@ -389,6 +373,7 @@ function useController(
 	/* The EFFECTIVE view — the same property admission set + types the
 	 * commit gate validates against (see the hook doc). */
 	const caseTypes = useEffectiveCaseTypes();
+	const userProperties = useUserProperties();
 	const navigate = useNavigate();
 	const { moveColumnOnSurface, moveSearchInputToIndex, commitMany, inline } =
 		useBlueprintMutations();
@@ -416,7 +401,7 @@ function useController(
 	// ── Selection ──
 	const [sel, setSel] = useState<WorkspaceSelection | null>(null);
 	const [workspaceAnnouncement, setWorkspaceAnnouncement] = useState("");
-	const pendingCanvasFocusRef = useRef<ColumnSurface | null>(null);
+	const pendingCanvasFocusRef = useRef<CaseDisplaySurface | null>(null);
 	const pendingSearchFocusRef = useRef<SearchInputDef["uuid"] | "add" | null>(
 		null,
 	);
@@ -809,7 +794,7 @@ function useController(
 	const tileHasRoom =
 		config.tile === undefined ||
 		nextFreeTilePlacement(
-			tileMembership(config.columns).placed.map((entry) => entry.cell),
+			tileMembership(config).placed.map((entry) => entry.cell),
 		) !== null;
 	const addResultsDisabledReason =
 		addDisabledReason ?? (tileHasRoom ? undefined : TILE_FULL_REASON);
@@ -819,12 +804,12 @@ function useController(
 	 *  showing rows. */
 	const placedForResults = (column: Column): Column | null => {
 		if (config.tile === undefined) return column;
-		const place = placementForJoiningTile(config.columns, column);
+		const place = placementForJoiningTile(config, column);
 		return place === null ? null : ({ ...column, tile: place } as Column);
 	};
 
 	const routeColumnToRepair = (
-		surface: ColumnSurface,
+		surface: CaseDisplaySurface,
 		column: Column,
 		messages: readonly string[] = [],
 	) => {
@@ -859,12 +844,10 @@ function useController(
 		const repairedColumns = config.columns.map((column) =>
 			column.uuid === uuid ? replacement : column,
 		);
-		const order = appendSurfaceOrderKey(repairedColumns, repair.surface);
 		const revealed = showColumnOnDisplay(
 			repairedColumns,
 			replacement.uuid,
 			repair.surface,
-			order,
 		).find((column) => column.uuid === replacement.uuid);
 		if (revealed === undefined) return;
 		const revealTarget =
@@ -906,7 +889,7 @@ function useController(
 			},
 		});
 	};
-	const addSeededColumn = (surface: ColumnSurface, seedColumn: Column) => {
+	const addSeededColumn = (surface: CaseDisplaySurface, seedColumn: Column) => {
 		const seed = surface === "list" ? placedForResults(seedColumn) : seedColumn;
 		if (seed === null) {
 			setWorkspaceAnnouncement(TILE_FULL_REASON);
@@ -921,7 +904,7 @@ function useController(
 			setSel({ type: "column", uuid: seed.uuid });
 		}
 	};
-	const addColumn = (surface: ColumnSurface, property: CaseProperty) => {
+	const addColumn = (surface: CaseDisplaySurface, property: CaseProperty) => {
 		// The center-canvas chooser owns the property decision. Creation only
 		// turns that explicit choice into a working display definition; it never
 		// advances through system properties behind the author's back.
@@ -935,7 +918,7 @@ function useController(
 			),
 		);
 	};
-	const addCalculatedColumn = (surface: ColumnSurface) => {
+	const addCalculatedColumn = (surface: CaseDisplaySurface) => {
 		addSeededColumn(
 			surface,
 			seedCalculatedColumn(
@@ -946,7 +929,7 @@ function useController(
 		);
 	};
 	const moveColumn = (
-		surface: ColumnSurface,
+		surface: CaseDisplaySurface,
 		uuid: Column["uuid"],
 		toIndex: number,
 	) => moveColumnOnSurface(moduleUuid, uuid, surface, toIndex);
@@ -959,8 +942,11 @@ function useController(
 			),
 		);
 	};
-	const hideColumnFromSurface = (surface: ColumnSurface, column: Column) => {
-		const visible = projectCaseWorkspaceColumns(config.columns);
+	const hideColumnFromSurface = (
+		surface: CaseDisplaySurface,
+		column: Column,
+	) => {
+		const visible = projectCaseWorkspaceColumns(config);
 		if (surface === "list" && visible.listVisible.length <= 1) return;
 		const label = columnDisplayLabel(column);
 		const hidden = removeColumnFromDisplay(
@@ -979,7 +965,7 @@ function useController(
 		);
 		deselect();
 	};
-	const deleteColumn = (surface: ColumnSurface, column: Column) => {
+	const deleteColumn = (surface: CaseDisplaySurface, column: Column) => {
 		const displayedOn = [
 			...(column.visibleInList !== false ? ["Results"] : []),
 			...(column.visibleInDetail !== false ? ["Details"] : []),
@@ -994,19 +980,17 @@ function useController(
 		);
 		deselect();
 	};
-	const showColumn = (surface: ColumnSurface, column: Column) => {
+	const showColumn = (surface: CaseDisplaySurface, column: Column) => {
 		/* A definition already known to need attention never touches the gate.
 		 * Open its source/formatting controls while it remains off-screen. */
 		if (brokenColumns.has(column.uuid)) {
 			routeColumnToRepair(surface, column);
 			return;
 		}
-		const order = appendSurfaceOrderKey(config.columns, surface);
 		const shown = showColumnOnDisplay(
 			config.columns,
 			column.uuid,
 			surface,
-			order,
 		).find((candidate) => candidate.uuid === column.uuid);
 		if (shown === undefined) return;
 		const target = surface === "list" ? placedForResults(shown) : shown;
@@ -1047,7 +1031,7 @@ function useController(
 		]);
 	};
 	const removeInput = (uuid: SearchInputDef["uuid"]) => {
-		const orderedInputs = [...config.searchInputs].sort(bySortKey);
+		const orderedInputs = [...config.searchInputs];
 		const removedIndex = orderedInputs.findIndex(
 			(input) => input.uuid === uuid,
 		);
@@ -1197,15 +1181,14 @@ function useController(
 		// working input with a unique internal name, a matching widget, and the
 		// established per-type match default.
 		const seed = seedSearchInputForProperty(config, property);
-		const seeded = { ...seed, order: appendOrderKey(config.searchInputs) };
 		const outcome = commitMany([
 			enableCaseSearchMutation(moduleUuid, searchConfig),
-			{ kind: "addSearchInput", moduleUuid, searchInput: seeded },
+			{ kind: "addSearchInput", moduleUuid, searchInput: seed },
 		]);
 		// Never select an identity the gate refused to create. The gate can still
 		// reject a concurrent structural edit even though the seed was valid when
 		// this interaction began.
-		if (outcome.ok) setSel({ type: "input", uuid: seeded.uuid });
+		if (outcome.ok) setSel({ type: "input", uuid: seed.uuid });
 	};
 	const moveInput = (uuid: SearchInputDef["uuid"], toIndex: number) =>
 		moveSearchInputToIndex(moduleUuid, uuid, toIndex);
@@ -1244,9 +1227,9 @@ function useController(
 	// drawing comes back intact.
 	const tileDisabledReason = useMemo(() => {
 		if (config.tile !== undefined) return undefined;
-		const plan = planTileLayoutEnable({ moduleUuid, columns: config.columns });
+		const plan = planTileLayoutEnable({ moduleUuid, config });
 		return plan.ok ? undefined : plan.reason;
-	}, [config.columns, config.tile, moduleUuid]);
+	}, [config, moduleUuid]);
 
 	const setArrangement = useCallback(
 		(next: CaseListArrangement) => {
@@ -1254,7 +1237,7 @@ function useController(
 				if (config.tile !== undefined) return;
 				const plan = planTileLayoutEnable({
 					moduleUuid,
-					columns: config.columns,
+					config,
 				});
 				if (!plan.ok) {
 					setWorkspaceAnnouncement(plan.reason);
@@ -1280,7 +1263,7 @@ function useController(
 				);
 			}
 		},
-		[commitMany, config.columns, config.tile, moduleUuid],
+		[commitMany, config.columns, config.tile, moduleUuid, config],
 	);
 
 	const placeTileCell = useCallback(
@@ -1315,7 +1298,7 @@ function useController(
 		(uuid: Column["uuid"]) => {
 			const plan = planTilePlaceField({
 				moduleUuid,
-				columns: config.columns,
+				config,
 				uuid,
 			});
 			if (!plan.ok) {
@@ -1332,7 +1315,7 @@ function useController(
 				setSel({ type: "column", uuid });
 			}
 		},
-		[commitMany, config.columns, moduleUuid],
+		[commitMany, config.columns, moduleUuid, config],
 	);
 
 	const applyTilePreset = useCallback(
@@ -1343,7 +1326,7 @@ function useController(
 			if (preset === undefined) return;
 			const plan = planTilePreset({
 				moduleUuid,
-				columns: config.columns,
+				config,
 				preset,
 			});
 			if (!plan.ok) {
@@ -1354,7 +1337,7 @@ function useController(
 				setWorkspaceAnnouncement(`Tile rearranged as ${preset.label}`);
 			}
 		},
-		[commitMany, config.columns, moduleUuid],
+		[commitMany, config.columns, moduleUuid, config],
 	);
 
 	const setTilePersistOnForms = useCallback(
@@ -1381,6 +1364,7 @@ function useController(
 			config,
 			searchConfig,
 			caseTypes,
+			userProperties,
 			caseType,
 			onSearchConfigChange: updateSearchConfig,
 			replaceColumn,
@@ -1444,6 +1428,7 @@ function useController(
 									: returnToInputRemovalReview
 							}
 							caseTypes={caseTypes}
+							userProperties={userProperties}
 							currentCaseType={caseType}
 							knownInputs={searchInputDecls(config.searchInputs)}
 							dependencyReview={dependencyReview}
@@ -1466,6 +1451,7 @@ function useController(
 							returnFromSearchCondition({ type: "search-panel" });
 						}}
 						caseTypes={caseTypes}
+						userProperties={userProperties}
 						currentCaseType={caseType}
 						focusRequest={searchButtonConditionFocusRequest}
 					/>
@@ -1506,6 +1492,7 @@ function useController(
 		searchConfig,
 		effectiveSearchConfig,
 		caseTypes,
+		userProperties,
 		caseType: caseType ?? "",
 		ct,
 		sel,
@@ -1633,18 +1620,49 @@ export function CaseListWorkspaceCanvas() {
 	const navigate = useNavigate();
 	const appId = useAppId() ?? "";
 	const compactHeight = useIsBreakpoint("max", 360, "height");
-	/* Bridge each tab body's scroll across a module unmount/remount; same-module
-	 * tab switches keep their scroll via the Activity boundaries below. */
+	/* Bridge each tab body's scroll across Activity hide/reveal and module
+	 * unmount/remount. The shared controller above this canvas owns the durable
+	 * authoring state. */
 	const scrollPositions = useRef(new Map<string, number>());
+	const frozenScrollKeysRef = useRef(new Set<string>());
 	const moduleUuid = ws?.moduleUuid;
 	const scrollBodyRefs = useMemo(() => {
 		const bind =
 			(kind: CaseListWorkspaceTab) => (node: HTMLDivElement | null) => {
 				if (node === null || moduleUuid === undefined) return;
 				const key = `${moduleUuid}:${kind}`;
-				node.scrollTop = scrollPositions.current.get(key) ?? 0;
+				const remembered = scrollPositions.current.get(key);
+				let frame: number | null = null;
+				if (remembered !== undefined) {
+					frozenScrollKeysRef.current.add(key);
+					/*
+					 * Activity can reconnect the ref while its host is still
+					 * display:none. Wait for the body to participate in layout,
+					 * then reassert the exact authored offset across the reveal's
+					 * settled frame. First mounts have no saved value and are
+					 * deliberately left alone.
+					 */
+					node.scrollTop = remembered;
+					const restoreAfterReveal = () => {
+						if (!node.isConnected) {
+							frame = null;
+							return;
+						}
+						if (getComputedStyle(node).display === "none") {
+							frame = requestAnimationFrame(restoreAfterReveal);
+							return;
+						}
+						node.scrollTop = remembered;
+						frame = requestAnimationFrame(() => {
+							node.scrollTop = remembered;
+							frozenScrollKeysRef.current.delete(key);
+							frame = null;
+						});
+					};
+					frame = requestAnimationFrame(restoreAfterReveal);
+				}
 				return () => {
-					scrollPositions.current.set(key, node.scrollTop);
+					if (frame !== null) cancelAnimationFrame(frame);
 				};
 			};
 		return {
@@ -1656,10 +1674,71 @@ export function CaseListWorkspaceCanvas() {
 	const rememberScroll = useCallback(
 		(kind: CaseListWorkspaceTab, scrollTop: number) => {
 			if (moduleUuid === undefined) return;
-			scrollPositions.current.set(`${moduleUuid}:${kind}`, scrollTop);
+			const key = `${moduleUuid}:${kind}`;
+			if (frozenScrollKeysRef.current.has(key)) return;
+			scrollPositions.current.set(key, scrollTop);
 		},
 		[moduleUuid],
 	);
+	const captureScroll = useCallback(
+		(kind: CaseListWorkspaceTab) => {
+			if (moduleUuid === undefined) return;
+			const node = document.querySelector<HTMLElement>(
+				`[data-case-workspace-scroll-body="${kind}"]`,
+			);
+			if (node !== null) {
+				const key = `${moduleUuid}:${kind}`;
+				scrollPositions.current.set(key, node.scrollTop);
+				/*
+				 * Activity can emit delayed clamp/reveal scrolls after more than
+				 * one subsequent tab transition. Freeze this exact module/tab
+				 * snapshot until that tab has visibly restored it.
+				 */
+				frozenScrollKeysRef.current.add(key);
+			}
+		},
+		[moduleUuid],
+	);
+	const visibleTab = ws?.tab;
+	/*
+	 * Activity intentionally keeps each workbench mounted and may therefore
+	 * preserve its ref across a hide/reveal. The ref bridge alone cannot observe
+	 * that transition, so the URL-owned tab change performs the same
+	 * layout-ready correction explicitly.
+	 */
+	useLayoutEffect(() => {
+		if (moduleUuid === undefined || visibleTab === undefined) return;
+		const remembered = scrollPositions.current.get(
+			`${moduleUuid}:${visibleTab}`,
+		);
+		if (remembered === undefined) return;
+		const key = `${moduleUuid}:${visibleTab}`;
+		frozenScrollKeysRef.current.add(key);
+		let frame: number | null = null;
+		const restoreAfterReveal = () => {
+			const node = document.querySelector<HTMLElement>(
+				`[data-case-workspace-scroll-body="${visibleTab}"]`,
+			);
+			if (node === null || !node.isConnected) {
+				frame = null;
+				return;
+			}
+			if (getComputedStyle(node).display === "none") {
+				frame = requestAnimationFrame(restoreAfterReveal);
+				return;
+			}
+			node.scrollTop = remembered;
+			frame = requestAnimationFrame(() => {
+				node.scrollTop = remembered;
+				frozenScrollKeysRef.current.delete(key);
+				frame = null;
+			});
+		};
+		frame = requestAnimationFrame(restoreAfterReveal);
+		return () => {
+			if (frame !== null) cancelAnimationFrame(frame);
+		};
+	}, [moduleUuid, visibleTab]);
 
 	// Guard the deletion-in-flight window: a peer cleared the case type on the
 	// module this URL points at (dropping caseListConfig with it), before
@@ -1681,6 +1760,7 @@ export function CaseListWorkspaceCanvas() {
 		searchConfig,
 		effectiveSearchConfig,
 		caseTypes,
+		userProperties,
 		caseType,
 		ct,
 		sel,
@@ -1737,16 +1817,24 @@ export function CaseListWorkspaceCanvas() {
 				onSelectTab={(next) => {
 					/* Tabs are no-ops when already active. */
 					if (next === tab) return;
+					/*
+					 * Capture in the click boundary, before React tears down the
+					 * outgoing tab. Cleanup-time reads happen after descendant
+					 * effects and Chromium can already be one line away from the
+					 * author's visible position.
+					 */
+					captureScroll(tab);
 					if (next === "search") navigate.openSearchConfig(ws.moduleUuid);
 					else if (next === "list") navigate.openCaseList(ws.moduleUuid);
 					else navigate.openDetailConfig(ws.moduleUuid);
 				}}
 			/>
 
-			{/* Each tab keeps its own body scroller mounted. The strip above is a
-			 * fixed flex sibling, so it cannot drift before "sticking" and each
-			 * canvas naturally remembers its own scroll position on return. Do not
-			 * use data-preview-scroll-container here: that selector belongs to the
+			{/* Each tab keeps its own body mounted through Activity. The explicit
+			 * snapshot/restore bridge corrects Chromium's reveal-time reclamp
+			 * without sacrificing the workbench's local state. The strip is a
+			 * fixed flex sibling, so it cannot drift before "sticking". Do not use
+			 * data-preview-scroll-container here: that selector belongs to the
 			 * builder's form flipbook contract. */}
 			<div className="relative min-h-0 flex-1 overflow-hidden">
 				<Activity mode={tab === "search" ? "visible" : "hidden"}>
@@ -1791,6 +1879,7 @@ export function CaseListWorkspaceCanvas() {
 							config={config}
 							caseType={ct}
 							caseTypes={caseTypes}
+							userProperties={userProperties}
 							brokenColumns={brokenColumns}
 							selection={sel}
 							onSelect={setSel}
@@ -1862,6 +1951,7 @@ interface ResolveInspectorArgs {
 	readonly config: CaseListConfig;
 	readonly searchConfig: CaseSearchConfig | undefined;
 	readonly caseTypes: ReturnType<typeof useEffectiveCaseTypes>;
+	readonly userProperties: ReturnType<typeof useUserProperties>;
 	readonly caseType: string;
 	readonly onSearchConfigChange: (next: CaseSearchConfig) => void;
 	readonly replaceColumn: (uuid: string, next: Column) => void;
@@ -1869,8 +1959,11 @@ interface ResolveInspectorArgs {
 	readonly onEditInputCondition: (uuid: SearchInputDef["uuid"]) => void;
 	readonly onEditSearchButtonCondition: (focusNewCondition?: boolean) => void;
 	readonly searchSettingsHasError: boolean;
-	readonly onHideColumn: (surface: ColumnSurface, column: Column) => void;
-	readonly onDeleteColumn: (surface: ColumnSurface, column: Column) => void;
+	readonly onHideColumn: (surface: CaseDisplaySurface, column: Column) => void;
+	readonly onDeleteColumn: (
+		surface: CaseDisplaySurface,
+		column: Column,
+	) => void;
 	readonly onRemoveInput: (uuid: SearchInputDef["uuid"]) => void;
 	readonly inputRemovalReview: SearchInputRemovalReviewSession | null;
 	readonly onStartInputRemovalReview: (input: SearchInputDef) => void;
@@ -1902,10 +1995,10 @@ function resolveInspector(args: ResolveInspectorArgs): {
 
 	switch (sel.type) {
 		case "column": {
-			const sortedCols = [...config.columns].sort(bySortKey);
+			const sortedCols = [...config.columns];
 			const column = sortedCols.find((c) => c.uuid === sel.uuid);
 			if (column === undefined) return null;
-			const projection = projectCaseWorkspaceColumns(config.columns);
+			const projection = projectCaseWorkspaceColumns(config);
 			const surface =
 				sel.reveal?.surface ??
 				(args.activeTab === "list"
@@ -1927,7 +2020,7 @@ function resolveInspector(args: ResolveInspectorArgs): {
 						<ColumnInspectorBody
 							key={column.uuid}
 							column={column}
-							columns={config.columns}
+							config={config}
 							surface={surface}
 							visibleCount={
 								surface === "list"
@@ -1936,6 +2029,7 @@ function resolveInspector(args: ResolveInspectorArgs): {
 							}
 							listVisibleCount={projection.listVisible.length}
 							caseTypes={args.caseTypes}
+							userProperties={args.userProperties}
 							currentCaseType={args.caseType}
 							repairMessages={sel.reveal?.messages}
 							tileOn={args.tileOn}
@@ -1955,7 +2049,7 @@ function resolveInspector(args: ResolveInspectorArgs): {
 		case "input": {
 			// DISPLAY position + DISPLAY-ordered siblings (`sort-by-(order, uuid)`),
 			// not array position.
-			const sortedInputs = [...config.searchInputs].sort(bySortKey);
+			const sortedInputs = [...config.searchInputs];
 			const index = sortedInputs.findIndex((s) => s.uuid === sel.uuid);
 			const input = sortedInputs[index];
 			if (input === undefined) return null;
@@ -1973,6 +2067,7 @@ function resolveInspector(args: ResolveInspectorArgs): {
 						index={index}
 						siblings={sortedInputs}
 						caseTypes={args.caseTypes}
+						userProperties={args.userProperties}
 						currentCaseType={args.caseType}
 						onChange={(next) => args.replaceInput(input.uuid, next)}
 						onEditCondition={() => args.onEditInputCondition(input.uuid)}
@@ -2052,11 +2147,12 @@ function resolveInspector(args: ResolveInspectorArgs): {
 
 function ColumnInspectorBody({
 	column,
-	columns,
+	config,
 	surface,
 	visibleCount,
 	listVisibleCount,
 	caseTypes,
+	userProperties,
 	currentCaseType,
 	repairMessages,
 	tileOn,
@@ -2069,13 +2165,14 @@ function ColumnInspectorBody({
 	onDelete,
 }: {
 	readonly column: Column;
+	readonly config: CaseListConfig;
 	/** The whole case list — a tile placement is adjudicated against the
 	 * other fields on the tile, so the rail needs more than one column. */
-	readonly columns: readonly Column[];
-	readonly surface: ColumnSurface;
+	readonly surface: CaseDisplaySurface;
 	readonly visibleCount: number;
 	readonly listVisibleCount: number;
 	readonly caseTypes: ReturnType<typeof useEffectiveCaseTypes>;
+	readonly userProperties: ReturnType<typeof useUserProperties>;
 	readonly currentCaseType: string;
 	/** Defined (including an empty array) while this off-screen definition is
 	 * being repaired in response to an Add information request. */
@@ -2138,6 +2235,7 @@ function ColumnInspectorBody({
 				value={column}
 				onChange={onChange}
 				caseTypes={caseTypes}
+				userProperties={userProperties}
 				currentCaseType={currentCaseType}
 			/>
 			{/* Not gated on `repairing`: a refused reveal is often a PLACEMENT
@@ -2146,7 +2244,7 @@ function ColumnInspectorBody({
 			 * where the author has no way forward. */}
 			<TileCellInspector
 				column={column}
-				columns={columns}
+				config={config}
 				tileOn={tileOn}
 				issues={tileIssues}
 				canEdit={canEdit}
@@ -2224,6 +2322,7 @@ function SearchInputInspectorBody({
 	index,
 	siblings,
 	caseTypes,
+	userProperties,
 	currentCaseType,
 	onChange,
 	onEditCondition,
@@ -2243,6 +2342,7 @@ function SearchInputInspectorBody({
 	readonly index: number;
 	readonly siblings: readonly SearchInputDef[];
 	readonly caseTypes: ReturnType<typeof useEffectiveCaseTypes>;
+	readonly userProperties: ReturnType<typeof useUserProperties>;
 	readonly currentCaseType: string;
 	readonly onChange: (next: SearchInputDef) => void;
 	readonly onEditCondition: () => void;
@@ -2328,6 +2428,7 @@ function SearchInputInspectorBody({
 				index={index}
 				siblings={siblings}
 				caseTypes={caseTypes}
+				userProperties={userProperties}
 				currentCaseType={currentCaseType}
 				onChange={onChange}
 				onEditCondition={onEditCondition}

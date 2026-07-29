@@ -33,6 +33,7 @@
 
 import AdmZip from "adm-zip";
 import { describe, expect, it } from "vitest";
+import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import {
@@ -96,11 +97,11 @@ function makeModule(args: {
 function makeListConfig(
 	overrides: Partial<CaseListConfig> = {},
 ): CaseListConfig {
-	return {
+	return resolveCaseListConfig({
 		columns: [],
 		searchInputs: [],
 		...overrides,
-	};
+	});
 }
 
 /**
@@ -368,17 +369,17 @@ describe("dual-detail emission — search-enabled modules", () => {
 
 describe("dual-detail emission — field content identity", () => {
 	it("orders Results and Details independently without changing case/search target parity", () => {
-		const first = plainColumn(COL(1), "first", "First", {
-			listOrder: "b",
-			detailOrder: "a",
-		});
-		const second = plainColumn(COL(2), "second", "Second", {
-			listOrder: "a",
-			detailOrder: "b",
-		});
+		const first = plainColumn(COL(1), "first", "First", {});
+		const second = plainColumn(COL(2), "second", "Second", {});
 		const mod = makeModule({
 			caseType: "patient",
-			caseListConfig: makeListConfig({ columns: [first, second] }),
+			caseListConfig: makeListConfig({
+				columns: [first, second],
+				// Results shows them the other way round; the two screens are
+				// independent sequences over one set of columns.
+				listColumnOrder: [second.uuid, first.uuid],
+				detailColumnOrder: [first.uuid, second.uuid],
+			}),
 			caseSearchConfig: makeSearchConfig(),
 		});
 		const doc = buildDoc({
@@ -496,6 +497,9 @@ describe("dual-detail emission — field content identity", () => {
 		});
 		const mod = makeModule({
 			caseType: "patient",
+			// The sort carrier is a MEMBER of both screens — a column belongs to
+			// both sequences from birth. `visibleInList: false` is what makes it
+			// emit as the zero-width carrier rather than a drawn field.
 			caseListConfig: makeListConfig({
 				columns: [plainColumn(COL(1), "full_name", "Name"), sortOnly],
 			}),

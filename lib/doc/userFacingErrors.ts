@@ -33,6 +33,8 @@
  *     verbose `ValidationError.message` (unchanged).
  *   - The builder commit gate, the Connect mode switch, and the
  *     export/upload failure surfaces → `userFacingError` here.
+ *   - A picker or menu withholding a CHOICE → `offeredChoiceRefusal`,
+ *     the same voice narrowed to the one line an item has room for.
  *
  * Same finding, two voices. Deepen an explanation in the validator's
  * `message`, never here.
@@ -121,6 +123,8 @@ const USER_MESSAGE_BY_CODE: Partial<
 		`The Connect ID ${q(det(e, "connectId", ""))} is already used by another form. Give this one a different ID, or change the other form's first.`,
 	CONNECT_NO_PARTICIPATING_FORMS: () =>
 		"You've turned Connect on for the app, but no form is using it yet. Set up Connect on at least one form, or turn it off for the app.",
+	BLUEPRINT_ENTITY_UUID_DUPLICATE: () =>
+		"Two parts of this app share the same internal identity. Retry the change so Nova can keep them distinct.",
 
 	// ── Worker information, roles, personas ──────────────────────────
 	// The rule's own message already carries the specific reason (an illegal
@@ -137,6 +141,12 @@ const USER_MESSAGE_BY_CODE: Partial<
 		return slug
 			? `Two pieces of worker information both save under ${q(slug)}. CommCare treats names as the same whatever their capitalization, so give one of them a different name.`
 			: "Two pieces of worker information save under the same name. Give one of them a different name.";
+	},
+	USER_PROPERTY_CHOICES_DUPLICATE: (e) => {
+		const slug = det(e, "slug", "");
+		return slug
+			? `Worker information saved as ${q(slug)} lists the same accepted option more than once. Remove the repeated option so every accepted value appears once.`
+			: "One piece of worker information lists the same accepted option more than once. Remove the repeated option so every accepted value appears once.";
 	},
 	USER_TYPE_NAME_DUPLICATE: (e) => {
 		const name = det(e, "name", "");
@@ -156,6 +166,8 @@ const USER_MESSAGE_BY_CODE: Partial<
 		"A role or persona carries a value for a piece of worker information that no longer exists. Remove the value, or add that information back.",
 	USER_DATA_INVALID_CHOICE: () =>
 		"A role or persona has a value that isn't one of the accepted options. Pick one from the list, or add it to the list first.",
+	USER_PROPERTY_REFERENCE_UNKNOWN: () =>
+		"A condition or calculation uses worker information that no longer exists. Choose current worker information or add it back first.",
 
 	// ── Module-level ─────────────────────────────────────────────────
 	NO_CASE_TYPE: (e) =>
@@ -629,6 +641,30 @@ export function userFacingError(err: ValidationError): string {
 /** Render a list of findings to their user lines, in order. */
 export function userFacingErrors(errors: readonly ValidationError[]): string[] {
 	return errors.map(userFacingError);
+}
+
+/**
+ * The line a picker or menu shows beside a choice it will not offer.
+ *
+ * Not `describeIntroducedErrors`: that is the commit-REJECTION report,
+ * past tense about an attempt, framed with "nothing was changed", and
+ * multi-line. A withheld choice was never attempted — the question is
+ * asked while the item is still being drawn — so that frame describes
+ * something that did not happen, in a span that collapses its newlines
+ * into the middle of a sentence. And not the whole list either: an item
+ * has room for one line, and the author fixes one thing at a time.
+ *
+ * The first finding in the builder's own voice, which is also what
+ * `useBlueprintMutations` says when a dispatch really is refused — so a
+ * disabled choice and the refusal it spares the author agree.
+ */
+export function offeredChoiceRefusal(
+	introduced: readonly ValidationError[],
+): string {
+	const first = introduced[0];
+	return first === undefined
+		? "This choice isn't available here."
+		: userFacingError(first);
 }
 
 /** Exposed for the exhaustiveness test only. */

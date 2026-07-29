@@ -15,6 +15,62 @@ import {
 } from "./fieldKindMatchesPropertyType";
 import { USER_RULES } from "./users";
 
+type BlueprintEntityKind =
+	| "module"
+	| "form"
+	| "field"
+	| "userProperty"
+	| "userType"
+	| "persona";
+
+/**
+ * `blueprint_entities.uuid` is the durable primary key for every normalized
+ * entity kind. Two in-memory entities sharing one UUID would collapse to one
+ * row on persistence, and identity-backed references could not distinguish
+ * them before that point. Reject the whole six-collection namespace here;
+ * `decomposeBlueprint` repeats the invariant as a persistence tripwire.
+ */
+function globallyUniqueEntityUuids(doc: BlueprintDoc): ValidationError[] {
+	const byUuid = new Map<
+		string,
+		Array<{ kind: BlueprintEntityKind; label: string }>
+	>();
+	const add = (
+		kind: BlueprintEntityKind,
+		entities: Readonly<Record<string, { uuid: string }>>,
+	): void => {
+		for (const entity of Object.values(entities)) {
+			const members = byUuid.get(entity.uuid) ?? [];
+			members.push({ kind, label: kind });
+			byUuid.set(entity.uuid, members);
+		}
+	};
+	add("module", doc.modules);
+	add("form", doc.forms);
+	add("field", doc.fields);
+	add("userProperty", doc.userProperties ?? {});
+	add("userType", doc.userTypes ?? {});
+	add("persona", doc.personas ?? {});
+
+	const errors: ValidationError[] = [];
+	for (const [uuid, members] of byUuid) {
+		if (members.length < 2) continue;
+		const kinds = members.map(({ label }) => label).join(", ");
+		for (const member of members) {
+			errors.push(
+				validationError(
+					"BLUEPRINT_ENTITY_UUID_DUPLICATE",
+					"app",
+					`Two app entities share the stable identity "${uuid}" (${kinds}). Give every module, form, field, worker-information property, role, and persona its own identity.`,
+					{},
+					{ entityUuid: uuid, entityKind: member.kind },
+				),
+			);
+		}
+	}
+	return errors;
+}
+
 function noModules(doc: BlueprintDoc): ValidationError[] {
 	// CommCare HQ rejects an application with no modules at build time
 	// (commcare-hq app_manager/helpers/validators.py::ApplicationValidator
@@ -346,6 +402,7 @@ function connectNoParticipatingForms(doc: BlueprintDoc): ValidationError[] {
 }
 
 export const APP_RULES = [
+	globallyUniqueEntityUuids,
 	noModules,
 	emptyAppName,
 	reservedCaseTypeName,

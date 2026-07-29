@@ -202,7 +202,6 @@ const defaultValueField = () =>
 const saOptionSchema = selectOptionSchema.omit({
 	media: true,
 	uuid: true,
-	order: true,
 });
 
 const optionsField = () =>

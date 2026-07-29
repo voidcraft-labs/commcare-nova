@@ -16,6 +16,9 @@ import {
 	asUuid,
 	type BlueprintDoc,
 	type LookupOptionsSource,
+	personasOf,
+	userPropertiesOf,
+	userTypesOf,
 } from "@/lib/domain";
 import {
 	assembleBlueprint,
@@ -106,7 +109,6 @@ describe("blueprint entity-row round trip", () => {
 					uuid: moduleUuid,
 					id: "visits",
 					name: "Visits",
-					order: "a0",
 				},
 			},
 			forms: {
@@ -115,7 +117,6 @@ describe("blueprint entity-row round trip", () => {
 					id: "visit",
 					name: "Visit",
 					type: "survey",
-					order: "a0",
 				},
 			},
 			fields: {
@@ -124,7 +125,6 @@ describe("blueprint entity-row round trip", () => {
 					id: "status",
 					kind: "single_select",
 					label: "Status",
-					order: "a0",
 					options: [
 						{ value: "active", label: "Active" },
 						{ value: "closed", label: "Closed" },
@@ -202,7 +202,6 @@ describe("the user collections", () => {
 				kind: "addUserProperty",
 				property: {
 					uuid: PROPERTY,
-					order: "a0",
 					slug: "region",
 					label: "Region",
 					choices: ["north", "south"],
@@ -212,7 +211,6 @@ describe("the user collections", () => {
 				kind: "addUserType",
 				userType: {
 					uuid: TYPE,
-					order: "a0",
 					name: "CHW",
 					values: { [PROPERTY]: "north" },
 				},
@@ -221,7 +219,6 @@ describe("the user collections", () => {
 				kind: "addPersona",
 				persona: {
 					uuid: PERSONA,
-					order: "a0",
 					name: "Asha",
 					userTypeUuid: TYPE,
 					values: { [PROPERTY]: "south" },
@@ -247,6 +244,54 @@ describe("the user collections", () => {
 		expect(roundTrip(doc)).toEqual(persistable);
 	});
 
+	it("round-trips prototype-named authored text without changing membership", () => {
+		const propertyUuid = PROPERTY;
+		const typeUuid = TYPE;
+		const personaUuid = PERSONA;
+		const doc = emptyDoc("rt-users-hostile-keys");
+		applyMutations(doc, surveyModuleMutations(doc).mutations);
+		applyMutations(doc, [
+			{
+				kind: "addUserProperty",
+				property: {
+					uuid: propertyUuid,
+					slug: "__proto__",
+					label: "constructor",
+				},
+			},
+			{
+				kind: "addUserType",
+				userType: {
+					uuid: typeUuid,
+					name: "__proto__",
+					values: Object.fromEntries([[propertyUuid, "role"]]),
+				},
+			},
+			{
+				kind: "addPersona",
+				persona: {
+					uuid: personaUuid,
+					name: "constructor",
+					userTypeUuid: typeUuid,
+				},
+			},
+		]);
+
+		const assembled = roundTrip(doc);
+		expect(Object.hasOwn(assembled.userProperties ?? {}, propertyUuid)).toBe(
+			true,
+		);
+		expect(Object.hasOwn(assembled.userTypes ?? {}, typeUuid)).toBe(true);
+		expect(Object.hasOwn(assembled.personas ?? {}, personaUuid)).toBe(true);
+		expect(assembled.userProperties?.[propertyUuid]?.slug).toBe("__proto__");
+		expect(assembled.userProperties?.[propertyUuid]?.label).toBe("constructor");
+		expect(assembled.userTypes?.[typeUuid]?.name).toBe("__proto__");
+		expect(assembled.personas?.[personaUuid]?.name).toBe("constructor");
+		expect(assembled.userTypes?.[typeUuid]?.values?.[propertyUuid]).toBe(
+			"role",
+		);
+	});
+
 	it("omits an empty collection entirely rather than assembling an empty record", () => {
 		const doc = emptyDoc("rt-users-empty");
 		applyMutations(doc, surveyModuleMutations(doc).mutations);
@@ -254,6 +299,15 @@ describe("the user collections", () => {
 		expect(Object.hasOwn(assembled, "userProperties")).toBe(false);
 		expect(Object.hasOwn(assembled, "userTypes")).toBe(false);
 		expect(Object.hasOwn(assembled, "personas")).toBe(false);
+		for (const record of [
+			userPropertiesOf(assembled),
+			userTypesOf(assembled),
+			personasOf(assembled),
+		]) {
+			expect(Object.getPrototypeOf(record)).toBeNull();
+			expect(Object.hasOwn(record, "constructor")).toBe(false);
+			expect(Object.hasOwn(record, "__proto__")).toBe(false);
+		}
 	});
 
 	it("gives the slot back when the last entry is removed", () => {
@@ -265,6 +319,179 @@ describe("the user collections", () => {
 		]);
 		const assembled = roundTrip(doc);
 		expect(Object.hasOwn(assembled, "userProperties")).toBe(false);
+		expect(Object.hasOwn(assembled, "userTypes")).toBe(false);
 		expect(Object.hasOwn(assembled, "personas")).toBe(false);
 	});
+
+	it("refuses a row-key collision even if persistence is called past the gate", () => {
+		const doc = emptyDoc("rt-users-collision");
+		applyMutations(doc, surveyModuleMutations(doc).mutations);
+		const moduleUuid = doc.moduleOrder[0];
+		doc.userProperties = {
+			[moduleUuid]: {
+				uuid: moduleUuid,
+				slug: "region",
+				label: "Region",
+			},
+		};
+
+		expect(() => decomposeBlueprint(toPersistableDoc(doc))).toThrow(
+			/duplicate entity uuid/i,
+		);
+	});
+
+	it("refuses an entity-identity collision hidden behind a different record key", () => {
+		const doc = emptyDoc("rt-users-identity-collision");
+		applyMutations(doc, surveyModuleMutations(doc).mutations);
+		const moduleUuid = doc.moduleOrder[0];
+		const aliasKey = asUuid("aliased-property-row-key");
+		doc.userProperties = {
+			[aliasKey]: {
+				uuid: moduleUuid,
+				slug: "region",
+				label: "Region",
+			},
+		};
+
+		expect(() => decomposeBlueprint(toPersistableDoc(doc))).toThrow(
+			/duplicate entity uuid/i,
+		);
+	});
+
+	it.each(["__proto__", "constructor"])(
+		"round-trips %s as the own identity of every entity kind",
+		(identity) => {
+			const uuid = asUuid(identity);
+			const parentModule = asUuid("parent-module");
+			const parentForm = asUuid("parent-form");
+			const cases: Array<{
+				kind: string;
+				doc: BlueprintDoc;
+				record: (doc: ReturnType<typeof roundTrip>) => object | undefined;
+			}> = [
+				{
+					kind: "module",
+					doc: {
+						...emptyDoc(`rt-${identity}-module`),
+						modules: Object.fromEntries([
+							[uuid, { uuid, id: "module", name: "Module" }],
+						]),
+						moduleOrder: [uuid],
+						formOrder: Object.fromEntries([[uuid, []]]),
+					},
+					record: (doc) => doc.modules,
+				},
+				{
+					kind: "form",
+					doc: {
+						...emptyDoc(`rt-${identity}-form`),
+						modules: {
+							[parentModule]: {
+								uuid: parentModule,
+								id: "module",
+								name: "Module",
+							},
+						},
+						forms: Object.fromEntries([
+							[
+								uuid,
+								{
+									uuid,
+									id: "form",
+									name: "Form",
+									type: "survey" as const,
+								},
+							],
+						]),
+						moduleOrder: [parentModule],
+						formOrder: { [parentModule]: [uuid] },
+						fieldOrder: Object.fromEntries([[uuid, []]]),
+					},
+					record: (doc) => doc.forms,
+				},
+				{
+					kind: "field",
+					doc: {
+						...emptyDoc(`rt-${identity}-field`),
+						modules: {
+							[parentModule]: {
+								uuid: parentModule,
+								id: "module",
+								name: "Module",
+							},
+						},
+						forms: {
+							[parentForm]: {
+								uuid: parentForm,
+								id: "form",
+								name: "Form",
+								type: "survey",
+							},
+						},
+						fields: Object.fromEntries([
+							[
+								uuid,
+								{
+									uuid,
+									id: "question",
+									kind: "text" as const,
+									label: "Question",
+								},
+							],
+						]),
+						moduleOrder: [parentModule],
+						formOrder: { [parentModule]: [parentForm] },
+						fieldOrder: { [parentForm]: [uuid] },
+					},
+					record: (doc) => doc.fields,
+				},
+				{
+					kind: "user property",
+					doc: {
+						...emptyDoc(`rt-${identity}-property`),
+						userProperties: Object.fromEntries([
+							[uuid, { uuid, slug: "region", label: "Region" }],
+						]),
+						userPropertyOrder: [uuid],
+					},
+					record: (doc) => doc.userProperties,
+				},
+				{
+					kind: "user type",
+					doc: {
+						...emptyDoc(`rt-${identity}-type`),
+						userTypes: Object.fromEntries([[uuid, { uuid, name: "Worker" }]]),
+						userTypeOrder: [uuid],
+					},
+					record: (doc) => doc.userTypes,
+				},
+				{
+					kind: "persona",
+					doc: {
+						...emptyDoc(`rt-${identity}-persona`),
+						personas: Object.fromEntries([[uuid, { uuid, name: "Asha" }]]),
+						personaOrder: [uuid],
+					},
+					record: (doc) => doc.personas,
+				},
+			];
+
+			for (const candidate of cases) {
+				const assembled = roundTrip(candidate.doc);
+				const record = candidate.record(assembled);
+				expect(
+					Object.hasOwn(record ?? {}, uuid),
+					`${candidate.kind} must retain ${identity} as an own identity`,
+				).toBe(true);
+				expect(Object.getPrototypeOf(record as object)).toBeNull();
+				expect(
+					decomposeBlueprint(assembled).some(
+						(row) =>
+							row.kind.replaceAll("_", " ") === candidate.kind &&
+							row.uuid === uuid,
+					),
+				).toBe(true);
+			}
+		},
+	);
 });

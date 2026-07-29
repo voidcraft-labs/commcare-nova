@@ -203,7 +203,7 @@ export function useCases(args: {
 	 * beside the result so the render that precedes the refetch effect can never
 	 * project old rows through the new module's columns or row actions. */
 	const requestIdentity = ready
-		? `${runtimeScopeId}\u0000${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${requestScopeKey}\u0000${replacementRevision}\u0000${pageOffset ?? "default"}\u0000${pageLimit ?? "default"} ${personaUuid ?? "me"}`
+		? `${runtimeScopeId}\u0000${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${requestScopeKey}\u0000${replacementRevision}\u0000${pageOffset ?? "default"}\u0000${pageLimit ?? "default"}\u0000${personaUuid ?? "me"}`
 		: "";
 	const reloadToken = useMemo(
 		() => [
@@ -383,7 +383,7 @@ function usePerCaseTypeResource<T extends { kind: string }>(args: {
 							kind: "per-case-type" as const,
 							key: requestIdentity,
 							value: await dedupedPerCaseTypeCall(
-								`${settledKind} ${variant ?? ""} ${requestIdentity} ${caseDataRevision}`,
+								`${settledKind}\u0000${variant ?? ""}\u0000${requestIdentity}\u0000${caseDataRevision}`,
 								() => fetcher({ appId, caseType }),
 							),
 						}),
@@ -500,9 +500,12 @@ export function useCaseData(args: {
 	const requestKey = ready
 		? `${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${caseId}\u0000${ancestorDepth}\u0000${includeHeld === true}\u0000${caseDataRevision}`
 		: "";
+	const personaRequestKey = ready
+		? `${requestKey}\u0000${personaUuid ?? "me"}`
+		: "";
 	const reloadToken = useMemo(
-		() => [requestKey, caseListConfig, caseTypes],
-		[requestKey, caseListConfig, caseTypes],
+		() => [personaRequestKey, caseListConfig, caseTypes],
+		[personaRequestKey, caseListConfig, caseTypes],
 	);
 	interface KeyedCaseDataState {
 		readonly kind: "case-data";
@@ -526,7 +529,7 @@ export function useCaseData(args: {
 				: {
 						fetch: async () => ({
 							kind: "case-data" as const,
-							key: requestKey,
+							key: personaRequestKey,
 							caseListConfig,
 							caseTypes,
 							value: await loadCaseDataAction(
@@ -544,14 +547,14 @@ export function useCaseData(args: {
 					},
 		loading: {
 			kind: "case-data",
-			key: requestKey,
+			key: personaRequestKey,
 			caseListConfig,
 			caseTypes,
 			value: { kind: "loading" },
 		},
 		toError: (err) => ({
 			kind: "case-data",
-			key: requestKey,
+			key: personaRequestKey,
 			caseListConfig,
 			caseTypes,
 			value: {
@@ -566,7 +569,7 @@ export function useCaseData(args: {
 	if (!ready) return { state: { kind: "idle" }, reload: resource.reload };
 	return {
 		state:
-			resource.state.key === requestKey &&
+			resource.state.key === personaRequestKey &&
 			resource.state.caseListConfig === caseListConfig &&
 			resource.state.caseTypes === caseTypes
 				? resource.state.value
@@ -591,6 +594,7 @@ export function usePopulateSampleCases(args: {
 }): () => Promise<PopulateSampleCasesResult> {
 	const { appId, caseType } = args;
 	const authority = useProjectActionAuthority();
+	const personaUuid = usePreviewPersonaUuid();
 
 	return async () => {
 		const operationEpoch = authority.capture();
@@ -603,7 +607,11 @@ export function usePopulateSampleCases(args: {
 		if (operationEpoch === null) {
 			return { kind: "error", message: "Project access is refreshing." };
 		}
-		const result = await populateSampleCasesAction(appId, caseType);
+		const result = await populateSampleCasesAction(
+			appId,
+			caseType,
+			personaUuid,
+		);
 		if (result.kind === "ok" && authority.isCurrent(operationEpoch))
 			invalidateCaseData(appId, caseType.name);
 		return result;
@@ -629,6 +637,7 @@ export function useResetSampleCases(args: {
 }): () => Promise<PopulateSampleCasesResult> {
 	const { appId, caseType } = args;
 	const authority = useProjectActionAuthority();
+	const personaUuid = usePreviewPersonaUuid();
 
 	return async () => {
 		const operationEpoch = authority.capture();
@@ -641,7 +650,7 @@ export function useResetSampleCases(args: {
 		if (operationEpoch === null) {
 			return { kind: "error", message: "Project access is refreshing." };
 		}
-		const result = await resetSampleCasesAction(appId, caseType);
+		const result = await resetSampleCasesAction(appId, caseType, personaUuid);
 		if (result.kind === "ok" && authority.isCurrent(operationEpoch))
 			invalidateCaseData(appId, caseType.name, "replacement");
 		return result;

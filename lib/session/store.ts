@@ -8,7 +8,7 @@
  * and there's no need for a partialize allow-list.
  *
  * Middleware: `subscribeWithSelector` (targeted subscriptions) + `devtools`
- * (Redux DevTools in development). No Immer (shape is flat enough), no zundo
+ * (Redux DevTools in development). No Immer (shape is flat enough), no undo history
  * (nothing undoable).
  *
  * Actions are reducer-shaped where atomicity matters. `setPreviewing` is
@@ -230,10 +230,9 @@ export interface BuilderSessionState {
 	/** Which persona Preview runs as, by uuid — `undefined` means the
 	 *  signed-in member ("Preview as me"). Ephemeral like every other
 	 *  preview field: a persona is a design actor, so which one you are
-	 *  trying is a property of this session, not of the app. It deliberately
-	 *  SURVIVES a preview toggle, unlike the case target: leaving preview to
-	 *  edit a form and coming back should return you to the same worker's
-	 *  session, not silently switch identities. */
+	 *  trying is a property of the running Preview session, not of the app.
+	 *  Leaving Preview clears it before edit-mode case tools return, so a
+	 *  hidden running identity can never influence authoring data surfaces. */
 	previewPersonaUuid: string | undefined;
 
 	// ── Chrome ───────────────────────────────────────────────────────────
@@ -781,13 +780,30 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					snapshot: BuilderAccessSnapshot,
 					options?: { hasWaitingChanges?: boolean },
 				) {
-					set({
-						projectId: snapshot.projectId,
-						role: snapshot.role,
-						canEdit: snapshot.canEdit,
-						accessPhase: "authorized",
-						hasWaitingAccessChanges:
-							!snapshot.canEdit && (options?.hasWaitingChanges ?? false),
+					set((state) => {
+						const confirmedProjectChanged =
+							state.projectId !== undefined &&
+							state.projectId !== snapshot.projectId;
+						return {
+							projectId: snapshot.projectId,
+							role: snapshot.role,
+							canEdit: snapshot.canEdit,
+							accessPhase: "authorized",
+							hasWaitingAccessChanges:
+								!snapshot.canEdit && (options?.hasWaitingChanges ?? false),
+							/* A refresh is only evidence that Project authority may have
+							 * changed. Preserve the active worker/case binding through an
+							 * ordinary same-Project round trip; clear it atomically only
+							 * after the authoritative snapshot confirms a different
+							 * tenant. */
+							...(confirmedProjectChanged
+								? {
+										previewCaseTarget: undefined,
+										previewSelectedCase: undefined,
+										previewPersonaUuid: undefined,
+									}
+								: {}),
+						};
 					});
 				},
 
@@ -986,8 +1002,10 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						return { ok: false, messages: lines };
 					}
 					/* Commit the validated candidate (one reducer run, one undo
-					 * entry), THEN the stash — a pure state write that can't fail. */
-					docStoreRef.getState().commitDoc(verdict.nextDoc);
+					 * entry) with the batch that produced it — this is an author
+					 * edit, so it joins the command queue persistence sends. THEN
+					 * the stash, a pure state write that can't fail. */
+					docStoreRef.getState().commitDoc(verdict.nextDoc, mutations);
 					set({
 						connectStash: nextStash,
 						// "Last active connect type" = the mode now in effect, or the
@@ -1062,6 +1080,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					const structureStashed = s.sidebars.structure.stashed;
 					set({
 						previewing: false,
+						previewPersonaUuid: undefined,
 						previewCaseTarget: undefined,
 						previewSelectedCase: undefined,
 						sidebars: {
@@ -1255,12 +1274,10 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						runCompletedAt: undefined,
 						stagedUploads: {},
 						assetMeta: {},
-						previewCaseTarget: undefined,
-						previewSelectedCase: undefined,
-						/* The persona is a blueprint identity; a Project scope
-						 * change means the document this session may read has
-						 * changed underneath it. */
-						previewPersonaUuid: undefined,
+						/* Case/persona identity is retained until
+						 * `applyAccessSnapshot` can distinguish an ordinary refresh from
+						 * a confirmed Project move. Clearing it here would rotate a
+						 * same-worker form entry before the GET returned. */
 					});
 					if (failures.length > 0) {
 						throw new AggregateError(

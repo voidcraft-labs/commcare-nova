@@ -7,6 +7,8 @@ interface NumberFieldProps {
 	/** Either an int or decimal field. `step` derives from the kind. */
 	field: IntField | DecimalField;
 	state: FieldState;
+	/** Visible question label rendered by InteractiveFormRenderer. */
+	labelledBy?: string;
 	onChange: (value: string) => void;
 	onBlur: () => void;
 }
@@ -14,6 +16,7 @@ interface NumberFieldProps {
 export function NumberField({
 	field,
 	state,
+	labelledBy,
 	onChange,
 	onBlur,
 }: NumberFieldProps) {
@@ -23,6 +26,7 @@ export function NumberField({
 		<div>
 			<input
 				type="number"
+				aria-labelledby={labelledBy}
 				// Integer fields only accept whole numbers; decimal fields
 				// accept any precision. `kind` replaces the legacy wire-format
 				// `type` discriminant.

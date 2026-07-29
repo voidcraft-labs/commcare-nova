@@ -16,9 +16,11 @@
 "use client";
 import {
 	createContext,
+	forwardRef,
 	type ReactNode,
 	useCallback,
 	useContext,
+	useImperativeHandle,
 	useMemo,
 	useState,
 } from "react";
@@ -36,9 +38,18 @@ interface FormLayoutContextValue {
 	readonly isCollapsed: (uuid: Uuid) => boolean;
 }
 
+export interface FormLayoutHandle {
+	/** Reveal every structural ancestor of a target invalid question in one
+	 * commit before FormScreen scrolls/focuses it. */
+	readonly expandContainers: (uuids: readonly Uuid[]) => void;
+}
+
 const FormLayoutContext = createContext<FormLayoutContextValue | null>(null);
 
-export function FormLayoutProvider({ children }: { children: ReactNode }) {
+export const FormLayoutProvider = forwardRef<
+	FormLayoutHandle,
+	{ children: ReactNode }
+>(function FormLayoutProvider({ children }, ref) {
 	const [collapsed, setCollapsed] = useState<Set<Uuid>>(() => new Set<Uuid>());
 
 	const toggleCollapse = useCallback((uuid: Uuid) => {
@@ -55,6 +66,18 @@ export function FormLayoutProvider({ children }: { children: ReactNode }) {
 		[collapsed],
 	);
 
+	const expandContainers = useCallback((uuids: readonly Uuid[]) => {
+		if (uuids.length === 0) return;
+		setCollapsed((previous) => {
+			if (!uuids.some((uuid) => previous.has(uuid))) return previous;
+			const next = new Set(previous);
+			for (const uuid of uuids) next.delete(uuid);
+			return next;
+		});
+	}, []);
+
+	useImperativeHandle(ref, () => ({ expandContainers }), [expandContainers]);
+
 	const value = useMemo<FormLayoutContextValue>(
 		() => ({ collapsed, toggleCollapse, isCollapsed }),
 		[collapsed, toggleCollapse, isCollapsed],
@@ -65,7 +88,7 @@ export function FormLayoutProvider({ children }: { children: ReactNode }) {
 			{children}
 		</FormLayoutContext.Provider>
 	);
-}
+});
 
 export function useFormLayout(): FormLayoutContextValue {
 	const ctx = useContext(FormLayoutContext);

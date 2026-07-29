@@ -26,24 +26,36 @@ import {
 	useMemo,
 	useRef,
 } from "react";
-import type { CaseType } from "@/lib/domain";
+import type { CaseType, UserProperty } from "@/lib/domain";
 import {
 	type CheckError,
 	checkExpression,
-	expressionReadsCaseData,
-	expressionReadsRelatedCaseData,
 	type ResolvedType,
+	type TypeContext,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
 import { presentCheckErrorForEditor } from "./checkErrorPresentation";
 import {
 	type CaseDataScope,
-	GLOBAL_SCOPE_CASE_DATA_REASON,
-	SELECTED_CASE_SCOPE_RELATED_DATA_REASON,
+	caseDataScopeAdmission,
+	type EvaluationTarget,
+	type PredicateEditContext as PredicateEditContextShape,
 } from "./editorSchemas";
+import {
+	buildEditorTypeContext,
+	EMPTY_FORM_FIELDS,
+	EMPTY_USER_PROPERTIES,
+} from "./editorTypeContext";
+import type { OperationValueScope } from "./expressionEditorSchemas";
+import type { EditorFormFieldDecl } from "./formFieldPresentation";
 import type { EditorPath } from "./path";
 import { serializePath } from "./path";
 import type { EditorSearchInputDecl } from "./searchInputPresentation";
+
+/** Re-exported from its dependency-free home so the pure cascade-reseed
+ *  helpers can build the same context without importing this React
+ *  module — see `editorTypeContext.ts` for why that separation exists. */
+export { buildEditorTypeContext } from "./editorTypeContext";
 
 /**
  * Per-path user-facing diagnostic list. Raw `CheckError.message`
@@ -83,6 +95,23 @@ interface PredicateEditContextValue {
 	readonly currentCaseType: string;
 	/** Declared search inputs in scope at the editor's mount site. */
 	readonly knownInputs: readonly EditorSearchInputDecl[];
+	/** Custom worker information available to identity-backed user terms. */
+	readonly userProperties: readonly UserProperty[];
+	/**
+	 * Form answers this editor may read, ALREADY narrowed by the mounting
+	 * surface to the ones its slot admits — a case operation running once
+	 * per submission drops every answer that has one value per repeat
+	 * iteration, because the commit gate refuses that reference. Empty on
+	 * every surface that reads no form answers at all.
+	 */
+	readonly formFields: readonly EditorFormFieldDecl[];
+	/**
+	 * The submission-local vocabulary, present only inside a case
+	 * operation: the acting user, no owner, and the case an earlier create
+	 * made. Absent everywhere else, where the type checker refuses all
+	 * three.
+	 */
+	readonly operationScope: OperationValueScope | undefined;
 	/**
 	 * Whether this slot evaluates against a case row (`"per-case"`) or
 	 * once before any case is selected (`"global"`). Kind menus and
@@ -93,6 +122,12 @@ interface PredicateEditContextValue {
 	/** See `PredicateEditContext.allowsNeverMatch`. Carried on the React
 	 *  context because nested cards rebuild their edit context from it. */
 	readonly allowsNeverMatch: boolean;
+	/** See `PredicateEditContext.evaluationTarget`. Carried on the React
+	 *  context for the same reason: the verb menu builds its edit context
+	 *  from here, so a surface's runtime has to survive the trip or every
+	 *  card would fall back to the strict default and a case-search slot
+	 *  would lose capabilities it legitimately has. */
+	readonly evaluationTarget: EvaluationTarget;
 	/**
 	 * Errors keyed by serialized path. Cards look up their own path
 	 * via `useEditorErrorsAt` to render inline diagnostics; the
@@ -122,9 +157,13 @@ interface PredicateEditProviderProps {
 	readonly caseTypes: readonly CaseType[];
 	readonly currentCaseType: string;
 	readonly knownInputs: readonly EditorSearchInputDecl[];
+	readonly userProperties?: readonly UserProperty[];
+	readonly formFields?: readonly EditorFormFieldDecl[];
+	readonly operationScope?: OperationValueScope;
 	/** Absent means the ordinary per-case scope. */
 	readonly caseDataScope?: CaseDataScope;
 	readonly allowsNeverMatch?: boolean;
+	readonly evaluationTarget?: EvaluationTarget;
 	readonly validityIndex: ValidityIndex;
 	readonly admitExpressionChange?: AdmitExpressionChange | undefined;
 	readonly children: ReactNode;
@@ -148,8 +187,12 @@ export function PredicateEditProvider({
 	caseTypes,
 	currentCaseType,
 	knownInputs,
+	userProperties = EMPTY_USER_PROPERTIES,
+	formFields = EMPTY_FORM_FIELDS,
+	operationScope,
 	caseDataScope = "per-case",
 	allowsNeverMatch = true,
+	evaluationTarget = "on-device",
 	validityIndex,
 	admitExpressionChange,
 	children,
@@ -157,16 +200,9 @@ export function PredicateEditProvider({
 	const expressionFocusTargets = useRef(new Map<string, HTMLElement>()).current;
 	const effectiveAdmit = useMemo<AdmitExpressionChange | undefined>(() => {
 		if (caseDataScope === "per-case") return admitExpressionChange;
-		const readsOutOfScope =
-			caseDataScope === "global"
-				? expressionReadsCaseData
-				: expressionReadsRelatedCaseData;
-		const reason =
-			caseDataScope === "global"
-				? GLOBAL_SCOPE_CASE_DATA_REASON
-				: SELECTED_CASE_SCOPE_RELATED_DATA_REASON;
 		return (path, next) => {
-			if (readsOutOfScope(next)) return { admitted: false, reason };
+			const scoped = caseDataScopeAdmission(caseDataScope, next);
+			if (!scoped.admitted) return scoped;
 			return admitExpressionChange?.(path, next) ?? { admitted: true };
 		};
 	}, [caseDataScope, admitExpressionChange]);
@@ -175,8 +211,12 @@ export function PredicateEditProvider({
 			caseTypes,
 			currentCaseType,
 			knownInputs,
+			userProperties,
+			formFields,
+			operationScope,
 			caseDataScope,
 			allowsNeverMatch,
+			evaluationTarget,
 			validityIndex,
 			admitExpressionChange: effectiveAdmit,
 			expressionFocusTargets,
@@ -185,8 +225,12 @@ export function PredicateEditProvider({
 			caseTypes,
 			currentCaseType,
 			knownInputs,
+			userProperties,
+			formFields,
+			operationScope,
 			caseDataScope,
 			allowsNeverMatch,
+			evaluationTarget,
 			validityIndex,
 			effectiveAdmit,
 			expressionFocusTargets,
@@ -302,6 +346,33 @@ export function WithCurrentCaseType({
  * authoring bug rather than a runtime branch the editor can recover
  * from.
  */
+/**
+ * Project the React context onto the plain `PredicateEditContext` the
+ * schemas, seeds, and verb builds consume.
+ *
+ * Every card that opens a menu needs this, and each used to spell it as
+ * its own object literal — four literals, four independent chances to
+ * omit an axis, and omitting one is silent: the narrower context still
+ * type-checks, still renders, and only shows up as a menu offering
+ * something the gate refuses or withholding something it admits. One
+ * projection means a new axis reaches every menu by construction.
+ */
+export function predicateEditContextFrom(
+	ctx: PredicateEditContextValue,
+): PredicateEditContextShape {
+	return {
+		caseTypes: ctx.caseTypes,
+		currentCaseType: ctx.currentCaseType,
+		knownInputs: ctx.knownInputs,
+		userProperties: ctx.userProperties,
+		formFields: ctx.formFields,
+		operationScope: ctx.operationScope,
+		caseDataScope: ctx.caseDataScope,
+		allowsNeverMatch: ctx.allowsNeverMatch,
+		evaluationTarget: ctx.evaluationTarget,
+	};
+}
+
 export function usePredicateEditContext(): PredicateEditContextValue {
 	const ctx = useContext(PredicateEditContext);
 	if (ctx === null) {
@@ -329,20 +400,49 @@ export function usePredicateEditContext(): PredicateEditContextValue {
 export function useResolvedType(
 	expr: ValueExpression | undefined,
 ): ResolvedType | undefined {
-	const { caseTypes, currentCaseType, knownInputs } = usePredicateEditContext();
+	const typeContext = useEditorTypeContext();
 	return useMemo(() => {
 		if (expr === undefined) return undefined;
-		return checkExpression(
-			expr,
-			{
-				caseTypes: [...caseTypes],
-				knownInputs: [...knownInputs],
+		return checkExpression(expr, typeContext, [], []);
+	}, [expr, typeContext]);
+}
+
+/**
+ * The `TypeContext` this editor's scope resolves against. Every editor
+ * that runs the checker — the workbench, the expression editor,
+ * `useResolvedType`, and the cascade-reseed helpers a card runs inside
+ * an event handler — goes through the shared `buildEditorTypeContext`
+ * rather than assembling its own literal (`editorTypeContext.ts` records
+ * what an omitted axis silently costs).
+ */
+export function useEditorTypeContext(): TypeContext {
+	const {
+		caseTypes,
+		currentCaseType,
+		knownInputs,
+		userProperties,
+		formFields,
+		operationScope,
+	} = usePredicateEditContext();
+	return useMemo(
+		() =>
+			buildEditorTypeContext({
+				caseTypes,
 				currentCaseType,
-			},
-			[],
-			[],
-		);
-	}, [expr, caseTypes, currentCaseType, knownInputs]);
+				knownInputs,
+				userProperties,
+				formFields,
+				operationScope,
+			}),
+		[
+			caseTypes,
+			currentCaseType,
+			knownInputs,
+			userProperties,
+			formFields,
+			operationScope,
+		],
+	);
 }
 
 /**

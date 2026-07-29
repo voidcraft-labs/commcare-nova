@@ -22,6 +22,8 @@ import {
 } from "../formEngine";
 import { previewAsMe } from "../identity";
 
+const ENTRY_KEY = "11111111-1111-4111-8111-111111111111";
+
 /** Case data holding a single case type's property map — the common
  *  single-namespace shape of the engine's per-type case data. */
 function caseDataFor(
@@ -195,6 +197,187 @@ describe("FormEngine", () => {
 		});
 	});
 
+	describe("temporal shape gate", () => {
+		// A clock is typed, so a temporal answer can be half-finished in a way
+		// no other kind can: "abc" is a legal string, "2:3" is not a time. The
+		// gate is what keeps that from reaching the case store and coming back
+		// as a schema rejection naming a property instead of a question.
+
+		it("rejects a half-typed clock, naming what was entered", () => {
+			const input = dTree([{ id: "wake", kind: "time", label: "Wake time" }]);
+			const engine = new FormEngine(input);
+
+			engine.setValue("/data/wake", "2:3");
+			expect(engine.getState("/data/wake").valid).toBe(false);
+			expect(engine.getState("/data/wake").errorMessage).toBe(
+				"“2:3” isn’t a time yet. Enter a clock time like 2:30 PM.",
+			);
+		});
+
+		it("accepts the shape the case store holds", () => {
+			const input = dTree([
+				{ id: "wake", kind: "time" },
+				{ id: "seen", kind: "datetime" },
+				{ id: "born", kind: "date" },
+			]);
+			const engine = new FormEngine(input);
+
+			engine.setValue("/data/wake", "07:30:00.000Z");
+			engine.setValue("/data/seen", "2026-05-06T12:34:56.000-04:00");
+			engine.setValue("/data/born", "2026-01-15");
+
+			expect(engine.getState("/data/wake").valid).toBe(true);
+			expect(engine.getState("/data/seen").valid).toBe(true);
+			expect(engine.getState("/data/born").valid).toBe(true);
+		});
+
+		it("leaves an empty answer to required", () => {
+			// Empty is not ill-shaped. Whether it is allowed is a different
+			// question with a different message and a different moment.
+			const input = dTree([{ id: "wake", kind: "time", required: "true()" }]);
+			const engine = new FormEngine(input);
+
+			engine.touch("/data/wake");
+			expect(engine.getState("/data/wake").valid).toBe(true);
+			expect(engine.validateAll()).toBe(false);
+			expect(engine.getState("/data/wake").errorMessage).toBe(
+				"This field is required",
+			);
+		});
+
+		it("surfaces on blur, like authored validation rather than required", () => {
+			const input = dTree([{ id: "wake", kind: "time" }]);
+			const engine = new FormEngine(input);
+
+			engine.setValue("/data/wake", "2:3");
+			engine.touch("/data/wake");
+			expect(engine.getState("/data/wake").touched).toBe(true);
+			expect(engine.getState("/data/wake").valid).toBe(false);
+		});
+
+		it("blocks submission", () => {
+			const input = dTree([{ id: "wake", kind: "time" }]);
+			const engine = new FormEngine(input);
+
+			engine.setValue("/data/wake", "half past two");
+			expect(engine.validateAll()).toBe(false);
+		});
+
+		it("answers ahead of an authored rule, which cannot judge a non-time", () => {
+			// `. > '08:00:00.000Z'` over "2:3" is a string comparison whose
+			// result says nothing about why the answer is unusable. The shape
+			// error is the one a person can act on.
+			const input = dTree([
+				{
+					id: "wake",
+					kind: "time",
+					validate: ". > '08:00:00.000Z'",
+					validate_msg: "Must be after 8am",
+				},
+			]);
+			const engine = new FormEngine(input);
+
+			engine.setValue("/data/wake", "2:3");
+			expect(engine.getState("/data/wake").errorMessage).toBe(
+				"“2:3” isn’t a time yet. Enter a clock time like 2:30 PM.",
+			);
+
+			engine.setValue("/data/wake", "07:30:00.000Z");
+			expect(engine.getState("/data/wake").errorMessage).toBe(
+				"Must be after 8am",
+			);
+		});
+
+		it("says nothing about a kind that has no temporal shape", () => {
+			const input = dTree([{ id: "notes", kind: "text" }]);
+			const engine = new FormEngine(input);
+
+			engine.setValue("/data/notes", "2:3");
+			expect(engine.getState("/data/notes").valid).toBe(true);
+		});
+
+		it("accepts a stored answer that predates the millisecond rule", () => {
+			// The pre-#376 writer stripped the fraction, so rows carry
+			// `HH:MM:SSZ`. It is RFC 3339, the schema takes it, and the
+			// storage boundary canonicalizes it on the way back out — asking
+			// "already canonical?" here would refuse a submission over an
+			// answer nobody typed and nobody can fix.
+			const input = dTree([
+				{ id: "wake", kind: "time" },
+				{ id: "seen", kind: "datetime" },
+			]);
+			const engine = new FormEngine(input);
+
+			engine.setValue("/data/wake", "08:45:00Z");
+			engine.setValue("/data/seen", "2026-01-15T09:15:00-04:00");
+			expect(engine.validateAll()).toBe(true);
+		});
+
+		it("accepts the bare date a today() default puts in a datetime", () => {
+			// `today()` yields a date with no clock. The storage boundary has
+			// always read that as the date's midnight; the gate must not turn
+			// it into a submission blocker the person cannot clear.
+			const input = dTree([
+				{ id: "seen", kind: "datetime", default_value: "today()" },
+			]);
+			const engine = new FormEngine(input);
+
+			expect(engine.getState("/data/seen").value).toMatch(
+				/^\d{4}-\d{2}-\d{2}$/,
+			);
+			expect(engine.validateAll()).toBe(true);
+		});
+
+		it("names the missing half instead of quoting the join", () => {
+			// A datetime is two controls over one string, so the string can be
+			// incomplete in two ways. Quoting the whole value would put the
+			// join's own punctuation in front of someone who can see perfectly
+			// well that their answer is just missing its date.
+			const input = dTree([{ id: "seen", kind: "datetime" }]);
+			const engine = new FormEngine(input);
+
+			engine.setValue("/data/seen", "T09:15:00.000-04:00");
+			expect(engine.getState("/data/seen").errorMessage).toBe(
+				"Pick a date — this question needs both.",
+			);
+
+			engine.setValue("/data/seen", "2026-01-15T");
+			expect(engine.getState("/data/seen").errorMessage).toBe(
+				"Enter a clock time — this question needs both.",
+			);
+
+			// A clock that isn't a clock gets the same sentence it gets on a
+			// standalone time question, quoting only the clock.
+			engine.setValue("/data/seen", "2026-01-15T2:3");
+			expect(engine.getState("/data/seen").errorMessage).toBe(
+				"“2:3” isn’t a time yet. Enter a clock time like 2:30 PM.",
+			);
+		});
+
+		it("accepts a preloaded answer without the author touching it", () => {
+			// Preload writes storage shapes straight into the instance, so a
+			// followup that opens on an existing case must not present every
+			// temporal answer as already wrong.
+			const input = dTree(
+				[
+					{ id: "wake", kind: "time", case_property_on: "patient" },
+					{ id: "seen", kind: "datetime", case_property_on: "patient" },
+				],
+				"followup",
+			);
+			const engine = new FormEngine(
+				input,
+				"patient",
+				caseDataFor("patient", [
+					["wake", "07:30:00.000Z"],
+					["seen", "2026-05-06T12:34:56.000-04:00"],
+				]),
+			);
+
+			expect(engine.validateAll()).toBe(true);
+		});
+	});
+
 	describe("required", () => {
 		it("marks statically required fields", () => {
 			const input = dTree([
@@ -226,6 +409,119 @@ describe("FormEngine", () => {
 
 			expect(engine.getState("/data/case_name").value).toBe("Alice");
 			expect(engine.getState("/data/age").value).toBe("30");
+		});
+
+		it("preloads a temporal value exactly as the case store holds it", () => {
+			// The instance mirrors storage rather than the device's own
+			// instance spelling, so that a field's preloaded value and the
+			// same property read through `#case/<prop>` cannot disagree.
+			// Rendering that value for a person is the question widget's job.
+			const input = dTree(
+				[
+					{ id: "case_name", kind: "text", case_property_on: "patient" },
+					{ id: "wake_time", kind: "time", case_property_on: "patient" },
+					{ id: "last_seen", kind: "datetime", case_property_on: "patient" },
+				],
+				"followup",
+			);
+
+			const caseData = caseDataFor("patient", [
+				["case_name", "Alice"],
+				["wake_time", "07:30:00.000Z"],
+				["last_seen", "2026-05-06T12:34:56.000-04:00"],
+			]);
+			const engine = new FormEngine(input, "patient", caseData);
+
+			expect(engine.getState("/data/wake_time").value).toBe("07:30:00.000Z");
+			expect(engine.getState("/data/last_seen").value).toBe(
+				"2026-05-06T12:34:56.000-04:00",
+			);
+		});
+
+		it("reads a preloaded field and its #case/ reference identically", () => {
+			// The defect this pins: a field's preload and the expression
+			// resolver are two separate readers of one property bag. If only
+			// one of them adapts the stored spelling, a `default_value` of
+			// `#case/wake_time` writes a different string than the field
+			// beside it holds, and any comparison between them is false
+			// forever.
+			const input = dTree(
+				[
+					{ id: "case_name", kind: "text", case_property_on: "patient" },
+					{ id: "wake_time", kind: "time", case_property_on: "patient" },
+					{ id: "echoed", kind: "hidden", calculate: "#case/wake_time" },
+				],
+				"followup",
+			);
+			const engine = new FormEngine(
+				input,
+				"patient",
+				caseDataFor("patient", [
+					["case_name", "Alice"],
+					["wake_time", "07:30:00.000Z"],
+				]),
+			);
+
+			expect(engine.getState("/data/echoed").value).toBe(
+				engine.getState("/data/wake_time").value,
+			);
+		});
+
+		it("reaches a fixed point — resubmitting a preloaded time changes nothing", () => {
+			const roundTripCaseTypes: CaseType[] = [
+				{
+					name: "patient",
+					properties: [
+						{ name: "case_name", label: "Name", data_type: "text" },
+						{ name: "wake_time", label: "Wake time", data_type: "time" },
+					],
+				},
+			];
+			const registration = dTree([
+				{ id: "case_name", kind: "text", case_property_on: "patient" },
+				{ id: "wake_time", kind: "time", case_property_on: "patient" },
+			]);
+			const writer = new FormEngine(registration, "patient");
+			writer.setValue("/data/case_name", "Alice");
+			writer.setValue("/data/wake_time", "07:30:00.000");
+			const mutation = writer.computeSubmissionMutation({
+				caseTypes: roundTripCaseTypes,
+				entryKey: ENTRY_KEY,
+				viewerTimeZone: "America/New_York",
+			});
+			if (mutation.kind !== "registration")
+				throw new Error("expected register");
+			const stored = mutation.primary.properties.wake_time;
+
+			const followup = dTree(
+				[
+					{ id: "case_name", kind: "text", case_property_on: "patient" },
+					{ id: "wake_time", kind: "time", case_property_on: "patient" },
+				],
+				"followup",
+			);
+			const reader = new FormEngine(
+				followup,
+				"patient",
+				caseDataFor("patient", [
+					["case_name", "Alice"],
+					["wake_time", String(stored)],
+				]),
+			);
+
+			// Preload hands back what was stored, and a followup that submits
+			// without touching the question stores that same value again. The
+			// property is the thing that must not drift across the cycle —
+			// any adaptation that is not idempotent shows up right here.
+			expect(reader.getState("/data/wake_time").value).toBe(stored);
+			const resubmitted = reader.computeSubmissionMutation({
+				caseId: "case-1",
+				caseTypes: roundTripCaseTypes,
+				entryKey: ENTRY_KEY,
+				viewerTimeZone: "America/New_York",
+			});
+			if (resubmitted.kind !== "followup") throw new Error("expected followup");
+			expect(resubmitted.patch.properties.wake_time).toBe(stored);
 		});
 	});
 
@@ -347,6 +643,7 @@ describe("FormEngine", () => {
 			const mutation = engine.computeSubmissionMutation({
 				caseId: "case-1",
 				caseTypes: [],
+				entryKey: ENTRY_KEY,
 			});
 			expect(mutation).toMatchObject({
 				kind: "followup",
@@ -754,6 +1051,58 @@ describe("FormEngine", () => {
 			expect(engine.getState("/data/members[1]/name").value).toBe("");
 		});
 
+		it("keeps surviving repeat render identities when indices compact", () => {
+			const input = dTree([
+				{
+					id: "members",
+					kind: "repeat",
+					children: [{ id: "name", kind: "text" }],
+				},
+			]);
+			const engine = new FormEngine(input);
+			engine.addRepeat("/data/members");
+			engine.addRepeat("/data/members");
+			const first = engine.getRepeatInstanceKey("/data/members", 0);
+			const removed = engine.getRepeatInstanceKey("/data/members", 1);
+			const third = engine.getRepeatInstanceKey("/data/members", 2);
+
+			engine.removeRepeat("/data/members", 1);
+
+			expect(engine.getRepeatInstanceKey("/data/members", 0)).toBe(first);
+			expect(engine.getRepeatInstanceKey("/data/members", 1)).toBe(third);
+			expect(engine.getRepeatInstanceKey("/data/members", 1)).not.toBe(removed);
+		});
+
+		it("remaps nested repeat identities with their surviving parent instance", () => {
+			const input = dTree([
+				{
+					id: "households",
+					kind: "repeat",
+					children: [
+						{
+							id: "members",
+							kind: "repeat",
+							children: [{ id: "name", kind: "text" }],
+						},
+					],
+				},
+			]);
+			const engine = new FormEngine(input);
+			engine.addRepeat("/data/households");
+			engine.addRepeat("/data/households[1]/members");
+			const survivingNestedKeys = [
+				engine.getRepeatInstanceKey("/data/households[1]/members", 0),
+				engine.getRepeatInstanceKey("/data/households[1]/members", 1),
+			];
+
+			engine.removeRepeat("/data/households", 0);
+
+			expect([
+				engine.getRepeatInstanceKey("/data/households[0]/members", 0),
+				engine.getRepeatInstanceKey("/data/households[0]/members", 1),
+			]).toEqual(survivingNestedKeys);
+		});
+
 		// `repeatCount` rides on the same `FieldState` object that visibility
 		// and validation cascades rewrite — so any cascade that re-evaluates
 		// the repeat's own path (e.g. its parent's `relevant` toggling) must
@@ -922,6 +1271,58 @@ describe("FormEngine", () => {
 			// conditional is not visible (toggle is empty) so it should not cause validation failure
 			engine.setValue("/data/toggle", "no");
 			expect(engine.validateAll()).toBe(true);
+		});
+
+		it("skips required descendants of an irrelevant group", () => {
+			const input = dTree([
+				{ id: "gate", kind: "text", label: "Gate" },
+				{
+					id: "section",
+					kind: "group",
+					label: "Section",
+					relevant: "/data/gate = 'yes'",
+					children: [
+						{
+							id: "photo",
+							kind: "image",
+							label: "Photo",
+							required: "true()",
+						},
+					],
+				},
+			]);
+			const engine = new FormEngine(input);
+			engine.setValue("/data/gate", "no");
+
+			expect(engine.getState("/data/section").visible).toBe(false);
+			expect(engine.getState("/data/section/photo").visible).toBe(true);
+			expect(engine.validateAll()).toBe(true);
+			expect(engine.getState("/data/section/photo").touched).toBe(false);
+		});
+
+		it("skips required descendants of an irrelevant repeat", () => {
+			const input = dTree([
+				{ id: "gate", kind: "text", label: "Gate" },
+				{
+					id: "visits",
+					kind: "repeat",
+					label: "Visits",
+					relevant: "/data/gate = 'yes'",
+					children: [
+						{
+							id: "photo",
+							kind: "image",
+							label: "Photo",
+							required: "true()",
+						},
+					],
+				},
+			]);
+			const engine = new FormEngine(input);
+			engine.setValue("/data/gate", "no");
+
+			expect(engine.validateAll()).toBe(true);
+			expect(engine.getState("/data/visits[0]/photo").touched).toBe(false);
 		});
 	});
 
@@ -1151,6 +1552,28 @@ describe("FormEngine", () => {
 
 			expect(engine.getState("/data/who").value).toBe("");
 		});
+
+		it("does not resolve #user through an inherited prototype key", () => {
+			if (identity === null) throw new Error("identity setup failed");
+			const inheritedIdentity = {
+				...identity,
+				usercase: Object.create({ constructor: "poison" }) as Record<
+					string,
+					string
+				>,
+			};
+			const input = dTree([
+				{ id: "who", kind: "hidden", calculate: "#user/constructor" },
+			]);
+			const engine = new FormEngine(
+				input,
+				undefined,
+				undefined,
+				inheritedIdentity,
+			);
+
+			expect(engine.getState("/data/who").value).toBe("");
+		});
 	});
 
 	// computeSubmissionMutation walks the engine's template tree, fans
@@ -1167,8 +1590,9 @@ describe("FormEngine", () => {
 				{ name: "weight", label: "Weight", data_type: "decimal" },
 				{ name: "tags", label: "Tags", data_type: "multi_select" },
 				{ name: "notes", label: "Notes", data_type: "text" },
-				// String-passthrough data types — the coercion layer
-				// returns the raw string for each. Declared on the
+				// The remaining scalar data types. `date`, `geopoint`, and
+				// `single_select` pass through untouched; `time` and
+				// `datetime` cross the storage boundary. Declared on the
 				// canonical `patient` case-type so the per-type coercion
 				// tests below match a real property declaration rather
 				// than tripping the unknown-property fallthrough.
@@ -1219,10 +1643,15 @@ describe("FormEngine", () => {
 				engine.setValue("/data/case_name", "Alice");
 				engine.setValue("/data/age", "30");
 
-				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				const mutation = engine.computeSubmissionMutation({
+					caseTypes,
+					entryKey: ENTRY_KEY,
+				});
 				expect(mutation).toEqual({
 					kind: "registration",
 					formUuid: "test-form-uuid",
+					entryKey: ENTRY_KEY,
+					attachmentRefs: [],
 					primary: {
 						caseType: "patient",
 						caseName: "Alice",
@@ -1248,7 +1677,10 @@ describe("FormEngine", () => {
 				engine.setValue("/data/age", "30");
 				engine.setValue("/data/first_visit_date", "2026-05-01");
 
-				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				const mutation = engine.computeSubmissionMutation({
+					caseTypes,
+					entryKey: ENTRY_KEY,
+				});
 				expect(mutation.kind).toBe("registration");
 				if (mutation.kind !== "registration") return;
 				expect(mutation.primary).toEqual({
@@ -1289,7 +1721,10 @@ describe("FormEngine", () => {
 				engine.setValue("/data/first_visit_date", "2026-05-01");
 				engine.setValue("/data/dosage_mg", "200");
 
-				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				const mutation = engine.computeSubmissionMutation({
+					caseTypes,
+					entryKey: ENTRY_KEY,
+				});
 				expect(mutation.kind).toBe("registration");
 				if (mutation.kind !== "registration") return;
 				expect(mutation.children).toEqual([
@@ -1330,7 +1765,10 @@ describe("FormEngine", () => {
 				engine.setValue("/data/visits[2]/visit_date", "2026-05-03");
 				engine.setValue("/data/visits[2]/summary", "third");
 
-				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				const mutation = engine.computeSubmissionMutation({
+					caseTypes,
+					entryKey: ENTRY_KEY,
+				});
 				expect(mutation.kind).toBe("registration");
 				if (mutation.kind !== "registration") return;
 				expect(mutation.children).toHaveLength(3);
@@ -1377,7 +1815,10 @@ describe("FormEngine", () => {
 				engine.setValue("/data/visits[0]/case_name", "First visit");
 				engine.setValue("/data/visits[0]/visit_date", "2026-05-01");
 
-				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				const mutation = engine.computeSubmissionMutation({
+					caseTypes,
+					entryKey: ENTRY_KEY,
+				});
 				expect(mutation.kind).toBe("registration");
 				if (mutation.kind !== "registration") return;
 				expect(mutation.primary.caseName).toBe("Alice");
@@ -1414,7 +1855,10 @@ describe("FormEngine", () => {
 				engine.setValue("/data/case_name", "Alice");
 				engine.setValue("/data/visits[0]/case_name", "First visit");
 
-				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				const mutation = engine.computeSubmissionMutation({
+					caseTypes,
+					entryKey: ENTRY_KEY,
+				});
 				expect(mutation.kind).toBe("registration");
 				if (mutation.kind !== "registration") return;
 				expect(mutation.children).toEqual([
@@ -1434,7 +1878,10 @@ describe("FormEngine", () => {
 
 				engine.setValue("/data/age", "30");
 
-				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				const mutation = engine.computeSubmissionMutation({
+					caseTypes,
+					entryKey: ENTRY_KEY,
+				});
 				expect(mutation.kind).toBe("registration");
 				if (mutation.kind !== "registration") return;
 				expect("caseName" in mutation.primary).toBe(false);
@@ -1447,7 +1894,12 @@ describe("FormEngine", () => {
 				]);
 				const engine = new FormEngine(input);
 
-				expect(() => engine.computeSubmissionMutation({ caseTypes })).toThrow(
+				expect(() =>
+					engine.computeSubmissionMutation({
+						caseTypes,
+						entryKey: ENTRY_KEY,
+					}),
+				).toThrow(
 					/registration form reached the engine method without a `moduleCaseType`/,
 				);
 			});
@@ -1477,10 +1929,13 @@ describe("FormEngine", () => {
 				const mutation = engine.computeSubmissionMutation({
 					caseId: "case-id-123",
 					caseTypes,
+					entryKey: ENTRY_KEY,
 				});
 				expect(mutation).toEqual({
 					kind: "followup",
 					formUuid: "test-form-uuid",
+					entryKey: ENTRY_KEY,
+					attachmentRefs: [],
 					caseId: "case-id-123",
 					patch: {
 						caseName: "Alice",
@@ -1504,9 +1959,12 @@ describe("FormEngine", () => {
 				const engine = new FormEngine(input, "patient");
 
 				engine.setValue("/data/notes", "hello");
-				expect(() => engine.computeSubmissionMutation({ caseTypes })).toThrow(
-					/form type `followup` requires a bound `caseId`/,
-				);
+				expect(() =>
+					engine.computeSubmissionMutation({
+						caseTypes,
+						entryKey: ENTRY_KEY,
+					}),
+				).toThrow(/form type `followup` requires a bound `caseId`/);
 			});
 
 			it("emits an empty primary patch when no fields target the module's case type", () => {
@@ -1530,10 +1988,13 @@ describe("FormEngine", () => {
 				const mutation = engine.computeSubmissionMutation({
 					caseId: "case-id-1",
 					caseTypes,
+					entryKey: ENTRY_KEY,
 				});
 				expect(mutation).toEqual({
 					kind: "followup",
 					formUuid: "test-form-uuid",
+					entryKey: ENTRY_KEY,
+					attachmentRefs: [],
 					caseId: "case-id-1",
 					patch: { properties: {} },
 					children: [
@@ -1568,10 +2029,13 @@ describe("FormEngine", () => {
 				const mutation = engine.computeSubmissionMutation({
 					caseId: "case-id-456",
 					caseTypes,
+					entryKey: ENTRY_KEY,
 				});
 				expect(mutation).toEqual({
 					kind: "close",
 					formUuid: "test-form-uuid",
+					entryKey: ENTRY_KEY,
+					attachmentRefs: [],
 					caseId: "case-id-456",
 					patch: { properties: { notes: "discharged" } },
 					children: [
@@ -1592,9 +2056,12 @@ describe("FormEngine", () => {
 				const engine = new FormEngine(input, "patient");
 
 				engine.setValue("/data/notes", "hello");
-				expect(() => engine.computeSubmissionMutation({ caseTypes })).toThrow(
-					/form type `close` requires a bound `caseId`/,
-				);
+				expect(() =>
+					engine.computeSubmissionMutation({
+						caseTypes,
+						entryKey: ENTRY_KEY,
+					}),
+				).toThrow(/form type `close` requires a bound `caseId`/);
 			});
 
 			it("emits empty primary properties for close-only forms", () => {
@@ -1613,10 +2080,13 @@ describe("FormEngine", () => {
 				const mutation = engine.computeSubmissionMutation({
 					caseId: "case-id-1",
 					caseTypes,
+					entryKey: ENTRY_KEY,
 				});
 				expect(mutation).toEqual({
 					kind: "close",
 					formUuid: "test-form-uuid",
+					entryKey: ENTRY_KEY,
+					attachmentRefs: [],
 					caseId: "case-id-1",
 					patch: { properties: {} },
 					children: [],
@@ -1630,10 +2100,15 @@ describe("FormEngine", () => {
 				const engine = new FormEngine(input);
 
 				engine.setValue("/data/name", "Alice");
-				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				const mutation = engine.computeSubmissionMutation({
+					caseTypes,
+					entryKey: ENTRY_KEY,
+				});
 				expect(mutation).toEqual({
 					kind: "survey",
 					formUuid: "test-form-uuid",
+					entryKey: ENTRY_KEY,
+					attachmentRefs: [],
 				});
 			});
 
@@ -1644,10 +2119,13 @@ describe("FormEngine", () => {
 				const mutation = engine.computeSubmissionMutation({
 					caseId: "case-id-1",
 					caseTypes,
+					entryKey: ENTRY_KEY,
 				});
 				expect(mutation).toEqual({
 					kind: "survey",
 					formUuid: "test-form-uuid",
+					entryKey: ENTRY_KEY,
+					attachmentRefs: [],
 				});
 			});
 		});
@@ -1667,7 +2145,10 @@ describe("FormEngine", () => {
 				engine.setValue("/data/case_name", "Alice");
 				engine.setValue("/data/notes", "hello");
 
-				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				const mutation = engine.computeSubmissionMutation({
+					caseTypes,
+					entryKey: ENTRY_KEY,
+				});
 				expect(mutation.kind).toBe("registration");
 				if (mutation.kind !== "registration") return;
 				expect(mutation.primary.caseName).toBe("Alice");
@@ -1684,7 +2165,10 @@ describe("FormEngine", () => {
 				engine.setValue("/data/case_name", "Alice");
 				engine.setValue("/data/age", "42");
 
-				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				const mutation = engine.computeSubmissionMutation({
+					caseTypes,
+					entryKey: ENTRY_KEY,
+				});
 				expect(mutation.kind).toBe("registration");
 				if (mutation.kind !== "registration") return;
 				expect(mutation.primary.properties.age).toBe(42);
@@ -1700,7 +2184,10 @@ describe("FormEngine", () => {
 				engine.setValue("/data/case_name", "Alice");
 				engine.setValue("/data/weight", "72.5");
 
-				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				const mutation = engine.computeSubmissionMutation({
+					caseTypes,
+					entryKey: ENTRY_KEY,
+				});
 				expect(mutation.kind).toBe("registration");
 				if (mutation.kind !== "registration") return;
 				expect(mutation.primary.properties.weight).toBe(72.5);
@@ -1725,7 +2212,10 @@ describe("FormEngine", () => {
 				engine.setValue("/data/case_name", "Alice");
 				engine.setValue("/data/tags", "a b c");
 
-				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				const mutation = engine.computeSubmissionMutation({
+					caseTypes,
+					entryKey: ENTRY_KEY,
+				});
 				expect(mutation.kind).toBe("registration");
 				if (mutation.kind !== "registration") return;
 				expect(mutation.primary.properties.tags).toEqual(["a", "b", "c"]);
@@ -1741,19 +2231,23 @@ describe("FormEngine", () => {
 				engine.setValue("/data/case_name", "Alice");
 				engine.setValue("/data/age", "not-a-number");
 
-				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				const mutation = engine.computeSubmissionMutation({
+					caseTypes,
+					entryKey: ENTRY_KEY,
+				});
 				expect(mutation.kind).toBe("registration");
 				if (mutation.kind !== "registration") return;
 				expect(mutation.primary.properties.age).toBe("not-a-number");
 			});
 
-			// String-passthrough data types: `date`, `datetime`, `time`,
-			// `geopoint`, and `single_select` all return the raw string
-			// from the coercion layer (verbatim from `caseTypeToJsonSchema`'s
-			// type-mapping). The wire shape is the user-typed value;
-			// AJV's `format` keyword validates it at insert time. These
-			// tests pin the per-type contract so a future coercion-layer
-			// change that accidentally unboxes one of them surfaces here.
+			// The string-shaped data types. `date`, `geopoint`, and
+			// `single_select` return the raw value verbatim; `time` and
+			// `datetime` are the two the coercion layer adapts, because the
+			// strict RFC 3339 formats the row schema compiles demand an
+			// offset that CommCare's own time answer does not carry (see
+			// `lib/domain/temporalValues.ts`). These tests pin the per-type
+			// contract so a change that unboxes one of them, or that quietly
+			// reinterprets a wall clock as an instant, surfaces here.
 			it("coerces date to its raw string", () => {
 				const input = dTree([
 					{ id: "case_name", kind: "text", case_property_on: "patient" },
@@ -1764,13 +2258,16 @@ describe("FormEngine", () => {
 				engine.setValue("/data/case_name", "Alice");
 				engine.setValue("/data/dob", "1995-03-12");
 
-				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				const mutation = engine.computeSubmissionMutation({
+					caseTypes,
+					entryKey: ENTRY_KEY,
+				});
 				expect(mutation.kind).toBe("registration");
 				if (mutation.kind !== "registration") return;
 				expect(mutation.primary.properties.dob).toBe("1995-03-12");
 			});
 
-			it("coerces datetime to its raw string", () => {
+			it("keeps a datetime's own offset and pads it to the wire's precision", () => {
 				const input = dTree([
 					{ id: "case_name", kind: "text", case_property_on: "patient" },
 					{
@@ -1784,15 +2281,52 @@ describe("FormEngine", () => {
 				engine.setValue("/data/case_name", "Alice");
 				engine.setValue("/data/last_seen", "2026-05-06T12:34:56Z");
 
-				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				const mutation = engine.computeSubmissionMutation({
+					caseTypes,
+					entryKey: ENTRY_KEY,
+					viewerTimeZone: "America/New_York",
+				});
 				expect(mutation.kind).toBe("registration");
 				if (mutation.kind !== "registration") return;
+				// The value already carried a zone, so the viewer's is NOT
+				// imposed on it — only the fractional digits `DateTimeData`
+				// always writes are filled in.
 				expect(mutation.primary.properties.last_seen).toBe(
-					"2026-05-06T12:34:56Z",
+					"2026-05-06T12:34:56.000Z",
 				);
 			});
 
-			it("coerces time to its raw string", () => {
+			it("stamps a naive datetime with the viewer's offset, as the device would", () => {
+				const input = dTree([
+					{ id: "case_name", kind: "text", case_property_on: "patient" },
+					{
+						id: "last_seen",
+						kind: "datetime",
+						case_property_on: "patient",
+					},
+				]);
+				const engine = new FormEngine(input, "patient");
+
+				engine.setValue("/data/case_name", "Alice");
+				engine.setValue("/data/last_seen", "2026-05-06T12:34:56");
+
+				const mutation = engine.computeSubmissionMutation({
+					caseTypes,
+					entryKey: ENTRY_KEY,
+					viewerTimeZone: "America/New_York",
+				});
+				expect(mutation.kind).toBe("registration");
+				if (mutation.kind !== "registration") return;
+				// `DateTimeData::uncast` writes the wall clock plus the zone
+				// the answer was entered in; Preview's author browser stands
+				// in for the device, so the same gesture means the same
+				// instant. Stamping `Z` here would move it four hours.
+				expect(mutation.primary.properties.last_seen).toBe(
+					"2026-05-06T12:34:56.000-04:00",
+				);
+			});
+
+			it("tags a time for storage without claiming it is an instant", () => {
 				const input = dTree([
 					{ id: "case_name", kind: "text", case_property_on: "patient" },
 					{
@@ -1806,10 +2340,18 @@ describe("FormEngine", () => {
 				engine.setValue("/data/case_name", "Alice");
 				engine.setValue("/data/wake_time", "07:30:00");
 
-				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				const mutation = engine.computeSubmissionMutation({
+					caseTypes,
+					entryKey: ENTRY_KEY,
+					viewerTimeZone: "America/New_York",
+				});
 				expect(mutation.kind).toBe("registration");
 				if (mutation.kind !== "registration") return;
-				expect(mutation.primary.properties.wake_time).toBe("07:30:00");
+				// A time answer is a wall clock with no zone of its own
+				// (`TimeData::uncast` suppresses the offset), so the viewer's
+				// zone is deliberately NOT applied — the `Z` is only the tag
+				// the strict `format: "time"` schema requires.
+				expect(mutation.primary.properties.wake_time).toBe("07:30:00.000Z");
 			});
 
 			it("coerces geopoint to its raw string", () => {
@@ -1830,7 +2372,10 @@ describe("FormEngine", () => {
 				engine.setValue("/data/case_name", "Alice");
 				engine.setValue("/data/home_location", "37.7749 -122.4194 0 5");
 
-				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				const mutation = engine.computeSubmissionMutation({
+					caseTypes,
+					entryKey: ENTRY_KEY,
+				});
 				expect(mutation.kind).toBe("registration");
 				if (mutation.kind !== "registration") return;
 				expect(mutation.primary.properties.home_location).toBe(
@@ -1856,7 +2401,10 @@ describe("FormEngine", () => {
 				engine.setValue("/data/case_name", "Alice");
 				engine.setValue("/data/priority", "high");
 
-				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				const mutation = engine.computeSubmissionMutation({
+					caseTypes,
+					entryKey: ENTRY_KEY,
+				});
 				expect(mutation.kind).toBe("registration");
 				if (mutation.kind !== "registration") return;
 				expect(mutation.primary.properties.priority).toBe("high");
@@ -1882,7 +2430,10 @@ describe("FormEngine", () => {
 				// Empty caseTypes — `age` falls through as text. `case_name`
 				// is plucked into the column slot regardless of lookup state
 				// because the field-id discriminator runs first.
-				const mutation = engine.computeSubmissionMutation({ caseTypes: [] });
+				const mutation = engine.computeSubmissionMutation({
+					caseTypes: [],
+					entryKey: ENTRY_KEY,
+				});
 				expect(mutation.kind).toBe("registration");
 				if (mutation.kind !== "registration") return;
 				expect(mutation.primary.caseName).toBe("Alice");
@@ -1900,7 +2451,10 @@ describe("FormEngine", () => {
 				engine.setValue("/data/case_name", "Alice");
 				engine.setValue("/data/extra", "42");
 
-				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				const mutation = engine.computeSubmissionMutation({
+					caseTypes,
+					entryKey: ENTRY_KEY,
+				});
 				expect(mutation.kind).toBe("registration");
 				if (mutation.kind !== "registration") return;
 				expect(mutation.primary.properties.extra).toBe("42");
@@ -1922,7 +2476,10 @@ describe("FormEngine", () => {
 				engine.setValue("/data/case_name", "Alice");
 				// `notes` left empty.
 
-				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				const mutation = engine.computeSubmissionMutation({
+					caseTypes,
+					entryKey: ENTRY_KEY,
+				});
 				expect(mutation.kind).toBe("registration");
 				if (mutation.kind !== "registration") return;
 				expect(mutation.primary.caseName).toBe("Alice");
@@ -1957,7 +2514,10 @@ describe("FormEngine", () => {
 				engine.setValue("/data/show", "no");
 				expect(engine.getState("/data/notes").visible).toBe(false);
 
-				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				const mutation = engine.computeSubmissionMutation({
+					caseTypes,
+					entryKey: ENTRY_KEY,
+				});
 				expect(mutation.kind).toBe("registration");
 				if (mutation.kind !== "registration") return;
 				// `notes` is hidden but the value is non-empty — it lands.
@@ -1978,7 +2538,10 @@ describe("FormEngine", () => {
 				engine.setValue("/data/case_name", "Alice");
 				// `first_visit_date` left empty — no `visit` bucket should land.
 
-				const mutation = engine.computeSubmissionMutation({ caseTypes });
+				const mutation = engine.computeSubmissionMutation({
+					caseTypes,
+					entryKey: ENTRY_KEY,
+				});
 				expect(mutation.kind).toBe("registration");
 				if (mutation.kind !== "registration") return;
 				expect(mutation.children).toEqual([]);
@@ -2126,7 +2689,10 @@ describe("FormEngine", () => {
 			const engine = new FormEngine(ordersFixture(), "patient");
 			engine.setValue("/data/orders[0]/medication_name", "Hydrangea");
 
-			const mutation = engine.computeSubmissionMutation({ caseTypes: [] });
+			const mutation = engine.computeSubmissionMutation({
+				caseTypes: [],
+				entryKey: ENTRY_KEY,
+			});
 			expect(mutation).toMatchObject({
 				kind: "registration",
 				children: [{ caseType: "medication_order", caseName: "Hydrangea" }],
@@ -2146,7 +2712,10 @@ describe("FormEngine", () => {
 				"Aspirin",
 			);
 
-			const mutation = engine.computeSubmissionMutation({ caseTypes: [] });
+			const mutation = engine.computeSubmissionMutation({
+				caseTypes: [],
+				entryKey: ENTRY_KEY,
+			});
 			expect(mutation).toMatchObject({
 				kind: "registration",
 				children: [
@@ -2434,7 +3003,10 @@ describe("FormEngine", () => {
 			engine.reevaluateDefault("/data/note", field);
 
 			expect(engine.getState("/data/note").value).toBe("Alice's note");
-			const mutation = engine.computeSubmissionMutation({ caseTypes: [] });
+			const mutation = engine.computeSubmissionMutation({
+				caseTypes: [],
+				entryKey: ENTRY_KEY,
+			});
 			expect(mutation).toMatchObject({
 				kind: "registration",
 				primary: { properties: { note: "Alice's note" } },

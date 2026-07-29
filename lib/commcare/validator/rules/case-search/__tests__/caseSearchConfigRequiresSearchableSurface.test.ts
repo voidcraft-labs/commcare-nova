@@ -46,6 +46,8 @@ describe("caseSearchConfigRequiresSearchableSurface", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [asUuid("c-1")],
+						detailColumnOrder: [asUuid("c-1")],
 						searchInputs: [],
 					},
 					caseSearchConfig: {
@@ -71,6 +73,8 @@ describe("caseSearchConfigRequiresSearchableSurface", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [asUuid("c-1")],
+						detailColumnOrder: [asUuid("c-1")],
 						searchInputs: [],
 					},
 					forms: [standardForm],
@@ -93,6 +97,8 @@ describe("caseSearchConfigRequiresSearchableSurface", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [asUuid("c-1")],
+						detailColumnOrder: [asUuid("c-1")],
 						searchInputs: [
 							simpleSearchInputDef(
 								asUuid("si-1"),
@@ -124,6 +130,8 @@ describe("caseSearchConfigRequiresSearchableSurface", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [asUuid("c-1")],
+						detailColumnOrder: [asUuid("c-1")],
 						filter: eq(prop("patient", "case_name"), literal("Alice")),
 						searchInputs: [],
 					},
@@ -148,6 +156,8 @@ describe("caseSearchConfigRequiresSearchableSurface", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [asUuid("c-1")],
+						detailColumnOrder: [asUuid("c-1")],
 						filter: { kind: "match-all" },
 						searchInputs: [],
 					},
@@ -176,6 +186,8 @@ describe("caseSearchConfigRequiresSearchableSurface", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [asUuid("c-1")],
+						detailColumnOrder: [asUuid("c-1")],
 						filter: and(matchAll(), matchAll()),
 						searchInputs: [],
 					},
@@ -200,6 +212,8 @@ describe("caseSearchConfigRequiresSearchableSurface", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [asUuid("c-1")],
+						detailColumnOrder: [asUuid("c-1")],
 						searchInputs: [],
 					},
 					caseSearchConfig: {
@@ -227,6 +241,8 @@ describe("caseSearchConfigRequiresSearchableSurface", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("c-1"), "case_name", "Name")],
+						listColumnOrder: [asUuid("c-1")],
+						detailColumnOrder: [asUuid("c-1")],
 						searchInputs: [],
 					},
 					caseSearchConfig: {

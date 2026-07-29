@@ -17,7 +17,6 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { backfillOrderKeys } from "@/lib/doc/order/backfill";
 import type { BlueprintDoc } from "@/lib/domain";
 import { makeStubToolContext } from "../../__tests__/fixtures";
 import { addFieldsTool } from "../addFields";
@@ -66,7 +65,6 @@ function makeDoc(): BlueprintDoc {
 			},
 		],
 	});
-	backfillOrderKeys(doc);
 	return doc;
 }
 
@@ -165,7 +163,6 @@ describe("editField targeting", () => {
 				},
 			],
 		});
-		backfillOrderKeys(doc);
 		const { ctx } = makeStubToolContext();
 		const original = fieldByLabel(doc, "Original");
 		const result = await editFieldTool.execute(
@@ -279,7 +276,6 @@ describe("addFields parent targeting", () => {
 				},
 			],
 		});
-		backfillOrderKeys(doc);
 		return doc;
 	}
 
@@ -337,7 +333,6 @@ describe("addFields parent targeting", () => {
 				},
 			],
 		});
-		backfillOrderKeys(doc);
 		const { ctx, recordMutations } = makeStubToolContext();
 		const result = await addFieldsTool.execute(
 			{
@@ -401,7 +396,6 @@ describe("addFields parent targeting", () => {
 				},
 			],
 		});
-		backfillOrderKeys(doc);
 		const { ctx, recordMutations } = makeStubToolContext();
 		const result = await addFieldsTool.execute(
 			{
@@ -444,7 +438,6 @@ describe("addFields parent targeting", () => {
 				},
 			],
 		});
-		backfillOrderKeys(doc);
 		const { ctx } = makeStubToolContext();
 		const result = await addFieldsTool.execute(
 			{

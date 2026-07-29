@@ -39,7 +39,6 @@
 import { z } from "zod";
 import { columnAddMutation } from "@/lib/doc/caseListColumnMutations";
 import { planCaseTypeRetirementOnRetype } from "@/lib/doc/caseTypeRetirement";
-import { sequenceOrderKeys } from "@/lib/doc/order/append";
 import { caseTypeCatalogMutations } from "@/lib/doc/scaffolds";
 import type { BlueprintDoc } from "@/lib/domain";
 import { resolveModuleUuid, updateModuleMutations } from "../blueprintHelpers";
@@ -157,20 +156,12 @@ export const updateModuleTool = {
 			/* Seed columns only when the module has none — an existing config
 			 * is authored state the case-list-config tools own, and a
 			 * wholesale replace here would silently drop sort/search work.
-			 * Each born column needs a uuid AND a fresh sequential `order` key
-			 * (the module has no columns yet, so the run is from scratch) — a
-			 * key-less column sorts ahead of every keyed sibling until a
-			 * reload's backfill. */
-			const seedColumnKeys = sequenceOrderKeys(
-				(case_list_columns ?? []).length,
-			);
+			 * Each born column needs a uuid so a later edit can address it; its
+			 * place is the order these adds are emitted in. */
 			const seedColumns =
 				case_list_columns != null &&
 				(mod.caseListConfig?.columns ?? []).length === 0
-					? case_list_columns.map((c, i) => ({
-							...stampColumnUuid(c, newUuid()),
-							order: seedColumnKeys[i],
-						}))
+					? case_list_columns.map((c) => stampColumnUuid(c, newUuid()))
 					: undefined;
 			/* ONE catalog write covers both retiring the orphaned OLD type and
 			 * declaring a brand-NEW one. A brand-new type MUST be cataloged or
@@ -186,8 +177,13 @@ export const updateModuleTool = {
 					...(name != null && { name }),
 					...(case_type != null && { caseType: case_type }),
 				}),
-				...(seedColumns ?? []).map((column) =>
-					columnAddMutation(moduleUuid, column),
+				// Each column follows the one before it, so the seeded set lands in
+				// the order the SA wrote it.
+				...(seedColumns ?? []).map((column, index, all) =>
+					columnAddMutation(moduleUuid, column, {
+						afterInList: index === 0 ? null : all[index - 1].uuid,
+						afterInDetail: index === 0 ? null : all[index - 1].uuid,
+					}),
 				),
 			];
 			const commit = await guardedMutate(

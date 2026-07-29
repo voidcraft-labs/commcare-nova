@@ -191,6 +191,8 @@ describe("collectExportBoundaryViolations media arm", () => {
 								mapping: [{ value: "N", assetId: "missing" }],
 							},
 						],
+						listColumnOrder: ["col-img" as never],
+						detailColumnOrder: ["col-img" as never],
 						searchInputs: [],
 					},
 					forms: [{ name: "Empty", type: "survey", fields: [] }],

@@ -67,7 +67,10 @@ import {
 	readClauseDragData,
 	readClauseDropData,
 } from "../dragData";
-import { usePredicateEditContext } from "../editorContext";
+import {
+	predicateEditContextFrom,
+	usePredicateEditContext,
+} from "../editorContext";
 import {
 	globalPlaceholderTruth,
 	isAuthorablePredicateKind,
@@ -217,24 +220,16 @@ function AndOrBody({ value, onChange, path }: AndOrBodyProps) {
 	// memoizes the value object via `useMemo` in the provider.
 	const editCtx = useMemo<PredicateEditContext>(
 		() => ({
-			caseTypes: ctx.caseTypes,
-			currentCaseType: ctx.currentCaseType,
-			knownInputs: ctx.knownInputs,
-			caseDataScope: ctx.caseDataScope,
-			allowsNeverMatch: ctx.allowsNeverMatch,
+			...predicateEditContextFrom(ctx),
 			// A clause added to THIS group must be neutral for its
 			// combinator, so the group's (and therefore the rule's)
 			// meaning is unchanged until the author edits the new row.
 			globalPlaceholderHolds: value.kind !== "or",
 		}),
-		[
-			ctx.caseTypes,
-			ctx.currentCaseType,
-			ctx.knownInputs,
-			ctx.caseDataScope,
-			ctx.allowsNeverMatch,
-			value.kind,
-		],
+		// The provider memoizes the whole context object, so depending on
+		// it directly is both correct and cheaper than listing axes a
+		// projection now owns — and it cannot go stale when one is added.
+		[ctx, value.kind],
 	);
 	const containerKey = useId();
 	const rowIdentity = useStableListIdentity(value.clauses);
@@ -617,13 +612,7 @@ interface AddClauseMenuProps {
 function AddClauseMenu({ onAdd }: AddClauseMenuProps) {
 	const triggerRef = useRef<HTMLButtonElement>(null);
 	const ctx = usePredicateEditContext();
-	const editCtx: PredicateEditContext = {
-		caseTypes: ctx.caseTypes,
-		currentCaseType: ctx.currentCaseType,
-		knownInputs: ctx.knownInputs,
-		caseDataScope: ctx.caseDataScope,
-		allowsNeverMatch: ctx.allowsNeverMatch,
-	};
+	const editCtx: PredicateEditContext = predicateEditContextFrom(ctx);
 
 	return (
 		<DropdownMenu>

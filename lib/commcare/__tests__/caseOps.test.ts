@@ -416,11 +416,10 @@ describe("case-operation XForm emission", () => {
 		];
 		const xml = emit(
 			[
-				createOperation({ order: "a" }),
+				createOperation(),
 				{
 					uuid: UPDATE,
 					id: "tag_each_visit",
-					order: "b",
 					action: "update",
 					caseType: "visit",
 					target: { kind: "op", opUuid: CREATE },
@@ -527,7 +526,6 @@ describe("case-operation XForm emission", () => {
 			{
 				uuid: UPDATE,
 				id: "promote_patient",
-				order: "a",
 				action: "update",
 				caseType: "patient",
 				target: { kind: "session" },
@@ -537,7 +535,6 @@ describe("case-operation XForm emission", () => {
 			{
 				uuid: CREATE,
 				id: "update_promoted_visit",
-				order: "b",
 				action: "update",
 				caseType: "visit",
 				target: { kind: "session" },
@@ -562,7 +559,6 @@ describe("case-operation XForm emission", () => {
 			{
 				uuid: CREATE,
 				id: "promote_patient",
-				order: "a",
 				action: "update",
 				caseType: "patient",
 				target: runtimeTarget,
@@ -571,7 +567,6 @@ describe("case-operation XForm emission", () => {
 			{
 				uuid: UPDATE,
 				id: "update_promoted_visit",
-				order: "b",
 				action: "update",
 				caseType: "visit",
 				target: runtimeTarget,
@@ -626,13 +621,11 @@ describe("case-operation XForm emission", () => {
 	it("emits authored ids, update facets, runtime targets, and both condition scopes", () => {
 		const xml = emit([
 			createOperation({
-				order: "a",
 				target: { kind: "new", idFrom: NAME },
 			}),
 			{
 				uuid: UPDATE,
 				id: "revise_patient",
-				order: "b",
 				action: "update",
 				caseType: "patient",
 				target: {
@@ -737,7 +730,6 @@ describe("case-operation XForm emission", () => {
 			{
 				uuid: CREATE,
 				id: "assign_user",
-				order: "a",
 				action: "update",
 				caseType: "patient",
 				target: { kind: "session" },
@@ -746,7 +738,6 @@ describe("case-operation XForm emission", () => {
 			{
 				uuid: UPDATE,
 				id: "remove_owner",
-				order: "b",
 				action: "update",
 				caseType: "patient",
 				target: { kind: "session" },

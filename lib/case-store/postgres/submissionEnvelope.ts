@@ -57,6 +57,10 @@ import {
 } from "@/lib/domain/predicate/errors";
 import type { Predicate, ValueExpression } from "@/lib/domain/predicate/types";
 import {
+	storageDatetimeValue,
+	storageTimeValue,
+} from "@/lib/domain/temporalValues";
+import {
 	type ResolvedCaseOperationTypeStep,
 	validateCaseOperationTargetDescriptor,
 	validateResolvedCaseOperationTypeSequence,
@@ -92,7 +96,8 @@ import type {
  */
 export interface SubmissionEnvelopeHost {
 	readonly projectId: string;
-	readonly actorUserId: string;
+	/** CommCare worker the submission runs as; authorization happened earlier. */
+	readonly actingUserId: string;
 	/** Throws `CasePropertiesValidationError` / `SchemaNotSyncedError`. */
 	validateProperties(
 		trx: Transaction<Database>,
@@ -349,6 +354,9 @@ async function evaluateBatch(
 				anchorAlias: "c",
 				...(session === undefined ? {} : { currentCaseType: session.caseType }),
 				caseTypeSchemas: program.caseTypeSchemas,
+				...(program.lookupTableSchemas === undefined
+					? {}
+					: { lookupTableSchemas: program.lookupTableSchemas }),
 				bindings: bindingsFor(request.instance),
 			};
 			if (request.predicate !== undefined) {
@@ -421,10 +429,17 @@ async function evaluateBatch(
  * `undefined` into a key OMISSION on create and a key REMOVAL on
  * update, so a blank overwrite still clears the stored value exactly
  * as the device's `''` write does.
+ *
+ * `zone` is the submitting viewer's timezone where one is known
+ * (`CaseOperationProgram.viewerTimeZone`), because a form answer reaching
+ * this boundary is a wall clock a person just entered and the device would
+ * stamp its own offset on it. It falls back to UTC for a caller with no
+ * viewer, which is deterministic rather than the server's incidental zone.
  */
 export function storageValueFromEvaluation(
 	value: unknown,
 	dataType: CasePropertyDataType,
+	zone = "UTC",
 ): JsonValue | undefined {
 	if (
 		value === null ||
@@ -463,15 +478,17 @@ export function storageValueFromEvaluation(
 			return String(value);
 		}
 		case "datetime": {
+			// A `Date` came back from a pg `timestamptz` and already
+			// denotes an exact instant; only a string can still be the
+			// naive wall clock a form answer carries.
 			if (value instanceof Date) return value.toISOString();
-			return String(value);
+			return storageDatetimeValue(String(value), zone);
 		}
 		case "time": {
-			const text = String(value);
-			// Canonical stored time is RFC 3339 full-time; a bare
-			// `HH:MM:SS` from a pg `time` cast reads as UTC, the same
-			// stance the migration cast engine takes.
-			return /(?:Z|[+-]\d{2}:\d{2})$/.test(text) ? text : `${text}Z`;
+			// A time answer is a wall clock with no zone of its own
+			// (`TimeData::uncast`), so this takes the storage tag rather
+			// than an offset — see `lib/domain/temporalValues.ts`.
+			return storageTimeValue(String(value));
 		}
 		case "text":
 		case "single_select":
@@ -607,10 +624,13 @@ async function resolveOperationProgram(
 		return {
 			formFields: instance.formFields,
 			operationIds: operationIdsFor(instances, allocations, index),
-			actingUserId: host.actorUserId,
+			actingUserId: host.actingUserId,
 			...(program.sessionUser === undefined
 				? {}
 				: { sessionUser: program.sessionUser }),
+			...(program.userPropertySlugs === undefined
+				? {}
+				: { userPropertySlugs: program.userPropertySlugs }),
 			sessionUserFallback: "",
 			...(program.sessionContext === undefined
 				? {}
@@ -1068,7 +1088,7 @@ async function resolveOperationProgram(
 			preparedOwner = prepareText(
 				"owner",
 				operation.owner === undefined
-					? host.actorUserId
+					? host.actingUserId
 					: evaluatedText(bag?.owner),
 			);
 		} else if (operation.action === "update" && operation.owner !== undefined) {
@@ -1105,6 +1125,7 @@ async function resolveOperationProgram(
 				value: storageValueFromEvaluation(
 					bag?.writes.get(writeIndex),
 					dataType,
+					program.viewerTimeZone ?? "UTC",
 				),
 			});
 		}

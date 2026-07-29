@@ -6,7 +6,7 @@
  * rebuilds only the envelopes on the path to a replacement — an
  * untouched subtree comes back as the SAME reference, so consumers can
  * cheaply detect "nothing changed" (`mapped === original`) and the
- * input AST stays observable to its other holders (doc store, zundo
+ * input AST stays observable to its other holders (doc store, the undo history
  * history) unchanged.
  *
  * Hook contract: each hook fires BEFORE structural descent. Returning a

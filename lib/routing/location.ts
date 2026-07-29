@@ -18,6 +18,8 @@
  *   [moduleUuid, "condition"]       → module display condition
  *   [formUuid]                      → form
  *   [formUuid, "condition"]         → form display condition
+ *   [formUuid, "operations"]        → form case operations
+ *   [formUuid, "operations", opUuid] → …with one selected
  *   [formUuid, fieldUuid]        → form + selected field
  *
  * Entity disambiguation: all UUIDs are globally unique. A single-segment
@@ -98,6 +100,10 @@ export function serializePath(loc: Location): string[] {
 			 * shape a selected field uses, so the parser resolves the owner
 			 * by a doc lookup rather than a positional convention. */
 			return [loc.formUuid, "condition"];
+		case "form-operations":
+			return loc.operationUuid !== undefined
+				? [loc.formUuid, "operations", loc.operationUuid]
+				: [loc.formUuid, "operations"];
 		case "form":
 			/* A selected field is serialized as a single UUID — the parser
 			 * resolves it to its parent form via findFormForField. This
@@ -311,6 +317,25 @@ export function parsePathToLocation(
 		return { kind: "data-review", moduleUuid: first };
 	}
 
+	if (second === "operations") {
+		/* The one form-owned configuration URL that carries a selection, so
+		 * a third segment names the operation. An unresolvable one degrades
+		 * to the list rather than home — the operation may simply have been
+		 * removed by a peer. */
+		if (doc.forms[first] === undefined) return { kind: "home" };
+		for (const [moduleUuid, formUuids] of Object.entries(doc.formOrder)) {
+			if (!formUuids.includes(first)) continue;
+			const operationUuid = segments[2] as Uuid | undefined;
+			return {
+				kind: "form-operations",
+				moduleUuid: moduleUuid as Uuid,
+				formUuid: first,
+				...(operationUuid !== undefined && { operationUuid }),
+			};
+		}
+		return { kind: "home" };
+	}
+
 	if (second === "condition") {
 		/* One noun, two carriers: the first segment names either the module
 		 * whose menu tile the condition governs or the form whose menu entry
@@ -395,6 +420,10 @@ export function isValidLocation(loc: Location, doc: LocationDoc): boolean {
 			// reference shape as `cases`; only that uuid needs to resolve.
 			return doc.modules[loc.moduleUuid] !== undefined;
 		case "form-condition":
+		case "form-operations":
+			// A selected operation is deliberately NOT validated here: it
+			// lives inside the form record rather than a top-level entity
+			// map, and `recoverLocation` drops a stale one.
 			return (
 				doc.modules[loc.moduleUuid] !== undefined &&
 				doc.forms[loc.formUuid] !== undefined
@@ -452,6 +481,29 @@ export function recoverLocation(loc: Location, doc: LocationDoc): Location {
 		return doc.forms[loc.formUuid] === undefined
 			? { kind: "module", moduleUuid: loc.moduleUuid }
 			: loc;
+	}
+
+	/* Operations walk inward twice: the form, then the selected operation.
+	 * A removed operation leaves the list open rather than the module —
+	 * losing a selection should not lose the screen. */
+	if (loc.kind === "form-operations") {
+		const form = doc.forms[loc.formUuid];
+		if (form === undefined) {
+			return { kind: "module", moduleUuid: loc.moduleUuid };
+		}
+		if (
+			loc.operationUuid !== undefined &&
+			!(form.caseOperations ?? []).some(
+				(operation) => operation.uuid === loc.operationUuid,
+			)
+		) {
+			return {
+				kind: "form-operations",
+				moduleUuid: loc.moduleUuid,
+				formUuid: loc.formUuid,
+			};
+		}
+		return loc;
 	}
 
 	/* The case-list workspace URLs (and the data review screen, which

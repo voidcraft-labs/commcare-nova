@@ -108,6 +108,8 @@ describe("sortPriorityUniqueness", () => {
 							{ ...col, sort: { direction: "asc", priority: 0 } },
 							plainColumn(asUuid("col-b"), "age", "Age"),
 						],
+						listColumnOrder: [asUuid("col-b")],
+						detailColumnOrder: [asUuid("col-b")],
 						searchInputs: [],
 					},
 					forms: [standardForm],

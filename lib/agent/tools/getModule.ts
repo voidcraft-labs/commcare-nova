@@ -28,10 +28,6 @@
 
 import { z } from "zod";
 import { countFieldsUnder, orderedFormUuids } from "@/lib/doc/fieldWalk";
-import {
-	byDetailColumnOrder,
-	byListColumnOrder,
-} from "@/lib/doc/order/compare";
 import type {
 	BlueprintDoc,
 	CaseListConfig,
@@ -39,6 +35,7 @@ import type {
 	FormType,
 	Uuid,
 } from "@/lib/domain";
+import { orderedColumns } from "@/lib/domain";
 import { resolveModuleUuid } from "../blueprintHelpers";
 import {
 	carrierBlindCaseListConfig,
@@ -63,6 +60,8 @@ export type GetModuleInput = z.infer<typeof getModuleInputSchema>;
  */
 export interface GetModuleFormSummary {
 	formIndex: number;
+	/** Identity. The case-operation tools address this form by it. */
+	uuid: Uuid;
 	name: string;
 	type: FormType;
 	fieldCount: number;
@@ -84,6 +83,8 @@ export type GetModuleResult =
 	| { error: string }
 	| {
 			moduleIndex: number;
+			/** Identity. The case-operation tools address this menu by it. */
+			uuid: Uuid;
 			name: string;
 			case_type: string | null;
 			icon: string | null;
@@ -129,29 +130,42 @@ export const getModuleTool = {
 			mod.caseSearchConfig === undefined
 				? undefined
 				: carrierBlindCaseSearchConfig(mod.caseSearchConfig);
-		const columns = caseListConfig?.columns ?? [];
+		// Each screen's own sequence — the SA addresses a column by naming the
+		// one it should follow, so a storage-order read would misplace it.
+		const resultsColumns =
+			caseListConfig === undefined
+				? []
+				: orderedColumns(caseListConfig, "list");
+		const detailsColumns =
+			caseListConfig === undefined
+				? []
+				: orderedColumns(caseListConfig, "detail");
 		return {
 			kind: "read",
 			data: {
 				moduleIndex,
+				/* Identity, because the case-operation tools address a menu and
+				 * a form by it and NOTHING else returns it. A positional index
+				 * shifts under a peer's insert and a name-derived slug is a
+				 * fossil of the name at creation, so neither is an address. */
+				uuid: moduleUuid,
 				name: mod.name,
 				case_type: mod.caseType ?? null,
 				icon: mod.icon ?? null,
 				audio_label: mod.audioLabel ?? null,
 				case_list_config: caseListConfig ?? null,
-				results_column_order: [...columns]
+				results_column_order: resultsColumns
 					.filter((column) => column.visibleInList !== false)
-					.sort(byListColumnOrder)
 					.map((column) => column.uuid),
-				details_column_order: [...columns]
+				details_column_order: detailsColumns
 					.filter((column) => column.visibleInDetail !== false)
-					.sort(byDetailColumnOrder)
 					.map((column) => column.uuid),
 				case_search_config: caseSearchConfig ?? null,
 				forms: formUuids.map((fUuid, i) => {
 					const f = doc.forms[fUuid];
 					return {
 						formIndex: i,
+						uuid: fUuid,
 						name: f?.name ?? "",
 						type: f?.type ?? "survey",
 						fieldCount: countFieldsUnder(doc, fUuid),

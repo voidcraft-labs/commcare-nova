@@ -19,7 +19,7 @@ export async function authorizeCaseMutationInTransaction(
 		readonly projectId: string;
 		readonly actorUserId: string;
 	},
-): Promise<void> {
+): Promise<{ readonly appMutationSeq: number }> {
 	// This is a type-only table-map join: both views are the exact same Kysely
 	// transaction and physical connection. No second checkout or nested
 	// transaction occurs.
@@ -35,6 +35,7 @@ export async function authorizeCaseMutationInTransaction(
 		// the same IDOR-safe denial as an absent/foreign app.
 		throw new AppAccessError("not_found");
 	}
+	return { appMutationSeq: scope.baseSeq };
 }
 
 /**

@@ -23,6 +23,7 @@
 // back to `Predicate`, the field accesses below would stop compiling.
 
 import { describe, expect, it } from "vitest";
+import { asUuid } from "@/lib/domain";
 import {
 	ancestorPath,
 	and,
@@ -67,6 +68,7 @@ import {
 	selfPath,
 	sessionContext,
 	sessionUser,
+	sessionUserProperty,
 	subcasePath,
 	switchCase,
 	switchExpr,
@@ -156,6 +158,17 @@ describe("predicate builders", () => {
 		expect(t.kind).toBe("session-user");
 		expect(t.field).toBe("commcare_project");
 		const p = eq(t, literal("project-x"));
+		expect(predicateSchema.parse(p)).toEqual(p);
+	});
+
+	it("constructs a custom session-user property by stable identity", () => {
+		const propertyUuid = asUuid("worker-property-region");
+		const t = sessionUserProperty(propertyUuid);
+		expect(t).toEqual({
+			kind: "session-user-property",
+			userPropertyUuid: propertyUuid,
+		});
+		const p = eq(t, literal("north"));
 		expect(predicateSchema.parse(p)).toEqual(p);
 	});
 

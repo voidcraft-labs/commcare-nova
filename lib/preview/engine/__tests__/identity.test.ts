@@ -148,6 +148,25 @@ describe("session values are honest", () => {
 		expect(identity?.usercase).not.toHaveProperty("commcare_project");
 	});
 
+	it("keeps HQ's unconditional profile keys present even when their values are empty", () => {
+		const persona = {
+			uuid: asUuid("66666666-6666-4666-8666-666666666666"),
+			name: "Asha",
+		};
+		const identity = previewAsPersona(FULL_USER, persona, DOC);
+		expect(identity?.session.user.commcare_first_name).toBe("Asha");
+		expect(identity?.session.user.commcare_last_name).toBe("");
+		expect(identity?.session.user.commcare_phone_number).toBe("");
+		expect(identity?.usercase.first_name).toBe("Asha");
+		expect(identity?.usercase.last_name).toBe("");
+		expect(identity?.usercase.email).toBe("");
+		expect(identity?.usercase.phone_number).toBe("");
+		// Target-dependent values remain genuinely absent rather than being
+		// confused with HQ's always-written profile slots.
+		expect(identity?.session.user).not.toHaveProperty("commcare_project");
+		expect(identity?.usercase).not.toHaveProperty("commcare_project");
+	});
+
 	it("marks an ordinary worker standard, not demo — and never absent", () => {
 		// HQ sends `user_type` only for a practice user, but the CLIENT seeds
 		// it: every `User.java` constructor calls `setUserType(STANDARD)`, a
@@ -215,6 +234,56 @@ describe("the session block and the usercase are two projections", () => {
 		expect(identity?.usercase.last_name).toBe("Kumar");
 		expect(identity?.usercase).not.toHaveProperty("commcare_first_name");
 		expect(identity?.usercase.hq_user_id).toBe(ASHA);
+	});
+
+	it("preserves valid prototype-named slugs as own data properties", () => {
+		const propertyProto = asUuid("property-proto");
+		const propertyConstructor = asUuid("property-constructor");
+		const roleUuid = asUuid("constructor");
+		const persona = {
+			uuid: asUuid("persona-hostile-slugs"),
+			name: "Asha",
+			userTypeUuid: roleUuid,
+		};
+		const doc: UserCollections = {
+			userProperties: Object.fromEntries([
+				[
+					propertyProto,
+					{ uuid: propertyProto, slug: "__proto__", label: "Prototype" },
+				],
+				[
+					propertyConstructor,
+					{
+						uuid: propertyConstructor,
+						slug: "constructor",
+						label: "Constructor",
+					},
+				],
+			]),
+			userTypes: Object.fromEntries([
+				[
+					roleUuid,
+					{
+						uuid: roleUuid,
+						name: "Constructor role",
+						values: Object.fromEntries([
+							[propertyProto, "proto value"],
+							[propertyConstructor, "constructor value"],
+						]),
+					},
+				],
+			]),
+		};
+
+		const identity = previewAsPersona(FULL_USER, persona, doc);
+		for (const projection of [identity?.session.user, identity?.usercase]) {
+			expect(Object.hasOwn(projection ?? {}, "__proto__")).toBe(true);
+			expect(
+				Object.getOwnPropertyDescriptor(projection ?? {}, "__proto__")?.value,
+			).toBe("proto value");
+			expect(Object.hasOwn(projection ?? {}, "constructor")).toBe(true);
+			expect(projection?.constructor).toBe("constructor value");
+		}
 	});
 });
 

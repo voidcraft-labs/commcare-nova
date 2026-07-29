@@ -2,9 +2,12 @@ import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { batchTargetsMissing } from "@/lib/db/commitGuard";
 import {
 	addCaseOperationMutations,
+	caseOperationEditVerdict,
 	moveCaseOperationMutation,
+	planCaseOperationUpdate,
 	removeCaseOperationMutation,
 	updateCaseOperationMutations,
 } from "@/lib/doc/caseOperationMutations";
@@ -98,7 +101,6 @@ function createOperation(patch: Partial<CaseOperation> = {}): CaseOperation {
 	return {
 		uuid: CREATE,
 		id: "create_visit",
-		order: "a",
 		action: "create",
 		caseType: "visit",
 		target: { kind: "new" },
@@ -111,7 +113,6 @@ function consumerOperation(patch: Partial<CaseOperation> = {}): CaseOperation {
 	return {
 		uuid: CONSUMER,
 		id: "tag_visit",
-		order: "b",
 		action: "update",
 		caseType: "visit",
 		target: { kind: "op", opUuid: CREATE },
@@ -156,19 +157,247 @@ describe("case-operation mutation planning", () => {
 		expect(next.forms[formUuid].caseOperations).toHaveLength(1);
 	});
 
-	it("preserves the existing order when an update omits it", () => {
+	it("leaves an operation where it sits when an update only changes content", () => {
 		const { doc, formUuid } = fixture();
-		(doc.forms[formUuid] as Form).caseOperations = [createOperation()];
+		(doc.forms[formUuid] as Form).caseOperations = [
+			createOperation(),
+			consumerOperation(),
+		];
 		const mutations = updateCaseOperationMutations(doc, formUuid, {
 			...createOperation(),
-			order: undefined,
 			name: term(literal("Renamed")),
 		});
 		const next = apply(doc, mutations);
-		expect(next.forms[formUuid].caseOperations?.[0].order).toBe("a");
+		expect(
+			next.forms[formUuid].caseOperations?.map((operation) => operation.uuid),
+		).toEqual([CREATE, CONSUMER]);
 		expect(next.forms[formUuid].caseOperations?.[0].name).toEqual(
 			term(literal("Renamed")),
 		);
+	});
+
+	it("applies a cross-type retarget as one scalar patch and one reducer state", () => {
+		const { doc, formUuid } = fixture();
+		const create = createOperation();
+		const consumer = consumerOperation();
+		(doc.forms[formUuid] as Form).caseOperations = [create, consumer];
+		const desired: CaseOperation = {
+			...consumer,
+			caseType: "patient",
+			target: { kind: "session" },
+		};
+
+		const mutations = updateCaseOperationMutations(doc, formUuid, desired);
+		const operationUpdates = mutations.filter(
+			(mutation) =>
+				mutation.kind === "updateForm" &&
+				mutation.caseOperationPatch?.operation === "update",
+		);
+		expect(operationUpdates).toHaveLength(1);
+		expect(operationUpdates[0]).toMatchObject({
+			caseOperationPatch: {
+				operation: "update",
+				uuid: CONSUMER,
+				patch: {
+					caseType: "patient",
+					target: { kind: "session" },
+				},
+			},
+		});
+
+		const committed = apply(doc, mutations);
+		expect(
+			committed.forms[formUuid].caseOperations?.find(
+				(operation) => operation.uuid === CONSUMER,
+			),
+		).toEqual(desired);
+	});
+
+	it("composes stale peer edits to different operation slots", () => {
+		const { doc, formUuid } = fixture();
+		(doc.forms[formUuid] as Form).caseOperations = [createOperation()];
+
+		const rename = updateCaseOperationMutations(doc, formUuid, {
+			...createOperation(),
+			id: "create_encounter",
+		});
+		const changeName = updateCaseOperationMutations(doc, formUuid, {
+			...createOperation(),
+			name: term(literal("Encounter")),
+		});
+
+		expect(rename).toContainEqual(
+			expect.objectContaining({
+				kind: "updateForm",
+				uuid: formUuid,
+				patch: {},
+				caseOperationPatch: {
+					operation: "update",
+					uuid: CREATE,
+					patch: { id: "create_encounter" },
+				},
+			}),
+		);
+		expect(rename).toContainEqual(
+			expect.objectContaining({
+				caseOperationChange: {
+					operation: "update",
+					uuid: CREATE,
+					value: expect.objectContaining({ id: "create_encounter" }),
+				},
+			}),
+		);
+		expect(changeName).toContainEqual(
+			expect.objectContaining({
+				kind: "updateForm",
+				uuid: formUuid,
+				patch: {},
+				caseOperationPatch: {
+					operation: "update",
+					uuid: CREATE,
+					patch: { name: term(literal("Encounter")) },
+				},
+			}),
+		);
+
+		const next = apply(apply(doc, rename), changeName);
+		expect(next.forms[formUuid].caseOperations?.[0]).toMatchObject({
+			id: "create_encounter",
+			name: term(literal("Encounter")),
+		});
+	});
+
+	it("composes stale peer edits to different write slots", () => {
+		const { doc, formUuid } = fixture();
+		const original = consumerOperation({
+			writes: [
+				{ property: "source_id", value: term(literal("original")) },
+				{ property: "note", value: term(literal("original")) },
+			],
+		});
+		(doc.forms[formUuid] as Form).caseOperations = [original];
+
+		const sourceEdit = updateCaseOperationMutations(doc, formUuid, {
+			...original,
+			writes: [
+				{ property: "source_id", value: term(literal("source edit")) },
+				{ property: "note", value: term(literal("original")) },
+			],
+		});
+		const noteEdit = updateCaseOperationMutations(doc, formUuid, {
+			...original,
+			writes: [
+				{ property: "source_id", value: term(literal("original")) },
+				{ property: "note", value: term(literal("note edit")) },
+			],
+		});
+
+		expect(sourceEdit).toContainEqual(
+			expect.objectContaining({
+				kind: "updateForm",
+				uuid: formUuid,
+				patch: {},
+				caseOperationPatch: {
+					operation: "update-write",
+					uuid: CONSUMER,
+					property: "source_id",
+					patch: { value: term(literal("source edit")) },
+				},
+			}),
+		);
+		expect(noteEdit).toContainEqual(
+			expect.objectContaining({
+				kind: "updateForm",
+				uuid: formUuid,
+				patch: {},
+				caseOperationPatch: {
+					operation: "update-write",
+					uuid: CONSUMER,
+					property: "note",
+					patch: { value: term(literal("note edit")) },
+				},
+			}),
+		);
+
+		const next = apply(apply(doc, sourceEdit), noteEdit);
+		expect(next.forms[formUuid].caseOperations?.[0].writes).toEqual([
+			{ property: "source_id", value: term(literal("source edit")) },
+			{ property: "note", value: term(literal("note edit")) },
+		]);
+	});
+
+	it("keeps a peer link-type edit when a stale author unlinks it", () => {
+		const { doc, formUuid } = fixture();
+		const original = consumerOperation({
+			links: [
+				{
+					identifier: "parent",
+					targetType: "patient",
+					target: {
+						kind: "expression",
+						expr: term(literal("case-id")),
+					},
+					relationship: "child",
+				},
+			],
+		});
+		(doc.forms[formUuid] as Form).caseOperations = [
+			createOperation(),
+			original,
+		];
+		const originalLink = original.links?.[0];
+		if (originalLink === undefined) throw new Error("link fixture missing");
+
+		const peerTypeEdit = updateCaseOperationMutations(doc, formUuid, {
+			...original,
+			links: [{ ...originalLink, targetType: "visit" }],
+		});
+		const staleUnlink = updateCaseOperationMutations(doc, formUuid, {
+			...original,
+			links: [{ ...originalLink, target: null }],
+		});
+
+		expect(staleUnlink).toContainEqual(
+			expect.objectContaining({
+				caseOperationPatch: {
+					operation: "update-link",
+					uuid: CONSUMER,
+					identifier: "parent",
+					patch: { target: null },
+				},
+			}),
+		);
+
+		const next = apply(apply(doc, peerTypeEdit), staleUnlink);
+		expect(next.forms[formUuid].caseOperations?.[1].links).toEqual([
+			{
+				...originalLink,
+				targetType: "visit",
+				target: null,
+			},
+		]);
+
+		const fresh = apply(doc, peerTypeEdit);
+		const plan = planCaseOperationUpdate(
+			fresh,
+			formUuid,
+			{
+				...original,
+				links: [{ ...originalLink, target: null }],
+			},
+			original,
+		);
+		expect(plan.ok).toBe(true);
+		if (!plan.ok) return;
+		expect(
+			apply(fresh, plan.mutations).forms[formUuid].caseOperations?.[1].links,
+		).toEqual([
+			{
+				...originalLink,
+				targetType: "visit",
+				target: null,
+			},
+		]);
 	});
 
 	it("rejects removal and reordering while later references depend on a create", () => {
@@ -178,19 +407,24 @@ describe("case-operation mutation planning", () => {
 			consumerOperation(),
 		];
 
+		// An `id-of` edge, so the refusal reports itself as a reference one and
+		// the review layer has slots to name.
 		expect(removeCaseOperationMutation(doc, formUuid, CREATE)).toEqual({
 			ok: false,
 			reason: "dependent-reference",
+			dependencyKind: "reference",
 			dependentUuids: [CONSUMER],
 		});
 		expect(moveCaseOperationMutation(doc, formUuid, CREATE, 1)).toEqual({
 			ok: false,
 			reason: "dependent-reference",
+			dependencyKind: "reference",
 			dependentUuids: [CONSUMER],
 		});
 		expect(moveCaseOperationMutation(doc, formUuid, CONSUMER, 0)).toEqual({
 			ok: false,
 			reason: "dependent-reference",
+			dependencyKind: "reference",
 			dependentUuids: [CONSUMER],
 		});
 	});
@@ -200,7 +434,6 @@ describe("case-operation mutation planning", () => {
 		const retype: CaseOperation = {
 			uuid: CONSUMER,
 			id: "retype_visit",
-			order: "b",
 			action: "update",
 			caseType: "visit",
 			target: { kind: "op", opUuid: CREATE },
@@ -209,7 +442,6 @@ describe("case-operation mutation planning", () => {
 		const later: CaseOperation = {
 			uuid: OTHER,
 			id: "update_retyped_visit",
-			order: "c",
 			action: "update",
 			caseType: "patient",
 			target: { kind: "op", opUuid: CREATE },
@@ -220,14 +452,19 @@ describe("case-operation mutation planning", () => {
 			later,
 		];
 
+		// Nothing holds an `id-of` edge to the retype — what `later` depends on
+		// is the TYPE it leaves behind, and the refusal has to say so or the
+		// review layer has nothing it can find.
 		expect(removeCaseOperationMutation(doc, formUuid, CONSUMER)).toEqual({
 			ok: false,
 			reason: "dependent-reference",
+			dependencyKind: "target-type",
 			dependentUuids: [OTHER],
 		});
 		expect(moveCaseOperationMutation(doc, formUuid, CONSUMER, 2)).toEqual({
 			ok: false,
 			reason: "dependent-reference",
+			dependencyKind: "target-type",
 			dependentUuids: [OTHER],
 		});
 	});
@@ -238,7 +475,6 @@ describe("case-operation mutation planning", () => {
 			{
 				uuid: CONSUMER,
 				id: "update_runtime_patient",
-				order: "a",
 				action: "update",
 				caseType: "patient",
 				target: { kind: "expression", expr: term(formField(NAME)) },
@@ -246,7 +482,6 @@ describe("case-operation mutation planning", () => {
 			{
 				uuid: OTHER,
 				id: "retype_session_patient",
-				order: "b",
 				action: "update",
 				caseType: "patient",
 				target: { kind: "session" },
@@ -257,6 +492,7 @@ describe("case-operation mutation planning", () => {
 		expect(moveCaseOperationMutation(doc, formUuid, OTHER, 0)).toEqual({
 			ok: false,
 			reason: "dependent-reference",
+			dependencyKind: "target-type",
 			dependentUuids: [CONSUMER],
 		});
 	});
@@ -269,7 +505,6 @@ describe("case-operation mutation planning", () => {
 			{
 				uuid: OTHER,
 				id: "update_patient",
-				order: "c",
 				action: "update",
 				caseType: "patient",
 				target: { kind: "session" },
@@ -280,14 +515,24 @@ describe("case-operation mutation planning", () => {
 		if (!plan.ok) return;
 		const next = apply(doc, plan.mutations);
 		expect(
-			next.forms[formUuid].caseOperations?.find((op) => op.uuid === OTHER)
-				?.order,
-		).toBeDefined();
-		expect(
 			orderedCaseOperations(next.forms[formUuid]).map(
 				(operation) => operation.uuid,
 			),
 		).toEqual([OTHER, CREATE, CONSUMER]);
+	});
+
+	it("plans nothing for a move to where the operation already is", () => {
+		const { doc, formUuid } = fixture();
+		const current = createOperation();
+		(doc.forms[formUuid] as Form).caseOperations = [
+			current,
+			consumerOperation(),
+		];
+
+		expect(moveCaseOperationMutation(doc, formUuid, current.uuid, 0)).toEqual({
+			ok: true,
+			mutations: [],
+		});
 	});
 
 	it("rejects a move across multiplicity scopes when the wire cannot preserve it", () => {
@@ -296,12 +541,11 @@ describe("case-operation mutation planning", () => {
 			{
 				uuid: OTHER,
 				id: "update_patient",
-				order: "a",
 				action: "update",
 				caseType: "patient",
 				target: { kind: "session" },
 			},
-			createOperation({ order: "b", forEach: { repeat: REPEAT } }),
+			createOperation({ forEach: { repeat: REPEAT } }),
 		];
 
 		expect(moveCaseOperationMutation(doc, formUuid, OTHER, 1)).toEqual({
@@ -316,7 +560,6 @@ describe("case-operation mutation planning", () => {
 		const updatePatient: CaseOperation = {
 			uuid: OTHER,
 			id: "update_patient",
-			order: "b",
 			action: "update",
 			caseType: "patient",
 			target: { kind: "session" },
@@ -340,7 +583,324 @@ describe("case-operation mutation planning", () => {
 	});
 });
 
+// A move asserts a RANK to the authoritative writer, so it has to land the
+// operation at exactly the index the author asked for — every destination
+// reachable, and the writer's fence agreeing that it landed there. Moving the
+// first, a middle, and the last operation are separate cases because each
+// splices differently.
+describe("case-operation move lands at the rank it asserts", () => {
+	const RANKED = [
+		asUuid("aaaaaaaa-0000-4000-8000-000000000001"),
+		asUuid("aaaaaaaa-0000-4000-8000-000000000002"),
+		asUuid("aaaaaaaa-0000-4000-8000-000000000003"),
+		asUuid("aaaaaaaa-0000-4000-8000-000000000004"),
+	];
+
+	/** An independent session update — nothing here constrains execution order. */
+	function ranked(index: number): CaseOperation {
+		return {
+			uuid: RANKED[index],
+			id: `update_patient_${index}`,
+			action: "update",
+			caseType: "patient",
+			target: { kind: "session" },
+		};
+	}
+
+	function docWith(count: number) {
+		const { doc, formUuid } = fixture();
+		(doc.forms[formUuid] as Form).caseOperations = Array.from(
+			{ length: count },
+			(_, index) => ranked(index),
+		);
+		return { doc, formUuid };
+	}
+
+	function landedIndex(
+		doc: BlueprintDoc,
+		formUuid: ReturnType<typeof asUuid>,
+		uuid: ReturnType<typeof asUuid>,
+		mutations: readonly Mutation[],
+	): number {
+		return orderedCaseOperations(
+			apply(doc, mutations).forms[formUuid],
+		).findIndex((operation) => operation.uuid === uuid);
+	}
+
+	it("drops the first operation inward, and the fence agrees", () => {
+		const { doc, formUuid } = docWith(4);
+		const plan = moveCaseOperationMutation(doc, formUuid, RANKED[0], 1);
+		expect(plan.ok).toBe(true);
+		if (!plan.ok) return;
+		expect(landedIndex(doc, formUuid, RANKED[0], plan.mutations)).toBe(1);
+		expect(batchTargetsMissing(doc, [...plan.mutations])).toBe(false);
+	});
+
+	it("moves an operation up out of the middle", () => {
+		const { doc, formUuid } = docWith(3);
+		const plan = moveCaseOperationMutation(doc, formUuid, RANKED[2], 1);
+		expect(plan.ok).toBe(true);
+		if (!plan.ok) return;
+		expect(landedIndex(doc, formUuid, RANKED[2], plan.mutations)).toBe(1);
+		expect(batchTargetsMissing(doc, [...plan.mutations])).toBe(false);
+	});
+
+	it("lifts the last operation one place (keyboard reorder)", () => {
+		const { doc, formUuid } = docWith(4);
+		const plan = moveCaseOperationMutation(doc, formUuid, RANKED[3], 2);
+		expect(plan.ok).toBe(true);
+		if (!plan.ok) return;
+		expect(landedIndex(doc, formUuid, RANKED[3], plan.mutations)).toBe(2);
+		expect(batchTargetsMissing(doc, [...plan.mutations])).toBe(false);
+	});
+
+	it("lands at EVERY destination of the form", () => {
+		const { doc, formUuid } = docWith(4);
+		const ordered = orderedCaseOperations(doc.forms[formUuid]);
+		const currentIndex = ordered.findIndex(
+			(operation) => operation.uuid === RANKED[1],
+		);
+		for (let index = 0; index < ordered.length; index++) {
+			const plan = moveCaseOperationMutation(doc, formUuid, RANKED[1], index);
+			expect(plan.ok).toBe(true);
+			if (!plan.ok) return;
+			if (index === currentIndex) {
+				// Already there: no authoritative event, and no undo entry.
+				expect(plan.mutations).toEqual([]);
+			}
+			expect(landedIndex(doc, formUuid, RANKED[1], plan.mutations)).toBe(index);
+			expect(batchTargetsMissing(doc, [...plan.mutations])).toBe(false);
+		}
+	});
+
+	it("adds an operation at a requested index", () => {
+		const { doc, formUuid } = docWith(3);
+		const mutations = addCaseOperationMutations(doc, formUuid, ranked(3), 1);
+		expect(landedIndex(doc, formUuid, RANKED[3], mutations)).toBe(1);
+		expect(batchTargetsMissing(doc, [...mutations])).toBe(false);
+	});
+});
+
+describe("case-operation builder choice verdict", () => {
+	it("rejects a target/type mismatch and accepts the action reshape that fixes both", () => {
+		const { doc, formUuid } = fixture();
+		const create = createOperation();
+		(doc.forms[formUuid] as Form).caseOperations = [create];
+
+		expect(
+			caseOperationEditVerdict(doc, formUuid, {
+				...create,
+				action: "update",
+				target: { kind: "session" },
+				name: undefined,
+			}),
+		).toMatchObject({ ok: false });
+		expect(
+			caseOperationEditVerdict(doc, formUuid, {
+				...create,
+				action: "update",
+				caseType: "patient",
+				target: { kind: "session" },
+				name: undefined,
+			}),
+		).toEqual({ ok: true });
+	});
+
+	it("rejects a retype choice that strands a later same-case consumer", () => {
+		const { doc, formUuid } = fixture();
+		const retype: CaseOperation = {
+			uuid: CONSUMER,
+			id: "retype_patient",
+			action: "update",
+			caseType: "patient",
+			target: { kind: "session" },
+			retype: "visit",
+		};
+		const later: CaseOperation = {
+			uuid: OTHER,
+			id: "update_visit",
+			action: "update",
+			caseType: "visit",
+			target: { kind: "session" },
+		};
+		(doc.forms[formUuid] as Form).caseOperations = [retype, later];
+
+		expect(
+			caseOperationEditVerdict(doc, formUuid, {
+				...retype,
+				retype: undefined,
+			}),
+		).toMatchObject({ ok: false });
+		expect(caseOperationEditVerdict(doc, formUuid, retype)).toEqual({
+			ok: true,
+		});
+	});
+
+	it("rejects a link target type that disagrees with its chosen case", () => {
+		const { doc, formUuid } = fixture();
+		const create = createOperation();
+		const updater: CaseOperation = {
+			uuid: OTHER,
+			id: "update_patient",
+			action: "update",
+			caseType: "patient",
+			target: { kind: "session" },
+			links: [
+				{
+					identifier: "visit",
+					targetType: "visit",
+					target: { kind: "op", opUuid: CREATE },
+					relationship: "child",
+				},
+			],
+		};
+		(doc.forms[formUuid] as Form).caseOperations = [create, updater];
+
+		expect(caseOperationEditVerdict(doc, formUuid, updater)).toEqual({
+			ok: true,
+		});
+		const link = updater.links?.[0];
+		if (link === undefined) throw new Error("fixture link missing");
+		expect(
+			caseOperationEditVerdict(doc, formUuid, {
+				...updater,
+				links: [{ ...link, targetType: "patient" }],
+			}),
+		).toMatchObject({ ok: false });
+	});
+
+	it("rejects keying a generated create after an earlier non-create effect", () => {
+		const { doc, formUuid } = fixture();
+		const earlier: CaseOperation = {
+			uuid: OTHER,
+			id: "update_patient",
+			action: "update",
+			caseType: "patient",
+			target: { kind: "session" },
+		};
+		const generated = createOperation();
+		(doc.forms[formUuid] as Form).caseOperations = [earlier, generated];
+
+		expect(caseOperationEditVerdict(doc, formUuid, generated)).toEqual({
+			ok: true,
+		});
+		const verdict = caseOperationEditVerdict(doc, formUuid, {
+			...generated,
+			target: { kind: "new", idFrom: NAME },
+		});
+		expect(verdict.ok).toBe(false);
+		if (verdict.ok) return;
+		// The reason lands in a menu item's reason span, so it is one line in
+		// the builder's voice — not the commit-rejection report, which speaks
+		// in the past tense about an attempt nobody made and carries newlines
+		// the span collapses into the middle of a sentence.
+		expect(verdict.reason).not.toContain("\n");
+		expect(verdict.reason).not.toContain("wasn't applied");
+		expect(verdict.reason).not.toContain("Nothing was changed");
+		expect(verdict.reason).not.toContain("try again");
+	});
+
+	it("rejects repeating a create when a later root operation consumes it", () => {
+		const { doc, formUuid } = fixture();
+		const create = createOperation();
+		const consumer = consumerOperation();
+		(doc.forms[formUuid] as Form).caseOperations = [create, consumer];
+
+		expect(caseOperationEditVerdict(doc, formUuid, create)).toEqual({
+			ok: true,
+		});
+		expect(
+			caseOperationEditVerdict(doc, formUuid, {
+				...create,
+				forEach: { repeat: REPEAT },
+			}),
+		).toMatchObject({
+			ok: false,
+			reason: expect.stringMatching(/repeat|iteration/i),
+		});
+	});
+});
+
 describe("case-operation persistence and reference participation", () => {
+	it("rejects identity-changing and empty granular update patches at ingress", () => {
+		const { formUuid } = fixture();
+		const update = (
+			caseOperationPatch: Record<string, unknown>,
+			value: CaseOperation = createOperation(),
+		) => ({
+			kind: "updateForm",
+			uuid: formUuid,
+			patch: {},
+			caseOperationChange: { operation: "update", uuid: CREATE, value },
+			caseOperationPatch,
+		});
+
+		expect(
+			mutationSchema.safeParse(
+				update({
+					operation: "update",
+					uuid: CREATE,
+					patch: { uuid: OTHER },
+				}),
+			).success,
+		).toBe(false);
+		expect(
+			mutationSchema.safeParse(
+				update({ operation: "update", uuid: CREATE, patch: {} }),
+			).success,
+		).toBe(false);
+		expect(
+			mutationSchema.safeParse(
+				update(
+					{
+						operation: "update-write",
+						uuid: CREATE,
+						property: "source_id",
+						patch: {},
+					},
+					createOperation({
+						writes: [{ property: "source_id", value: term(literal("x")) }],
+					}),
+				),
+			).success,
+		).toBe(false);
+		expect(
+			mutationSchema.safeParse(
+				update(
+					{
+						operation: "update-link",
+						uuid: CREATE,
+						identifier: "parent",
+						patch: {},
+					},
+					createOperation({
+						links: [
+							{
+								identifier: "parent",
+								targetType: "patient",
+								target: { kind: "session" },
+								relationship: "child",
+							},
+						],
+					}),
+				),
+			).success,
+		).toBe(false);
+
+		expect(
+			mutationSchema.safeParse(
+				update(
+					{
+						operation: "update",
+						uuid: CREATE,
+						patch: { id: "new_id" },
+					},
+					createOperation({ id: "different_id" }),
+				),
+			).success,
+		).toBe(false);
+	});
+
 	it("renames defensive Search-input references carried by case operations", () => {
 		const { doc, formUuid } = fixture();
 		const form = doc.forms[formUuid] as Form;
@@ -402,20 +962,35 @@ describe("case-operation persistence and reference participation", () => {
 		const changed = produce(next, (draft) => {
 			const operations = draft.forms[formUuid].caseOperations ?? [];
 			operations[0].name = term(literal("Visit record"));
-			operations[1].order = "z";
+			operations.reverse();
 		});
 		const changeKinds = diffDocsToMutations(next, changed)
 			.filter(
 				(mutation) =>
 					mutation.kind === "updateForm" &&
-					mutation.caseOperationChange !== undefined,
+					(mutation.caseOperationPatch !== undefined ||
+						mutation.caseOperationChange !== undefined),
 			)
 			.map(
 				(mutation) =>
 					mutation.kind === "updateForm" &&
-					mutation.caseOperationChange?.operation,
+					(mutation.caseOperationPatch?.operation ??
+						mutation.caseOperationChange?.operation),
 			);
 		expect(changeKinds).toEqual(["update", "move"]);
+		expect(
+			diffDocsToMutations(next, changed).find(
+				(mutation) =>
+					mutation.kind === "updateForm" &&
+					mutation.caseOperationPatch?.operation === "update",
+			),
+		).toMatchObject({
+			caseOperationPatch: {
+				operation: "update",
+				uuid: CREATE,
+				patch: { name: term(literal("Visit record")) },
+			},
+		});
 
 		const removed = produce(changed, (draft) => {
 			draft.forms[formUuid].caseOperations = [
@@ -430,13 +1005,12 @@ describe("case-operation persistence and reference participation", () => {
 			),
 		).toBe(true);
 
-		const orderCleared = produce(next, (draft) => {
-			const operation = draft.forms[formUuid].caseOperations?.[0];
-			if (operation !== undefined) delete operation.order;
+		const reordered = produce(next, (draft) => {
+			draft.forms[formUuid].caseOperations?.reverse();
 		});
-		const clearDiff = diffDocsToMutations(next, orderCleared);
-		expect(toPersistableDoc(apply(next, clearDiff))).toEqual(
-			toPersistableDoc(orderCleared),
+		const reorderDiff = diffDocsToMutations(next, reordered);
+		expect(toPersistableDoc(apply(next, reorderDiff))).toEqual(
+			toPersistableDoc(reordered),
 		);
 	});
 
@@ -451,7 +1025,12 @@ describe("case-operation persistence and reference participation", () => {
 				caseOperationChange: {
 					operation: "update",
 					uuid: CREATE,
-					value: createOperation(),
+					value: createOperation({ id: "still_absent" }),
+				},
+				caseOperationPatch: {
+					operation: "update",
+					uuid: CREATE,
+					patch: { id: "still_absent" },
 				},
 			},
 			{
@@ -461,7 +1040,7 @@ describe("case-operation persistence and reference participation", () => {
 				caseOperationChange: {
 					operation: "move",
 					uuid: CREATE,
-					order: "z",
+					after: null,
 				},
 			},
 		]);
@@ -552,5 +1131,186 @@ describe("case-operation persistence and reference participation", () => {
 		expect(write?.property).toBe("display_name");
 		expect(write?.value).toEqual(term(prop("patient", "display_name")));
 		expect(next.refIndex).toEqual(buildReferenceIndex(next));
+	});
+});
+
+// Writes and links are keyed collections, so pairing them up says nothing
+// about their ORDER — that has to be compared separately, and it is intent
+// like every other slot: honored when it differs from the snapshot the author
+// saw, left alone when it does not.
+describe("case-operation write and link order is intent", () => {
+	function withWrites(properties: readonly string[]): CaseOperation {
+		return {
+			uuid: CONSUMER,
+			id: "record_visit",
+			action: "update",
+			caseType: "patient",
+			target: { kind: "session" },
+			writes: properties.map((property) => ({
+				property,
+				value: term(literal(property)),
+			})),
+		};
+	}
+
+	function withLinks(identifiers: readonly string[]): CaseOperation {
+		return {
+			uuid: CONSUMER,
+			id: "record_visit",
+			action: "update",
+			caseType: "patient",
+			target: { kind: "session" },
+			links: identifiers.map((identifier) => ({
+				identifier,
+				targetType: "patient",
+				target: null,
+				relationship: "child" as const,
+			})),
+		};
+	}
+
+	function docHolding(operation: CaseOperation) {
+		const { doc, formUuid } = fixture();
+		(doc.forms[formUuid] as Form).caseOperations = [operation];
+		return { doc, formUuid };
+	}
+
+	function committed(
+		doc: BlueprintDoc,
+		formUuid: ReturnType<typeof asUuid>,
+		mutations: readonly Mutation[],
+	): CaseOperation | undefined {
+		return apply(doc, mutations).forms[formUuid].caseOperations?.find(
+			(operation) => operation.uuid === CONSUMER,
+		);
+	}
+
+	it("honors a reorder that arrives together with an addition", () => {
+		// The regression: comparing the two arrays' LENGTHS made this reorder
+		// invisible, because the addition changed the length. The tool then
+		// reported success for an order it had silently discarded.
+		const { doc, formUuid } = docHolding(withWrites(["alpha", "bravo"]));
+		const plan = planCaseOperationUpdate(
+			doc,
+			formUuid,
+			withWrites(["bravo", "alpha", "charlie"]),
+			withWrites(["alpha", "bravo"]),
+		);
+		expect(plan.ok).toBe(true);
+		if (!plan.ok) return;
+		expect(
+			committed(doc, formUuid, plan.mutations)?.writes?.map(
+				(write) => write.property,
+			),
+		).toEqual(["bravo", "alpha", "charlie"]);
+	});
+
+	it("leaves a peer's reorder alone when the author never touched the order", () => {
+		const authorSaw = withWrites(["alpha", "bravo", "charlie"]);
+		// The peer reordered while the author was editing alpha's value.
+		const { doc, formUuid } = docHolding(
+			withWrites(["charlie", "alpha", "bravo"]),
+		);
+		const desired = withWrites(["alpha", "bravo", "charlie"]);
+		desired.writes = desired.writes?.map((write) =>
+			write.property === "alpha"
+				? { ...write, value: term(literal("edited")) }
+				: write,
+		);
+
+		const plan = planCaseOperationUpdate(doc, formUuid, desired, authorSaw);
+		expect(plan.ok).toBe(true);
+		if (!plan.ok) return;
+		const result = committed(doc, formUuid, plan.mutations);
+		expect(result?.writes?.map((write) => write.property)).toEqual([
+			"charlie",
+			"alpha",
+			"bravo",
+		]);
+		expect(
+			result?.writes?.find((write) => write.property === "alpha")?.value,
+		).toEqual(term(literal("edited")));
+	});
+
+	it("leaves a peer's insertion where the peer put it while reordering around it", () => {
+		// The author saw [alpha, bravo] and swapped them. Between the snapshot
+		// and the dispatch a peer inserted charlie FIRST. The author's intent
+		// permutes the two slots they could see; charlie is not theirs to move,
+		// and appending it would be the clobber this whole rule prevents.
+		const { doc, formUuid } = docHolding(
+			withWrites(["charlie", "alpha", "bravo"]),
+		);
+		const plan = planCaseOperationUpdate(
+			doc,
+			formUuid,
+			withWrites(["bravo", "alpha"]),
+			withWrites(["alpha", "bravo"]),
+		);
+		expect(plan.ok).toBe(true);
+		if (!plan.ok) return;
+		expect(
+			committed(doc, formUuid, plan.mutations)?.writes?.map(
+				(write) => write.property,
+			),
+		).toEqual(["charlie", "bravo", "alpha"]);
+	});
+
+	it("composes an add, a removal, a reorder, and a peer's insertion at once", () => {
+		// Every moving part in one call. The author saw [alpha, bravo, charlie],
+		// removed bravo, added delta, and ordered what was left [charlie,
+		// delta, alpha]; a peer inserted echo at the FRONT meanwhile. Each half
+		// has to survive whole: echo keeps index 0, and the author's order fills
+		// the three slots their own members occupy.
+		const { doc, formUuid } = docHolding(
+			withWrites(["echo", "alpha", "bravo", "charlie"]),
+		);
+		const plan = planCaseOperationUpdate(
+			doc,
+			formUuid,
+			withWrites(["charlie", "delta", "alpha"]),
+			withWrites(["alpha", "bravo", "charlie"]),
+		);
+		expect(plan.ok).toBe(true);
+		if (!plan.ok) return;
+		expect(
+			committed(doc, formUuid, plan.mutations)?.writes?.map(
+				(write) => write.property,
+			),
+		).toEqual(["echo", "charlie", "delta", "alpha"]);
+	});
+
+	it("honors a link reorder that arrives together with an addition", () => {
+		const { doc, formUuid } = docHolding(withLinks(["parent", "sibling"]));
+		const plan = planCaseOperationUpdate(
+			doc,
+			formUuid,
+			withLinks(["sibling", "parent", "guardian"]),
+			withLinks(["parent", "sibling"]),
+		);
+		expect(plan.ok).toBe(true);
+		if (!plan.ok) return;
+		expect(
+			committed(doc, formUuid, plan.mutations)?.links?.map(
+				(link) => link.identifier,
+			),
+		).toEqual(["sibling", "parent", "guardian"]);
+	});
+
+	it("states its order unconditionally when the caller passes no snapshot", () => {
+		// The tool surface has no snapshot, so `base` IS `current` there and
+		// any order it states is intent by construction.
+		const { doc, formUuid } = docHolding(
+			withWrites(["alpha", "bravo", "charlie"]),
+		);
+		const mutations = updateCaseOperationMutations(
+			doc,
+			formUuid,
+			withWrites(["charlie", "bravo", "alpha"]),
+		);
+		expect(
+			committed(doc, formUuid, mutations)?.writes?.map(
+				(write) => write.property,
+			),
+		).toEqual(["charlie", "bravo", "alpha"]);
 	});
 });

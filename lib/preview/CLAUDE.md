@@ -16,6 +16,7 @@ The Lezer grammar emits TWO distinct `Child` node types (one from the root-step 
 
 - **Default values apply one-time on init, AFTER case-data preload** — so the preloaded case data sets the initial state and defaults only fill unset fields.
 - **Required validation is deferred to submit.** Showing "required" on blur is bad UX because the user may have clicked in and navigated away. The red asterisk communicates requiredness until submission.
+- **A temporal answer's SHAPE is checked, and it rides with authored validation, not with required.** A clock is typed, so it is the one answer a person can half-finish into something that is not a value of its type at all — `"abc"` is a legal string, `"2:3"` is not a time. `temporalShapeError` asks `lib/domain`'s `isStorageTemporalValue` and, on a miss, replaces the field's message with one naming what was entered. Riding with authored validation puts it on blur (the moment the answer stopped being half-typed) and again for every field at submit, so a half-typed clock can neither slip past nor be judged by an XPath rule that has nothing useful to say about it. An empty answer is not ill-shaped — that is `required`'s question. Without this the value reaches the case store and returns as a schema rejection naming a property instead of a question.
 - **`reset()` is a full reinitialization** — rebuild instance, re-preload, reapply defaults, re-cascade. Returns to the exact initial state.
 - **`resetValidation()` clears touched state + errors only** — called when leaving test mode so fields start clean on re-entry.
 
@@ -51,14 +52,29 @@ onto `CaseStore.applySubmission` (`submissionEnvelopeArgs` in the
 binding helpers), which applies the primary write, every child insert,
 and close's lifecycle transition in ONE Postgres transaction — partial
 success is unobservable, and the running-app view re-queries one
-settled state on resolve. Since S07b the mutation also carries the
-form's uuid plus plain-JSON per-scope operation answer bindings
+settled state on resolve. Every mutation arm carries the form UUID,
+controller-owned entry UUID, and exact attachment-reference projection
+(including an explicit empty list), plus plain-JSON per-scope operation
+answer bindings when the committed form has operations
 (`computeOperationAnswers` — complete per iteration, parent-major,
-multi-select as token arrays), and the SERVER builds the case-operation
-program from the COMMITTED doc (`buildSubmissionOperationProgram`:
-S04 analyses + `buildCaseTypeMap` + the identity's session values,
-`ordinary.caseType` populated for the rolling proof) — a survey with a
-program executes it, and the envelope's typed `SubmissionRejectedError` surfaces as the
+multi-select as token arrays). The Server Action validates and normalizes
+that final protocol before program, capture-intent, or effect derivation; the
+retired name-only projection is rejected. Its authorization transaction locks
+the app, proves fresh Project membership, and reads any durable receipt before
+loading blueprint topology. The SERVER builds
+the case-operation program from the COMMITTED doc
+(`buildSubmissionOperationProgram`: S04 analyses + `buildCaseTypeMap` + the
+identity's session values, `ordinary.caseType` populated for the rolling
+proof). That same authorized boundary retains the `LookupScope`, projects the
+canonical production lookup occurrences onto the built program's operation
+UUIDs, and loads one rows-free definition snapshot only when those operations
+actually carry lookup references. The resulting `lookupTableSchemas` map is
+part of the immutable program handed to `applySubmission`, so a schema-heal
+retry reuses the exact same compiler context; lookup rows themselves stay
+current inside the submission transaction. A committed operation-bearing form
+with missing answer bags rejects wholesale rather than silently applying
+ordinary-only effects. A survey with a program executes it, and the envelope's
+typed `SubmissionRejectedError` surfaces as the
 `submission-rejected` result arm with whole-rollback copy in
 `FormScreen`. The close transition itself stays the
 store's: it atomically owns both `closed_on` and the canonical
@@ -66,6 +82,210 @@ built-in `status = "closed"`; the preview must never supply or invent
 its own status vocabulary. This keeps the live row aligned with
 CommCare's `@status` attribute and makes a close form with no property
 writes a complete lifecycle write by itself.
+
+## Attachments are staged per form entry, reserved atomically at submit
+
+A capture question's answer is a server-minted attachment name; the bytes go
+straight to GCS on a signed URL (`components/preview/form/fields/attachment`),
+never through a Server Action — a `File` argument would make React encode
+multipart, which the edge WAF reads as header injection.
+
+`EngineController.entryKey` is the idempotency/reservation scope, minted per
+`activateForm`. It lives on the CONTROLLER, not the engine, and survives cold
+identity, lookup, case-data rebuilds, and an access refresh confirmed for the
+same Project; a key minted by each rebuilt engine or scope epoch would rotate
+under already staged bytes. A confirmed app/form/Project change, materially
+different worker projection, terminal revoke/upgrade boundary, or **Clear
+form** retires the entry and rotates the key. Clear mounts the fresh answer
+world synchronously; deletion of the retired entry's staging rows is
+best-effort and never delays or later resets the new entry. **There is no form
+resume** — nothing persists
+runtime answers and `deactivate` wipes the store — so leaving a form starts a
+new entry. The controller exposes that identity through `entryStore`; form
+lifecycle code must subscribe to it rather than sampling the imperative getter,
+because a materially changed worker projection can rotate the entry from a
+provider effect without changing the persona UUID or route.
+
+Confirmed row ownership lives at `(app, entryKey, stableSlotKey)` above any one
+rendered field. A stable slot is the field UUID plus every enclosing repeat's
+stable instance identity; its concrete indexed path is a mutable projection.
+Relevance, group/repeat remounts, Preview/Edit flips, and positional repeat
+compaction therefore cannot delete or misidentify an answer whose entry is still
+live. The same slot retains its filename, recoverable issue, and signature draft
+above component lifetime. A real entry teardown/reset best-effort deletes those
+unreserved rows immediately; the scheduled row sweep and staging TTL remain the
+failure backstop. Every cleanup DELETE — teardown, replacement, remove, repeat
+deletion, or post-initiate PUT/confirm compensation — is bounded and detached
+from the entry queue. It can leave an expiring orphan but cannot delay an answer
+commit, confirmed replacement, or Submit. Initiate, signed PUT, confirm, and
+retarget each own a foreground deadline covering the request plus its
+success/error response body. Cancel aborts the current slot generation without
+changing its prior confirmed owner; a late completion is fenced and cleaned up.
+That absence of cross-entry resume is
+also why nothing simulates
+the runtime's blank-pad-over-live-signature behavior: the state cannot arise
+here. A future resume story must carry the entry key forward with the answers,
+and must leave the pad blank rather than helpfully restoring it.
+
+`FormEngine.collectAttachmentReferences` carries the exact server-minted name,
+field UUID, and concrete repeat-indexed path for every surviving answer, and it
+DOES consult effective visibility (the field plus every group/repeat ancestor)
+— unlike the case-property collector, whose
+visibility-blindness is an AJV storage constraint with nothing to say about
+attachments. The server re-derives the committed field/path templates and
+rejects stale or mismatched provenance. An irrelevant question's node is
+omitted from the submitted instance on the wire, so its attachment is genuinely
+not part of the submission. Nova then diverges from the platform by not
+shipping it at all, where the real runtime enumerates the session media
+directory and uploads orphans anyway.
+An empty attachment projection from a committed form that still contains a
+capture question nevertheless emits `captureIntent` with `attachments: []`.
+That keeps a retry under the same entry key inside the durable receipt/digest
+protocol after an earlier accepted request, instead of letting cleared, hidden,
+or removed answers bypass replay and repeat case effects. The submission
+envelope also carries that receipt identity independently of `captureIntent`.
+The action's one authorization transaction reads an existing durable receipt
+before current blueprint/form/capture validation; when no receipt exists it
+returns the committed app snapshot used for program and capture-authority
+derivation. The preparation transaction and entry-locked store reauthorize at
+their own mutation boundaries and adjudicate the receipt before effects, so an
+exact retry after the form or capture question is deleted still replays and a
+changed digest rejects before effects.
+
+Every capture mutation for one entry goes through one form-wide queue. A newer
+operation aborts and generation-fences an older operation on the same stable
+slot. The control publishes queued intent before it waits behind another slot,
+so a second picker/clear/draw gesture cannot silently supersede the first;
+signature debounce and `toBlob` encoding enter that queue immediately,
+and a dirty/failed encoding keeps the barrier blocked rather than submitting
+an older answer. `pointercancel` and `lostpointercapture` settle the ink through
+the same path; dirty stable draft state starts an immediate encode after an
+ordinary remount. A
+signature Clear during queued/active save is itself the newer explicit intent:
+it aborts that generation and queues exactly one answer-clear transition. Its
+private serialization key carries the real stable slot/path/field target, so
+Submit classifies and waits for that active clear rather than mistaking the
+synthetic key for a deleted engine path. Dormancy cancels an older signal-aware
+upload/retarget but does not cancel this explicit Clear: it runs ahead of Submit
+so the old answer cannot revive later.
+Submit first classifies every registered, active, not-ready, and retargeting
+slot **before** it joins the tail; it continues classification while waiting.
+Dormant work is aborted without dropping its draft/issue, removed work is
+retired, and only active `notReady` state can reject. Retarget PATCH maintenance
+is signal-aware and registered by slot too — otherwise an offline PATCH for a
+now-hidden question could starve the barrier it sits ahead of. Submit remains a
+barrier behind participating prior work and ahead of later work, and rechecks the
+initiating form, entry, persona, case, Project scope, and post-submit
+destination before calling the action. Once Submit enters `running`, the
+entire answer surface is inert/disabled until the barrier and server action
+settle; a post-click text,
+picker, signature, repeat, replace, or remove gesture cannot join only one side
+of the submission snapshot. Clear form does not use this barrier; it retires the
+old entry and synchronously mounts a new idempotency scope.
+A confirmed owner whose retarget is cancelled by dormancy keeps a stable
+retarget blocker and a suspended marker. If the question becomes active again,
+the next barrier mints a newer generation and repairs/converges that owner
+before submission; a late cancelled response cannot clear the newer blocker.
+A real non-abort retarget failure is marked failed and never auto-retries from
+barrier polling — the worker still chooses Retry, replacement, or removal.
+
+`EngineController.removeRepeat` is the ONE compaction owner. It emits the
+removed prefix plus every positional move; FormScreen binds that event to the
+entry coordinator even when the affected capture is irrelevant/unmounted.
+Remove remains visible but disabled without current write authority. Its
+imperative boundary requires the exact coordinator authority generation
+captured by the handler, then rechecks the controller entry key and target
+repeat instance's stable key immediately before compaction. A handler captured
+before refresh, viewer downgrade, or authority loss/restoration cannot retire a
+successor instance or its capture. The
+coordinator updates desired slot paths synchronously, queues server CAS
+retargets after any already-running upload/encoding and before Submit, and
+cancels/discards only slots belonging to the removed instance. A failed old
+retarget NEVER clears the answer or discards the retained row. It preserves the
+owned attachment, desired and server paths, filename/signature ink, and a
+generation-tagged `notReady` issue. A picked-file save failure also writes that
+stable slot issue instead of component-local state, so **Choose file** recovery
+survives an ordinary remount. Retarget failure exposes Retry plus
+replace/remove for picked files; Signature exposes Retry beside the pad's single
+**Clear signature** action, and its message names that exact action. Recovery
+controls have question-qualified accessible names. Retry CASes the retained
+row; a newer replacement generation supersedes it and clears only the older
+issue. A surviving pending signature keeps its draft and `notReady` blocker
+until its latest PNG confirms, then the newly owned row—not an older PNG—is
+retargeted.
+
+Authored path changes use the same ownership lane. One whole-batch
+`EngineController` topology subscription compares the complete pre/post
+UUID-to-path projections and moves every retained engine value in one atomic
+call before per-field listeners run. It emits one capture-move set by stable
+field UUID for simultaneous capture renames, cross-parent leaf/subtree moves,
+ancestor renames, and group↔repeat conversion; the coordinator remaps every
+concrete instance path synchronously and serializes its row CAS behind any
+in-flight upload and ahead of Submit. Each retained/deleted event carries the
+pre/post stable identity of every path segment, so retained repeat indices
+survive cross-parent and different-depth moves instead of following positional
+depth by accident. Projection is tri-state: mapped paths retarget, only a
+proven removed repeat instance or an explicit deleted-field variant may clean
+up, and malformed/missing identities preserve owner, picked file, signature
+ink, and an invariant Submit blocker. The stored old path is only the CAS
+coordinate—the destination alone must match the current committed capture
+template. When malformed topology leaves no valid rendered path, the form owns
+a recovery-only, question-qualified action that can remove the file or clear
+the signature without claiming a new path; Submit focuses that action. A stable
+UUID's explicit deleted-field event takes precedence over an unusable old-path
+projection and retires exactly that slot. A capture-kind change
+is incompatible ownership: cancel/fence active work, clean the old row, and
+retain a targeted replacement blocker on the stable field UUID. React remounts
+recover the existing slot by `(field UUID, desired concrete path)` so a
+group↔repeat renderer-key change cannot create a second owner.
+
+Project viewers may inspect capture answers but must never mint or mutate
+capture data. Controls disable picker, drawing, clear/remove, and recovery
+actions; authority loss aborts and generation-fences work already in flight.
+`FormScreen` installs one exact coordinator authority token containing
+`appId`, `entryKey`, `formUuid`, `projectId`, `actorUserId`, `ownerId`,
+`scopeEpoch`, `accessPhase`, and `canEdit`. Every operation also carries its
+exact stable slot key. Missing/stale authority, missing slot identity, missing
+response-body methods, and malformed response coordinates reject in production;
+tests must supply the real contract rather than activate fallbacks. Form-level
+invariant recovery uses the same exact coordinator authority token:
+its Remove/Clear control disables during refresh or viewer access, and
+imperative discard rejects a missing or stale generation before retiring the
+owner, retained File/signature ink, and Submit blocker.
+Every event handler re-reads the current session access tuple at its mutation
+boundary, just like Submit and Clear form. A transient refresh suspends old
+network generations but preserves the controller, entry key, answers, focus,
+browser-owned File controls, staged ownership, drafts, ink, diagnostics, and
+Submit blockers. If React batches the refresh and same-Project authorization
+into one committed render, the authority generation still pauses active file
+drafts and rearms dirty signature ink exactly once.
+
+Signature pixels are entry/stable-slot-local across ordinary remounts and reset
+on an entry/persona change. Points are normalized to the canvas bounds, so a
+successful encoding records CSS width/height, device pixel ratio, and backing
+width/height beside the strokes. CSS resize, DPR-only change, and a remount at
+different geometry redraw and re-encode the complete signature rather than
+clipping old absolute coordinates or submitting stale pixels. `toBlob`
+callbacks also carry a generation fence because the browser API cannot itself
+be aborted. Encode/upload failure retains the ink plus an actionable
+Retry/**Clear signature** slot issue across remounts; Retry re-encodes the
+retained strokes.
+The DPR watcher is a self-rearming resolution media query, so a density-only
+change does not depend on a window resize event. Clear's inverse stroke buffer
+is stable-slot state, so Undo survives ordinary remounts until the worker draws
+again. A blocked canvas exposes its disabled/read-only state to assistive
+technology.
+
+`FormEngine.firstInvalidFieldTarget` returns the first effectively visible
+invalid concrete path plus every structural ancestor UUID. On invalid Submit,
+`FormScreen` expands those group/repeat ancestors in one layout commit, announces
+the failure, then scrolls and focuses the real invalid control (`input`,
+signature canvas/custom textbox, button, or the focusable question wrapper
+fallback). Collapse toggles carry `aria-expanded` and `aria-controls`; selected
+capture questions use the same custom-control-aware focus selector.
+`AttachmentNotReadyError` carries stable slot, concrete path, and field UUID;
+the same reveal path opens a collapsed blocker and focuses its exact Retry
+action. Both paths use immediate scrolling when reduced motion is requested.
 
 ## Repeat instances are first-class
 
@@ -81,7 +301,7 @@ Repeat children live at CONCRETE indexed paths (`/data/orders[1]/name`), one Fie
   the proof sees them through the ordinary collection, not the swap.
 - **Instance counts are explicit.** `DataInstance` tracks cardinality in its own map, keyed by concrete repeat path — never derived from which value keys happen to exist (a repeat with only structural children still counts 1). `set` auto-extends counts from indexed path segments so restore/rename flows stay consistent. A new instance seeds the AUTHORED template shape — nested repeats restart at one instance, matching what the deployed form's `jr:template` produces — not `[0]`'s live shape.
 - **The runtime store is dual-keyed.** Every field keeps its uuid key (edit-mode rows); every path with an `[N]` segment ALSO gets a path key — the interactive renderer subscribes via `useEngineStateAt(uuid, path)` and writes through `controller.setValueAt(path, …)` / `touchAt(path)`, so two instances of one field hold independent value/visibility/validity. Uuid-keyed flows (`onValueChange`) address the `[0]` template only.
-- **Doc mutations land on every live instance.** The controller's incremental handlers (field added / removed / renamed / retyped / expression edited during live preview) route through the engine's instance-aware ops — `materializePaths` expands the uuid map's `[0]` template path over the live counts, and `renamePaths` moves values/states in one batch (materialize-before-move, since renaming a repeat container relocates the count its descendants materialize through). A repeat→group conversion keeps only instance 0; the other instances' values are dropped with their states unplugged.
+- **Doc mutations land on every live instance.** The controller's incremental handlers (field added / removed / retyped / expression edited during live preview) route through the engine's instance-aware ops. Authored topology is reconciled once per committed batch from complete pre/post path maps, so two independent renames or a cross-parent subtree move cannot observe a half-updated map. `materializePaths` expands the uuid map's `[0]` template path over the live counts, and `renamePaths` moves all values/states in one call (materialize-before-move, since renaming or moving a repeat container relocates the count its descendants materialize through). A repeat→group conversion keeps only instance 0; the other instances' values are dropped with their states unplugged.
 
 In render paths, read repeat instance counts from `state.repeatCount` (via the engine-state hooks), not from `controller.getRepeatCount(uuid)` — the latter is a non-reactive method call. `addRepeat` / `removeRepeat` bump `repeatCount` on the repeat's own `FieldState` precisely to give subscribers that signal. `getRepeatCount` is fine outside render or in render paths whose lifecycle guarantees no add/remove can happen while mounted (e.g. edit-mode-only rows).
 
@@ -143,11 +363,11 @@ Blueprint mutations in edit mode recreate the engine. The engine hook snapshots 
 
 `engine/identity.ts` is the ONE identity contract every preview surface speaks — Search/Results session evaluation, form XPath `#user/*`, the SQL compiler's session bindings, and the acting user behind case writes. Providers are the sole constructors of `ResolvedPreviewIdentity`, and every provider must present a persisted user id: `previewAsMe` and `previewAsPersona` both refuse without one, and no session-only pseudo-persona is constructible.
 
-**Two ids, and they are NOT interchangeable.** `actorUserId` is the signed-in member and the ONLY thing that ever authorizes. `ownerId` is the CommCare worker the preview acts as — the `owner_id` stamped on rows it writes and what `session/context/userid` resolves to. Previewing as yourself makes them the same string; previewing as a persona makes `ownerId` that persona's UUID while the member still authorizes. `ownerId` is authored blueprint content, so keying an authorization decision on it would let an app choose whose data a request reads; `gatedCaseStoreWithScope` passes `actorUserId` to `resolveAppScope` and threads `ownerId` through `withProjectContext(projectId, actorUserId, ownerId)` as the worker only, and `__tests__/identity.test.ts` pins that the two cannot be re-conflated. A Server Action accepts a persona SELECTOR (a uuid) and resolves it against the committed document; it never accepts an identity.
+**Two ids, and they are NOT interchangeable.** `actorUserId` is the signed-in member and the ONLY thing that ever authorizes. `ownerId` is the CommCare worker the preview acts as — the `owner_id` stamped on rows it writes and what `session/context/userid` resolves to. Previewing as yourself makes them the same string; previewing as a persona makes `ownerId` that persona's UUID while the member still authorizes. `ownerId` is authored blueprint content, so keying an authorization decision on it would let an app choose whose data a request reads; `resolveAuthorizedPreviewContext` passes `actorUserId` into the locked authorized-app snapshot before resolving any persona and threads `ownerId` through `withProjectContext(projectId, actorUserId, ownerId)` as the worker only, and the consumer tests pin that the two cannot be re-conflated (including Project-scoped lookup reads, which always use the actor). A Server Action accepts a persona SELECTOR (a uuid) and resolves it against the committed document; it never accepts an identity.
 
-**Two projections, because the wire has two.** `session` is `instance('commcaresession')/session/…` (`SessionInstanceBuilder.addMetadata` + `addUserProperties`); `usercase` is the `commcare-user` case `#user/<prop>` reads (`sync_usercase.py::_get_user_case_fields`). Same authored data, different built-in keys — `first_name` in the usercase, `commcare_first_name` in the session block — so collapsing them would make one of the two lie. **The three location keys diverge, and it is easy to get backwards**: `get_user_session_data` writes all three or none, so the session block omits them while nobody is assigned anywhere, but `_get_user_case_fields` takes an `else` branch to `''` for all three, so the usercase always carries them. Values are otherwise honest: `commcare_project` and `commcare_phone_number` are ABSENT (no deployment target, no HQ account). `user_type` IS present and reads `"standard"` — HQ sends the key only for a practice user, but every `commcare-core .../User.java` constructor calls `setUserType(STANDARD)` before `UserXmlParser::parse` applies any `<data key>`, so the device always has it and a condition on it must behave the same here. A DECLARED property with no value is present-and-empty, matching HQ's `UserData.to_dict` seed, while an undeclared key is genuinely absent — the split a `= ''` comparison depends on.
+**Two projections, because the wire has two.** `session` is `instance('commcaresession')/session/…` (`SessionInstanceBuilder.addMetadata` + `addUserProperties`); `usercase` is the `commcare-user` case `#user/<prop>` reads (`sync_usercase.py::_get_user_case_fields`). Same authored data, different built-in keys — `first_name` in the usercase, `commcare_first_name` in the session block — so collapsing them would make one of the two lie. The serializable session projection also carries `userPropertySlugs` (custom UUID→CURRENT slug), which is binding metadata rather than worker data; `previewUserPropertySlugMap` turns it into the typed emitter/compiler map. Thus both Predicate `session-user-property` and XPath `user-property-ref` evaluate against the same property after a rename without rewriting their AST, while name-backed built-in/external arms remain literal. Every session/usercase read uses an own-key lookup, so authored `__proto__` and `constructor` values cannot inherit from the object prototype. **The three location keys diverge, and it is easy to get backwards**: `get_user_session_data` writes all three or none, so the session block omits them while nobody is assigned anywhere, but `_get_user_case_fields` takes an `else` branch to `''` for all three, so the usercase always carries them. Values are otherwise honest: `commcare_project` is ABSENT (no deployment target), while the session's first/last/phone keys and the usercase's first/last/phone/email keys are PRESENT, derived when possible and empty otherwise, because HQ writes those slots unconditionally. `user_type` IS present and reads `"standard"` — HQ sends the key only for a practice user, but every `commcare-core .../User.java` constructor calls `setUserType(STANDARD)` before `UserXmlParser::parse` applies any `<data key>`, so the device always has it and a condition on it must behave the same here. A DECLARED property with no value is present-and-empty, matching HQ's `UserData.to_dict` seed, while an undeclared key is genuinely absent — the split a `= ''` comparison depends on.
 
-Server side, every case-data Server Action resolves the identity once at its own boundary — `resolvePreviewIdentityForApp(appId, personaUuid)` (helpers) — and hands it to `gatedCaseStore`. The store factory takes the identity, never a bare user id. A client may name WHICH persona (a uuid, resolved against the committed blueprint; one naming nothing falls back to previewing as the member) but never asserts an identity, and the persona rides the WRITE paths too — `submitFormAction`'s resolved `ownerId` is what every case the submission creates is owned by, so dropping it would give a persona's work to the signed-in member while every read still looked persona-scoped. Client side, `BuilderFormEngineProvider` seeds `useSelectedPreviewIdentity()` on the `EngineController` inside its `useState` initializer — child effects flush before parent effects, so an effect-only install would hand every warm-session form mount an identity-less engine plus an immediate rebuild — and a follow-up effect tracks later session changes. Identity is engine-lifetime state: a materially different identity rebuilds any active engine (one evaluation world), a re-derived-but-identical identity is a no-op (`samePreviewIdentity`), a cold session resolving mid-entry restores user-touched values through the engine's shared snapshot/restore (same touched-only contract as blueprint-edit recreation — untouched values may be world-dependent defaults and must re-derive), and replacing a NON-null identity (sign-out, different worker) discards — restoring would leak one worker's entries into another's session. Every suite that mounts `BuilderFormEngineProvider` (directly or transitively) must mock `@/lib/auth/hooks/useAuth`, or the session atom's `setTimeout(0) → fetchSession()` trips the async-leak gate. `#user/<prop>` resolves from the identity's `usercase` projection — the `commcare-user` case the wire's `#user/` hashtag expands to, NOT the session block, whose built-in keys differ (`first_name` there, `commcare_first_name` in the session). An absent key reads blank at evaluation, matching the device's missing property. The signed-out projection (`previewSessionValues(null)`) carries device context only.
+Server side, every persona-aware running path — Results/Details reads, sample populate/reset, and submission — calls `resolveAuthorizedPreviewContext` once. It authenticates the member, resolves membership plus the committed blueprint under the same app-row and membership locks, resolves the selector from that one authorized snapshot, and binds the explicit actor/owner pair. A selector naming a missing persona returns `persona-unavailable`; it never silently runs a read or write as the member. The selected owner rides populate/reset and `submitFormAction`, so all rows the persona creates belong to the persona, while the actor remains the authorization and lookup identity. Client side, `useSelectedPreviewIdentityState()` makes selected-but-missing a distinct `persona-unavailable` state rather than collapsing it with signed-out/loading or falling back to the member for one frame. `PreviewShell` replaces the running screens with an explicit unavailable-persona refusal and a **Preview as me** recovery action, while `BuilderFormEngineProvider` marks the `EngineController` blocked so activation cannot execute behind that refusal. Leaving Preview clears the persona selector before edit-only sample/data surfaces become active; the next preview therefore starts as the member unless the author chooses another persona. Visual consumers of the compatibility `useSelectedPreviewIdentity()` keep the server/client hydration render identity-free, while `BuilderFormEngineProvider` opts into a warm cached session and seeds that result on the `EngineController` inside its `useState` initializer — the provider itself renders no identity-dependent markup, and child effects flush before parent effects, so an effect-only install would hand every warm-session form mount an identity-less engine plus an immediate rebuild. A follow-up effect tracks later session changes. Identity is engine-lifetime state: a materially different identity rebuilds any active engine (one evaluation world), a re-derived-but-identical identity is a no-op (`samePreviewIdentity`), a cold session resolving mid-entry restores user-touched values through the engine's shared snapshot/restore (same touched-only contract as blueprint-edit recreation — untouched values may be world-dependent defaults and must re-derive), and replacing a NON-null identity (sign-out, different worker) discards — restoring would leak one worker's entries into another's session. Every suite that mounts `BuilderFormEngineProvider` (directly or transitively) must mock `@/lib/auth/hooks/useAuth`, or the session atom's `setTimeout(0) → fetchSession()` trips the async-leak gate. `#user/<prop>` resolves from the identity's `usercase` projection — the `commcare-user` case the wire's `#user/` hashtag expands to, NOT the session block, whose built-in keys differ (`first_name` there, `commcare_first_name` in the session). An absent key reads blank at evaluation, matching the device's missing property. The signed-out projection (`previewSessionValues(null)`) carries device context only.
 
 ## Case tiles in the running app
 
@@ -190,7 +410,7 @@ The nav stack carries only `caseId`. Case data is looked up by id at the point o
 
 **Per-case-type refs resolve at every reachable depth, positionally.** The engine's case data is a per-case-type map (`CaseDataByType`, case-type name → property map) built by `caseRowsToFormPreloads` with the WIRE's semantic: each reachable type's namespace binds to the row at that type's blueprint depth — `expandCaseToWire` emits a blueprint-fixed `index/parent × depth` casedb walk with no case-type filter, so when the live parent chain doesn't mirror the blueprint's `parent_type` chain, preview and device read the SAME row at the hop count (and a depth past the chain's end reads blank on both). The rows come from `readCaseData`, which walks the bound case's `parent_case_id` chain server-side through the `parent` index edges, exactly `ancestorDepth` hops (the form's `reachableCaseTypes(...).length - 1`, client-supplied, server-clamped at 64 — any deeper `parent_type` chain is pathological authoring); the chain is ENRICHMENT — a dangling parent or a mid-walk failure degrades to the rows already fetched, never fails the load. The hashtag resolver (`formEngine.ts::createEvalContext`) looks a `#<case_type>/<prop>` namespace up by type name; the transitional `#case/` spelling aliases the own type; `caseRefAcceptMap` decides at authoring time which namespaces a form may reference. Both case-loading form types preload (`followup` AND `close`) — from the OWN type's entry only, since ancestor namespaces are read-only reference data, and only while the engine's supplied-under type still matches the module's (a mid-preview module retype withholds preload rather than seed field values from an ancestor's row — `ownCaseData`). Each per-row map (`caseRowToFormPreload`) carries the JSONB document PLUS the reserved scalar columns under their standard names (`date_opened`, `last_modified`, `case_id`, …), mirroring what the device's casedb exposes.
 
-Case-list sorting belongs to the Results composition. Equal authored sort priorities tie-break by `listOrder ?? order`, never by `detailOrder`; this is shared with the short-detail wire emitter. The confirmation screen independently renders `detailOrder ?? order`, so rearranging Details has no effect on row query order.
+Case-list sorting belongs to the Results composition. Equal authored sort priorities tie-break by Results position (`listColumnOrder`), never by Details; this is shared with the short-detail wire emitter. The confirmation screen independently renders `detailColumnOrder`, so rearranging Details has no effect on row query order. Both are read through `orderedColumns(config, surface)`.
 
 Case-data authoring is builder chrome, never simulated-app UI. `BreadcrumbStrip` owns the single persistent **Case data** manager: `loadCaseCountAction` reports the complete unfiltered population, an empty type may create samples, and replacing a populated type requires an explicit warning that ALL rows (including hand-entered / Preview-entered cases) are deleted. Successful populate/reset hooks advance `caseDataInvalidation` for `(appId, caseType)`; `useCases`, `useCaseData`, and `useCaseCount` all subscribe to that revision so one write refreshes every real-data representation instead of manually reloading the surface that launched it. Results and Details edit canvases do not query one case for decoration; real values belong to the running Preview.
 

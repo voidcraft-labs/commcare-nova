@@ -93,7 +93,6 @@ import {
 } from "../../lib/doc/expressionText";
 import { rebuildFieldParent } from "../../lib/doc/fieldParent";
 import { renameFieldIdVerdict } from "../../lib/doc/identifierVerdicts";
-import { byListColumnOrder } from "../../lib/doc/order/compare";
 import type { BlueprintDoc, Mutation, Uuid } from "../../lib/doc/types";
 import {
 	asUuid,
@@ -102,6 +101,7 @@ import {
 	type Field,
 	fieldCasePropertyOn,
 	formExpressionSource,
+	orderedColumns,
 	plainColumn,
 } from "../../lib/domain";
 
@@ -156,6 +156,9 @@ export const REPAIR_JUDGMENTS: Readonly<
 	CONNECT_NO_PARTICIPATING_FORMS: owner(
 		"which form should participate in Connect — and the sub-config names/descriptions it carries — is content the user writes",
 	),
+	BLUEPRINT_ENTITY_UUID_DUPLICATE: owner(
+		"choosing which globally-colliding entity keeps its stable identity requires rewriting every reference to the other entity",
+	),
 	// ── Worker information, roles, personas ──────────────────────────
 	//
 	// No app predating the commit gate can carry any of these findings:
@@ -169,6 +172,9 @@ export const REPAIR_JUDGMENTS: Readonly<
 	),
 	USER_PROPERTY_SLUG_DUPLICATE: owner(
 		"which of the two colliding names to keep, and what to rename the other to, is the owner's decision",
+	),
+	USER_PROPERTY_CHOICES_DUPLICATE: owner(
+		"which duplicate accepted value is redundant, or whether the list itself is wrong, is an authoring decision",
 	),
 	USER_TYPE_NAME_DUPLICATE: owner(
 		"which duplicate role is which — and therefore what to rename — is content only the owner knows",
@@ -184,6 +190,9 @@ export const REPAIR_JUDGMENTS: Readonly<
 	),
 	USER_DATA_INVALID_CHOICE: owner(
 		"whether the value or the accepted-values list is the mistake is the owner's call",
+	),
+	USER_PROPERTY_REFERENCE_UNKNOWN: owner(
+		"choosing the intended worker-information property for a stranded stable reference is content",
 	),
 	// ── Module-level ─────────────────────────────────────────────────
 	NO_CASE_TYPE: owner(
@@ -1286,13 +1295,11 @@ const planSortPriorityRenumber: RepairModule = (finding, doc) => {
 	const config = mod?.caseListConfig;
 	if (!mod || !config || moduleUuid === undefined) return undefined;
 
-	const sorted = config.columns
+	// Priority decides; Results position is the tie-break the author sees, so
+	// the walk starts from the Results sequence rather than the storage array.
+	const sorted = orderedColumns(config, "list")
 		.filter((column) => column.sort !== undefined)
-		.sort(
-			(a, b) =>
-				(a.sort?.priority ?? 0) - (b.sort?.priority ?? 0) ||
-				byListColumnOrder(a, b),
-		);
+		.sort((a, b) => (a.sort?.priority ?? 0) - (b.sort?.priority ?? 0));
 	const newPriority = new Map<Uuid, number>();
 	for (const [rank, column] of sorted.entries()) {
 		newPriority.set(column.uuid, rank);
@@ -1365,6 +1372,9 @@ const planSeedCaseNameColumn: RepairModule = (finding, doc) => {
 				caseListConfig: {
 					...(config ?? {}),
 					columns: [column],
+					// The seeded column belongs to both surfaces from birth.
+					listColumnOrder: [column.uuid],
+					detailColumnOrder: [column.uuid],
 					searchInputs: config?.searchInputs ?? [],
 				},
 			}),

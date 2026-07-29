@@ -155,8 +155,6 @@ const columnCommonSlots = z
 		sort: columnSortSchema.optional(),
 		visibleInList: z.boolean().optional(),
 		visibleInDetail: z.boolean().optional(),
-		listOrder: z.string().optional(),
-		detailOrder: z.string().optional(),
 	})
 	.strict();
 
@@ -451,7 +449,6 @@ export function tileHasBoxedCells(cells: readonly TileCell[]): boolean {
 const columnBase = z
 	.object({
 		uuid: uuidSchema,
-		order: z.string().optional(),
 		tile: tileCellSchema.optional(),
 	})
 	.extend(columnCommonSlots.shape)
@@ -986,11 +983,6 @@ export type SearchInputMode = z.infer<typeof searchInputModeSchema>;
 const searchInputCommon = z
 	.object({
 		uuid: uuidSchema,
-		// Absolute fractional sort key (`lib/doc/order`): search-input
-		// sequence is `sort-by-(order, uuid)`, not `searchInputs` array
-		// position. Optional (legacy inputs predate it, backfilled at
-		// hydration); never reaches CommCare.
-		order: z.string().optional(),
 		name: z
 			.string()
 			.regex(
@@ -1540,7 +1532,23 @@ export type CaseTileLayout = z.infer<typeof caseTileLayoutSchema>;
 
 export const caseListConfigSchema = z
 	.object({
+		/**
+		 * The columns themselves — a SET, keyed by uuid. Its array position
+		 * carries no meaning, because Results and Details are two independent
+		 * sequences over these same columns and one array cannot hold both.
+		 */
 		columns: z.array(columnSchema),
+		/**
+		 * The Results sequence, and the Details sequence — each a complete
+		 * permutation of `columns` by uuid.
+		 *
+		 * Every column appears in BOTH exactly once regardless of visibility, so
+		 * hiding a column and showing it again restores its place rather than
+		 * appending it. This is the one collection whose sequence cannot be the
+		 * membership array, which is why it gets two arrays of its own instead.
+		 */
+		listColumnOrder: z.array(uuidSchema),
+		detailColumnOrder: z.array(uuidSchema),
 		filter: predicateSchema.optional(),
 		searchInputs: z.array(searchInputDefSchema),
 		/**
@@ -1570,6 +1578,51 @@ export const caseListConfigSchema = z
 	})
 	.strict();
 export type CaseListConfig = z.infer<typeof caseListConfigSchema>;
+
+/**
+ * A case list with no columns and no search — the shape a config is BORN with.
+ *
+ * A factory rather than a shared constant because the two ordering arrays are
+ * mutable and a shared literal would let one module's config alias another's.
+ * Both arrays are written even when empty: an ordering array that is merely
+ * absent would mean "derive it somehow", which is the ambiguity array position
+ * exists to remove.
+ */
+export function emptyCaseListConfig(): CaseListConfig {
+	return {
+		columns: [],
+		listColumnOrder: [],
+		detailColumnOrder: [],
+		searchInputs: [],
+	};
+}
+
+/**
+ * The case list's columns in one surface's order.
+ *
+ * Results and Details are two sequences over one set of columns, so reading
+ * either means resolving that surface's array against the set. Every consumer —
+ * the wire emitters, the authoring canvases, the running preview — goes through
+ * here so no two of them can order the same screen differently.
+ *
+ * A column named by the sequence but absent from the set is skipped rather than
+ * throwing: the two disagreeing is a state `assembleBlueprint` refuses to
+ * persist, so tolerating it here would only hide it.
+ */
+export function orderedColumns(
+	config: CaseListConfig,
+	surface: "list" | "detail",
+): Column[] {
+	const sequence =
+		surface === "list" ? config.listColumnOrder : config.detailColumnOrder;
+	const byUuid = new Map(config.columns.map((column) => [column.uuid, column]));
+	const out: Column[] = [];
+	for (const uuid of sequence) {
+		const column = byUuid.get(uuid);
+		if (column !== undefined) out.push(column);
+	}
+	return out;
+}
 
 // ── CaseSearchConfig ─────────────────────────────────────────────
 //
@@ -1747,11 +1800,6 @@ export const moduleSchema = z
 		uuid: uuidSchema,
 		id: z.string(), // semantic id (snake_case display slug)
 		name: z.string(),
-		// Absolute fractional sort key (`lib/doc/order`): module sequence is
-		// `sort-by-(order, uuid)`, not `moduleOrder` array position. Optional
-		// (legacy modules predate it, backfilled at hydration); never reaches
-		// CommCare.
-		order: z.string().optional(),
 		caseType: z.string().optional(),
 		caseListOnly: z.boolean().optional(),
 		purpose: z.string().optional(),

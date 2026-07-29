@@ -52,6 +52,8 @@ describe("case-search validator — cross-rule integration", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [asUuid("col-name")],
+						detailColumnOrder: [asUuid("col-name")],
 						// Filter targets `region` (self-walk on patient) — same
 						// destination as the simple-arm input below.
 						filter: eq(prop("patient", "region"), literal("North")),
@@ -165,6 +167,8 @@ describe("case-search validator — cross-rule integration", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [asUuid("col-name")],
+						detailColumnOrder: [asUuid("col-name")],
 						filter: eq(prop("patient", "region"), literal("North")),
 						searchInputs: [
 							// Simple input on patient's region (self-walk) with a

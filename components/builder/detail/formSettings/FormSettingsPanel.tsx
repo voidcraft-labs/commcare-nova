@@ -3,6 +3,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerX from "@iconify-icons/tabler/x";
 import { DisplayConditionSection } from "@/components/builder/conditions/DisplayConditionSection";
 import { AfterSubmitSection } from "./AfterSubmitSection";
+import { CaseChangesSection } from "./CaseChangesSection";
 import { CloseConditionSection } from "./CloseConditionSection";
 import { ConnectSection } from "./ConnectSection";
 import { FormAppearanceSection } from "./FormAppearanceSection";
@@ -56,6 +57,12 @@ export function FormSettingsPanel({
 
 				<DisplayConditionSection
 					target={{ kind: "form", moduleUuid, formUuid }}
+					onNavigateAway={onClose}
+				/>
+
+				<CaseChangesSection
+					moduleUuid={moduleUuid}
+					formUuid={formUuid}
 					onNavigateAway={onClose}
 				/>
 			</div>

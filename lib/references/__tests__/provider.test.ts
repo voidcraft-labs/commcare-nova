@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
 import {
+	asUuid,
 	type CaseType,
 	reachableCaseTypes,
 	toReachableIndex,
@@ -113,6 +114,90 @@ describe("ReferenceProvider.parse — namespace classification", () => {
 		expect(ReferenceProvider.parse("#1bad/x")).toBeNull();
 		expect(ReferenceProvider.parse("#mother/")).toBeNull();
 		expect(ReferenceProvider.parse("no-hash")).toBeNull();
+	});
+});
+
+describe("ReferenceProvider — custom worker properties", () => {
+	it("keeps prose name-based while XPath exposes the identity-backed catalog", () => {
+		const provider = new ReferenceProvider(() => ({
+			...formCtx("formA", []),
+			userProperties: [
+				{
+					uuid: asUuid("property-1"),
+					slug: "supervisor_area",
+					label: "Supervisor area",
+				},
+			],
+		}));
+
+		expect(provider.search("user", "supervisor", "formA")).toEqual([]);
+		expect(provider.search("user", "supervisor", "formA", "xpath")).toEqual([
+			{
+				type: "user",
+				path: "supervisor_area",
+				label: "Supervisor area (supervisor_area)",
+				raw: "#user/supervisor_area",
+			},
+		]);
+		expect(provider.resolve("#user/supervisor_area", "formA")).toBeNull();
+		expect(
+			provider.resolve("#user/supervisor_area", "formA", "xpath"),
+		).toMatchObject({
+			path: "supervisor_area",
+			label: "Supervisor area (supervisor_area)",
+		});
+	});
+
+	it("reads mutable worker names live so an open XPath chip follows a rename", () => {
+		let property = {
+			uuid: asUuid("property-1"),
+			slug: "district",
+			label: "District",
+		};
+		const provider = new ReferenceProvider(() => ({
+			...formCtx("formA", []),
+			userProperties: [property],
+		}));
+
+		expect(provider.resolve("#user/district", "formA", "xpath")?.label).toBe(
+			"District (district)",
+		);
+
+		property = {
+			...property,
+			slug: "supervision_area",
+			label: "Supervision area",
+		};
+
+		expect(provider.resolve("#user/district", "formA", "xpath")).toBeNull();
+		expect(
+			provider.resolve("#user/supervision_area", "formA", "xpath")?.label,
+		).toBe("Supervision area (supervision_area)");
+	});
+
+	it("prefers a custom XPath identity when its slug overlaps a built-in", () => {
+		const provider = new ReferenceProvider(() => ({
+			...formCtx("formA", []),
+			userProperties: [
+				{
+					uuid: asUuid("property-1"),
+					slug: "username",
+					label: "Program username",
+				},
+			],
+		}));
+
+		expect(provider.search("user", "username", "formA", "xpath")).toEqual([
+			{
+				type: "user",
+				path: "username",
+				label: "Program username (username)",
+				raw: "#user/username",
+			},
+		]);
+		expect(provider.resolve("#user/username", "formA", "xpath")?.label).toBe(
+			"Program username (username)",
+		);
 	});
 });
 

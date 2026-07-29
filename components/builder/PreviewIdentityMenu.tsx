@@ -22,9 +22,12 @@ import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuItem,
+	DropdownMenuRadioGroup,
+	DropdownMenuRadioItem,
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
 import { usePersonas } from "@/lib/doc/hooks/useUserCollections";
+import { asUuid } from "@/lib/domain";
 import { useNavigate } from "@/lib/routing/hooks";
 import {
 	usePreviewing,
@@ -57,7 +60,10 @@ function PreviewIdentityMenuBody() {
 		selected === undefined
 			? undefined
 			: personas.find((p) => p.uuid === selected);
-	const currentLabel = active?.name ?? AS_ME;
+	const currentLabel =
+		selected === undefined
+			? AS_ME
+			: (active?.name ?? "Selected persona unavailable");
 
 	return (
 		<DropdownMenu>
@@ -89,22 +95,42 @@ function PreviewIdentityMenuBody() {
 				/>
 			</DropdownMenuTrigger>
 			<DropdownMenuContent sideOffset={8} preferredMinWidth={240}>
-				<DropdownMenuItem onClick={() => setSelected(undefined)}>
-					<span className="flex min-w-0 flex-col">
-						<span className="truncate">{AS_ME}</span>
-						<span className="text-xs text-nova-text-muted">
-							Your own account, with no worker information.
+				<DropdownMenuRadioGroup
+					value={selected ?? ""}
+					onValueChange={(value) =>
+						setSelected(value.length === 0 ? undefined : asUuid(value))
+					}
+				>
+					<DropdownMenuRadioItem value="" closeOnClick>
+						<span className="flex min-w-0 flex-col">
+							<span className="truncate">{AS_ME}</span>
+							<span className="text-xs text-nova-text-muted">
+								Your own account, with no worker information.
+							</span>
 						</span>
-					</span>
-				</DropdownMenuItem>
-				{personas.map((persona) => (
-					<DropdownMenuItem
-						key={persona.uuid}
-						onClick={() => setSelected(persona.uuid)}
-					>
-						<span className="min-w-0 truncate">Preview as {persona.name}</span>
-					</DropdownMenuItem>
-				))}
+					</DropdownMenuRadioItem>
+					{active === undefined && selected !== undefined && (
+						<DropdownMenuRadioItem value={selected} disabled>
+							<span className="flex min-w-0 flex-col">
+								<span className="truncate">Selected persona unavailable</span>
+								<span className="text-xs text-nova-text-muted">
+									Choose yourself or another persona to continue.
+								</span>
+							</span>
+						</DropdownMenuRadioItem>
+					)}
+					{personas.map((persona) => (
+						<DropdownMenuRadioItem
+							key={persona.uuid}
+							value={persona.uuid}
+							closeOnClick
+						>
+							<span className="min-w-0 truncate">
+								Preview as {persona.name}
+							</span>
+						</DropdownMenuRadioItem>
+					))}
+				</DropdownMenuRadioGroup>
 				{personas.length === 0 && (
 					<DropdownMenuItem onClick={() => navigate.openAppSetup("users")}>
 						<span className="flex min-w-0 flex-col">

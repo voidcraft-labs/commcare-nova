@@ -88,6 +88,7 @@ beforeEach(() => {
 		return new PostgresCaseStore({
 			projectId: null,
 			actorUserId: null,
+			ownerId: null,
 			db: dbHandle.db as unknown as Kysely<Database>,
 			sampleGenerator: new HeuristicCaseGenerator(),
 		});

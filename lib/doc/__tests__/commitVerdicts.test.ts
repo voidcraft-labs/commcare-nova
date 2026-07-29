@@ -12,15 +12,12 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
  * person-to-person.
  */
 
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
 import { validationError } from "@/lib/commcare/validator/errors";
 import {
-	assertPersistenceSafeMutationIdentities,
 	describeIntroducedErrors,
-	evaluatePreparedMutationCandidate,
 	mutationCommitVerdict,
-	prepareMutationCandidate,
 } from "@/lib/doc/commitVerdicts";
 import type { Mutation } from "@/lib/doc/types";
 import { asUuid, type BlueprintDoc } from "@/lib/domain";
@@ -250,57 +247,6 @@ describe("mutationCommitVerdict", () => {
 		expect(verdict.nextDoc).toBe(doc);
 	});
 
-	it("prepares reducer-minted identities once and evaluation never re-applies", () => {
-		const doc = minDoc();
-		const target = Object.values(doc.fields).find(
-			(field) => field.id === "village",
-		);
-		if (target === undefined) throw new Error("fixture village field missing");
-		const randomUuid = vi
-			.spyOn(globalThis.crypto, "randomUUID")
-			.mockReturnValue("00000000-0000-4000-8000-000000000901");
-
-		try {
-			const prepared = prepareMutationCandidate(doc, [
-				{ kind: "duplicateField", uuid: target.uuid },
-			]);
-			expect(randomUuid).toHaveBeenCalledTimes(1);
-			const cloneUuid = Object.keys(prepared.nextDoc.fields).find(
-				(uuid) => doc.fields[asUuid(uuid)] === undefined,
-			);
-			expect(cloneUuid).toBe("00000000-0000-4000-8000-000000000901");
-
-			const verdict = evaluatePreparedMutationCandidate(
-				doc,
-				prepared,
-				LOOKUP_CONTEXT_UNAVAILABLE,
-			);
-			expect(randomUuid).toHaveBeenCalledTimes(1);
-			expect(verdict.nextDoc).toBe(prepared.nextDoc);
-		} finally {
-			randomUuid.mockRestore();
-		}
-	});
-
-	it("keeps reducer-minted duplicateField UI-only at persistence boundaries", () => {
-		const doc = minDoc();
-		const target = Object.values(doc.fields)[0];
-		if (target === undefined) throw new Error("fixture field missing");
-		expect(() =>
-			assertPersistenceSafeMutationIdentities([
-				{ kind: "duplicateField", uuid: target.uuid },
-			]),
-		).toThrow("duplicateField is UI-only");
-
-		expect(() =>
-			assertPersistenceSafeMutationIdentities([
-				{ kind: "setAppName", name: "Renamed" },
-			]),
-		).not.toThrow();
-	});
-});
-
-describe("describeIntroducedErrors", () => {
 	it("frames the findings person-to-person, one line each, nothing-was-changed", () => {
 		const message = describeIntroducedErrors([
 			validationError("EMPTY_FORM", "form", '"Visit" has no fields.', {}),

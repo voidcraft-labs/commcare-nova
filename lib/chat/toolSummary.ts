@@ -74,12 +74,51 @@ const TOOL_ACTIONS: Record<string, ActionPhrases> = {
 		doing: "Updating the search screen",
 		done: "Updated the search screen",
 	},
+	addCaseOperations: {
+		doing: "Adding case operations",
+		done: "Added case operations",
+	},
+	updateCaseOperation: {
+		doing: "Updating case operation",
+		done: "Updated case operation",
+	},
+	removeCaseOperation: {
+		doing: "Removing case operation",
+		done: "Removed case operation",
+	},
+	moveCaseOperation: {
+		doing: "Moving case operation",
+		done: "Moved case operation",
+	},
+	getCaseOperations: {
+		doing: "Inspecting case operations",
+		done: "Inspected case operations",
+	},
 	attachFieldMedia: { doing: "Setting field media", done: "Set field media" },
 	attachOptionMedia: {
 		doing: "Setting option media",
 		done: "Set option media",
 	},
 	setMenuMedia: { doing: "Setting menu media", done: "Set menu media" },
+	addUserProperties: {
+		doing: "Adding worker information",
+		done: "Added worker information",
+	},
+	updateUserProperty: {
+		doing: "Updating worker information",
+		done: "Updated worker information",
+	},
+	removeUserProperty: {
+		doing: "Removing worker information",
+		done: "Removed worker information",
+	},
+	addUserTypes: { doing: "Adding roles", done: "Added roles" },
+	updateUserType: { doing: "Updating role", done: "Updated role" },
+	removeUserType: { doing: "Removing role", done: "Removed role" },
+	addPersonas: { doing: "Adding personas", done: "Added personas" },
+	updatePersona: { doing: "Updating persona", done: "Updated persona" },
+	removePersona: { doing: "Removing persona", done: "Removed persona" },
+	getUsers: { doing: "Inspecting users", done: "Inspected users" },
 	updateApp: { doing: "Updating app settings", done: "Updated app settings" },
 	generateSchema: {
 		doing: "Recording the data model",
@@ -132,6 +171,12 @@ const COUNTABLE_ACTIONS: Record<string, (n: number) => string> = {
 	addCaseListColumns: (n) => `Added ${n} ${n === 1 ? "column" : "columns"}`,
 	addSearchInputs: (n) =>
 		`Added ${n} ${n === 1 ? "search input" : "search inputs"}`,
+	addCaseOperations: (n) =>
+		`Added ${n} case ${n === 1 ? "operation" : "operations"}`,
+	addUserProperties: (n) =>
+		`Added ${n} worker-information ${n === 1 ? "property" : "properties"}`,
+	addUserTypes: (n) => `Added ${n} ${n === 1 ? "role" : "roles"}`,
+	addPersonas: (n) => `Added ${n} ${n === 1 ? "persona" : "personas"}`,
 	reorderCaseListColumns: (n) =>
 		`Reordered ${n} ${n === 1 ? "column" : "columns"}`,
 	reorderSearchInputs: (n) =>

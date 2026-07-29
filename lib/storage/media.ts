@@ -16,12 +16,21 @@
  * import this module without env vars present.
  */
 
+import { randomUUID } from "node:crypto";
 import type { Readable } from "node:stream";
-import { type Bucket, Storage } from "@google-cloud/storage";
+import {
+	type Bucket,
+	type BucketMetadata,
+	type LifecycleRule,
+	Storage,
+} from "@google-cloud/storage";
+import { STAGED_CAPTURE_PREFIX } from "@/lib/domain/captureFormats";
 import { PENDING_OBJECT_PREFIX } from "@/lib/domain/multimedia";
 
 let _storage: Storage | null = null;
 let _bucket: Bucket | null = null;
+const STORAGE_REQUEST_TIMEOUT_MS = 30_000;
+const STORAGE_RETRY_TOTAL_TIMEOUT_SECONDS = 30;
 
 /**
  * Returns the GCS Storage client singleton. First call resolves the
@@ -33,7 +42,18 @@ function getStorage(): Storage {
 		// `projectId` is read from the env when set (local dev names the dev
 		// project explicitly); on Cloud Run it is omitted and the client
 		// resolves it from the metadata server.
-		_storage = new Storage({ projectId: process.env.GOOGLE_CLOUD_PROJECT });
+		_storage = new Storage({
+			projectId: process.env.GOOGLE_CLOUD_PROJECT,
+			// A GCS call is often inside a form-entry serialization boundary.
+			// Bound both one HTTP attempt and the library's complete retry loop;
+			// a socket that never settles must not hold Submit or scheduled
+			// cleanup indefinitely.
+			timeout: STORAGE_REQUEST_TIMEOUT_MS,
+			retryOptions: {
+				maxRetries: 3,
+				totalTimeout: STORAGE_RETRY_TOTAL_TIMEOUT_SECONDS,
+			},
+		});
 	}
 	return _storage;
 }
@@ -67,11 +87,246 @@ function getBucket(): Bucket {
 const PENDING_OBJECT_TTL_DAYS = 1;
 
 /**
- * Apply the bucket lifecycle rule that auto-deletes abandoned upload
- * objects under the `pending/` prefix.
+ * Days a STAGED CAPTURE's bytes live before the bucket lifecycle rule
+ * reaps them.
  *
- * Browser uploads PUT to a per-attempt `pending/<project>/...` key via a V4
- * signed URL. The signed URL now binds a MAXIMUM body length (the
+ * A capture is staged while its form is being filled in, and Nova's
+ * preview does not resume a partially-filled form — navigating away
+ * discards the answers. Seven days bounds abandoned source bytes
+ * independently of request traffic.
+ *
+ * Before submission acceptance, preparation copies a kept capture OUT of
+ * this prefix and verifies it. The case transaction may accept only that
+ * prepared generation, so this rule can never remove accepted evidence.
+ */
+const STAGED_CAPTURE_TTL_DAYS = 7;
+
+const MEDIA_BUCKET_LIFECYCLE_RULES: LifecycleRule[] = [
+	{
+		action: { type: "Delete" },
+		condition: {
+			age: PENDING_OBJECT_TTL_DAYS,
+			matchesPrefix: [PENDING_OBJECT_PREFIX],
+		},
+	},
+	{
+		action: { type: "Delete" },
+		condition: {
+			age: STAGED_CAPTURE_TTL_DAYS,
+			matchesPrefix: [STAGED_CAPTURE_PREFIX],
+		},
+	},
+];
+
+/**
+ * Prove the capture-maintenance identity can perform its complete storage
+ * lifecycle without touching authoring media.
+ *
+ * This is the same create-only staged→durable copy used by form submission,
+ * followed by exact-generation metadata/byte verification and deletion on
+ * both sides. The staged source remains lifecycle-covered if the process dies;
+ * the durable destination is unguessable and strict cleanup failures fail the
+ * pretraffic job. No list permission is needed.
+ */
+export async function probeCaptureStorageAuthority(): Promise<void> {
+	const probeId = randomUUID();
+	const probeProjectId = `_health-${probeId}`;
+	const sourceObjectKey = `${STAGED_CAPTURE_PREFIX}${probeProjectId}/${probeId}.probe`;
+	const destinationObjectKey = `projects/${probeProjectId}/captures/${probeId}.probe`;
+	const expected = Buffer.from("nova-capture-storage-authority-v1", "utf8");
+	const expectedContentType = "application/octet-stream";
+	const source = getBucket().file(sourceObjectKey);
+	let sourceGeneration: string | undefined;
+	let destinationGeneration: string | undefined;
+	let sourceCreateCompleted = false;
+	let operationError: unknown;
+	const cleanupErrors: unknown[] = [];
+	const resolveGenerationForCleanup = async (
+		objectKey: string,
+	): Promise<string | undefined> => {
+		try {
+			const [metadata] = await getBucket().file(objectKey).getMetadata();
+			const generation =
+				metadata.generation === undefined || metadata.generation === null
+					? undefined
+					: String(metadata.generation);
+			if (generation === undefined || generation.length === 0) {
+				throw new Error(
+					`The capture storage authority probe found ${objectKey} without an immutable generation for cleanup.`,
+				);
+			}
+			return generation;
+		} catch (error) {
+			const code = (error as { code?: number | string } | null)?.code;
+			if (code === 404 || code === "404") {
+				return undefined;
+			}
+			throw error;
+		}
+	};
+
+	try {
+		await source.save(expected, {
+			resumable: false,
+			contentType: expectedContentType,
+			preconditionOpts: { ifGenerationMatch: 0 },
+		});
+		sourceCreateCompleted = true;
+		const [sourceMetadata] = await source.getMetadata();
+		sourceGeneration =
+			sourceMetadata.generation === undefined
+				? undefined
+				: String(sourceMetadata.generation);
+		if (
+			!sourceGeneration ||
+			Number(sourceMetadata.size) !== expected.byteLength ||
+			sourceMetadata.crc32c === undefined ||
+			sourceMetadata.contentType !== expectedContentType
+		) {
+			throw new Error(
+				"The capture storage authority probe created staged bytes without the expected immutable metadata.",
+			);
+		}
+		const [stagedBytes] = await getBucket()
+			.file(sourceObjectKey, { generation: sourceGeneration })
+			.download();
+		if (!stagedBytes.equals(expected)) {
+			throw new Error(
+				"The capture storage authority probe did not read back the staged bytes it created.",
+			);
+		}
+
+		const copied = await copyAssetObjectIfAbsent({
+			sourceGcsObjectKey: sourceObjectKey,
+			sourceGeneration,
+			destinationGcsObjectKey: destinationObjectKey,
+			expectedSize: expected.byteLength,
+			expectedChecksum: sourceMetadata.crc32c,
+			expectedContentType,
+		});
+		destinationGeneration = copied.destinationGeneration;
+		if (copied.replay) {
+			throw new Error(
+				"The capture storage authority probe unexpectedly replayed an existing durable object.",
+			);
+		}
+
+		const destination = getBucket().file(destinationObjectKey, {
+			generation: destinationGeneration,
+		});
+		const [destinationMetadata] = await destination.getMetadata();
+		if (
+			String(destinationMetadata.generation ?? "") !== destinationGeneration ||
+			Number(destinationMetadata.size) !== expected.byteLength ||
+			destinationMetadata.crc32c !== sourceMetadata.crc32c ||
+			destinationMetadata.contentType !== expectedContentType
+		) {
+			throw new Error(
+				"The capture storage authority probe copied durable bytes without the expected immutable metadata.",
+			);
+		}
+		const [durableBytes] = await destination.download();
+		if (!durableBytes.equals(expected)) {
+			throw new Error(
+				"The capture storage authority probe did not read back the durable bytes it copied.",
+			);
+		}
+	} catch (error) {
+		operationError = error;
+	} finally {
+		if (sourceGeneration === undefined) {
+			try {
+				sourceGeneration = await resolveGenerationForCleanup(sourceObjectKey);
+				if (sourceCreateCompleted && sourceGeneration === undefined) {
+					cleanupErrors.push(
+						new Error(
+							"The capture storage authority probe could not resolve the staged generation it created for exact cleanup.",
+						),
+					);
+				}
+			} catch (metadataError) {
+				cleanupErrors.push(metadataError);
+			}
+		}
+		if (destinationGeneration === undefined) {
+			try {
+				destinationGeneration =
+					await resolveGenerationForCleanup(destinationObjectKey);
+			} catch (metadataError) {
+				cleanupErrors.push(metadataError);
+			}
+		}
+		const cleanupTargets = [
+			...(destinationGeneration === undefined
+				? []
+				: [
+						{
+							objectKey: destinationObjectKey,
+							generation: destinationGeneration,
+						},
+					]),
+			...(sourceGeneration === undefined
+				? []
+				: [
+						{
+							objectKey: sourceObjectKey,
+							generation: sourceGeneration,
+						},
+					]),
+		];
+		const cleanupResults = await Promise.allSettled(
+			cleanupTargets.map(({ objectKey, generation }) =>
+				getBucket()
+					.file(objectKey, { generation })
+					.delete({ ignoreNotFound: true }),
+			),
+		);
+		for (const result of cleanupResults) {
+			if (result.status === "rejected") cleanupErrors.push(result.reason);
+		}
+	}
+
+	if (operationError !== undefined && cleanupErrors.length > 0) {
+		throw new AggregateError(
+			[operationError, ...cleanupErrors],
+			"The capture storage authority probe failed and could not clean up every exact object generation.",
+		);
+	}
+	if (operationError !== undefined) throw operationError;
+	if (cleanupErrors.length > 0) {
+		throw new AggregateError(
+			cleanupErrors,
+			"The capture storage authority probe could not clean up every exact object generation.",
+		);
+	}
+}
+
+/**
+ * Apply the media bucket's COMPLETE temporary-object retention policy.
+ *
+ * ## Why this function owns all of them
+ *
+ * Lifecycle Delete is not a hard byte-retention boundary by itself. Cloud
+ * Storage soft-deletes by default, versioning can turn deletion into a
+ * noncurrent generation, and bucket retention/default holds can defer it.
+ * One metageneration-fenced metadata PATCH therefore owns the complete
+ * contract: the exact lifecycle, soft delete disabled, versioning disabled,
+ * and no default event-based hold. A bucket retention policy is an operator
+ * protection, so its presence fails closed instead of silently removing it.
+ *
+ * Two prefixes need one:
+ *
+ *  - `pending/` — abandoned browser upload attempts, described below.
+ *  - `captures-staged/` — a worker's form attachment whose form was never
+ *    submitted. This is the retention backstop: rows carry an `expires_at`
+ *    swept by the scheduled worker and opportunistically on initiation, but
+ *    row hygiene is not a byte-retention guarantee. An idle Project must stop
+ *    holding photographs even if its database worker is unavailable, which
+ *    only a traffic-independent bucket rule delivers.
+ *
+ * Browser uploads PUT to a per-attempt key via a V4 signed URL. The signed
+ * URL binds a body-length range (exact for capture attempts, a maximum for
+ * authoring-media attempts) through the
  * `x-goog-content-length-range` extension header — see
  * `createSignedUploadUrl`), so GCS rejects an oversized write at the storage
  * boundary; what still accumulates is the WITHIN-cap object whose client
@@ -82,23 +337,97 @@ const PENDING_OBJECT_TTL_DAYS = 1;
  * validated bytes OUT of `pending/` to the content-hash key before flipping
  * the row to ready.
  *
- * Idempotent: `append: false` replaces the bucket's lifecycle with this
- * single rule. The media bucket is dedicated, so it owns no other rules to
- * preserve, and re-running yields the same state. Operational, not on the
- * request path — run once per bucket (and after any prefix change) via
- * `scripts/infra/apply-media-bucket-lifecycle.ts`.
+ * Idempotent: the PATCH sends the exact lifecycle and values every time, then
+ * a fresh GET verifies them. `ifMetagenerationMatch` makes a concurrent
+ * operator edit block the deploy rather than get overwritten. Operational,
+ * not on the request path — the blocking media-policy Job applies it before
+ * migrations or traffic movement.
  */
-export async function applyPendingObjectLifecycle(): Promise<void> {
-	await getBucket().addLifecycleRule(
+export async function applyMediaBucketStoragePolicy(): Promise<void> {
+	const bucket = getBucket();
+	const [before] = await bucket.getMetadata();
+	if (before.retentionPolicy !== undefined && before.retentionPolicy !== null) {
+		throw new Error(
+			`The media bucket has a${before.retentionPolicy.isLocked ? " locked" : ""} retention policy. Nova will not remove an operator protection; remove it explicitly before applying Nova's hard temporary-object retention policy.`,
+		);
+	}
+	if (before.metageneration === undefined || before.metageneration === null) {
+		throw new Error(
+			"The media bucket metadata did not include a metageneration, so Nova cannot safely converge policy without overwriting a concurrent operator edit.",
+		);
+	}
+
+	await bucket.setMetadata(
 		{
-			action: { type: "Delete" },
-			condition: {
-				age: PENDING_OBJECT_TTL_DAYS,
-				matchesPrefix: [PENDING_OBJECT_PREFIX],
-			},
+			lifecycle: { rule: MEDIA_BUCKET_LIFECYCLE_RULES },
+			softDeletePolicy: { retentionDurationSeconds: 0 },
+			versioning: { enabled: false },
+			defaultEventBasedHold: false,
 		},
-		{ append: false },
+		{ ifMetagenerationMatch: before.metageneration },
 	);
+
+	const [after] = await bucket.getMetadata();
+	verifyMediaBucketStoragePolicy(after);
+}
+
+function canonicalJson(value: unknown): string {
+	const normalize = (current: unknown): unknown => {
+		if (Array.isArray(current)) {
+			return current.map(normalize);
+		}
+		if (current !== null && typeof current === "object") {
+			return Object.fromEntries(
+				Object.entries(current)
+					.filter(([, child]) => child !== undefined)
+					.sort(([left], [right]) => left.localeCompare(right))
+					.map(([key, child]) => [key, normalize(child)]),
+			);
+		}
+		return current;
+	};
+	return JSON.stringify(normalize(value));
+}
+
+function canonicalLifecycle(rules: readonly LifecycleRule[]): string[] {
+	return rules.map(canonicalJson).toSorted();
+}
+
+function verifyMediaBucketStoragePolicy(metadata: BucketMetadata): void {
+	const findings: string[] = [];
+	if (
+		canonicalJson(canonicalLifecycle(metadata.lifecycle?.rule ?? [])) !==
+		canonicalJson(canonicalLifecycle(MEDIA_BUCKET_LIFECYCLE_RULES))
+	) {
+		findings.push("the lifecycle rule set is not exact");
+	}
+	const softDeleteSeconds = metadata.softDeletePolicy?.retentionDurationSeconds;
+	if (
+		metadata.softDeletePolicy !== undefined &&
+		metadata.softDeletePolicy !== null &&
+		(softDeleteSeconds === undefined ||
+			!Number.isFinite(Number(softDeleteSeconds)) ||
+			Number(softDeleteSeconds) !== 0)
+	) {
+		findings.push("soft delete is not disabled");
+	}
+	if (metadata.versioning?.enabled === true) {
+		findings.push("object versioning is enabled");
+	}
+	if (metadata.defaultEventBasedHold === true) {
+		findings.push("the default event-based hold is enabled");
+	}
+	if (
+		metadata.retentionPolicy !== undefined &&
+		metadata.retentionPolicy !== null
+	) {
+		findings.push("a bucket retention policy is present");
+	}
+	if (findings.length > 0) {
+		throw new Error(
+			`Media bucket policy verification failed: ${findings.join("; ")}.`,
+		);
+	}
 }
 
 /**
@@ -110,15 +439,18 @@ export async function applyPendingObjectLifecycle(): Promise<void> {
  *    keeps a different tenant's namespace structurally unreachable),
  *  - the request `Content-Type` header (the upload must declare
  *    the same MIME the route's pre-screen accepted),
- *  - a MAXIMUM body length, via the signed `x-goog-content-length-range`
- *    extension header (`0,<maxBytes>`). Because the header is part of the V4
+ *  - a body-length range, via the signed `x-goog-content-length-range`
+ *    extension header (`<minBytes>,<maxBytes>`). Because the header is part of the V4
  *    signature, the client MUST send it verbatim (returned in
  *    `requiredHeaders`) and GCS REJECTS a body outside the range at the
- *    storage boundary — so a client can't push an over-cap object into
- *    `pending/` by lying about its size at initiate (CWE-770). The bucket
+ *    storage boundary. Capture initiation sets min=max to bind the exact
+ *    selected file; authoring media uses the kind cap as its maximum. The bucket
  *    CORS must allow this request header or the browser preflight strips it
  *    and the PUT 403s — see {@link applyMediaBucketCors} (a deploy
  *    prerequisite).
+ *  - creation generation zero, via signed
+ *    `x-goog-if-generation-match: 0`, so the URL cannot overwrite bytes
+ *    after confirm records their immutable generation.
  *
  * A 5-minute TTL keeps a leaked URL short-lived. Confirm-time validation
  * still re-downloads + re-hashes the bytes as the authoritative content
@@ -128,6 +460,7 @@ export async function applyPendingObjectLifecycle(): Promise<void> {
 export async function createSignedUploadUrl(args: {
 	gcsObjectKey: string;
 	contentType: string;
+	minBytes?: number;
 	maxBytes: number;
 }): Promise<{
 	url: string;
@@ -139,18 +472,18 @@ export async function createSignedUploadUrl(args: {
 
 	// The byte range the write must fall within — the GCS XML-API
 	// `x-goog-content-length-range: <min>,<max>` form.
-	const contentLengthRange = `0,${args.maxBytes}`;
+	const contentLengthRange = `${args.minBytes ?? 0},${args.maxBytes}`;
 
 	// Local dev: developer ADC is a user credential with no private key, so
 	// it cannot mint a V4 signature (prod's runtime service account signs
 	// via the IAM credentials API). The browser instead PUTs to a
 	// same-origin dev-only route that writes the bytes through this
 	// module's storage client. That proxy enforces the same cap server-side
-	// via the `max` query param (it writes the bytes itself, so there's no
-	// signed GCS write to bind the range onto). The rest of the upload flow
-	// (initiate → PUT → confirm → validate → promote) stays byte-identical
-	// to prod — only the signed-PUT hop is swapped. The route 404s outside
-	// development.
+	// via the `max` query param for authoring media and the exact pending-row
+	// metadata for captures (it writes the bytes itself, so there's no signed
+	// GCS write to bind the range onto). The rest of the upload flow stays
+	// byte-identical to prod — only the signed-PUT hop is swapped. The route
+	// 404s outside development.
 	if (process.env.NODE_ENV === "development") {
 		const url = `/api/media/upload/dev-put?key=${encodeURIComponent(
 			args.gcsObjectKey,
@@ -165,12 +498,21 @@ export async function createSignedUploadUrl(args: {
 			action: "write",
 			expires: expiresAtMs,
 			contentType: args.contentType,
-			extensionHeaders: { "x-goog-content-length-range": contentLengthRange },
+			// A signed attempt is create-only for its whole lifetime. Without
+			// this precondition the same URL could overwrite the generation
+			// confirm measured before settlement copied it.
+			extensionHeaders: {
+				"x-goog-content-length-range": contentLengthRange,
+				"x-goog-if-generation-match": "0",
+			},
 		});
 	return {
 		url,
 		expiresAtMs,
-		requiredHeaders: { "x-goog-content-length-range": contentLengthRange },
+		requiredHeaders: {
+			"x-goog-content-length-range": contentLengthRange,
+			"x-goog-if-generation-match": "0",
+		},
 	};
 }
 
@@ -179,13 +521,10 @@ export async function createSignedUploadUrl(args: {
  *
  * A browser upload is a cross-origin V4 signed PUT, so the bucket must allow
  * the PUT method and EVERY request header the upload sends: `Content-Type`
- * AND `x-goog-content-length-range` (the signed max-length binding from
- * {@link createSignedUploadUrl}). A PUT is never a CORS-"simple" request, so
- * the browser always preflights — and if `x-goog-content-length-range` isn't
- * in this allowlist the preflight drops it, the client can't send the signed
- * header, and the PUT 403s. This MUST be applied (with the size-bound upload's
- * header added to the pre-existing CORS) BEFORE that code ships, or uploads
- * break.
+ * `x-goog-content-length-range` and `x-goog-if-generation-match` (the signed
+ * range and create-only bindings from {@link createSignedUploadUrl}). A PUT
+ * is never a CORS-"simple" request, so the browser always preflights; omitting
+ * either header from this allowlist makes the signed PUT fail.
  *
  * `setCorsConfiguration` REPLACES the bucket's CORS, so `origins` must be the
  * COMPLETE set of app origins the browser uploads from. The media bucket is
@@ -197,7 +536,11 @@ export async function applyMediaBucketCors(origins: string[]): Promise<void> {
 		{
 			origin: origins,
 			method: ["PUT", "OPTIONS"],
-			responseHeader: ["Content-Type", "x-goog-content-length-range"],
+			responseHeader: [
+				"Content-Type",
+				"x-goog-content-length-range",
+				"x-goog-if-generation-match",
+			],
 			maxAgeSeconds: 3600,
 		},
 	]);
@@ -222,11 +565,16 @@ export async function uploadAssetBytes(args: {
 	gcsObjectKey: string;
 	bytes: Buffer;
 	contentType: string;
+	/** Create-only write, used by the dev signed-PUT surrogate. */
+	ifAbsent?: boolean;
 }): Promise<void> {
-	await getBucket().file(args.gcsObjectKey).save(args.bytes, {
-		resumable: false,
-		contentType: args.contentType,
-	});
+	await getBucket()
+		.file(args.gcsObjectKey)
+		.save(args.bytes, {
+			resumable: false,
+			contentType: args.contentType,
+			...(args.ifAbsent ? { preconditionOpts: { ifGenerationMatch: 0 } } : {}),
+		});
 }
 
 /**
@@ -244,6 +592,62 @@ export async function copyAssetObject(
 	await getBucket()
 		.file(sourceGcsObjectKey)
 		.copy(getBucket().file(destinationGcsObjectKey));
+}
+
+/**
+ * Copy one immutable source generation to a create-only destination.
+ *
+ * A verified existing destination is success for an idempotent retry:
+ * attachment ids make the destination unique, so a pre-existing object is
+ * the prior copy whose metadata update may have failed. That same independent
+ * verification also recovers after the staging lifecycle has reaped the named
+ * source generation. A missing or mismatched destination still fails closed.
+ */
+export async function copyAssetObjectIfAbsent(args: {
+	sourceGcsObjectKey: string;
+	sourceGeneration: string;
+	destinationGcsObjectKey: string;
+	expectedSize: number;
+	expectedChecksum: string;
+	expectedContentType: string;
+}): Promise<{ destinationGeneration: string; replay: boolean }> {
+	const destination = getBucket().file(args.destinationGcsObjectKey);
+	const verifyDestination = async (replay: boolean) => {
+		const [metadata] = await destination.getMetadata();
+		const generation =
+			metadata.generation === undefined || metadata.generation === null
+				? null
+				: String(metadata.generation);
+		if (
+			generation === null ||
+			generation.length === 0 ||
+			Number(metadata.size) !== args.expectedSize ||
+			metadata.crc32c !== args.expectedChecksum ||
+			metadata.contentType !== args.expectedContentType
+		) {
+			throw new Error(
+				"An existing capture destination does not match the staged source generation.",
+			);
+		}
+		return {
+			destinationGeneration: generation,
+			replay,
+		};
+	};
+	try {
+		await getBucket()
+			.file(args.sourceGcsObjectKey, { generation: args.sourceGeneration })
+			.copy(destination, {
+				preconditionOpts: { ifGenerationMatch: 0 },
+			});
+		return await verifyDestination(false);
+	} catch (err) {
+		const code = (err as { code?: number | string } | null)?.code;
+		if (code === 412 || code === "412" || code === 404 || code === "404") {
+			return await verifyDestination(true);
+		}
+		throw err;
+	}
 }
 
 /**
@@ -295,15 +699,43 @@ export async function getStoredObjectSize(
 	}
 }
 
+/** Immutable identity captured by attachment confirm. */
+export async function getStoredObjectMetadata(gcsObjectKey: string): Promise<{
+	size: number;
+	generation: string;
+	checksum: string;
+	contentType: string;
+} | null> {
+	const file = getBucket().file(gcsObjectKey);
+	try {
+		const [metadata] = await file.getMetadata();
+		if (
+			metadata.size === undefined ||
+			metadata.generation === undefined ||
+			metadata.crc32c === undefined ||
+			metadata.contentType === undefined
+		) {
+			return null;
+		}
+		return {
+			size: Number(metadata.size),
+			generation: String(metadata.generation),
+			checksum: metadata.crc32c,
+			contentType: metadata.contentType,
+		};
+	} catch (err) {
+		if ((err as { code?: number } | null)?.code === 404) return null;
+		throw err;
+	}
+}
+
 /**
  * Drain a GCS object into memory, enforcing a byte ceiling AS IT READS.
- * The cap lives in this streamed read (a running counter that destroys
- * the stream past `maxBytes`), NOT in a separate `getStoredObjectSize`
- * metadata check beforehand: a signed PUT URL is a reusable write
- * credential for its whole TTL, so a client can overwrite the pending
- * object with a huge body in the window between a metadata size-check and
- * the download. Capping the read itself closes that TOCTOU — at most
- * `maxBytes` ever resides in memory, whatever the object grew to.
+ * The cap lives in this streamed read (a running counter that destroys the
+ * stream past `maxBytes`), not only in separate metadata. Signed uploads are
+ * now create-only and range-bound, but this remains the authoritative
+ * fail-closed boundary for server-written and legacy objects: at most
+ * `maxBytes` ever resides in memory, whatever metadata claimed.
  *
  * Runs only at confirm time (one shot per upload) and the compile bundle,
  * never on the hot read path — that streams straight through via
@@ -337,6 +769,16 @@ export async function downloadAssetBytes(
  */
 export async function deleteAsset(gcsObjectKey: string): Promise<void> {
 	await getBucket().file(gcsObjectKey).delete({ ignoreNotFound: true });
+}
+
+/** Delete only the generation confirm measured; never a later replacement. */
+export async function deleteAssetGeneration(
+	gcsObjectKey: string,
+	generation: string,
+): Promise<void> {
+	await getBucket()
+		.file(gcsObjectKey, { generation })
+		.delete({ ignoreNotFound: true });
 }
 
 /**

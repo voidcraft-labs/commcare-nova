@@ -24,6 +24,7 @@
 //      + every kind + a calc + a sort directive.
 
 import { describe, expect, it } from "vitest";
+import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
 	asUuid,
 	type BlueprintDoc,
@@ -71,11 +72,11 @@ function makeModule(args: {
 
 /** Build a populated CaseListConfig with sensible defaults. */
 function makeConfig(overrides: Partial<CaseListConfig> = {}): CaseListConfig {
-	return {
+	return resolveCaseListConfig({
 		columns: [],
 		searchInputs: [],
 		...overrides,
-	};
+	});
 }
 
 /**
@@ -639,10 +640,10 @@ describe("emitShortDetail — search-action emission", () => {
 	const moduleWithName = (caseType: string): Module =>
 		makeModule({
 			caseType,
-			caseListConfig: {
+			caseListConfig: resolveCaseListConfig({
 				columns: [plainColumn(COL(1), "full_name", "Name")],
 				searchInputs: [],
-			},
+			}),
 		});
 
 	it("emits no <action> element when searchAction is undefined", () => {

@@ -31,6 +31,7 @@ import {
 	ORDERED_TYPES,
 	prop,
 	type ResolvedType,
+	storageAssignmentConstraint,
 	typesCompatible,
 	type ValueExpression,
 	valueExpressionKindResultClass,
@@ -159,6 +160,19 @@ describe("left-subject constraints", () => {
 		expect(inSubjectConstraint()).toBe(inSubjectConstraint());
 		expect(betweenSubjectConstraint()).toBe(betweenSubjectConstraint());
 		expect(absenceSubjectConstraint()).toBe(absenceSubjectConstraint());
+	});
+});
+
+describe("storage assignment constraints", () => {
+	it("keeps an untyped destination to concrete storable values", () => {
+		const constraint = storageAssignmentConstraint([]);
+		expect(constraint.accepts).not.toBe("any");
+		if (constraint.accepts === "any") return;
+		expect(constraint.accepts.has("text")).toBe(true);
+		expect(constraint.accepts.has("multi_select")).toBe(true);
+		expect(constraint.accepts.has("geopoint")).toBe(true);
+		expect(constraint.accepts.has("_any")).toBe(false);
+		expect(constraint.accepts.has("_sequence")).toBe(false);
 	});
 });
 

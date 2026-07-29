@@ -80,7 +80,6 @@ import {
 import { isCountReferencePath } from "@/lib/commcare/xform/countReference";
 import { FormPath } from "@/lib/commcare/xform/formPath";
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
-import { bySortKey } from "@/lib/doc/order/compare";
 import {
 	type BlueprintDoc,
 	type Field,
@@ -89,6 +88,7 @@ import {
 	type Media,
 	type SelectOption,
 	type Uuid,
+	userPropertySlugsByUuid,
 } from "@/lib/domain";
 import type { LookupOptionsSource } from "@/lib/domain/lookupCarriers";
 import { isMatchAll, simplifyForEmission } from "@/lib/domain/predicate";
@@ -741,7 +741,7 @@ function readOptions(
 	// at the one accessor, keeps the per-option index keys consistent between
 	// the itext-registration pass and the `<item>`-emission pass — sorting only
 	// one would dangle a `<label ref>`. `order` never reaches the wire.
-	return [...(value as SelectOption[])].sort(bySortKey);
+	return [...(value as SelectOption[])];
 }
 
 /**
@@ -1117,6 +1117,7 @@ function buildFieldParts(
  */
 interface LookupSelectEmissionKit {
 	readonly naming: LookupWireNaming;
+	readonly userPropertySlugs: ReadonlyMap<Uuid, string>;
 	readonly filterFieldPaths: (
 		questionPath: FormPath,
 	) => ReadonlyMap<Uuid, string>;
@@ -1133,6 +1134,7 @@ function deriveLookupSelectKit(
 	let fieldLocations: ReadonlyMap<Uuid, FieldLocation> | undefined;
 	return {
 		naming,
+		userPropertySlugs: userPropertySlugsByUuid(doc),
 		filterFieldPaths: (questionPath) => {
 			fieldLocations ??= collectFieldLocations(doc, formUuid);
 			return bindLookupFilterFieldPaths(fieldLocations, questionPath);
@@ -1174,6 +1176,7 @@ function buildLookupItemset(
 				{ kind: "unaddressable" },
 				{
 					formFields: lookupSelects.filterFieldPaths(nodePath),
+					userPropertySlugs: lookupSelects.userPropertySlugs,
 					lookup: {
 						naming: lookupSelects.naming,
 						rowScope: {

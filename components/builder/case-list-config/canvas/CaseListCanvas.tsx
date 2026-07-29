@@ -21,6 +21,7 @@ import type {
 	Column,
 	CommitOutcome,
 	TileCell,
+	UserProperty,
 	Uuid,
 } from "@/lib/domain";
 import type { Predicate, ValueExpression } from "@/lib/domain/predicate";
@@ -52,6 +53,7 @@ export interface CaseListCanvasProps {
 	readonly config: CaseListConfig;
 	readonly caseType: CaseType | undefined;
 	readonly caseTypes?: readonly CaseType[];
+	readonly userProperties?: readonly UserProperty[];
 	readonly brokenColumns: ReadonlySet<string>;
 	readonly selection: WorkspaceSelection | null;
 	readonly onSelect: (next: WorkspaceSelection) => void;
@@ -91,6 +93,7 @@ export function CaseListCanvas({
 	config,
 	caseType,
 	caseTypes,
+	userProperties = [],
 	brokenColumns,
 	selection,
 	onSelect,
@@ -120,7 +123,7 @@ export function CaseListCanvas({
 	onTilePersistOnFormsChange,
 }: CaseListCanvasProps) {
 	const canEdit = useCanEdit();
-	const projection = projectCaseWorkspaceColumns(config.columns);
+	const projection = projectCaseWorkspaceColumns(config);
 	const availableProperties = unrepresentedColumnProperties(config, caseType);
 	const repeatableProperties = representedColumnProperties(config, caseType);
 	const selectedColumnUuid =
@@ -191,7 +194,7 @@ export function CaseListCanvas({
 							</div>
 						) : tile !== undefined ? (
 							<TileLayoutCanvas
-								columns={config.columns}
+								config={config}
 								tile={tile}
 								selectedUuid={selectedColumnUuid}
 								issues={tileIssues}
@@ -256,6 +259,7 @@ export function CaseListCanvas({
 							caseSearchEnabled={caseSearchEnabled}
 							onExcludedOwnerIdsChange={onExcludedOwnerIdsChange}
 							caseTypes={caseTypes ?? []}
+							userProperties={userProperties}
 							currentCaseType={caseType?.name ?? ""}
 							appId={appId}
 							dependencyReview={dependencyReview}
@@ -280,6 +284,7 @@ export function CaseListCanvas({
 
 						<div className="overflow-hidden rounded-2xl border border-white/[0.08] bg-nova-surface/20">
 							<CaseOrderingComposer
+								config={config}
 								value={config.columns}
 								caseType={caseType}
 								caseTypes={caseTypes}

@@ -12,6 +12,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import { asUuid, type BlueprintDoc, simpleSearchInputDef } from "@/lib/domain";
 import { matchAll } from "@/lib/domain/predicate";
 import { updateSearchInputTool } from "../updateSearchInput";
@@ -53,10 +54,10 @@ function fixtureWithInputs(): BlueprintDoc {
 		modules: {
 			[MOD_A]: {
 				...doc.modules[MOD_A],
-				caseListConfig: {
+				caseListConfig: resolveCaseListConfig({
 					columns: [],
 					searchInputs: [target, sibling],
-				},
+				}),
 			},
 		},
 	};

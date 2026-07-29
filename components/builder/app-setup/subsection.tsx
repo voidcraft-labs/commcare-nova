@@ -9,7 +9,7 @@
 import { Icon } from "@iconify/react/offline";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import tablerPlus from "@iconify-icons/tabler/plus";
-import type { ReactNode } from "react";
+import type { ReactNode, Ref } from "react";
 import { Button } from "@/components/shadcn/button";
 import {
 	Collapsible,
@@ -24,6 +24,7 @@ export function Subsection({
 	addLabel,
 	onAdd,
 	canEdit,
+	addButtonRef,
 	children,
 }: {
 	id: string;
@@ -32,6 +33,7 @@ export function Subsection({
 	addLabel: string;
 	onAdd: () => void;
 	canEdit: boolean;
+	addButtonRef?: Ref<HTMLButtonElement>;
 	children: ReactNode;
 }) {
 	return (
@@ -45,6 +47,7 @@ export function Subsection({
 			<div className="mt-4 flex flex-col gap-2">{children}</div>
 			{canEdit && (
 				<Button
+					ref={addButtonRef}
 					type="button"
 					variant="ghost"
 					size="lg"
@@ -114,7 +117,10 @@ export function EntryRow({
 					</span>
 				)}
 			</CollapsibleTrigger>
-			<CollapsibleContent className="border-t border-nova-border px-3 py-3">
+			<CollapsibleContent
+				keepMounted
+				className="border-t border-nova-border px-3 py-3"
+			>
 				{children}
 			</CollapsibleContent>
 		</Collapsible>

@@ -65,6 +65,7 @@ import {
 	type BlueprintDoc,
 	type Column,
 	type Module,
+	orderedColumns,
 	TILE_GRID_COLUMNS,
 	TILE_GRID_ROWS,
 	type TileCell,
@@ -82,7 +83,10 @@ export function caseTileLayout(
 ): ValidationError[] {
 	const config = mod.caseListConfig;
 	if (config === undefined) return [];
-	const columns = config.columns;
+	// In RESULTS order: the tile IS the Results screen, so "column #3" has to
+	// count the way the author sees the fields laid out, and the overlapping
+	// pair below has to read left-to-right the same way.
+	const columns = orderedColumns(config, "list");
 	if (columns.length === 0) return [];
 
 	const errors: ValidationError[] = [];

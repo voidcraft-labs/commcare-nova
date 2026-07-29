@@ -83,6 +83,7 @@ export function CalculatedColumnCard({
 					onChange={setExpression}
 					caseTypes={ctx.caseTypes}
 					currentCaseType={ctx.currentCaseType}
+					userProperties={ctx.userProperties}
 				/>
 			</div>
 		</div>
@@ -97,14 +98,10 @@ function slotsFrom(value: Extract<Column, { kind: "calculated" }>): {
 	sort?: typeof value.sort;
 	visibleInList?: typeof value.visibleInList;
 	visibleInDetail?: typeof value.visibleInDetail;
-	listOrder?: typeof value.listOrder;
-	detailOrder?: typeof value.detailOrder;
 } {
 	return {
 		sort: value.sort,
 		visibleInList: value.visibleInList,
 		visibleInDetail: value.visibleInDetail,
-		listOrder: value.listOrder,
-		detailOrder: value.detailOrder,
 	};
 }

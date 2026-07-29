@@ -77,7 +77,6 @@ import {
 } from "@/components/shadcn/select";
 import { Spinner } from "@/components/shadcn/spinner";
 import { useReconcilerContext } from "@/lib/collab/context";
-import { bySortKey } from "@/lib/doc/order/compare";
 import type { CaseProperty, CaseType, SearchInputDef } from "@/lib/domain";
 import type { Predicate } from "@/lib/domain/predicate";
 import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
@@ -164,6 +163,8 @@ export function SearchInputForm({
 			searchInputSubmissionErrors(
 				{
 					columns: [],
+					listColumnOrder: [],
+					detailColumnOrder: [],
 					searchInputs: [...searchInputs],
 					...(filter !== undefined ? { filter } : {}),
 				},
@@ -275,7 +276,7 @@ export function SearchInputForm({
 					className="rounded-lg border border-border bg-card/30 p-4"
 				>
 					<div className="flex flex-col gap-4">
-						{[...searchInputs].sort(bySortKey).map((input) => (
+						{[...searchInputs].map((input) => (
 							<SearchInputRow
 								key={input.uuid}
 								input={input}

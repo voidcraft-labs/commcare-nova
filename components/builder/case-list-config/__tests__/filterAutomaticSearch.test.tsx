@@ -9,6 +9,7 @@ import {
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import { settleBaseUiTransitions } from "@/__tests__/helpers/baseUiInteractions";
+import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import type {
 	CaseListConfig,
 	CaseSearchConfig,
@@ -75,10 +76,10 @@ const NORTH = eq(prop("patient", "region"), literal("North"));
 const SOUTH = eq(prop("patient", "region"), literal("South"));
 const EMPTY_REGION = eq(prop("patient", "region"), literal(""));
 
-const EMPTY_CONFIG: CaseListConfig = {
+const EMPTY_CONFIG: CaseListConfig = resolveCaseListConfig({
 	columns: [],
 	searchInputs: [],
-};
+});
 
 interface RenderComposerOptions {
 	readonly config?: CaseListConfig;
@@ -230,7 +231,7 @@ describe("Results Cases available composer", () => {
 		fireEvent.click(
 			screen.getByRole("button", { name: "Value source: A value" }),
 		);
-		const otherCaseInformation = screen.getByRole("menuitem", {
+		const otherCaseInformation = screen.getByRole("menuitemradio", {
 			name: /^Other case information/,
 		});
 
@@ -358,6 +359,9 @@ describe("Results Cases available composer", () => {
 		expect(
 			await screen.findByText("The number of matching cases isn’t available"),
 		).toBeDefined();
+		expect(screen.getByRole("status").classList.contains("min-h-[65px]")).toBe(
+			true,
+		);
 		expect(loadPreview.mock.calls.length).toBeGreaterThan(callsBeforeRender);
 		const callsBeforeRetry = loadPreview.mock.calls.length;
 
@@ -370,6 +374,7 @@ describe("Results Cases available composer", () => {
 		);
 		const loadingStatus = screen.getByRole("status");
 		expect(loadingStatus.textContent).toContain("Counting matches…");
+		expect(loadingStatus.classList.contains("min-h-[65px]")).toBe(true);
 		await waitFor(() => expect(document.activeElement).toBe(loadingStatus));
 
 		await act(async () =>
@@ -378,6 +383,9 @@ describe("Results Cases available composer", () => {
 		expect(
 			await screen.findByText("The number of matching cases isn’t available"),
 		).toBeDefined();
+		expect(screen.getByRole("status").classList.contains("min-h-[65px]")).toBe(
+			true,
+		);
 		const renewedRetry = screen.getByRole("button", { name: "Try again" });
 		await waitFor(() => expect(document.activeElement).toBe(renewedRetry));
 	});

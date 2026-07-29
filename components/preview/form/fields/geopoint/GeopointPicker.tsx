@@ -20,6 +20,7 @@ import tablerX from "@iconify-icons/tabler/x";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useReconcilerContext } from "@/lib/collab/context";
 import { useProjectToast } from "@/lib/collab/useProjectToast";
+import { useAccessPhase } from "@/lib/session/hooks";
 import { ValidationError } from "../ValidationError";
 import { AddressSearch, type PlacePick } from "./AddressSearch";
 import { GeolocationError, requestGeolocation } from "./geolocation";
@@ -40,6 +41,8 @@ const REVERSE_DEBOUNCE_MS = 400;
 interface GeopointPickerProps {
 	/** Committed wire value ("lat lon alt acc" or ""). */
 	readonly value: string;
+	/** Visible question label rendered by InteractiveFormRenderer. */
+	readonly labelledBy?: string;
 	/** Commit a new wire value (or "" to clear). */
 	readonly onChange: (value: string) => void;
 	/** Mark the field touched (for required-validation surfacing). */
@@ -50,6 +53,7 @@ interface GeopointPickerProps {
 
 export function GeopointPicker({
 	value,
+	labelledBy,
 	onChange,
 	onBlur,
 	showError,
@@ -59,6 +63,7 @@ export function GeopointPicker({
 	const configured = googleMapsConfigured();
 	const reconciler = useReconcilerContext();
 	const projectToast = useProjectToast();
+	const accessPhase = useAccessPhase();
 
 	const mapRef = useRef<MapHandle | null>(null);
 	// The map box is the IntersectionObserver target; the Google map mounts
@@ -81,10 +86,10 @@ export function GeopointPicker({
 	const ownsContinuationRef = useRef(true);
 	useEffect(() => {
 		ownsContinuationRef.current = true;
-		const disownContinuations = () => {
+		const fenceContinuations = () => {
 			/* Geolocation and Maps promises are not abortable. Invalidate them in
-			 * the synchronous Project-reset stack; the epoch-keyed renderer will
-			 * mount a fresh owner once destination authority is established. */
+			 * the synchronous Project-reset stack. A same-Project access snapshot
+			 * re-arms this mounted owner; a terminal entry boundary remounts it. */
 			ownsContinuationRef.current = false;
 			locateReqRef.current += 1;
 			reverseReqRef.current += 1;
@@ -93,13 +98,24 @@ export function GeopointPicker({
 				reverseTimerRef.current = null;
 			}
 		};
+		const disownContinuations = () => {
+			fenceContinuations();
+			setLocating(false);
+		};
 		const unsubscribeReset =
 			reconciler?.subscribeProjectScopeReset(disownContinuations);
 		return () => {
 			unsubscribeReset?.();
-			disownContinuations();
+			fenceContinuations();
 		};
 	}, [reconciler]);
+	useEffect(() => {
+		/* The reset signal precedes the authoritative GET, so it invalidates
+		 * unabortable source continuations without proving the field belongs to
+		 * a different Project. A same-Project snapshot re-arms this mounted
+		 * control; a confirmed Project change remounts FormScreen's fieldset. */
+		if (accessPhase === "authorized") ownsContinuationRef.current = true;
+	}, [accessPhase]);
 
 	const reverseGeocode = useCallback((p: GeoPoint) => {
 		if (reverseTimerRef.current) clearTimeout(reverseTimerRef.current);
@@ -191,7 +207,13 @@ export function GeopointPicker({
 	}, [onChange, onBlur]);
 
 	return (
-		<div className="space-y-2">
+		<fieldset
+			aria-labelledby={labelledBy}
+			// `min-w-0`: a fieldset's UA default is `min-width: min-content`,
+			// so without it this refuses to shrink below the address input and
+			// the lat/lon row, and a narrow preview column overflows sideways.
+			className="m-0 min-w-0 space-y-2 border-none p-0"
+		>
 			{configured ? (
 				<>
 					<AddressSearch value={address} onSelect={handleAddressSelect} />
@@ -286,7 +308,7 @@ export function GeopointPicker({
 			/>
 
 			{showError && errorMessage && <ValidationError message={errorMessage} />}
-		</div>
+		</fieldset>
 	);
 }
 

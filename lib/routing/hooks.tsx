@@ -160,6 +160,11 @@ export interface NavigateActions {
 	 * id. Project-shared data, not app content — it names no module.
 	 */
 	openProjectData: (tableId?: LookupTableId) => void;
+	openFormOperations: (
+		moduleUuid: Uuid,
+		formUuid: Uuid,
+		operationUuid?: Uuid,
+	) => void;
 	openForm: (moduleUuid: Uuid, formUuid: Uuid, selectedUuid?: Uuid) => void;
 	back: () => void;
 	up: () => void;
@@ -189,6 +194,7 @@ export function useIsModuleSelected(uuid: Uuid): boolean {
 			loc.kind === "data-review" ||
 			loc.kind === "module-condition" ||
 			loc.kind === "form-condition" ||
+			loc.kind === "form-operations" ||
 			loc.kind === "form") &&
 		loc.moduleUuid === uuid
 	);
@@ -216,7 +222,9 @@ export function useIsCaseListSelected(uuid: Uuid): boolean {
 export function useIsFormSelected(uuid: Uuid): boolean {
 	const loc = useLocation();
 	return (
-		(loc.kind === "form" || loc.kind === "form-condition") &&
+		(loc.kind === "form" ||
+			loc.kind === "form-condition" ||
+			loc.kind === "form-operations") &&
 		loc.formUuid === uuid
 	);
 }
@@ -258,11 +266,14 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
 		loc.kind === "data-review" ||
 		loc.kind === "module-condition" ||
 		loc.kind === "form-condition" ||
+		loc.kind === "form-operations" ||
 		loc.kind === "form"
 			? loc.moduleUuid
 			: undefined;
 	const formUuid =
-		loc.kind === "form" || loc.kind === "form-condition"
+		loc.kind === "form" ||
+		loc.kind === "form-condition" ||
+		loc.kind === "form-operations"
 			? loc.formUuid
 			: undefined;
 
@@ -367,7 +378,9 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
 			});
 		}
 		if (
-			(loc.kind === "form" || loc.kind === "form-condition") &&
+			(loc.kind === "form" ||
+				loc.kind === "form-condition" ||
+				loc.kind === "form-operations") &&
 			formUuid &&
 			moduleUuid
 		) {
@@ -391,6 +404,15 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
 				key: `form-condition:${formUuid}`,
 				label: "When it appears",
 				location: { kind: "form-condition", moduleUuid, formUuid },
+			});
+		}
+		// The selected operation gets no crumb of its own: it is a selection
+		// inside this screen, the way a selected field is inside a form.
+		if (loc.kind === "form-operations" && moduleUuid && formUuid) {
+			items.push({
+				key: `form-operations:${formUuid}`,
+				label: "Case changes",
+				location: { kind: "form-operations", moduleUuid, formUuid },
 			});
 		}
 		return items;
@@ -460,6 +482,17 @@ export function useNavigate(): NavigateActions {
 				push({ kind: "app-setup", section }),
 			openProjectData: (tableId?: LookupTableId) =>
 				push({ kind: "project-data", tableId }),
+			openFormOperations: (
+				moduleUuid: Uuid,
+				formUuid: Uuid,
+				operationUuid?: Uuid,
+			) =>
+				push({
+					kind: "form-operations",
+					moduleUuid,
+					formUuid,
+					...(operationUuid !== undefined && { operationUuid }),
+				}),
 			openForm: (moduleUuid: Uuid, formUuid: Uuid, selectedUuid?: Uuid) =>
 				push({ kind: "form", moduleUuid, formUuid, selectedUuid }),
 			back: () => window.history.back(),
@@ -509,6 +542,19 @@ export function parentLocation(loc: Location): Location | undefined {
 				moduleUuid: loc.moduleUuid,
 				formUuid: loc.formUuid,
 			};
+		case "form-operations":
+			// A selected operation's parent is the list; the list's is the form.
+			return loc.operationUuid !== undefined
+				? {
+						kind: "form-operations",
+						moduleUuid: loc.moduleUuid,
+						formUuid: loc.formUuid,
+					}
+				: {
+						kind: "form",
+						moduleUuid: loc.moduleUuid,
+						formUuid: loc.formUuid,
+					};
 		case "form":
 			return loc.selectedUuid
 				? {

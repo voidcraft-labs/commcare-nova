@@ -148,8 +148,10 @@ export function createReconcilerRuntime(
 			throw new AggregateError(failures, "Presence state failed to clear");
 		}
 	}
-	/* Session-owned Project data clears first: abort transfers and drop preview
-	 * case/media identities before any external cache subscriber can react. */
+	/* Session-owned uncertain-scope data clears first: abort media transfers and
+	 * drop media/run payloads before any external cache subscriber can react.
+	 * Preview case/persona/form state remains until the GET confirms whether
+	 * this was a same-Project refresh or a real tenant boundary. */
 	projectScopeResetRegistry.subscribe(() =>
 		sessionStore.getState().resetProjectScope(),
 	);

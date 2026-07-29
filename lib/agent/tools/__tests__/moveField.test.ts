@@ -18,7 +18,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
-import { backfillOrderKeys } from "@/lib/doc/order/backfill";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { makeStubToolContext } from "../../__tests__/fixtures";
@@ -35,8 +34,8 @@ vi.mock("@/lib/db/applyBlueprintChange", () => ({
 
 /**
  * One survey form: three top-level text fields around a group with two
- * children. Order keys are backfilled so `keysForSlot` sees the same
- * keyed siblings a hydrated doc would carry.
+ * children. Each membership array IS the sequence, so the fixture's
+ * declaration order is the order the tool moves fields within.
  *
  *   alpha, bravo, charlie, grp[ golf_one, golf_two ]
  */
@@ -68,7 +67,6 @@ function makeDoc(): BlueprintDoc {
 			},
 		],
 	});
-	backfillOrderKeys(doc);
 	return doc;
 }
 
@@ -249,7 +247,6 @@ describe("moveField — parentId placement", () => {
 				},
 			],
 		});
-		backfillOrderKeys(twinDoc);
 		const { ctx } = makeStubToolContext();
 		const nested = Object.values(twinDoc.fields).find(
 			(fld) => fld.id === "dup" && "label" in fld && fld.label === "Nested dup",
@@ -309,7 +306,6 @@ describe("moveField — refusals", () => {
 				},
 			],
 		});
-		backfillOrderKeys(twin);
 		const { ctx } = makeStubToolContext();
 		const result = await moveFieldTool.execute(
 			{

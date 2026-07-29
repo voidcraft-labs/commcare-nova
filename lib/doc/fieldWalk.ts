@@ -14,33 +14,25 @@
  */
 
 import type { BlueprintDoc, Field, Uuid } from "@/lib/domain";
-import { isContainer } from "@/lib/domain";
-import { bySortKey } from "./order/compare";
+import { isContainer, ownRecordValue } from "@/lib/domain";
 
 /**
- * The membership arrays (`moduleOrder` / `formOrder[m]` / `fieldOrder[p]`) are
- * NOT the authoritative sequence — display/wire/preview/SA order is derived as
- * `sort-by-(order, uuid)`. These three helpers resolve each uuid to its entity
- * and return the membership in that derived order, so every consumer that
- * walks a level as a SEQUENCE sorts through one comparator (a same-parent
- * reorder, which leaves the membership array untouched, still re-sequences).
+ * The membership arrays (`moduleOrder` / `formOrder[m]` / `fieldOrder[p]`) ARE
+ * the sequence — display, wire, preview, and SA order all read them directly.
+ * There is nothing to sort and no key to compare, so these three helpers are
+ * just a copy: they exist to name the intent at the call site, and so that
+ * "the forms of this module, in order" has one spelling instead of thirty.
  */
 export function orderedModuleUuids(doc: BlueprintDoc): Uuid[] {
-	return [...doc.moduleOrder].sort((a, b) =>
-		bySortKey(doc.modules[a] ?? {}, doc.modules[b] ?? {}),
-	);
+	return [...doc.moduleOrder];
 }
 
 export function orderedFormUuids(doc: BlueprintDoc, moduleUuid: Uuid): Uuid[] {
-	return [...(doc.formOrder[moduleUuid] ?? [])].sort((a, b) =>
-		bySortKey(doc.forms[a] ?? {}, doc.forms[b] ?? {}),
-	);
+	return [...(ownRecordValue(doc.formOrder, moduleUuid) ?? [])];
 }
 
 export function orderedFieldUuids(doc: BlueprintDoc, parentUuid: Uuid): Uuid[] {
-	return [...(doc.fieldOrder[parentUuid] ?? [])].sort((a, b) =>
-		bySortKey(doc.fields[a] ?? {}, doc.fields[b] ?? {}),
-	);
+	return [...(ownRecordValue(doc.fieldOrder, parentUuid) ?? [])];
 }
 
 /**
@@ -66,7 +58,7 @@ interface FormIterEntry {
  */
 export function* iterForms(doc: BlueprintDoc): Generator<FormIterEntry> {
 	for (const moduleUuid of orderedModuleUuids(doc)) {
-		const moduleName = doc.modules[moduleUuid]?.name ?? "";
+		const moduleName = ownRecordValue(doc.modules, moduleUuid)?.name ?? "";
 		for (const formUuid of orderedFormUuids(doc, moduleUuid)) {
 			yield { moduleUuid, moduleName, formUuid };
 		}
@@ -83,14 +75,14 @@ export function* iterForms(doc: BlueprintDoc): Generator<FormIterEntry> {
  */
 export function countFieldsUnder(doc: BlueprintDoc, parentUuid: Uuid): number {
 	let total = 0;
-	const stack: Uuid[] = [...(doc.fieldOrder[parentUuid] ?? [])];
+	const stack: Uuid[] = [...(ownRecordValue(doc.fieldOrder, parentUuid) ?? [])];
 	while (stack.length > 0) {
 		const uuid = stack.pop() as Uuid;
-		const field = doc.fields[uuid];
+		const field = ownRecordValue(doc.fields, uuid);
 		if (!field) continue;
 		total++;
 		if (isContainer(field)) {
-			for (const c of doc.fieldOrder[uuid] ?? []) stack.push(c);
+			for (const c of ownRecordValue(doc.fieldOrder, uuid) ?? []) stack.push(c);
 		}
 	}
 	return total;
@@ -123,7 +115,7 @@ export function buildFieldTree(
 	const ordered = orderedFieldUuids(doc, parentUuid);
 	const out: FieldWithChildren[] = [];
 	for (const uuid of ordered) {
-		const field = doc.fields[uuid];
+		const field = ownRecordValue(doc.fields, uuid);
 		if (!field) continue;
 		if (isContainer(field)) {
 			const children = buildFieldTree(doc, uuid);

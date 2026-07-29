@@ -93,6 +93,18 @@ interface CaseTypePickerContentProps {
 	readonly onChange: (name: string) => void;
 	/** When provided, a consequence-labeled removal row shows (settings only). */
 	readonly onClear?: () => void;
+	/** Names this authoring context cannot construct or select. */
+	readonly exclude?: ReadonlySet<string>;
+	/** Context-specific commit verdict for an otherwise well-formed type. */
+	readonly choiceVerdict?: (
+		name: string,
+	) => { readonly ok: true } | { readonly ok: false; readonly reason: string };
+	/** Context-specific verdict for clearing the currently-bound value. */
+	readonly clearVerdict?:
+		| { readonly ok: true }
+		| { readonly ok: false; readonly reason: string };
+	/** Consequence copy for the optional clear row. */
+	readonly clearLabel?: string;
 }
 
 /**
@@ -103,6 +115,10 @@ export function CaseTypePickerContent({
 	value,
 	onChange,
 	onClear,
+	exclude,
+	choiceVerdict,
+	clearVerdict = { ok: true },
+	clearLabel = "Stop managing cases",
 }: CaseTypePickerContentProps) {
 	const caseTypes = useCaseTypes();
 	const [draft, setDraft] = useState("");
@@ -113,10 +129,27 @@ export function CaseTypePickerContent({
 		() => new Set(caseTypes.map((c) => c.name)),
 		[caseTypes],
 	);
-	const displays = useMemo(
-		() => caseTypeDisplays(caseTypes.map((caseType) => caseType.name)),
-		[caseTypes],
+	const availableCaseTypes = useMemo(
+		() => caseTypes.filter((caseType) => !exclude?.has(caseType.name)),
+		[caseTypes, exclude],
 	);
+	const displays = useMemo(
+		() => caseTypeDisplays(availableCaseTypes.map((caseType) => caseType.name)),
+		[availableCaseTypes],
+	);
+	const existingChoiceVerdicts = useMemo(
+		() =>
+			new Map(
+				availableCaseTypes.map((caseType) => [
+					caseType.name,
+					choiceVerdict?.(caseType.name) ?? ({ ok: true } as const),
+				]),
+			),
+		[availableCaseTypes, choiceVerdict],
+	);
+	const compatibleExistingCount = availableCaseTypes.filter(
+		(caseType) => existingChoiceVerdicts.get(caseType.name)?.ok !== false,
+	).length;
 	const candidate = useMemo(() => slugifyId(draft, ""), [draft]);
 	const verdict = useMemo(
 		() => caseTypeNameVerdict(candidate, existingNames),
@@ -124,10 +157,28 @@ export function CaseTypePickerContent({
 	);
 	// Only surface the reason once the user has typed something — an empty
 	// field shouldn't read as an error before they start.
-	const showError = draft.trim().length > 0 && !verdict.ok;
+	const excludedCandidate = exclude?.has(candidate) === true;
+	const candidateChoiceVerdict =
+		verdict.ok && !excludedCandidate
+			? (choiceVerdict?.(candidate) ?? ({ ok: true } as const))
+			: ({ ok: true } as const);
+	const showError =
+		draft.trim().length > 0 &&
+		(!verdict.ok || excludedCandidate || !candidateChoiceVerdict.ok);
+	const creationError = !showError
+		? null
+		: excludedCandidate
+			? !verdict.ok && verdict.code === "duplicate"
+				? `${humanizeId(candidate)} already exists and is managed by the platform. Choose a different name.`
+				: "That case type is managed by the platform and cannot be changed here. Choose a different name."
+			: !verdict.ok
+				? creationErrorMessage(verdict, candidate)
+				: !candidateChoiceVerdict.ok
+					? candidateChoiceVerdict.reason
+					: null;
 
 	const commitNew = () => {
-		if (!verdict.ok) return;
+		if (!verdict.ok || excludedCandidate || !candidateChoiceVerdict.ok) return;
 		onChange(candidate);
 		setDraft("");
 	};
@@ -138,15 +189,28 @@ export function CaseTypePickerContent({
 				Case types
 			</div>
 
-			{caseTypes.length === 0 ? (
+			{availableCaseTypes.length === 0 ? (
 				<div className="px-3 py-2 text-[13px] leading-relaxed text-nova-text-muted">
-					<p>No case types yet</p>
+					<p>
+						{caseTypes.length === 0
+							? "No case types yet"
+							: "No case types available here"}
+					</p>
 					<p className="mt-0.5">Create one below</p>
 				</div>
 			) : (
 				<div className="min-h-0 max-h-56 flex-1 overflow-y-auto overscroll-contain">
-					{caseTypes.map((ct) => {
+					{compatibleExistingCount === 0 && (
+						<p className="px-3 py-2 text-[13px] leading-relaxed text-nova-text-muted">
+							No compatible existing case types. Each choice below explains what
+							must change first.
+						</p>
+					)}
+					{availableCaseTypes.map((ct) => {
 						const active = ct.name === value;
+						const choice = existingChoiceVerdicts.get(ct.name) ?? {
+							ok: true as const,
+						};
 						const display = displays.get(ct.name) ?? {
 							label: humanizeId(ct.name),
 							needsDisambiguation: false,
@@ -156,6 +220,7 @@ export function CaseTypePickerContent({
 								key={ct.name}
 								type="button"
 								variant="ghost"
+								disabled={!choice.ok}
 								onClick={() => onChange(ct.name)}
 								aria-pressed={active}
 								aria-label={
@@ -182,6 +247,11 @@ export function CaseTypePickerContent({
 									{display.needsDisambiguation && (
 										<span className="mt-0.5 block break-words text-xs font-normal text-nova-text-muted">
 											Saved as {ct.name}
+										</span>
+									)}
+									{!choice.ok && (
+										<span className="mt-0.5 block break-words text-xs font-normal text-nova-text-muted">
+											{choice.reason}
 										</span>
 									)}
 								</span>
@@ -236,20 +306,22 @@ export function CaseTypePickerContent({
 						type="button"
 						variant="ghost"
 						onClick={commitNew}
-						disabled={!verdict.ok}
+						disabled={
+							!verdict.ok || excludedCandidate || !candidateChoiceVerdict.ok
+						}
 						className="min-h-11 w-full gap-1 bg-nova-violet/15 px-3 text-sm text-nova-violet-bright not-disabled:hover:bg-nova-violet/25"
 					>
 						<Icon icon={tablerPlus} width="15" height="15" />
 						Create
 					</Button>
 				</div>
-				{showError && !verdict.ok && (
+				{creationError !== null && (
 					<p
 						id={errorId}
 						role="alert"
 						className="mt-1 px-0.5 text-xs text-nova-rose"
 					>
-						{creationErrorMessage(verdict, candidate)}
+						{creationError}
 					</p>
 				)}
 			</div>
@@ -260,11 +332,19 @@ export function CaseTypePickerContent({
 					<Button
 						type="button"
 						variant="destructive"
+						disabled={!clearVerdict.ok}
 						onClick={onClear}
 						className={ROW_BASE}
 					>
 						<Icon icon={tablerX} width="14" height="14" />
-						<span className="flex-1">Stop managing cases</span>
+						<span className="flex-1">
+							<span className="block">{clearLabel}</span>
+							{!clearVerdict.ok && (
+								<span className="mt-0.5 block text-xs font-normal text-nova-text-muted">
+									{clearVerdict.reason}
+								</span>
+							)}
+						</span>
 					</Button>
 				</>
 			)}
@@ -279,6 +359,8 @@ interface CaseTypePickerProps extends CaseTypePickerContentProps {
 	readonly ariaLabel?: string;
 	/** Lets a parent confirmation return focus after the popover choice unmounts. */
 	readonly triggerRef?: Ref<HTMLButtonElement>;
+	/** Explicit read-only/viewer state for the trigger. */
+	readonly disabled?: boolean;
 }
 
 /**
@@ -290,9 +372,14 @@ export function CaseTypePicker({
 	value,
 	onChange,
 	onClear,
+	exclude,
+	choiceVerdict,
+	clearVerdict,
+	clearLabel,
 	placeholder = "Pick a case type",
 	ariaLabel = "Case type",
 	triggerRef,
+	disabled = false,
 }: CaseTypePickerProps) {
 	const caseTypes = useCaseTypes();
 	const [open, setOpen] = useState(false);
@@ -314,6 +401,7 @@ export function CaseTypePicker({
 		<Popover open={open} onOpenChange={setOpen}>
 			<PopoverTrigger
 				ref={triggerRef}
+				disabled={disabled}
 				render={<Button type="button" variant="outline" />}
 				aria-label={`${ariaLabel}: ${triggerLabel}${storedValueHint ? `, saved as ${storedValueHint}` : ""}`}
 				className="group h-auto min-h-11 w-full justify-between gap-2 whitespace-normal border-white/[0.06] bg-nova-deep/50 px-3 py-2 text-sm text-nova-text not-disabled:hover:border-nova-violet/30"
@@ -363,6 +451,10 @@ export function CaseTypePicker({
 						onChange(name);
 						setOpen(false);
 					}}
+					exclude={exclude}
+					choiceVerdict={choiceVerdict}
+					clearVerdict={clearVerdict}
+					clearLabel={clearLabel}
 					{...(onClear && {
 						onClear: () => {
 							onClear();

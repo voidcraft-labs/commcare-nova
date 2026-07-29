@@ -32,6 +32,7 @@
 // connection layer in.
 
 import {
+	CaptureSubmissionRejectedError,
 	CaseNotFoundError,
 	CasePropertiesValidationError,
 	CaseTypeNotInBlueprintError,
@@ -89,7 +90,7 @@ export function pickBlueprintDoc<T extends BlueprintDoc>(
 	state: T,
 ): BlueprintDoc {
 	// `state` may carry doc-store-only extras (action methods, the
-	// `temporal` slot from zundo) on top of the persisted shape. The
+	// action methods) on top of the persisted shape. The
 	// generic narrows to `T extends BlueprintDoc`, so `pickByKeys`
 	// returns `Partial<T>` — every persisted slot is preserved by
 	// value but typed as optional after the projection. We re-assert
@@ -332,6 +333,9 @@ export function mapFilterPreviewError(err: unknown): LoadFilterPreviewResult {
  * framework code) collapse to a default message.
  */
 export function mapSubmitFormError(err: unknown): SubmissionResult {
+	if (err instanceof CaptureSubmissionRejectedError) {
+		return { kind: "error", message: err.message };
+	}
 	if (err instanceof SubmissionRejectedError) {
 		return { kind: "submission-rejected", rejection: err.rejection };
 	}

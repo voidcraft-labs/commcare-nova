@@ -415,6 +415,7 @@ function buildStore(): CaseStore {
 	return new PostgresCaseStore({
 		projectId: OWNER_ID,
 		actorUserId: OWNER_ID,
+		ownerId: OWNER_ID,
 		db: dbHandle.db as unknown as Kysely<Database>,
 		sampleGenerator: new HeuristicCaseGenerator(),
 	});
@@ -434,6 +435,7 @@ function renderCaseListScreen(doc: BlueprintDoc) {
 		<BlueprintDocProvider appId={APP_ID} initialDoc={doc}>
 			<BuilderSessionProvider
 				init={{
+					appId: APP_ID,
 					projectId: "project-case-list-search-int",
 					role: "editor",
 					canEdit: true,
@@ -461,6 +463,7 @@ function renderFormScreen(doc: BlueprintDoc, formUuid: Uuid, caseId?: string) {
 		<BlueprintDocProvider appId={APP_ID} initialDoc={doc}>
 			<BuilderSessionProvider
 				init={{
+					appId: APP_ID,
 					projectId: "project-case-list-search-int",
 					role: "editor",
 					canEdit: true,
@@ -480,6 +483,16 @@ function renderFormScreen(doc: BlueprintDoc, formUuid: Uuid, caseId?: string) {
 			</BuilderSessionProvider>
 		</BlueprintDocProvider>,
 	);
+}
+
+async function readySubmitButton(): Promise<HTMLButtonElement> {
+	return await waitFor(() => {
+		const button = screen.getByRole("button", {
+			name: /^submit$/i,
+		}) as HTMLButtonElement;
+		expect(button.disabled).toBe(false);
+		return button;
+	});
 }
 
 // ── Setup ────────────────────────────────────────────────────────
@@ -549,15 +562,23 @@ beforeEach(async () => {
 	);
 	vi.mocked(submitFormAction).mockImplementation(
 		async (mutation, appId): Promise<SubmissionResult> => {
-			// Survey carries no case effect — the real action short-circuits
-			// before constructing the store.
+			// This fixture's survey forms carry neither committed operations nor
+			// captures. The real action validates their final protocol and
+			// committed form before taking the same effect-free result.
 			if (mutation.kind === "survey") return { kind: "survey" };
 			// Every case-bearing submission lands through the atomic envelope
 			// (`applySubmission`), exactly as `submitFormAction` does in
 			// production; the envelope result's `primaryCaseId` maps to the
 			// arm's `caseId`.
 			const result = await store.applySubmission(
-				submissionEnvelopeArgs(mutation, appId),
+				submissionEnvelopeArgs(mutation, appId, {
+					submissionReceipt: {
+						entryKey: mutation.entryKey,
+						formUuid: mutation.formUuid,
+						expectedAppMutationSeq: 0,
+						requestDigest: "case-list-running-app-submission",
+					},
+				}),
 			);
 			if (result.primaryCaseId === undefined) {
 				throw new Error(
@@ -741,7 +762,7 @@ describe("FormScreen registration submit — write-through to case list", () => 
 		const ageInput = screen.getByRole("spinbutton") as HTMLInputElement;
 		fireEvent.change(ageInput, { target: { value: "33" } });
 
-		fireEvent.click(screen.getByRole("button", { name: /^submit$/i }));
+		fireEvent.click(await readySubmitButton());
 
 		// Wait for the registration action to resolve — `navigateMock.goHome`
 		// firing is the signal the success arm dispatched the post-
@@ -828,7 +849,7 @@ describe("FormScreen followup submit — patch round-trip to case list", () => {
 		// the mutation entirely).
 		fireEvent.change(ageInput, { target: { value: "41" } });
 
-		fireEvent.click(screen.getByRole("button", { name: /^submit$/i }));
+		fireEvent.click(await readySubmitButton());
 
 		// Followup's default post-submit destination is `previous`,
 		// which routes to the `onBack` callback. We pass a no-op
@@ -926,13 +947,7 @@ describe("FormScreen close submit — closed_on stamps on the bound row", () => 
 		 * loaded full-suite worker, finding the element can beat that preload;
 		 * clicking a disabled button is correctly ignored. Wait for the actual
 		 * worker-visible readiness state before exercising submit. */
-		const submit = await waitFor(() => {
-			const button = screen.getByRole("button", {
-				name: /^submit$/i,
-			}) as HTMLButtonElement;
-			expect(button.disabled).toBe(false);
-			return button;
-		});
+		const submit = await readySubmitButton();
 		fireEvent.click(submit);
 
 		await waitFor(() => {

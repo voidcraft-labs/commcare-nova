@@ -38,7 +38,12 @@
 // 'key'`, `properties->>'key' IS NULL`, `= ''`).
 
 import type { ColumnType, JSONColumnType } from "kysely";
-import type { LookupRowsTable } from "@/lib/db/pg";
+import type {
+	AppsTable,
+	FormAttachmentsTable,
+	FormSubmissionIntentsTable,
+	LookupRowsTable,
+} from "@/lib/db/pg";
 
 // Standard recursive JSON-value union. Read-side shape of every
 // JSONB column; the dialect's serializer turns this tree into a
@@ -206,11 +211,13 @@ export interface CaseTypeSchemasTable {
 
 /**
  * `child` is the standard parent-child relation; `extension` is
- * the host-extension relation where closing the host closes the
- * extension. The wire grammars (CSQL, on-device XPath) match
- * across both via `ancestor-exists` / `subcase-exists`; the
- * explicit column lets the Postgres compiler answer
- * direction-specific queries the wire grammars cannot.
+ * the distinct host-extension relation. Neither Nova nor a default
+ * HQ domain closes an extension merely because its host closes; a
+ * lifecycle cascade requires separate explicit workflow. The wire
+ * grammars (CSQL, on-device XPath) match across both via
+ * `ancestor-exists` / `subcase-exists`; the explicit column lets the
+ * Postgres compiler answer direction-specific queries the wire
+ * grammars cannot.
  */
 export type CaseIndexRelationship = "child" | "extension";
 
@@ -299,9 +306,12 @@ export interface ParkedCaseValuesTable {
  * writes these rows.
  */
 export interface Database {
+	apps: AppsTable;
 	cases: CasesTable;
 	case_type_schemas: CaseTypeSchemasTable;
 	case_indices: CaseIndicesTable;
 	parked_case_values: ParkedCaseValuesTable;
 	lookup_rows: LookupRowsTable;
+	form_attachments: FormAttachmentsTable;
+	form_submission_intents: FormSubmissionIntentsTable;
 }

@@ -1,3 +1,4 @@
+import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 // @vitest-environment happy-dom
 
@@ -19,6 +20,7 @@ import {
 	advancedSearchInputDef,
 	asUuid,
 	type BlueprintDoc,
+	type CaseListConfig,
 	type CaseSearchConfig,
 	type CaseType,
 	type Column,
@@ -54,11 +56,7 @@ interface MutableWorkspaceModule {
 	name: string;
 	caseType: string;
 	caseListOnly: boolean;
-	caseListConfig: {
-		columns: Column[];
-		searchInputs: SearchInputDef[];
-		filter?: Predicate;
-	};
+	caseListConfig: CaseListConfig;
 	caseSearchConfig?: CaseSearchConfig;
 }
 
@@ -90,6 +88,9 @@ vi.mock("@/lib/doc/hooks/useEntity", () => ({
 }));
 vi.mock("@/lib/doc/hooks/useCaseTypes", () => ({
 	useEffectiveCaseTypes: () => testState.caseTypes,
+}));
+vi.mock("@/lib/doc/hooks/useUserCollections", () => ({
+	useUserProperties: () => [],
 }));
 vi.mock("@/lib/doc/hooks/useCaseWorkspaceVerdicts", () => ({
 	useCaseWorkspaceBoundaryVerdicts: () => ({
@@ -433,7 +434,7 @@ function makeModule(
 		name: "Clients",
 		caseType: "client",
 		caseListOnly: false,
-		caseListConfig: { columns, searchInputs, filter },
+		caseListConfig: resolveCaseListConfig({ columns, searchInputs, filter }),
 		caseSearchConfig,
 	};
 }
@@ -459,11 +460,11 @@ function workspaceDoc(args: {
 				uuid: MODULE_UUID,
 				name: "Clients",
 				caseType: "client",
-				caseListConfig: {
+				caseListConfig: resolveCaseListConfig({
 					columns: [...(args.columns ?? [])],
 					searchInputs: [...(args.searchInputs ?? [])],
 					...(args.filter !== undefined && { filter: args.filter }),
-				},
+				}),
 				...(args.caseSearchConfig !== undefined && {
 					caseSearchConfig: args.caseSearchConfig,
 				}),
@@ -712,11 +713,11 @@ describe("Search field removal", () => {
 				{
 					name: "Clients",
 					caseType: "client",
-					caseListConfig: {
+					caseListConfig: resolveCaseListConfig({
 						columns: [NAME_COLUMN],
 						searchInputs: [first, second],
 						filter,
-					},
+					}),
 					caseSearchConfig: {},
 					forms: [
 						{
@@ -1442,6 +1443,63 @@ describe("Search field removal", () => {
 			expect(document.querySelector("[data-test-search-condition]")).toBeNull();
 			expect(scroller.scrollTop).toBe(800);
 		});
+		await act(
+			() =>
+				new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+		);
+	});
+
+	it("keeps each tab snapshot frozen through a later tab transition", async () => {
+		testState.module = makeModule([
+			input(FIRST_UUID, "case_name", "Client name"),
+		]);
+		const rendered = render(
+			<CaseListConfigWorkspace moduleUuid={MODULE_UUID} tab="list" />,
+		);
+		const resultsScroller = document.querySelector<HTMLElement>(
+			'[data-case-workspace-scroll-body="list"]',
+		);
+		const searchScroller = document.querySelector<HTMLElement>(
+			'[data-case-workspace-scroll-body="search"]',
+		);
+		if (resultsScroller === null || searchScroller === null) {
+			throw new Error("Missing case workspace scrollers");
+		}
+		let resultsScrollTop = 1730;
+		let searchScrollTop = 0;
+		Object.defineProperty(resultsScroller, "scrollTop", {
+			configurable: true,
+			get: () => resultsScrollTop,
+			set: (next: number) => {
+				resultsScrollTop = next;
+			},
+		});
+		Object.defineProperty(searchScroller, "scrollTop", {
+			configurable: true,
+			get: () => searchScrollTop,
+			set: (next: number) => {
+				searchScrollTop = next;
+			},
+		});
+		fireEvent.scroll(resultsScroller);
+
+		fireEvent.click(screen.getByRole("button", { name: /^Search(?:,|$)/ }));
+		rendered.rerender(
+			<CaseListConfigWorkspace moduleUuid={MODULE_UUID} tab="search" />,
+		);
+		searchScrollTop = 800;
+		fireEvent.scroll(searchScroller);
+
+		fireEvent.click(screen.getByRole("button", { name: /^Results(?:,|$)/ }));
+		// Chromium can deliver this first tab's delayed hidden/reveal clamp only
+		// after the second tab has itself become the departing tab.
+		resultsScrollTop = 1709;
+		fireEvent.scroll(resultsScroller);
+		rendered.rerender(
+			<CaseListConfigWorkspace moduleUuid={MODULE_UUID} tab="list" />,
+		);
+
+		await waitFor(() => expect(resultsScroller.scrollTop).toBe(1730));
 		await act(
 			() =>
 				new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),

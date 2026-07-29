@@ -4,7 +4,12 @@ import { z } from "zod";
 import { applyMutations } from "@/lib/doc/mutations";
 import { buildReferenceIndex } from "@/lib/doc/referenceIndex";
 import { canonicalMutationSchema, mutationSchema } from "@/lib/doc/types";
-import { asUuid, type BlueprintDoc, moduleSchema } from "@/lib/domain";
+import {
+	asUuid,
+	type BlueprintDoc,
+	type CaseOperation,
+	moduleSchema,
+} from "@/lib/domain";
 
 const MODULE = asUuid("10000000-0000-4000-8000-000000000000");
 const FORM = asUuid("20000000-0000-4000-8000-000000000000");
@@ -61,6 +66,8 @@ const TABLE_COLUMN_PREDICATE = {
 
 const EMPTY_CASE_LIST = {
 	columns: [],
+	listColumnOrder: [],
+	detailColumnOrder: [],
 	searchInputs: [],
 } as const;
 
@@ -178,8 +185,10 @@ const legacyCarrierPayloads: ReadonlyArray<readonly [string, unknown]> = [
 			kind: "addModule",
 			module: moduleWith({
 				caseListConfig: {
+					...EMPTY_CASE_LIST,
 					columns: [calculatedColumn(TABLE_LOOKUP_VALUE)],
-					searchInputs: [],
+					listColumnOrder: [COLUMN],
+					detailColumnOrder: [COLUMN],
 				},
 			}),
 		},
@@ -191,7 +200,7 @@ const legacyCarrierPayloads: ReadonlyArray<readonly [string, unknown]> = [
 			uuid: MODULE,
 			patch: {
 				caseListConfig: {
-					columns: [],
+					...EMPTY_CASE_LIST,
 					searchInputs: [advancedInput({ default: TABLE_LOOKUP_VALUE })],
 				},
 			},
@@ -370,6 +379,8 @@ const legacyCarrierPayloads: ReadonlyArray<readonly [string, unknown]> = [
 			kind: "addColumn",
 			moduleUuid: MODULE,
 			column: calculatedColumn(TABLE_LOOKUP_VALUE),
+			afterInList: null,
+			afterInDetail: null,
 		},
 	],
 	[
@@ -488,6 +499,68 @@ describe("rolling mutation lookup-carrier boundary", () => {
 		expect(replayed.modules[MODULE]?.displayCondition).toEqual(
 			TABLE_COLUMN_PREDICATE,
 		);
+	});
+
+	it("moves a carrier-bearing case operation through the rolling envelope without serializing its hidden AST", () => {
+		const operation = operationWith({
+			condition: TABLE_COLUMN_PREDICATE,
+		}) as unknown as CaseOperation;
+		const doc: BlueprintDoc = {
+			appId: "carrier-move",
+			appName: "Carrier move",
+			connectType: null,
+			caseTypes: null,
+			modules: {
+				[MODULE]: {
+					uuid: MODULE,
+					id: "visits",
+					name: "Visits",
+				},
+			},
+			forms: {
+				[FORM]: {
+					uuid: FORM,
+					id: "visit",
+					name: "Visit",
+					type: "survey",
+					caseOperations: [operation],
+				},
+			},
+			fields: {},
+			moduleOrder: [MODULE],
+			formOrder: { [MODULE]: [FORM] },
+			fieldOrder: { [FORM]: [] },
+			fieldParent: {},
+		};
+		const payload = {
+			kind: "updateForm",
+			uuid: FORM,
+			patch: {},
+			caseOperationChange: {
+				operation: "move",
+				uuid: OPERATION,
+				after: null,
+			},
+			caseOperationPatch: {
+				operation: "move",
+				uuid: OPERATION,
+				after: null,
+			},
+		};
+		const serialized = JSON.stringify(payload);
+		expect(serialized).not.toContain("table-column");
+		expect(serialized).not.toContain("table-lookup");
+
+		for (const schema of [mutationSchema, canonicalMutationSchema]) {
+			const parsed = schema.parse(JSON.parse(serialized));
+			const replayed = produce(doc, (draft) => {
+				applyMutations(draft, [parsed]);
+			});
+			expect(replayed.forms[FORM].caseOperations?.[0]).toMatchObject({
+				uuid: OPERATION,
+				condition: TABLE_COLUMN_PREDICATE,
+			});
+		}
 	});
 
 	it.each([
@@ -665,19 +738,6 @@ describe("rolling mutation lookup-carrier boundary", () => {
 						uuid: asUuid("a0000000-0000-4000-8000-000000000000"),
 					}),
 				},
-			},
-		],
-		[
-			"column surface-order membership",
-			{
-				kind: "addModule",
-				module: moduleWith({ caseListConfig: EMPTY_CASE_LIST }),
-				columnSurfaceOrders: [
-					{
-						uuid: COLUMN,
-						listOrder: "a0",
-					},
-				],
 			},
 		],
 	])(

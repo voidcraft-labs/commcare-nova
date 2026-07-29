@@ -161,12 +161,16 @@ export function CaseDetailDialog({
 
 				{state.kind === "loading" || state.kind === "idle" ? (
 					<LoadingTable />
-				) : state.kind === "error" || state.kind === "unauthenticated" ? (
+				) : state.kind === "error" ||
+					state.kind === "unauthenticated" ||
+					state.kind === "persona-unavailable" ? (
 					<div role="alert">
 						<p className="text-sm leading-relaxed text-nova-text-secondary">
 							{state.kind === "error"
 								? state.message
-								: "You're signed out. Reload the page to sign in again."}
+								: state.kind === "persona-unavailable"
+									? state.message
+									: "You're signed out. Reload the page to sign in again."}
 						</p>
 						<Button
 							type="button"

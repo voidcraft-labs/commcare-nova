@@ -22,6 +22,7 @@
 
 import { findOnDeviceScalarExpressionIssue } from "@/lib/commcare/expression/onDeviceCompatibility";
 import { isValidStaticGeopointCenter } from "@/lib/commcare/predicate";
+import { matchModeRunsOnDevice } from "@/lib/commcare/predicate/matchModes";
 import type { BlueprintDoc, Form, Module, Uuid } from "@/lib/domain";
 import { isCaseFirstModule } from "@/lib/domain";
 import {
@@ -59,8 +60,6 @@ type Carrier =
 			readonly condition: Predicate;
 			readonly caseFirst: boolean;
 	  };
-
-const CSQL_ONLY_MATCH_MODES = new Set(["fuzzy", "phonetic", "fuzzy-date"]);
 
 function location(carrier: Carrier) {
 	return carrier.kind === "module"
@@ -128,7 +127,7 @@ function firstPortabilityIssue(
 				"uses strict `is-null`, but CommCare cannot distinguish a missing value from a stored blank in this menu expression; use `is-blank`";
 			return;
 		}
-		if (node.kind === "match" && CSQL_ONLY_MATCH_MODES.has(node.mode)) {
+		if (node.kind === "match" && !matchModeRunsOnDevice(node.mode)) {
 			issue = `uses the server-only \`${node.mode}\` match mode; use \`starts-with\` or another on-device condition`;
 			return;
 		}

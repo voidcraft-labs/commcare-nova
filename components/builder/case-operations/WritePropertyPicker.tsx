@@ -1,0 +1,239 @@
+// components/builder/case-operations/WritePropertyPicker.tsx
+//
+// Which case property a change saves onto.
+//
+// Chooser-first, like every other add affordance in the builder: pick
+// the property, and the row lands already holding a value that would
+// actually submit. A brand-new property is allowed here — the commit
+// batch declares it in the catalog alongside the write
+// (`caseOperationCatalogMutations`) — but the name is adjudicated
+// inline, so an illegal or already-saved one is refused before the
+// gesture rather than after it.
+//
+// A STORED value is stricter than a compared one, so "an empty value of
+// the right type" is not a seed: an empty temporal literal is not
+// portable, and no literal can hold a multi-select or a geopoint. A
+// property this form cannot yet fill is offered WITH that reason rather
+// than seeded into a write the gate would refuse.
+
+"use client";
+
+import { Icon } from "@iconify/react/offline";
+import tablerDatabase from "@iconify-icons/tabler/database";
+import tablerPlus from "@iconify-icons/tabler/plus";
+import { useId, useMemo, useState } from "react";
+import type { EditorFormFieldDecl } from "@/components/builder/shared/formFieldPresentation";
+import { Button } from "@/components/shadcn/button";
+import { FieldError } from "@/components/shadcn/field";
+import { Input } from "@/components/shadcn/input";
+import {
+	Popover,
+	PopoverContent,
+	PopoverTrigger,
+} from "@/components/shadcn/popover";
+import { useEffectiveCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
+import {
+	caseOperationWritePropertyVerdict,
+	isReservedCaseOperationProperty,
+} from "@/lib/doc/identifierVerdicts";
+import { slugifyId } from "@/lib/domain";
+import type { ValueExpression } from "@/lib/domain/predicate";
+import { casePropertyLabel, caseTypePhrase } from "./operationSentence";
+import { seedWriteValue, writeSeedUnavailableReason } from "./seeds";
+
+export function WritePropertyPicker({
+	caseTypeName,
+	alreadyWritten,
+	formFields,
+	onChoose,
+	triggerRef,
+}: {
+	/** Where focus lands when the last saved value is removed. */
+	readonly triggerRef?: React.Ref<HTMLButtonElement>;
+	readonly caseTypeName: string;
+	readonly alreadyWritten: ReadonlySet<string>;
+	/** The answers this change may read — what a write can be seeded from. */
+	readonly formFields: readonly EditorFormFieldDecl[];
+	readonly onChoose: (property: string, value: ValueExpression) => void;
+}) {
+	const caseTypes = useEffectiveCaseTypes();
+	const [open, setOpen] = useState(false);
+	const [draft, setDraft] = useState("");
+	const inputId = useId();
+	const errorId = `${inputId}-error`;
+	/* The name can be refused AND its type can be unseedable at the same time
+	 * (an already-written property whose type has no starting value), so the
+	 * two explanations are separate elements and the input names both. */
+	const seedErrorId = `${inputId}-seed-error`;
+
+	const declaredProperties = useMemo(() => {
+		const caseType = caseTypes.find(
+			(candidate) => candidate.name === caseTypeName,
+		);
+		return (caseType?.properties ?? []).filter(
+			(property) => !isReservedCaseOperationProperty(property.name),
+		);
+	}, [caseTypes, caseTypeName]);
+	const available = useMemo(() => {
+		return declaredProperties
+			.filter((property) => !alreadyWritten.has(property.name))
+			.map((property) => {
+				// Missing metadata is not proof of "text" for an authoring
+				// compatibility choice. Keep it unknown so the operation writer
+				// can establish the property's effective type.
+				const dataType = property.data_type;
+				return {
+					property,
+					dataType,
+					seed: seedWriteValue(dataType, formFields),
+				};
+			});
+	}, [declaredProperties, alreadyWritten, formFields]);
+
+	const candidate = slugifyId(draft, "");
+	const verdict = caseOperationWritePropertyVerdict(candidate, alreadyWritten);
+	const showError = draft.trim().length > 0 && !verdict.ok;
+
+	/* Typing the name of a property that ALREADY EXISTS is not "something new".
+	 * The identifier verdict cannot see that — it checks grammar, length,
+	 * reserved names, and what this change already writes, never a declared
+	 * type — so without this the box seeds an empty text value for a declared
+	 * `date`, and the commit gate refuses the batch with
+	 * CASE_OPERATION_EXPRESSION_TYPE. Worse, the property may be sitting in the
+	 * list directly above as a DISABLED row carrying its reason, while the box
+	 * below offers an enabled button for the identical write. Seed from the
+	 * declared type and inherit that same refusal. */
+	const declared = declaredProperties.find(
+		(property) => property.name === candidate,
+	);
+	const candidateSeed = seedWriteValue(declared?.data_type, formFields);
+	const candidateSeedReason =
+		candidateSeed === undefined && declared?.data_type !== undefined
+			? writeSeedUnavailableReason(declared.data_type)
+			: undefined;
+
+	const choose = (property: string, value: ValueExpression) => {
+		setOpen(false);
+		setDraft("");
+		onChoose(property, value);
+	};
+
+	return (
+		<Popover
+			open={open}
+			onOpenChange={(next) => {
+				setOpen(next);
+				if (!next) setDraft("");
+			}}
+		>
+			<PopoverTrigger
+				ref={triggerRef}
+				render={
+					<Button
+						type="button"
+						variant="outline"
+						size="xl"
+						data-case-operation-add-write
+						className="min-h-11 w-full gap-2 rounded-lg border-dashed border-nova-border-bright bg-transparent px-4 text-sm text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.06] dark:bg-transparent dark:not-disabled:hover:bg-nova-violet/[0.06]"
+					/>
+				}
+			>
+				<Icon icon={tablerPlus} width="14" height="14" />
+				<span className="flex-1 text-left">Save a value</span>
+			</PopoverTrigger>
+			<PopoverContent align="start" className="w-[22rem] p-2">
+				<p className="px-1 pt-1 pb-2 text-[13px] leading-relaxed text-nova-text-secondary">
+					Which property on the {caseTypePhrase(caseTypeName)} case?
+				</p>
+				<div className="max-h-64 space-y-1 overflow-y-auto">
+					{available.map(({ property, dataType, seed }) => (
+						<Button
+							key={property.name}
+							type="button"
+							variant="ghost"
+							size="xl"
+							disabled={seed === undefined}
+							onClick={() => seed !== undefined && choose(property.name, seed)}
+							className="h-auto min-h-11 w-full justify-start gap-2 rounded-lg px-3 py-2.5 text-left whitespace-normal"
+						>
+							<Icon
+								icon={tablerDatabase}
+								width="14"
+								height="14"
+								className="shrink-0 text-nova-text-muted"
+							/>
+							<span className="min-w-0 flex-1 text-left">
+								<span className="block break-words text-sm text-nova-text">
+									{casePropertyLabel(property.name)}
+								</span>
+								{seed === undefined && dataType !== undefined && (
+									<span className="block break-words text-xs text-nova-text-muted">
+										{writeSeedUnavailableReason(dataType)}
+									</span>
+								)}
+							</span>
+						</Button>
+					))}
+					{available.length === 0 && (
+						<p className="px-3 py-2 text-[13px] leading-relaxed text-nova-text-muted">
+							{declaredProperties.length === 0
+								? `The ${caseTypePhrase(caseTypeName)} case has no custom properties yet. Add one below.`
+								: `This change already saves every available property on the ${caseTypePhrase(caseTypeName)} case. Add a new one below.`}
+						</p>
+					)}
+				</div>
+				<div className="mt-2 space-y-2 border-t border-white/[0.06] px-1 pt-3">
+					<label
+						htmlFor={inputId}
+						className="block text-[13px] font-medium text-nova-text-secondary"
+					>
+						Or save something new
+					</label>
+					<Input
+						id={inputId}
+						value={draft}
+						onChange={(event) => setDraft(event.target.value)}
+						placeholder="visit_outcome"
+						autoComplete="off"
+						data-1p-ignore
+						aria-invalid={showError || undefined}
+						aria-describedby={
+							[
+								showError ? errorId : undefined,
+								candidateSeedReason !== undefined ? seedErrorId : undefined,
+							]
+								.filter(Boolean)
+								.join(" ") || undefined
+						}
+					/>
+					{showError && !verdict.ok && (
+						<FieldError id={errorId} className="text-[13px] text-nova-rose">
+							{verdict.userMessage}
+						</FieldError>
+					)}
+					{candidateSeedReason !== undefined && (
+						<FieldError id={seedErrorId} className="text-[13px] text-nova-rose">
+							{casePropertyLabel(candidate)} already exists on this case.{" "}
+							{candidateSeedReason}
+						</FieldError>
+					)}
+					<Button
+						type="button"
+						variant="outline"
+						size="xl"
+						disabled={!verdict.ok || candidateSeed === undefined}
+						onClick={() =>
+							// A brand-new property is declared by this batch, so it has no
+							// declared type yet and any storable value fits; an existing one
+							// is seeded from the type it already has.
+							candidateSeed !== undefined && choose(candidate, candidateSeed)
+						}
+						className="w-full"
+					>
+						Save this property
+					</Button>
+				</div>
+			</PopoverContent>
+		</Popover>
+	);
+}

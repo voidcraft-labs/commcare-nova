@@ -2,13 +2,11 @@
  * Apply the media bucket's CORS policy for browser direct uploads.
  *
  * Browser uploads are a cross-origin V4 signed PUT, and the PUT now carries a
- * signed `x-goog-content-length-range` header that binds a maximum body length
- * (`lib/storage/media.ts::createSignedUploadUrl`) so GCS rejects an oversized
- * write at the storage boundary. A PUT always triggers a CORS preflight, and a
- * SIGNED request header the preflight doesn't allow is stripped — so the bucket
- * CORS MUST allow `x-goog-content-length-range` (alongside `Content-Type`) or
- * every upload 403s. THIS SCRIPT MUST RUN BEFORE the size-bound upload code
- * ships, or uploads break.
+ * signed `x-goog-content-length-range` header that binds its body range and
+ * `x-goog-if-generation-match: 0` that makes the attempt create-only
+ * (`lib/storage/media.ts::createSignedUploadUrl`). A PUT always triggers a
+ * CORS preflight, and a signed request header the preflight does not allow is
+ * stripped — so the bucket CORS must allow both alongside `Content-Type`.
  *
  * `setCorsConfiguration` REPLACES the bucket's CORS, so pass the COMPLETE set
  * of app origins the browser uploads from. The media bucket is dedicated, so
@@ -54,7 +52,7 @@ async function main(): Promise<void> {
 	);
 	await applyMediaBucketCors(origins);
 	console.log(
-		"Done — the bucket now allows cross-origin PUT with Content-Type + x-goog-content-length-range.",
+		"Done — the bucket now allows cross-origin create-only, size-bound PUT headers.",
 	);
 }
 

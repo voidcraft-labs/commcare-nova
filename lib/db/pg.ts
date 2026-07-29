@@ -378,6 +378,74 @@ export interface LookupColumnReferencesTable {
 	app_id: string;
 }
 
+/**
+ * One file a worker attached to a form in the running preview.
+ *
+ * A submission-scoped lane, deliberately NOT `media_assets`: a captured
+ * photo is data, not an authoring asset. Tenancy is `(app_id,
+ * project_id)` like case rows; `created_by` is the narrower axis that
+ * keeps entry reservation and clear/replace on the acting member's rows.
+ */
+export interface FormAttachmentsTable {
+	attachment_id: string;
+	/** The value the form answer holds — `<attachment_id><extension>`. */
+	attachment_name: string;
+	app_id: string;
+	project_id: string;
+	created_by: string;
+	/** One form entry (an `activateForm`), the idempotency/reservation scope. */
+	entry_key: string;
+	field_uuid: string;
+	/** Concrete engine path, so replace/clear targets one repeat instance. */
+	instance_path: string;
+	original_filename: string;
+	extension: string;
+	content_type: string;
+	size_bytes: BigIntColumn;
+	gcs_object_key: string;
+	/** Immutable GCS generation captured at confirm; null only while pending. */
+	object_generation: string | null;
+	/** GCS CRC32C used to prove an idempotent destination is the same bytes. */
+	object_checksum: string | null;
+	/** Verified deterministic final-key generation before atomic acceptance. */
+	prepared_generation: string | null;
+	/** `pending` | `staged` | `preparing` | `prepared` | `discarding` | `submitted`. */
+	status: string;
+	preparation_attempts: ColumnType<number, number | undefined, number>;
+	last_preparation_error: string | null;
+	next_preparation_at: ColumnType<
+		Date | null,
+		Date | string | null | undefined,
+		Date | string | null
+	>;
+	created_at: Timestamp;
+	/** Bounds every unsubmitted state; submitted rows are never swept. */
+	expires_at: Timestamp;
+	submitted_at: Timestamp | null;
+}
+
+/** One committed preview submission, keyed by the form-entry generation. */
+export interface FormSubmissionIntentsTable {
+	app_id: string;
+	project_id: string;
+	created_by: string;
+	entry_key: string;
+	form_uuid: string;
+	app_mutation_seq: BigIntColumn;
+	request_digest: string;
+	/** Null exists only inside the transaction while the envelope executes. */
+	result: JSONColumnType<Record<string, unknown> | null, string | null, string>;
+	created_at: Timestamp;
+}
+
+/** One bounded fixed-minute initiation counter per Project actor. */
+export interface FormAttachmentRateLimitsTable {
+	project_id: string;
+	actor_user_id: string;
+	window_started_at: Timestamp;
+	attempt_count: number;
+}
+
 export interface AppDatabase {
 	apps: AppsTable;
 	blueprint_entities: BlueprintEntitiesTable;
@@ -395,6 +463,9 @@ export interface AppDatabase {
 	media_asset_refs: MediaAssetRefsTable;
 	media_upload_aliases: MediaUploadAliasesTable;
 	media_reference_index_state: MediaReferenceIndexStateTable;
+	form_attachments: FormAttachmentsTable;
+	form_attachment_rate_limits: FormAttachmentRateLimitsTable;
+	form_submission_intents: FormSubmissionIntentsTable;
 	lookup_project_state: LookupProjectStateTable;
 	lookup_tables: LookupTablesTable;
 	lookup_columns: LookupColumnsTable;

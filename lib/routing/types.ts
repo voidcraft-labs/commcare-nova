@@ -21,6 +21,8 @@
  *   /build/[id]/{moduleUuid}/condition            → module display condition
  *   /build/[id]/{formUuid}                        → form
  *   /build/[id]/{formUuid}/condition              → form display condition
+ *   /build/[id]/{formUuid}/operations             → form case operations
+ *   /build/[id]/{formUuid}/operations/{opUuid}    → …with one selected
  *   /build/[id]/{formUuid}/{fieldUuid}          → form + selected field
  *
  * All entity UUIDs are globally unique in the doc store. A single UUID
@@ -96,6 +98,11 @@ export const APP_SETUP_LABEL = "App setup";
  * deep link, and Preview target, and because the module's and the form's
  * conditions are evaluated in different places by CommCare.
  *
+ * `form-operations` carries its selected operation IN the URL rather than in
+ * local state, unlike the case workspace's row selection: a form can hold
+ * twenty operations, and "look at this one" is a thing an author needs to be
+ * able to send someone.
+ *
  * `cases` / `search-config` / `detail-config` are sibling kinds — the
  * three tabs of the unified case workspace (Results / Search /
  * Details). The internal kinds stay stable for presence compatibility;
@@ -156,6 +163,14 @@ export const locationSchema = z.discriminatedUnion("kind", [
 			kind: z.literal("form-condition"),
 			moduleUuid: uuidSchema,
 			formUuid: uuidSchema,
+		})
+		.strict(),
+	z
+		.object({
+			kind: z.literal("form-operations"),
+			moduleUuid: uuidSchema,
+			formUuid: uuidSchema,
+			operationUuid: uuidSchema.optional(),
 		})
 		.strict(),
 	z

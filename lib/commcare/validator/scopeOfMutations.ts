@@ -301,11 +301,9 @@ export function scopeOfMutations(
 				break;
 			}
 			case "removeField":
-			case "duplicateField":
 				scopeFieldTarget(prevDoc, acc, mut.uuid);
-				// Removing a writer (or cloning one — the clone's dedup rename
-				// can mint a NEW property + catalog entry) changes the writer
-				// set the case-property readers consume.
+				// Removing a writer changes the writer set the case-property
+				// readers consume.
 				if (subtreeWritesCaseProperty(prevDoc, acc, mut.uuid)) {
 					acc.full = true;
 				}

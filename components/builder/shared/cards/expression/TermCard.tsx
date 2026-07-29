@@ -9,9 +9,13 @@
 //   - `input` — search-input ref (named picker over declared inputs).
 //   - `session-context` — closed-namespace session field (`userid` /
 //     `username` / `deviceid` / `appversion`).
-//   - `session-user` — open-namespace user-data field (free-text).
-//   - `field` — stable form-field identity, preserved here but authored only
-//     by the future case-operation editor.
+//   - `session-user-property` — a custom worker-information property by
+//     stable UUID (its current slug is resolved only for display/wire output).
+//   - `session-user` — an explicit raw built-in/external user-data field.
+//   - `field` — stable form-field identity. Offered as a real source only
+//     where the edit context supplies `formFields` (today, a case
+//     operation); everywhere else it round-trips a saved value without
+//     entering the source menu.
 //   - `literal` — primitive constant (string / number / boolean /
 //     null) with optional `data_type` qualifier preserved on rebuild.
 //   - `table-column` remains a dormant compatibility carrier: a direct
@@ -35,6 +39,7 @@ import { Icon, type IconifyIcon } from "@iconify/react/offline";
 import tablerCheck from "@iconify-icons/tabler/check";
 import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import tablerDatabase from "@iconify-icons/tabler/database";
+import tablerForms from "@iconify-icons/tabler/forms";
 import tablerSparkles from "@iconify-icons/tabler/sparkles";
 import tablerSwitch from "@iconify-icons/tabler/switch";
 import tablerUser from "@iconify-icons/tabler/user";
@@ -65,6 +70,8 @@ import {
 	DropdownMenuPopup,
 	DropdownMenuPortal,
 	DropdownMenuPositioner,
+	DropdownMenuRadioGroup,
+	DropdownMenuRadioItem,
 	DropdownMenuSub,
 	DropdownMenuSubContent,
 	DropdownMenuSubTrigger,
@@ -78,6 +85,8 @@ import {
 	type CasePropertyDataType,
 	canonicalCasePropertyName,
 	effectiveDataType,
+	type UserProperty,
+	type Uuid,
 } from "@/lib/domain";
 import {
 	ANY_CONSTRAINT,
@@ -91,14 +100,15 @@ import {
 	prop,
 	type ResolvedType,
 	reasonFor,
+	SESSION_USER_FIELD_PATTERN,
 	type SlotConstraint,
 	sessionContext,
 	sessionUser,
+	sessionUserProperty,
 	type Term,
 	timeLiteral,
 	type ValueExpression,
 	term as wrapTerm,
-	XML_ELEMENT_NAME_PATTERN,
 } from "@/lib/domain/predicate";
 import {
 	type AdmitExpressionChange,
@@ -108,6 +118,10 @@ import {
 	usePredicateEditContext,
 } from "../../editorContext";
 import type { ExpressionEditContext } from "../../expressionEditorSchemas";
+import {
+	formFieldDisambiguator,
+	formFieldDisplayLabel,
+} from "../../formFieldPresentation";
 import { rebuildLiteralPreservingDataType } from "../../literalRebuild";
 import type { EditorPath } from "../../path";
 import { InlineError } from "../../primitives/CardShell";
@@ -132,7 +146,8 @@ type TermMode =
 	| "field"
 	| "input"
 	| "session-context"
-	| "session-user";
+	| "session-user"
+	| "session-user-property";
 
 interface TermDraft {
 	readonly value: Term;
@@ -244,6 +259,7 @@ function EditableTermCard({
 
 	const term = value.term;
 	const mode = termMode(term);
+	const userProperties = ctx.userProperties;
 	const sourceTriggerRef = useRef<HTMLButtonElement>(null);
 	const { register: registerExpressionFocusTarget } =
 		useExpressionFocusTarget(path);
@@ -326,11 +342,7 @@ function EditableTermCard({
 			const replacesAuthoredSource = authored && termHasMeaningfulContent(term);
 			const savedTarget = draftsByModeRef.current.get(next)?.value;
 			const userFieldDraft =
-				next === "session-user"
-					? savedTarget?.kind === "session-user"
-						? savedTarget.field
-						: ""
-					: undefined;
+				next === "session-user" ? userFieldForTerm(savedTarget) : undefined;
 			const needsUserField =
 				next === "session-user" &&
 				(userFieldDraft === undefined || !userFieldIsValid(userFieldDraft));
@@ -487,6 +499,7 @@ function EditableTermCard({
 					<TermBodyInput
 						term={term}
 						onChange={handleBodyTermChange}
+						userProperties={userProperties}
 						constraint={constraint}
 						invalid={errors.length > 0 || descendantErrors.length > 0}
 						path={path}
@@ -577,7 +590,7 @@ function EditableTermCard({
 									pendingModeChange.userFieldDraft === undefined
 										? undefined
 										: userFieldIsValid(pendingModeChange.userFieldDraft)
-											? sessionUser(pendingModeChange.userFieldDraft)
+											? userFieldTerm(pendingModeChange.userFieldDraft)
 											: null;
 								if (explicitTarget === null) return;
 								if (termsMatch(pendingModeChange.source, term)) {
@@ -646,6 +659,8 @@ function termMode(term: Term): TermMode {
 			return "session-context";
 		case "session-user":
 			return "session-user";
+		case "session-user-property":
+			return "session-user-property";
 		case "table-column":
 			throw dormantTableColumnAuthoringError();
 	}
@@ -680,6 +695,8 @@ export function termHasMeaningfulContent(value: Term): boolean {
 			return true;
 		case "session-user":
 			return value.field.length > 0;
+		case "session-user-property":
+			return true;
 		case "table-column":
 			throw dormantTableColumnAuthoringError();
 	}
@@ -703,7 +720,9 @@ function termModeLabel(
 		case "session-context":
 			return "App information";
 		case "session-user":
-			return "User information";
+			return "Other user field";
+		case "session-user-property":
+			return "Worker information";
 	}
 }
 
@@ -752,6 +771,7 @@ function describeTermModeReplacement(
 					"This replaces the selected app information. You can undo this change.",
 			};
 		case "session-user":
+		case "session-user-property":
 			return {
 				title,
 				description:
@@ -787,6 +807,7 @@ type ModeAdmission = Record<TermMode, { admitted: boolean; reason?: string }>;
 
 interface TermAdmissionContext extends ExpressionEditContext {
 	readonly admitExpressionChange?: AdmitExpressionChange;
+	readonly userProperties: readonly UserProperty[];
 }
 
 /**
@@ -799,7 +820,7 @@ interface TermAdmissionContext extends ExpressionEditContext {
  *     exists on the current case type.
  *   - `input` — admitted when a declared search input of an accepted
  *     type is in scope.
- *   - `session-context` / `session-user` — resolve to `text`, so
+ *   - `session-context` / both user sources — resolve to `text`, so
  *     admitted only when the slot accepts text.
  */
 function computeModeAdmission(
@@ -818,6 +839,14 @@ function computeModeAdmission(
 	const hasAcceptedInput =
 		constraint.accepts === "any" ||
 		ctx.knownInputs.some((i) => acceptsType(constraint, i.data_type ?? "text"));
+	/* The decl list arrives already narrowed to the answers this slot may
+	 * read (repeat correlation is the mounting surface's call), so the only
+	 * question left here is the slot's own type. */
+	const hasAcceptedFormField = (ctx.formFields ?? []).some(
+		(field) =>
+			constraint.accepts === "any" ||
+			acceptsType(constraint, field.dataType ?? "text"),
+	);
 	const textAdmitted = constraintAdmitsType(constraint, "text");
 	const typeAdmission: ModeAdmission = {
 		literal:
@@ -831,10 +860,15 @@ function computeModeAdmission(
 		property: hasAcceptedProperty
 			? { admitted: true }
 			: { admitted: false, reason },
-		field: {
-			admitted: false,
-			reason: "Form answers are selected when configuring case operations",
-		},
+		field: hasAcceptedFormField
+			? { admitted: true }
+			: {
+					admitted: false,
+					reason:
+						(ctx.formFields ?? []).length === 0
+							? "Form answers are available when a case operation saves them"
+							: reason,
+				},
 		input: hasAcceptedInput ? { admitted: true } : { admitted: false, reason },
 		"session-context": textAdmitted
 			? { admitted: true }
@@ -842,6 +876,16 @@ function computeModeAdmission(
 		"session-user": textAdmitted
 			? { admitted: true }
 			: { admitted: false, reason },
+		"session-user-property":
+			textAdmitted && ctx.userProperties.length > 0
+				? { admitted: true }
+				: {
+						admitted: false,
+						reason:
+							ctx.userProperties.length === 0
+								? "Add worker information in App setup first"
+								: reason,
+					},
 	};
 	if (ctx.admitExpressionChange === undefined) return typeAdmission;
 
@@ -863,7 +907,7 @@ function computeModeAdmission(
  * semantic default, so this probe must never become authored data. */
 function buildTermAdmissionProbe(
 	mode: TermMode,
-	ctx: ExpressionEditContext,
+	ctx: TermAdmissionContext,
 	constraint: SlotConstraint,
 ): Term {
 	return mode === "session-user"
@@ -877,7 +921,7 @@ function buildTermAdmissionProbe(
  * meaning; `requestMode` collects that field before this draft may commit. */
 function buildTermDefault(
 	mode: TermMode,
-	ctx: ExpressionEditContext,
+	ctx: TermAdmissionContext,
 	constraint: SlotConstraint,
 ): Term {
 	switch (mode) {
@@ -897,11 +941,20 @@ function buildTermDefault(
 				canonicalCasePropertyName(property?.name ?? ""),
 			);
 		}
-		case "field":
-			// Form-field references are authored only by the case-operation editor.
-			// This unreachable seed exists so the generic round-trip editor remains
-			// exhaustive without inventing a user-authored reference.
-			return formField(asUuid("00000000-0000-4000-8000-000000000000"));
+		case "field": {
+			// The first answer whose type the slot accepts. A surface with no
+			// admissible answer never offers the source, so the placeholder uuid
+			// below is unreachable through the menu — it exists so the seed stays
+			// total, and the checker names it plainly if a document carries one.
+			const admissible = (ctx.formFields ?? []).find(
+				(field) =>
+					constraint.accepts === "any" ||
+					acceptsType(constraint, field.dataType ?? "text"),
+			);
+			return formField(
+				admissible?.uuid ?? asUuid("00000000-0000-4000-8000-000000000000"),
+			);
+		}
 		case "input": {
 			const matching = ctx.knownInputs.find((i) =>
 				constraint.accepts === "any"
@@ -920,6 +973,15 @@ function buildTermDefault(
 			// The card surfaces a per-slot error until the author types
 			// a real field name.
 			return sessionUser("");
+		case "session-user-property": {
+			const property = ctx.userProperties[0];
+			if (property === undefined) {
+				throw new Error(
+					"Worker information cannot be selected without a catalog property.",
+				);
+			}
+			return sessionUserProperty(property.uuid);
+		}
 	}
 }
 
@@ -966,11 +1028,11 @@ function ModeMenu({
 				icon: tablerDatabase,
 			},
 		];
-		if (mode === "field") {
+		if (mode === "field" || ctx.formFields.length > 0) {
 			base.push({
 				mode: "field",
 				label: termModeLabel("field", sourceContext),
-				icon: tablerVariable,
+				icon: tablerForms,
 			});
 		}
 		if (mode === "input" || ctx.knownInputs.length > 0) {
@@ -986,12 +1048,17 @@ function ModeMenu({
 			icon: tablerUser,
 		});
 		base.push({
-			mode: "session-user",
-			label: termModeLabel("session-user", sourceContext),
+			mode: "session-user-property",
+			label: termModeLabel("session-user-property", sourceContext),
 			icon: tablerSparkles,
 		});
+		base.push({
+			mode: "session-user",
+			label: termModeLabel("session-user", sourceContext),
+			icon: tablerUser,
+		});
 		return base;
-	}, [ctx.knownInputs, mode, sourceContext]);
+	}, [ctx.formFields.length, ctx.knownInputs, mode, sourceContext]);
 
 	const activeItem = items.find((i) => i.mode === mode) ?? items[0];
 
@@ -1032,45 +1099,53 @@ function ModeMenu({
 					anchor={triggerRef}
 				>
 					<DropdownMenuPopup>
-						{items.map((item) => {
-							const isActive = item.mode === mode;
-							// The active source stays selectable even when the
-							// constraint no longer admits it (legacy-open backstop);
-							// every other inadmissible source is disabled with its
-							// reason rather than dimmed-but-clickable.
-							const verdict = admission[item.mode];
-							const admitted = isActive || verdict.admitted;
-							const hasReason = !admitted && verdict.reason !== undefined;
-							return (
-								<DropdownMenuItem
-									key={item.mode}
-									disabled={!admitted}
-									onClick={() => setMode(item.mode)}
-									className={
-										isActive ? "bg-nova-violet/10 text-nova-violet-bright" : ""
-									}
-								>
-									<Icon
-										icon={item.icon}
-										width="14"
-										height="14"
+						<DropdownMenuRadioGroup
+							value={mode}
+							onValueChange={(next) => setMode(next as TermMode)}
+						>
+							{items.map((item) => {
+								const isActive = item.mode === mode;
+								// The active source stays selectable even when the
+								// constraint no longer admits it (legacy-open backstop);
+								// every other inadmissible source is disabled with its
+								// reason rather than dimmed-but-clickable.
+								const verdict = admission[item.mode];
+								const admitted = isActive || verdict.admitted;
+								const hasReason = !admitted && verdict.reason !== undefined;
+								return (
+									<DropdownMenuRadioItem
+										key={item.mode}
+										value={item.mode}
+										disabled={!admitted}
+										closeOnClick
 										className={
 											isActive
-												? "text-nova-violet-bright"
-												: "text-nova-text-muted"
+												? "bg-nova-violet/10 text-nova-violet-bright"
+												: ""
 										}
-									/>
-									<span className="flex-1 text-left min-w-0">
-										<div className="break-words">{item.label}</div>
-										{hasReason && (
-											<div className="break-words text-xs text-nova-text-muted">
-												{verdict.reason}
-											</div>
-										)}
-									</span>
-								</DropdownMenuItem>
-							);
-						})}
+									>
+										<Icon
+											icon={item.icon}
+											width="14"
+											height="14"
+											className={
+												isActive
+													? "text-nova-violet-bright"
+													: "text-nova-text-muted"
+											}
+										/>
+										<span className="flex-1 text-left min-w-0">
+											<span className="block break-words">{item.label}</span>
+											{hasReason && (
+												<span className="block break-words text-xs text-nova-text-muted">
+													{verdict.reason}
+												</span>
+											)}
+										</span>
+									</DropdownMenuRadioItem>
+								);
+							})}
+						</DropdownMenuRadioGroup>
 						{literalShape !== undefined && (
 							<LiteralShapeSubmenu
 								shape={literalShape}
@@ -1099,6 +1174,7 @@ function ModeMenu({
 interface TermBodyInputProps {
 	readonly term: Term;
 	readonly onChange: (next: Term) => void;
+	readonly userProperties: readonly UserProperty[];
 	readonly constraint: SlotConstraint;
 	readonly invalid: boolean;
 	readonly path: EditorPath;
@@ -1114,6 +1190,7 @@ interface TermBodyInputProps {
 function TermBodyInput({
 	term,
 	onChange,
+	userProperties,
 	constraint,
 	invalid,
 	path,
@@ -1163,11 +1240,11 @@ function TermBodyInput({
 			);
 		case "field":
 			return (
-				<Input
+				<FormFieldRefMenu
 					value={term.uuid}
-					readOnly
-					aria-label="Referenced form field"
-					aria-invalid={invalid || undefined}
+					onChange={(uuid) => onChange(formField(uuid))}
+					constraint={constraint}
+					invalid={invalid}
 				/>
 			);
 		case "input":
@@ -1191,10 +1268,39 @@ function TermBodyInput({
 			return (
 				<UserFieldInput
 					value={term.field}
-					onChange={(field) => onChange(sessionUser(field))}
+					onChange={(field) => onChange(userFieldTerm(field))}
 					invalid={invalid}
 				/>
 			);
+		case "session-user-property": {
+			const property = userProperties.find(
+				(candidate) => candidate.uuid === term.userPropertyUuid,
+			);
+			if (property === undefined) {
+				return (
+					<div
+						role="alert"
+						className="rounded-lg border border-nova-rose/30 bg-nova-rose/[0.05] px-3 py-2.5"
+					>
+						<p className="text-sm font-medium text-nova-rose">
+							Worker information unavailable
+						</p>
+						<p className="mt-1 text-[13px] leading-5 text-nova-text-secondary">
+							This value refers to worker information that is no longer in the
+							app. Choose another value source.
+						</p>
+					</div>
+				);
+			}
+			return (
+				<UserPropertyMenu
+					value={property.uuid}
+					properties={userProperties}
+					onChange={(uuid) => onChange(sessionUserProperty(uuid))}
+					invalid={invalid}
+				/>
+			);
+		}
 		case "table-column":
 			throw dormantTableColumnAuthoringError();
 	}
@@ -1343,6 +1449,158 @@ function InputRefMenu({
 									{it.data_type && (
 										<span className="text-xs text-nova-text-muted">
 											{SEARCH_ANSWER_TYPE_LABELS[it.data_type]}
+										</span>
+									)}
+								</DropdownMenuItem>
+							);
+						})}
+					</DropdownMenuPopup>
+				</DropdownMenuPositioner>
+			</DropdownMenuPortal>
+		</DropdownMenu>
+	);
+}
+
+/**
+ * Form-answer dropdown. The context's decl list IS the admission list —
+ * the mounting surface has already dropped every answer this slot may
+ * not read — so this menu only narrows further by the slot's own type.
+ *
+ * A saved answer that has since been deleted keeps its identity visible
+ * with a recovery line rather than collapsing to an empty placeholder:
+ * the reference is what the author wrote, and silently blanking it would
+ * hide the repair.
+ */
+function FormFieldRefMenu({
+	value,
+	onChange,
+	constraint,
+	invalid,
+}: {
+	readonly value: Uuid;
+	readonly onChange: (uuid: Uuid) => void;
+	readonly constraint: SlotConstraint;
+	readonly invalid: boolean;
+}) {
+	const ctx = usePredicateEditContext();
+	const triggerRef = useRef<HTMLButtonElement>(null);
+	const items = useMemo(
+		() =>
+			ctx.formFields.filter(
+				(field) =>
+					field.uuid === value ||
+					constraint.accepts === "any" ||
+					acceptsType(constraint, field.dataType ?? "text"),
+			),
+		[ctx.formFields, constraint, value],
+	);
+	const current = items.find((field) => field.uuid === value);
+	const currentLabel =
+		current === undefined
+			? undefined
+			: formFieldDisplayLabel(current.uuid, ctx.formFields);
+	const missing = current === undefined;
+	const triggerClass = [
+		"group h-auto min-h-11 w-full justify-between rounded-lg border bg-nova-deep/50 px-3 py-2 text-sm text-nova-text whitespace-normal dark:bg-nova-deep/50 dark:not-disabled:hover:bg-nova-deep/50",
+		invalid
+			? "border-nova-rose/40"
+			: "border-white/[0.06] not-disabled:hover:border-nova-violet/30",
+	].join(" ");
+
+	return (
+		<DropdownMenu>
+			<DropdownMenuTrigger
+				ref={triggerRef}
+				aria-label={`Form answer: ${currentLabel ?? "Choose a form answer"}${missing ? ", no longer in this form" : ""}`}
+				aria-invalid={invalid || undefined}
+				render={
+					<Button
+						type="button"
+						variant="outline"
+						size="xl"
+						className={triggerClass}
+					/>
+				}
+			>
+				<span className="min-w-0 flex-1 text-left">
+					<span className="block break-words text-nova-violet-bright">
+						{currentLabel ?? "Choose a form answer"}
+					</span>
+					{missing ? (
+						<span className="block text-xs font-normal text-nova-rose">
+							No longer in this form
+						</span>
+					) : null}
+				</span>
+				<Icon
+					icon={tablerChevronDown}
+					width="14"
+					height="14"
+					className="shrink-0 text-nova-text-muted transition-transform group-data-[popup-open]:rotate-180"
+				/>
+			</DropdownMenuTrigger>
+			<DropdownMenuPortal>
+				<DropdownMenuPositioner
+					side="bottom"
+					align="start"
+					sideOffset={4}
+					anchor={triggerRef}
+					style={{ minWidth: "var(--anchor-width)" }}
+				>
+					<DropdownMenuPopup className="min-w-0">
+						{missing ? (
+							<div
+								className={
+									items.length > 0
+										? "border-b border-white/[0.06] px-3 py-2.5"
+										: "px-3 py-2.5"
+								}
+								role="presentation"
+							>
+								<div className="break-words text-sm font-medium text-nova-text">
+									That answer is no longer in this form
+								</div>
+								<div className="mt-1 text-[13px] leading-5 text-nova-text-secondary">
+									{items.length > 0
+										? "Choose another answer below, or add the question back"
+										: "Choose another value source, or add the question back"}
+								</div>
+							</div>
+						) : items.length === 0 ? (
+							<div
+								className="px-3 py-2.5 text-[13px] leading-5 text-nova-text-secondary"
+								role="presentation"
+							>
+								No form answers fit here. Choose another value source.
+							</div>
+						) : null}
+						{items.map((field) => {
+							const isActive = field.uuid === value;
+							const disambiguator = formFieldDisambiguator(
+								field,
+								ctx.formFields,
+							);
+							return (
+								<DropdownMenuItem
+									key={field.uuid}
+									onClick={() => onChange(field.uuid)}
+									className={
+										isActive ? "bg-nova-violet/10 text-nova-violet-bright" : ""
+									}
+								>
+									<span className="min-w-0 flex-1 break-words">
+										<span className="block">
+											{formFieldDisplayLabel(field.uuid, ctx.formFields)}
+										</span>
+										{disambiguator !== undefined && (
+											<span className="block text-xs text-nova-text-muted">
+												{disambiguator}
+											</span>
+										)}
+									</span>
+									{field.dataType !== undefined && (
+										<span className="text-xs text-nova-text-muted">
+											{SEARCH_ANSWER_TYPE_LABELS[field.dataType]}
 										</span>
 									)}
 								</DropdownMenuItem>
@@ -2045,13 +2303,28 @@ function LiteralTypedDateInput({
 }
 
 function userFieldIsValid(value: string): boolean {
-	return XML_ELEMENT_NAME_PATTERN.test(value);
+	return SESSION_USER_FIELD_PATTERN.test(value);
+}
+
+function userFieldForTerm(term: Term | undefined): string {
+	if (term?.kind === "session-user") return term.field;
+	return "";
+}
+
+/**
+ * The raw source is an explicit promise to preserve the authored name. Custom
+ * worker information is selected through `UserPropertyMenu` and never inferred
+ * from text, so a raw field remains raw even when its spelling happens to equal
+ * a current custom slug.
+ */
+function userFieldTerm(field: string): Term {
+	return sessionUser(field);
 }
 
 function userFieldError(value: string): string {
 	return value.length === 0
 		? "Enter a user field name"
-		: "Start with a letter or underscore, then use only letters, numbers, and underscores";
+		: "Start with a letter or underscore, then use only letters, numbers, underscores, and hyphens";
 }
 
 function userFieldInputClass(invalid: boolean): string {
@@ -2061,6 +2334,109 @@ function userFieldInputClass(invalid: boolean): string {
 			? "border-nova-rose/40 focus-visible:border-nova-rose/60 focus-visible:ring-nova-rose/30"
 			: "border-white/[0.06] focus-visible:border-nova-violet/40 focus-visible:ring-nova-violet/30",
 	].join(" ");
+}
+
+/**
+ * Identity-backed custom worker-information picker. The control submits only
+ * the stable UUID; label and slug are live catalog projections, so a peer
+ * rename updates this row without rewriting the expression.
+ */
+function UserPropertyMenu({
+	value,
+	properties,
+	onChange,
+	invalid,
+}: {
+	readonly value: UserProperty["uuid"];
+	readonly properties: readonly UserProperty[];
+	readonly onChange: (uuid: UserProperty["uuid"]) => void;
+	readonly invalid: boolean;
+}) {
+	const triggerRef = useRef<HTMLButtonElement>(null);
+	const current = properties.find((property) => property.uuid === value);
+	if (current === undefined) {
+		throw new Error(
+			"UserPropertyMenu requires the selected worker-information identity.",
+		);
+	}
+	const triggerClass = [
+		"group h-auto min-h-11 w-full justify-between rounded-lg border bg-nova-deep/50 px-3 py-2 text-sm text-nova-text whitespace-normal dark:bg-nova-deep/50 dark:not-disabled:hover:bg-nova-deep/50",
+		invalid
+			? "border-nova-rose/40"
+			: "border-white/[0.06] not-disabled:hover:border-nova-violet/30",
+	].join(" ");
+
+	return (
+		<DropdownMenu>
+			<DropdownMenuTrigger
+				ref={triggerRef}
+				aria-label={`Worker information: ${current.label}, ${current.slug}`}
+				aria-invalid={invalid || undefined}
+				render={
+					<Button
+						type="button"
+						variant="outline"
+						size="xl"
+						className={triggerClass}
+					/>
+				}
+			>
+				<span className="min-w-0 flex-1 text-left">
+					<span className="block break-words text-nova-violet-bright">
+						{current.label}
+					</span>
+					<span className="block break-words font-mono text-xs font-normal text-nova-text-muted">
+						{current.slug}
+					</span>
+				</span>
+				<Icon
+					icon={tablerChevronDown}
+					width="14"
+					height="14"
+					className="shrink-0 text-nova-text-muted transition-transform group-data-[popup-open]:rotate-180"
+				/>
+			</DropdownMenuTrigger>
+			<DropdownMenuPortal>
+				<DropdownMenuPositioner
+					side="bottom"
+					align="start"
+					sideOffset={4}
+					anchor={triggerRef}
+					style={{ minWidth: "var(--anchor-width)" }}
+				>
+					<DropdownMenuPopup className="min-w-0">
+						<DropdownMenuRadioGroup
+							value={value}
+							onValueChange={(next) => onChange(asUuid(next))}
+						>
+							{properties.map((property) => {
+								const isActive = property.uuid === value;
+								return (
+									<DropdownMenuRadioItem
+										key={property.uuid}
+										value={property.uuid}
+										closeOnClick
+										className={
+											isActive
+												? "bg-nova-violet/10 text-nova-violet-bright"
+												: ""
+										}
+									>
+										<span className="min-w-0 flex-1 break-words">
+											{property.label}
+										</span>
+										<span className="break-words font-mono text-xs text-nova-text-muted">
+											{property.slug}
+										</span>
+									</DropdownMenuRadioItem>
+								);
+							})}
+						</DropdownMenuRadioGroup>
+					</DropdownMenuPopup>
+				</DropdownMenuPositioner>
+			</DropdownMenuPortal>
+		</DropdownMenu>
+	);
 }
 
 /** Open-namespace user-data field input. The namespace is open, but the wire

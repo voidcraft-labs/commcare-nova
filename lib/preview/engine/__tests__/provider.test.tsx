@@ -13,31 +13,36 @@
  * `load()` takes a `PersistableDoc`.
  */
 
-import { act, render, renderHook } from "@testing-library/react";
+import { act, render, renderHook, waitFor } from "@testing-library/react";
 import { type ReactNode, useEffect } from "react";
 import { describe, expect, it, vi } from "vitest";
-import {
-	ReconcilerContext,
-	type ReconcilerContextValue,
-} from "@/lib/collab/context";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import { asUuid } from "@/lib/domain";
 import type { PersistableDoc } from "@/lib/domain/blueprint";
-import { BuilderSessionProvider } from "@/lib/session/provider";
+import { useFormEngine } from "@/lib/preview/hooks/useFormEngine";
+import {
+	BuilderSessionContext,
+	BuilderSessionProvider,
+	type BuilderSessionStoreApi,
+} from "@/lib/session/provider";
+import { createBuilderSessionStore } from "@/lib/session/store";
 import { EngineController } from "../engineController";
 import { BuilderFormEngineProvider, useBuilderFormEngine } from "../provider";
 
-/* The provider resolves "Preview as me" from `useAuth()`. Mock it so the
+/* The provider resolves "Preview as me" from `useAuth()`. Mock a warm session so
+ * the synchronous controller-initialization contract is observable, and so the
  * test doesn't subscribe Better Auth's client session atom — its nanostores
  * `onMount` schedules a `setTimeout(0) → fetchSession()` real fetch that the
- * async-leak detector pins. A static unauthenticated result is enough here:
- * the identity effect installs `null` and the engine reads user slices as
- * absent. */
+ * async-leak detector pins. */
 vi.mock("@/lib/auth/hooks/useAuth", () => ({
 	useAuth: () => ({
-		user: null,
-		isAuthenticated: false,
+		user: {
+			id: "warm-member",
+			name: "Warm Member",
+			email: "warm@example.com",
+		},
+		isAuthenticated: true,
 		isAdmin: false,
 		isImpersonating: false,
 		isPending: false,
@@ -89,7 +94,7 @@ const DOC: PersistableDoc = {
 function makeWrapper() {
 	const docStore = createBlueprintDocStore();
 	docStore.getState().load(DOC);
-	docStore.temporal.getState().resume();
+	docStore.getState().startTracking();
 
 	/* The session provider is in the real stack above this one and the
 	 * provider now reads it: the acting identity is "Preview as me" or a
@@ -159,7 +164,7 @@ describe("BuilderFormEngineProvider", () => {
 	it("doc store is bound before child effects run on first mount", () => {
 		const docStore = createBlueprintDocStore();
 		docStore.getState().load(DOC);
-		docStore.temporal.getState().resume();
+		docStore.getState().startTracking();
 
 		let captured: EngineController | null = null;
 
@@ -189,41 +194,140 @@ describe("BuilderFormEngineProvider", () => {
 		expect(Object.keys(runtime).length).toBeGreaterThan(0);
 	});
 
-	it("drops runtime form and case values synchronously on a Project-scope reset", () => {
+	it("binds a warm preview identity before child effects run", () => {
 		const docStore = createBlueprintDocStore();
 		docStore.getState().load(DOC);
-		docStore.temporal.getState().resume();
-		let scopeReset: ((scopeEpoch: number) => void) | undefined;
-		const reconcilerContext = {
-			subscribeProjectScopeReset(callback: (scopeEpoch: number) => void) {
-				scopeReset = callback;
-				return () => {
-					scopeReset = undefined;
-				};
-			},
-		} as unknown as ReconcilerContextValue;
-		const Wrapper = ({ children }: { children: ReactNode }) => (
+		docStore.getState().startTracking();
+		const setIdentity = vi.spyOn(
+			EngineController.prototype,
+			"setPreviewIdentity",
+		);
+		let callsSeenByChild = -1;
+
+		function TestHarness() {
+			useBuilderFormEngine();
+			useEffect(() => {
+				callsSeenByChild = setIdentity.mock.calls.length;
+			}, []);
+			return null;
+		}
+
+		render(
 			<BuilderSessionProvider>
 				<BlueprintDocContext value={docStore}>
-					<ReconcilerContext value={reconcilerContext}>
-						<BuilderFormEngineProvider>{children}</BuilderFormEngineProvider>
-					</ReconcilerContext>
+					<BuilderFormEngineProvider>
+						<TestHarness />
+					</BuilderFormEngineProvider>
 				</BlueprintDocContext>
-			</BuilderSessionProvider>
+			</BuilderSessionProvider>,
+		);
+
+		expect(setIdentity.mock.calls[0]?.[0]).toMatchObject({
+			actorUserId: "warm-member",
+			ownerId: "warm-member",
+		});
+		// The initializer call is visible to the child; the provider's follow-up
+		// effect runs after the child's effect and may make the second call.
+		expect(callsSeenByChild).toBe(1);
+		setIdentity.mockRestore();
+	});
+
+	it("refuses to activate a form while the selected persona is unavailable", () => {
+		const docStore = createBlueprintDocStore();
+		docStore.getState().load(DOC);
+		docStore.getState().startTracking();
+		const sessionStore: BuilderSessionStoreApi = createBuilderSessionStore();
+		sessionStore.getState().setPreviewPersonaUuid("removed-persona");
+		const Wrapper = ({ children }: { children: ReactNode }) => (
+			<BuilderSessionContext value={sessionStore}>
+				<BlueprintDocContext value={docStore}>
+					<BuilderFormEngineProvider>{children}</BuilderFormEngineProvider>
+				</BlueprintDocContext>
+			</BuilderSessionContext>
 		);
 		const { result } = renderHook(() => useBuilderFormEngine(), {
 			wrapper: Wrapper,
 		});
+
+		act(() => result.current.activateForm(FORM_UUID));
+
+		expect(result.current.store.getState()).toEqual({});
+	});
+
+	it("preserves one entry through a real same-Project refresh and rotates it only after confirmed boundaries", async () => {
+		const docStore = createBlueprintDocStore();
+		docStore.getState().load(DOC);
+		docStore.getState().startTracking();
+		const sessionStore = createBuilderSessionStore({
+			appId: DOC.appId,
+			projectId: "project-source",
+			role: "editor",
+			canEdit: true,
+		});
+		const Wrapper = ({ children }: { children: ReactNode }) => (
+			<BuilderSessionContext value={sessionStore}>
+				<BlueprintDocContext value={docStore}>
+					<BuilderFormEngineProvider>{children}</BuilderFormEngineProvider>
+				</BlueprintDocContext>
+			</BuilderSessionContext>
+		);
+		const { result } = renderHook(() => useFormEngine(FORM_UUID), {
+			wrapper: Wrapper,
+		});
 		act(() => {
-			result.current.activateForm(FORM_UUID);
 			result.current.onValueChange(FIELD_UUID, "source value");
 		});
-		expect(Object.keys(result.current.store.getState()).length).toBeGreaterThan(
-			0,
+		const sourceEntryKey = result.current.entryKey;
+		expect(sourceEntryKey).toBeDefined();
+		expect(result.current.store.getState()[FIELD_UUID]?.value).toBe(
+			"source value",
 		);
 
-		act(() => scopeReset?.(1));
+		act(() => {
+			sessionStore.getState().beginAccessRefresh();
+			sessionStore.getState().resetProjectScope();
+		});
+		expect(result.current.entryKey).toBe(sourceEntryKey);
+		expect(result.current.store.getState()[FIELD_UUID]?.value).toBe(
+			"source value",
+		);
+		act(() => {
+			sessionStore.getState().applyAccessSnapshot({
+				projectId: "project-source",
+				role: "editor",
+				canEdit: true,
+			});
+		});
+		expect(result.current.entryKey).toBe(sourceEntryKey);
+		expect(result.current.store.getState()[FIELD_UUID]?.value).toBe(
+			"source value",
+		);
 
+		act(() => {
+			sessionStore.getState().beginAccessRefresh();
+			sessionStore.getState().resetProjectScope();
+			sessionStore.getState().applyAccessSnapshot({
+				projectId: "project-destination",
+				role: "editor",
+				canEdit: true,
+			});
+		});
+		await waitFor(() => {
+			expect(result.current.entryKey).toBeDefined();
+			expect(result.current.entryKey).not.toBe(sourceEntryKey);
+		});
+		expect(result.current.store.getState()[FIELD_UUID]?.value).toBe("");
+
+		const projectEntryKey = result.current.entryKey;
+		act(() => sessionStore.getState().setAppId("same-project-next-app"));
+		await waitFor(() => {
+			expect(result.current.entryKey).toBeDefined();
+			expect(result.current.entryKey).not.toBe(projectEntryKey);
+		});
+		expect(result.current.store.getState()[FIELD_UUID]?.value).toBe("");
+
+		act(() => sessionStore.getState().revokeAccess());
+		await waitFor(() => expect(result.current.entryKey).toBeUndefined());
 		expect(result.current.store.getState()).toEqual({});
 	});
 });

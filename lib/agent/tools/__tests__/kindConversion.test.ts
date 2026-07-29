@@ -19,7 +19,6 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { backfillOrderKeys } from "@/lib/doc/order/backfill";
 import type { BlueprintDoc, SelectOption } from "@/lib/domain";
 import { makeStubToolContext } from "../../__tests__/fixtures";
 import { editFieldTool } from "../editField";
@@ -46,7 +45,6 @@ function makeDoc(field: Parameters<typeof f>[0]): BlueprintDoc {
 			},
 		],
 	});
-	backfillOrderKeys(doc);
 	return doc;
 }
 
@@ -95,7 +93,6 @@ describe("editField — convert to single_select", () => {
 		// peer's granular option edits address them immediately.
 		for (const opt of options) {
 			expect(opt.uuid).toBeTruthy();
-			expect(opt.order).toBeTruthy();
 		}
 
 		// The options were CONSUMED into the convertField mutation — one
@@ -323,7 +320,6 @@ describe("editField — demotions", () => {
 				},
 			],
 		});
-		backfillOrderKeys(doc);
 		const { ctx } = makeStubToolContext();
 		const result = await editFieldTool.execute(
 			{
@@ -409,7 +405,6 @@ describe("editField — demotions", () => {
 				},
 			],
 		});
-		backfillOrderKeys(doc);
 		const { ctx } = makeStubToolContext();
 		const result = await editFieldTool.execute(
 			{
@@ -503,7 +498,6 @@ describe("editField — demotions", () => {
 				},
 			],
 		});
-		backfillOrderKeys(doc);
 		const { ctx, recordMutationStages } = makeStubToolContext();
 		const result = await editFieldTool.execute(
 			{
@@ -578,7 +572,6 @@ describe("editField — demotions", () => {
 				},
 			],
 		});
-		backfillOrderKeys(doc);
 		const registerStatus = Object.values(doc.fields).find(
 			(fld) => fld.id === "status" && "label" in fld && fld.label === "Status",
 		);
@@ -672,7 +665,6 @@ describe("editField — demotions", () => {
 				},
 			],
 		});
-		backfillOrderKeys(doc);
 		const { ctx, recordMutationStages } = makeStubToolContext();
 		const result = await editFieldTool.execute(
 			{
@@ -744,7 +736,6 @@ describe("editField — demotions", () => {
 				},
 			],
 		});
-		backfillOrderKeys(doc);
 		const { ctx } = makeStubToolContext();
 		const result = await editFieldTool.execute(
 			{

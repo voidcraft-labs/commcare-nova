@@ -155,6 +155,7 @@ beforeEach(() => {
 		return new PostgresCaseStore({
 			projectId: null,
 			actorUserId: null,
+			ownerId: null,
 			db: dbHandle.db as unknown as Kysely<Database>,
 			sampleGenerator: new HeuristicCaseGenerator(),
 		});
@@ -468,6 +469,7 @@ describe("applyBlueprintChange — rename batches", () => {
 		const initialStore = new PostgresCaseStore({
 			projectId: OWNER_ID,
 			actorUserId: OWNER_ID,
+			ownerId: OWNER_ID,
 			db: dbHandle.db as unknown as Kysely<Database>,
 			sampleGenerator: new HeuristicCaseGenerator(),
 		});
@@ -561,6 +563,7 @@ describe("applyBlueprintChange — rename batches", () => {
 		const seedStore = new PostgresCaseStore({
 			projectId: OWNER_ID,
 			actorUserId: OWNER_ID,
+			ownerId: OWNER_ID,
 			db: dbHandle.db as unknown as Kysely<Database>,
 			sampleGenerator: new HeuristicCaseGenerator(),
 		});
@@ -645,6 +648,7 @@ describe("applyBlueprintChange — compensation on blueprint commit failure", ()
 		const seedStore = new PostgresCaseStore({
 			projectId: OWNER_ID,
 			actorUserId: OWNER_ID,
+			ownerId: OWNER_ID,
 			db: dbHandle.db as unknown as Kysely<Database>,
 			sampleGenerator: new HeuristicCaseGenerator(),
 		});
@@ -763,6 +767,7 @@ describe("applyBlueprintChange — compensation on blueprint commit failure", ()
 		const seedStore = new PostgresCaseStore({
 			projectId: OWNER_ID,
 			actorUserId: OWNER_ID,
+			ownerId: OWNER_ID,
 			db: dbHandle.db as unknown as Kysely<Database>,
 			sampleGenerator: new HeuristicCaseGenerator(),
 		});

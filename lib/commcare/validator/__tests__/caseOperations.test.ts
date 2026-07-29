@@ -3,10 +3,18 @@ import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { LookupTypeIndex } from "@/lib/commcare/validator/lookupTypeContext";
 import { validateCaseOperations } from "@/lib/commcare/validator/rules/caseOperations";
 import { asUuid } from "@/lib/doc/types";
-import type { BlueprintDoc, CaseOperation, Form, Uuid } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
+	CASE_OPERATION_PROPERTY_FORMAT_MESSAGE,
+	type CaseOperation,
+	type Form,
+	type Uuid,
+} from "@/lib/domain";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import {
 	concat,
+	count,
 	dateAdd,
 	double,
 	eq,
@@ -14,7 +22,10 @@ import {
 	formField,
 	idOf,
 	ifExpr,
+	isBlank,
+	isNull,
 	literal,
+	match,
 	prop,
 	subcasePath,
 	tableLookup,
@@ -253,7 +264,6 @@ function create(patch: Partial<CaseOperation> = {}): CaseOperation {
 	return {
 		uuid: CREATE,
 		id: "create_visit",
-		order: "a",
 		action: "create",
 		caseType: "visit",
 		target: { kind: "new" },
@@ -266,7 +276,6 @@ function update(patch: Partial<CaseOperation> = {}): CaseOperation {
 	return {
 		uuid: SECOND,
 		id: "update_patient",
-		order: "b",
 		action: "update",
 		caseType: "patient",
 		target: { kind: "session" },
@@ -312,6 +321,75 @@ function mapFieldToCaseType(
 	field.case_property_on = caseType;
 }
 
+describe("case-operation on-device portability", () => {
+	// An operation's condition lowers to wrapper relevance and its values to
+	// binds — both JavaRosa, the same evaluator a case-list filter's nodeset
+	// predicate runs on. Three of the four match modes are case-search
+	// functions absent from Core's dispatch
+	// (`ASTNodeFunctionCall::buildFuncExpr`), so they parse, install, and then
+	// throw when the screen opens. The case list and display conditions each
+	// caught this with their own AST rule; operations were missed because the
+	// on-device emitter lowered them silently, which is where the guard now
+	// lives — so every carrier that dry-runs the emitter inherits it.
+	it.each(["fuzzy", "phonetic", "fuzzy-date"] as const)(
+		"rejects the %s match mode a device cannot evaluate",
+		(mode) => {
+			expectCode("CASE_OPERATION_EXPRESSION_TYPE", [
+				update({ condition: match(prop("patient", "nickname"), "ali", mode) }),
+			]);
+		},
+	);
+
+	it("rejects an unevaluable match mode nested in a count's where", () => {
+		// `count` reaches the same emitter through the on-device expression
+		// emitter's own relation arm, so the finding must survive nesting
+		// inside a value slot rather than only at a condition's root.
+		expectCode("CASE_OPERATION_EXPRESSION_TYPE", [
+			update({
+				writes: [
+					{
+						property: "nickname",
+						value: concat(
+							term(literal("n=")),
+							count(
+								subcasePath("parent", "visit"),
+								match(prop("visit", "source_id"), "ali", "fuzzy"),
+							),
+						),
+					},
+				],
+			}),
+		]);
+	});
+
+	// Unlike the match modes, the emitter cannot catch this one: it emits
+	// `<term> = ''` for `is-null` and `is-blank` alike, so the dry-run
+	// succeeds and the wire quietly answers a different question.
+	it("rejects a strict missing-value check the wire cannot express", () => {
+		expectCode("CASE_OPERATION_EXPRESSION_TYPE", [
+			update({ condition: isNull(term(prop("patient", "nickname"))) }),
+		]);
+	});
+
+	it("keeps the blank check, which is the portable answer", () => {
+		expect(
+			codesFor([
+				update({ condition: isBlank(term(prop("patient", "nickname"))) }),
+			]),
+		).toEqual([]);
+	});
+
+	it("keeps starts-with, the one mode CommCare Core registers", () => {
+		expect(
+			codesFor([
+				update({
+					condition: match(prop("patient", "nickname"), "ali", "starts-with"),
+				}),
+			]),
+		).toEqual([]);
+	});
+});
+
 describe("case-operation activation and identity", () => {
 	it("rejects duplicate UUIDs, duplicate ids, and unsafe wire ids", () => {
 		expectCode("CASE_OPERATION_DUPLICATE_UUID", [
@@ -323,6 +401,47 @@ describe("case-operation activation and identity", () => {
 			update({ id: "create_visit" }),
 		]);
 		expectCode("CASE_OPERATION_INVALID_ID", [update({ id: "__nova_bad" })]);
+	});
+
+	it("accepts underscores but rejects hyphens and dots in emitted node names", () => {
+		expect(codesFor([update({ id: "_update_patient2" })])).not.toContain(
+			"CASE_OPERATION_INVALID_ID",
+		);
+		for (const id of ["update-patient", "update.patient"]) {
+			const error = errorsFor([update({ id })]).find(
+				(candidate) => candidate.code === "CASE_OPERATION_INVALID_ID",
+			);
+			expect(error?.message).toContain(
+				CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
+			);
+		}
+		for (const property of ["not-wire-safe", "not.wire.safe"]) {
+			const error = errorsFor([
+				update({
+					writes: [{ property, value: term(literal("not emitted as a node")) }],
+				}),
+			]).find(
+				(candidate) => candidate.code === "CASE_OPERATION_UNKNOWN_PROPERTY",
+			);
+			expect(error?.message).toContain(CASE_OPERATION_PROPERTY_FORMAT_MESSAGE);
+		}
+		for (const identifier of ["parent-link", "parent.link"]) {
+			const error = errorsFor([
+				update({
+					links: [
+						{
+							identifier,
+							targetType: "visit",
+							target: null,
+							relationship: "child",
+						},
+					],
+				}),
+			]).find((candidate) => candidate.code === "CASE_OPERATION_LINK_INVALID");
+			expect(error?.message).toContain(
+				CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
+			);
+		}
 	});
 
 	it("keeps repeated operations on an explicit in-form repeat", () => {
@@ -340,10 +459,9 @@ describe("case-operation activation and identity", () => {
 				update({
 					uuid: THIRD,
 					id: "update_each_row",
-					order: "a",
 					forEach: { repeat: REPEAT_A },
 				}),
-				update({ order: "b" }),
+				update(),
 			]),
 		).toContain("CASE_OPERATION_EXECUTION_ORDER");
 
@@ -352,16 +470,15 @@ describe("case-operation activation and identity", () => {
 				update({
 					uuid: THIRD,
 					id: "update_rows_b",
-					order: "a",
 					forEach: { repeat: REPEAT_B },
 				}),
-				update({ order: "b", forEach: { repeat: REPEAT_A } }),
+				update({ forEach: { repeat: REPEAT_A } }),
 			]),
 		).toContain("CASE_OPERATION_EXECUTION_ORDER");
 
 		expectCode("CASE_OPERATION_EXECUTION_ORDER", [
-			update({ order: "a" }),
-			create({ order: "b", target: { kind: "new", idFrom: TEXT } }),
+			update(),
+			create({ target: { kind: "new", idFrom: TEXT } }),
 		]);
 
 		expectCode("CASE_OPERATION_EXECUTION_ORDER", [
@@ -687,12 +804,12 @@ describe("case-operation target and dependency safety", () => {
 
 	it("requires op/id-of references to name an earlier create of the expected type", () => {
 		expectCode("CASE_OPERATION_REFERENCE_ORDER", [
-			update({ order: "a", target: { kind: "op", opUuid: CREATE } }),
-			create({ order: "b" }),
+			update({ target: { kind: "op", opUuid: CREATE } }),
+			create(),
 		]);
 		expectCode("CASE_OPERATION_REFERENCE_ORDER", [
-			update({ order: "a", owner: idOf(CREATE) }),
-			create({ order: "b" }),
+			update({ owner: idOf(CREATE) }),
+			create(),
 		]);
 		expectCode("CASE_OPERATION_TARGET_TYPE_MISMATCH", [
 			create(),
@@ -752,7 +869,6 @@ describe("case-operation target and dependency safety", () => {
 			update({
 				uuid: THIRD,
 				id: "update_client",
-				order: "c",
 				caseType: "client",
 				target: { kind: "op", opUuid: CREATE },
 			}),
@@ -765,7 +881,6 @@ describe("case-operation target and dependency safety", () => {
 			update({
 				uuid: THIRD,
 				id: "stale_visit_update",
-				order: "c",
 				caseType: "visit",
 				target: { kind: "op", opUuid: CREATE },
 			}),
@@ -773,11 +888,10 @@ describe("case-operation target and dependency safety", () => {
 
 		expect(
 			codesFor([
-				update({ order: "a", retype: "visit" }),
+				update({ retype: "visit" }),
 				update({
 					uuid: THIRD,
 					id: "update_retyped_session_case",
-					order: "b",
 					caseType: "visit",
 				}),
 			]),
@@ -786,14 +900,12 @@ describe("case-operation target and dependency safety", () => {
 		expect(
 			codesFor([
 				update({
-					order: "a",
 					retype: "visit",
 					condition: { kind: "match-all" },
 				}),
 				update({
 					uuid: THIRD,
 					id: "update_conditionally_retyped_case",
-					order: "b",
 					caseType: "visit",
 				}),
 			]),
@@ -802,11 +914,10 @@ describe("case-operation target and dependency safety", () => {
 
 	it("rejects runtime target aliases that could bypass rolling retype state", () => {
 		const errors = errorsFor([
-			update({ order: "a", retype: "visit" }),
+			update({ retype: "visit" }),
 			update({
 				uuid: THIRD,
 				id: "stale_snapshot_alias",
-				order: "b",
 				target: { kind: "expression", expr: term(prop("patient", "case_id")) },
 			}),
 		]);
@@ -824,7 +935,6 @@ describe("case-operation target and dependency safety", () => {
 		expect(
 			codesFor([
 				update({
-					order: "a",
 					target: {
 						kind: "expression",
 						expr: term(literal("patient-a")),
@@ -834,7 +944,6 @@ describe("case-operation target and dependency safety", () => {
 				update({
 					uuid: THIRD,
 					id: "different_patient",
-					order: "b",
 					target: {
 						kind: "expression",
 						expr: term(literal("patient-b")),
@@ -844,11 +953,10 @@ describe("case-operation target and dependency safety", () => {
 		).not.toContain("CASE_OPERATION_TARGET_TYPE_MISMATCH");
 
 		expectCode("CASE_OPERATION_TARGET_TYPE_MISMATCH", [
-			update({ order: "a", retype: "visit" }),
+			update({ retype: "visit" }),
 			update({
 				uuid: THIRD,
 				id: "link_stale_snapshot_alias",
-				order: "b",
 				caseType: "visit",
 				links: [
 					{
@@ -923,14 +1031,12 @@ describe("case-operation target and dependency safety", () => {
 		mapFieldToCaseType(built.doc, TEXT, "nickname", "patient");
 		(built.doc.forms[built.formUuid] as Form).caseOperations = [
 			update({
-				order: "a",
 				retype: "visit",
 				condition: eq(formField(TEXT), literal("transition")),
 			}),
 			update({
 				uuid: THIRD,
 				id: "restore_patient",
-				order: "b",
 				caseType: "visit",
 				retype: "patient",
 				condition: eq(formField(NUMBER), literal(1)),
@@ -1013,7 +1119,6 @@ describe("case-operation target and dependency safety", () => {
 				create({
 					uuid: SECOND,
 					id: "create_distinct_namespaced_case",
-					order: "b",
 					target: { kind: "new", idFrom: HIDDEN_ID },
 				}),
 			]),
@@ -1027,6 +1132,16 @@ describe("case-operation target and dependency safety", () => {
 		expectCode("CASE_OPERATION_REPEAT_CORRELATION", [
 			create({
 				target: { kind: "new", idFrom: REPEAT_B_TEXT },
+				forEach: { repeat: REPEAT_A },
+			}),
+		]);
+		// A ROOT answer is readable from a repeated operation but cannot KEY
+		// one: it has a single value per submission, so every iteration would
+		// derive the same identity and collapse onto one case. The identity
+		// rule is exact correlation, never the (looser) read rule.
+		expectCode("CASE_OPERATION_REPEAT_CORRELATION", [
+			create({
+				target: { kind: "new", idFrom: TEXT },
 				forEach: { repeat: REPEAT_A },
 			}),
 		]);
@@ -1166,7 +1281,6 @@ describe("case-operation target and dependency safety", () => {
 			update({
 				uuid: THIRD,
 				id: "write_mixed_as_text",
-				order: "c",
 				writes: [{ property: "mixed", value: term(literal("seven")) }],
 			}),
 		]);

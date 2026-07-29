@@ -639,13 +639,11 @@ describe("convertField — string-compatible tier", () => {
 				value: "clinic_a",
 				label: "Clinic A",
 				uuid: asUuid("o-1"),
-				order: "a1",
 			},
 			{
 				value: "clinic_b",
 				label: "Clinic B",
 				uuid: asUuid("o-2"),
-				order: "a2",
 			},
 		];
 		const next = produce(doc, (d) => {

@@ -77,7 +77,9 @@ export function applyAppMutation(
 			const ct = findCaseType(draft, mut.caseType);
 			if (!ct) return;
 			if (!ct.properties.some((p) => p.name === mut.property.name)) {
-				ct.properties.push(mut.property);
+				// Cloned: a batch is applied more than once and Immer freezes what
+				// `produce` returns, so the payload must never BE the stored record.
+				ct.properties.push(structuredClone(mut.property));
 			}
 			return;
 		}
@@ -88,8 +90,9 @@ export function applyAppMutation(
 			const ct = findCaseType(draft, mut.caseType);
 			if (!ct) return;
 			const idx = ct.properties.findIndex((p) => p.name === mut.property.name);
-			if (idx === -1) ct.properties.push(mut.property);
-			else ct.properties[idx] = mut.property;
+			const property = structuredClone(mut.property);
+			if (idx === -1) ct.properties.push(property);
+			else ct.properties[idx] = property;
 			return;
 		}
 		case "removeCaseProperty": {

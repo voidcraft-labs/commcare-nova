@@ -5,6 +5,8 @@ import type { InputHTMLAttributes, ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ReconcilerContext } from "@/lib/collab/context";
 import { createProjectScopeResetRegistry } from "@/lib/collab/projectScopeReset";
+import { BuilderSessionContext } from "@/lib/session/provider";
+import { createBuilderSessionStore } from "@/lib/session/store";
 import { AddressSearch } from "../AddressSearch";
 import { GeopointPicker } from "../GeopointPicker";
 
@@ -118,17 +120,25 @@ function deferred<T>() {
 
 function scopeHarness() {
 	const registry = createProjectScopeResetRegistry();
+	const session = createBuilderSessionStore({
+		appId: "geopoint-app",
+		projectId: "project-source",
+		role: "editor",
+		canEdit: true,
+	});
 	const value = {
 		projectScopeId: "geopoint-test",
 		subscribeProjectScopeReset: registry.subscribe,
 		isProjectScopeCurrent: registry.isCurrent,
 	} as never;
 	const Wrapper = ({ children }: { children: ReactNode }) => (
-		<ReconcilerContext.Provider value={value}>
-			{children}
-		</ReconcilerContext.Provider>
+		<BuilderSessionContext value={session}>
+			<ReconcilerContext.Provider value={value}>
+				{children}
+			</ReconcilerContext.Provider>
+		</BuilderSessionContext>
 	);
-	return { registry, Wrapper };
+	return { registry, session, Wrapper };
 }
 
 afterEach(() => {
@@ -166,6 +176,65 @@ describe("geopoint Project-scope continuations", () => {
 
 		expect(onChange).not.toHaveBeenCalled();
 		expect(mocks.projectToast).not.toHaveBeenCalled();
+	});
+
+	it("re-arms geolocation after a same-Project snapshot without reviving the old request", async () => {
+		const sourceLocation = deferred<{
+			lat: number;
+			lon: number;
+			alt: number;
+			accuracy: number;
+		}>();
+		mocks.requestGeolocation
+			.mockReturnValueOnce(sourceLocation.promise)
+			.mockResolvedValueOnce({
+				lat: 41,
+				lon: -75,
+				alt: 0,
+				accuracy: 3,
+			});
+		const onChange = vi.fn();
+		const { registry, session, Wrapper } = scopeHarness();
+		render(
+			<GeopointPicker
+				value=""
+				onChange={onChange}
+				onBlur={vi.fn()}
+				showError={false}
+			/>,
+			{ wrapper: Wrapper },
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "My location" }));
+		act(() => {
+			session.getState().beginAccessRefresh();
+			registry.reset(1);
+		});
+		expect(
+			(
+				screen.getByRole("button", {
+					name: "My location",
+				}) as HTMLButtonElement
+			).disabled,
+		).toBe(false);
+		act(() => {
+			session.getState().applyAccessSnapshot({
+				projectId: "project-source",
+				role: "editor",
+				canEdit: true,
+			});
+		});
+		await act(async () => {
+			sourceLocation.resolve({ lat: 40, lon: -74, alt: 0, accuracy: 4 });
+			await sourceLocation.promise;
+		});
+		expect(onChange).not.toHaveBeenCalled();
+
+		fireEvent.click(screen.getByRole("button", { name: "My location" }));
+		await act(async () => {
+			await Promise.resolve();
+		});
+		expect(onChange).toHaveBeenCalledWith("41 -75 0 3");
 	});
 
 	it("drops held Places details and remounts without source address text", async () => {
@@ -224,5 +293,71 @@ describe("geopoint Project-scope continuations", () => {
 
 		expect(onSelect).not.toHaveBeenCalled();
 		expect(screen.queryByText("Source project address")).toBeNull();
+	});
+
+	it("clears stale Places results and accepts a fresh query after same-Project authorization", async () => {
+		vi.useFakeTimers();
+		const suggestionFetch = vi
+			.fn()
+			.mockResolvedValueOnce({
+				suggestions: [
+					{
+						placePrediction: {
+							placeId: "source-place",
+							text: { text: "Source result" },
+						},
+					},
+				],
+			})
+			.mockResolvedValueOnce({
+				suggestions: [
+					{
+						placePrediction: {
+							placeId: "fresh-place",
+							text: { text: "Fresh result" },
+						},
+					},
+				],
+			});
+		mocks.loadPlaces.mockResolvedValue({
+			AutocompleteSessionToken: class {},
+			AutocompleteSuggestion: {
+				fetchAutocompleteSuggestions: suggestionFetch,
+			},
+		});
+		const { registry, session, Wrapper } = scopeHarness();
+		render(<AddressSearch value="" onSelect={vi.fn()} />, {
+			wrapper: Wrapper,
+		});
+		const input = screen.getByLabelText("Search for an address");
+		fireEvent.change(input, { target: { value: "Source" } });
+		await act(async () => {
+			vi.advanceTimersByTime(250);
+			await Promise.resolve();
+			await Promise.resolve();
+		});
+		expect(screen.getByRole("button", { name: "Source result" })).toBeDefined();
+
+		act(() => {
+			session.getState().beginAccessRefresh();
+			registry.reset(1);
+		});
+		expect(screen.queryByRole("button", { name: "Source result" })).toBeNull();
+		act(() => {
+			session.getState().applyAccessSnapshot({
+				projectId: "project-source",
+				role: "editor",
+				canEdit: true,
+			});
+		});
+		fireEvent.change(input, { target: { value: "Fresh" } });
+		await act(async () => {
+			vi.advanceTimersByTime(250);
+			await Promise.resolve();
+			await Promise.resolve();
+		});
+
+		expect(screen.getByRole("button", { name: "Fresh result" })).toBeDefined();
+		expect(suggestionFetch).toHaveBeenCalledTimes(2);
 	});
 });

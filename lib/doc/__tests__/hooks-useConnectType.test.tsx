@@ -60,7 +60,7 @@ describe("useConnectType", () => {
 		const { store, wrapper } = setup(null);
 		const { result } = renderHook(() => useConnectType(), { wrapper });
 		expect(result.current).toBeNull();
-		store.temporal.getState().resume();
+		store.getState().startTracking();
 		act(() => {
 			store
 				.getState()

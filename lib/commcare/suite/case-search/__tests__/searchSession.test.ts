@@ -41,6 +41,7 @@
 //      instance.
 
 import { describe, expect, it } from "vitest";
+import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
 	advancedSearchInputDef,
 	asUuid,
@@ -94,7 +95,7 @@ const ANDROID_INLINE: WireShape = {
 function makeListConfig(
 	overrides: Partial<CaseListConfig> = {},
 ): CaseListConfig {
-	return { columns: [], searchInputs: [], ...overrides };
+	return resolveCaseListConfig({ columns: [], searchInputs: [], ...overrides });
 }
 
 // ── `<query>` attribute set ─────────────────────────────────────────

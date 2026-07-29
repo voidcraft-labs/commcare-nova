@@ -18,8 +18,6 @@
 // click away in the Match picker.
 
 import { columnAddMutation } from "@/lib/doc/caseListColumnMutations";
-import { appendOrderKey } from "@/lib/doc/order/append";
-import type { ColumnSurface } from "@/lib/doc/order/columnSurface";
 import type { Mutation, Uuid } from "@/lib/doc/types";
 import {
 	authorableCaseProperties,
@@ -45,38 +43,25 @@ import {
 	propertyFallbackDisplayLabel,
 } from "../shared/primitives/propertyDisplay";
 import { newUuid } from "./uuid";
+import type { CaseDisplaySurface } from "./workspaceProjection";
 
 /**
- * Center-canvas display-field add. The working column gets both its generic
- * append key and the active screen's append key, then the shared mutation
- * encoder moves the new surface key out of the strict legacy nested fallback.
+ * Center-canvas display-field add.
+ *
+ * The new field lands at the end of the ACTIVE screen and at the end of the
+ * other one. Both are required — a column belongs to the Results and Details
+ * sequences from birth, and a field added on Results is still a field Details
+ * can be asked to show later, at a place it already holds.
  */
 export function seededColumnAddMutation(
 	moduleUuid: Uuid,
 	config: CaseListConfig,
-	surface: ColumnSurface,
+	_surface: CaseDisplaySurface,
 	seed: Column,
 ): Extract<Mutation, { kind: "addColumn" }> {
-	const visible = config.columns.filter((column) =>
-		surface === "list"
-			? column.visibleInList !== false
-			: column.visibleInDetail !== false,
-	);
-	const surfaceOrder = appendOrderKey(
-		visible.map((column) => ({
-			uuid: column.uuid,
-			order:
-				surface === "list"
-					? (column.listOrder ?? column.order)
-					: (column.detailOrder ?? column.order),
-		})),
-	);
-	return columnAddMutation(moduleUuid, {
-		...seed,
-		order: appendOrderKey(config.columns),
-		...(surface === "list"
-			? { listOrder: surfaceOrder }
-			: { detailOrder: surfaceOrder }),
+	return columnAddMutation(moduleUuid, seed, {
+		afterInList: config.listColumnOrder.at(-1) ?? null,
+		afterInDetail: config.detailColumnOrder.at(-1) ?? null,
 	});
 }
 

@@ -9,8 +9,8 @@ import { urlHost } from "./e2e/lib/url";
  *
  *   • LOCAL / CI (default) — `scripts/smoke.sh` boots a local Postgres, seeds
  *     data, and Playwright builds + serves the production server itself (the
- *     `webServer` block — `next build && next start`, not dev, for prod
- *     fidelity). Both projects run. This is the full gate.
+ *     `webServer` block — `next build` plus Nova's standalone launcher, not
+ *     dev, for prod fidelity). Both projects run. This is the full gate.
  *
  *   • AGAINST A LIVE URL — `SMOKE_BASE_URL=https://commcare.app npm run
  *     test:smoke:url` skips the local server and the seeded-session project,
@@ -83,6 +83,9 @@ function smokeWebServerEnv(): Record<string, string> {
 		const value = process.env[key];
 		if (value) env[key] = value;
 	}
+	// Bind the managed server to the same loopback interface smoke.sh publishes.
+	// The launcher's general-purpose default remains 0.0.0.0 for `npm start`.
+	env.HOSTNAME = localHost === "::1" ? "::1" : "127.0.0.1";
 	// The managed server intentionally runs a production build on loopback.
 	// Proxy accepts this flag only together with a loopback Host; Cloud Run never
 	// receives it, so forged public Host headers stay fail-closed.
@@ -101,8 +104,8 @@ export default defineConfig({
 	// One worker: the suite shares a single Postgres + seeded dataset; the delete
 	// test mutates app rows, so parallel workers could race the app list.
 	workers: 1,
-	// Generous headroom for a full page load + assertions. `next start` serves
-	// pre-compiled routes, so this isn't covering a cold compile. Watch mode
+	// Generous headroom for a full page load + assertions. The standalone server
+	// serves pre-compiled routes, so this isn't covering a cold compile. Watch mode
 	// scales the budget with its action delay: slowMo pauses every real action
 	// (not expect-polls), and the op-heaviest scenario (revocation) runs ~40 of
 	// them — 60 × MP_SLOWMO is that with headroom. Zero when MP_SLOWMO unset.
@@ -189,22 +192,21 @@ export default defineConfig({
 					// (1) fidelity — the smoke then exercises what actually deploys
 					// (minified, prod React), so a build-only break is caught here; and
 					// (2) `next dev` forwards SERVER console output into the BROWSER
-					// console, where the error guard would catch benign server logs —
-					// `next start` doesn't. `fumadocs-mdx` first generates the
-					// `@/.source/server` import `next build` needs (as typecheck does).
-					// SMOKE_REUSE_BUILD=1 skips straight to `next start` for a fast
-					// relaunch of the watch/manual modes over an UNCHANGED build — the
-					// human is iterating on their own usage, not on the code. Off by
-					// default (CI and plain runs always build fresh); a missing/dev-mode
-					// `.next` makes `next start` fail loudly, so it can't silently serve
-					// a stale or non-production artifact as green.
-					// `npx` so the local binary resolves even when smoke.sh is invoked
-					// directly (outside an npm script, nothing puts node_modules/.bin
-					// on the PATH this command is spawned with).
+					// console, where the error guard would catch benign server logs.
+					// `fumadocs-mdx` first generates the `@/.source/server` import
+					// `next build` needs (as typecheck does). The repository launcher
+					// prepares Next's generated standalone tree exactly like Docker:
+					// public, static, then the dlopen-only sharp @img overlay. It then
+					// runs the generated server.js; `next start` is unsupported when
+					// `output: "standalone"` is configured.
+					// SMOKE_REUSE_BUILD=1 skips straight to that launcher for a fast
+					// relaunch of the watch/manual modes over an UNCHANGED build. Off
+					// by default; a missing/non-standalone `.next` fails before spawn,
+					// so it cannot silently serve a stale development artifact.
 					command:
 						process.env.SMOKE_REUSE_BUILD === "1"
-							? "npx next start"
-							: "npx fumadocs-mdx && npx next build && npx next start",
+							? "node scripts/start-standalone.mjs"
+							: "npx fumadocs-mdx && npx next build && node scripts/start-standalone.mjs",
 					url: BASE_URL,
 					// Never reuse a stray server: a dev's own `npm run dev` on :3000
 					// points at a different database with a different secret, so
@@ -212,8 +214,8 @@ export default defineConfig({
 					// (the forged cookie fails to validate) — a confusing red. Always
 					// start the suite's own Postgres-wired server.
 					reuseExistingServer: false,
-					// Covers the production build (~2 min) + boot. `next start` serves
-					// pre-compiled routes, so per-test requests are fast after this.
+					// Covers the production build (~2 min) + boot. The standalone
+					// server serves pre-compiled routes, so requests are fast after this.
 					timeout: 300_000,
 					stdout: "pipe",
 					stderr: "pipe",

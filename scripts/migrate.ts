@@ -18,9 +18,9 @@
 // uses — one connection code path, prod parity. The Job's env therefore wires
 // `NOVA_DB_INSTANCE_CONNECTION_NAME` (the connector's input), not the raw
 // `NOVA_DB_HOST` Atlas needed. Kysely's `Migrator` is sequential, so this Job
-// holds just ONE Cloud SQL connection at a time — it fits within the connection
-// budget even while the old revision is still serving during the pre-traffic
-// window.
+// declares `NOVA_DB_WORKLOAD=migration` and its pool holds just ONE Cloud SQL
+// connection at a time. The migration role's non-inherited login limit is one;
+// the separately invoked privileged bootstrap owns that steady-state policy.
 
 import { getMigrations } from "better-auth/db/migration";
 import type { Kysely } from "kysely";
@@ -38,6 +38,7 @@ import {
 } from "@/lib/db/privilegeConvergence";
 
 async function main(): Promise<void> {
+	const pool = await getCaseStorePool();
 	const db = await getCaseStoreDatabase();
 	// `getCaseStoreDatabase()` is typed `Kysely<Database>`; the migrator takes the
 	// schema-agnostic `Kysely<unknown>` (it only issues raw `sql` + DDL).
@@ -49,7 +50,6 @@ async function main(): Promise<void> {
 	// columns; never drops), so it is safe to run on every deploy. Reuses the
 	// SAME shared pool; `authMigrateOptions` is the MCP-free schema config so
 	// this stays out of the heavy MCP graph in the bundle.
-	const pool = await getCaseStorePool();
 	const { runMigrations } = await getMigrations(authMigrateOptions(pool));
 	await runMigrations();
 	console.log("[migrate] auth migrations applied");

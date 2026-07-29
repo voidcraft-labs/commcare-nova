@@ -20,6 +20,8 @@
 //     form-link targets and close conditions store uuids outright;
 //     prose hashtags resolve to the uuid at extraction. Renames never
 //     re-key these edges — the uuid is stable.
+//   - `p:<uuid>` — a custom worker-information property reference by stable
+//     uuid. Renaming its saved slug never re-keys the edge.
 //   - `c:<caseType>/<property>` — a case-property reference. Explicit
 //     per-type hashtags (`#mother/age`), contextual `#case/age` refs
 //     (keyed under the owning module's case type), predicate-AST
@@ -46,7 +48,7 @@
 // stale across mutations.
 //
 // Everything is plain JSON records (no Map/Set): the index is part of
-// the doc store's state, and zundo snapshots whole state.
+// the doc store's state, and the undo history records the batch that produced it.
 
 import type { Uuid } from "./uuid";
 
@@ -108,6 +110,13 @@ export interface ReferenceIndex {
 /** Target key for an entity reference by stable uuid. */
 export function entityTargetKey(uuid: Uuid | string): string {
 	return `u:${uuid}`;
+}
+
+export const USER_PROPERTY_TARGET_PREFIX = "p:";
+
+/** Target key for a custom worker-information property identity. */
+export function userPropertyTargetKey(uuid: Uuid | string): string {
+	return `${USER_PROPERTY_TARGET_PREFIX}${uuid}`;
 }
 
 /**

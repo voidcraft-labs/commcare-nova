@@ -16,10 +16,10 @@
 // that showing the column again restores the place the author drew.
 // `tileShowsColumn` is the one place that decision lives.
 
-import { byListColumnOrder } from "@/lib/doc/order/compare";
 import {
 	type CaseListConfig,
 	type Column,
+	orderedColumns,
 	TILE_GRID_COLUMNS,
 	TILE_GRID_ROWS,
 	type TileCell,
@@ -75,10 +75,10 @@ export function tileShowsColumn(column: Column): boolean {
  * The tile's membership in Results order — the same sequence the short
  * detail emits its fields in.
  */
-export function tileMembership(columns: readonly Column[]): TileMembership {
+export function tileMembership(config: CaseListConfig): TileMembership {
 	const placed: TilePlacement[] = [];
 	const unplaced: TileVacancy[] = [];
-	for (const column of [...columns].sort(byListColumnOrder)) {
+	for (const column of orderedColumns(config, "list")) {
 		if (!tileShowsColumn(column)) continue;
 		const label = columnLabel(column);
 		if (column.tile === undefined) {
@@ -94,9 +94,8 @@ export function tileMembership(columns: readonly Column[]): TileMembership {
  * Every member of the tile, placed or not, in Results order — the
  * sequence a preset arranges against.
  */
-export function tileMemberUuids(columns: readonly Column[]): readonly Uuid[] {
-	return [...columns]
-		.sort(byListColumnOrder)
+export function tileMemberUuids(config: CaseListConfig): readonly Uuid[] {
+	return orderedColumns(config, "list")
 		.filter(tileShowsColumn)
 		.map((column) => column.uuid);
 }
@@ -244,15 +243,15 @@ export function planTilePlacement(
  * the same overlap check against the tile's members, the same words.
  */
 export function planColumnTilePlacement(args: {
-	readonly columns: readonly Column[];
+	readonly config: CaseListConfig;
 	readonly column: Column;
 	readonly geometry: TileGeometry;
 }): TilePlacementVerdict {
-	const { columns, column, geometry } = args;
+	const { config, column, geometry } = args;
 	const verdict = evaluateTilePlacement({
 		label: columnLabel(column),
 		candidate: geometry,
-		others: tileMembership(columns).placed.filter(
+		others: tileMembership(config).placed.filter(
 			(entry) => entry.uuid !== column.uuid,
 		),
 	});
@@ -411,10 +410,10 @@ export function nextFreeTilePlacement(
  * state as the reason rather than dispatching a doomed batch.
  */
 export function placementForJoiningTile(
-	columns: readonly Column[],
+	config: CaseListConfig,
 	column: Column,
 ): TileCell | null {
-	const others = tileMembership(columns).placed.filter(
+	const others = tileMembership(config).placed.filter(
 		(entry) => entry.uuid !== column.uuid,
 	);
 	const saved = column.tile;
@@ -458,7 +457,7 @@ export interface TileIssue {
  */
 export function tileLayoutIssues(config: CaseListConfig): readonly TileIssue[] {
 	const issues: TileIssue[] = [];
-	const columns = [...config.columns].sort(byListColumnOrder);
+	const columns = orderedColumns(config, "list");
 
 	for (const column of columns) {
 		const cell = column.tile;
@@ -483,6 +482,9 @@ export function tileLayoutIssues(config: CaseListConfig): readonly TileIssue[] {
 	// it: a hidden field's stored cell draws nothing, so two of them on one
 	// square is not something a worker can see. Showing one of them is the
 	// moment the conflict becomes the author's to fix.
+	// Scanned in the Results sequence, like the geometry pass above: the pair in
+	// the message reads left-to-right the way the author sees them, and the
+	// issue list comes back in the order the fields are laid out.
 	const visible = columns.filter(
 		(column) => column.tile !== undefined && tileShowsColumn(column),
 	);

@@ -5,7 +5,9 @@
 
 export * from "./blueprint";
 export * from "./builtinIcons";
+export * from "./caseOperationIdentifiers";
 export * from "./caseOperationIdentity";
+export * from "./caseOperationScope";
 export * from "./caseOperationText";
 export * from "./casePropertyTypes";
 export * from "./caseRetype";
@@ -24,9 +26,11 @@ export * from "./lookupCarriers";
 export * from "./lookupIds";
 export * from "./modules";
 export * from "./multimedia";
+export * from "./records";
 export * from "./referenceIndex";
 export * from "./referenceSlots";
 export * from "./standardCaseProperties";
+export * from "./temporalValues";
 export * from "./users";
 export * from "./uuid";
 export * from "./xpath";

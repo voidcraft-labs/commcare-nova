@@ -12,11 +12,6 @@ import {
 	orderedFormUuids,
 	orderedModuleUuids,
 } from "@/lib/doc/fieldWalk";
-import {
-	byDetailColumnOrder,
-	byListColumnOrder,
-	bySortKey,
-} from "@/lib/doc/order/compare";
 import { unwrittenProperties } from "@/lib/doc/unwrittenProperties";
 import type {
 	BlueprintDoc,
@@ -26,7 +21,17 @@ import type {
 	SearchInputDef,
 	Uuid,
 } from "@/lib/domain";
-import { isContainer, tileCellFor } from "@/lib/domain";
+import {
+	isContainer,
+	orderedColumns,
+	orderedPersonas,
+	orderedUserProperties,
+	orderedUserTypes,
+	ownRecordValue,
+	tileCellFor,
+	userPropertiesOf,
+	userTypesOf,
+} from "@/lib/domain";
 import { unwrittenPropertiesReminder } from "./systemReminder";
 import {
 	ADVANCED_SLOT_NAMES,
@@ -124,12 +129,15 @@ function summarizeCaseList(mod: Module): string | undefined {
 			`      layout: tile${config.tile.persistOnForms === true ? " (kept above every form)" : ""}`,
 		);
 	}
-	const results = config.columns
-		.filter((column) => column.visibleInList !== false)
-		.sort(byListColumnOrder);
-	const details = config.columns
-		.filter((column) => column.visibleInDetail !== false)
-		.sort(byDetailColumnOrder);
+	// Each screen reads its OWN sequence: the summary is what the SA reasons
+	// about arrangement from, so a storage-order read would have it move the
+	// wrong row.
+	const results = orderedColumns(config, "list").filter(
+		(column) => column.visibleInList !== false,
+	);
+	const details = orderedColumns(config, "detail").filter(
+		(column) => column.visibleInDetail !== false,
+	);
 	if (results.length > 0) {
 		lines.push("      results:");
 		for (const col of results) {
@@ -150,13 +158,14 @@ function summarizeCaseList(mod: Module): string | undefined {
 			lines.push(`        - ${formatColumn(col, "")}`);
 		}
 	}
-	const sortedColumns = config.columns
+	const sortedColumns = orderedColumns(config, "list")
 		.filter((column) => column.sort !== undefined)
-		.sort(
-			(a, b) =>
-				(a.sort?.priority ?? 0) - (b.sort?.priority ?? 0) ||
-				byListColumnOrder(a, b),
-		);
+		// Priority decides the order; Results position breaks a tie, which is what
+		// the author sees when two carriers share a priority — so the walk starts
+		// in the Results sequence and leans on `sort` being stable. The wire
+		// (`suite/case-list/sortKeys.ts`) ties the same way, and a tied pair the
+		// SA reads here has to match what it emits.
+		.sort((a, b) => (a.sort?.priority ?? 0) - (b.sort?.priority ?? 0));
 	if (sortedColumns.length > 0) {
 		lines.push("      default_order:");
 		for (const col of sortedColumns) {
@@ -167,7 +176,7 @@ function summarizeCaseList(mod: Module): string | undefined {
 	}
 	if (config.searchInputs.length > 0) {
 		lines.push("      search_inputs:");
-		for (const input of [...config.searchInputs].sort(bySortKey)) {
+		for (const input of [...config.searchInputs]) {
 			lines.push(`        - ${formatSearchInput(input)}`);
 		}
 	}
@@ -302,6 +311,65 @@ export function summarizeBlueprint(doc: BlueprintDoc): string {
 			const props = ct.properties.map((p) => p.name).join(", ");
 			const parentInfo = ct.parent_type ? ` (child of ${ct.parent_type})` : "";
 			lines.push(`- ${ct.name}${parentInfo}: ${props}`);
+		}
+	}
+
+	const userProperties = orderedUserProperties(doc);
+	const userTypes = orderedUserTypes(doc);
+	const personas = orderedPersonas(doc);
+	if (
+		userProperties.length > 0 ||
+		userTypes.length > 0 ||
+		personas.length > 0
+	) {
+		const propertyByUuid = userPropertiesOf(doc);
+		const propertyOrder = new Map<string, number>(
+			userProperties.map((property, index) => [property.uuid, index]),
+		);
+		const values = (bag: Record<string, string> | undefined) =>
+			Object.entries(bag ?? {})
+				.sort(
+					([left], [right]) =>
+						(propertyOrder.get(left) ?? Number.MAX_SAFE_INTEGER) -
+							(propertyOrder.get(right) ?? Number.MAX_SAFE_INTEGER) ||
+						left.localeCompare(right),
+				)
+				.map(
+					([uuid, value]) =>
+						`${ownRecordValue(propertyByUuid, uuid)?.slug ?? `<missing:${uuid}>`}=${JSON.stringify(value)} [property uuid ${uuid}]`,
+				)
+				.join(", ");
+		lines.push("");
+		lines.push("**Users & personas:**");
+		if (userProperties.length > 0) {
+			lines.push("  worker_information:");
+			for (const property of userProperties) {
+				lines.push(
+					`    - ${property.slug}: ${JSON.stringify(property.label)} [uuid ${property.uuid}]${property.required === true ? " required" : ""}${property.choices === undefined ? "" : ` choices=${JSON.stringify(property.choices)}`}`,
+				);
+			}
+		}
+		if (userTypes.length > 0) {
+			lines.push("  roles:");
+			for (const role of userTypes) {
+				const roleValues = values(role.values);
+				lines.push(
+					`    - "${role.name}" [uuid ${role.uuid}]${role.description === undefined ? "" : ` description=${JSON.stringify(role.description)}`}${roleValues === "" ? "" : ` values={${roleValues}}`}`,
+				);
+			}
+		}
+		if (personas.length > 0) {
+			lines.push("  personas:");
+			for (const persona of personas) {
+				const role =
+					persona.userTypeUuid === undefined
+						? undefined
+						: ownRecordValue(userTypesOf(doc), persona.userTypeUuid);
+				const personaValues = values(persona.values);
+				lines.push(
+					`    - "${persona.name}" [uuid ${persona.uuid}]${persona.description === undefined ? "" : ` description=${JSON.stringify(persona.description)}`}${role === undefined ? "" : ` role="${role.name}" [uuid ${role.uuid}]`}${personaValues === "" ? "" : ` overrides={${personaValues}}`}`,
+				);
+			}
 		}
 	}
 

@@ -14,13 +14,17 @@ import {
 	isTextShaped,
 } from "@/lib/domain";
 import {
-	literal,
+	formField,
+	input,
 	type MatchMode,
 	match,
 	matchValueConstraint,
 	type Predicate,
 	type PropertyRef,
 	prop,
+	sessionContext,
+	term,
+	type ValueExpression,
 } from "@/lib/domain/predicate";
 import { useEditorErrorsAt } from "../editorContext";
 import type { PredicateEditContext } from "../editorSchemas";
@@ -61,7 +65,37 @@ export function matchDefault(
 	const ct = ctx.caseTypes.find((c) => c.name === ctx.currentCaseType);
 	const property = ct?.properties.find(isTextShaped);
 	const propName = canonicalCasePropertyName(property?.name ?? "");
-	return match(prop(ctx.currentCaseType, propName), literal(""), "fuzzy");
+	// `starts-with` is the only mode CommCare's own evaluator implements,
+	// so it is the only one valid on every carrier. Defaulting to `fuzzy`
+	// made this seed unusable anywhere a rule runs on the device — which
+	// is everywhere except an advanced search input.
+	return match(
+		prop(ctx.currentCaseType, propName),
+		matchSeedValue(ctx),
+		"starts-with",
+	);
+}
+
+/**
+ * A match against the empty string matches nothing on every mode, so
+ * the commit gate refuses it — which makes a blank seed a choice that
+ * cannot be committed rather than one waiting to be filled.
+ *
+ * This is the FALLBACK the verb menu uses when the condition it is
+ * replacing carries no value of its own (`is-blank`, `match-all`, a
+ * relationship test). Those have no value input for the author to type
+ * into, so refusing the switch would leave no path to a text match at
+ * all; seeding something real keeps the gesture available and the
+ * author replaces it in the value row that now exists. A condition that
+ * DOES carry an empty value keeps it, and the verb stays disabled with
+ * the reason — there the copy points at a control that is on screen.
+ */
+function matchSeedValue(ctx: PredicateEditContext): ValueExpression {
+	const searchInput = ctx.knownInputs[0];
+	if (searchInput !== undefined) return term(input(searchInput.name));
+	const answer = ctx.formFields?.[0];
+	if (answer !== undefined) return term(formField(answer.uuid));
+	return term(sessionContext("username"));
 }
 
 interface MatchCardProps {

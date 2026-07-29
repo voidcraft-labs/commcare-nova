@@ -15,6 +15,10 @@ import {
 	REJECTION_SURFACE_CLS,
 	RejectionBody,
 } from "@/components/builder/RejectionNotice";
+import {
+	reconcileXPathDraft,
+	type XPathUserPropertyProjection,
+} from "@/components/builder/xpathDraftReconciliation";
 import { xpathAutocomplete } from "@/lib/codemirror/xpath-autocomplete";
 import { xpathChips } from "@/lib/codemirror/xpath-chips";
 import { formatXPath, prettyPrintXPath } from "@/lib/codemirror/xpath-format";
@@ -30,6 +34,7 @@ import {
 	novaXPathTheme,
 } from "@/lib/codemirror/xpath-theme";
 import { validateXPath } from "@/lib/commcare/validator/xpathValidator";
+import { useUserProperties } from "@/lib/doc/hooks/useUserCollections";
 import type { CommitOutcome } from "@/lib/domain";
 import { ReferenceProvider } from "@/lib/references/provider";
 import {
@@ -108,6 +113,9 @@ const baseEditingExtensions = [
 	EditorView.lineWrapping,
 	editingTheme,
 ];
+
+const XPATH_PROJECTION_CONFLICT_MESSAGE =
+	"This condition changed elsewhere in the same text you were editing. Press Esc to load the shared version, then reapply your edit.";
 
 // ── Props ──────────────────────────────────────────────────────────────
 
@@ -281,6 +289,18 @@ interface InlineXPathEditorProps {
 	clickPosition: { x: number; y: number } | null;
 }
 
+function userPropertyProjection(
+	properties: readonly XPathUserPropertyProjection[],
+): XPathUserPropertyProjection[] {
+	return [...properties]
+		.map(({ uuid, slug }) => ({ uuid, slug }))
+		.sort(
+			(left, right) =>
+				left.uuid.localeCompare(right.uuid) ||
+				left.slug.localeCompare(right.slug),
+		);
+}
+
 /**
  * Full CodeMirror editor rendered inline, replacing the static XPathField
  * display. Supports autocomplete, linting, reference chips, and bracket
@@ -309,8 +329,19 @@ function InlineXPathEditor({
 	currentFormUuid,
 	clickPosition,
 }: InlineXPathEditorProps) {
+	const projectedValue = prettyPrintXPath(value);
+	const userProperties = useUserProperties();
+	const currentUserProperties = useMemo(
+		() => userPropertyProjection(userProperties),
+		[userProperties],
+	);
 	const editorRef = useRef<ReactCodeMirrorRef>(null);
 	const wrapperRef = useRef<HTMLDivElement>(null);
+	const baseProjectionRef = useRef(projectedValue);
+	const baseUserPropertiesRef = useRef(currentUserProperties);
+	const draftRef = useRef(projectedValue);
+	const projectionConflictRef = useRef(false);
+	const [draft, setDraft] = useState(projectedValue);
 	/** Guards against double-fire: once save or cancel runs, block the other. */
 	const doneRef = useRef(false);
 	const [shaking, setShaking] = useState(false);
@@ -323,6 +354,31 @@ function InlineXPathEditor({
 	// ── Error tooltip ───────────────────────────────────────────────────
 
 	const [tooltipMessage, setTooltipMessage] = useState<string | null>(null);
+
+	/*
+	 * Identity-backed projections can change while this editor remains mounted
+	 * (for example, a peer renames custom worker information). Rebase a clean
+	 * draft or a non-overlapping local addition; preserve and flag overlapping
+	 * edits so the controlled CodeMirror value never erases local work.
+	 */
+	useEffect(() => {
+		const reconciled = reconcileXPathDraft({
+			base: baseProjectionRef.current,
+			draft: draftRef.current,
+			incoming: projectedValue,
+			baseUserProperties: baseUserPropertiesRef.current,
+			incomingUserProperties: currentUserProperties,
+			conflict: projectionConflictRef.current,
+		});
+		baseProjectionRef.current = reconciled.base;
+		baseUserPropertiesRef.current = currentUserProperties;
+		draftRef.current = reconciled.draft;
+		projectionConflictRef.current = reconciled.conflict;
+		setDraft(reconciled.draft);
+		if (reconciled.conflict) {
+			setTooltipMessage(XPATH_PROJECTION_CONFLICT_MESSAGE);
+		}
+	}, [projectedValue, currentUserProperties]);
 
 	/* Auto-dismiss tooltip after 4 seconds. */
 	useEffect(() => {
@@ -351,8 +407,11 @@ function InlineXPathEditor({
 	 * the result is always consistent with the inline diagnostics.
 	 */
 	const getErrors = useCallback((): string[] => {
-		const draft = editorRef.current?.view?.state.doc.toString() ?? "";
-		if (!draft.trim()) return [];
+		if (projectionConflictRef.current) {
+			return [XPATH_PROJECTION_CONFLICT_MESSAGE];
+		}
+		const currentDraft = draftRef.current;
+		if (!currentDraft.trim()) return [];
 		const ctx = getLintContextRef.current?.();
 		// Derive the per-case-type accept map from the context via the shared
 		// `caseTypePropsForValidation` (same registration-narrowing rule the
@@ -360,7 +419,7 @@ function InlineXPathEditor({
 		// Context-less validation is allowed — case-ref checks just skip.
 		const caseTypeProps = ctx ? caseTypePropsForValidation(ctx) : undefined;
 		return validateXPath(
-			draft,
+			currentDraft,
 			ctx?.validPaths,
 			caseTypeProps,
 			ctx?.formType === "registration",
@@ -389,8 +448,7 @@ function InlineXPathEditor({
 			return;
 		}
 		doneRef.current = true;
-		const draft = editorRef.current?.view?.state.doc.toString() ?? "";
-		const outcome = onSave(draft);
+		const outcome = onSave(draftRef.current);
 		if (outcome && outcome.ok === false && outcome.messages.length > 0) {
 			/* The doc-level commit gate refused a draft the inline lint
 			 * passed (a dependency cycle, a type error — findings only the
@@ -564,10 +622,14 @@ function InlineXPathEditor({
 		>
 			<CodeMirror
 				ref={editorRef}
-				value={prettyPrintXPath(value)}
+				value={draft}
 				theme={novaXPathTheme}
 				extensions={extensions}
 				autoFocus
+				onChange={(next) => {
+					draftRef.current = next;
+					setDraft(next);
+				}}
 				onCreateEditor={(view) => {
 					/* Place cursor at click position when available, otherwise at end. */
 					if (clickPosition) {

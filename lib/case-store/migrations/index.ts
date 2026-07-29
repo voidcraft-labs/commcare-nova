@@ -40,6 +40,8 @@ import * as caseOperationsFlag from "./20260724130000_case_operations_flag";
 import * as removeLookupRolloutApparatus from "./20260725000000_remove_lookup_rollout_apparatus";
 import * as clearLegacyNullNonceHolders from "./20260725060000_clear_legacy_null_nonce_holders";
 import * as blueprintUserEntities from "./20260725120000_blueprint_user_entities";
+import * as formAttachments from "./20260726000000_form_attachments";
+import * as sequenceIsArrayPosition from "./20260727120000_sequence_is_array_position";
 
 /** Migration name → module, in apply order (lexicographic by key). */
 export const caseStoreMigrations: Record<string, Migration> = {
@@ -71,6 +73,8 @@ export const caseStoreMigrations: Record<string, Migration> = {
 		removeLookupRolloutApparatus,
 	"20260725060000_clear_legacy_null_nonce_holders": clearLegacyNullNonceHolders,
 	"20260725120000_blueprint_user_entities": blueprintUserEntities,
+	"20260726000000_form_attachments": formAttachments,
+	"20260727120000_sequence_is_array_position": sequenceIsArrayPosition,
 };
 
 export const caseStoreMigrationProvider: MigrationProvider = {

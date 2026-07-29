@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, f, resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import { buildFieldTree } from "@/lib/doc/fieldWalk";
 import {
 	advancedSearchInputDef,
 	asUuid,
 	type CaseOperation,
 	calculatedColumn,
+	emptyCaseListConfig,
 	type LookupColumnId,
 	type LookupOptionsSource,
 	type LookupTableId,
@@ -23,6 +24,7 @@ import {
 	term,
 } from "@/lib/domain/predicate";
 import { makeStubToolContext } from "../../__tests__/fixtures";
+import { getCaseOperationsTool } from "../case-operations/getCaseOperations";
 import { getFieldTool } from "../getField";
 import { getFormTool } from "../getForm";
 import { getModuleTool } from "../getModule";
@@ -70,10 +72,7 @@ function lookupCarrierDoc() {
 				caseType: "person",
 				caseListConfig: {
 					columns: [
-						plainColumn(SAFE_COLUMN, "name", "Name", {
-							listOrder: "a",
-							detailOrder: "a",
-						}),
+						plainColumn(SAFE_COLUMN, "name", "Name", {}),
 						calculatedColumn(
 							LOOKUP_COLUMN,
 							"Lookup-derived",
@@ -246,14 +245,26 @@ describe("shared read tools — dormant lookup carriers", () => {
 			ctx,
 			doc,
 		);
+		const operationRead = await getCaseOperationsTool.execute(
+			{ moduleUuid: MODULE, formUuid: FORM },
+			ctx,
+			doc,
+		);
 
 		if ("error" in fieldRead.data) throw new Error(fieldRead.data.error);
 		if ("error" in formRead.data) throw new Error(formRead.data.error);
 		if ("error" in moduleRead.data) throw new Error(moduleRead.data.error);
+		if ("error" in operationRead.data) {
+			throw new Error(operationRead.data.error);
+		}
 
 		expectNoDormantCarrier(fieldRead.data);
 		expectNoDormantCarrier(formRead.data);
 		expectNoDormantCarrier(moduleRead.data);
+		expectNoDormantCarrier(operationRead.data);
+		expect(
+			operationRead.data.operations.map((operation) => operation.id),
+		).toEqual(["safe_update", "partial_update", "dormant_target"]);
 
 		const field = fieldRead.data.field;
 		if (!("children" in field) || field.children === undefined) {
@@ -274,31 +285,29 @@ describe("shared read tools — dormant lookup carriers", () => {
 		expect(formRead.data.form.caseOperations?.map((op) => op.id)).toEqual([
 			"safe_update",
 			"partial_update",
+			"dormant_target",
 		]);
 		const partial = formRead.data.form.caseOperations?.[1];
-		expect(partial?.condition).toBeUndefined();
-		expect(partial?.name).toBeUndefined();
-		expect(partial?.owner).toEqual(term(literal("preserved-owner")));
-		expect(partial?.writes).toEqual([
-			{
-				property: "preserved_write",
-				value: term(literal("preserved-value")),
+		expect(partial).toEqual({
+			id: "partial_update",
+			action: "update",
+			caseType: "person",
+			unavailable: {
+				kind: "lookup-table-logic",
+				reason:
+					"This case change uses lookup-table logic that Nova preserves but cannot safely edit from this surface.",
 			},
-		]);
-		expect(partial?.links).toEqual([
-			{
-				identifier: "safe_null",
-				targetType: "household",
-				target: null,
-				relationship: "child",
+		});
+		expect(formRead.data.form.caseOperations?.[2]).toEqual({
+			id: "dormant_target",
+			action: "update",
+			caseType: "person",
+			unavailable: {
+				kind: "lookup-table-logic",
+				reason:
+					"This case change uses lookup-table logic that Nova preserves but cannot safely edit from this surface.",
 			},
-			{
-				identifier: "safe_expression",
-				targetType: "household",
-				target: { kind: "expression", expr: term(literal("case-id")) },
-				relationship: "extension",
-			},
-		]);
+		});
 
 		expect(moduleRead.data.case_list_config).toMatchObject({
 			icon: "asset-case-list",
@@ -396,7 +405,7 @@ describe("shared read tools — dormant lookup carriers", () => {
 
 	it("uses existing absent/null forms when a whole optional carrier-owned surface is hidden", async () => {
 		const doc = lookupCarrierDoc();
-		doc.modules[MODULE].caseListConfig = {
+		doc.modules[MODULE].caseListConfig = resolveCaseListConfig({
 			columns: [
 				calculatedColumn(LOOKUP_COLUMN, "Lookup-derived", deepLookupExpression),
 			],
@@ -409,7 +418,7 @@ describe("shared read tools — dormant lookup carriers", () => {
 					deepLookupPredicate,
 				),
 			],
-		};
+		});
 		doc.modules[MODULE].caseSearchConfig = {
 			excludedOwnerIds: deepLookupExpression,
 			// Legacy/editor objects can retain present-with-undefined optional
@@ -449,12 +458,17 @@ describe("shared read tools — dormant lookup carriers", () => {
 
 		expect(formRead.data.form.caseOperations).toHaveLength(1);
 		const operation = formRead.data.form.caseOperations?.[0];
-		expect(operation?.id).toBe("dormant_links");
-		expect(operation && "links" in operation).toBe(false);
-		expect(moduleRead.data.case_list_config).toEqual({
-			columns: [],
-			searchInputs: [],
+		expect(operation).toEqual({
+			id: "dormant_links",
+			action: "update",
+			caseType: "person",
+			unavailable: {
+				kind: "lookup-table-logic",
+				reason:
+					"This case change uses lookup-table logic that Nova preserves but cannot safely edit from this surface.",
+			},
 		});
+		expect(moduleRead.data.case_list_config).toEqual(emptyCaseListConfig());
 		expect(moduleRead.data.case_search_config).toBeNull();
 		expect(moduleRead.data.results_column_order).toEqual([]);
 		expect(moduleRead.data.details_column_order).toEqual([]);

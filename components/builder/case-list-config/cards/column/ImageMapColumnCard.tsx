@@ -57,8 +57,6 @@ export function ImageMapColumnCard({
 		sort: value.sort,
 		visibleInList: value.visibleInList,
 		visibleInDetail: value.visibleInDetail,
-		listOrder: value.listOrder,
-		detailOrder: value.detailOrder,
 	};
 	const setField = (next: string) =>
 		onChange(

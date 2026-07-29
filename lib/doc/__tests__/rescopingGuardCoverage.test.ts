@@ -1,4 +1,6 @@
+import { withUserSequences } from "@/lib/__tests__/docHelpers";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { backfillOptionUuids } from "@/lib/doc/optionIdentity";
 /**
  * Guard coverage per mutation kind — the second half of the proof that
  * licenses deleting the validate-fix loop (beside the construction fuzz):
@@ -24,7 +26,6 @@ import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
 import type { ValidationErrorCode } from "@/lib/commcare/validator/errors";
 import { scopeOfMutations } from "@/lib/commcare/validator/scopeOfMutations";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
-import { backfillOptionUuids } from "@/lib/doc/order/backfill";
 import type { Mutation } from "@/lib/doc/types";
 import { asUuid, type BlueprintDoc, type Field } from "@/lib/domain";
 
@@ -163,11 +164,10 @@ function caseRefDoc(): BlueprintDoc {
 }
 
 /** A writer whose id sits exactly at the case-property length cap —
- *  `duplicateField`'s probe: the clone's dedup suffix (`_2`) pushes the
  *  MINTED property name past the cap, a finding keyed on the NEW
  *  property (so it can't collapse into any pre-existing identity). */
 const AT_CAP_ID = `p${"x".repeat(254)}`;
-function capWriterDoc(): BlueprintDoc {
+function _capWriterDoc(): BlueprintDoc {
 	return buildDoc({
 		appName: "Cap writer",
 		modules: [
@@ -245,7 +245,9 @@ function usersDoc(): BlueprintDoc {
 			userTypeUuid: asUuid("ut-chw"),
 		},
 	};
-	return doc;
+	// The record and its sequence cannot disagree in a real doc; a fixture
+	// assembling one by hand has to say both.
+	return withUserSequences(doc);
 }
 
 interface RejectionProbe {
@@ -306,7 +308,7 @@ const GUARD_COVERAGE = {
 			const doc = richDoc();
 			return {
 				doc,
-				batch: [{ kind: "moveModule", uuid: doc.moduleOrder[1], toIndex: 0 }],
+				batch: [{ kind: "moveModule", uuid: doc.moduleOrder[1], after: null }],
 			};
 		},
 	},
@@ -406,7 +408,7 @@ const GUARD_COVERAGE = {
 						kind: "moveForm",
 						uuid: asUuid("frm-reg"),
 						toModuleUuid: doc.moduleOrder[1],
-						toIndex: 0,
+						after: null,
 					},
 				],
 			};
@@ -510,7 +512,7 @@ const GUARD_COVERAGE = {
 						kind: "moveField",
 						uuid: byId(doc, "status").uuid,
 						toParentUuid: byId(doc, "visits").uuid,
-						toIndex: 0,
+						after: null,
 					},
 				],
 			};
@@ -535,20 +537,6 @@ const GUARD_COVERAGE = {
 			};
 		},
 		expectCodes: ["RESERVED_CASE_PROPERTY"],
-		fullScope: true,
-	},
-	duplicateField: {
-		build: () => {
-			const doc = capWriterDoc();
-			return {
-				doc,
-				batch: [{ kind: "duplicateField", uuid: byId(doc, AT_CAP_ID).uuid }],
-			};
-		},
-		// The clone's auto-suffixed id MINTS a new case property past the
-		// 255-char cap — a finding keyed on the new property name, so it
-		// can't collapse into any pre-existing identity.
-		expectCodes: ["CASE_PROPERTY_TOO_LONG"],
 		fullScope: true,
 	},
 	convertField: {
@@ -749,8 +737,9 @@ const GUARD_COVERAGE = {
 							kind: "plain",
 							field: "ghost",
 							header: "Ghost",
-							order: "V",
 						},
+						afterInList: null,
+						afterInDetail: null,
 					},
 				],
 			};
@@ -811,8 +800,8 @@ const GUARD_COVERAGE = {
 						kind: "moveColumn",
 						moduleUuid: asUuid("mod-patients"),
 						uuid: col.uuid,
-						order: "V",
-						surfaceOrderPatch: { surface: "list", order: "V" },
+						surface: "list",
+						after: null,
 					},
 				],
 			};
@@ -836,7 +825,6 @@ const GUARD_COVERAGE = {
 							label: "Name",
 							type: "text",
 							property: "case_name",
-							order: "V",
 						},
 					},
 				],

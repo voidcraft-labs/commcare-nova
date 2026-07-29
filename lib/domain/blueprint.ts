@@ -17,6 +17,7 @@ import { fieldSchema } from "./fields";
 import { formSchema } from "./forms";
 import { moduleSchema } from "./modules";
 import { assetIdSchema } from "./multimedia";
+import { ownRecordSchema } from "./records";
 import type { ReferenceIndex } from "./referenceIndex";
 import { personaSchema, userPropertySchema, userTypeSchema } from "./users";
 import { type Uuid, uuidSchema } from "./uuid";
@@ -92,13 +93,13 @@ export const blueprintDocSchema = z
 		connectType: z.enum(CONNECT_TYPES).nullable(),
 		caseTypes: z.array(caseTypeSchema).nullable(),
 
-		modules: z.record(z.string(), moduleSchema),
-		forms: z.record(z.string(), formSchema),
-		fields: z.record(z.string(), fieldSchema),
+		modules: ownRecordSchema(z.string(), moduleSchema),
+		forms: ownRecordSchema(z.string(), formSchema),
+		fields: ownRecordSchema(z.string(), fieldSchema),
 
 		moduleOrder: z.array(uuidSchema),
-		formOrder: z.record(z.string(), z.array(uuidSchema)),
-		fieldOrder: z.record(z.string(), z.array(uuidSchema)),
+		formOrder: ownRecordSchema(z.string(), z.array(uuidSchema)),
+		fieldOrder: ownRecordSchema(z.string(), z.array(uuidSchema)),
 
 		/**
 		 * App-level logo for the web-apps surface. A single image —
@@ -113,16 +114,23 @@ export const blueprintDocSchema = z
 		 * the user types built on it, and the named preview personas that
 		 * act as those types.
 		 *
-		 * All three are flat UUID-keyed records with no membership array —
-		 * sequence comes from each entity's fractional `order` key — and all
-		 * three are OPTIONAL and omitted when empty, so an app that declares
+		 * Each is a UUID-keyed record paired with a membership array that IS
+		 * its sequence, the same shape `moduleOrder` / `formOrder` use. Both
+		 * slots are OPTIONAL and omitted when empty, so an app that declares
 		 * none serializes byte-identically to one authored before they
 		 * existed. Read them through `userPropertiesOf` / `userTypesOf` /
 		 * `personasOf` rather than defaulting at the call site.
+		 *
+		 * The record and its array cannot silently disagree: `assembleBlueprint`
+		 * throws on exactly that mismatch, which is the guard the hierarchical
+		 * collections have always relied on.
 		 */
-		userProperties: z.record(z.string(), userPropertySchema).optional(),
-		userTypes: z.record(z.string(), userTypeSchema).optional(),
-		personas: z.record(z.string(), personaSchema).optional(),
+		userProperties: ownRecordSchema(z.string(), userPropertySchema).optional(),
+		userPropertyOrder: z.array(uuidSchema).optional(),
+		userTypes: ownRecordSchema(z.string(), userTypeSchema).optional(),
+		userTypeOrder: z.array(uuidSchema).optional(),
+		personas: ownRecordSchema(z.string(), personaSchema).optional(),
+		personaOrder: z.array(uuidSchema).optional(),
 
 		// fieldParent is NOT persisted — derived from fieldOrder on load.
 	})

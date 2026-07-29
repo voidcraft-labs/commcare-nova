@@ -502,7 +502,7 @@ function searchInputRuntimeValueTypes(
 // descends through every recursive slot — including a
 // `table-lookup`'s row-filter `where`, whose `table-column` terms
 // simply pass through — so the input AST stays observable to its
-// other consumers (Postgres persistence, zundo history) unchanged.
+// other consumers (Postgres persistence, the undo history) unchanged.
 
 function substitutionHooks(
 	target: RuntimeInputBinding,

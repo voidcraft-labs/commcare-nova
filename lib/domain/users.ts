@@ -50,7 +50,13 @@
 // `BUILT_IN_USER_PROPERTIES` carries only what the session block injects.
 
 import { z } from "zod";
-import { uuidSchema } from "./uuid";
+import {
+	mergeOwnRecords,
+	ownRecordSchema,
+	ownRecordValue,
+	recordFromEntries,
+} from "./records";
+import { type Uuid, uuidSchema } from "./uuid";
 
 // ── Slug legality ────────────────────────────────────────────────────
 //
@@ -67,12 +73,14 @@ export const USER_PROPERTY_SLUG_MAX_LENGTH = 127;
 export const USER_PROPERTY_LABEL_MAX_LENGTH = 255;
 
 /**
- * Django's slug charset, from `django/core/validators.py::slug_re`
- * (`^[-a-zA-Z0-9_]+\Z`). `custom_data_fields/edit_model.py::XmlSlugField`
- * lists `validate_slug` among its `default_validators`, so this is the
- * exact character class HQ accepts.
+ * Intersection of HQ's Django slug charset and the XML element-name shape
+ * required by every emitted worker-data path. Django admits a leading digit or
+ * hyphen, but those cannot begin the element Nova emits under
+ * `session/user/data` and the usercase. The first character is therefore a
+ * letter or underscore; subsequent characters retain Django's letters,
+ * digits, underscores, and hyphens.
  */
-export const USER_PROPERTY_SLUG_PATTERN = /^[-a-zA-Z0-9_]+$/;
+export const USER_PROPERTY_SLUG_PATTERN = /^[a-zA-Z_][-a-zA-Z0-9_]*$/;
 
 /**
  * Slugs predating HQ's `commcare` prefix convention, exempt from it and
@@ -114,8 +122,8 @@ export const USER_DATA_RESERVED_PREFIXES: readonly string[] = [
  * - `needs-organization` — the value comes from the worker's location
  *   assignment. Absent while the app declares no organization structure,
  *   exactly as HQ omits the key for an unassigned worker.
- * - `not-authorable` — HQ writes it only in a situation Nova does not
- *   author, so it is always absent.
+ * - `not-authorable` — Nova cannot author the account-backed value. When HQ
+ *   guarantees the key, Preview preserves the slot as present and empty.
  */
 export const BUILT_IN_USER_PROPERTY_AVAILABILITIES = [
 	"derived",
@@ -204,7 +212,7 @@ export const BUILT_IN_USER_PROPERTIES: readonly BuiltInUserProperty[] = [
 		slug: "commcare_phone_number",
 		label: "Phone number",
 		description:
-			"The worker's phone number. It is set when their CommCare account is created, so Preview leaves it out.",
+			"The worker's phone number. It is set on their CommCare account; Preview carries the same key with an empty value.",
 		availability: "not-authorable",
 		readByRuntime: false,
 	},
@@ -293,11 +301,26 @@ export const BUILT_IN_USER_PROPERTY_SLUGS: ReadonlySet<string> = new Set(
  * web users arrive through HQ's `InvitationResource`, which resolves a
  * role by name that a Nova user type cannot supply.
  */
+const userPropertyChoicesSchema = z
+	.array(z.string().min(1))
+	.superRefine((choices, ctx) => {
+		const seen = new Set<string>();
+		for (const [index, choice] of choices.entries()) {
+			if (!seen.has(choice)) {
+				seen.add(choice);
+				continue;
+			}
+			ctx.addIssue({
+				code: "custom",
+				path: [index],
+				message: `Accepted value "${choice}" is listed more than once.`,
+			});
+		}
+	});
+
 export const userPropertySchema = z
 	.object({
 		uuid: uuidSchema,
-		/** Absolute fractional sort key (`lib/doc/order`); never reaches CommCare. */
-		order: z.string().optional(),
 		slug: z
 			.string()
 			.min(1)
@@ -310,7 +333,7 @@ export const userPropertySchema = z
 		 * A closed set of accepted values. Absent means free text. HQ stores
 		 * this as `Field.choices` and validates against it on user save.
 		 */
-		choices: z.array(z.string().min(1)).optional(),
+		choices: userPropertyChoicesSchema.optional(),
 	})
 	.strict();
 export type UserProperty = z.infer<typeof userPropertySchema>;
@@ -326,7 +349,7 @@ export type UserProperty = z.infer<typeof userPropertySchema>;
  * self._schema_fields}` before layering authored values over it, while an
  * UNDECLARED key is genuinely absent from the session.
  */
-export const userDataValuesSchema = z.record(z.string(), z.string());
+export const userDataValuesSchema = ownRecordSchema(z.string(), z.string());
 export type UserDataValues = z.infer<typeof userDataValuesSchema>;
 
 /**
@@ -339,8 +362,6 @@ export type UserDataValues = z.infer<typeof userDataValuesSchema>;
 export const userTypeSchema = z
 	.object({
 		uuid: uuidSchema,
-		/** Absolute fractional sort key (`lib/doc/order`); never reaches CommCare. */
-		order: z.string().optional(),
 		name: z.string().min(1),
 		description: z.string().optional(),
 		values: userDataValuesSchema.optional(),
@@ -361,8 +382,6 @@ export type UserType = z.infer<typeof userTypeSchema>;
 export const personaSchema = z
 	.object({
 		uuid: uuidSchema,
-		/** Absolute fractional sort key (`lib/doc/order`); never reaches CommCare. */
-		order: z.string().optional(),
 		name: z.string().min(1),
 		description: z.string().optional(),
 		/** The user type this persona acts as. */
@@ -380,35 +399,85 @@ export type Persona = z.infer<typeof personaSchema>;
 // before they existed. These readers are the one place that absence
 // collapses to an empty collection, so no call site hand-rolls `?? {}`.
 //
-// None of the three carries a membership array. Modules, forms, and
-// fields need theirs to encode parentage; these are flat, so the record's
-// keys ARE the membership and sequence comes from the fractional `order`
-// key alone (`lib/doc/order`'s `bySortKey`), which is the model every
-// other sequence already follows. One less slot, and no way for a record
-// and its order array to disagree.
+// Each carries a membership array beside the record, the same shape modules,
+// forms, and fields use. The array IS the sequence: position belongs to the
+// collection, not to the member. A position stored on the entity has to be
+// computed from the sequence its author could see, so two people adding from
+// one document compute the same position and nothing sorts between two equal
+// ones — which is the collision this shape has no way to express.
+//
+// The record and its array cannot silently disagree: `assembleBlueprint`
+// throws on exactly that mismatch, the same guard `moduleOrder` relies on.
 
 export interface UserCollections {
 	readonly userProperties?: Record<string, UserProperty>;
+	readonly userPropertyOrder?: readonly Uuid[];
 	readonly userTypes?: Record<string, UserType>;
+	readonly userTypeOrder?: readonly Uuid[];
 	readonly personas?: Record<string, Persona>;
+	readonly personaOrder?: readonly Uuid[];
 }
-
-const NO_PROPERTIES: Record<string, UserProperty> = {};
-const NO_TYPES: Record<string, UserType> = {};
-const NO_PERSONAS: Record<string, Persona> = {};
 
 export function userPropertiesOf(
 	doc: UserCollections,
 ): Record<string, UserProperty> {
-	return doc.userProperties ?? NO_PROPERTIES;
+	return doc.userProperties ?? recordFromEntries([]);
 }
 
 export function userTypesOf(doc: UserCollections): Record<string, UserType> {
-	return doc.userTypes ?? NO_TYPES;
+	return doc.userTypes ?? recordFromEntries([]);
 }
 
 export function personasOf(doc: UserCollections): Record<string, Persona> {
-	return doc.personas ?? NO_PERSONAS;
+	return doc.personas ?? recordFromEntries([]);
+}
+
+/**
+ * Walk a membership array against its record. The array is the sequence, so it
+ * is walked and never sorted; an entity it does not name is not in the
+ * collection's sequence and is not returned.
+ *
+ * These are the accessors every ordered read goes through — the validator, the
+ * agent's projections, and the builder alike — so no surface can order these
+ * collections differently from another.
+ */
+function inSequence<T>(
+	record: Record<string, T>,
+	order: readonly Uuid[] | undefined,
+): T[] {
+	const out: T[] = [];
+	for (const uuid of order ?? []) {
+		const entity = record[uuid];
+		if (entity !== undefined) out.push(entity);
+	}
+	return out;
+}
+
+/** The worker-information catalog, in authored order. */
+export function orderedUserProperties(doc: UserCollections): UserProperty[] {
+	return inSequence(userPropertiesOf(doc), doc.userPropertyOrder);
+}
+
+/** The roles, in authored order. */
+export function orderedUserTypes(doc: UserCollections): UserType[] {
+	return inSequence(userTypesOf(doc), doc.userTypeOrder);
+}
+
+/** The personas, in authored order. */
+export function orderedPersonas(doc: UserCollections): Persona[] {
+	return inSequence(personasOf(doc), doc.personaOrder);
+}
+
+/** Stable custom worker-information identity → current emitted slug. */
+export function userPropertySlugsByUuid(
+	doc: UserCollections,
+): ReadonlyMap<Uuid, string> {
+	return new Map(
+		Object.values(userPropertiesOf(doc)).map((property) => [
+			property.uuid,
+			property.slug,
+		]),
+	);
 }
 
 /**
@@ -424,6 +493,6 @@ export function personaUserData(
 	const type =
 		persona.userTypeUuid === undefined
 			? undefined
-			: userTypesOf(doc)[persona.userTypeUuid];
-	return { ...(type?.values ?? {}), ...(persona.values ?? {}) };
+			: ownRecordValue(userTypesOf(doc), persona.userTypeUuid);
+	return mergeOwnRecords(type?.values, persona.values);
 }

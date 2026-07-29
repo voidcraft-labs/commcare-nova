@@ -22,8 +22,14 @@
 // `lib/doc/caseOperationOrder.ts`, plus the physical multiplicity
 // scopes with their per-iteration form-answer bindings.
 
-import type { CaseOperation, CaseType, Uuid } from "@/lib/domain";
+import type {
+	CaptureFieldKind,
+	CaseOperation,
+	CaseType,
+	Uuid,
+} from "@/lib/domain";
 import type { Predicate } from "@/lib/domain/predicate";
+import type { LookupTableSchemas } from "./sql/compileLookup";
 import type { JsonObject } from "./sql/database";
 
 /**
@@ -82,6 +88,24 @@ export type OrdinarySubmissionAction =
 			>;
 	  }
 	| { readonly kind: "none" };
+
+export interface SubmissionReceiptIdentity {
+	readonly entryKey: string;
+	readonly formUuid: string;
+	readonly requestDigest: string;
+}
+
+/**
+ * The durable claim for one new form entry.
+ *
+ * `expectedAppMutationSeq` is a fresh-claim fence, not part of replay
+ * identity: an exact retry still replays after unrelated topology changes,
+ * while a first acceptance cannot execute a program derived from a stale
+ * committed blueprint.
+ */
+export interface SubmissionReceiptClaim extends SubmissionReceiptIdentity {
+	readonly expectedAppMutationSeq: number;
+}
 
 /**
  * Per-iteration runtime bindings for one physical execution of a
@@ -155,9 +179,19 @@ export interface CaseOperationProgram {
 	/** Schema map for expression compilation (`buildCaseTypeMap` at the
 	 * caller's boundary). */
 	readonly caseTypeSchemas: ReadonlyMap<string, CaseType>;
+	/**
+	 * Rows-free Project-scoped lookup definitions for every carrier in this
+	 * exact operation program. The server derives the target ids from the
+	 * same committed blueprint that built `operations`, loads one definitions
+	 * snapshot after membership authorization, and keeps this map immutable
+	 * across the whole envelope (including a schema-heal retry).
+	 */
+	readonly lookupTableSchemas?: LookupTableSchemas;
 	/** Open-namespace worker data for `sessionUser` terms; absent keys
 	 * resolve blank, the device's missing-worker-data semantic. */
 	readonly sessionUser?: ReadonlyMap<string, string>;
+	/** Stable custom worker-information UUID → current wire slug. */
+	readonly userPropertySlugs?: ReadonlyMap<string, string>;
 	/** Closed-namespace context fields for `sessionContext` terms. */
 	readonly sessionContext?: ReadonlyMap<string, string>;
 	/** Viewer IANA timezone for `format-date` rendering parity. */
@@ -168,6 +202,51 @@ export interface ApplySubmissionArgs {
 	readonly appId: string;
 	readonly ordinary: OrdinarySubmissionAction;
 	readonly operations?: CaseOperationProgram;
+	/**
+	 * Every submission claims this durable entry receipt before an ordinary or
+	 * advanced case effect runs, whether or not the form has attachment
+	 * questions. It remains present when the current blueprint no longer has a
+	 * capture question, allowing an exact retry to replay instead of bypassing
+	 * idempotency.
+	 */
+	readonly submissionReceipt: SubmissionReceiptClaim;
+	/**
+	 * Server-derived form-entry identity and capture authority. When present,
+	 * the case effects, exact staged-row reservation, and replay record commit
+	 * in the same transaction.
+	 */
+	readonly captureIntent?: {
+		readonly entryKey: string;
+		readonly formUuid: string;
+		readonly expectedAppMutationSeq: number;
+		readonly requestDigest: string;
+		/**
+		 * Exact live answer slots serialized by the engine. Names alone are
+		 * insufficient authority: one entry can stage captures for several
+		 * questions and repeat instances.
+		 */
+		readonly attachments: ReadonlyArray<{
+			readonly attachmentName: string;
+			readonly fieldUuid: string;
+			readonly instancePath: string;
+		}>;
+		readonly allowedAttachments: ReadonlyArray<{
+			readonly fieldUuid: string;
+			/** Engine path with `[0]` at every authored repeat segment. */
+			readonly instancePathTemplate: string;
+			/** The committed question kind at the submission snapshot. */
+			readonly captureKind: CaptureFieldKind;
+			/**
+			 * Exact immutable row metadata accepted by that committed kind.
+			 * Carried across the case-store boundary so the terminal transaction
+			 * need not trust the earlier confirm or re-read the blueprint.
+			 */
+			readonly acceptedFormats: ReadonlyArray<{
+				readonly extension: string;
+				readonly contentType: string;
+			}>;
+		}>;
+	};
 }
 
 /** What one physical operation instance did — the executed plan in
@@ -190,4 +269,58 @@ export interface SubmissionEnvelopeResult {
 	/** Ordinary children's generated ids in input order. */
 	readonly childCaseIds: ReadonlyArray<string>;
 	readonly operations: ReadonlyArray<OperationEffectRecord>;
+}
+
+/** Parse the JSONB representation stored on an accepted receipt. Keeping this
+ * at the submission-contract boundary makes the server preflight and the
+ * terminal Postgres transaction apply the same corruption check. */
+export function parseSubmissionEnvelopeResult(
+	value: unknown,
+): SubmissionEnvelopeResult {
+	const parsed =
+		typeof value === "string" ? (JSON.parse(value) as unknown) : value;
+	if (
+		typeof parsed !== "object" ||
+		parsed === null ||
+		!Array.isArray((parsed as { childCaseIds?: unknown }).childCaseIds) ||
+		!Array.isArray((parsed as { operations?: unknown }).operations) ||
+		("primaryCaseId" in parsed &&
+			(parsed as { primaryCaseId?: unknown }).primaryCaseId !== undefined &&
+			typeof (parsed as { primaryCaseId?: unknown }).primaryCaseId !== "string")
+	) {
+		throw new Error(
+			"A committed form submission replay row contains an invalid result.",
+		);
+	}
+	return parsed as SubmissionEnvelopeResult;
+}
+
+export type SubmissionReceiptVerdict =
+	| { readonly kind: "new" }
+	| { readonly kind: "mismatch" }
+	| { readonly kind: "replay"; readonly result: SubmissionEnvelopeResult };
+
+/** Pure receipt adjudication shared by the pre-blueprint action read and the
+ * entry-locked terminal transaction. */
+export function adjudicateSubmissionReceipt(
+	identity: SubmissionReceiptIdentity,
+	prior:
+		| {
+				readonly formUuid: string;
+				readonly requestDigest: string;
+				readonly result: unknown;
+		  }
+		| undefined,
+): SubmissionReceiptVerdict {
+	if (prior === undefined) return { kind: "new" };
+	if (
+		prior.formUuid !== identity.formUuid ||
+		prior.requestDigest !== identity.requestDigest
+	) {
+		return { kind: "mismatch" };
+	}
+	return {
+		kind: "replay",
+		result: parseSubmissionEnvelopeResult(prior.result),
+	};
 }

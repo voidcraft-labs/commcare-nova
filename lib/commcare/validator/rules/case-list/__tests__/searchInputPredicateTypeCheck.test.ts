@@ -28,6 +28,8 @@ describe("searchInputPredicateTypeCheck", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [asUuid("col-name")],
+						detailColumnOrder: [asUuid("col-name")],
 						searchInputs: [
 							advancedSearchInputDef(
 								asUuid("si-adv"),
@@ -80,6 +82,8 @@ describe("searchInputPredicateTypeCheck", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [asUuid("col-name")],
+						detailColumnOrder: [asUuid("col-name")],
 						searchInputs: [
 							advancedSearchInputDef(
 								asUuid("si-adv"),
@@ -135,6 +139,8 @@ describe("searchInputPredicateTypeCheck", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [asUuid("col-name")],
+						detailColumnOrder: [asUuid("col-name")],
 						searchInputs: [
 							simpleSearchInputDef(
 								asUuid("si-name"),
@@ -194,6 +200,8 @@ describe("searchInputPredicateTypeCheck", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [asUuid("col-name")],
+						detailColumnOrder: [asUuid("col-name")],
 						searchInputs: [
 							simpleSearchInputDef(
 								asUuid("si-name"),
@@ -243,6 +251,8 @@ describe("searchInputPredicateTypeCheck", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [asUuid("col-name")],
+						detailColumnOrder: [asUuid("col-name")],
 						searchInputs: [],
 					},
 					forms: [

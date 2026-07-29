@@ -91,6 +91,17 @@ describe("BuilderSession store", () => {
 		expect(s.sidebars.structure).toEqual({ open: true, stashed: undefined });
 	});
 
+	it("leaving Preview clears the acting persona before edit-mode data tools return", () => {
+		const store = createBuilderSessionStore();
+		store.getState().setPreviewing(true);
+		store.getState().setPreviewPersonaUuid("persona-a");
+		expect(store.getState().previewPersonaUuid).toBe("persona-a");
+
+		store.getState().setPreviewing(false);
+
+		expect(store.getState().previewPersonaUuid).toBeUndefined();
+	});
+
 	it("4. setPreviewing(true) with chat already closed: restores chat-closed state exactly", () => {
 		const store = createBuilderSessionStore();
 
@@ -238,10 +249,17 @@ describe("BuilderSession store", () => {
 		expect(store.getState().previewSelectedCase).toBeUndefined();
 	});
 
-	it("Project-scope reset clears preview case identity without leaving preview", () => {
-		const store = createBuilderSessionStore();
+	it("defers preview worker/case retirement until a snapshot confirms a Project change", () => {
+		const store = createBuilderSessionStore({
+			projectId: "project-source",
+			role: "editor",
+			canEdit: true,
+		});
 		const formUuid = asUuid("form-1");
 		store.getState().setPreviewing(true);
+		store
+			.getState()
+			.setPreviewPersonaUuid("11111111-1111-4111-8111-111111111111");
 		store.getState().setPreviewCaseTarget({
 			formUuid,
 			caseId: "case-from-source-project",
@@ -254,8 +272,36 @@ describe("BuilderSession store", () => {
 		store.getState().resetProjectScope();
 
 		expect(store.getState().previewing).toBe(true);
+		expect(store.getState().previewCaseTarget?.caseId).toBe(
+			"case-from-source-project",
+		);
+		expect(store.getState().previewSelectedCase?.caseId).toBe(
+			"case-from-source-project",
+		);
+		expect(store.getState().previewPersonaUuid).toBe(
+			"11111111-1111-4111-8111-111111111111",
+		);
+
+		store.getState().applyAccessSnapshot({
+			projectId: "project-source",
+			role: "editor",
+			canEdit: true,
+		});
+		expect(store.getState().previewCaseTarget?.caseId).toBe(
+			"case-from-source-project",
+		);
+		expect(store.getState().previewPersonaUuid).toBe(
+			"11111111-1111-4111-8111-111111111111",
+		);
+
+		store.getState().applyAccessSnapshot({
+			projectId: "project-destination",
+			role: "editor",
+			canEdit: true,
+		});
 		expect(store.getState().previewCaseTarget).toBeUndefined();
 		expect(store.getState().previewSelectedCase).toBeUndefined();
+		expect(store.getState().previewPersonaUuid).toBeUndefined();
 	});
 
 	it("Project-scope reset retires attachment/tool run payloads and phase state", () => {
@@ -700,7 +746,7 @@ describe("BuilderSession connect stash", () => {
 				learn_module: { name: "Form A", description: "d", time_estimate: 5 },
 			},
 		});
-		const before = doc.temporal.getState().pastStates.length;
+		const before = doc.getState().canUndo ? 1 : 0;
 
 		/* Re-apply the doc's current state verbatim — no field changed. */
 		const current = doc.getState().forms[formA]?.connect;
@@ -709,7 +755,7 @@ describe("BuilderSession connect stash", () => {
 		});
 
 		expect(outcome.ok).toBe(true);
-		expect(doc.temporal.getState().pastStates.length).toBe(before);
+		expect(doc.getState().canUndo ? 1 : 0).toBe(before);
 	});
 
 	it("12. enabling a mode from OFF sets lastConnectType to THAT mode, not a stale prior", () => {
@@ -789,8 +835,9 @@ describe("generation lifecycle", () => {
 
 		expect(s.events).toEqual([]);
 		expect(s.runCompletedAt).toBeUndefined();
-		/* Doc undo paused — zundo isTracking=false. */
-		expect(doc.temporal.getState().isTracking).toBe(false);
+		/* The run's writes are one step, so an edit inside it records none. */
+		doc.getState().applyMany([{ kind: "setAppName", name: "InRun" }]);
+		expect(doc.getState().canUndo).toBe(false);
 	});
 
 	it("beginRun captures runStartedWithData from the doc by default", () => {
@@ -833,7 +880,9 @@ describe("generation lifecycle", () => {
 
 		expect(s.events).toEqual([]);
 		expect(s.runCompletedAt).toBeUndefined();
-		expect(doc.temporal.getState().isTracking).toBe(true);
+		/* Outside a run, an edit is its own step. */
+		doc.getState().applyMany([{ kind: "setAppName", name: "Edited" }]);
+		expect(doc.getState().canUndo).toBe(true);
 	});
 
 	it("markRunCompleted stamps runCompletedAt without clearing events", () => {

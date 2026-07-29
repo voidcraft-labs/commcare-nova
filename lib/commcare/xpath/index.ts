@@ -22,6 +22,7 @@ export { detectUnquotedStringLiteral } from "./detectUnquotedStringLiteral";
 export {
 	parseXPathExpression,
 	type ResolveFieldPath,
+	type ResolveUserPropertySlug,
 } from "./expressionAst";
 export { parser } from "./parser";
 export * from "./parser.terms";

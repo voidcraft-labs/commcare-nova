@@ -10,19 +10,22 @@
  * - remove an optional Predicate / ValueExpression slot when any descendant
  *   is a dormant lookup node;
  * - remove the smallest optional list entry whose required AST slot is
- *   lookup-backed (a calculated column, advanced search input, case write, or
- *   expression-targeted case operation), preserving safe sibling entries.
+ *   lookup-backed (a calculated column or advanced search input), preserving
+ *   safe sibling entries;
+ * - preserve every case operation's ordered/addressable identity. If any of
+ *   its authoring slots contains a lookup carrier, expose explicit unavailable
+ *   metadata instead of an invented or partial editable operation.
  *
  * No substitute expression is invented. Every function returns fresh owner
  * objects/arrays and never edits the canonical source document.
  */
 
+import { CASE_OPERATION_DORMANT_LOOKUP_EDIT_REASON } from "@/lib/doc/caseOperationMutations";
+import { caseOperationContainsDormantLookupCarrier } from "@/lib/doc/dormantLookupCarriers";
 import type { FieldWithChildren } from "@/lib/doc/fieldWalk";
 import type {
 	CaseListConfig,
 	CaseOperation,
-	CaseOperationLink,
-	CaseOperationWrite,
 	CaseSearchConfig,
 	Field,
 	Form,
@@ -75,82 +78,68 @@ export function carrierBlindFieldProjection<
 	return projected;
 }
 
-function carrierBlindCaseOperationWrite(
-	write: CaseOperationWrite,
-): CaseOperationWrite | undefined {
-	// `value` is required. Omitting the whole optional write entry is the only
-	// neutral projection when its expression is dormant.
-	if (containsDormantLookupAst(write.value)) return undefined;
+export const DORMANT_CASE_OPERATION_UNAVAILABLE_KIND =
+	"lookup-table-logic" as const;
 
-	const projected = { ...write };
-	if (
-		projected.condition !== undefined &&
-		containsDormantLookupAst(projected.condition)
-	) {
-		delete projected.condition;
-	}
-	return projected;
+export interface DormantCaseOperationUnavailableProjection {
+	readonly uuid: CaseOperation["uuid"];
+	readonly id: string;
+	readonly order?: string;
+	readonly action: CaseOperation["action"];
+	readonly caseType: string;
+	readonly unavailable: {
+		readonly kind: typeof DORMANT_CASE_OPERATION_UNAVAILABLE_KIND;
+		readonly reason: string;
+	};
 }
 
-function carrierBlindCaseOperationLink(
-	link: CaseOperationLink,
-): CaseOperationLink | undefined {
-	// `target` itself is nullable, and null remains an exact safe value. The
-	// expression arm is required when present, so a dormant expression makes
-	// only this optional link entry unavailable.
-	if (
-		link.target?.kind === "expression" &&
-		containsDormantLookupAst(link.target.expr)
-	) {
-		return undefined;
-	}
-	return { ...link };
+export type CarrierBlindCaseOperationProjection =
+	| CaseOperation
+	| DormantCaseOperationUnavailableProjection;
+
+export function isDormantCaseOperationUnavailableProjection(
+	operation: CarrierBlindCaseOperationProjection,
+): operation is DormantCaseOperationUnavailableProjection {
+	return "unavailable" in operation;
 }
 
 function carrierBlindCaseOperation(
 	operation: CaseOperation,
-): CaseOperation | undefined {
-	// The expression arm has no meaningful carrier-blind target. Preserve
-	// sibling operations by omitting only this optional array entry.
-	if (
-		operation.target.kind === "expression" &&
-		containsDormantLookupAst(operation.target.expr)
-	) {
-		return undefined;
+): CarrierBlindCaseOperationProjection {
+	if (!caseOperationContainsDormantLookupCarrier(operation)) {
+		return structuredClone(operation);
 	}
+	return {
+		uuid: operation.uuid,
+		id: operation.id,
+		action: operation.action,
+		caseType: operation.caseType,
+		unavailable: {
+			kind: DORMANT_CASE_OPERATION_UNAVAILABLE_KIND,
+			reason: CASE_OPERATION_DORMANT_LOOKUP_EDIT_REASON,
+		},
+	};
+}
 
-	const projected = { ...operation };
-	for (const key of ["condition", "name", "owner", "rename"] as const) {
-		const value = projected[key];
-		if (value !== undefined && containsDormantLookupAst(value)) {
-			delete projected[key];
-		}
-	}
-
-	if (operation.writes !== undefined) {
-		const writes = operation.writes
-			.map(carrierBlindCaseOperationWrite)
-			.filter((write): write is CaseOperationWrite => write !== undefined);
-		if (writes.length === 0 && operation.writes.length > 0) {
-			delete projected.writes;
-		} else {
-			projected.writes = writes;
-		}
-	}
-	if (operation.links !== undefined) {
-		const links = operation.links
-			.map(carrierBlindCaseOperationLink)
-			.filter((link): link is CaseOperationLink => link !== undefined);
-		if (links.length === 0 && operation.links.length > 0) {
-			delete projected.links;
-		} else {
-			projected.links = links;
-		}
-	}
-	return projected;
+/**
+ * Project an ordered case-operation list for an SA/MCP read surface.
+ *
+ * Exported for the dedicated case-operation read tool, whose author-identity
+ * projection happens after the dormant-carrier boundary.
+ */
+export function carrierBlindCaseOperationsProjection(
+	operations: readonly CaseOperation[],
+): CarrierBlindCaseOperationProjection[] {
+	return operations.map(carrierBlindCaseOperation);
 }
 
 export type AgentFormSnapshot = Form & { fields: FieldWithChildren[] };
+export type CarrierBlindFormSnapshot<T extends AgentFormSnapshot> = Omit<
+	T,
+	"caseOperations"
+> & {
+	caseOperations?: CarrierBlindCaseOperationProjection[];
+};
 
 /**
  * Project one form snapshot for SA/MCP reads.
@@ -161,11 +150,11 @@ export type AgentFormSnapshot = Form & { fields: FieldWithChildren[] };
  */
 export function carrierBlindFormProjection<T extends AgentFormSnapshot>(
 	form: T,
-): T {
+): CarrierBlindFormSnapshot<T> {
 	const projected = {
 		...form,
 		fields: form.fields.map((field) => carrierBlindFieldProjection(field)),
-	} as T;
+	} as CarrierBlindFormSnapshot<T>;
 
 	if (
 		projected.displayCondition !== undefined &&
@@ -175,16 +164,10 @@ export function carrierBlindFormProjection<T extends AgentFormSnapshot>(
 	}
 
 	if (form.caseOperations !== undefined) {
-		const operations = form.caseOperations
-			.map(carrierBlindCaseOperation)
-			.filter(
-				(operation): operation is CaseOperation => operation !== undefined,
-			);
-		if (operations.length === 0 && form.caseOperations.length > 0) {
-			delete projected.caseOperations;
-		} else {
-			projected.caseOperations = operations;
-		}
+		const operations = carrierBlindCaseOperationsProjection(
+			form.caseOperations,
+		);
+		projected.caseOperations = operations;
 	}
 
 	return projected;
@@ -213,13 +196,21 @@ function carrierBlindSearchInput(
 export function carrierBlindCaseListConfig(
 	config: CaseListConfig,
 ): CaseListConfig {
+	const columns = config.columns.flatMap((column) =>
+		column.kind === "calculated" && containsDormantLookupAst(column.expression)
+			? []
+			: [{ ...column }],
+	);
+	// A column withheld from the projection leaves both sequences too. A
+	// sequence naming a column the read does not show would have the SA place
+	// something after a row it cannot see.
+	const shown = new Set(columns.map((column) => column.uuid));
 	const projected: CaseListConfig = {
 		...config,
-		columns: config.columns.flatMap((column) =>
-			column.kind === "calculated" &&
-			containsDormantLookupAst(column.expression)
-				? []
-				: [{ ...column }],
+		columns,
+		listColumnOrder: config.listColumnOrder.filter((uuid) => shown.has(uuid)),
+		detailColumnOrder: config.detailColumnOrder.filter((uuid) =>
+			shown.has(uuid),
 		),
 		searchInputs: config.searchInputs
 			.map(carrierBlindSearchInput)

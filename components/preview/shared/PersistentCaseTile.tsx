@@ -17,8 +17,8 @@ import { useMemo } from "react";
 import { ContentFrame } from "@/components/builder/ContentFrame";
 import { Button } from "@/components/shadcn/button";
 import { Skeleton } from "@/components/shadcn/skeleton";
-import { byListColumnOrder } from "@/lib/doc/order/compare";
 import type { CaseListConfig, CaseProperty, CaseType } from "@/lib/domain";
+import { orderedColumns } from "@/lib/domain";
 import { projectTileGrid } from "@/lib/preview/caseTileLayout";
 import { tileResultsColumns } from "@/lib/preview/caseTileRendering";
 import { useCaseData } from "@/lib/preview/hooks/useCaseDataBinding";
@@ -63,12 +63,8 @@ export function PersistentCaseTile({
 		fallbackProperties,
 	);
 	const tileColumns = useMemo(
-		() =>
-			tileResultsColumns(
-				[...config.columns].sort(byListColumnOrder),
-				config.tile,
-			),
-		[config.columns, config.tile],
+		() => tileResultsColumns(orderedColumns(config, "list"), config.tile),
+		[config.columns, config.tile, config],
 	);
 	const projection = useMemo(
 		() => projectTileGrid(tileColumns.map((entry) => entry.column)),
@@ -119,7 +115,11 @@ function CaseUnavailableNotice({
 	kind,
 	onRetry,
 }: {
-	readonly kind: "missing" | "error" | "unauthenticated";
+	readonly kind:
+		| "missing"
+		| "error"
+		| "unauthenticated"
+		| "persona-unavailable";
 	readonly onRetry: () => void;
 }) {
 	return (
@@ -129,7 +129,9 @@ function CaseUnavailableNotice({
 					? "This case is no longer available."
 					: kind === "unauthenticated"
 						? "You’re signed out, so this case’s information isn’t showing."
-						: "This case’s information didn’t load."}
+						: kind === "persona-unavailable"
+							? "Choose another worker to show this case’s information."
+							: "This case’s information didn’t load."}
 			</p>
 			{kind === "error" && (
 				<Button

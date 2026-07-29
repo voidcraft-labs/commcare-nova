@@ -184,6 +184,24 @@ export function buildCaseWorkspaceBlueprint(appId: string): BlueprintDoc {
 							{ visibleInList: false, visibleInDetail: true },
 						),
 					],
+					listColumnOrder: [
+						ids.columns.patientName,
+						ids.columns.patientId,
+						ids.columns.village,
+						ids.columns.lastVisit,
+						ids.columns.carePriority,
+						ids.columns.phoneNumber,
+						ids.columns.dateOfBirth,
+					],
+					detailColumnOrder: [
+						ids.columns.patientName,
+						ids.columns.patientId,
+						ids.columns.village,
+						ids.columns.lastVisit,
+						ids.columns.carePriority,
+						ids.columns.phoneNumber,
+						ids.columns.dateOfBirth,
+					],
 					searchInputs: [
 						simpleSearchInputDef(
 							ids.searchInputs.patientName,
@@ -296,6 +314,20 @@ export function buildCaseWorkspaceBlueprint(appId: string): BlueprintDoc {
 							},
 						),
 					],
+					listColumnOrder: [
+						ids.tile.columns.patientName,
+						ids.tile.columns.carePriority,
+						ids.tile.columns.village,
+						ids.tile.columns.lastVisit,
+						ids.tile.columns.phoneNumber,
+					],
+					detailColumnOrder: [
+						ids.tile.columns.patientName,
+						ids.tile.columns.carePriority,
+						ids.tile.columns.village,
+						ids.tile.columns.lastVisit,
+						ids.tile.columns.phoneNumber,
+					],
 					searchInputs: [],
 				},
 				forms: [
@@ -324,6 +356,23 @@ export function buildCaseWorkspaceBlueprint(appId: string): BlueprintDoc {
 									{ value: "clinic", label: "Clinic" },
 									{ value: "hospital", label: "Hospital" },
 								],
+							}),
+							// The two answers whose stored shape a native browser
+							// input cannot render: a datetime carries a zone
+							// designator and a time carries the `Z` storage tag.
+							// Both are case properties so opening this form on a
+							// seeded row exercises preload, not just entry.
+							f({
+								kind: "datetime",
+								id: "visit_started",
+								label: "Visit started",
+								case_property_on: ids.caseType,
+							}),
+							f({
+								kind: "time",
+								id: "next_dose",
+								label: "Next dose",
+								case_property_on: ids.caseType,
 							}),
 						],
 					},
@@ -439,9 +488,39 @@ export function caseWorkspaceCaseRows(): readonly CaseInsert[] {
 			date_of_birth: row.dateOfBirth,
 			last_visit: row.lastVisit,
 			care_priority: row.carePriority,
+			visit_started: `${row.lastVisit}T${SEEDED_VISIT_START}`,
+			next_dose: SEEDED_NEXT_DOSE,
 		},
 	}));
 }
+
+/**
+ * The stored spellings a temporal case property actually carries
+ * (`lib/domain/temporalValues.ts`): a datetime with the offset of the zone
+ * it was entered in, a time with the `Z` storage tag on a naive wall clock.
+ *
+ * Two details are load-bearing rather than arbitrary.
+ *
+ * The datetime's offset is deliberately not the runner's. A form shows the
+ * wall clock the answer was entered at rather than converting it, so an
+ * assertion on `9:15 AM` holds in every CI timezone — and would fail the
+ * moment the field started converting.
+ *
+ * The time deliberately carries NO milliseconds. That is the shape the
+ * writer produced before the padding rule landed, so real rows hold it: it
+ * is valid RFC 3339, the schema takes it, and a surface that confused "not
+ * canonical" with "not valid" would refuse a submission over an answer
+ * nobody typed. Keeping it here means that confusion cannot come back
+ * unnoticed.
+ */
+const SEEDED_VISIT_START = "09:15:00.000-04:00";
+const SEEDED_NEXT_DOSE = "08:45:00Z";
+
+/** What those two stored values read as once a person can see them. */
+export const SEEDED_TEMPORAL_DISPLAY = {
+	visitStartedTime: "9:15 AM",
+	nextDose: "8:45 AM",
+} as const;
 
 export interface CaseWorkspaceRoutes {
 	readonly search: string;

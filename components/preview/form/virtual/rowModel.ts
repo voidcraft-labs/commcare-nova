@@ -29,7 +29,6 @@
  * and the nested-bracket border stack.
  */
 
-import { bySortKey } from "@/lib/doc/order/compare";
 import type { Field, Uuid } from "@/lib/domain";
 
 // ── Types ──────────────────────────────────────────────────────────────
@@ -192,9 +191,7 @@ function walk(
 	// walk sorts; the insertion-point `beforeIndex` values below are positions
 	// in this sorted sequence (which the add gesture resolves against the same
 	// sorted siblings).
-	const childUuids = [...(src.fieldOrder[parentUuid] ?? [])].sort((a, b) =>
-		bySortKey(src.fields[a] ?? {}, src.fields[b] ?? {}),
-	);
+	const childUuids = [...(src.fieldOrder[parentUuid] ?? [])];
 
 	// Leading insertion point (edit mode only).
 	if (options.includeInsertionPoints) {

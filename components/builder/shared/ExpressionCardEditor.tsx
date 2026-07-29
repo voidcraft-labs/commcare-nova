@@ -42,7 +42,7 @@
 "use client";
 import { useMemo } from "react";
 import { useValidityPropagator } from "@/components/builder/shared/useInnerValidityShadow";
-import type { CaseType } from "@/lib/domain";
+import type { CaseType, UserProperty } from "@/lib/domain";
 import {
 	ANY_CONSTRAINT,
 	acceptsType,
@@ -54,8 +54,14 @@ import {
 	type TypeContext,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
-import { buildValidityIndex, PredicateEditProvider } from "./editorContext";
+import {
+	buildEditorTypeContext,
+	buildValidityIndex,
+	PredicateEditProvider,
+} from "./editorContext";
 import type { CaseDataScope } from "./editorSchemas";
+import type { OperationValueScope } from "./expressionEditorSchemas";
+import type { EditorFormFieldDecl } from "./formFieldPresentation";
 import { ROOT_PATH } from "./path";
 import { ExpressionPicker } from "./primitives/ExpressionPicker";
 import type { EditorSearchInputDecl } from "./searchInputPresentation";
@@ -77,6 +83,15 @@ interface ExpressionCardEditorProps {
 	readonly currentCaseType: string;
 	/** Search inputs declared on the parent surface. */
 	readonly knownInputs?: readonly EditorSearchInputDecl[];
+	/** Current custom worker-information catalog for immutable user refs. */
+	readonly userProperties?: readonly UserProperty[];
+	/** Form answers this expression may read — already narrowed by the
+	 *  owning surface to the ones its slot admits. */
+	readonly formFields?: readonly EditorFormFieldDecl[];
+	/** Present only inside a case operation, where the submission's own
+	 *  vocabulary (the acting user, no owner, an earlier create's case) is
+	 *  available. */
+	readonly operationScope?: OperationValueScope;
 	/** When the slot evaluates relative to a case row. `"global"` slots
 	 *  (a search input's starting value) resolve once, before any case
 	 *  is selected — the provider-derived admission oracle drops every
@@ -118,6 +133,9 @@ export function ExpressionCardEditor({
 	caseTypes,
 	currentCaseType,
 	knownInputs = [],
+	userProperties,
+	formFields,
+	operationScope,
 	caseDataScope = "per-case",
 	constraint = ANY_CONSTRAINT,
 	onValidityChange,
@@ -127,12 +145,23 @@ export function ExpressionCardEditor({
 	// helpers (`PropertyRefPicker`, `LiteralValueInput`, etc.) via
 	// the React context provider.
 	const typeCtx = useMemo<TypeContext>(
-		() => ({
-			caseTypes: [...caseTypes],
-			knownInputs: [...knownInputs],
+		() =>
+			buildEditorTypeContext({
+				caseTypes,
+				knownInputs,
+				currentCaseType,
+				userProperties,
+				formFields,
+				operationScope,
+			}),
+		[
+			caseTypes,
+			knownInputs,
 			currentCaseType,
-		}),
-		[caseTypes, knownInputs, currentCaseType],
+			userProperties,
+			formFields,
+			operationScope,
+		],
 	);
 
 	// Run the type checker on every value change (pure — running
@@ -172,6 +201,9 @@ export function ExpressionCardEditor({
 			caseTypes={caseTypes}
 			currentCaseType={currentCaseType}
 			knownInputs={knownInputs}
+			userProperties={userProperties}
+			formFields={formFields}
+			operationScope={operationScope}
 			caseDataScope={caseDataScope}
 			validityIndex={validityIndex}
 		>

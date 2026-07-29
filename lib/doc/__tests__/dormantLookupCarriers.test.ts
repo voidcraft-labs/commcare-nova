@@ -29,7 +29,6 @@ function inlineOptions(variant: "original" | "replacement" = "original") {
 			uuid: (variant === "original"
 				? "40000000-0000-4000-8000-000000000000"
 				: "60000000-0000-4000-8000-000000000000") as Uuid,
-			order: "a0",
 			value: "active",
 			label: "Active",
 		},
@@ -37,7 +36,6 @@ function inlineOptions(variant: "original" | "replacement" = "original") {
 			uuid: (variant === "original"
 				? "50000000-0000-4000-8000-000000000000"
 				: "70000000-0000-4000-8000-000000000000") as Uuid,
-			order: "a1",
 			value: "closed",
 			label: "Closed",
 		},

@@ -343,6 +343,8 @@ describe("caseTypeSetPatch", () => {
 	it("does not seed a column when the module already has one", () => {
 		const existing = {
 			columns: [plainColumn(M("c"), "age", "Age")],
+			listColumnOrder: [M("c")],
+			detailColumnOrder: [M("c")],
 			searchInputs: [],
 		};
 		expect(

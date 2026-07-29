@@ -11,7 +11,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { bySortKey } from "@/lib/doc/order/compare";
+import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import { asUuid, type BlueprintDoc, simpleSearchInputDef } from "@/lib/domain";
 import { reorderSearchInputsTool } from "../reorderSearchInputs";
 import { MOD_A, makeCaseListFixture } from "./fixtures";
@@ -39,14 +39,14 @@ function fixtureWithThreeInputs(): BlueprintDoc {
 		modules: {
 			[MOD_A]: {
 				...doc.modules[MOD_A],
-				caseListConfig: {
+				caseListConfig: resolveCaseListConfig({
 					columns: [],
 					searchInputs: [
 						simpleSearchInputDef(A, "alpha", "Alpha", "text", "alpha"),
 						simpleSearchInputDef(B, "beta", "Beta", "text", "beta"),
 						simpleSearchInputDef(C, "charlie", "Charlie", "text", "charlie"),
 					],
-				},
+				}),
 			},
 		},
 	};
@@ -62,11 +62,9 @@ describe("reorderSearchInputs", () => {
 			doc,
 		);
 
-		// A reorder is an order-key change (membership array untouched) — assert
-		// the DISPLAY sequence, not raw array position.
 		const inputs =
 			result.newDoc.modules[MOD_A]?.caseListConfig?.searchInputs ?? [];
-		expect([...inputs].sort(bySortKey).map((i) => i.uuid)).toEqual([C, A, B]);
+		expect(inputs.map((i) => i.uuid)).toEqual([C, A, B]);
 		expect(result.mutations.every((m) => m.kind === "moveSearchInput")).toBe(
 			true,
 		);

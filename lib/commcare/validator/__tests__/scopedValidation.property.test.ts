@@ -93,7 +93,7 @@ function mutationArb(doc: BlueprintDoc): fc.Arbitrary<Mutation> {
 				.map((uuid): Mutation => ({ kind: "removeField", uuid })),
 			fc
 				.constantFrom(...fieldUuids)
-				.map((uuid): Mutation => ({ kind: "duplicateField", uuid })),
+				.map((uuid): Mutation => ({ kind: "removeField", uuid })),
 		);
 		if (formUuids.length > 0) {
 			arms.push(
@@ -104,7 +104,7 @@ function mutationArb(doc: BlueprintDoc): fc.Arbitrary<Mutation> {
 							kind: "moveField",
 							uuid,
 							toParentUuid,
-							toIndex: 0,
+							after: null,
 						}),
 					),
 			);
@@ -209,13 +209,13 @@ function mutationArb(doc: BlueprintDoc): fc.Arbitrary<Mutation> {
 			fc
 				.tuple(
 					fc.constantFrom(...moduleUuids),
-					fc.integer({ min: 0, max: moduleUuids.length - 1 }),
+					fc.constantFrom(null, ...moduleUuids),
 				)
 				.map(
-					([uuid, toIndex]): Mutation => ({
+					([uuid, after]): Mutation => ({
 						kind: "moveModule",
 						uuid,
-						toIndex,
+						after,
 					}),
 				),
 		);

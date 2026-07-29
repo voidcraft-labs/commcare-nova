@@ -7,17 +7,11 @@ import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
-import { backfillOrderKeys } from "@/lib/doc/order/backfill";
-import {
-	byDetailColumnOrder,
-	byListColumnOrder,
-	bySortKey,
-} from "@/lib/doc/order/compare";
 import { BlueprintDocContext, BlueprintDocProvider } from "@/lib/doc/provider";
 import { asUuid, simpleSearchInputDef } from "@/lib/domain";
 
 describe("useBlueprintMutations.moveColumnOnSurface", () => {
-	it("one gesture commits exactly one moved column key", () => {
+	it("one gesture commits exactly one moved column", () => {
 		const initial = buildDoc({
 			caseTypes: [
 				{
@@ -55,7 +49,6 @@ describe("useBlueprintMutations.moveColumnOnSurface", () => {
 				},
 			],
 		});
-		backfillOrderKeys(initial);
 		const moduleUuid = initial.moduleOrder[0];
 		const initialColumns =
 			initial.modules[moduleUuid].caseListConfig?.columns ?? [];
@@ -94,21 +87,21 @@ describe("useBlueprintMutations.moveColumnOnSurface", () => {
 			kind: "moveColumn",
 			moduleUuid,
 			uuid: movedUuid,
-			surfaceOrderPatch: { surface: "list" },
+			surface: "list",
+			after: null,
 		});
 
-		const afterColumns =
-			after.modules[moduleUuid].caseListConfig?.columns ?? [];
-		expect([...afterColumns].sort(byListColumnOrder)[0]?.uuid).toBe(movedUuid);
+		const config = after.modules[moduleUuid].caseListConfig;
+		expect(config?.listColumnOrder[0]).toBe(movedUuid);
 		// Details did not move with Results.
-		expect(
-			[...afterColumns].sort(byDetailColumnOrder).map((c) => c.uuid),
-		).toEqual([...initialColumns].sort(byDetailColumnOrder).map((c) => c.uuid));
+		expect(config?.detailColumnOrder).toEqual(
+			initial.modules[moduleUuid].caseListConfig?.detailColumnOrder,
+		);
 	});
 });
 
 describe("useBlueprintMutations.moveSearchInputToIndex", () => {
-	it("one gesture commits exactly one moved search-field key", () => {
+	it("one gesture commits exactly one moved search field", () => {
 		const first = simpleSearchInputDef(
 			asUuid("00000000-0000-4000-8000-000000000331"),
 			"case_name",
@@ -143,7 +136,6 @@ describe("useBlueprintMutations.moveSearchInputToIndex", () => {
 				},
 			],
 		});
-		backfillOrderKeys(initial);
 		const moduleUuid = initial.moduleOrder[0];
 		const wrapper = ({ children }: { children: ReactNode }) => (
 			<BlueprintDocProvider appId={initial.appId} initialDoc={initial}>
@@ -172,13 +164,16 @@ describe("useBlueprintMutations.moveSearchInputToIndex", () => {
 		if (after === undefined) throw new Error("store missing after move");
 		const diff = diffDocsToMutations(before, after);
 		expect(diff).toHaveLength(1);
+		// Moving the first input down is the same arrangement as moving the
+		// second one up, and the diff derives the shorter of the two.
 		expect(diff[0]).toMatchObject({
 			kind: "moveSearchInput",
 			moduleUuid,
-			uuid: first.uuid,
+			uuid: second.uuid,
+			after: null,
 		});
 		const inputs = after.modules[moduleUuid].caseListConfig?.searchInputs ?? [];
-		expect([...inputs].sort(bySortKey).map((input) => input.uuid)).toEqual([
+		expect(inputs.map((input) => input.uuid)).toEqual([
 			second.uuid,
 			first.uuid,
 		]);

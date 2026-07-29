@@ -23,7 +23,6 @@ import { AddPropertyButton } from "@/components/builder/editor/AddPropertyButton
 import { INSPECTOR_LABEL_CLS } from "@/components/builder/inspector/inspectorChrome";
 import { MediaSlot } from "@/components/builder/media/MediaSlot";
 import { RejectionInline } from "@/components/builder/RejectionNotice";
-import { appendOrderKey } from "@/lib/doc/order/append";
 import {
 	asUuid,
 	type CommitOutcome,
@@ -201,7 +200,6 @@ function OptionsEditorWidget({
 			{
 				id: nextDraftId++,
 				uuid: asUuid(crypto.randomUUID()),
-				order: appendOrderKey(draft),
 				value: `option_${num}`,
 				label: `Option ${num}`,
 			},

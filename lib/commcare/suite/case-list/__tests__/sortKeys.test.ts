@@ -30,6 +30,7 @@
 //      Nova → CCHQ translation.
 
 import { describe, expect, it } from "vitest";
+import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
 	asUuid,
 	type BlueprintDoc,
@@ -37,6 +38,7 @@ import {
 	dateColumn,
 	type Module,
 	plainColumn,
+	type Uuid,
 } from "@/lib/domain";
 import { literal, prop, term, unwrapList } from "@/lib/domain/predicate";
 import {
@@ -98,9 +100,9 @@ function buildDoc(args: {
 
 /**
  * Assemble a `Module` carrying the supplied column membership under a fixed
- * uuid + case type. Results order comes from each column's
- * `listOrder ?? order` key; the wrapper's `uuid` is only a readable test tag
- * because each column already carries its own uuid.
+ * uuid + case type. Results order is the order the columns are written unless
+ * `listColumnOrder` says otherwise; the wrapper's `uuid` is only a readable
+ * test tag because each column already carries its own uuid.
  */
 function makeModule(args: {
 	readonly caseType?: string;
@@ -108,16 +110,24 @@ function makeModule(args: {
 		readonly uuid: string;
 		readonly column: import("@/lib/domain").Column;
 	}>;
+	readonly listColumnOrder?: readonly Uuid[];
+	readonly detailColumnOrder?: readonly Uuid[];
 }): Module {
 	return {
 		uuid: MODULE_UUID,
 		id: "test_module",
 		name: "Test Module",
 		...(args.caseType !== undefined && { caseType: args.caseType }),
-		caseListConfig: {
+		caseListConfig: resolveCaseListConfig({
 			columns: args.columns.map((c) => c.column),
+			...(args.listColumnOrder !== undefined && {
+				listColumnOrder: [...args.listColumnOrder],
+			}),
+			...(args.detailColumnOrder !== undefined && {
+				detailColumnOrder: [...args.detailColumnOrder],
+			}),
 			searchInputs: [],
-		},
+		}),
 	};
 }
 
@@ -286,8 +296,6 @@ describe("buildSortDirectives — tie-break to Results order", () => {
 			"A",
 			{
 				sort: { direction: "asc", priority: 0 },
-				listOrder: "b",
-				detailOrder: "a",
 			},
 		);
 		const colB = plainColumn(
@@ -296,8 +304,6 @@ describe("buildSortDirectives — tie-break to Results order", () => {
 			"B",
 			{
 				sort: { direction: "asc", priority: 0 },
-				listOrder: "a",
-				detailOrder: "b",
 			},
 		);
 		const mod = makeModule({
@@ -306,6 +312,10 @@ describe("buildSortDirectives — tie-break to Results order", () => {
 				{ uuid: "a", column: colA },
 				{ uuid: "b", column: colB },
 			],
+			// Results shows B first; Details shows A first. The tie-break must
+			// follow Results and be blind to Details.
+			listColumnOrder: [colB.uuid, colA.uuid],
+			detailColumnOrder: [colA.uuid, colB.uuid],
 		});
 		const doc = buildDoc({
 			module: mod,
@@ -328,19 +338,19 @@ describe("buildSortDirectives — tie-break to Results order", () => {
 			asUuid("00000000-0000-4000-8000-aaaa00000030"),
 			"a",
 			"A",
-			{ sort: { direction: "asc", priority: 0 }, listOrder: "a" },
+			{ sort: { direction: "asc", priority: 0 } },
 		);
 		const colB = plainColumn(
 			asUuid("00000000-0000-4000-8000-aaaa00000031"),
 			"b",
 			"B",
-			{ sort: { direction: "asc", priority: 0 }, listOrder: "b" },
+			{ sort: { direction: "asc", priority: 0 } },
 		);
 		const colC = plainColumn(
 			asUuid("00000000-0000-4000-8000-aaaa00000032"),
 			"c",
 			"C",
-			{ sort: { direction: "asc", priority: 0 }, listOrder: "c" },
+			{ sort: { direction: "asc", priority: 0 } },
 		);
 		const mod = makeModule({
 			caseType: "patient",
@@ -373,19 +383,19 @@ describe("buildSortDirectives — tie-break to Results order", () => {
 			asUuid("00000000-0000-4000-8000-aaaa00000040"),
 			"a",
 			"A",
-			{ sort: { direction: "asc", priority: 1 }, listOrder: "a" },
+			{ sort: { direction: "asc", priority: 1 } },
 		);
 		const colB = plainColumn(
 			asUuid("00000000-0000-4000-8000-aaaa00000041"),
 			"b",
 			"B",
-			{ sort: { direction: "asc", priority: 0 }, listOrder: "b" },
+			{ sort: { direction: "asc", priority: 0 } },
 		);
 		const colC = plainColumn(
 			asUuid("00000000-0000-4000-8000-aaaa00000042"),
 			"c",
 			"C",
-			{ sort: { direction: "asc", priority: 1 }, listOrder: "c" },
+			{ sort: { direction: "asc", priority: 1 } },
 		);
 		const mod = makeModule({
 			caseType: "patient",

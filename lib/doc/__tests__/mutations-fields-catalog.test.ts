@@ -15,10 +15,12 @@
  * (no data_type/label overwrite, no duplicates), removal never prunes,
  * and a move that doesn't rename adds nothing.
  */
+
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { validateBlueprintDeep } from "@/lib/commcare/validator";
-import { applyMutation } from "@/lib/doc/mutations";
+import { duplicateFieldMutations } from "@/lib/doc/duplicateFieldMutations";
+import { applyMutation, applyMutations } from "@/lib/doc/mutations";
 import type { BlueprintDoc, Mutation, Uuid } from "@/lib/doc/types";
 import { asUuid } from "@/lib/doc/types";
 import type { CaseProperty, Field, Form, Module } from "@/lib/domain";
@@ -82,8 +84,8 @@ function catalogProps(
 const addField = (
 	parentUuid: Uuid,
 	field: Field,
-	index?: number,
-): Mutation => ({ kind: "addField", parentUuid, field, index });
+	after?: Uuid | null,
+): Mutation => ({ kind: "addField", parentUuid, field, after });
 
 describe("addField catalog sync", () => {
 	it("appends the (case_type, field id) pair with the kind-derived data_type on a declared type", () => {
@@ -302,7 +304,11 @@ describe("duplicateField catalog sync", () => {
 				d.fieldOrder[F("1")] = [Q("a")];
 			},
 		);
-		const next = apply(start, { kind: "duplicateField", uuid: Q("a") });
+		const plan = duplicateFieldMutations(start, Q("a"));
+		if (plan === undefined) throw new Error("fixture: expected a plan");
+		const next = produce(start, (d) => {
+			applyMutations(d, plan.mutations);
+		});
 		expect(catalogProps(next, "patient")).toEqual([
 			{ name: "age", label: "age", data_type: "int" },
 			{ name: "age_2", label: "age_2", data_type: "int" },
@@ -341,7 +347,7 @@ describe("moveField catalog sync", () => {
 			kind: "moveField",
 			uuid: Q("b"),
 			toParentUuid: F("1"),
-			toIndex: 2,
+			after: Q("grp"),
 		});
 		expect(next.fields[Q("b")]?.id).toBe("age_2");
 		expect(catalogProps(next, "patient")).toEqual([
@@ -364,7 +370,7 @@ describe("moveField catalog sync", () => {
 			kind: "moveField",
 			uuid: Q("a"),
 			toParentUuid: Q("grp"),
-			toIndex: 0,
+			after: null,
 		});
 		expect(next.caseTypes).toBeNull();
 	});

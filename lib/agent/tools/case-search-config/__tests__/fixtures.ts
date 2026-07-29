@@ -11,6 +11,7 @@
  * same mutation batch on both surfaces.
  */
 
+import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import { asUuid, type BlueprintDoc, type Module } from "@/lib/domain";
 import {
 	type MakeMcpTestContextHandles,
@@ -40,7 +41,7 @@ export function makeCaseSearchDoc(): BlueprintDoc {
 		id: "patient",
 		name: "Patient",
 		caseType: "patient",
-		caseListConfig: {
+		caseListConfig: resolveCaseListConfig({
 			columns: [],
 			searchInputs: [
 				{
@@ -52,7 +53,7 @@ export function makeCaseSearchDoc(): BlueprintDoc {
 					property: "case_name",
 				},
 			],
-		},
+		}),
 	};
 	return {
 		appId: "test-app",

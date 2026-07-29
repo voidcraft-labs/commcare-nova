@@ -16,6 +16,7 @@ import tablerLoader from "@iconify-icons/tabler/loader-2";
 import tablerSearch from "@iconify-icons/tabler/search";
 import { useEffect, useRef, useState } from "react";
 import { useReconcilerContext } from "@/lib/collab/context";
+import { useAccessPhase } from "@/lib/session/hooks";
 import {
 	MENU_ITEM_BASE,
 	MENU_POPUP_CLS,
@@ -49,6 +50,7 @@ interface AddressSearchProps {
 
 export function AddressSearch({ value, onSelect }: AddressSearchProps) {
 	const reconciler = useReconcilerContext();
+	const accessPhase = useAccessPhase();
 	// Local input text, seeded from `value` and re-synced when the picker
 	// pushes a new resolved label (mirrors SearchInputForm's pattern).
 	const [query, setQuery] = useState(value);
@@ -75,7 +77,7 @@ export function AddressSearch({ value, onSelect }: AddressSearchProps) {
 
 	useEffect(() => {
 		ownsContinuationRef.current = true;
-		const disownContinuations = () => {
+		const fenceContinuations = () => {
 			ownsContinuationRef.current = false;
 			reqRef.current += 1;
 			detailsReqRef.current += 1;
@@ -85,13 +87,25 @@ export function AddressSearch({ value, onSelect }: AddressSearchProps) {
 				debounceRef.current = null;
 			}
 		};
+		const disownContinuations = () => {
+			fenceContinuations();
+			setLoading(false);
+			setResults([]);
+		};
 		const unsubscribeReset =
 			reconciler?.subscribeProjectScopeReset(disownContinuations);
 		return () => {
 			unsubscribeReset?.();
-			disownContinuations();
+			fenceContinuations();
 		};
 	}, [reconciler]);
+	useEffect(() => {
+		/* Keep the control mounted through a transient access refresh while
+		 * fencing every pre-refresh Places continuation. The confirmed
+		 * same-Project snapshot owns later input again; a real Project move
+		 * remounts the fieldset and clears this component-local query. */
+		if (accessPhase === "authorized") ownsContinuationRef.current = true;
+	}, [accessPhase]);
 
 	function runSearch(input: string) {
 		if (!ownsContinuationRef.current) return;

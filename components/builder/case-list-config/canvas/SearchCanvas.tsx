@@ -34,7 +34,6 @@ import {
 } from "@/components/builder/shared/useReorderableList";
 import { Button } from "@/components/shadcn/button";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
-import { bySortKey } from "@/lib/doc/order/compare";
 import {
 	authorableCaseProperties,
 	type CaseProperty,
@@ -126,10 +125,7 @@ export function SearchCanvas({
 	// the `resolved` parallel array, and the reorder drag's indices all key off
 	// this so an SA/MCP `moveSearchInput` reflects here and a drag computes
 	// correct from/to indices.
-	const orderedInputs = useMemo(
-		() => [...searchInputs].sort(bySortKey),
-		[searchInputs],
-	);
+	const orderedInputs = useMemo(() => [...searchInputs], [searchInputs]);
 
 	const resolved = useMemo(
 		() => resolveRows(orderedInputs, caseTypes, currentCaseType),

@@ -79,11 +79,12 @@ import render from "dom-serializer";
 import type { Element } from "domhandler";
 import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
-import { byListColumnOrder } from "@/lib/doc/order/compare";
 import {
 	type BlueprintDoc,
 	effectiveCaseTypes,
 	type Module,
+	orderedColumns,
+	userPropertySlugsByUuid,
 } from "@/lib/domain";
 import { simplifyForEmission } from "@/lib/domain/predicate";
 import type { Predicate } from "@/lib/domain/predicate/types";
@@ -178,6 +179,7 @@ export function buildShortDetail(args: {
 	const relationContext = {
 		caseTypes: effectiveCaseTypes(doc),
 		...(mod.caseType === undefined ? {} : { currentCaseType: mod.caseType }),
+		userPropertySlugs: userPropertySlugsByUuid(doc),
 	};
 	// `<action>` lives only on the case-target detail per the
 	// canonical fixture. A `searchAction` arg passed alongside
@@ -217,6 +219,7 @@ export function buildShortDetail(args: {
 		caseProperties,
 		caseTypes: relationContext.caseTypes,
 		currentCaseType: mod.caseType,
+		userPropertySlugs: userPropertySlugsByUuid(doc),
 		...(config.tile !== undefined && { tileLayout: config.tile }),
 		...(args.assets && { assets: args.assets }),
 		...(args.lookupNaming && { lookupNaming: args.lookupNaming }),
@@ -231,7 +234,7 @@ export function buildShortDetail(args: {
 	// CCHQ's header-locale suffix keys off the column's position in that array.
 	// `sortKeys` consumes this same list order; long detail deliberately uses
 	// its independent Details order instead.
-	const sortedColumns = [...config.columns].sort(byListColumnOrder);
+	const sortedColumns = orderedColumns(config, "list");
 	for (let i = 0; i < sortedColumns.length; i++) {
 		const column = sortedColumns[i];
 		// An off-screen definition normally emits nothing. If it still owns a
@@ -298,6 +301,7 @@ function buildDetailShell(
 	relationContext: {
 		readonly caseTypes: ReturnType<typeof effectiveCaseTypes>;
 		readonly currentCaseType?: string;
+		readonly userPropertySlugs: ReturnType<typeof userPropertySlugsByUuid>;
 	},
 	lookupNaming?: LookupWireNaming,
 ): Element {
@@ -352,6 +356,7 @@ function buildSearchActionBlock(
 	relationContext: {
 		readonly caseTypes: ReturnType<typeof effectiveCaseTypes>;
 		readonly currentCaseType?: string;
+		readonly userPropertySlugs: ReturnType<typeof userPropertySlugsByUuid>;
 	},
 	lookupNaming?: LookupWireNaming,
 ): Element {

@@ -50,6 +50,7 @@ import {
 	type SlotConstraint,
 } from "@/lib/domain/predicate";
 import {
+	predicateEditContextFrom,
 	useEditorErrorsAt,
 	useEditorErrorsBelow,
 	usePredicateEditContext,
@@ -720,13 +721,7 @@ export function PredicateKindReplaceMenu({
 		null,
 	);
 	const ctx = usePredicateEditContext();
-	const editCtx: PredicateEditContext = {
-		caseTypes: ctx.caseTypes,
-		currentCaseType: ctx.currentCaseType,
-		knownInputs: ctx.knownInputs,
-		caseDataScope: ctx.caseDataScope,
-		allowsNeverMatch: ctx.allowsNeverMatch,
-	};
+	const editCtx: PredicateEditContext = predicateEditContextFrom(ctx);
 	const currentKind = currentValue.kind;
 	const pendingPlan =
 		pendingKind === null

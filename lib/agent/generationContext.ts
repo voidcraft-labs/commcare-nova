@@ -456,7 +456,7 @@ export class GenerationContext implements ToolExecutionContext {
 	 * (no commit, no SSE, no log). `commitBatch` owns the side effects: it
 	 * commits the batch through the guarded writer, then emits ONE
 	 * `data-mutations` SSE event carrying the raw `mutations` (for
-	 * `docStore.applyMany`, preserving zundo grouping) alongside these
+	 * `docStore.applyMany`, one history entry) alongside these
 	 * envelopes, and logs one `MutationEvent` per mutation.
 	 *
 	 * The optional `stage` string is a semantic tag for the log

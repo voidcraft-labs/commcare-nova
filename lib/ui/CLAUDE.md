@@ -13,6 +13,28 @@ Stateless, domain-agnostic React hooks + the imperative UI singletons they subsc
 - Thin subscribers to the imperative singletons (`useToasts` over `toastStore`).
 - Library wrappers with no domain binding (`useTiptapEditor`).
 
+**An action that removes the control the author just pressed hands focus
+forward — `hooks/useClearedSlotFocus` (an optional slot's Clear, whose trigger
+unmounts with the editor it removed) and `hooks/useRemovedRowFocus` (a row's
+own Remove; next, then previous, then Add). Base UI's `finalFocus` alone does
+NOT do this**: it resolves during the closing dialog's layout-effect cleanup,
+before the replacement button's ref is attached, so it reads `null` and falls
+back to the trigger being unmounted. Both hooks therefore carry the intent on a
+ref and consume it in an effect once the slot or list has actually re-rendered.
+Pass `finalFocus` as well; it costs nothing and covers an already-mounted
+replacement.
+
+**The intent is armed before the commit, so it must expire after exactly ONE
+render.** These gestures can be REFUSED — a stale edit, a read-only carrier, the
+commit gate — and a refusal renders without emptying the slot or shortening the
+list. An intent keyed on "wait until it empties" therefore survives the refusal
+and fires on whatever empties it next: the author reads the refusal, adds a row,
+and focus jumps to an unrelated control. Both effects consequently run on EVERY
+render (no dep array) and always consume the intent, moving focus only if the
+change they were armed for is the one that landed. A new hook in this family
+inherits that rule — arming on an outcome you have not yet confirmed is the
+whole hazard.
+
 **A destructive action that confirms IN PLACE uses `hooks/useInlineConfirmFocus`.** The builder's confirm-in-place pattern swaps the trigger button for a panel, which unmounts the trigger and drops focus to the document body — a keyboard or screen-reader user is returned to the top of the page while a destructive question sits on screen they never heard. The hook focuses the panel on open and returns focus to the trigger on close. It exists here rather than beside any one panel because the defect looks fine at every individual site and is only visible across them. A confirmation that opens a real dialog needs none of this: Base UI's dialog primitives own focus entry and return.
 
 A hook that subscribes to doc state → `lib/doc/hooks/`.

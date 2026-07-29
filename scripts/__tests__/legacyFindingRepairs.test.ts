@@ -26,7 +26,12 @@
 // needed; only the CLI wrappers read the app-state tables.
 
 import { describe, expect, it } from "vitest";
-import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import {
+	buildDoc,
+	caseListConfig,
+	f,
+	resolveCaseListConfig,
+} from "@/lib/__tests__/docHelpers";
 import {
 	type ValidationError,
 	validationError,
@@ -623,19 +628,20 @@ describe("case-list repairs", () => {
 	it("CASE_LIST_DUPLICATE_SORT_PRIORITY: preserves Results-order precedence when storage order disagrees", () => {
 		const doc = minDoc();
 		const moduleUuid = doc.moduleOrder[0];
-		doc.modules[moduleUuid].caseListConfig = {
+		doc.modules[moduleUuid].caseListConfig = resolveCaseListConfig({
 			columns: [
 				plainColumn(asUuid("col-a"), "case_name", "Name", {
 					sort: { direction: "asc", priority: 1 },
-					listOrder: "b",
 				}),
 				plainColumn(asUuid("col-b"), "village", "Village", {
 					sort: { direction: "desc", priority: 1 },
-					listOrder: "a",
 				}),
 			],
+			// Results shows Village above Name; storage holds them the other way.
+			listColumnOrder: [asUuid("col-b"), asUuid("col-a")],
+			detailColumnOrder: [asUuid("col-a"), asUuid("col-b")],
 			searchInputs: [],
-		};
+		});
 		const outcome = expectRepaired(doc, "CASE_LIST_DUPLICATE_SORT_PRIORITY");
 		const columns = outcome.doc.modules[moduleUuid].caseListConfig?.columns;
 		// Storage is [a, b], but Results displays [b, a]. The repaired priorities

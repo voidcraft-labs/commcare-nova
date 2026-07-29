@@ -141,10 +141,10 @@ describe("ComparisonCard — exhaustive subject authoring", () => {
 		fireEvent.click(
 			screen.getByRole("button", { name: "Value source: A value" }),
 		);
-		const searchAnswer = screen.getByRole("menuitem", {
+		const searchAnswer = screen.getByRole("menuitemradio", {
 			name: /^A search answer/,
 		});
-		const appInformation = screen.getByRole("menuitem", {
+		const appInformation = screen.getByRole("menuitemradio", {
 			name: /^App information/,
 		});
 
@@ -169,7 +169,9 @@ describe("ComparisonCard — exhaustive subject authoring", () => {
 			}),
 		);
 		fireEvent.click(
-			await screen.findByRole("menuitem", { name: /A search answer/i }),
+			await screen.findByRole("menuitemradio", {
+				name: /A search answer/i,
+			}),
 		);
 		expect(onChange).not.toHaveBeenCalled();
 		fireEvent.click(await screen.findByRole("button", { name: "Replace" }));
@@ -193,7 +195,9 @@ describe("ComparisonCard — exhaustive subject authoring", () => {
 			}),
 		);
 		fireEvent.click(
-			await screen.findByRole("menuitem", { name: /App information/i }),
+			await screen.findByRole("menuitemradio", {
+				name: /App information/i,
+			}),
 		);
 		expect(onChange).not.toHaveBeenCalled();
 		fireEvent.click(await screen.findByRole("button", { name: "Replace" }));
@@ -220,7 +224,9 @@ describe("ComparisonCard — exhaustive subject authoring", () => {
 			}),
 		);
 		fireEvent.click(
-			await screen.findByRole("menuitem", { name: /User information/i }),
+			await screen.findByRole("menuitemradio", {
+				name: /Other user field/i,
+			}),
 		);
 
 		const replace = screen.getByRole("button", { name: "Replace" });

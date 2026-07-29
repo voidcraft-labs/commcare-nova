@@ -55,6 +55,11 @@ import { setCaseListFilterTool } from "@/lib/agent/tools/case-list-config/setCas
 import { setCaseListTileTool } from "@/lib/agent/tools/case-list-config/setCaseListTile";
 import { updateCaseListColumnTool } from "@/lib/agent/tools/case-list-config/updateCaseListColumn";
 import { updateSearchInputTool } from "@/lib/agent/tools/case-list-config/updateSearchInput";
+import { addCaseOperationsTool } from "@/lib/agent/tools/case-operations/addCaseOperations";
+import { getCaseOperationsTool } from "@/lib/agent/tools/case-operations/getCaseOperations";
+import { moveCaseOperationTool } from "@/lib/agent/tools/case-operations/moveCaseOperation";
+import { removeCaseOperationTool } from "@/lib/agent/tools/case-operations/removeCaseOperation";
+import { updateCaseOperationTool } from "@/lib/agent/tools/case-operations/updateCaseOperation";
 import { setCaseSearchAdvancedTool } from "@/lib/agent/tools/case-search-config/setCaseSearchAdvanced";
 import { setCaseSearchDisplayTool } from "@/lib/agent/tools/case-search-config/setCaseSearchDisplay";
 import { createFormTool } from "@/lib/agent/tools/createForm";
@@ -78,6 +83,18 @@ import { searchBlueprintTool } from "@/lib/agent/tools/searchBlueprint";
 import { updateAppTool } from "@/lib/agent/tools/updateApp";
 import { updateFormTool } from "@/lib/agent/tools/updateForm";
 import { updateModuleTool } from "@/lib/agent/tools/updateModule";
+import {
+	addPersonasTool,
+	addUserPropertiesTool,
+	addUserTypesTool,
+	getUsersTool,
+	removePersonaTool,
+	removeUserPropertyTool,
+	removeUserTypeTool,
+	updatePersonaTool,
+	updateUserPropertyTool,
+	updateUserTypeTool,
+} from "@/lib/agent/tools/users";
 import type { AppCapability } from "@/lib/auth/projectRoles";
 import {
 	registerSharedTool,
@@ -134,11 +151,38 @@ const SHARED_TOOLS: ReadonlyArray<{
 	{ name: "get_field", tool: getFieldTool, requires: "view" },
 	{ name: "get_form", tool: getFormTool, requires: "view" },
 	{ name: "get_module", tool: getModuleTool, requires: "view" },
+	{
+		name: "get_case_operations",
+		tool: getCaseOperationsTool,
+		requires: "view",
+	},
 	{ name: "move_field", tool: moveFieldTool, requires: "edit" },
 	{ name: "remove_field", tool: removeFieldTool, requires: "edit" },
 	{ name: "remove_form", tool: removeFormTool, requires: "edit" },
 	{ name: "remove_module", tool: removeModuleTool, requires: "edit" },
 	{ name: "search_blueprint", tool: searchBlueprintTool, requires: "view" },
+	/* Ordered case effects. These are the exact modules the chat SA uses:
+	 * the adapter adds only MCP auth/projection, never a second vocabulary. */
+	{
+		name: "add_case_operations",
+		tool: addCaseOperationsTool,
+		requires: "edit",
+	},
+	{
+		name: "update_case_operation",
+		tool: updateCaseOperationTool,
+		requires: "edit",
+	},
+	{
+		name: "remove_case_operation",
+		tool: removeCaseOperationTool,
+		requires: "edit",
+	},
+	{
+		name: "move_case_operation",
+		tool: moveCaseOperationTool,
+		requires: "edit",
+	},
 	/* Case-list-config mutations — atomic add / update / remove /
 	 * reorder ops on each of the two arrays (`columns`,
 	 * `searchInputs`), plus the wholesale `filter` setter.
@@ -225,6 +269,28 @@ const SHARED_TOOLS: ReadonlyArray<{
 	{ name: "set_app_logo", tool: setAppLogoTool, requires: "edit" },
 	{ name: "list_media_assets", tool: listMediaAssetsTool, requires: "view" },
 	{ name: "remove_media_asset", tool: removeMediaAssetTool, requires: "edit" },
+	{ name: "get_users", tool: getUsersTool, requires: "view" },
+	{
+		name: "add_user_properties",
+		tool: addUserPropertiesTool,
+		requires: "edit",
+	},
+	{
+		name: "update_user_property",
+		tool: updateUserPropertyTool,
+		requires: "edit",
+	},
+	{
+		name: "remove_user_property",
+		tool: removeUserPropertyTool,
+		requires: "edit",
+	},
+	{ name: "add_user_types", tool: addUserTypesTool, requires: "edit" },
+	{ name: "update_user_type", tool: updateUserTypeTool, requires: "edit" },
+	{ name: "remove_user_type", tool: removeUserTypeTool, requires: "edit" },
+	{ name: "add_personas", tool: addPersonasTool, requires: "edit" },
+	{ name: "update_persona", tool: updatePersonaTool, requires: "edit" },
+	{ name: "remove_persona", tool: removePersonaTool, requires: "edit" },
 	{ name: "update_app", tool: updateAppTool, requires: "edit" },
 	{ name: "update_form", tool: updateFormTool, requires: "edit" },
 	{ name: "update_module", tool: updateModuleTool, requires: "edit" },

@@ -44,7 +44,7 @@ function renderWorkbench({
 
 function openValueSource(button: HTMLElement): HTMLElement {
 	fireEvent.click(button);
-	return screen.getByRole("menuitem", {
+	return screen.getByRole("menuitemradio", {
 		name: /^Other case information/,
 	});
 }
@@ -103,10 +103,12 @@ describe("PredicateWorkbench case-search admission", () => {
 			name: "Value source: Other case information",
 		});
 		fireEvent.click(source);
-		const activeSource = screen.getByRole("menuitem", {
+		const activeSource = screen.getByRole("menuitemradio", {
 			name: /^Other case information/,
 		});
-		const replacement = screen.getByRole("menuitem", { name: /^A value/ });
+		const replacement = screen.getByRole("menuitemradio", {
+			name: /^A value/,
+		});
 
 		expect(activeSource.getAttribute("aria-disabled")).not.toBe("true");
 		expect(replacement.getAttribute("aria-disabled")).not.toBe("true");

@@ -9,7 +9,7 @@
 //
 //   - **Structural tenant scoping.** Every tenant-bound read/write
 //     adds `WHERE project_id = <bound>` to the underlying query and
-//     stamps `owner_id = <actor>` (the CommCare case-owner, a separate
+//     stamps `owner_id = <owner>` (the CommCare case-owner, a separate
 //     axis — not the tenant filter) on every insert; the JOIN-side
 //     `project_id` filter on every joined `cases` row inside relation
 //     walks lives at the compiler stack (`compileRelationPath`).
@@ -70,6 +70,10 @@ import {
 } from "@/lib/domain/predicate/jsonSchema";
 import type { RelationPath } from "@/lib/domain/predicate/types";
 import {
+	storageDatetimeValue,
+	storageTimeValue,
+} from "@/lib/domain/temporalValues";
+import {
 	CaseNotFoundError,
 	CasePropertiesValidationError,
 	CaseTypeNotInBlueprintError,
@@ -120,11 +124,15 @@ import {
 	executeSubmissionEnvelope,
 	type SubmissionEnvelopeHost,
 } from "./submissionEnvelope";
+import {
+	completeSubmissionReceipt,
+	prepareSubmissionReceipt,
+} from "./submissionReceipt";
 import { ajvErrorToCaseFailure } from "./validationFailure";
 
 /**
  * Construction arguments. Production callers go through
- * `withProjectContext(projectId, actorUserId)` (tenant-bound) or
+ * `withProjectContext(projectId, actorUserId, ownerId)` (tenant-bound) or
  * `withSchemaContext()` (schema-only); tests construct directly with a
  * per-test isolated Kysely instance and either the heuristic generator
  * or a stub.
@@ -146,9 +154,10 @@ export interface PostgresCaseStoreArgs {
 	 * `acting-user` resolves to. Distinct from `actorUserId`, which is the
 	 * Nova member and the ONLY thing that authorizes: previewing as a persona
 	 * runs as that persona while the signed-in member still authorizes.
-	 * Absent means the two are the same identity.
+	 * Explicit at every construction site so adding a second identity can
+	 * never silently inherit the authorizing member.
 	 */
-	ownerId?: string | null;
+	ownerId: string | null;
 	db: Kysely<Database>;
 	sampleGenerator: SampleCaseGenerator;
 	/**
@@ -164,7 +173,7 @@ export interface PostgresCaseStoreArgs {
 			readonly projectId: string;
 			readonly actorUserId: string;
 		},
-	) => Promise<void>;
+	) => Promise<{ readonly appMutationSeq: number }>;
 	/**
 	 * Production-only app-placement fence for actor-free schema mutations. It
 	 * runs first in the schema/data transaction and holds `apps FOR SHARE` so a
@@ -189,6 +198,15 @@ function buildAjv(): Ajv2020 {
 	const ajv = new Ajv2020({ strict: false });
 	addFormats(ajv);
 	return ajv;
+}
+
+function assertNullableNonblankIdentity(
+	value: string | null,
+	label: string,
+): void {
+	if (value === null) return;
+	if (typeof value === "string" && value.trim().length > 0) return;
+	throw new Error(`${label} identity must be a nonblank string or null.`);
 }
 
 /**
@@ -238,9 +256,12 @@ export class PostgresCaseStore implements CaseStore {
 		| undefined;
 
 	constructor(args: PostgresCaseStoreArgs) {
+		assertNullableNonblankIdentity(args.projectId, "Project");
+		assertNullableNonblankIdentity(args.actorUserId, "actor");
+		assertNullableNonblankIdentity(args.ownerId, "owner");
 		this.projectId = args.projectId;
 		this.actorUserId = args.actorUserId;
-		this.ownerId = args.ownerId ?? args.actorUserId;
+		this.ownerId = args.ownerId;
 		this.db = args.db;
 		this.ajv = buildAjv();
 		this.validatorCache = new Map();
@@ -266,9 +287,9 @@ export class PostgresCaseStore implements CaseStore {
 	private async authorizeMutation(
 		trx: Transaction<Database>,
 		appId: string,
-	): Promise<void> {
-		if (this.authorizeMutationCallback === undefined) return;
-		await this.authorizeMutationCallback(trx, {
+	): Promise<{ readonly appMutationSeq: number } | undefined> {
+		if (this.authorizeMutationCallback === undefined) return undefined;
+		return await this.authorizeMutationCallback(trx, {
 			appId,
 			projectId: this.requireProjectId(),
 			actorUserId: this.requireActorUserId(),
@@ -304,7 +325,7 @@ export class PostgresCaseStore implements CaseStore {
 					invariant:
 						"a tenant-scoped read/write ran on a schema-only store (no bound Project)",
 					detail:
-						"This store was built by `withSchemaContext()` for app-scoped schema operations and carries no Project. A tenant-bound method (query / count / insert / update / close / traverse / generate / reset) requires one. Hint: build the store with `withProjectContext(projectId, actorUserId)` for read/write work.",
+						"This store was built by `withSchemaContext()` for app-scoped schema operations and carries no Project. A tenant-bound method (query / count / insert / update / close / traverse / generate / reset) requires one. Hint: build the store with `withProjectContext(projectId, actorUserId, ownerId)` for read/write work.",
 				}),
 			);
 		}
@@ -324,7 +345,7 @@ export class PostgresCaseStore implements CaseStore {
 					invariant:
 						"a tenant-bound write ran on a schema-only store (no bound actor to authorize against)",
 					detail:
-						"This store was built by `withSchemaContext()` and carries no actor. Every case write authorizes against the acting Nova member. Hint: build the store with `withProjectContext(projectId, actorUserId)`.",
+						"This store was built by `withSchemaContext()` and carries no actor. Every case write authorizes against the acting Nova member. Hint: build the store with `withProjectContext(projectId, actorUserId, ownerId)`.",
 				}),
 			);
 		}
@@ -343,7 +364,7 @@ export class PostgresCaseStore implements CaseStore {
 					invariant:
 						"an insert ran on a schema-only store (no bound worker for `owner_id`)",
 					detail:
-						"This store was built by `withSchemaContext()` and carries no worker. An insert stamps `owner_id` (the CommCare case-owner) from the bound worker. Hint: build the store with `withProjectContext(projectId, actorUserId)`.",
+						"This store was built by `withSchemaContext()` and carries no worker. An insert stamps `owner_id` (the CommCare case-owner) from the bound worker. Hint: build the store with `withProjectContext(projectId, actorUserId, ownerId)`.",
 				}),
 			);
 		}
@@ -615,6 +636,35 @@ export class PostgresCaseStore implements CaseStore {
 	}
 
 	async count(args: CountArgs): Promise<number> {
+		if ("ownerId" in args) {
+			if (
+				typeof args.ownerId !== "string" ||
+				args.ownerId.trim().length === 0
+			) {
+				throw new Error("Case owner identity must be a nonblank string.");
+			}
+			let ownerQuery = this.db
+				.selectFrom("cases as c")
+				.select((eb) => eb.fn.countAll<string>().as("total"))
+				.where("c.app_id", "=", args.appId)
+				.where("c.owner_id", "=", args.ownerId)
+				.where("c.project_id", "=", this.requireProjectId());
+			if (args.includeHeld !== true) {
+				ownerQuery = ownerQuery.where(({ not, exists, selectFrom }) =>
+					not(
+						exists(
+							selectFrom("parked_case_values as held")
+								.select("held.id")
+								.whereRef("held.case_id", "=", "c.case_id")
+								.where("held.dismissed_at", "is", null),
+						),
+					),
+				);
+			}
+			const row = await ownerQuery.executeTakeFirstOrThrow();
+			return Number(row.total);
+		}
+
 		// Same predicate-context plumbing `query` uses — the WHERE
 		// clause emitted here MUST match a predicate-narrowed `query`
 		// against the same `(appId, caseType, caseTypeSchemas,
@@ -701,7 +751,7 @@ export class PostgresCaseStore implements CaseStore {
 	 *
 	 * `caseId` overrides the column default for callers whose identity
 	 * is minted/derived up front (the envelope's create allocations);
-	 * `ownerId` overrides the actor stamp for an operation's evaluated
+	 * `ownerId` overrides the bound owner for an operation's evaluated
 	 * owner expression. Ordinary callers omit both.
 	 */
 	private async insertRowInTransaction(
@@ -782,20 +832,45 @@ export class PostgresCaseStore implements CaseStore {
 	): Promise<SubmissionEnvelopeResult> {
 		// One transaction for the WHOLE submission — the ordinary form
 		// action and the advanced operation program land together or not
-		// at all. Standard lock order: authorize → relationship advisory
-		// → schema locks in sorted order for every case type the
+		// at all. Every envelope first adjudicates and claims its durable
+		// entry receipt, even with no attachments. Standard lock order:
+		// authorize → entry receipt → relationship advisory → schema locks in
+		// sorted order for every case type the
 		// submission names up front (a followup/close bound case's type
 		// is discovered inside the update core, which acquires its own
 		// schema lock — the same pattern `update` uses).
 		return await this.db.transaction().execute(async (trx) => {
-			await this.authorizeMutation(trx, args.appId);
+			const authorization = await this.authorizeMutation(trx, args.appId);
+			const replay = await prepareSubmissionReceipt(trx, {
+				appId: args.appId,
+				projectId: this.requireProjectId(),
+				actorUserId: this.requireActorUserId(),
+				receipt: args.submissionReceipt,
+				...(args.captureIntent === undefined
+					? {}
+					: { captureIntent: args.captureIntent }),
+				...(authorization === undefined
+					? {}
+					: {
+							authorizedAppMutationSeq: authorization.appMutationSeq,
+						}),
+			});
+			if (replay !== undefined) return replay;
 			await this.lockRelationshipWrites(trx, args.appId);
 			await this.lockValidators(trx, args.appId, submissionCaseTypes(args));
-			return await executeSubmissionEnvelope(
+			const result = await executeSubmissionEnvelope(
 				trx,
 				this.submissionEnvelopeHost(),
 				args,
 			);
+			await completeSubmissionReceipt(trx, {
+				appId: args.appId,
+				projectId: this.requireProjectId(),
+				actorUserId: this.requireActorUserId(),
+				receipt: args.submissionReceipt,
+				result,
+			});
+			return result;
 		});
 	}
 
@@ -807,7 +882,7 @@ export class PostgresCaseStore implements CaseStore {
 			// The WORKER, not the member: a submission's `acting-user` and its
 			// create-time owner are what a device would record, and on a device
 			// that is whoever is logged in.
-			actorUserId: this.requireOwnerId(),
+			actingUserId: this.requireOwnerId(),
 			validateProperties: (trx, a) =>
 				this.validateProperties({
 					appId: a.appId,
@@ -1672,9 +1747,11 @@ export class PostgresCaseStore implements CaseStore {
 		// pair atomic at the name level. `DROP INDEX CONCURRENTLY`
 		// avoids `ACCESS EXCLUSIVE` for the drop's duration; `IF
 		// EXISTS` makes the drop idempotent against a half-completed
-		// prior run.
+		// prior run. The name is schema-qualified from the catalog read
+		// so the drop targets the entry the diff decided on rather than
+		// whatever a bare name resolves to on the search path.
 		for (const drop of drops) {
-			await sql`DROP INDEX CONCURRENTLY IF EXISTS ${sql.id(drop.name)}`.execute(
+			await sql`DROP INDEX CONCURRENTLY IF EXISTS ${sql.id(drop.schema, drop.name)}`.execute(
 				this.db,
 			);
 		}
@@ -3668,25 +3745,6 @@ const castConformance = (() => {
 })();
 
 /**
- * Normalize a time-of-day fragment to `HH:MM:SS` plus an explicit
- * offset. Strict `format: "time"` (RFC 3339 full-time) REQUIRES the
- * offset; Nova authors no app timezone, so an offset-less value reads
- * as UTC — the same stance the exact-day search helpers and the
- * sample generator take. Fractional seconds drop (one canonical
- * shape). Anything the padding can't make conformant is left for the
- * conformance check to reject.
- */
-function normalizeTimeOfDay(fragment: string): string {
-	const withoutFraction = fragment.replace(/\.\d+/, "");
-	const withSeconds = /^\d{2}:\d{2}$/.test(withoutFraction)
-		? `${withoutFraction}:00`
-		: withoutFraction;
-	return /(?:Z|[+-]\d{2}:\d{2})$/.test(withSeconds)
-		? withSeconds
-		: `${withSeconds}Z`;
-}
-
-/**
  * Try to cast a stored value to a new property data type during a
  * per-row migration (the write-time retype detection, the explicit
  * `retype` arm, and the rename arm's destination cast). Failure
@@ -3780,37 +3838,24 @@ function normalizeValueForType(
 		}
 		case "time": {
 			// A canonical datetime truncates to its time-of-day (an
-			// explicit offset survives the cut); a bare time pads to the
-			// offset-carrying canonical shape.
+			// explicit offset survives the cut); a bare time takes the
+			// storage tag the strict `format: "time"` schema requires.
 			const trimmed = stringValue.trim();
 			const tIndex = trimmed.indexOf("T");
 			return {
 				ok: true,
-				value: normalizeTimeOfDay(
+				value: storageTimeValue(
 					tIndex >= 0 ? trimmed.slice(tIndex + 1) : trimmed,
 				),
 			};
 		}
 		case "datetime": {
-			const trimmed = stringValue.trim();
-			if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
-				// A bare date extends to midnight UTC — Nova authors no
-				// app timezone, so UTC is the codebase-wide reading of an
-				// offset-less temporal value.
-				return { ok: true, value: `${trimmed}T00:00:00.000Z` };
-			}
-			if (
-				/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(trimmed)
-			) {
-				// The offset-less `datetime-local` shape: pad seconds to
-				// the full RFC 3339 grammar and read the wall-clock as UTC.
-				const withSeconds = /T\d{2}:\d{2}$/.test(trimmed)
-					? `${trimmed}:00`
-					: trimmed;
-				return { ok: true, value: `${withSeconds}Z` };
-			}
-			// Already canonical (or garbage) — conformance adjudicates.
-			return { ok: true, value: trimmed };
+			// UTC, because a migration has no viewer whose zone could
+			// stand in for the device's. The value being cast is stored
+			// text with no zone of its own, so any other reading would be
+			// invented — and one that varied by whoever triggered the
+			// migration would make the same row convert differently.
+			return { ok: true, value: storageDatetimeValue(stringValue, "UTC") };
 		}
 		case "multi_select": {
 			if (Array.isArray(value)) {
@@ -3994,9 +4039,15 @@ export interface DesiredIndex {
  * (`https://www.postgresql.org/docs/current/catalog-pg-index.html`).
  * The diff treats INVALID entries as "drop and recreate" so the
  * next call converges idempotently.
+ *
+ * `schema` is the namespace the index actually lives in (an index
+ * always lands in its table's schema), so a drop names the exact
+ * catalog entry the read found instead of re-resolving a bare name
+ * through the search path.
  */
 interface LiveIndex {
 	name: string;
+	schema: string;
 	isValid: boolean;
 }
 
@@ -4292,8 +4343,7 @@ function assertSafeIdentifierFragment(
  * comes from the fixed-width tag, so the diff never reads or parses
  * the partial predicate.
  *
- * The query joins `pg_index` + `pg_class` (twice — once for the
- * index, once for the underlying table) + `pg_namespace` rather
+ * The query joins `pg_index` + `pg_class` + `pg_namespace` rather
  * than reading the simpler `pg_indexes` view because `pg_indexes`
  * does not expose `indisvalid`. Capturing the validity flag lets
  * `diffIndexSets` emit a drop-and-recreate pair for an INVALID
@@ -4307,8 +4357,18 @@ async function readLiveIndexSet(
 	appId: string,
 	caseType: string,
 ): Promise<Map<string, LiveIndex>> {
-	// `n.nspname = current_schema()` matches `pg_indexes`'s implicit
-	// scoping; `t.relname = 'cases'` pins the underlying table.
+	// `to_regclass('cases')` pins the table by SEARCH-PATH resolution —
+	// the same resolution `emitCreateIndex`'s unqualified `ON cases`
+	// performs, so the read and the DDL can never disagree about which
+	// table they mean. Matching `current_schema()` instead reads the
+	// FIRST schema on the path, which production's privilege
+	// convergence makes the wrong one: it moves `cases` into
+	// `nova_case_runtime` while the connection's path stays
+	// `public,nova_case_runtime` (`postgres/connection.ts`), so a
+	// `current_schema()` match returns zero rows for every scope. An
+	// empty live set makes the diff re-`CREATE` every desired index —
+	// `already exists` on the second sync of a case type — and emit no
+	// drops at all.
 	//
 	// Underscores in the prefix are LIKE single-char wildcards on
 	// `_`; the `ESCAPE '\\'` form treats `\_` as a literal underscore
@@ -4319,19 +4379,19 @@ async function readLiveIndexSet(
 	const prefix = `cases\\_${indexScopeTag(appId, caseType)}\\_%`;
 	const result = await sql<{
 		indexname: string;
+		indexschema: string;
 		isvalid: boolean;
-	}>`SELECT c.relname AS indexname, i.indisvalid AS isvalid
+	}>`SELECT c.relname AS indexname, n.nspname AS indexschema, i.indisvalid AS isvalid
 		FROM pg_index i
 		JOIN pg_class c ON c.oid = i.indexrelid
-		JOIN pg_class t ON t.oid = i.indrelid
-		JOIN pg_namespace n ON n.oid = t.relnamespace
-		WHERE n.nspname = current_schema()
-		  AND t.relname = 'cases'
+		JOIN pg_namespace n ON n.oid = c.relnamespace
+		WHERE i.indrelid = to_regclass('cases')
 		  AND c.relname LIKE ${prefix} ESCAPE '\\'`.execute(executor);
 	const live = new Map<string, LiveIndex>();
 	for (const row of result.rows) {
 		live.set(row.indexname, {
 			name: row.indexname,
+			schema: row.indexschema,
 			isValid: row.isvalid,
 		});
 	}

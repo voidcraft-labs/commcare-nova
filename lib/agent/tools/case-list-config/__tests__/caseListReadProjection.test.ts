@@ -20,21 +20,20 @@ function independentlyArrangedFixture() {
 					...fixture.doc.modules[MOD_A],
 					caseListConfig: {
 						columns: [
-							plainColumn(A, "case_name", "Patient", {
-								listOrder: "z",
-								detailOrder: "a",
-							}),
+							plainColumn(A, "case_name", "Patient", {}),
 							plainColumn(B, "phone", "Phone", {
-								listOrder: "a",
-								detailOrder: "z",
 								visibleInDetail: false,
 							}),
 							plainColumn(C, "dob", "Date of birth", {
-								listOrder: "b",
-								detailOrder: "b",
 								visibleInList: false,
 							}),
 						],
+						// Two independent arrangements over one set: Results shows
+						// Phone above Patient, Details shows Patient above Date of
+						// birth. Every column is a member of BOTH sequences —
+						// visibility is what decides which of them draws.
+						listColumnOrder: [B, A, C],
+						detailColumnOrder: [A, C, B],
 						searchInputs: [],
 					},
 				},
@@ -84,17 +83,15 @@ describe("case-list read projections", () => {
 							searchInputs: [],
 							columns: [
 								plainColumn(A, "case_name", "Patient", {
-									listOrder: "z",
-									detailOrder: "a",
 									tile: tileCell(0, 0, 12, 1, { fontSize: "large" }),
 								}),
 								plainColumn(B, "phone", "Phone", {
-									listOrder: "a",
-									detailOrder: "z",
 									visibleInDetail: false,
 									tile: tileCell(0, 1, 6, 2),
 								}),
 							],
+							listColumnOrder: [A, B],
+							detailColumnOrder: [A, B],
 							tile: { persistOnForms: true as const },
 						},
 					},
@@ -162,6 +159,10 @@ describe("case-list read projections", () => {
 								tile: tileCell(4, 0, 8, 2),
 							}),
 						],
+						// Every column is a member of BOTH sequences whatever its
+						// visibility — that is what lets a hidden one keep its place.
+						listColumnOrder: [A, B],
+						detailColumnOrder: [A, B],
 						...(tile === undefined ? {} : { tile }),
 					},
 				},

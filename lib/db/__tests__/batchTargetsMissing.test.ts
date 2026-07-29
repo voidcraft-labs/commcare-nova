@@ -17,7 +17,22 @@ import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { batchTargetsMissing } from "@/lib/db/commitGuard";
 import type { Mutation } from "@/lib/doc/types";
-import { asUuid, type BlueprintDoc } from "@/lib/domain";
+import {
+	asUuid,
+	type BlueprintDoc,
+	type CaseOperation,
+	emptyCaseListConfig,
+} from "@/lib/domain";
+
+const OPERATION = asUuid("11111111-1111-4111-8111-111111111111");
+const OTHER_OPERATION = asUuid("22222222-2222-4222-8222-222222222222");
+
+function value(value: string) {
+	return {
+		kind: "term" as const,
+		term: { kind: "literal" as const, value },
+	};
+}
 
 /**
  * A doc with one case-list module (a column + a search input), a survey form
@@ -33,6 +48,7 @@ function fixture(): {
 	columnUuid: string;
 	searchInputUuid: string;
 	optionUuid: string;
+	operationUuid: string;
 } {
 	const doc = buildDoc({
 		modules: [
@@ -97,6 +113,25 @@ function fixture(): {
 		} as unknown as (typeof mod.caseListConfig.searchInputs)[number],
 	];
 	const columnUuid = mod.caseListConfig.columns[0].uuid;
+	doc.forms[formUuid].caseOperations = [
+		{
+			uuid: OPERATION,
+			id: "create_patient",
+			action: "create",
+			caseType: "patient",
+			target: { kind: "new" },
+			name: value("Patient"),
+			writes: [{ property: "status", value: value("open") }],
+			links: [
+				{
+					identifier: "parent",
+					targetType: "household",
+					target: null,
+					relationship: "child",
+				},
+			],
+		},
+	];
 
 	const select = doc.fields[selectField.uuid] as {
 		options: { value: string; uuid?: string }[];
@@ -114,6 +149,7 @@ function fixture(): {
 		columnUuid,
 		searchInputUuid,
 		optionUuid,
+		operationUuid: OPERATION,
 	};
 }
 
@@ -161,7 +197,7 @@ describe("batchTargetsMissing — entity kinds", () => {
 				{
 					kind: "updateModule",
 					uuid: MISSING,
-					patch: { caseListConfig: { columns: [], searchInputs: [] } },
+					patch: { caseListConfig: emptyCaseListConfig() },
 					ensureCaseListConfig: true,
 				} as unknown as Mutation,
 			]),
@@ -265,21 +301,22 @@ describe("batchTargetsMissing — granular collection kinds (item uuid)", () => 
 				kind: "moveColumn",
 				moduleUuid,
 				uuid: columnUuid,
-				order: "a1",
+				surface: "list",
+				after: null,
 			} as Mutation,
 			{
 				kind: "moveColumn",
 				moduleUuid,
 				uuid: columnUuid,
-				order: "a2",
-				surfaceOrderPatch: { surface: "list", order: "a2" },
+				surface: "list",
+				after: null,
 			} as Mutation,
 			{
 				kind: "moveColumn",
 				moduleUuid,
 				uuid: columnUuid,
-				order: "a3",
-				surfaceOrderPatch: { surface: "detail", order: "a3" },
+				surface: "detail",
+				after: null,
 			} as Mutation,
 			{
 				kind: "updateColumn",
@@ -298,7 +335,6 @@ describe("batchTargetsMissing — granular collection kinds (item uuid)", () => 
 				kind: "moveOption",
 				fieldUuid: selectUuid,
 				uuid: optionUuid,
-				order: "a1",
 			} as Mutation,
 		];
 		expect(batchTargetsMissing(doc, live)).toBe(false);
@@ -334,8 +370,8 @@ describe("batchTargetsMissing — granular collection kinds (item uuid)", () => 
 					kind: "moveColumn",
 					moduleUuid,
 					uuid: MISSING,
-					order: "a1",
-					surfaceOrderPatch: { surface: "list", order: "a1" },
+					surface: "list",
+					after: null,
 				} as Mutation,
 			]),
 		).toBe(true);
@@ -345,8 +381,8 @@ describe("batchTargetsMissing — granular collection kinds (item uuid)", () => 
 					kind: "moveColumn",
 					moduleUuid,
 					uuid: MISSING,
-					order: "a1",
-					surfaceOrderPatch: { surface: "detail", order: "a1" },
+					surface: "detail",
+					after: null,
 				} as Mutation,
 			]),
 		).toBe(true);
@@ -365,7 +401,6 @@ describe("batchTargetsMissing — granular collection kinds (item uuid)", () => 
 					kind: "moveOption",
 					fieldUuid: selectUuid,
 					uuid: MISSING,
-					order: "a1",
 				} as Mutation,
 			]),
 		).toBe(true);
@@ -383,7 +418,13 @@ describe("batchTargetsMissing — granular collection kinds (item uuid)", () => 
 		};
 		expect(
 			batchTargetsMissing(doc, [
-				{ kind: "addColumn", moduleUuid: owner, column },
+				{
+					kind: "addColumn",
+					moduleUuid: owner,
+					column,
+					afterInList: null,
+					afterInDetail: null,
+				},
 				{
 					kind: "updateColumn",
 					moduleUuid: owner,
@@ -478,7 +519,7 @@ describe("batchTargetsMissing — granular collection kinds (item uuid)", () => 
 				{
 					kind: "updateModule",
 					uuid: moduleUuid,
-					patch: { caseListConfig: { columns: [], searchInputs: [] } },
+					patch: { caseListConfig: emptyCaseListConfig() },
 					ensureCaseListConfig: true,
 				} as unknown as Mutation,
 				{
@@ -529,7 +570,6 @@ describe("batchTargetsMissing — granular collection kinds (item uuid)", () => 
 				kind: "moveColumn",
 				moduleUuid,
 				uuid: newColUuid,
-				order: "a1",
 			} as Mutation,
 			{
 				kind: "addOption",
@@ -543,6 +583,359 @@ describe("batchTargetsMissing — granular collection kinds (item uuid)", () => 
 			} as Mutation,
 		];
 		expect(batchTargetsMissing(doc, batch)).toBe(false);
+	});
+});
+
+describe("batchTargetsMissing — case-operation logical identities", () => {
+	function operationIn(doc: BlueprintDoc, formUuid: string): CaseOperation {
+		const operation = doc.forms[formUuid]?.caseOperations?.[0];
+		if (operation === undefined) throw new Error("fixture operation missing");
+		return operation;
+	}
+
+	function granular(
+		formUuid: string,
+		fallback: CaseOperation,
+		caseOperationPatch: NonNullable<
+			Extract<Mutation, { kind: "updateForm" }>["caseOperationPatch"]
+		>,
+	): Mutation {
+		return {
+			kind: "updateForm",
+			uuid: asUuid(formUuid),
+			patch: {},
+			caseOperationChange: {
+				operation: "update",
+				uuid: fallback.uuid,
+				value: fallback,
+			},
+			caseOperationPatch,
+		};
+	}
+
+	it("rejects a scalar/move/write/link edit after a peer removed its target", () => {
+		const { doc, formUuid } = fixture();
+		const operation = operationIn(doc, formUuid);
+		const withoutOperation = structuredClone(doc);
+		delete withoutOperation.forms[formUuid].caseOperations;
+		const operationEdits: Mutation[] = [
+			granular(
+				formUuid,
+				{ ...operation, id: "renamed" },
+				{
+					operation: "update",
+					uuid: OPERATION,
+					patch: { id: "renamed" },
+				},
+			),
+			granular(formUuid, operation, {
+				operation: "move",
+				uuid: OPERATION,
+				after: null,
+			}),
+		];
+		for (const mutation of operationEdits) {
+			expect(batchTargetsMissing(withoutOperation, [mutation])).toBe(true);
+		}
+
+		const withoutWrite = structuredClone(doc);
+		delete withoutWrite.forms[formUuid].caseOperations?.[0]?.writes;
+		expect(
+			batchTargetsMissing(withoutWrite, [
+				granular(
+					formUuid,
+					{
+						...operation,
+						writes: [{ property: "status", value: value("closed") }],
+					},
+					{
+						operation: "update-write",
+						uuid: OPERATION,
+						property: "status",
+						patch: { value: value("closed") },
+					},
+				),
+			]),
+		).toBe(true);
+
+		const withoutLink = structuredClone(doc);
+		delete withoutLink.forms[formUuid].caseOperations?.[0]?.links;
+		expect(
+			batchTargetsMissing(withoutLink, [
+				granular(
+					formUuid,
+					{
+						...operation,
+						links: [
+							{
+								identifier: "parent",
+								targetType: "household",
+								target: null,
+								relationship: "extension",
+							},
+						],
+					},
+					{
+						operation: "update-link",
+						uuid: OPERATION,
+						identifier: "parent",
+						patch: { relationship: "extension" },
+					},
+				),
+			]),
+		).toBe(true);
+	});
+
+	it("rejects operation/write/link adds whose logical key a peer already added", () => {
+		const { doc, formUuid } = fixture();
+		const operation = operationIn(doc, formUuid);
+		expect(
+			batchTargetsMissing(doc, [
+				{
+					kind: "updateForm",
+					uuid: asUuid(formUuid),
+					patch: {},
+					caseOperationChange: {
+						operation: "add",
+						value: { ...operation, uuid: OPERATION },
+					},
+				},
+			]),
+		).toBe(true);
+
+		const peerWrite = { property: "note", value: value("peer") };
+		const withPeerWrite = structuredClone(doc);
+		withPeerWrite.forms[formUuid].caseOperations?.[0]?.writes?.push(peerWrite);
+		expect(
+			batchTargetsMissing(withPeerWrite, [
+				granular(
+					formUuid,
+					{
+						...operation,
+						writes: [...(operation.writes ?? []), peerWrite],
+					},
+					{
+						operation: "add-write",
+						uuid: OPERATION,
+						value: peerWrite,
+						index: 1,
+					},
+				),
+			]),
+		).toBe(true);
+
+		const peerLink = {
+			identifier: "household",
+			targetType: "household",
+			target: null,
+			relationship: "child" as const,
+		};
+		const withPeerLink = structuredClone(doc);
+		withPeerLink.forms[formUuid].caseOperations?.[0]?.links?.push(peerLink);
+		expect(
+			batchTargetsMissing(withPeerLink, [
+				granular(
+					formUuid,
+					{
+						...operation,
+						links: [...(operation.links ?? []), peerLink],
+					},
+					{
+						operation: "add-link",
+						uuid: OPERATION,
+						value: peerLink,
+						index: 1,
+					},
+				),
+			]),
+		).toBe(true);
+	});
+
+	// The three rejections above are PEER collisions: the key was already on the
+	// stored operation. A collision inside the author's OWN batch is a different
+	// fact — an operation born here has never been seen by anyone else, so its
+	// keys cannot conflict with a peer. The batch is a command log, not a
+	// minimal diff, so creating an operation that carries a link and then
+	// configuring that link records both commands; the reducers no-op on the
+	// second, and the batch replays to exactly the right document.
+	it("accepts a same-key write/link add against an operation born in this batch", () => {
+		const { doc, formUuid } = fixture();
+		const born: CaseOperation = {
+			...operationIn(doc, formUuid),
+			uuid: asUuid("55555555-5555-4555-8555-555555555555"),
+			id: "born_here",
+			writes: [{ property: "note", value: value("hello") }],
+			links: [
+				{
+					identifier: "parent",
+					targetType: "household",
+					target: null,
+					relationship: "child" as const,
+				},
+			],
+		};
+		expect(
+			batchTargetsMissing(doc, [
+				{
+					kind: "updateForm",
+					uuid: asUuid(formUuid),
+					patch: {},
+					caseOperationChange: { operation: "add", value: born },
+				},
+				granular(formUuid, born, {
+					operation: "add-write",
+					uuid: born.uuid,
+					value: { property: "note", value: value("hello") },
+					index: 0,
+				}),
+				granular(formUuid, born, {
+					operation: "add-link",
+					uuid: born.uuid,
+					value: born.links?.[0] as NonNullable<CaseOperation["links"]>[number],
+					index: 0,
+				}),
+			]),
+		).toBe(false);
+	});
+
+	it("accepts a move whose anchor is only born later in the same batch", () => {
+		const { doc, formUuid } = fixture();
+		const first = operationIn(doc, formUuid);
+		const peer: CaseOperation = {
+			...first,
+			uuid: asUuid("44444444-4444-4444-8444-444444444444"),
+			id: "same_batch_birth",
+		};
+		const move = (after: ReturnType<typeof asUuid> | null): Mutation => ({
+			kind: "updateForm",
+			uuid: asUuid(formUuid),
+			patch: {},
+			caseOperationChange: { operation: "move", uuid: OPERATION, after },
+			caseOperationPatch: { operation: "move", uuid: OPERATION, after },
+		});
+
+		// A placement named by the uuid it follows cannot be shifted by a peer,
+		// so there is no rank to fence: the anchor either survives and the
+		// operation lands after it, or it does not and the operation appends.
+		// Neither outcome is a phantom conflict.
+		expect(
+			batchTargetsMissing(doc, [
+				move(peer.uuid),
+				{
+					kind: "updateForm",
+					uuid: asUuid(formUuid),
+					patch: {},
+					caseOperationChange: { operation: "add", value: peer },
+				},
+			]),
+		).toBe(false);
+
+		// The MOVED operation still has to exist — that is a real conflict.
+		expect(batchTargetsMissing(doc, [move(null), move(null)])).toBe(false);
+	});
+
+	it("advances births, removals, and full replacements across one batch", () => {
+		const { doc, formUuid } = fixture();
+		const operation = operationIn(doc, formUuid);
+		const born: CaseOperation = {
+			...operation,
+			uuid: OTHER_OPERATION,
+			id: "born",
+			writes: [{ property: "note", value: value("born") }],
+			links: undefined,
+		};
+		expect(
+			batchTargetsMissing(doc, [
+				{
+					kind: "updateForm",
+					uuid: asUuid(formUuid),
+					patch: {},
+					caseOperationChange: { operation: "add", value: born },
+				},
+				granular(
+					formUuid,
+					{ ...born, id: "born_renamed" },
+					{
+						operation: "update",
+						uuid: OTHER_OPERATION,
+						patch: { id: "born_renamed" },
+					},
+				),
+			]),
+		).toBe(false);
+
+		const replaced = {
+			...operation,
+			writes: [{ property: "note", value: value("replacement") }],
+			links: undefined,
+		};
+		expect(
+			batchTargetsMissing(doc, [
+				{
+					kind: "updateForm",
+					uuid: asUuid(formUuid),
+					patch: {},
+					caseOperationChange: {
+						operation: "update",
+						uuid: OPERATION,
+						value: replaced,
+					},
+				},
+				granular(
+					formUuid,
+					{
+						...replaced,
+						writes: [{ property: "note", value: value("next") }],
+					},
+					{
+						operation: "update-write",
+						uuid: OPERATION,
+						property: "note",
+						patch: { value: value("next") },
+					},
+				),
+			]),
+		).toBe(false);
+		expect(
+			batchTargetsMissing(doc, [
+				{
+					kind: "updateForm",
+					uuid: asUuid(formUuid),
+					patch: {},
+					caseOperationChange: {
+						operation: "update",
+						uuid: OPERATION,
+						value: replaced,
+					},
+				},
+				granular(formUuid, replaced, {
+					operation: "update-write",
+					uuid: OPERATION,
+					property: "status",
+					patch: { value: value("lost") },
+				}),
+			]),
+		).toBe(true);
+
+		expect(
+			batchTargetsMissing(doc, [
+				granular(
+					formUuid,
+					{ ...operation, writes: undefined },
+					{
+						operation: "remove-write",
+						uuid: OPERATION,
+						property: "status",
+					},
+				),
+				granular(formUuid, operation, {
+					operation: "update-write",
+					uuid: OPERATION,
+					property: "status",
+					patch: { value: value("too-late") },
+				}),
+			]),
+		).toBe(true);
 	});
 });
 

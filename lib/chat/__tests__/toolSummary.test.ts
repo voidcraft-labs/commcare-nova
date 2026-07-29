@@ -35,12 +35,18 @@ describe("action tense follows the call's status", () => {
 			"Updating available cases",
 		);
 		expect(toolAction(pendingPart("updateApp"))).toBe("Updating app settings");
+		expect(toolAction(pendingPart("getCaseOperations"))).toBe(
+			"Inspecting case operations",
+		);
 	});
 
 	it("reads as done once the call succeeds", () => {
 		expect(toolAction(donePart("createModule", { subject: "Clients" }))).toBe(
 			'Created module "Clients"',
 		);
+		expect(
+			toolAction(donePart("getCaseOperations", { location: "Edit" })),
+		).toBe("Inspected case operations");
 	});
 
 	it("keeps the in-progress form for a failure — the change never landed", () => {
@@ -178,5 +184,19 @@ describe("scoped-edit rows are unchanged", () => {
 		});
 		expect(toolAction(part)).toBe('Updated form "Register Client"');
 		expect(toolLocation(part)).toBe("Clients");
+	});
+});
+
+describe("users and personas transcript rows", () => {
+	it("renders batch counts and singular entity edits in author language", () => {
+		expect(toolAction(donePart("addUserProperties", { count: 2 }))).toBe(
+			"Added 2 worker-information properties",
+		);
+		expect(
+			toolAction(donePart("updateUserType", { subject: "Supervisor" })),
+		).toBe('Updated role "Supervisor"');
+		expect(toolAction(donePart("removePersona", { subject: "Asha" }))).toBe(
+			'Removed persona "Asha"',
+		);
 	});
 });

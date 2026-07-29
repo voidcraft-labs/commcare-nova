@@ -44,6 +44,7 @@ function makeStore(projectId: string): PostgresCaseStore {
 	return new PostgresCaseStore({
 		projectId,
 		actorUserId: projectId,
+		ownerId: projectId,
 		db: dbHandle.db as unknown as Kysely<Database>,
 		sampleGenerator: new HeuristicCaseGenerator(),
 	});

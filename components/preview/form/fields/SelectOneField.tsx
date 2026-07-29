@@ -1,6 +1,5 @@
 "use client";
 import { MediaDisplay } from "@/components/builder/media/MediaDisplay";
-import { bySortKey } from "@/lib/doc/order/compare";
 import type { SingleSelectField } from "@/lib/domain";
 import { PreviewMarkdown } from "@/lib/markdown";
 import type { FieldState } from "@/lib/preview/engine/types";
@@ -12,6 +11,8 @@ interface SelectOneFieldProps {
 	/** A single-select field; `options` is required on this kind. */
 	field: SingleSelectField;
 	state: FieldState;
+	/** Visible question label rendered by InteractiveFormRenderer. */
+	labelledBy?: string;
 	onChange: (value: string) => void;
 	onBlur: () => void;
 }
@@ -25,6 +26,7 @@ interface SelectOneFieldProps {
 export function SelectOneField({
 	field,
 	state,
+	labelledBy,
 	onChange,
 	onBlur,
 }: SelectOneFieldProps) {
@@ -45,9 +47,7 @@ export function SelectOneField({
 		media?: (typeof field.options)[number]["media"];
 	}> = lookupBacked
 		? (state.choices ?? [])
-		: [...(field.options ?? [])]
-				.sort(bySortKey)
-				.map((opt) => ({ ...opt, key: opt.value }));
+		: [...(field.options ?? [])].map((opt) => ({ ...opt, key: opt.value }));
 	const showError = state.touched && !state.valid;
 	const isEditMode = useEditMode() === "edit";
 
@@ -55,7 +55,11 @@ export function SelectOneField({
 		return <LookupChoicesLoading />;
 	}
 	return (
-		<fieldset className="m-0 border-none p-0" onBlur={onBlur}>
+		<fieldset
+			aria-labelledby={labelledBy}
+			className="m-0 border-none p-0"
+			onBlur={onBlur}
+		>
 			<div className="space-y-1.5">
 				{lookupBacked && options.length === 0 && <LookupChoicesEmpty />}
 				{options.map((opt) => {

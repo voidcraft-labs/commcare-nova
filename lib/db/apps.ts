@@ -45,7 +45,6 @@ import {
 	type MediaAttachExpectation,
 } from "@/lib/media/attachVerdicts";
 import {
-	assertPersistenceSafeMutationIdentities,
 	describeIntroducedErrors,
 	evaluatePreparedMutationCandidate,
 	exportReadinessFindings,
@@ -616,21 +615,6 @@ export async function deleteMediaAssetForChatRun(args: {
 	});
 }
 
-/** Map a replay-unsafe payload to the commit rejection shape wire callers know. */
-function assertDeterministicPersistedMutations(
-	mutations: readonly Mutation[],
-): void {
-	try {
-		assertPersistenceSafeMutationIdentities(mutations);
-	} catch (error) {
-		throw new BlueprintCommitRejectedError(
-			error instanceof Error
-				? error.message
-				: "This mutation batch cannot be persisted deterministically.",
-		);
-	}
-}
-
 // ── Concurrency Guard ─────────────────────────────────────────────
 
 /**
@@ -789,7 +773,6 @@ export async function createApp(
 	// transaction closure, so the template callback and reducer must stay out of
 	// it. The prepared value is deterministic and safe to evaluate repeatedly.
 	const seedMutations = opts?.seedMutations?.(emptyDoc) ?? [];
-	assertDeterministicPersistedMutations(seedMutations);
 	const prepared = prepareMutationCandidate(emptyDoc, seedMutations);
 	const candidateTargets = extractLookupReferenceTargets(prepared.nextDoc);
 	const persistable = toPersistableDoc(prepared.nextDoc);
@@ -1146,7 +1129,6 @@ export async function commitGuardedBatch(
 			}
 			// Rebuild the fresh doc, reject a concurrent-delete target, re-verdict.
 			const freshDoc = hydratePersistedBlueprint(freshPersistable);
-			assertDeterministicPersistedMutations(mutations);
 			if (batchTargetsMissing(freshDoc, mutations)) {
 				throw new BlueprintCommitRejectedError(
 					"This app changed while you were editing — something your change " +
@@ -1421,7 +1403,6 @@ export async function appendSyntheticBatch(
 		);
 		const previousDoc = hydratePersistedBlueprint(previousPersistable);
 		const mutations = diffDocsToMutations(previousDoc, requestedTarget);
-		assertDeterministicPersistedMutations(mutations);
 		const prepared = prepareMutationCandidate(previousDoc, mutations);
 		const replayed = toPersistableDoc(prepared.nextDoc);
 		const requested = toPersistableDoc(requestedTarget);
@@ -1660,6 +1641,36 @@ async function assertMoveLookupClosureEmpty(
 	}
 }
 
+/**
+ * Capture objects are submission evidence and currently have no cross-Project
+ * copy/remap closure. Block the move under the app lock instead of moving only
+ * cases/media and stranding rows or bytes in the source tenant.
+ */
+async function assertMoveCaptureClosureEmpty(
+	tx: Transaction<AppDatabase>,
+	appId: string,
+): Promise<void> {
+	const [attachment, intent] = await Promise.all([
+		tx
+			.selectFrom("form_attachments")
+			.select("attachment_id")
+			.where("app_id", "=", appId)
+			.limit(1)
+			.executeTakeFirst(),
+		tx
+			.selectFrom("form_submission_intents")
+			.select("entry_key")
+			.where("app_id", "=", appId)
+			.limit(1)
+			.executeTakeFirst(),
+	]);
+	if (attachment !== undefined || intent !== undefined) {
+		throw new BlueprintCommitRejectedError(
+			"This app has captured form submissions and cannot move Projects yet. Keep it in its current Project.",
+		);
+	}
+}
+
 export type RepairLookupReferenceEdgesResult =
 	| { kind: "repaired" }
 	| { kind: "unchanged" };
@@ -1752,6 +1763,7 @@ export async function prepareAppProjectMoveInTransaction(
 	if (runDisposition) return runDisposition;
 	const { doc } = await assembleLockedProjectMoveDoc(tx, args.appId, fresh);
 	await assertMoveLookupClosureEmpty(tx, args.appId, doc);
+	await assertMoveCaptureClosureEmpty(tx, args.appId);
 	const threads = await readProjectMoveThreads(tx, args.appId);
 	const requiredAssetIds = [...collectRealAssetRefs(asWalkableDoc(doc))].sort();
 	const required = new Set(requiredAssetIds);
@@ -1842,6 +1854,7 @@ export async function commitAppProjectMoveInTransaction(
 	const { persisted: previousPersisted, doc: previousDoc } =
 		await assembleLockedProjectMoveDoc(tx, args.appId, fresh);
 	await assertMoveLookupClosureEmpty(tx, args.appId, previousDoc);
+	await assertMoveCaptureClosureEmpty(tx, args.appId);
 	const threads = await lockProjectMoveThreads(tx, args.appId);
 	const requiredAssetIds = [
 		...collectRealAssetRefs(asWalkableDoc(previousDoc)),
@@ -1889,7 +1902,6 @@ export async function commitAppProjectMoveInTransaction(
 				)
 			: previousDoc;
 	const mutations = diffDocsToMutations(previousDoc, requestedCandidate);
-	assertDeterministicPersistedMutations(mutations);
 	const prepared = prepareMutationCandidate(previousDoc, mutations);
 	if (
 		!deepEqual(

@@ -143,6 +143,22 @@ describe("userFacingError — voice", () => {
 		const line = userFacingError(richFinding("XFORM_PARSE_ERROR"));
 		expect(line).toContain("on our end");
 	});
+
+	it("gives duplicate worker-information choices a direct repair", () => {
+		const line = userFacingError(
+			validationError(
+				"USER_PROPERTY_CHOICES_DUPLICATE",
+				"app",
+				"verbose internal message",
+				{},
+				{ slug: "region" },
+			),
+		);
+
+		expect(line).not.toContain("on our end");
+		expect(line).toMatch(/accepted (option|value)/i);
+		expect(line).toMatch(/remove the repeated/i);
+	});
 });
 
 describe("userFacingError — delete-aware phrasing", () => {

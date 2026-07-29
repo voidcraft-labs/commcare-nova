@@ -18,10 +18,12 @@
  *     `gcloud auth login` — IAM database auth presents your ADC identity,
  *     and the database user derived below must match it
  *
- * Every value is an env-level DEFAULT (`NOVA_DB_*` set in the shell wins),
- * except `NOVA_DB_LOCAL_URL`, which `--prod` unconditionally clears: the
- * local-dev opt-in wins inside `initialize()`, and the whole point of the
- * flag is "not the compose container".
+ * Connection identity/target values are env-level DEFAULTS (`NOVA_DB_*` set
+ * in the shell wins). Two mode selectors are authoritative: `--prod`
+ * unconditionally clears `NOVA_DB_LOCAL_URL` and sets
+ * `NOVA_DB_WORKLOAD=operator`. The whole point of the flag is "not the compose
+ * container", and every one-off script must stay on its one reserved operator
+ * connection rather than masquerading as a serving process.
  */
 
 import { execFileSync } from "node:child_process";
@@ -77,6 +79,7 @@ function gcloudAccount(): string {
  */
 export function targetProdDb(): void {
 	delete process.env.NOVA_DB_LOCAL_URL;
+	process.env.NOVA_DB_WORKLOAD = "operator";
 	defaultEnv("NOVA_DB_IP_TYPE", "PUBLIC");
 	defaultEnv("NOVA_DB_NAME", PROD_DB_NAME);
 	defaultEnv("NOVA_DB_INSTANCE_CONNECTION_NAME", PROD_INSTANCE_CONNECTION_NAME);

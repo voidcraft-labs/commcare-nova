@@ -58,7 +58,6 @@ describe("case-operation domain vocabulary", () => {
 		const parsed = caseOperationSchema.parse({
 			uuid: A,
 			id: "create_visit",
-			order: "a0",
 			action: "create",
 			caseType: "visit",
 			target: { kind: "new", idFrom: B },
@@ -86,25 +85,25 @@ describe("case-operation domain vocabulary", () => {
 		).toEqual({ kind: "unowned" });
 	});
 
-	it("orders by fractional key and then immutable UUID", () => {
+	it("reads the operations in the order the array holds them", () => {
 		const base = {
 			id: "op",
 			action: "update" as const,
 			caseType: "patient",
 			target: { kind: "session" as const },
 		};
-		const ordered = orderedCaseOperations({
-			caseOperations: [
-				{ ...base, uuid: B, order: "b" },
-				{ ...base, uuid: B, id: "second_a", order: "a" },
-				{ ...base, uuid: A, id: "first_a", order: "a" },
-			],
-		});
+		const stored = [
+			{ ...base, uuid: A, id: "first" },
+			{ ...base, uuid: B, id: "second" },
+		];
+		const ordered = orderedCaseOperations({ caseOperations: stored });
 		expect(ordered.map((operation) => operation.id)).toEqual([
-			"first_a",
-			"second_a",
-			"op",
+			"first",
+			"second",
 		]);
+		// A copy, so a caller sorting or splicing the result can't reach into
+		// the form it read from.
+		expect(ordered).not.toBe(stored);
 	});
 
 	it("includes operation writers in effective and materialized case schemas", () => {
@@ -237,7 +236,6 @@ describe("case-operation domain vocabulary", () => {
 			{
 				uuid: A,
 				id: "copy_score",
-				order: "a",
 				action: "update",
 				caseType: "patient",
 				target: { kind: "session" },
@@ -255,7 +253,6 @@ describe("case-operation domain vocabulary", () => {
 			{
 				uuid: B,
 				id: "write_score",
-				order: "b",
 				action: "update",
 				caseType: "patient",
 				target: { kind: "session" },
@@ -298,7 +295,6 @@ describe("case-operation domain vocabulary", () => {
 			{
 				uuid: asUuid("33333333-3333-4333-8333-333333333333"),
 				id: "copy_right_to_left",
-				order: "a",
 				action: "update",
 				caseType: "patient",
 				target: { kind: "session" },
@@ -312,7 +308,6 @@ describe("case-operation domain vocabulary", () => {
 			{
 				uuid: asUuid("44444444-4444-4444-8444-444444444444"),
 				id: "copy_left_to_right",
-				order: "b",
 				action: "update",
 				caseType: "patient",
 				target: { kind: "session" },

@@ -15,8 +15,8 @@
  * The honesty boundary here is bytes: a reference is DEAD — mechanically
  * clearable, losing nothing — only when its asset has no usable bytes
  * (no row at all, or a row stuck `pending` past the upload window, whose
- * pending object the bucket lifecycle rule has already reaped — see
- * `lib/storage/media.ts::applyPendingObjectLifecycle`). Anything with
+ * pending object the bucket storage policy has already reaped — see
+ * `lib/storage/media.ts::applyMediaBucketStoragePolicy`). Anything with
  * usable or potentially-usable bytes (a READY asset of the wrong kind, a
  * still-young pending upload, a cross-account reference) is reported
  * needs-owner, never auto-cleared.
@@ -33,8 +33,8 @@ import {
 	walkAssetRefs,
 } from "../../lib/domain/mediaRefs";
 
-/** A pending row older than this can never confirm: the bucket lifecycle
- *  rule reaps `pending/` objects after one day, so the bytes are gone. */
+/** A pending row older than this can never confirm: the bucket storage
+ *  policy reaps `pending/` objects after one day, so the bytes are gone. */
 export const STALE_PENDING_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 /** The asset-row fields the media-ref judgment reads, loaded from the

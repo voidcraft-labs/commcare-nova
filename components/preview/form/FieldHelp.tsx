@@ -18,17 +18,19 @@ import { PreviewMarkdown } from "@/lib/markdown";
  * a caller can mount it unconditionally.
  */
 export function FieldHelp({
+	id,
 	help,
 	helpMedia,
 	interactive,
 }: {
+	id?: string;
 	help: string | undefined;
 	helpMedia: Media | undefined;
 	interactive: boolean;
 }) {
 	if (!help && !helpMedia) return null;
 	return (
-		<div className="space-y-1.5">
+		<div id={id} className="space-y-1.5">
 			{help && (
 				<div className="preview-markdown text-xs text-nova-text-muted">
 					<PreviewMarkdown>{help}</PreviewMarkdown>

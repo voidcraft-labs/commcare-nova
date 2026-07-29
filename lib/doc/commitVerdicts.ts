@@ -23,11 +23,12 @@
  *
  * Pure — the candidate `nextDoc` is computed via Immer `produce` over
  * the same `applyMutations` reducer every committed batch runs through.
- * Accepting callers commit the candidate itself (the builder's
- * `commitDoc`, the MCP transactional write), so the doc the gate
- * validated IS the doc that lands — one reducer run, no
- * candidate-vs-committed divergence even for the one nondeterministic
- * reducer (`duplicateField`'s minted clone uuid).
+ * Accepting callers commit the candidate itself (the builder's `commitDoc`,
+ * the MCP transactional write), so the doc the gate validated IS the doc that
+ * lands, at one reducer run per dispatch. Every reducer is deterministic —
+ * mutations carry the identities they install rather than minting them on the
+ * way past — so re-running would reach the same document; committing the
+ * candidate is about doing the work once, not about avoiding a divergence.
  */
 
 import { produce } from "immer";
@@ -35,6 +36,7 @@ import {
 	type CsqlRepresentabilityIssue,
 	checkCsqlRepresentability,
 } from "@/lib/commcare/predicate";
+import { matchModeRunsOnDevice } from "@/lib/commcare/predicate/matchModes";
 import type { ValidationScope } from "@/lib/commcare/validator";
 import type { ValidationError } from "@/lib/commcare/validator/errors";
 import {
@@ -52,7 +54,7 @@ import {
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation, MutationResult } from "@/lib/doc/types";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
-import type { Predicate } from "@/lib/domain/predicate";
+import type { MatchMode, Predicate } from "@/lib/domain/predicate";
 
 export type PredicateEditVerdict =
 	| { readonly ok: true }
@@ -96,6 +98,22 @@ export function caseSearchPredicateEditVerdict(
 	return introduced === undefined
 		? { ok: true }
 		: { ok: false, reason: predicateEditIssueReason(introduced) };
+}
+
+/**
+ * Whether CommCare's own evaluator implements `mode`, for a slot that runs
+ * on the device rather than as a remote case-search query.
+ *
+ * The builder asks the same question the on-device emitter and the two
+ * portability rules ask, through this boundary rather than by restating a
+ * CommCare fact in React code — the mode table lives once, at
+ * `lib/commcare/predicate/matchModes.ts`. A picker needs it because the
+ * refusal is otherwise invisible until commit: the three case-search modes
+ * type-check perfectly, so nothing short of the wire dialect knows they
+ * cannot run.
+ */
+export function matchModeAvailableOnDevice(mode: MatchMode): boolean {
+	return matchModeRunsOnDevice(mode);
 }
 
 /** Absolute readiness verdict for a predicate that will execute as a remote
@@ -361,36 +379,6 @@ export function mutationCommitVerdict(
 		prepareMutationCandidate(prevDoc, mutations),
 		lookupContext,
 	);
-}
-
-/** A persisted mutation must carry every identity its reducer will install. */
-export type PersistenceSafeMutation = Exclude<
-	Mutation,
-	{ readonly kind: "duplicateField" }
->;
-
-/**
- * Reject reducer-minted identity mutations at persistence boundaries.
- *
- * `duplicateField` is intentionally a UI-only convenience event. The builder
- * applies it locally, then its doc diff persists explicit `addField` mutations
- * carrying the minted clone/subtree UUIDs. Replaying a raw `duplicateField`
- * in an authoritative transaction would mint a different candidate on every
- * retry and can never be an accepted-mutation wire contract. Any future
- * reducer convenience that mints identity must join this guard; persisted
- * mutations instead carry those identities in their payloads.
- */
-export function assertPersistenceSafeMutationIdentities(
-	mutations: readonly Mutation[],
-): asserts mutations is readonly PersistenceSafeMutation[] {
-	const reducerMinted = mutations.find(
-		(mutation) => mutation.kind === "duplicateField",
-	);
-	if (reducerMinted !== undefined) {
-		throw new Error(
-			"duplicateField is UI-only and cannot be persisted; persist explicit addField mutations carrying every minted UUID.",
-		);
-	}
 }
 
 /**

@@ -9,13 +9,13 @@ import {
 	type LookupRowsTable,
 	withAppTx,
 } from "@/lib/db/pg";
-import { balancedKeysBetween, deriveKeyAtIndex } from "@/lib/doc/order/keys";
 import {
 	type LookupTableId,
 	lookupColumnIdSchema,
 	lookupRowIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
+import { balancedKeysBetween, deriveKeyAtIndex } from "@/lib/lookup/orderKeys";
 import { validateLookupRowValues } from "./coercion";
 import {
 	LOOKUP_MAX_COLUMNS,

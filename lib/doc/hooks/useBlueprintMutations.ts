@@ -43,13 +43,16 @@
 "use client";
 
 import { useContext, useMemo } from "react";
+import type { CaseDisplaySurface } from "@/components/builder/case-list-config/workspaceProjection";
 import {
 	type CaseTypeRetirement,
 	planCaseTypeRetirementOnRemove,
 	planCaseTypeRetirementOnRetype,
 } from "@/lib/doc/caseTypeRetirement";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { duplicateFieldMutations } from "@/lib/doc/duplicateFieldMutations";
 import type { FieldPath } from "@/lib/doc/fieldPath";
+import { fieldSlotAfter } from "@/lib/doc/fieldSlot";
 import { findRenameSiblingConflict } from "@/lib/doc/identifierVerdicts";
 import { planKindConversion } from "@/lib/doc/kindConversionCascade";
 import {
@@ -58,13 +61,7 @@ import {
 } from "@/lib/doc/lookupReferences";
 import { modulePatchMutations } from "@/lib/doc/modulePatchMutations";
 import { notifyRejectedCommit } from "@/lib/doc/mutations/notify";
-import {
-	type ColumnSurface,
-	columnSurfaceMoveMutation,
-} from "@/lib/doc/order/columnSurface";
-import { orderKeyForFieldSlot } from "@/lib/doc/order/fieldSlot";
-import { keyedOptions } from "@/lib/doc/order/options";
-import { searchInputMoveMutation } from "@/lib/doc/order/searchInput";
+import { withOptionUuids } from "@/lib/doc/optionIdentity";
 import {
 	BlueprintDocContext,
 	BlueprintEditableContext,
@@ -90,9 +87,14 @@ import {
 	addPersonaMutations,
 	addUserPropertyMutations,
 	addUserTypeMutations,
+	type RemoveUserPropertyPlan,
 	removePersonaMutations,
-	removeUserPropertyMutations,
+	removeUserPropertyPlan,
 	removeUserTypePlan,
+	updatePersonaMutations,
+	updatePersonaValueMutations,
+	updateUserTypeMutations,
+	updateUserTypeValueMutations,
 } from "@/lib/doc/userMutations";
 import {
 	type AssetId,
@@ -111,6 +113,7 @@ import {
 	fieldRegistry,
 	HIDDEN_INERT_DEFAULT_VALUE,
 	type Module,
+	ownRecordValue,
 	type Persona,
 	type SelectOption,
 	type UserProperty,
@@ -339,7 +342,7 @@ export interface BlueprintMutations {
 	moveColumnOnSurface: (
 		moduleUuid: Uuid,
 		uuid: Uuid,
-		surface: ColumnSurface,
+		surface: CaseDisplaySurface,
 		toIndex: number,
 	) => CommitOutcome;
 	/**
@@ -394,8 +397,11 @@ export interface BlueprintMutations {
 		patch: UserEntityPatch<UserProperty>,
 	) => CommitOutcome;
 	/** Remove a piece of worker information and every value recorded
-	 *  against it, as one batch. */
+	 *  against it, as one batch. Refused while a condition/calculation
+	 *  references its stable identity. */
 	removeUserProperty: (uuid: Uuid) => CommitOutcome;
+	/** Read the same live preflight the removal dispatch enforces. */
+	inspectUserPropertyRemoval: (uuid: Uuid) => RemoveUserPropertyPlan;
 
 	/** Add a role. */
 	addUserType: (userType: Omit<UserType, "uuid" | "order">) => AddCommitOutcome;
@@ -403,6 +409,12 @@ export interface BlueprintMutations {
 	updateUserType: (
 		uuid: Uuid,
 		patch: UserEntityPatch<UserType>,
+	) => CommitOutcome;
+	/** Set or remove one role default without replacing its sibling values. */
+	updateUserTypeValue: (
+		uuid: Uuid,
+		userPropertyUuid: Uuid,
+		value: string | undefined,
 	) => CommitOutcome;
 	/** Remove a role. Refused, with the personas named, while any persona
 	 *  still holds it. */
@@ -412,6 +424,12 @@ export interface BlueprintMutations {
 	addPersona: (persona: Omit<Persona, "uuid" | "order">) => AddCommitOutcome;
 	/** Change a persona's name, role, or value overrides. */
 	updatePersona: (uuid: Uuid, patch: UserEntityPatch<Persona>) => CommitOutcome;
+	/** Set or remove one persona override without replacing its siblings. */
+	updatePersonaValue: (
+		uuid: Uuid,
+		userPropertyUuid: Uuid,
+		value: string | undefined,
+	) => CommitOutcome;
 	/** Remove a persona. Case rows it owns are deliberately left alone. */
 	removePersona: (uuid: Uuid) => CommitOutcome;
 
@@ -621,7 +639,8 @@ export function useBlueprintMutations(
 			 * VALIDATED CANDIDATE commits directly (`commitDoc`) with the
 			 * candidate run's own reducer results — one reducer run per
 			 * dispatch, and the committed doc is exactly the doc the gate
-			 * validated (load-bearing for `duplicateField`'s minted uuid). */
+			 * validated. The batch is then RECORDED: it is the author's
+			 * un-persisted intent until the reconciler PUTs it. */
 			const guardedApply = (
 				mutations: Mutation[],
 			):
@@ -648,7 +667,10 @@ export function useBlueprintMutations(
 					if (announce) notifyRejectedCommit(lines);
 					return { ok: false, messages: lines };
 				}
-				store.getState().commitDoc(verdict.nextDoc);
+				// The candidate commits, and the batch that produced it is kept
+				// verbatim. Persistence replays exactly these commands rather than
+				// re-deriving them by diffing the committed document against a base.
+				store.getState().commitDoc(verdict.nextDoc, mutations);
 				return { ok: true, results: verdict.results };
 			};
 
@@ -670,11 +692,9 @@ export function useBlueprintMutations(
 						return NOOP_REJECTION;
 					}
 
-					// Resolve the new field's absolute fractional `order` from the
-					// requested slot (atIndex / beforeUuid / afterUuid, default
-					// append) against the parent's DISPLAY sequence — sequence is the
-					// `order` key, not array position.
-					const fieldOrder = orderKeyForFieldSlot(doc, parentUuid, {
+					// Resolve the requested slot (atIndex / beforeUuid / afterUuid,
+					// default append) to the uuid the new field follows.
+					const fieldAfter = fieldSlotAfter(doc, parentUuid, {
 						index: opts?.atIndex,
 						beforeUuid: opts?.beforeUuid,
 						afterUuid: opts?.afterUuid,
@@ -694,18 +714,19 @@ export function useBlueprintMutations(
 					// option, so a picker-created select (whose starter options
 					// carry neither) would lose them. Same minting the SA assembly
 					// uses.
-					const bornOptions = keyedOptions(
+					const bornOptions = withOptionUuids(
 						(field as { options?: SelectOption[] }).options,
 					);
 					// Field is a discriminated union; the narrowed generic input is a
-					// specific variant's Omit — we stamp the uuid + order and cast via
+					// specific variant's Omit — we stamp the uuid and cast via
 					// `unknown` because the distributive Omit shape doesn't round-trip
 					// back to the full union narrowly (TS limitation around Omit +
-					// discriminated unions).
+					// discriminated unions). Placement rides the mutation, not the
+					// entity: where a field goes is the gesture's business, not the
+					// field's.
 					const entity = {
 						...field,
 						uuid,
-						order: fieldOrder,
 						...(bornOptions && { options: bornOptions }),
 					} as unknown as Field;
 
@@ -722,6 +743,7 @@ export function useBlueprintMutations(
 							kind: "addField",
 							parentUuid,
 							field: entity,
+							after: fieldAfter,
 						},
 					]);
 					if (!applied.ok) return applied;
@@ -840,11 +862,10 @@ export function useBlueprintMutations(
 					const toParentUuid =
 						opts.toParentUuid ?? doc.fieldParent[uuid] ?? uuid;
 
-					// Compute the absolute fractional `order` for the requested slot in
-					// the destination parent's DISPLAY sequence, excluding the moved
-					// field from the neighbor set (a same-parent reorder keys between
-					// the OTHER siblings). The reducer writes it verbatim.
-					const order = orderKeyForFieldSlot(
+					// Resolve the requested slot to a landing in the destination
+					// parent's sequence, excluding the moved field from the neighbour
+					// set — a same-parent reorder places it among the OTHER siblings.
+					const after = fieldSlotAfter(
 						doc,
 						toParentUuid,
 						{
@@ -862,7 +883,7 @@ export function useBlueprintMutations(
 					// and the Immer draft — fallback to a zeroed result so callers
 					// always see a valid `MoveFieldResult`.
 					const applied = guardedApply([
-						{ kind: "moveField", uuid, toParentUuid, order },
+						{ kind: "moveField", uuid, toParentUuid, after },
 					]);
 					if (!applied.ok) return {};
 					return (applied.results[0] as MoveFieldResult | undefined) ?? {};
@@ -870,50 +891,29 @@ export function useBlueprintMutations(
 
 				duplicateField(uuid) {
 					const doc = get();
-					if (!doc.fields[uuid]) {
+					const plan = duplicateFieldMutations(doc, uuid);
+					if (plan === undefined) {
 						warnUnresolved("duplicateField", { uuid });
 						return undefined;
 					}
+					if (!guardedApply(plan.mutations).ok) return undefined;
 
-					// Snapshot the parent's order BEFORE dispatch so we can diff and
-					// recover the new clone's uuid. The reducer splices the clone
-					// right after the source; the post-dispatch order will contain
-					// exactly one uuid that wasn't present before.
-					const parentUuid = doc.fieldParent[uuid] ?? undefined;
-					if (parentUuid === undefined) {
-						warnUnresolved("duplicateField", {
-							uuid,
-							reason: "no parent",
-						});
-						return undefined;
-					}
-					const beforeOrder = [...(doc.fieldOrder[parentUuid] ?? [])];
-					const beforeSet = new Set(beforeOrder);
-
-					if (!guardedApply([{ kind: "duplicateField", uuid }]).ok) {
-						return undefined;
-					}
-
-					// Diff the post-dispatch order against the snapshot to find the
-					// new clone. Only one uuid should be new.
-					const afterDoc = get();
-					const afterOrder = afterDoc.fieldOrder[parentUuid] ?? [];
-					const newUuid = afterOrder.find((u) => !beforeSet.has(u));
-					if (!newUuid) return undefined;
-
-					// Rebuild the new path: parent path (if any) + new field id.
-					// `fieldParent` is already up to date on `afterDoc` — the
-					// dispatcher rebuilds it after the reducer runs.
-					const cloneEntity = afterDoc.fields[newUuid];
-					if (!cloneEntity) return undefined;
-					const parentPath = afterDoc.forms[parentUuid]
+					// The clone's path is read AFTER the commit: the batch may have
+					// deduped its id against a sibling, and the path is what the
+					// caller navigates to.
+					const after = get();
+					const clone = after.fields[plan.cloneUuid];
+					if (clone === undefined) return undefined;
+					const parentUuid = after.fieldParent[plan.cloneUuid] ?? undefined;
+					if (parentUuid === undefined) return undefined;
+					const parentPath = after.forms[parentUuid]
 						? "" // parent is the form root
-						: (computePathForUuid(afterDoc, parentUuid) ?? "");
+						: (computePathForUuid(after, parentUuid) ?? "");
 					const newPath = (
-						parentPath ? `${parentPath}/${cloneEntity.id}` : cloneEntity.id
+						parentPath ? `${parentPath}/${clone.id}` : clone.id
 					) as FieldPath;
 
-					return { newPath, newUuid: newUuid as string };
+					return { newPath, newUuid: plan.cloneUuid as string };
 				},
 
 				convertField(uuid, toKind) {
@@ -960,7 +960,8 @@ export function useBlueprintMutations(
 						doc,
 						field,
 						toKind,
-						mintOptions: () => keyedOptions([...DEFAULT_SELECT_OPTIONS]) ?? [],
+						mintOptions: () =>
+							withOptionUuids([...DEFAULT_SELECT_OPTIONS]) ?? [],
 					});
 					if (!plan.ok) {
 						const message =
@@ -1114,17 +1115,34 @@ export function useBlueprintMutations(
 						});
 						return NOOP_REJECTION;
 					}
-					const mutation = columnSurfaceMoveMutation({
-						moduleUuid,
-						columns: config.columns,
-						surface,
-						uuid,
-						toIndex,
+					// The requested index counts the surface's VISIBLE rows, which is
+					// what the author sees; the sequence holds hidden ones too, so the
+					// landing is expressed against the full sequence.
+					const sequence =
+						surface === "list"
+							? config.listColumnOrder
+							: config.detailColumnOrder;
+					const visible = sequence.filter((columnUuid) => {
+						const column = config.columns.find((c) => c.uuid === columnUuid);
+						if (column === undefined) return false;
+						return surface === "list"
+							? column.visibleInList !== false
+							: column.visibleInDetail !== false;
 					});
-					// The row is already at the requested slot (or is omitted from this
-					// surface). No mutation means no undo/autosave entry.
-					if (mutation === undefined) return COMMITTED;
-					return toOutcome(guardedApply([mutation]));
+					const others = visible.filter((columnUuid) => columnUuid !== uuid);
+					const clamped = Math.max(0, Math.min(toIndex, others.length));
+					const after = clamped === 0 ? null : (others[clamped - 1] ?? null);
+					// Already there: no mutation, so no undo or autosave entry.
+					const currentAfter = (() => {
+						const at = sequence.indexOf(uuid);
+						return at <= 0 ? null : sequence[at - 1];
+					})();
+					if (after === currentAfter) return COMMITTED;
+					return toOutcome(
+						guardedApply([
+							{ kind: "moveColumn", moduleUuid, uuid, surface, after },
+						]),
+					);
 				},
 
 				moveSearchInputToIndex(moduleUuid, uuid, toIndex) {
@@ -1134,14 +1152,19 @@ export function useBlueprintMutations(
 						warnUnresolved("moveSearchInputToIndex", { moduleUuid, uuid });
 						return NOOP_REJECTION;
 					}
-					const mutation = searchInputMoveMutation({
-						moduleUuid,
-						inputs,
-						uuid,
-						toIndex,
-					});
-					if (mutation === undefined) return COMMITTED;
-					return toOutcome(guardedApply([mutation]));
+					const others = inputs
+						.map((input) => input.uuid)
+						.filter((inputUuid) => inputUuid !== uuid);
+					const clamped = Math.max(0, Math.min(toIndex, others.length));
+					const after = clamped === 0 ? null : (others[clamped - 1] ?? null);
+					const at = inputs.findIndex((input) => input.uuid === uuid);
+					const currentAfter = at <= 0 ? null : inputs[at - 1].uuid;
+					if (after === currentAfter) return COMMITTED;
+					return toOutcome(
+						guardedApply([
+							{ kind: "moveSearchInput", moduleUuid, uuid, after },
+						]),
+					);
 				},
 
 				setModuleMedia(uuid, media) {
@@ -1195,7 +1218,7 @@ export function useBlueprintMutations(
 				},
 
 				updateUserProperty(uuid, patch) {
-					if (get().userProperties?.[uuid] === undefined) {
+					if (ownRecordValue(get().userProperties, uuid) === undefined) {
 						warnUnresolved("updateUserProperty", { uuid });
 						return NOOP_REJECTION;
 					}
@@ -1206,13 +1229,20 @@ export function useBlueprintMutations(
 
 				removeUserProperty(uuid) {
 					const doc = get();
-					if (doc.userProperties?.[uuid] === undefined) {
+					if (ownRecordValue(doc.userProperties, uuid) === undefined) {
 						warnUnresolved("removeUserProperty", { uuid });
 						return NOOP_REJECTION;
 					}
-					return toOutcome(
-						guardedApply(removeUserPropertyMutations(doc, uuid)),
-					);
+					const plan = removeUserPropertyPlan(doc, uuid);
+					if (!plan.ok) {
+						if (announce) notifyRejectedCommit([plan.userMessage]);
+						return { ok: false, messages: [plan.userMessage] };
+					}
+					return toOutcome(guardedApply(plan.mutations));
+				},
+
+				inspectUserPropertyRemoval(uuid) {
+					return removeUserPropertyPlan(get(), uuid);
 				},
 
 				addUserType(userType) {
@@ -1225,18 +1255,35 @@ export function useBlueprintMutations(
 				},
 
 				updateUserType(uuid, patch) {
-					if (get().userTypes?.[uuid] === undefined) {
+					const doc = get();
+					if (ownRecordValue(doc.userTypes, uuid) === undefined) {
 						warnUnresolved("updateUserType", { uuid });
 						return NOOP_REJECTION;
 					}
-					return toOutcome(
-						guardedApply([{ kind: "updateUserType", uuid, patch }]),
+					const planned = updateUserTypeMutations(doc, uuid, patch);
+					if (planned.length === 0) return COMMITTED;
+					return toOutcome(guardedApply(planned));
+				},
+
+				updateUserTypeValue(uuid, userPropertyUuid, value) {
+					const doc = get();
+					if (ownRecordValue(doc.userTypes, uuid) === undefined) {
+						warnUnresolved("updateUserTypeValue", { uuid });
+						return NOOP_REJECTION;
+					}
+					const planned = updateUserTypeValueMutations(
+						doc,
+						uuid,
+						userPropertyUuid,
+						value,
 					);
+					if (planned.length === 0) return COMMITTED;
+					return toOutcome(guardedApply(planned));
 				},
 
 				removeUserType(uuid) {
 					const doc = get();
-					if (doc.userTypes?.[uuid] === undefined) {
+					if (ownRecordValue(doc.userTypes, uuid) === undefined) {
 						warnUnresolved("removeUserType", { uuid });
 						return NOOP_REJECTION;
 					}
@@ -1261,17 +1308,34 @@ export function useBlueprintMutations(
 				},
 
 				updatePersona(uuid, patch) {
-					if (get().personas?.[uuid] === undefined) {
+					const doc = get();
+					if (ownRecordValue(doc.personas, uuid) === undefined) {
 						warnUnresolved("updatePersona", { uuid });
 						return NOOP_REJECTION;
 					}
-					return toOutcome(
-						guardedApply([{ kind: "updatePersona", uuid, patch }]),
+					const planned = updatePersonaMutations(doc, uuid, patch);
+					if (planned.length === 0) return COMMITTED;
+					return toOutcome(guardedApply(planned));
+				},
+
+				updatePersonaValue(uuid, userPropertyUuid, value) {
+					const doc = get();
+					if (ownRecordValue(doc.personas, uuid) === undefined) {
+						warnUnresolved("updatePersonaValue", { uuid });
+						return NOOP_REJECTION;
+					}
+					const planned = updatePersonaValueMutations(
+						doc,
+						uuid,
+						userPropertyUuid,
+						value,
 					);
+					if (planned.length === 0) return COMMITTED;
+					return toOutcome(guardedApply(planned));
 				},
 
 				removePersona(uuid) {
-					if (get().personas?.[uuid] === undefined) {
+					if (ownRecordValue(get().personas, uuid) === undefined) {
 						warnUnresolved("removePersona", { uuid });
 						return NOOP_REJECTION;
 					}
@@ -1313,7 +1377,7 @@ export function useBlueprintMutations(
 				},
 
 				updateApp(patch) {
-					// Collapse the combined patch into a single `applyMany` so zundo
+					// Collapse the combined patch into a single `applyMany` so the store
 					// records exactly one undo entry. Dispatching `setAppName` and
 					// `setConnectType` individually would produce TWO undo entries per
 					// call — the user would have to hit ctrl-z twice to roll back a
@@ -1397,7 +1461,7 @@ export function useBlueprintMutations(
 
 				applyMany(mutations) {
 					// Batch dispatch — the store's `applyMany` wraps the whole set
-					// in one `set()` call so zundo records exactly one undo entry.
+					// in one `set()` call so the whole patch is one history entry.
 					// Returns the reducer's per-mutation results in input order;
 					// surfaced here so callers can narrow specific positions. A
 					// gate rejection returns an empty array (positional reads see

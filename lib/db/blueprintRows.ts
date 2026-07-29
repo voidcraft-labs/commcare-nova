@@ -16,7 +16,11 @@
 // the same cost the old whole-blob serialize paid, and it is correct for any
 // reducer side effect by construction.
 
-import type { PersistableDoc } from "@/lib/domain";
+import {
+	ownRecordValue,
+	type PersistableDoc,
+	recordWithValue,
+} from "@/lib/domain";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
 
 export interface EntityRow {
@@ -32,10 +36,9 @@ export interface EntityRow {
  *
  * The first three carry the runnable app and encode their hierarchy in
  * `(parent_uuid, ordinal)`. The last three are the flat user collections
- * (`lib/domain/users.ts`): they have no parent and no membership array, so
- * they persist with a null parent and a constant ordinal, and their
- * sequence lives entirely in each entity's fractional `order` key — the
- * same derived-sequence model every other collection follows.
+ * (`lib/domain/users.ts`): they have no parent, so they persist with a null
+ * parent, but their `ordinal` is real — it IS their sequence, the same as
+ * every other collection.
  */
 export type EntityRowKind =
 	| "module"
@@ -47,12 +50,13 @@ export type EntityRowKind =
 
 /** Which doc slot each flat user collection round-trips through. */
 const FLAT_COLLECTIONS = [
-	["user_property", "userProperties"],
-	["user_type", "userTypes"],
-	["persona", "personas"],
+	["user_property", "userProperties", "userPropertyOrder"],
+	["user_type", "userTypes", "userTypeOrder"],
+	["persona", "personas", "personaOrder"],
 ] as const satisfies readonly (readonly [
 	EntityRowKind,
 	"userProperties" | "userTypes" | "personas",
+	"userPropertyOrder" | "userTypeOrder" | "personaOrder",
 ])[];
 
 /** The `apps`-row scalar slice of the doc (everything that isn't an entity). */
@@ -81,6 +85,47 @@ export function blueprintScalars(doc: PersistableDoc): BlueprintScalars {
  * only the record map on assembly.
  */
 export function decomposeBlueprint(doc: PersistableDoc): EntityRow[] {
+	/*
+	 * The database primary key is `(app_id, uuid)` across EVERY entity kind.
+	 * Refuse identity collisions using each entity's own UUID before deriving
+	 * rows from record keys; otherwise a malformed record keyed under an alias
+	 * could evade the row-key duplicate check and persist an entity whose
+	 * durable identity disagrees with its JSON body.
+	 */
+	const entityIdentity = new Map<string, EntityRowKind>();
+	const assertIdentity = (
+		kind: EntityRowKind,
+		recordKey: string,
+		entityUuid: string,
+	): void => {
+		const previousKind = entityIdentity.get(entityUuid);
+		if (previousKind !== undefined) {
+			throw new Error(
+				`[decomposeBlueprint] duplicate entity uuid ${entityUuid} appears as both ${previousKind} and ${kind}; refusing to collapse two entities into one durable row.`,
+			);
+		}
+		if (recordKey !== entityUuid) {
+			throw new Error(
+				`[decomposeBlueprint] ${kind} record key ${recordKey} disagrees with entity uuid ${entityUuid}; refusing to persist an aliased identity.`,
+			);
+		}
+		entityIdentity.set(entityUuid, kind);
+	};
+	for (const [uuid, module] of Object.entries(doc.modules)) {
+		assertIdentity("module", uuid, module.uuid);
+	}
+	for (const [uuid, form] of Object.entries(doc.forms)) {
+		assertIdentity("form", uuid, form.uuid);
+	}
+	for (const [uuid, field] of Object.entries(doc.fields)) {
+		assertIdentity("field", uuid, field.uuid);
+	}
+	for (const [kind, slot] of FLAT_COLLECTIONS) {
+		for (const [uuid, entity] of Object.entries(doc[slot] ?? {})) {
+			assertIdentity(kind, uuid, entity.uuid);
+		}
+	}
+
 	const rows: EntityRow[] = [];
 	const placedModules = new Set<string>(doc.moduleOrder);
 	const placedForms = new Set<string>(Object.values(doc.formOrder).flat());
@@ -99,7 +144,7 @@ export function decomposeBlueprint(doc: PersistableDoc): EntityRow[] {
 		}
 	}
 	doc.moduleOrder.forEach((uuid, i) => {
-		const mod = doc.modules[uuid];
+		const mod = ownRecordValue(doc.modules, uuid);
 		if (mod) {
 			rows.push({
 				uuid,
@@ -112,7 +157,7 @@ export function decomposeBlueprint(doc: PersistableDoc): EntityRow[] {
 	});
 	for (const [moduleUuid, formUuids] of Object.entries(doc.formOrder)) {
 		formUuids.forEach((uuid, i) => {
-			const form = doc.forms[uuid];
+			const form = ownRecordValue(doc.forms, uuid);
 			if (form) {
 				rows.push({
 					uuid,
@@ -127,7 +172,7 @@ export function decomposeBlueprint(doc: PersistableDoc): EntityRow[] {
 	const placedFields = new Set<string>();
 	for (const [parentUuid, fieldUuids] of Object.entries(doc.fieldOrder)) {
 		fieldUuids.forEach((uuid, i) => {
-			const field = doc.fields[uuid];
+			const field = ownRecordValue(doc.fields, uuid);
 			if (field) {
 				placedFields.add(uuid);
 				rows.push({
@@ -152,16 +197,45 @@ export function decomposeBlueprint(doc: PersistableDoc): EntityRow[] {
 			});
 		}
 	}
-	for (const [kind, slot] of FLAT_COLLECTIONS) {
-		for (const [uuid, entity] of Object.entries(doc[slot] ?? {})) {
+	for (const [kind, slot, orderSlot] of FLAT_COLLECTIONS) {
+		const record = doc[slot] ?? {};
+		const sequence = doc[orderSlot] ?? [];
+		// The same guard the hierarchical collections carry: an entity the
+		// membership array does not name has no position, and persisting it would
+		// silently drop it from the sequence on the way back in.
+		const placed = new Set<string>(sequence);
+		for (const uuid of Object.keys(record)) {
+			if (!placed.has(uuid)) {
+				throw new Error(
+					`[decomposeBlueprint] ${kind} ${uuid} is in \`${slot}\` but absent from \`${orderSlot}\` — refusing to persist a doc that would lose its place.`,
+				);
+			}
+		}
+		sequence.forEach((uuid, ordinal) => {
+			const entity = ownRecordValue(
+				record as Readonly<Record<string, unknown>>,
+				uuid,
+			);
+			if (entity === undefined) return;
 			rows.push({
 				uuid,
 				kind,
 				parent_uuid: null,
-				ordinal: 0,
+				// The array position IS the sequence, so it is what persists.
+				ordinal,
 				data: entity as unknown as Record<string, unknown>,
 			});
+		});
+	}
+	const seen = new Map<string, EntityRowKind>();
+	for (const row of rows) {
+		const previousKind = seen.get(row.uuid);
+		if (previousKind !== undefined) {
+			throw new Error(
+				`[decomposeBlueprint] duplicate entity uuid ${row.uuid} appears as both ${previousKind} and ${row.kind}; refusing to collapse two entities into one durable row.`,
+			);
 		}
+		seen.set(row.uuid, row.kind);
 	}
 	return rows;
 }
@@ -176,9 +250,9 @@ export function assembleBlueprint(
 	scalars: BlueprintScalars,
 	rows: readonly EntityRow[],
 ): PersistableDoc {
-	const modules: Record<string, unknown> = {};
-	const forms: Record<string, unknown> = {};
-	const fields: Record<string, unknown> = {};
+	let modules: Record<string, unknown> = {};
+	let forms: Record<string, unknown> = {};
+	let fields: Record<string, unknown> = {};
 	/* Derived from `FLAT_COLLECTIONS`, never hand-listed beside it: a kind
 	 * added to the table but missed in a literal initializer would leave its
 	 * accumulator absent, so every row of that kind would be dropped while
@@ -187,7 +261,13 @@ export function assembleBlueprint(
 	const flat: Record<string, Record<string, unknown>> = Object.fromEntries(
 		FLAT_COLLECTIONS.map(([, slot]) => [slot, {}]),
 	);
-	const flatSlotByKind = new Map<string, string>(FLAT_COLLECTIONS);
+	const flatSlotByKind = new Map<string, string>(
+		FLAT_COLLECTIONS.map(([kind, slot]) => [kind, slot]),
+	);
+	/* Rows per flat kind, kept so the membership arrays rebuild from the stored
+	 * `ordinal` exactly as `moduleOrder` and `formOrder` do. The record alone
+	 * cannot carry sequence — that is the whole reason the array exists. */
+	const flatRowsBySlot = new Map<string, EntityRow[]>();
 	const moduleRows: EntityRow[] = [];
 	const formsByModule = new Map<string, EntityRow[]>();
 	const fieldsByParent = new Map<string, EntityRow[]>();
@@ -200,19 +280,28 @@ export function assembleBlueprint(
 		const flatSlot = flatSlotByKind.get(row.kind);
 		if (flatSlot !== undefined) {
 			const collection = flat[flatSlot];
-			if (collection !== undefined) collection[row.uuid] = row.data;
+			if (collection !== undefined) {
+				flat[flatSlot] = recordWithValue(
+					collection as Record<string, Record<string, unknown>>,
+					row.uuid,
+					row.data,
+				);
+				const list = flatRowsBySlot.get(flatSlot) ?? [];
+				list.push(row);
+				flatRowsBySlot.set(flatSlot, list);
+			}
 		} else if (row.kind === "module") {
-			modules[row.uuid] = row.data;
+			modules = recordWithValue<unknown>(modules, row.uuid, row.data);
 			moduleRows.push(row);
 		} else if (row.kind === "form") {
-			forms[row.uuid] = row.data;
+			forms = recordWithValue<unknown>(forms, row.uuid, row.data);
 			if (row.parent_uuid !== null) {
 				const list = formsByModule.get(row.parent_uuid) ?? [];
 				list.push(row);
 				formsByModule.set(row.parent_uuid, list);
 			}
 		} else {
-			fields[row.uuid] = row.data;
+			fields = recordWithValue<unknown>(fields, row.uuid, row.data);
 			if (row.parent_uuid !== null) {
 				const list = fieldsByParent.get(row.parent_uuid) ?? [];
 				list.push(row);
@@ -223,15 +312,23 @@ export function assembleBlueprint(
 
 	const byOrdinal = (a: EntityRow, b: EntityRow) => a.ordinal - b.ordinal;
 	moduleRows.sort(byOrdinal);
-	const formOrder: Record<string, string[]> = {};
+	let formOrder: Record<string, string[]> = {};
 	for (const [moduleUuid, list] of formsByModule) {
 		list.sort(byOrdinal);
-		formOrder[moduleUuid] = list.map((r) => r.uuid);
+		formOrder = recordWithValue(
+			formOrder,
+			moduleUuid,
+			list.map((r) => r.uuid),
+		);
 	}
-	const fieldOrder: Record<string, string[]> = {};
+	let fieldOrder: Record<string, string[]> = {};
 	for (const [parentUuid, list] of fieldsByParent) {
 		list.sort(byOrdinal);
-		fieldOrder[parentUuid] = list.map((r) => r.uuid);
+		fieldOrder = recordWithValue(
+			fieldOrder,
+			parentUuid,
+			list.map((r) => r.uuid),
+		);
 	}
 	/* Reproduce the reducer's key-per-parent invariant: every module carries a
 	 * `formOrder` key and every form + group/repeat container a `fieldOrder`
@@ -241,16 +338,23 @@ export function assembleBlueprint(
 	 * differ in shape and a raw `doc.formOrder[m].length` would throw only
 	 * after a reload. */
 	for (const row of moduleRows) {
-		formOrder[row.uuid] ??= [];
+		if (!Object.hasOwn(formOrder, row.uuid)) {
+			formOrder = recordWithValue<string[]>(formOrder, row.uuid, []);
+		}
 	}
 	for (const [uuid, form] of Object.entries(forms)) {
 		void form;
-		fieldOrder[uuid] ??= [];
+		if (!Object.hasOwn(fieldOrder, uuid)) {
+			fieldOrder = recordWithValue<string[]>(fieldOrder, uuid, []);
+		}
 	}
 	for (const [uuid, field] of Object.entries(fields)) {
 		const kind = (field as { kind?: string }).kind;
-		if (kind === "group" || kind === "repeat") {
-			fieldOrder[uuid] ??= [];
+		if (
+			(kind === "group" || kind === "repeat") &&
+			!Object.hasOwn(fieldOrder, uuid)
+		) {
+			fieldOrder = recordWithValue<string[]>(fieldOrder, uuid, []);
 		}
 	}
 
@@ -275,6 +379,20 @@ export function assembleBlueprint(
 			Object.entries(flat).filter(
 				([, collection]) => Object.keys(collection).length > 0,
 			),
+		),
+		/* The membership array rebuilds from the stored `ordinal`, the same way
+		 * `moduleOrder` does above — the record's key iteration order is not a
+		 * sequence and must never be mistaken for one. Omitted alongside its
+		 * record when the collection is empty. */
+		...Object.fromEntries(
+			FLAT_COLLECTIONS.flatMap(([, slot, orderSlot]) => {
+				const flatRows = flatRowsBySlot.get(slot) ?? [];
+				if (flatRows.length === 0) return [];
+				const sequence = [...flatRows]
+					.sort((a, b) => a.ordinal - b.ordinal)
+					.map((row) => row.uuid);
+				return [[orderSlot, sequence] as const];
+			}),
 		),
 	});
 }

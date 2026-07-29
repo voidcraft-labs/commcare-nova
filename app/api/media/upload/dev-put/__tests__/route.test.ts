@@ -12,12 +12,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PUT } from "../route";
 
-const { requireSessionMock, resolveProjectAccessMock, uploadAssetBytesMock } =
-	vi.hoisted(() => ({
-		requireSessionMock: vi.fn(),
-		resolveProjectAccessMock: vi.fn(),
-		uploadAssetBytesMock: vi.fn(),
-	}));
+const {
+	requireSessionMock,
+	resolveProjectAccessMock,
+	authorizePendingFormAttachmentUploadMock,
+	uploadAssetBytesMock,
+} = vi.hoisted(() => ({
+	requireSessionMock: vi.fn(),
+	resolveProjectAccessMock: vi.fn(),
+	authorizePendingFormAttachmentUploadMock: vi.fn(),
+	uploadAssetBytesMock: vi.fn(),
+}));
 
 // The route branches on `err instanceof AppAccessError`, so the mocked
 // module must export a real class the tests can throw. Hoisted because the
@@ -35,6 +40,10 @@ vi.mock("@/lib/auth-utils", () => ({
 vi.mock("@/lib/db/appAccess", () => ({
 	resolveProjectAccess: resolveProjectAccessMock,
 	AppAccessError: MockAppAccessError,
+}));
+vi.mock("@/lib/db/formAttachments", () => ({
+	authorizePendingFormAttachmentUpload:
+		authorizePendingFormAttachmentUploadMock,
 }));
 vi.mock("@/lib/storage/media", () => ({
 	uploadAssetBytes: uploadAssetBytesMock,
@@ -65,6 +74,7 @@ beforeEach(() => {
 	vi.stubEnv("NODE_ENV", "development");
 	requireSessionMock.mockResolvedValue({ user: { id: "user-1" } });
 	resolveProjectAccessMock.mockResolvedValue(undefined);
+	authorizePendingFormAttachmentUploadMock.mockResolvedValue(null);
 	uploadAssetBytesMock.mockResolvedValue(undefined);
 });
 
@@ -94,7 +104,83 @@ describe("PUT /api/media/upload/dev-put", () => {
 			gcsObjectKey: "pending/project-1/asset-1.png",
 			bytes: expect.any(Buffer),
 			contentType: "image/png",
+			ifAbsent: true,
 		});
+	});
+
+	it("binds a capture PUT to the exact actor-owned pending row", async () => {
+		authorizePendingFormAttachmentUploadMock.mockResolvedValue({
+			contentType: "image/png",
+			maxBytes: 9,
+		});
+		const res = await PUT(
+			devPutReq({
+				key: "captures-staged/project-1/attachment-1.png",
+				max: "999999",
+				contentType: "image/png",
+			}),
+		);
+
+		expect(res.status).toBe(200);
+		expect(authorizePendingFormAttachmentUploadMock).toHaveBeenCalledWith({
+			objectKey: "captures-staged/project-1/attachment-1.png",
+			actorUserId: "user-1",
+		});
+		expect(resolveProjectAccessMock).not.toHaveBeenCalled();
+		expect(uploadAssetBytesMock).toHaveBeenCalledWith({
+			gcsObjectKey: "captures-staged/project-1/attachment-1.png",
+			bytes: expect.any(Buffer),
+			contentType: "image/png",
+			ifAbsent: true,
+		});
+	});
+
+	it("derives a capture's exact byte count from the row, not the URL", async () => {
+		authorizePendingFormAttachmentUploadMock.mockResolvedValue({
+			contentType: "image/png",
+			maxBytes: 4,
+		});
+		const res = await PUT(
+			devPutReq({
+				key: "captures-staged/project-1/attachment-1.png",
+				max: "999999",
+				contentType: "image/png",
+			}),
+		);
+
+		expect(res.status).toBe(413);
+		expect(uploadAssetBytesMock).not.toHaveBeenCalled();
+		await res.json();
+	});
+
+	it("collapses a foreign or non-pending capture attempt to not found", async () => {
+		const res = await PUT(
+			devPutReq({
+				key: "captures-staged/project-1/attachment-1.png",
+				contentType: "image/png",
+			}),
+		);
+
+		expect(res.status).toBe(404);
+		expect(uploadAssetBytesMock).not.toHaveBeenCalled();
+		await res.json();
+	});
+
+	it("returns the storage precondition status for a reused attempt", async () => {
+		authorizePendingFormAttachmentUploadMock.mockResolvedValue({
+			contentType: "image/png",
+			maxBytes: 9,
+		});
+		uploadAssetBytesMock.mockRejectedValue({ code: 412 });
+		const res = await PUT(
+			devPutReq({
+				key: "captures-staged/project-1/attachment-1.png",
+				contentType: "image/png",
+			}),
+		);
+
+		expect(res.status).toBe(412);
+		await res.json();
 	});
 
 	it("403s when the caller can't edit the key's Project, writing nothing", async () => {

@@ -15,6 +15,7 @@ import {
 	asUuid,
 	type BlueprintDoc,
 	type Column,
+	emptyCaseListConfig,
 	plainColumn,
 	type Uuid,
 } from "@/lib/domain";
@@ -77,13 +78,13 @@ function accepts(doc: BlueprintDoc, mutations: readonly Mutation[]) {
 describe("turning the tile on", () => {
 	it("commits as one batch the gate accepts", () => {
 		const { doc, moduleUuid } = docWithColumns([
-			column("case_name", "Patient name", { listOrder: "a" }),
-			column("village", "Village", { listOrder: "b" }),
-			column("age", "Age", { listOrder: "c" }),
+			column("case_name", "Patient name"),
+			column("village", "Village"),
+			column("age", "Age"),
 		]);
 		const plan = planTileLayoutEnable({
 			moduleUuid,
-			columns: doc.modules[moduleUuid]?.caseListConfig?.columns ?? [],
+			config: doc.modules[moduleUuid]?.caseListConfig ?? emptyCaseListConfig(),
 		});
 		expect(plan.ok).toBe(true);
 		if (!plan.ok) return;
@@ -96,7 +97,7 @@ describe("turning the tile on", () => {
 		// The proof that seeding is load-bearing rather than decorative: the
 		// switch alone introduces `CASE_LIST_TILE_COLUMN_NOT_PLACED`.
 		const { doc, moduleUuid } = docWithColumns([
-			column("case_name", "Patient name", { listOrder: "a" }),
+			column("case_name", "Patient name"),
 		]);
 		const verdict = accepts(doc, [
 			{ kind: "setCaseListMeta", uuid: moduleUuid, patch: {}, tilePatch: {} },
@@ -112,16 +113,15 @@ describe("turning the tile on", () => {
 
 	it("leaves a hidden default-order field unplaced — it draws nothing", () => {
 		const { doc, moduleUuid } = docWithColumns([
-			column("case_name", "Patient name", { listOrder: "a" }),
+			column("case_name", "Patient name"),
 			column("age", "Age", {
-				listOrder: "b",
 				visibleInList: false,
 				sort: { direction: "asc", priority: 1 },
 			}),
 		]);
 		const plan = planTileLayoutEnable({
 			moduleUuid,
-			columns: doc.modules[moduleUuid]?.caseListConfig?.columns ?? [],
+			config: doc.modules[moduleUuid]?.caseListConfig ?? emptyCaseListConfig(),
 		});
 		expect(plan.ok).toBe(true);
 		if (!plan.ok) return;
@@ -137,14 +137,12 @@ describe("turning the tile on", () => {
 
 	it("stays accepted at a full grid of single squares", () => {
 		const columns = Array.from({ length: 144 }, (_unused, index) =>
-			column(`age`, `Field ${index}`, {
-				listOrder: String(index).padStart(4, "0"),
-			}),
+			column(`age`, `Field ${index}`),
 		).map((entry, index) => ({ ...entry, uuid: asUuid(`col-${index}`) }));
 		const { doc, moduleUuid } = docWithColumns(columns);
 		const plan = planTileLayoutEnable({
 			moduleUuid,
-			columns: doc.modules[moduleUuid]?.caseListConfig?.columns ?? [],
+			config: doc.modules[moduleUuid]?.caseListConfig ?? emptyCaseListConfig(),
 		});
 		expect(plan.ok).toBe(true);
 		if (!plan.ok) return;
@@ -159,7 +157,6 @@ describe("joining Results while it is a tile", () => {
 	function tiledDoc() {
 		const { doc, moduleUuid } = docWithColumns([
 			column("case_name", "Patient name", {
-				listOrder: "a",
 				tile: { x: 0, y: 0, width: 12, height: 1 },
 			}),
 		]);
@@ -176,7 +173,9 @@ describe("joining Results while it is a tile", () => {
 			{
 				kind: "addColumn",
 				moduleUuid,
-				column: column("village", "Village", { listOrder: "b" }),
+				column: column("village", "Village"),
+				afterInList: null,
+				afterInDetail: null,
 			},
 		]);
 		expect(verdict.ok).toBe(false);
@@ -195,16 +194,13 @@ describe("joining Results while it is a tile", () => {
 		// a cell the tile no longer draws.
 		const { doc, moduleUuid } = docWithColumns([
 			column("case_name", "Patient name", {
-				listOrder: "a",
 				tile: { x: 0, y: 0, width: 12, height: 1 },
 			}),
 			column("age", "Age", {
-				listOrder: "b",
 				visibleInList: false,
 				tile: { x: 0, y: 1, width: 12, height: 1 },
 			}),
 			column("village", "Village", {
-				listOrder: "c",
 				tile: { x: 0, y: 1, width: 12, height: 1 },
 			}),
 		]);
@@ -232,7 +228,11 @@ describe("joining Results while it is a tile", () => {
 		]);
 		expect(stale.ok).toBe(false);
 
-		const place = placementForJoiningTile(columns, hidden);
+		const place = placementForJoiningTile(
+			enabled.nextDoc.modules[moduleUuid]?.caseListConfig ??
+				emptyCaseListConfig(),
+			hidden,
+		);
 		expect(place).not.toBeNull();
 		if (place === null) return;
 		const revealed = accepts(enabled.nextDoc, [
@@ -257,7 +257,7 @@ describe("joining Results while it is a tile", () => {
 	it("is accepted when the field arrives carrying one", () => {
 		const { doc, moduleUuid } = tiledDoc();
 		const occupied = tileMembership(
-			doc.modules[moduleUuid]?.caseListConfig?.columns ?? [],
+			doc.modules[moduleUuid]?.caseListConfig ?? emptyCaseListConfig(),
 		).placed.map((entry) => entry.cell);
 		const place = nextFreeTilePlacement(occupied);
 		expect(place).toEqual({ x: 0, y: 1, width: 12, height: 1 });
@@ -266,7 +266,9 @@ describe("joining Results while it is a tile", () => {
 			{
 				kind: "addColumn",
 				moduleUuid,
-				column: column("village", "Village", { listOrder: "b" }),
+				column: column("village", "Village"),
+				afterInList: null,
+				afterInDetail: null,
 				tileCell: place,
 			},
 		]);
@@ -277,12 +279,12 @@ describe("joining Results while it is a tile", () => {
 describe("turning the tile off", () => {
 	it("is accepted and leaves every placement in the document", () => {
 		const { doc, moduleUuid } = docWithColumns([
-			column("case_name", "Patient name", { listOrder: "a" }),
-			column("village", "Village", { listOrder: "b" }),
+			column("case_name", "Patient name"),
+			column("village", "Village"),
 		]);
 		const enable = planTileLayoutEnable({
 			moduleUuid,
-			columns: doc.modules[moduleUuid]?.caseListConfig?.columns ?? [],
+			config: doc.modules[moduleUuid]?.caseListConfig ?? emptyCaseListConfig(),
 		});
 		expect(enable.ok).toBe(true);
 		if (!enable.ok) return;
@@ -308,17 +310,15 @@ describe("turning the tile off", () => {
 	it("lets the same drawing come straight back on", () => {
 		const { doc, moduleUuid } = docWithColumns([
 			column("case_name", "Patient name", {
-				listOrder: "a",
 				tile: { x: 0, y: 0, width: 6, height: 2 },
 			}),
 			column("village", "Village", {
-				listOrder: "b",
 				tile: { x: 6, y: 0, width: 6, height: 1 },
 			}),
 		]);
 		const plan = planTileLayoutEnable({
 			moduleUuid,
-			columns: doc.modules[moduleUuid]?.caseListConfig?.columns ?? [],
+			config: doc.modules[moduleUuid]?.caseListConfig ?? emptyCaseListConfig(),
 		});
 		expect(plan.ok).toBe(true);
 		if (!plan.ok) return;

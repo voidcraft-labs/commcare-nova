@@ -8,14 +8,21 @@
 // that every built-in slug is already unreachable through the slug rule.
 
 import { describe, expect, it } from "vitest";
+import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { userPropertySlugVerdict } from "@/lib/commcare/validator/userPropertySlug";
 import {
 	asUuid,
 	BUILT_IN_USER_PROPERTIES,
+	blueprintDocSchema,
+	personasOf,
 	personaUserData,
 	USER_DATA_SYSTEM_FIELDS,
 	USER_PROPERTY_SLUG_MAX_LENGTH,
 	type UserCollections,
+	userDataValuesSchema,
+	userPropertiesOf,
+	userPropertySchema,
+	userTypesOf,
 } from "@/lib/domain";
 
 const NONE: ReadonlySet<string> = new Set();
@@ -51,10 +58,21 @@ describe("slug legality follows CommCare's rule clause by clause", () => {
 			"Region",
 			"team_lead",
 			"sub-district",
+			"district-code",
 			"a1",
 		]) {
 			expect(userPropertySlugVerdict(slug, NONE).ok, slug).toBe(true);
 		}
+	});
+
+	it("requires an XML element-name-safe first character", () => {
+		for (const slug of ["2fa_region", "-area"]) {
+			expect(userPropertySlugVerdict(slug, NONE), slug).toMatchObject({
+				ok: false,
+				code: "illegal_format",
+			});
+		}
+		expect(userPropertySlugVerdict("_2fa-region", NONE).ok).toBe(true);
 	});
 
 	it("refuses characters outside that charset", () => {
@@ -78,7 +96,15 @@ describe("slug legality follows CommCare's rule clause by clause", () => {
 			ok: false,
 			code: "reserved",
 		});
+		expect(userPropertySlugVerdict("CommCare_region", NONE)).toMatchObject({
+			ok: false,
+			code: "reserved",
+		});
 		expect(userPropertySlugVerdict("xmlish", NONE)).toMatchObject({
+			ok: false,
+			code: "reserved",
+		});
+		expect(userPropertySlugVerdict("XMLish", NONE)).toMatchObject({
 			ok: false,
 			code: "reserved",
 		});
@@ -87,6 +113,10 @@ describe("slug legality follows CommCare's rule clause by clause", () => {
 	it("refuses every system field", () => {
 		for (const slug of USER_DATA_SYSTEM_FIELDS) {
 			expect(userPropertySlugVerdict(slug, NONE).ok, slug).toBe(false);
+			expect(
+				userPropertySlugVerdict(slug.toUpperCase(), NONE).ok,
+				slug.toUpperCase(),
+			).toBe(false);
 		}
 	});
 
@@ -157,5 +187,126 @@ describe("personaUserData", () => {
 				doc,
 			),
 		).toEqual({ [REGION]: "south" });
+	});
+
+	it("resolves prototype-named role and property keys only as own data", () => {
+		const roleUuid = asUuid("constructor");
+		const propertyUuid = asUuid("__proto__");
+		const ownDoc: UserCollections = {
+			userTypes: Object.fromEntries([
+				[
+					roleUuid,
+					{
+						uuid: roleUuid,
+						name: "Constructor role",
+						values: Object.fromEntries([[propertyUuid, "north"]]),
+					},
+				],
+			]),
+		};
+		const persona = {
+			uuid: asUuid("persona"),
+			name: "Asha",
+			userTypeUuid: roleUuid,
+		};
+
+		const data = personaUserData(persona, ownDoc);
+		expect(Object.hasOwn(data, propertyUuid)).toBe(true);
+		expect(data[propertyUuid]).toBe("north");
+		expect(personaUserData(persona, {})).toEqual({});
+	});
+});
+
+describe("user property accepted values", () => {
+	it("rejects duplicate values at the domain schema boundary", () => {
+		expect(
+			userPropertySchema.safeParse({
+				uuid: asUuid("property"),
+				slug: "region",
+				label: "Region",
+				choices: ["north", "north"],
+			}).success,
+		).toBe(false);
+	});
+});
+
+describe("prototype-safe user record parsing", () => {
+	it("returns fresh null-prototype fallbacks with no inherited identities", () => {
+		for (const read of [userPropertiesOf, userTypesOf, personasOf]) {
+			const first = read({});
+			const second = read({});
+			expect(first).not.toBe(second);
+			expect(Object.getPrototypeOf(first)).toBeNull();
+			expect(Object.hasOwn(first, "constructor")).toBe(false);
+			expect(Object.hasOwn(first, "__proto__")).toBe(false);
+			expect(first.constructor).toBeUndefined();
+		}
+	});
+
+	it("preserves every own hostile key in value bags", () => {
+		const values = Object.fromEntries([
+			["__proto__", "north"],
+			["constructor", "south"],
+		]);
+
+		const parsed = userDataValuesSchema.parse(values);
+		expect(Object.keys(parsed).sort()).toEqual(["__proto__", "constructor"]);
+		expect(Object.hasOwn(parsed, "__proto__")).toBe(true);
+		expect(Object.getOwnPropertyDescriptor(parsed, "__proto__")?.value).toBe(
+			"north",
+		);
+		expect(Object.hasOwn(parsed, "constructor")).toBe(true);
+		expect(parsed.constructor).toBe("south");
+	});
+
+	it("preserves hostile collection identities through the blueprint boundary", () => {
+		const propertyUuid = asUuid("__proto__");
+		const typeUuid = asUuid("constructor");
+		const personaUuid = asUuid("toString");
+		const { fieldParent: _derived, ...persistable } = buildDoc({
+			appName: "Hostile identities",
+			modules: [],
+		});
+		const wire = {
+			...persistable,
+			userProperties: Object.fromEntries([
+				[
+					propertyUuid,
+					{
+						uuid: propertyUuid,
+						slug: "region",
+						label: "Region",
+					},
+				],
+			]),
+			userTypes: Object.fromEntries([
+				[
+					typeUuid,
+					{
+						uuid: typeUuid,
+						name: "CHW",
+						values: Object.fromEntries([[propertyUuid, "north"]]),
+					},
+				],
+			]),
+			personas: Object.fromEntries([
+				[
+					personaUuid,
+					{
+						uuid: personaUuid,
+						name: "Asha",
+						userTypeUuid: typeUuid,
+					},
+				],
+			]),
+		};
+
+		const parsed = blueprintDocSchema.parse(wire);
+		expect(Object.hasOwn(parsed.userProperties ?? {}, propertyUuid)).toBe(true);
+		expect(Object.hasOwn(parsed.userTypes ?? {}, typeUuid)).toBe(true);
+		expect(Object.hasOwn(parsed.personas ?? {}, personaUuid)).toBe(true);
+		expect(
+			Object.hasOwn(parsed.userTypes?.[typeUuid]?.values ?? {}, propertyUuid),
+		).toBe(true);
 	});
 });

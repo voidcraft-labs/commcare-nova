@@ -24,6 +24,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
+import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import type { ToolExecutionContext } from "@/lib/agent/toolExecutionContext";
 import type { MutatingToolResult } from "@/lib/agent/tools/common";
 import { AppAccessError, resolveAppAccess } from "@/lib/db/appAccess";
@@ -497,14 +498,14 @@ describe("registerSharedTool — dormant lookup read projection", () => {
 
 		blueprint.modules[modUuid] = {
 			...blueprint.modules[modUuid],
-			caseListConfig: {
+			caseListConfig: resolveCaseListConfig({
 				columns: [
 					plainColumn(safeColumn, "name", "Name"),
 					calculatedColumn(dormantColumn, "Lookup result", lookup),
 				],
 				filter: eq(lookup, literal("active")),
 				searchInputs: [],
-			},
+			}),
 			caseSearchConfig: {
 				searchScreenTitle: "Find people",
 				excludedOwnerIds: lookup,
@@ -546,7 +547,7 @@ describe("registerSharedTool — dormant lookup read projection", () => {
 		expect(JSON.stringify(blueprint)).toBe(persistedBefore);
 	});
 
-	it("removes a dormant case-operation link through the real getForm MCP path", async () => {
+	it("projects a dormant case operation as wholly unavailable through the real getForm MCP path", async () => {
 		const { blueprint, formUuid } = mockBlueprintWithForm();
 		const table = "018f3e8a-7b2c-7def-8abc-1234567890ab" as LookupTableId;
 		const valueColumn =
@@ -601,25 +602,158 @@ describe("registerSharedTool — dormant lookup read projection", () => {
 		};
 		const wireText = out.content[0]?.text ?? "{}";
 		const payload = JSON.parse(wireText) as {
-			form: { caseOperations?: Array<{ links?: unknown[] }> };
+			form: {
+				caseOperations?: Array<{
+					id: string;
+					action: string;
+					caseType: string;
+					unavailable?: unknown;
+				}>;
+			};
 		};
 
 		expect(wireText).not.toContain("table-column");
 		expect(wireText).not.toContain("table-lookup");
 		expect(wireText).not.toContain("optionsSource");
-		expect(payload.form.caseOperations?.[0]?.links).toEqual([
-			{
-				identifier: "safe_null",
-				targetType: "household",
-				target: null,
-				relationship: "child",
+		expect(payload.form.caseOperations?.[0]).toEqual({
+			id: "link_household",
+			action: "update",
+			caseType: "patient",
+			unavailable: {
+				kind: "lookup-table-logic",
+				reason:
+					"This case change uses lookup-table logic that Nova preserves but cannot safely edit from this surface.",
 			},
-		]);
+		});
 		expect(JSON.stringify(blueprint)).toBe(persistedBefore);
 	});
 });
 
 describe("registerSharedTool — real mutating tool integration (addFields)", () => {
+	it("refuses dormant case-operation update/removal through MCP while allowing an identity-only move", async () => {
+		const { blueprint, modUuid, formUuid } = mockBlueprintWithForm();
+		const table = "018f3e8a-7b2c-7def-8abc-1234567890ab" as LookupTableId;
+		const valueColumn =
+			"018f3e8a-7b2c-7def-8abc-1234567890ad" as LookupColumnId;
+		const labelColumn =
+			"018f3e8a-7b2c-7def-8abc-1234567890ae" as LookupColumnId;
+		blueprint.caseTypes = [{ name: "patient", properties: [] }];
+		blueprint.forms[formUuid] = {
+			...blueprint.forms[formUuid],
+			type: "followup",
+			caseOperations: [
+				{
+					uuid: asUuid("73333333-3333-4333-8333-333333333333"),
+					id: "dormant_update",
+					action: "update",
+					caseType: "patient",
+					target: { kind: "session" },
+					condition: eq(
+						tableLookup(
+							table,
+							valueColumn,
+							eq(tableColumn(table, labelColumn), literal("enabled")),
+						),
+						literal("yes"),
+					),
+				},
+				{
+					uuid: asUuid("74444444-4444-4444-8444-444444444444"),
+					id: "safe_peer",
+					action: "update",
+					caseType: "patient",
+					target: { kind: "session" },
+				},
+			],
+		};
+		const persistedBefore = JSON.stringify(blueprint);
+		const loaded = buildLoadedApp({
+			blueprint: blueprint as unknown as BlueprintDoc,
+		});
+		vi.mocked(loadApp).mockResolvedValue(loaded);
+
+		const { updateCaseOperationTool } = await import(
+			"@/lib/agent/tools/case-operations/updateCaseOperation"
+		);
+		const { removeCaseOperationTool } = await import(
+			"@/lib/agent/tools/case-operations/removeCaseOperation"
+		);
+		const { moveCaseOperationTool } = await import(
+			"@/lib/agent/tools/case-operations/moveCaseOperation"
+		);
+		const { McpContext } = await import("../context");
+		const originalRecord = McpContext.prototype.recordMutations;
+		const recordSpy = vi.fn(async (_muts: unknown, doc: unknown) => ({
+			events: [],
+			committedDoc: doc,
+		}));
+		McpContext.prototype.recordMutations =
+			recordSpy as unknown as typeof originalRecord;
+
+		const invoke = async (
+			name: string,
+			tool: SharedToolModule,
+			payload: Record<string, unknown>,
+		): Promise<Record<string, unknown>> => {
+			const { server, capture } = makeFakeServer();
+			registerSharedTool(server, name, tool, toolCtx, "edit");
+			const out = (await capture()({ app_id: "a1", ...payload }, {})) as {
+				content: Array<{ type: "text"; text: string }>;
+			};
+			return JSON.parse(out.content[0]?.text ?? "{}") as Record<
+				string,
+				unknown
+			>;
+		};
+
+		try {
+			const update = await invoke(
+				"update_case_operation",
+				updateCaseOperationTool,
+				{
+					moduleUuid: modUuid,
+					formUuid,
+					operationId: "dormant_update",
+					operation: {
+						id: "renamed_update",
+						action: "update",
+						caseType: "patient",
+						target: { kind: "session" },
+					},
+				},
+			);
+			expect(update.error).toContain(
+				"uses lookup-table logic that Nova preserves but cannot safely edit from this surface",
+			);
+
+			const remove = await invoke(
+				"remove_case_operation",
+				removeCaseOperationTool,
+				{
+					moduleUuid: modUuid,
+					formUuid,
+					operationId: "dormant_update",
+				},
+			);
+			expect(remove.error).toContain(
+				"uses lookup-table logic that Nova preserves but cannot safely edit from this surface",
+			);
+			expect(recordSpy).not.toHaveBeenCalled();
+
+			const move = await invoke("move_case_operation", moveCaseOperationTool, {
+				moduleUuid: modUuid,
+				formUuid,
+				operationId: "dormant_update",
+				index: 1,
+			});
+			expect(move).toMatchObject({ index: 1 });
+			expect(recordSpy).toHaveBeenCalledTimes(1);
+			expect(JSON.stringify(blueprint)).toBe(persistedBefore);
+		} finally {
+			McpContext.prototype.recordMutations = originalRecord;
+		}
+	});
+
 	it("projects MutatingToolResult → result on the error branch and does not re-persist", async () => {
 		/* Covers the projection + error-shape contract on a real
 		 * mutating tool, not the double-persistence invariant per se:
