@@ -6,17 +6,29 @@
 import { z } from "zod";
 
 /**
- * Zod schema that accepts any non-empty string and types it as `Uuid`.
+ * One canonical Nova-authored UUID spelling.
  *
- * The brand is compile-time only, so keep the runtime schema structural.
- * A `.transform(...)` would return the same string at runtime but makes any
- * containing schema impossible to lower through `z.toJSONSchema` — including
- * the shared Predicate / ValueExpression definitions used by SA tools.
+ * The regex deliberately does more than `z.uuid()`:
+ *
+ * - lowercase only (inputs are rejected, never normalized);
+ * - versions 1–8;
+ * - the RFC variant (`8`, `9`, `a`, or `b`);
+ * - nil and max are impossible because their version/variant nibbles fail.
+ *
+ * Keeping this as a string regex means `z.toJSONSchema()` emits the complete
+ * admission rule as `pattern`; a custom refinement would disappear from the
+ * generated SA/MCP schema.
  */
-export const uuidSchema = z.string().min(1).brand<"Uuid">();
+export const CANONICAL_UUID_PATTERN =
+	/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+export const uuidSchema = z
+	.string()
+	.regex(CANONICAL_UUID_PATTERN, "Expected a canonical lowercase RFC UUID.")
+	.brand<"Uuid">();
 export type Uuid = z.infer<typeof uuidSchema>;
 
-/** Narrowing cast from string → Uuid. Prefer over `as Uuid`. */
+/** Parse and narrow string → Uuid. Prefer over unchecked `as Uuid`. */
 export function asUuid(s: string): Uuid {
-	return s as Uuid;
+	return uuidSchema.parse(s);
 }

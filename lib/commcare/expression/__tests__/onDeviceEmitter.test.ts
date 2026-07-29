@@ -24,7 +24,8 @@
 //      emitter.
 
 import { describe, expect, it } from "vitest";
-import { asUuid } from "@/lib/domain";
+import { testUuid } from "@/__tests__/helpers/uuid";
+
 import {
 	ancestorPath,
 	and,
@@ -554,7 +555,7 @@ describe("emitOnDeviceExpression — term arm structural lifter", () => {
 	});
 
 	it("resolves a custom session-user property identity to its current slug", () => {
-		const propertyUuid = asUuid("worker-property-region");
+		const propertyUuid = testUuid("worker-property-region");
 		expect(
 			emitOnDeviceExpression(
 				term(sessionUserProperty(propertyUuid)),
@@ -569,7 +570,7 @@ describe("emitOnDeviceExpression — term arm structural lifter", () => {
 	});
 
 	it("refuses a custom worker identity without a current slug binding", () => {
-		const propertyUuid = asUuid("missing-worker-property");
+		const propertyUuid = testUuid("missing-worker-property");
 		expect(() =>
 			emitOnDeviceExpression(term(sessionUserProperty(propertyUuid))),
 		).toThrow(

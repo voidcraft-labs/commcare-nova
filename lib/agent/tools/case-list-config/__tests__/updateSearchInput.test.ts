@@ -12,8 +12,9 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
-import { asUuid, type BlueprintDoc, simpleSearchInputDef } from "@/lib/domain";
+import { type BlueprintDoc, simpleSearchInputDef } from "@/lib/domain";
 import { matchAll } from "@/lib/domain/predicate";
 import { updateSearchInputTool } from "../updateSearchInput";
 import { MOD_A, makeCaseListFixture } from "./fixtures";
@@ -30,8 +31,8 @@ beforeEach(() => {
 	vi.clearAllMocks();
 });
 
-const TARGET_UUID = asUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
-const SIBLING_UUID = asUuid("cccccccc-cccc-cccc-cccc-cccccccccccc");
+const TARGET_UUID = testUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+const SIBLING_UUID = testUuid("cccccccc-cccc-cccc-cccc-cccccccccccc");
 
 function fixtureWithInputs(): BlueprintDoc {
 	const { doc } = makeCaseListFixture();
@@ -172,7 +173,7 @@ describe("updateSearchInput", () => {
 	it("returns an Elm-style error when the search-input uuid is unknown", async () => {
 		const { ctx } = makeCaseListFixture();
 		const doc = fixtureWithInputs();
-		const unknown = asUuid("dddddddd-dddd-dddd-dddd-dddddddddddd");
+		const unknown = testUuid("dddddddd-dddd-dddd-dddd-dddddddddddd");
 		const result = await updateSearchInputTool.execute(
 			{
 				moduleIndex: 0,

@@ -41,7 +41,8 @@
 //      the inline shape is the only wire-correct option.
 
 import { describe, expect, it } from "vitest";
-import { asUuid } from "@/lib/domain";
+import { testUuid } from "@/__tests__/helpers/uuid";
+
 import {
 	ancestorPath,
 	and,
@@ -132,7 +133,7 @@ function expectRuntimeGuarded(
 
 describe("emitCsql — comparison operators", () => {
 	it("resolves a custom session-user property identity to its current slug", () => {
-		const propertyUuid = asUuid("worker-property-region");
+		const propertyUuid = testUuid("worker-property-region");
 		const result = emitCsql(
 			eq(prop("patient", "region"), sessionUserProperty(propertyUuid)),
 			{
@@ -147,7 +148,7 @@ describe("emitCsql — comparison operators", () => {
 	});
 
 	it("refuses a custom worker identity without a current slug binding", () => {
-		const propertyUuid = asUuid("missing-worker-property");
+		const propertyUuid = testUuid("missing-worker-property");
 		expect(() =>
 			emitCsql(
 				eq(prop("patient", "region"), sessionUserProperty(propertyUuid)),

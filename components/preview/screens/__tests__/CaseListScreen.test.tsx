@@ -37,14 +37,14 @@ import {
 	within,
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import {
 	BlueprintDocProvider,
 	type BlueprintDocStore,
 } from "@/lib/doc/provider";
-import { asUuid } from "@/lib/doc/types";
+
 import {
-	asUuid as asDomainUuid,
 	type CaseProperty,
 	calculatedColumn,
 	phoneColumn,
@@ -69,12 +69,12 @@ import type { Location } from "@/lib/routing/types";
 // ── Mocks ────────────────────────────────────────────────────────
 
 const APP_ID = "app-case-list-screen-test";
-const MODULE_UUID = asUuid("00000000-0000-0000-0000-000000000a01");
+const MODULE_UUID = testUuid("00000000-0000-0000-0000-000000000a01");
 /** The module's registration form — first in order, but NOT a case-loading
  *  form, so selecting a case must never continue into it. */
-const FORM_UUID = asUuid("00000000-0000-0000-0000-000000000a02");
+const FORM_UUID = testUuid("00000000-0000-0000-0000-000000000a02");
 /** The followup form — the case-loading form a selected case continues into. */
-const FOLLOWUP_FORM_UUID = asUuid("00000000-0000-0000-0000-000000000a03");
+const FOLLOWUP_FORM_UUID = testUuid("00000000-0000-0000-0000-000000000a03");
 const SELECTED_CASE_ID = "11111111-1111-1111-1111-111111111111";
 
 /** Mocked `useSetPreviewCaseTarget` — asserts the selected case datum is
@@ -171,11 +171,11 @@ const FIRST_FORM_NAME = "Registration";
 
 /** Per-column uuids. Calc-column reads `row.calculated[uuid]` in
  *  the rendered cell. */
-const COL_NAME_UUID = asDomainUuid("00000000-0000-0000-0000-000000000c01");
-const COL_AGE_UUID = asDomainUuid("00000000-0000-0000-0000-000000000c02");
-const COL_HIDDEN_UUID = asDomainUuid("00000000-0000-0000-0000-000000000c03");
-const COL_CALC_UUID = asDomainUuid("00000000-0000-0000-0000-000000000c04");
-const COL_PHONE_UUID = asDomainUuid("00000000-0000-0000-0000-000000000c05");
+const COL_NAME_UUID = testUuid("00000000-0000-0000-0000-000000000c01");
+const COL_AGE_UUID = testUuid("00000000-0000-0000-0000-000000000c02");
+const COL_HIDDEN_UUID = testUuid("00000000-0000-0000-0000-000000000c03");
+const COL_CALC_UUID = testUuid("00000000-0000-0000-0000-000000000c04");
+const COL_PHONE_UUID = testUuid("00000000-0000-0000-0000-000000000c05");
 
 /** Synthetic case-row fixture. Mirrors the case-store contract's
  *  `CaseRowWithCalculated` shape — every reserved scalar plus
@@ -212,7 +212,7 @@ function makeRow(
  *  exercising the search form pass the array explicitly. */
 /** Second case-loading form's uuid — only added to the fixture when a test
  *  needs the multi-form (form-menu) path. */
-const CLOSE_FORM_UUID = asUuid("00000000-0000-0000-0000-000000000a04");
+const CLOSE_FORM_UUID = testUuid("00000000-0000-0000-0000-000000000a04");
 
 let capturedDocStore: BlueprintDocStore | undefined;
 
@@ -715,7 +715,7 @@ describe("CaseListScreen — empty case type", () => {
 
 	it("keeps authored availability as the cause when Search cannot reveal any case", async () => {
 		const availabilitySearch = simpleSearchInputDef(
-			asDomainUuid("00000000-0000-0000-0000-000000000d91"),
+			testUuid("00000000-0000-0000-0000-000000000d91"),
 			"name",
 			"Name",
 			"text",
@@ -794,7 +794,7 @@ describe("CaseListScreen — empty case type", () => {
 				columns: [plainColumn(COL_NAME_UUID, "name", "Name")],
 				searchInputs: [
 					simpleSearchInputDef(
-						asDomainUuid("00000000-0000-0000-0000-000000000d92"),
+						testUuid("00000000-0000-0000-0000-000000000d92"),
 						"name",
 						"Name",
 						"text",
@@ -1225,7 +1225,7 @@ describe("CaseListScreen — responsive results", () => {
 		async (count, expectedClass) => {
 			const columns = Array.from({ length: count }, (_, index) =>
 				plainColumn(
-					asDomainUuid(
+					testUuid(
 						`00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
 					),
 					`field_${index + 1}`,
@@ -1466,7 +1466,7 @@ describe("CaseListScreen — bounded result pages", () => {
  *  keeps the fixture readable; the input's `name` slot keys the
  *  emitted value bag and is what `loadCasesAction`'s mock implementation
  *  inspects to decide which rows to return. */
-const SEARCH_NAME_UUID = asDomainUuid("00000000-0000-0000-0000-000000000d01");
+const SEARCH_NAME_UUID = testUuid("00000000-0000-0000-0000-000000000d01");
 
 /** Two-row population used across the typing / clearing tests.
  *  `loadCasesAction`'s mock implementation reads the inbound
@@ -1866,7 +1866,7 @@ describe("CaseListScreen — search-input form", () => {
 	it("seeds authored literal and session defaults without searching until submit", async () => {
 		vi.mocked(loadCasesAction).mockImplementation(filterByNameInputValue);
 		const sessionSeed = simpleSearchInputDef(
-			asDomainUuid("00000000-0000-4000-8000-000000000e02"),
+			testUuid("00000000-0000-4000-8000-000000000e02"),
 			"worker",
 			"Worker",
 			"text",

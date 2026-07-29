@@ -57,7 +57,8 @@ import {
 	PostgresQueryCompiler,
 } from "kysely";
 import { describe, expect, it } from "vitest";
-import { asUuid } from "@/lib/doc/types";
+import { testUuid } from "@/__tests__/helpers/uuid";
+
 import type { CaseType } from "@/lib/domain";
 import {
 	ancestorPath,
@@ -555,7 +556,7 @@ describe("compileTerm — session-context", () => {
 });
 
 describe("compileTerm — form field", () => {
-	const fieldUuid = asUuid("11111111-1111-4111-8111-111111111111");
+	const fieldUuid = testUuid("11111111-1111-4111-8111-111111111111");
 
 	it("resolves a submission answer from the formFields binding map", () => {
 		const compiled = compileTerm_(

@@ -9,13 +9,14 @@
 
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { HqApplication, HqFormLink } from "@/lib/commcare";
 import { expandDoc } from "@/lib/commcare/expander";
 import { applyMutations } from "@/lib/doc/mutations";
 import { backfillOptionUuids } from "@/lib/doc/optionIdentity";
 import type { BlueprintDoc, FormLink, Uuid } from "@/lib/domain";
-import { asUuid, plainColumn } from "@/lib/domain";
+import { plainColumn } from "@/lib/domain";
 
 /** The first form's XForm attachment, as a string. */
 function firstFormXml(doc: BlueprintDoc): string {
@@ -138,8 +139,8 @@ describe("a move reflects on the wire", () => {
 	});
 
 	it("a moveColumn re-sequences the emitted case-list detail columns", () => {
-		const c1 = asUuid("col-1");
-		const c2 = asUuid("col-2");
+		const c1 = testUuid("col-1");
+		const c2 = testUuid("col-2");
 		const doc = hydrate(
 			buildDoc({
 				modules: [

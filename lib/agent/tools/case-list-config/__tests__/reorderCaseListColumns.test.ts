@@ -16,7 +16,8 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { asUuid, type BlueprintDoc, plainColumn } from "@/lib/domain";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { type BlueprintDoc, plainColumn } from "@/lib/domain";
 import { reorderCaseListColumnsTool } from "../reorderCaseListColumns";
 import { MOD_A, makeCaseListFixture } from "./fixtures";
 
@@ -32,9 +33,9 @@ beforeEach(() => {
 	vi.clearAllMocks();
 });
 
-const A = asUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
-const B = asUuid("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
-const C = asUuid("cccccccc-cccc-cccc-cccc-cccccccccccc");
+const A = testUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+const B = testUuid("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+const C = testUuid("cccccccc-cccc-cccc-cccc-cccccccccccc");
 
 function fixtureWithThreeColumns(): BlueprintDoc {
 	const { doc } = makeCaseListFixture();
@@ -153,7 +154,7 @@ describe("reorderCaseListColumns", () => {
 	it("returns an Elm-style error on unknown uuid in the request", async () => {
 		const { ctx } = makeCaseListFixture();
 		const doc = fixtureWithThreeColumns();
-		const unknown = asUuid("dddddddd-dddd-dddd-dddd-dddddddddddd");
+		const unknown = testUuid("dddddddd-dddd-dddd-dddd-dddddddddddd");
 		const result = await reorderCaseListColumnsTool.execute(
 			{
 				moduleIndex: 0,

@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
 import {
 	advancedSearchInputDef,
-	asUuid,
 	type CaseSearchConfig,
 	type Column,
 	calculatedColumn,
@@ -108,11 +108,11 @@ function errorsFor(args: FixtureArgs) {
 				caseType: "patient",
 				caseListConfig: {
 					columns: [
-						plainColumn(asUuid("column-name"), "case_name", "Name"),
+						plainColumn(testUuid("column-name"), "case_name", "Name"),
 						...(args.columns ?? []),
 					],
-					listColumnOrder: [asUuid("column-name")],
-					detailColumnOrder: [asUuid("column-name")],
+					listColumnOrder: [testUuid("column-name")],
+					detailColumnOrder: [testUuid("column-name")],
 					...(args.filter !== undefined ? { filter: args.filter } : {}),
 					searchInputs: args.searchInputs ?? [],
 				},
@@ -146,7 +146,7 @@ describe("onDeviceExpressionCompatibility", () => {
 	});
 
 	it("checks latent calculated definitions before a visibility toggle can activate them", () => {
-		const columnUuid = asUuid("column-list");
+		const columnUuid = testUuid("column-list");
 		const hits = findingsFor({
 			columns: [
 				calculatedColumn(columnUuid, "Saved regions", listUnwrap(), {
@@ -169,7 +169,7 @@ describe("onDeviceExpressionCompatibility", () => {
 	it("rejects a multi-valued child read in a standalone calculated value", () => {
 		const hits = findingsFor({
 			columns: [
-				calculatedColumn(asUuid("column-note"), "Visit note", childNote()),
+				calculatedColumn(testUuid("column-note"), "Visit note", childNote()),
 			],
 		});
 		expect(hits).toHaveLength(1);
@@ -186,7 +186,7 @@ describe("onDeviceExpressionCompatibility", () => {
 		const hits = findingsFor({
 			columns: [
 				calculatedColumn(
-					asUuid("column-any-note"),
+					testUuid("column-any-note"),
 					"Related note",
 					term(prop("patient", "note", anyRelationPath("parent", "visit"))),
 				),
@@ -204,7 +204,7 @@ describe("onDeviceExpressionCompatibility", () => {
 			errorsFor({
 				columns: [
 					calculatedColumn(
-						asUuid("column-parent-district"),
+						testUuid("column-parent-district"),
 						"Parent district",
 						term(
 							prop(
@@ -220,8 +220,8 @@ describe("onDeviceExpressionCompatibility", () => {
 	});
 
 	it("checks simple and advanced search-input defaults with stable attribution", () => {
-		const simpleUuid = asUuid("input-simple");
-		const advancedUuid = asUuid("input-advanced");
+		const simpleUuid = testUuid("input-simple");
+		const advancedUuid = testUuid("input-advanced");
 		const hits = findingsFor({
 			searchInputs: [
 				simpleSearchInputDef(
@@ -287,7 +287,7 @@ describe("onDeviceExpressionCompatibility", () => {
 		const hits = findingsFor({
 			searchInputs: [
 				advancedSearchInputDef(
-					asUuid("input-native"),
+					testUuid("input-native"),
 					"tags",
 					"Tags",
 					"text",
@@ -302,7 +302,7 @@ describe("onDeviceExpressionCompatibility", () => {
 		const hits = findingsFor({
 			searchInputs: [
 				advancedSearchInputDef(
-					asUuid("input-runtime"),
+					testUuid("input-runtime"),
 					"tags",
 					"Tags",
 					"text",
@@ -330,7 +330,7 @@ describe("onDeviceExpressionCompatibility", () => {
 			filter: relatedComparison,
 			columns: [
 				calculatedColumn(
-					asUuid("column-flag"),
+					testUuid("column-flag"),
 					"Has complete visit",
 					ifExpr(relatedComparison, term(literal("Yes")), term(literal("No"))),
 				),
@@ -349,9 +349,9 @@ describe("onDeviceExpressionCompatibility", () => {
 		);
 		const args = {
 			columns: [
-				calculatedColumn(asUuid("column-parent"), "District", ancestor),
+				calculatedColumn(testUuid("column-parent"), "District", ancestor),
 				calculatedColumn(
-					asUuid("column-count"),
+					testUuid("column-count"),
 					"Visits",
 					count(subcasePath("parent", "visit")),
 				),
@@ -419,7 +419,7 @@ describe("onDeviceExpressionCompatibility", () => {
 	it("classifies the compatibility finding as soundness", () => {
 		const [finding] = findingsFor({
 			columns: [
-				calculatedColumn(asUuid("column-note"), "Visit note", childNote()),
+				calculatedColumn(testUuid("column-note"), "Visit note", childNote()),
 			],
 		});
 		expect(classifyError(finding.code)).toBe("soundness");

@@ -25,12 +25,13 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { xp } from "@/lib/__tests__/docHelpers";
 import { AppAccessError, resolveAppAccess } from "@/lib/db/appAccess";
 import { loadApp } from "@/lib/db/apps";
 import type { AppDoc } from "@/lib/db/types";
 import type { BlueprintDoc } from "@/lib/domain";
-import { asUuid } from "@/lib/domain";
+
 import { registerGetApp } from "../tools/getApp";
 import type { ToolContext } from "../types";
 import { makeFakeServer } from "./fakeServer";
@@ -65,9 +66,9 @@ function mockBlueprint(
 ): Omit<BlueprintDoc, "fieldParent"> {
 	/* The branded `Uuid` type requires the narrowing cast rather than a
 	 * raw string literal — `asUuid` is the project-standard helper. */
-	const modUuid = asUuid("11111111-1111-1111-1111-111111111111");
-	const formUuid = asUuid("22222222-2222-2222-2222-222222222222");
-	const fieldUuid = asUuid("33333333-3333-3333-3333-333333333333");
+	const modUuid = testUuid("11111111-1111-1111-1111-111111111111");
+	const formUuid = testUuid("22222222-2222-2222-2222-222222222222");
+	const fieldUuid = testUuid("33333333-3333-3333-3333-333333333333");
 	return {
 		appId: "a1",
 		appName: "Vaccine Tracker",

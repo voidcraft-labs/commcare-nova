@@ -18,12 +18,12 @@
  */
 
 import { beforeEach, describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { createReconciler } from "@/lib/collab/reconciler";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { BlueprintDocStoreApi } from "@/lib/doc/store";
 import type { Mutation } from "@/lib/doc/types";
 import {
-	asUuid,
 	type LookupOptionsSource,
 	lookupOptionsSourceSchema,
 	type PersistableDoc,
@@ -49,11 +49,11 @@ function envelopes(mutations: Mutation[], stage?: string): MutationEvent[] {
 	}));
 }
 
-const LOOKUP_MODULE = asUuid("10000000-0000-4000-8000-000000000000");
-const LOOKUP_FORM = asUuid("20000000-0000-4000-8000-000000000000");
-const LOOKUP_FIELD = asUuid("30000000-0000-4000-8000-000000000000");
-const LOOKUP_OPTION_A = asUuid("40000000-0000-4000-8000-000000000000");
-const LOOKUP_OPTION_B = asUuid("50000000-0000-4000-8000-000000000000");
+const LOOKUP_MODULE = testUuid("10000000-0000-4000-8000-000000000000");
+const LOOKUP_FORM = testUuid("20000000-0000-4000-8000-000000000000");
+const LOOKUP_FIELD = testUuid("30000000-0000-4000-8000-000000000000");
+const LOOKUP_OPTION_A = testUuid("40000000-0000-4000-8000-000000000000");
+const LOOKUP_OPTION_B = testUuid("50000000-0000-4000-8000-000000000000");
 const LOOKUP_SOURCE_A = lookupOptionsSourceSchema.parse({
 	kind: "lookup-table",
 	tableId: "018f3e8a-7b2c-7def-8abc-1234567890ab",
@@ -189,8 +189,8 @@ describe("applyStreamEvent — data-mutations", () => {
 	});
 
 	it("applies a multi-mutation batch atomically AND appends all envelopes", () => {
-		const moduleUuid = asUuid("mod-live-1");
-		const formUuid = asUuid("form-live-1");
+		const moduleUuid = testUuid("mod-live-1");
+		const formUuid = testUuid("form-live-1");
 
 		const mutations: Mutation[] = [
 			{ kind: "setAppName", name: "Field Survey" },
@@ -390,8 +390,8 @@ describe("applyStreamEvent — data-mutations", () => {
 	// module uuid twice and the builder tree renders it DUPLICATED for the rest of
 	// the run (the P6/P7 bug, healed only at data-done).
 	describe("echo-before-data-mutations race (no store duplication)", () => {
-		const MOD = asUuid("mod-base");
-		const NEW_MOD = asUuid("mod-added");
+		const MOD = testUuid("mod-base");
+		const NEW_MOD = testUuid("mod-added");
 
 		/** A base doc with one module, hydrated + tracking (a live builder). */
 		function seedDoc(store: BlueprintDocStoreApi): void {

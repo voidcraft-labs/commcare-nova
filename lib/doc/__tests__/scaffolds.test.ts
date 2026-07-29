@@ -1,3 +1,4 @@
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 // Tests for the in-tree creation scaffolds. The contract is valid-by-
 // construction: each scaffold's batch, committed against a valid doc, must
@@ -22,12 +23,12 @@ import {
 	surveyModuleMutations,
 } from "@/lib/doc/scaffolds";
 import type { BlueprintDoc } from "@/lib/doc/types";
-import { asUuid } from "@/lib/doc/types";
+
 import { type Field, type Form, type Module, plainColumn } from "@/lib/domain";
 
-const M = (s: string) => asUuid(`mod${s}-0000-0000-0000-000000000000`);
-const F = (s: string) => asUuid(`frm${s}-0000-0000-0000-000000000000`);
-const Q = (s: string) => asUuid(`qst${s}-0000-0000-0000-000000000000`);
+const M = (s: string) => testUuid(`mod${s}-0000-0000-0000-000000000000`);
+const F = (s: string) => testUuid(`frm${s}-0000-0000-0000-000000000000`);
+const Q = (s: string) => testUuid(`qst${s}-0000-0000-0000-000000000000`);
 
 function emptyDoc(): BlueprintDoc {
 	return {

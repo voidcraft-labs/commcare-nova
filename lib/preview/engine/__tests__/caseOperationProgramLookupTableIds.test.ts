@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
-import {
-	asUuid,
-	type CaseOperation,
-	type LookupColumnId,
-	type LookupTableId,
-	type Uuid,
+import type {
+	CaseOperation,
+	LookupColumnId,
+	LookupTableId,
+	Uuid,
 } from "@/lib/domain";
 import {
 	eq,
@@ -31,12 +31,12 @@ function lookup(table: LookupTableId, suffix: string) {
 
 describe("caseOperationProgramLookupTableIds", () => {
 	it("uses canonical operation carrier identities across conditions, writes, and links while excluding unrelated carriers", () => {
-		const conditionOperationUuid = asUuid(
+		const conditionOperationUuid = testUuid(
 			"20000000-0000-7000-8000-000000000001",
 		);
-		const writeOperationUuid = asUuid("20000000-0000-7000-8000-000000000002");
-		const linkOperationUuid = asUuid("20000000-0000-7000-8000-000000000003");
-		const unrelatedOperationUuid = asUuid(
+		const writeOperationUuid = testUuid("20000000-0000-7000-8000-000000000002");
+		const linkOperationUuid = testUuid("20000000-0000-7000-8000-000000000003");
+		const unrelatedOperationUuid = testUuid(
 			"20000000-0000-7000-8000-000000000004",
 		);
 		const conditionTable = tableId("30");

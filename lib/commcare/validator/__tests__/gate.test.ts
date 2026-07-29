@@ -2,10 +2,11 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
-import { asUuid, type BlueprintDoc, type Field, type Uuid } from "@/lib/domain";
+import type { BlueprintDoc, Field, Uuid } from "@/lib/domain";
 import { asAssetId } from "@/lib/domain/multimedia";
 import { buildDoc, caseListConfig, f, xp } from "../../../__tests__/docHelpers";
 import { MEDIA_VALIDATION_CODES, type ValidationError } from "../errors";
@@ -78,7 +79,7 @@ function apply(doc: BlueprintDoc, mutations: Mutation[]): BlueprintDoc {
 
 /** A bare survey form payload for addForm mutations. */
 function surveyForm(uuid: string, name: string) {
-	return { uuid: asUuid(uuid), id: uuid, name, type: "survey" as const };
+	return { uuid: testUuid(uuid), id: uuid, name, type: "survey" as const };
 }
 
 function textField(
@@ -86,7 +87,13 @@ function textField(
 	id: string,
 	extra?: Record<string, unknown>,
 ): Field {
-	return { uuid: asUuid(uuid), kind: "text", id, label: id, ...extra } as Field;
+	return {
+		uuid: testUuid(uuid),
+		kind: "text",
+		id,
+		label: id,
+		...extra,
+	} as Field;
 }
 
 /** Run the full pipeline: derive scope, apply, gate. */
@@ -244,7 +251,7 @@ describe("errorIdentity", () => {
 			code: "EMPTY_FORM",
 			scope: "form",
 			message: "original wording",
-			location: { moduleUuid: asUuid("m-1"), formUuid: asUuid("f-1") },
+			location: { moduleUuid: testUuid("m-1"), formUuid: testUuid("f-1") },
 		};
 		const reworded = { ...base, message: "completely different prose" };
 		expect(errorIdentity(base)).toBe(errorIdentity(reworded));
@@ -319,7 +326,7 @@ describe("errorIdentity", () => {
 			code: "CASE_LIST_ID_MAPPING_EMPTY_VALUE",
 			scope: "module",
 			message: `row ${entryIndex}`,
-			location: { moduleUuid: asUuid("m-1") },
+			location: { moduleUuid: testUuid("m-1") },
 			details: { columnIndex: "0", entryIndex, columnUuid: "col-1" },
 		});
 		// Two empty rows in ONE column share an identity — fixing the first
@@ -332,7 +339,7 @@ describe("errorIdentity", () => {
 			code: "CASE_LIST_EXPRESSION_NOT_ON_DEVICE",
 			scope: "module",
 			message: reason,
-			location: { moduleUuid: asUuid("m-1") },
+			location: { moduleUuid: testUuid("m-1") },
 			details: { surface: "filter", reason },
 		});
 		expect(errorIdentity(finding("mixed-property-scopes"))).not.toBe(
@@ -351,9 +358,9 @@ describe("errorIdentity", () => {
 			scope: "field",
 			message: "lookup policy",
 			location: {
-				moduleUuid: asUuid("m-1"),
-				formUuid: asUuid("f-1"),
-				fieldUuid: asUuid("select-1"),
+				moduleUuid: testUuid("m-1"),
+				formUuid: testUuid("f-1"),
+				fieldUuid: testUuid("select-1"),
 				field: "optionsSource.filter",
 			},
 			details,
@@ -463,7 +470,7 @@ describe("diffIntroduced", () => {
 		const fixedOne = apply(twoEmpty, [
 			{
 				kind: "addField",
-				parentUuid: asUuid("form-e1"),
+				parentUuid: testUuid("form-e1"),
 				field: textField("fld-fill", "q1"),
 			},
 		]);
@@ -489,7 +496,7 @@ describe("diffIntroduced", () => {
 			runValidation(twoEmpty, LOOKUP_CONTEXT_UNAVAILABLE),
 		).filter((e) => e.code === "EMPTY_FORM");
 		expect(introduced).toHaveLength(1);
-		expect(introduced[0].location.formUuid).toBe(asUuid("form-e2"));
+		expect(introduced[0].location.formUuid).toBe(testUuid("form-e2"));
 	});
 });
 
@@ -534,7 +541,7 @@ describe("evaluateCommit", () => {
 		const broken = apply(base, [
 			{
 				kind: "addField",
-				parentUuid: asUuid("form-e1"),
+				parentUuid: testUuid("form-e1"),
 				field: textField("fld-bad", "q1", { relevant: "#form/missing = '1'" }),
 			},
 		]);
@@ -559,7 +566,7 @@ describe("evaluateCommit", () => {
 		const fix: Mutation[] = [
 			{
 				kind: "addField",
-				parentUuid: asUuid("form-e1"),
+				parentUuid: testUuid("form-e1"),
 				field: textField("fld-fill", "q1"),
 			},
 		];
@@ -708,7 +715,7 @@ describe("evaluateCommit", () => {
 						searchInputs: [
 							{
 								kind: "simple",
-								uuid: asUuid("sin-walk"),
+								uuid: testUuid("sin-walk"),
 								name: "age",
 								label: "Age",
 								type: "text",
@@ -752,7 +759,7 @@ describe("evaluateCommit", () => {
 				kind: "addField",
 				parentUuid: registerForm,
 				field: {
-					uuid: asUuid("fld-age-new"),
+					uuid: testUuid("fld-age-new"),
 					kind: "date",
 					id: "age",
 					label: "Age",

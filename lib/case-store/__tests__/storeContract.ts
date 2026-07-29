@@ -49,6 +49,7 @@
 // than four.
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type {
 	BlueprintDoc,
 	CaseProperty,
@@ -56,7 +57,6 @@ import type {
 	CaseType,
 } from "@/lib/domain";
 import {
-	asUuid,
 	calculatedColumn,
 	casePropertyDataTypes,
 	castCanFail,
@@ -3934,7 +3934,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				term({ kind: "literal", value: 1, data_type: "int" }),
 			);
 
-			const ageNextYearUuid = asUuid("age_next_year");
+			const ageNextYearUuid = testUuid("age_next_year");
 			const rows = await store.query({
 				appId: APP_ID,
 				caseType: "patient",
@@ -3977,7 +3977,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 
 			// `term(literal(null))` produces a SQL NULL constant.
 			const nullExpr = term({ kind: "literal", value: null });
-			const nothingUuid = asUuid("nothing");
+			const nothingUuid = testUuid("nothing");
 			const rows = await store.query({
 				appId: APP_ID,
 				caseType: "patient",
@@ -4056,7 +4056,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				term({ kind: "literal", value: 1, data_type: "int" }),
 			);
 
-			const ageNextYearUuid = asUuid("age_next_year");
+			const ageNextYearUuid = testUuid("age_next_year");
 			const rows = await store.query({
 				appId: APP_ID,
 				caseType: "patient",
@@ -4129,7 +4129,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				term({ kind: "literal", value: 1, data_type: "int" }),
 			);
 
-			const ageNextYearUuid = asUuid("age_next_year");
+			const ageNextYearUuid = testUuid("age_next_year");
 			const rows = await store.query({
 				appId: APP_ID,
 				caseType: "patient",
@@ -4178,7 +4178,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				},
 			});
 
-			const aliasUnderTestUuid = asUuid("alias_under_test");
+			const aliasUnderTestUuid = testUuid("alias_under_test");
 			const rows = await store.query({
 				appId: APP_ID,
 				caseType: "patient",
@@ -4213,7 +4213,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				appId: APP_ID,
 				caseType: "patient",
 				caseTypeSchemas: buildCaseTypeMap(blueprint),
-				calculated: [calculatedColumn(asUuid("today_iso"), "Today", today())],
+				calculated: [calculatedColumn(testUuid("today_iso"), "Today", today())],
 			});
 			expect(rows).toEqual([]);
 		});
@@ -4242,7 +4242,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 					properties: makeProperties({ name: "Alice", age: 30 }),
 				},
 			});
-			const todayUuid = asUuid("today_iso");
+			const todayUuid = testUuid("today_iso");
 			const rows = await store.query({
 				appId: APP_ID,
 				caseType: "patient",
@@ -4321,7 +4321,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				// The collision uuid mirrors the reserved column name so
 				// a regression to non-prefixed aliasing would tee the
 				// calculated value over the row's scalar.
-				const collisionUuid = asUuid(collisionName);
+				const collisionUuid = testUuid(collisionName);
 				// The calculated expression is a constant string sentinel
 				// — distinguishes the calculated value from the row's
 				// scalar value at every assertion site.
@@ -4409,7 +4409,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 					caseType: "patient",
 					caseTypeSchemas: buildCaseTypeMap(blueprint),
 					calculated: [
-						calculatedColumn(asUuid(""), "Header", term(literal("x"))),
+						calculatedColumn(testUuid(""), "Header", term(literal("x"))),
 					],
 				}),
 			).rejects.toThrowError(/empty-string uuid/);
@@ -4432,7 +4432,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			const store = await options.factory(TENANT_A);
 			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 			await seedSchema(store, blueprint, "patient");
-			const overlongUuid = asUuid("x".repeat(60));
+			const overlongUuid = testUuid("x".repeat(60));
 			await expect(
 				store.query({
 					appId: APP_ID,

@@ -4,12 +4,12 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { produce } from "immer";
 import { type ReactNode, StrictMode, useLayoutEffect, useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	advancedSearchInputDef,
-	asUuid,
 	type BlueprintDoc,
 	type CaseType,
 	type SearchInputDef,
@@ -28,8 +28,8 @@ import {
 	useCaseListWorkspace,
 } from "../CaseListConfigWorkspace";
 
-const MODULE_UUID = asUuid("00000000-0000-4000-8000-000000000001");
-const INPUT_UUID = asUuid("00000000-0000-4000-8000-000000000011");
+const MODULE_UUID = testUuid("00000000-0000-4000-8000-000000000001");
+const INPUT_UUID = testUuid("00000000-0000-4000-8000-000000000011");
 
 const CASE_TYPES: readonly CaseType[] = [
 	{
@@ -215,7 +215,7 @@ function HarnessInspector() {
 function CaseListConfigWorkspace({
 	moduleUuid,
 }: {
-	moduleUuid: ReturnType<typeof asUuid>;
+	moduleUuid: ReturnType<typeof testUuid>;
 	tab: "search";
 }) {
 	harness.moduleUuid = moduleUuid;

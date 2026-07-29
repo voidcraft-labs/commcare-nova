@@ -8,8 +8,9 @@
 
 import { sql } from "kysely";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f, withUserSequences } from "@/lib/__tests__/docHelpers";
-import { asUuid } from "@/lib/domain";
+
 import { resolveAuthorizedAppSnapshot } from "../appAccess";
 import {
 	beginFormAttachmentPreparation,
@@ -113,10 +114,10 @@ describe("form submission authorization snapshot", () => {
 	});
 
 	it("replays before hydrating form, capture, and persona topology that was deleted after acceptance", async () => {
-		const formUuid = asUuid("10000000-0000-4000-8000-000000000001");
-		const fieldUuid = asUuid("10000000-0000-4000-8000-000000000002");
-		const userTypeUuid = asUuid("10000000-0000-4000-8000-000000000003");
-		const personaUuid = asUuid("10000000-0000-4000-8000-000000000004");
+		const formUuid = testUuid("10000000-0000-4000-8000-000000000001");
+		const fieldUuid = testUuid("10000000-0000-4000-8000-000000000002");
+		const userTypeUuid = testUuid("10000000-0000-4000-8000-000000000003");
+		const personaUuid = testUuid("10000000-0000-4000-8000-000000000004");
 		const base = buildDoc({
 			appName: "Deleted accepted topology",
 			modules: [

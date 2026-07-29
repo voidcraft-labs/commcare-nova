@@ -18,13 +18,14 @@
 
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { asUuid } from "@/lib/doc/types";
+import { testUuid } from "@/__tests__/helpers/uuid";
+
 import type { TextField } from "@/lib/domain";
 import { TextEditor } from "../TextEditor";
 
 const baseField: TextField = {
 	kind: "text",
-	uuid: asUuid("u1-text"),
+	uuid: testUuid("u1-text"),
 	id: "patient_name",
 	label: "Patient name",
 };

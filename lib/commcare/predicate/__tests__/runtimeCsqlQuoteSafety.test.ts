@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
 	advancedSearchInputDef,
-	asUuid,
 	type CaseListConfig,
 	simpleSearchInputDef,
 } from "@/lib/domain";
@@ -26,7 +26,7 @@ import { composeXPathQueryPredicate } from "../../suite/case-search/xpathQuery";
 import { collectRuntimeCsqlStringInputNames } from "../runtimeCsqlQuoteSafety";
 
 const u = (tail: number) =>
-	asUuid(`00000000-0000-0000-0000-${String(tail).padStart(12, "0")}`);
+	testUuid(`00000000-0000-0000-0000-${String(tail).padStart(12, "0")}`);
 
 describe("collectRuntimeCsqlStringInputNames", () => {
 	it("collects direct and native-function input values", () => {

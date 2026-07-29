@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { asUuid } from "@/lib/domain";
+import { testUuid } from "@/__tests__/helpers/uuid";
+
 import { eq, literal, prop, term } from "@/lib/domain/predicate";
 import { stampColumnUuid, stampSearchInputUuid } from "../shared";
 
-const UUID = asUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+const UUID = testUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
 
 describe("case-list tool canonical property vocabulary", () => {
 	it.each([

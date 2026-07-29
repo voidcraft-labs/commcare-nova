@@ -6,7 +6,9 @@
  * the same pass, and the loud invariant when a carrier-bearing form
  * evaluates without a lookup snapshot.
  */
+
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type {
 	Field,
 	FieldKind,
@@ -17,7 +19,7 @@ import type {
 	LookupTableId,
 	Uuid,
 } from "@/lib/domain";
-import { asUuid } from "@/lib/domain";
+
 import { eq, formField, tableColumn, term } from "@/lib/domain/predicate";
 import type {
 	LookupFixtureRow,
@@ -82,7 +84,7 @@ function dTree(
 	fields: DField[],
 	formType: FormType = "survey",
 ): FormEngineInput {
-	const formUuid = asUuid("test-form-uuid");
+	const formUuid = testUuid("test-form-uuid");
 	const form: Form = {
 		uuid: formUuid,
 		id: "test-form",
@@ -92,7 +94,7 @@ function dTree(
 	const fieldMap: Record<string, Field> = {};
 	const order: Uuid[] = [];
 	for (const n of fields) {
-		const uuid = asUuid(`form.${n.id}`);
+		const uuid = testUuid(`form.${n.id}`);
 		order.push(uuid);
 		fieldMap[uuid as string] = { uuid, ...n } as Field;
 	}
@@ -104,7 +106,7 @@ function dTree(
 	};
 }
 
-const REGION_FIELD_UUID = asUuid("form.region");
+const REGION_FIELD_UUID = testUuid("form.region");
 
 function clinicSelect(
 	kind: "single_select" | "multi_select",

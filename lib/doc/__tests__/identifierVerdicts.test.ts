@@ -16,14 +16,8 @@
  */
 
 import { describe, expect, it } from "vitest";
-import {
-	asUuid,
-	type BlueprintDoc,
-	type Field,
-	type Form,
-	type Module,
-	type Uuid,
-} from "@/lib/domain";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import type { BlueprintDoc, Field, Form, Module, Uuid } from "@/lib/domain";
 import {
 	caseOperationIdVerdict,
 	caseOperationLinkIdentifierVerdict,
@@ -34,15 +28,15 @@ import {
 	renameFieldIdVerdict,
 } from "../identifierVerdicts";
 
-const MOD = asUuid("11111111-1111-1111-1111-111111111111");
-const F1 = asUuid("22222222-2222-2222-2222-222222222222");
-const F2 = asUuid("33333333-3333-3333-3333-333333333333");
-const AGE = asUuid("44444444-4444-4444-4444-444444444444");
-const GRP = asUuid("55555555-5555-5555-5555-555555555555");
-const KID_NAME = asUuid("66666666-6666-6666-6666-666666666666");
-const WEIGHT_F1 = asUuid("77777777-7777-7777-7777-777777777777");
-const WEIGHT_F2 = asUuid("88888888-8888-8888-8888-888888888888");
-const TARGET_F2 = asUuid("99999999-9999-9999-9999-999999999999");
+const MOD = testUuid("11111111-1111-1111-1111-111111111111");
+const F1 = testUuid("22222222-2222-2222-2222-222222222222");
+const F2 = testUuid("33333333-3333-3333-3333-333333333333");
+const AGE = testUuid("44444444-4444-4444-4444-444444444444");
+const GRP = testUuid("55555555-5555-5555-5555-555555555555");
+const KID_NAME = testUuid("66666666-6666-6666-6666-666666666666");
+const WEIGHT_F1 = testUuid("77777777-7777-7777-7777-777777777777");
+const WEIGHT_F2 = testUuid("88888888-8888-8888-8888-888888888888");
+const TARGET_F2 = testUuid("99999999-9999-9999-9999-999999999999");
 
 /**
  * One module, two forms.
@@ -224,7 +218,7 @@ describe("renameFieldIdVerdict", () => {
 		expect(
 			renameFieldIdVerdict({
 				doc,
-				fieldUuid: asUuid("00000000-0000-0000-0000-000000000000"),
+				fieldUuid: testUuid("00000000-0000-0000-0000-000000000000"),
 				newId: "anything",
 			}),
 		).toEqual({ ok: true });

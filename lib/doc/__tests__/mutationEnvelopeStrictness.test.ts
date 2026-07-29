@@ -1,22 +1,19 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { z } from "zod";
-import {
-	asUuid,
-	canonicalMutationSchema,
-	mutationSchema,
-} from "@/lib/doc/types";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { canonicalMutationSchema, mutationSchema } from "@/lib/doc/types";
 import { emptyCaseListConfig } from "@/lib/domain";
 
-const MODULE = asUuid("11111111-1111-4111-8111-111111111111");
-const FORM = asUuid("22222222-2222-4222-8222-222222222222");
-const OPERATION = asUuid("33333333-3333-4333-8333-333333333333");
-const OTHER_OPERATION = asUuid("44444444-4444-4444-8444-444444444444");
-const FIELD = asUuid("33333333-3333-4333-8333-333333333333");
-const OPTION_A = asUuid("44444444-4444-4444-8444-444444444444");
-const OPTION_B = asUuid("55555555-5555-4555-8555-555555555555");
-const TABLE = asUuid("66666666-6666-7666-8666-666666666666");
-const VALUE_COLUMN = asUuid("77777777-7777-7777-8777-777777777777");
-const LABEL_COLUMN = asUuid("88888888-8888-7888-8888-888888888888");
+const MODULE = testUuid("11111111-1111-4111-8111-111111111111");
+const FORM = testUuid("22222222-2222-4222-8222-222222222222");
+const OPERATION = testUuid("33333333-3333-4333-8333-333333333333");
+const OTHER_OPERATION = testUuid("44444444-4444-4444-8444-444444444444");
+const FIELD = testUuid("33333333-3333-4333-8333-333333333333");
+const OPTION_A = testUuid("44444444-4444-4444-8444-444444444444");
+const OPTION_B = testUuid("55555555-5555-4555-8555-555555555555");
+const TABLE = testUuid("66666666-6666-7666-8666-666666666666");
+const VALUE_COLUMN = testUuid("77777777-7777-7777-8777-777777777777");
+const LABEL_COLUMN = testUuid("88888888-8888-7888-8888-888888888888");
 
 const rollingUnion = z.discriminatedUnion("kind", mutationSchema.options);
 const canonicalUnion = z.discriminatedUnion(

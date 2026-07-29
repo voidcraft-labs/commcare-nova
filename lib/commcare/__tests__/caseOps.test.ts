@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { buildFormActions } from "@/lib/commcare/formActions";
 import { validateXForm } from "@/lib/commcare/validator/xformOracle";
@@ -10,7 +11,7 @@ import {
 	caseOperationTextValueGuard,
 } from "@/lib/commcare/xform/caseOps";
 import { addMetaBlock } from "@/lib/commcare/xform/metaBlock";
-import { asUuid } from "@/lib/doc/types";
+
 import {
 	authoredCaseIdPrefix,
 	type CaseOperation,
@@ -35,12 +36,12 @@ import {
 import { evaluate } from "@/lib/preview/xpath/evaluator";
 
 const XMLNS = "http://openrosa.org/formdesigner/nova-case-operations-test";
-const NAME = asUuid("11111111-1111-4111-8111-111111111111");
-const REPEAT = asUuid("22222222-2222-4222-8222-222222222222");
-const ITEM_ID = asUuid("33333333-3333-4333-8333-333333333333");
-const CREATE = asUuid("44444444-4444-4444-8444-444444444444");
-const UPDATE = asUuid("55555555-5555-4555-8555-555555555555");
-const FORM = asUuid("66666666-6666-4666-8666-666666666666");
+const NAME = testUuid("11111111-1111-4111-8111-111111111111");
+const REPEAT = testUuid("22222222-2222-4222-8222-222222222222");
+const ITEM_ID = testUuid("33333333-3333-4333-8333-333333333333");
+const CREATE = testUuid("44444444-4444-4444-8444-444444444444");
+const UPDATE = testUuid("55555555-5555-4555-8555-555555555555");
+const FORM = testUuid("66666666-6666-4666-8666-666666666666");
 
 function emit(
 	operations: readonly CaseOperation[],

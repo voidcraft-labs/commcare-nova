@@ -4,14 +4,15 @@ import { join } from "node:path";
 import AdmZip from "adm-zip";
 import { Parser } from "htmlparser2";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import { parseXPathForForm } from "@/lib/doc/expressionText";
-import { asUuid } from "@/lib/domain";
+
 import { eq, literal, sessionUserProperty } from "@/lib/domain/predicate";
 
-const PROPERTY_UUID = asUuid("worker-property-supervisor");
+const PROPERTY_UUID = testUuid("worker-property-supervisor");
 const SESSION_PROPERTY =
 	"instance('commcaresession')/session/user/data/is_supervisor";
 const USERCASE =

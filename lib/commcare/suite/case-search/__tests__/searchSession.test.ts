@@ -41,10 +41,10 @@
 //      instance.
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
 	advancedSearchInputDef,
-	asUuid,
 	type CaseListConfig,
 	type CaseSearchConfig,
 	calculatedColumn,
@@ -71,7 +71,7 @@ import type { WireShape } from "../types";
 // ── Test helpers ────────────────────────────────────────────────────
 
 const INPUT_UUIDS = {
-	a: asUuid("00000000-0000-4000-8000-aaaa00000001"),
+	a: testUuid("00000000-0000-4000-8000-aaaa00000001"),
 } as const;
 
 const WEB_LIST_FIRST: WireShape = {
@@ -398,7 +398,7 @@ describe("emitSearchSession — _xpath_query AND-composition", () => {
 			caseListConfig: makeListConfig({
 				columns: [
 					calculatedColumn(
-						asUuid("00000000-0000-4000-8000-cccc00000001"),
+						testUuid("00000000-0000-4000-8000-cccc00000001"),
 						"Region tag",
 						concat(
 							term(region),
@@ -774,7 +774,7 @@ describe("emitSearchSession — simple-arm-with-via _xpath_query routing", () =>
 						"full_name",
 					),
 					simpleSearchInputDef(
-						asUuid("00000000-0000-4000-8000-aaaa00000002"),
+						testUuid("00000000-0000-4000-8000-aaaa00000002"),
 						"parent_region",
 						"Parent region",
 						"text",

@@ -9,6 +9,7 @@
 
 import type { Kysely } from "kysely";
 import { beforeEach, describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type { CaseStore, LookupTableSchemas } from "@/lib/case-store";
 import { buildCaseTypeMap } from "@/lib/case-store";
 import {
@@ -27,7 +28,7 @@ import type {
 	LookupTableId,
 	Uuid,
 } from "@/lib/domain";
-import { asUuid } from "@/lib/domain";
+
 import {
 	eq,
 	formField,
@@ -82,8 +83,8 @@ function makeStore(): CaseStore {
 	});
 }
 
-const OP_ROOT = asUuid("60000000-0000-7000-8000-00000000a001");
-const OP_REPEAT = asUuid("60000000-0000-7000-8000-00000000a002");
+const OP_ROOT = testUuid("60000000-0000-7000-8000-00000000a001");
+const OP_REPEAT = testUuid("60000000-0000-7000-8000-00000000a002");
 const LOOKUP_TABLE = "70000000-0000-7000-8000-000000000001" as LookupTableId;
 const LOOKUP_COLUMN = "70000000-0000-7000-8000-000000000002" as LookupColumnId;
 

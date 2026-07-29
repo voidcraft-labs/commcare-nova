@@ -1,11 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type { Mutation } from "@/lib/doc/types";
-import {
-	asUuid,
-	type BlueprintDoc,
-	calculatedColumn,
-	type Field,
-} from "@/lib/domain";
+import { type BlueprintDoc, calculatedColumn, type Field } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/predicate";
 import { buildDoc, caseListConfig, f } from "../../../__tests__/docHelpers";
 import type { ValidationScope } from "../index";
@@ -304,7 +300,7 @@ describe("scopeOfMutations", () => {
 					kind: "addField",
 					parentUuid: form,
 					field: {
-						uuid: asUuid("fld-age"),
+						uuid: testUuid("fld-age"),
 						kind: "date",
 						id: "age",
 						label: "Age",
@@ -516,13 +512,17 @@ describe("scopeOfMutations", () => {
 		const scope = scopeOfMutations(doc, [
 			{
 				kind: "addModule",
-				module: { uuid: asUuid("mod-new"), id: "mod-new", name: "New Module" },
+				module: {
+					uuid: testUuid("mod-new"),
+					id: "mod-new",
+					name: "New Module",
+				},
 			},
 			{
 				kind: "addForm",
-				moduleUuid: asUuid("mod-new"),
+				moduleUuid: testUuid("mod-new"),
 				form: {
-					uuid: asUuid("form-new"),
+					uuid: testUuid("form-new"),
 					id: "form-new",
 					name: "New Form",
 					type: "survey",
@@ -530,9 +530,9 @@ describe("scopeOfMutations", () => {
 			},
 			{
 				kind: "addField",
-				parentUuid: asUuid("form-new"),
+				parentUuid: testUuid("form-new"),
 				field: {
-					uuid: asUuid("fld-new"),
+					uuid: testUuid("fld-new"),
 					kind: "text",
 					id: "q1",
 					label: "Q1",
@@ -540,8 +540,8 @@ describe("scopeOfMutations", () => {
 			},
 		]);
 		expectScope(scope);
-		expect(scope.moduleUuids?.has(asUuid("mod-new"))).toBe(true);
-		expect(scope.formUuids?.has(asUuid("form-new"))).toBe(true);
+		expect(scope.moduleUuids?.has(testUuid("mod-new"))).toBe(true);
+		expect(scope.formUuids?.has(testUuid("form-new"))).toBe(true);
 	});
 
 	it("an unresolvable target degrades to full, never to a silent miss", () => {
@@ -550,9 +550,9 @@ describe("scopeOfMutations", () => {
 			scopeOfMutations(doc, [
 				{
 					kind: "addField",
-					parentUuid: asUuid("nowhere"),
+					parentUuid: testUuid("nowhere"),
 					field: {
-						uuid: asUuid("fld-x"),
+						uuid: testUuid("fld-x"),
 						kind: "text",
 						id: "q",
 						label: "Q",

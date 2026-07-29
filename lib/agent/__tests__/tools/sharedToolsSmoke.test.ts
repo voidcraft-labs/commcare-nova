@@ -18,10 +18,11 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { xp } from "@/lib/__tests__/docHelpers";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, ConnectConfig, Form, Module } from "@/lib/domain";
-import { asUuid, expressionSource, formExpressionSource } from "@/lib/domain";
+import { expressionSource, formExpressionSource } from "@/lib/domain";
 import { addFieldsTool } from "../../tools/addFields";
 import { updateFormTool } from "../../tools/updateForm";
 import { makeMcpTestContext, makeStubToolContext } from "../fixtures";
@@ -45,8 +46,8 @@ vi.mock("@/lib/db/applyBlueprintChange", () => ({
 
 // ── Uuid constants ──────────────────────────────────────────────────────
 
-const MOD_A = asUuid("11111111-1111-1111-1111-111111111111");
-const FORM_A = asUuid("33333333-3333-3333-3333-333333333333");
+const MOD_A = testUuid("11111111-1111-1111-1111-111111111111");
+const FORM_A = testUuid("33333333-3333-3333-3333-333333333333");
 
 // ── Fixture builder ─────────────────────────────────────────────────────
 

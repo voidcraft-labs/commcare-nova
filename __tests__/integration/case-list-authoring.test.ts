@@ -1,3 +1,4 @@
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 // __tests__/integration/case-list-authoring.test.ts
 //
@@ -54,7 +55,6 @@ import { emitShortDetail } from "@/lib/commcare/suite/case-list/shortDetail";
 import { buildSortDirectives } from "@/lib/commcare/suite/case-list/sortKeys";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import {
-	asUuid,
 	type BlueprintDoc,
 	type CaseListConfig,
 	type Column,
@@ -139,15 +139,15 @@ const REGION_MAPPING = [
 // multiple layers (sort directives keyed by uuid; preview cell
 // rendering keyed by uuid) without snapshotting opaque generated
 // strings.
-const COL_NAME_UUID = asUuid("00000000-0000-4000-8000-000000000001");
-const COL_DATE_UUID = asUuid("00000000-0000-4000-8000-000000000002");
-const COL_INTERVAL_UUID = asUuid("00000000-0000-4000-8000-000000000003");
-const COL_REGION_UUID = asUuid("00000000-0000-4000-8000-000000000004");
-const COL_AGE_UUID = asUuid("00000000-0000-4000-8000-000000000005");
-const COL_AGE_NEXT_UUID = asUuid("00000000-0000-4000-8000-000000000006");
+const COL_NAME_UUID = testUuid("00000000-0000-4000-8000-000000000001");
+const COL_DATE_UUID = testUuid("00000000-0000-4000-8000-000000000002");
+const COL_INTERVAL_UUID = testUuid("00000000-0000-4000-8000-000000000003");
+const COL_REGION_UUID = testUuid("00000000-0000-4000-8000-000000000004");
+const COL_AGE_UUID = testUuid("00000000-0000-4000-8000-000000000005");
+const COL_AGE_NEXT_UUID = testUuid("00000000-0000-4000-8000-000000000006");
 
-const SI_NAME_UUID = asUuid("00000000-0000-4000-8000-000000000010");
-const SI_VISIT_RANGE_UUID = asUuid("00000000-0000-4000-8000-000000000011");
+const SI_NAME_UUID = testUuid("00000000-0000-4000-8000-000000000010");
+const SI_VISIT_RANGE_UUID = testUuid("00000000-0000-4000-8000-000000000011");
 
 /**
  * Construct the well-formed v2 case-list configuration. Single
@@ -518,7 +518,7 @@ describe("SA tool path — column atomic ops", () => {
 		const result = await updateCaseListColumnTool.execute(
 			{
 				moduleIndex: 0,
-				columnUuid: asUuid("ffffffff-ffff-ffff-ffff-ffffffffffff"),
+				columnUuid: testUuid("ffffffff-ffff-ffff-ffff-ffffffffffff"),
 				column: { kind: "plain", field: "case_name", header: "Patient" },
 			},
 			ctx,
@@ -600,11 +600,11 @@ describe("wire emission", () => {
 	it("filters columns by visibleInList on short detail and visibleInDetail on long detail", () => {
 		// Two columns: one hidden from list, one hidden from detail.
 		// The shared columns appear on both surfaces.
-		const moduleUuid = asUuid("11111111-1111-1111-1111-111111111111");
-		const formUuid = asUuid("22222222-2222-2222-2222-222222222222");
-		const colShared = asUuid("00000000-0000-4000-8000-aaaa00000001");
-		const colListOnly = asUuid("00000000-0000-4000-8000-aaaa00000002");
-		const colDetailOnly = asUuid("00000000-0000-4000-8000-aaaa00000003");
+		const moduleUuid = testUuid("11111111-1111-1111-1111-111111111111");
+		const formUuid = testUuid("22222222-2222-2222-2222-222222222222");
+		const colShared = testUuid("00000000-0000-4000-8000-aaaa00000001");
+		const colListOnly = testUuid("00000000-0000-4000-8000-aaaa00000002");
+		const colDetailOnly = testUuid("00000000-0000-4000-8000-aaaa00000003");
 		const mod: Module = {
 			uuid: moduleUuid,
 			id: "patients",
@@ -705,8 +705,8 @@ describe("wire emission", () => {
 // =================================================================
 
 describe("calc-column comparator-type fallback", () => {
-	const moduleUuid = asUuid("11111111-1111-1111-1111-111111111111");
-	const calcUuid = asUuid("00000000-0000-4000-8000-cccc00000001");
+	const moduleUuid = testUuid("11111111-1111-1111-1111-111111111111");
+	const calcUuid = testUuid("00000000-0000-4000-8000-cccc00000001");
 
 	function buildCalcModule(
 		expression: Parameters<typeof calculatedColumn>[2],
@@ -908,8 +908,8 @@ describe("SearchInputDef discriminated round-trip", () => {
 
 describe("search-input rename — orphan reference surfaces validator error", () => {
 	it("flags an unresolvable input(name) reference inside the filter as CASE_LIST_FILTER_TYPE_ERROR", () => {
-		const moduleUuid = asUuid("11111111-1111-1111-1111-111111111111");
-		const formUuid = asUuid("22222222-2222-2222-2222-222222222222");
+		const moduleUuid = testUuid("11111111-1111-1111-1111-111111111111");
+		const formUuid = testUuid("22222222-2222-2222-2222-222222222222");
 		// The filter references `input("orphan_input")` — no
 		// matching declaration in `searchInputs`. The predicate
 		// checker walks `term`s and surfaces "Unknown search input
@@ -934,7 +934,7 @@ describe("search-input rename — orphan reference surfaces validator error", ()
 					caseListConfig: resolveCaseListConfig({
 						columns: [
 							plainColumn(
-								asUuid("00000000-0000-4000-8000-aaaa00000001"),
+								testUuid("00000000-0000-4000-8000-aaaa00000001"),
 								"name",
 								"Name",
 							),
@@ -943,7 +943,7 @@ describe("search-input rename — orphan reference surfaces validator error", ()
 						searchInputs: [
 							// Different name — `orphan_input` is not declared.
 							simpleSearchInputDef(
-								asUuid("00000000-0000-4000-8000-bbbb00000001"),
+								testUuid("00000000-0000-4000-8000-bbbb00000001"),
 								"declared_input",
 								"Declared",
 								"text",
@@ -1007,7 +1007,7 @@ describe("validator rejection of broken references", () => {
 		const corruptedColumns: Column[] = [
 			...mod.caseListConfig.columns.slice(0, -1),
 			plainColumn(
-				asUuid("00000000-0000-4000-8000-eeee00000001"),
+				testUuid("00000000-0000-4000-8000-eeee00000001"),
 				"ghost_property",
 				"Ghost",
 			),
@@ -1040,7 +1040,7 @@ describe("validator rejection of broken references", () => {
 			...mod.caseListConfig,
 			searchInputs: [
 				simpleSearchInputDef(
-					asUuid("00000000-0000-4000-8000-ffff00000001"),
+					testUuid("00000000-0000-4000-8000-ffff00000001"),
 					"name_range",
 					"Name range",
 					"text",
@@ -1067,9 +1067,9 @@ describe("validator rejection of broken references", () => {
 // =================================================================
 
 describe("sort-priority collision tie-breaks to display order at every layer", () => {
-	const moduleUuid = asUuid("11111111-1111-1111-1111-111111111111");
-	const colFirstUuid = asUuid("00000000-0000-4000-8000-bbbb00000001");
-	const colSecondUuid = asUuid("00000000-0000-4000-8000-bbbb00000002");
+	const moduleUuid = testUuid("11111111-1111-1111-1111-111111111111");
+	const colFirstUuid = testUuid("00000000-0000-4000-8000-bbbb00000001");
+	const colSecondUuid = testUuid("00000000-0000-4000-8000-bbbb00000002");
 
 	/**
 	 * Construct a module with two columns at the same priority. The

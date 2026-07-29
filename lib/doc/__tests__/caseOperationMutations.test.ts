@@ -1,6 +1,7 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { batchTargetsMissing } from "@/lib/db/commitGuard";
 import {
@@ -20,7 +21,7 @@ import {
 	declarersOf,
 	referencingSlotsOf,
 } from "@/lib/doc/referenceIndex";
-import { asUuid, type Mutation, mutationSchema } from "@/lib/doc/types";
+import { type Mutation, mutationSchema } from "@/lib/doc/types";
 import {
 	type BlueprintDoc,
 	type CaseOperation,
@@ -42,15 +43,15 @@ import {
 	term,
 } from "@/lib/domain/predicate";
 
-const CREATE = asUuid("11111111-1111-4111-8111-111111111111");
-const CONSUMER = asUuid("22222222-2222-4222-8222-222222222222");
-const OTHER = asUuid("33333333-3333-4333-8333-333333333333");
-const NAME = asUuid("44444444-4444-4444-8444-444444444444");
-const REPEAT = asUuid("55555555-5555-4555-8555-555555555555");
+const CREATE = testUuid("11111111-1111-4111-8111-111111111111");
+const CONSUMER = testUuid("22222222-2222-4222-8222-222222222222");
+const OTHER = testUuid("33333333-3333-4333-8333-333333333333");
+const NAME = testUuid("44444444-4444-4444-8444-444444444444");
+const REPEAT = testUuid("55555555-5555-4555-8555-555555555555");
 
 function fixture(): {
 	doc: BlueprintDoc;
-	formUuid: ReturnType<typeof asUuid>;
+	formUuid: ReturnType<typeof testUuid>;
 } {
 	const doc = buildDoc({
 		caseTypes: [
@@ -590,10 +591,10 @@ describe("case-operation mutation planning", () => {
 // splices differently.
 describe("case-operation move lands at the rank it asserts", () => {
 	const RANKED = [
-		asUuid("aaaaaaaa-0000-4000-8000-000000000001"),
-		asUuid("aaaaaaaa-0000-4000-8000-000000000002"),
-		asUuid("aaaaaaaa-0000-4000-8000-000000000003"),
-		asUuid("aaaaaaaa-0000-4000-8000-000000000004"),
+		testUuid("aaaaaaaa-0000-4000-8000-000000000001"),
+		testUuid("aaaaaaaa-0000-4000-8000-000000000002"),
+		testUuid("aaaaaaaa-0000-4000-8000-000000000003"),
+		testUuid("aaaaaaaa-0000-4000-8000-000000000004"),
 	];
 
 	/** An independent session update — nothing here constrains execution order. */
@@ -618,8 +619,8 @@ describe("case-operation move lands at the rank it asserts", () => {
 
 	function landedIndex(
 		doc: BlueprintDoc,
-		formUuid: ReturnType<typeof asUuid>,
-		uuid: ReturnType<typeof asUuid>,
+		formUuid: ReturnType<typeof testUuid>,
+		uuid: ReturnType<typeof testUuid>,
 		mutations: readonly Mutation[],
 	): number {
 		return orderedCaseOperations(
@@ -1177,7 +1178,7 @@ describe("case-operation write and link order is intent", () => {
 
 	function committed(
 		doc: BlueprintDoc,
-		formUuid: ReturnType<typeof asUuid>,
+		formUuid: ReturnType<typeof testUuid>,
 		mutations: readonly Mutation[],
 	): CaseOperation | undefined {
 		return apply(doc, mutations).forms[formUuid].caseOperations?.find(

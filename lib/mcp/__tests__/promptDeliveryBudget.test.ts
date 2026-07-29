@@ -35,9 +35,10 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { xp } from "@/lib/__tests__/docHelpers";
 import type { BlueprintDoc } from "@/lib/domain";
-import { asUuid } from "@/lib/domain";
+
 import {
 	MAX_DELIVERABLE_PROMPT_CHARS,
 	PROMPT_END_MARKER,
@@ -50,9 +51,9 @@ import {
  * of the edit prompt, not to guess at a realistic app's summary size.
  */
 function fixturePopulatedDoc(): BlueprintDoc {
-	const modUuid = asUuid("11111111-1111-1111-1111-111111111111");
-	const formUuid = asUuid("22222222-2222-2222-2222-222222222222");
-	const fieldUuid = asUuid("33333333-3333-3333-3333-333333333333");
+	const modUuid = testUuid("11111111-1111-1111-1111-111111111111");
+	const formUuid = testUuid("22222222-2222-2222-2222-222222222222");
+	const fieldUuid = testUuid("33333333-3333-3333-3333-333333333333");
 	return {
 		appId: "a-budget",
 		appName: "Vaccine Tracker",
@@ -111,7 +112,7 @@ function fixtureOversizedDoc(): BlueprintDoc {
 	 * past 51,000 chars, with margin so the test doesn't sit on the
 	 * boundary it is asserting about. */
 	for (let i = 0; i < 400; i++) {
-		const uuid = asUuid(
+		const uuid = testUuid(
 			`44444444-4444-4444-4444-${String(i).padStart(12, "0")}`,
 		);
 		modules[uuid] = {

@@ -14,6 +14,7 @@
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	createReconciler,
 	type MutationFrame,
@@ -29,7 +30,7 @@ import {
 	isDocDataKey,
 } from "@/lib/doc/store";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
-import { asUuid } from "@/lib/doc/types";
+
 import {
 	type BuilderSessionStoreApi,
 	createBuilderSessionStore,
@@ -37,10 +38,10 @@ import {
 
 // ── Fixtures ─────────────────────────────────────────────────────────────
 
-const MOD = asUuid("mod-1");
-const FORM = asUuid("form-1");
-const F_A = asUuid("field-a");
-const F_B = asUuid("field-b");
+const MOD = testUuid("mod-1");
+const FORM = testUuid("form-1");
+const F_A = testUuid("field-a");
+const F_B = testUuid("field-b");
 
 /** A doc with one module, one form, two text fields — enough surface for
  *  scalar (`setAppName`) and structural (field label / reorder) merges. */
@@ -653,7 +654,7 @@ describe("reconciler", () => {
 
 	// ── Chat-batch registration ordering ────────────────────────────────
 	describe("registerChatBatch echo-vs-register ordering", () => {
-		const NEW_MOD = asUuid("mod-new");
+		const NEW_MOD = testUuid("mod-new");
 		const addModuleBatch: Mutation[] = [
 			{
 				kind: "addModule",

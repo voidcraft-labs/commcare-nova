@@ -11,8 +11,9 @@
  * same mutation batch on both surfaces.
  */
 
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
-import { asUuid, type BlueprintDoc, type Module } from "@/lib/domain";
+import type { BlueprintDoc, Module } from "@/lib/domain";
 import {
 	type MakeMcpTestContextHandles,
 	makeMcpTestContext,
@@ -23,7 +24,7 @@ import {
 /* Stable uuid constant — imported by per-tool tests so each
  * assertion can reference the module by uuid against the post-
  * mutation doc. */
-export const MOD_A = asUuid("11111111-1111-1111-1111-111111111111");
+export const MOD_A = testUuid("11111111-1111-1111-1111-111111111111");
 
 /**
  * Minimal `BlueprintDoc` with one `patient` case-carrying module. No
@@ -45,7 +46,7 @@ export function makeCaseSearchDoc(): BlueprintDoc {
 			columns: [],
 			searchInputs: [
 				{
-					uuid: asUuid("22222222-2222-2222-2222-222222222222"),
+					uuid: testUuid("22222222-2222-2222-2222-222222222222"),
 					kind: "simple",
 					name: "name_search",
 					label: "Name",

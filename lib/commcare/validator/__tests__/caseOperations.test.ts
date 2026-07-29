@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { LookupTypeIndex } from "@/lib/commcare/validator/lookupTypeContext";
 import { validateCaseOperations } from "@/lib/commcare/validator/rules/caseOperations";
-import { asUuid } from "@/lib/doc/types";
+
 import {
 	type BlueprintDoc,
 	CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
@@ -35,21 +36,21 @@ import {
 } from "@/lib/domain/predicate";
 import type { ValidationErrorCode } from "../errors";
 
-const CREATE = asUuid("11111111-1111-4111-8111-111111111111");
-const SECOND = asUuid("22222222-2222-4222-8222-222222222222");
-const THIRD = asUuid("33333333-3333-4333-8333-333333333333");
-const TEXT = asUuid("44444444-4444-4444-8444-444444444444");
-const NUMBER = asUuid("55555555-5555-4555-8555-555555555555");
-const REPEAT_A = asUuid("66666666-6666-4666-8666-666666666666");
-const REPEAT_A_TEXT = asUuid("77777777-7777-4777-8777-777777777777");
-const REPEAT_B = asUuid("88888888-8888-4888-8888-888888888888");
-const REPEAT_B_TEXT = asUuid("99999999-9999-4999-8999-999999999999");
-const HIDDEN_ID = asUuid("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
-const MULTI = asUuid("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
-const REPEAT_CHILD = asUuid("cccccccc-cccc-4ccc-8ccc-cccccccccccc");
-const REPEAT_CHILD_TEXT = asUuid("dddddddd-dddd-4ddd-8ddd-dddddddddddd");
-const REPEAT_SIBLING = asUuid("eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee");
-const REPEAT_SIBLING_TEXT = asUuid("ffffffff-ffff-4fff-8fff-ffffffffffff");
+const CREATE = testUuid("11111111-1111-4111-8111-111111111111");
+const SECOND = testUuid("22222222-2222-4222-8222-222222222222");
+const THIRD = testUuid("33333333-3333-4333-8333-333333333333");
+const TEXT = testUuid("44444444-4444-4444-8444-444444444444");
+const NUMBER = testUuid("55555555-5555-4555-8555-555555555555");
+const REPEAT_A = testUuid("66666666-6666-4666-8666-666666666666");
+const REPEAT_A_TEXT = testUuid("77777777-7777-4777-8777-777777777777");
+const REPEAT_B = testUuid("88888888-8888-4888-8888-888888888888");
+const REPEAT_B_TEXT = testUuid("99999999-9999-4999-8999-999999999999");
+const HIDDEN_ID = testUuid("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+const MULTI = testUuid("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
+const REPEAT_CHILD = testUuid("cccccccc-cccc-4ccc-8ccc-cccccccccccc");
+const REPEAT_CHILD_TEXT = testUuid("dddddddd-dddd-4ddd-8ddd-dddddddddddd");
+const REPEAT_SIBLING = testUuid("eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee");
+const REPEAT_SIBLING_TEXT = testUuid("ffffffff-ffff-4fff-8fff-ffffffffffff");
 const LOOKUP_TABLE = "00000000-0000-7000-8000-0000000000a1" as LookupTableId;
 const LOOKUP_COLUMN = "10000000-0000-7000-8000-0000000000a1" as LookupColumnId;
 const LOOKUP_TYPES: LookupTypeIndex = new Map([

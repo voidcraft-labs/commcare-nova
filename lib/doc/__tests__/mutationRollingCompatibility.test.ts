@@ -1,6 +1,7 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import { updateColumnMutation } from "@/lib/agent/blueprintHelpers";
 import {
@@ -26,7 +27,6 @@ import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { applyMutations } from "@/lib/doc/mutations";
 import { searchInputUpdateMutation } from "@/lib/doc/searchInputMutations";
 import {
-	asUuid,
 	type BlueprintDoc,
 	type CaseOperation,
 	type CaseTileLayout,
@@ -50,15 +50,15 @@ import {
 	mutationSchema,
 } from "../types";
 
-const MODULE = asUuid("10000000-0000-4000-8000-000000000000");
-const COLUMN = asUuid("20000000-0000-4000-8000-000000000000");
-const ADDED_COLUMN = asUuid("30000000-0000-4000-8000-000000000000");
-const INPUT = asUuid("35000000-0000-4000-8000-000000000000");
-const FORM = asUuid("60000000-0000-4000-8000-000000000000");
-const OPERATION = asUuid("65000000-0000-4000-8000-000000000000");
-const FIELD = asUuid("70000000-0000-4000-8000-000000000000");
-const OPTION_A = asUuid("80000000-0000-4000-8000-000000000000");
-const OPTION_B = asUuid("90000000-0000-4000-8000-000000000000");
+const MODULE = testUuid("10000000-0000-4000-8000-000000000000");
+const COLUMN = testUuid("20000000-0000-4000-8000-000000000000");
+const ADDED_COLUMN = testUuid("30000000-0000-4000-8000-000000000000");
+const INPUT = testUuid("35000000-0000-4000-8000-000000000000");
+const FORM = testUuid("60000000-0000-4000-8000-000000000000");
+const OPERATION = testUuid("65000000-0000-4000-8000-000000000000");
+const FIELD = testUuid("70000000-0000-4000-8000-000000000000");
+const OPTION_A = testUuid("80000000-0000-4000-8000-000000000000");
+const OPTION_B = testUuid("90000000-0000-4000-8000-000000000000");
 const TABLE_A = "018f3e8a-7b2c-7def-8abc-1234567890ab";
 const TABLE_B = "018f3e8a-7b2c-7def-8abc-1234567890ac";
 const VALUE_COLUMN = "018f3e8a-7b2c-7def-8abc-1234567890ad";
@@ -510,7 +510,7 @@ function applyLegacy(
 					break;
 				}
 				case "updateModule": {
-					const module = draft.modules[asUuid(mutation.uuid)];
+					const module = draft.modules[testUuid(mutation.uuid)];
 					if (!module) break;
 					for (const [key, value] of Object.entries(mutation.patch)) {
 						const target = module as unknown as Record<string, unknown>;
@@ -521,38 +521,38 @@ function applyLegacy(
 				}
 				case "addColumn": {
 					const config =
-						draft.modules[asUuid(mutation.moduleUuid)]?.caseListConfig;
+						draft.modules[testUuid(mutation.moduleUuid)]?.caseListConfig;
 					config?.columns.push(mutation.column as unknown as Column);
 					break;
 				}
 				case "updateColumn": {
 					const config =
-						draft.modules[asUuid(mutation.moduleUuid)]?.caseListConfig;
+						draft.modules[testUuid(mutation.moduleUuid)]?.caseListConfig;
 					const index = config?.columns.findIndex(
 						(column) => column.uuid === mutation.uuid,
 					);
 					if (!config || index === undefined || index < 0) break;
 					config.columns[index] = {
 						...(mutation.column as unknown as Column),
-						uuid: asUuid(mutation.uuid),
+						uuid: testUuid(mutation.uuid),
 					};
 					break;
 				}
 				case "updateSearchInput": {
 					const config =
-						draft.modules[asUuid(mutation.moduleUuid)]?.caseListConfig;
+						draft.modules[testUuid(mutation.moduleUuid)]?.caseListConfig;
 					const index = config?.searchInputs.findIndex(
 						(input) => input.uuid === mutation.uuid,
 					);
 					if (!config || index === undefined || index < 0) break;
 					config.searchInputs[index] = {
 						...(mutation.searchInput as unknown as SearchInputDef),
-						uuid: asUuid(mutation.uuid),
+						uuid: testUuid(mutation.uuid),
 					};
 					break;
 				}
 				case "addField": {
-					const parentUuid = asUuid(mutation.parentUuid);
+					const parentUuid = testUuid(mutation.parentUuid);
 					const parentExists =
 						draft.forms[parentUuid] !== undefined ||
 						draft.fields[parentUuid] !== undefined;
@@ -567,7 +567,7 @@ function applyLegacy(
 					break;
 				}
 				case "updateField": {
-					const uuid = asUuid(mutation.uuid);
+					const uuid = testUuid(mutation.uuid);
 					const field = draft.fields[uuid];
 					if (!field || field.kind !== mutation.targetKind) break;
 					const spread: Record<string, unknown> = { ...field };
@@ -581,7 +581,7 @@ function applyLegacy(
 					break;
 				}
 				case "updateForm": {
-					const form = draft.forms[asUuid(mutation.uuid)];
+					const form = draft.forms[testUuid(mutation.uuid)];
 					if (!form) break;
 					const change = mutation.caseOperationChange;
 					if (change === undefined) break;
@@ -841,7 +841,7 @@ describe("case operations — exact immediate-parent rolling envelope", () => {
 				...event,
 				caseOperationPatch: {
 					...event.caseOperationPatch,
-					uuid: asUuid("66000000-0000-4000-8000-000000000000"),
+					uuid: testUuid("66000000-0000-4000-8000-000000000000"),
 				},
 			}).success,
 		).toBe(false);
@@ -983,7 +983,7 @@ function payloads(): {
 		}),
 		addModule: addModuleMutation(
 			{
-				uuid: asUuid("40000000-0000-4000-8000-000000000000"),
+				uuid: testUuid("40000000-0000-4000-8000-000000000000"),
 				id: "new_patients",
 				name: "New patients",
 				caseType: "patient",
@@ -1013,7 +1013,7 @@ function payloads(): {
 		}),
 		addModuleOwnerOnly: addModuleMutation(
 			{
-				uuid: asUuid("50000000-0000-4000-8000-000000000000"),
+				uuid: testUuid("50000000-0000-4000-8000-000000000000"),
 				id: "assigned_cases",
 				name: "Assigned cases",
 				caseSearchConfig: {
@@ -1093,7 +1093,7 @@ function payloads(): {
 		}),
 		addTiledModule: addModuleMutation(
 			{
-				uuid: asUuid("60000000-0000-4000-8000-000000000000"),
+				uuid: testUuid("60000000-0000-4000-8000-000000000000"),
 				id: "tiled_patients",
 				name: "Tiled patients",
 				caseType: "patient",
@@ -1390,7 +1390,7 @@ describe("mutation rolling compatibility", () => {
 		const legacyOwnerModule = applyLegacy(
 			legacyStartFor("addModuleOwnerOnly"),
 			[parsedOwnerModule],
-		).modules[asUuid("50000000-0000-4000-8000-000000000000")];
+		).modules[testUuid("50000000-0000-4000-8000-000000000000")];
 		expect(
 			legacyOwnerModule.caseSearchConfig?.searchActionEnabled,
 		).toBeUndefined();
@@ -1519,7 +1519,7 @@ describe("mutation rolling compatibility", () => {
 			all.addModule,
 		]);
 		const newModule =
-			moduleAdded.modules[asUuid("40000000-0000-4000-8000-000000000000")];
+			moduleAdded.modules[testUuid("40000000-0000-4000-8000-000000000000")];
 		expect(newModule.caseListConfig?.columns[0]).toMatchObject({});
 
 		const peerSearch = produce(docWithConfig([]), (draft) => {
@@ -1556,7 +1556,7 @@ describe("mutation rolling compatibility", () => {
 
 		const peerInput = produce(peerSearch, (draft) => {
 			draft.modules[MODULE].caseListConfig?.searchInputs.push({
-				uuid: asUuid("60000000-0000-4000-8000-000000000000"),
+				uuid: testUuid("60000000-0000-4000-8000-000000000000"),
 				kind: "simple",
 				name: "name",
 				label: "Name",
@@ -1571,7 +1571,7 @@ describe("mutation rolling compatibility", () => {
 
 		const ownerModuleAdded = applyCurrent(docWithConfig([baseColumn()]), [
 			all.addModuleOwnerOnly,
-		]).modules[asUuid("50000000-0000-4000-8000-000000000000")];
+		]).modules[testUuid("50000000-0000-4000-8000-000000000000")];
 		expect(ownerModuleAdded.caseSearchConfig).toEqual({
 			searchActionEnabled: false,
 			excludedOwnerIds: OWNER_RULE,
@@ -1681,9 +1681,9 @@ describe("mutation rolling compatibility", () => {
  * reader at all.
  */
 describe("user collections — the new-discriminator contract", () => {
-	const PROPERTY = asUuid("a1111111-1111-4111-8111-111111111111");
-	const TYPE = asUuid("a2222222-2222-4222-8222-222222222222");
-	const PERSONA = asUuid("a3333333-3333-4333-8333-333333333333");
+	const PROPERTY = testUuid("a1111111-1111-4111-8111-111111111111");
+	const TYPE = testUuid("a2222222-2222-4222-8222-222222222222");
+	const PERSONA = testUuid("a3333333-3333-4333-8333-333333333333");
 
 	const batch: Mutation[] = [
 		{

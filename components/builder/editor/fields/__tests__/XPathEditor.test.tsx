@@ -40,8 +40,9 @@
 
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { xp } from "@/lib/__tests__/docHelpers";
-import { asUuid } from "@/lib/doc/types";
+
 import type { TextField, XPathExpression } from "@/lib/domain";
 import { printXPath } from "@/lib/domain";
 
@@ -103,7 +104,7 @@ import { XPathEditor } from "../XPathEditor";
 
 const baseField: TextField = {
 	kind: "text",
-	uuid: asUuid("u1-text"),
+	uuid: testUuid("u1-text"),
 	id: "patient_age",
 	label: "Patient age",
 	validate: xp(". > 0"),

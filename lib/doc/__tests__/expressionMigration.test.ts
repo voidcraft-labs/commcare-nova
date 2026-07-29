@@ -13,7 +13,9 @@
  * shapes, dangling refs, transitional `#case/…` refs, and a
  * syntax-broken expression (which converts to one opaque text run).
  */
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { ResolvedConnectConfig } from "@/lib/commcare/connectSlugs";
 import { expandDoc } from "@/lib/commcare/expander";
@@ -36,7 +38,6 @@ import { migrateDocExpressions } from "@/lib/doc/expressionMigration";
 import type { BlueprintDoc } from "@/lib/doc/types";
 import type { Form, ReferenceSlot } from "@/lib/domain";
 import {
-	asUuid,
 	emptyCaseListConfig,
 	FIELD_REFERENCE_SLOTS,
 	FORM_REFERENCE_SLOTS,
@@ -174,7 +175,7 @@ function richDoc(): BlueprintDoc {
 								condition: "#form/score > 50",
 								target: {
 									type: "module",
-									moduleUuid: asUuid("99999999-9999-4999-8999-999999999999"),
+									moduleUuid: testUuid("99999999-9999-4999-8999-999999999999"),
 								},
 								datums: [{ name: "case_id", xpath: "/data/score" }],
 							},
@@ -235,7 +236,7 @@ function legacyize(doc: BlueprintDoc): BlueprintDoc {
 			);
 		}
 		if (form.closeCondition) {
-			form.closeCondition.field = asUuid(
+			form.closeCondition.field = testUuid(
 				doc.fields[form.closeCondition.field]?.id ?? form.closeCondition.field,
 			);
 		}
@@ -469,7 +470,7 @@ describe("event-log migration — replay of migrated events", () => {
 					kind: "hidden",
 					calculate: parseXPathForForm(
 						live,
-						asUuid("fo-1"),
+						testUuid("fo-1"),
 						"if(#form/age >= 18, 'adult', 'minor')",
 					),
 				},
@@ -483,10 +484,10 @@ describe("event-log migration — replay of migrated events", () => {
 				patch: {
 					validate: parseXPathForForm(
 						live,
-						asUuid("fo-1"),
+						testUuid("fo-1"),
 						". >= 0 and . <= 120",
 					),
-					required: parseXPathForForm(live, asUuid("fo-1"), "true()"),
+					required: parseXPathForForm(live, testUuid("fo-1"), "true()"),
 				},
 			} as unknown as Mutation,
 		]);

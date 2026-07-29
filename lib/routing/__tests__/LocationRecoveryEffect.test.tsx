@@ -16,11 +16,11 @@
 import { render, waitFor } from "@testing-library/react";
 import { act } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { LocationRecoveryEffect } from "@/components/builder/LocationRecoveryEffect";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
-import { asUuid } from "@/lib/doc/types";
 
 const replaceStateSpy = vi.spyOn(window.history, "replaceState");
 const pathname = "/build/app-1";
@@ -226,7 +226,7 @@ describe("LocationRecoveryEffect", () => {
 		act(() => {
 			store
 				.getState()
-				.applyMany([{ kind: "removeModule", uuid: asUuid(moduleUuid) }]);
+				.applyMany([{ kind: "removeModule", uuid: testUuid(moduleUuid) }]);
 		});
 
 		/* Force rerender with the updated store. */

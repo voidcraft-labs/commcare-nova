@@ -29,6 +29,7 @@
 
 import AdmZip from "adm-zip";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
@@ -36,7 +37,7 @@ import type {
 	AssetManifest,
 	ResolvedMediaAsset,
 } from "@/lib/commcare/multimedia/assetWirePath";
-import { asUuid, plainColumn } from "@/lib/domain";
+import { plainColumn } from "@/lib/domain";
 import { asAssetId } from "@/lib/domain/multimedia";
 import { eq, literal, sessionUser, term } from "@/lib/domain/predicate";
 
@@ -78,9 +79,9 @@ function caseListOnlyDoc(caseListIcon?: string) {
 				caseListOnly: true,
 				forms: [],
 				caseListConfig: {
-					columns: [plainColumn(asUuid("col-1"), "case_name", "Name")],
-					listColumnOrder: [asUuid("col-1")],
-					detailColumnOrder: [asUuid("col-1")],
+					columns: [plainColumn(testUuid("col-1"), "case_name", "Name")],
+					listColumnOrder: [testUuid("col-1")],
+					detailColumnOrder: [testUuid("col-1")],
 					searchInputs: [],
 					...(caseListIcon !== undefined && { icon: caseListIcon }),
 				},

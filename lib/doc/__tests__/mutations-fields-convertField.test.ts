@@ -16,15 +16,11 @@
 
 import { produce } from "immer";
 import { describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { applyMutation } from "@/lib/doc/mutations";
 import type { BlueprintDoc } from "@/lib/domain";
-import {
-	asUuid,
-	isXPathExpression,
-	printXPath,
-	xpathPrintContext,
-} from "@/lib/domain";
+import { isXPathExpression, printXPath, xpathPrintContext } from "@/lib/domain";
 
 // ---------------------------------------------------------------------------
 // Shared fixture builder
@@ -80,11 +76,11 @@ describe("convertField — text / secret family", () => {
 		const next = produce(doc, (d) => {
 			applyMutation(d, {
 				kind: "convertField",
-				uuid: asUuid("q-1"),
+				uuid: testUuid("q-1"),
 				toKind: "secret",
 			});
 		});
-		const converted = next.fields[asUuid("q-1")] as Record<string, unknown>;
+		const converted = next.fields[testUuid("q-1")] as Record<string, unknown>;
 		expect(converted.kind).toBe("secret");
 		expect(converted.id).toBe("pin");
 		expect(converted.label).toBe("PIN");
@@ -108,11 +104,11 @@ describe("convertField — text / secret family", () => {
 		const next = produce(doc, (d) => {
 			applyMutation(d, {
 				kind: "convertField",
-				uuid: asUuid("q-1"),
+				uuid: testUuid("q-1"),
 				toKind: "text",
 			});
 		});
-		const converted = next.fields[asUuid("q-1")] as Record<string, unknown>;
+		const converted = next.fields[testUuid("q-1")] as Record<string, unknown>;
 		expect(converted.kind).toBe("text");
 		expect(converted.id).toBe("token");
 		expect(converted.hint).toBe("enter token");
@@ -136,11 +132,11 @@ describe("convertField — int / decimal family", () => {
 		const next = produce(doc, (d) => {
 			applyMutation(d, {
 				kind: "convertField",
-				uuid: asUuid("q-1"),
+				uuid: testUuid("q-1"),
 				toKind: "decimal",
 			});
 		});
-		const converted = next.fields[asUuid("q-1")] as Record<string, unknown>;
+		const converted = next.fields[testUuid("q-1")] as Record<string, unknown>;
 		expect(converted.kind).toBe("decimal");
 		expect(converted.id).toBe("age");
 		expect(converted.uuid).toBe("q-1");
@@ -159,11 +155,11 @@ describe("convertField — int / decimal family", () => {
 		const next = produce(doc, (d) => {
 			applyMutation(d, {
 				kind: "convertField",
-				uuid: asUuid("q-1"),
+				uuid: testUuid("q-1"),
 				toKind: "int",
 			});
 		});
-		const converted = next.fields[asUuid("q-1")] as Record<string, unknown>;
+		const converted = next.fields[testUuid("q-1")] as Record<string, unknown>;
 		expect(converted.kind).toBe("int");
 		expect(printSlot(converted.relevant, next)).toBe(
 			"/data/show_price = 'yes'",
@@ -187,11 +183,11 @@ describe("convertField — temporal family", () => {
 		const next = produce(doc, (d) => {
 			applyMutation(d, {
 				kind: "convertField",
-				uuid: asUuid("q-1"),
+				uuid: testUuid("q-1"),
 				toKind: "time",
 			});
 		});
-		const converted = next.fields[asUuid("q-1")] as Record<string, unknown>;
+		const converted = next.fields[testUuid("q-1")] as Record<string, unknown>;
 		expect(converted.kind).toBe("time");
 		expect(converted.id).toBe("visit_date");
 		expect(converted.uuid).toBe("q-1");
@@ -209,11 +205,11 @@ describe("convertField — temporal family", () => {
 		const next = produce(doc, (d) => {
 			applyMutation(d, {
 				kind: "convertField",
-				uuid: asUuid("q-1"),
+				uuid: testUuid("q-1"),
 				toKind: "date",
 			});
 		});
-		const converted = next.fields[asUuid("q-1")] as Record<string, unknown>;
+		const converted = next.fields[testUuid("q-1")] as Record<string, unknown>;
 		expect(converted.kind).toBe("date");
 		expect(printSlot(converted.relevant, next)).toBe(". != ''");
 		expect(converted.case_property_on).toBe("appointment_dt");
@@ -239,11 +235,11 @@ describe("convertField — selection family", () => {
 		const next = produce(doc, (d) => {
 			applyMutation(d, {
 				kind: "convertField",
-				uuid: asUuid("q-1"),
+				uuid: testUuid("q-1"),
 				toKind: "multi_select",
 			});
 		});
-		const converted = next.fields[asUuid("q-1")] as Record<string, unknown>;
+		const converted = next.fields[testUuid("q-1")] as Record<string, unknown>;
 		expect(converted.kind).toBe("multi_select");
 		expect(converted.uuid).toBe("q-1");
 		expect(converted.id).toBe("color");
@@ -266,11 +262,11 @@ describe("convertField — selection family", () => {
 		const next = produce(doc, (d) => {
 			applyMutation(d, {
 				kind: "convertField",
-				uuid: asUuid("q-1"),
+				uuid: testUuid("q-1"),
 				toKind: "single_select",
 			});
 		});
-		const converted = next.fields[asUuid("q-1")] as Record<string, unknown>;
+		const converted = next.fields[testUuid("q-1")] as Record<string, unknown>;
 		expect(converted.kind).toBe("single_select");
 		expect(converted.options as Array<{ value: string }>).toHaveLength(3);
 	});
@@ -293,11 +289,11 @@ describe("convertField — media family", () => {
 		const next = produce(doc, (d) => {
 			applyMutation(d, {
 				kind: "convertField",
-				uuid: asUuid("q-1"),
+				uuid: testUuid("q-1"),
 				toKind: "audio",
 			});
 		});
-		const converted = next.fields[asUuid("q-1")] as Record<string, unknown>;
+		const converted = next.fields[testUuid("q-1")] as Record<string, unknown>;
 		expect(converted.kind).toBe("audio");
 		expect(converted.id).toBe("photo");
 		expect(converted.uuid).toBe("q-1");
@@ -317,11 +313,11 @@ describe("convertField — media family", () => {
 		const next = produce(doc, (d) => {
 			applyMutation(d, {
 				kind: "convertField",
-				uuid: asUuid("q-1"),
+				uuid: testUuid("q-1"),
 				toKind: "signature",
 			});
 		});
-		const converted = next.fields[asUuid("q-1")] as Record<string, unknown>;
+		const converted = next.fields[testUuid("q-1")] as Record<string, unknown>;
 		expect(converted.kind).toBe("signature");
 		expect(converted.id).toBe("consent_video");
 		expect(converted.label).toBe("Consent Video");
@@ -369,17 +365,17 @@ describe("convertField — structural family", () => {
 		const next = produce(doc, (d) => {
 			applyMutation(d, {
 				kind: "convertField",
-				uuid: asUuid("g-1"),
+				uuid: testUuid("g-1"),
 				toKind: "repeat",
 			});
 		});
-		const converted = next.fields[asUuid("g-1")] as Record<string, unknown>;
+		const converted = next.fields[testUuid("g-1")] as Record<string, unknown>;
 		expect(converted.kind).toBe("repeat");
 		expect(converted.id).toBe("demographics");
 		expect(converted.uuid).toBe("g-1");
 		// Children must remain in fieldOrder under the same parent uuid.
-		expect(next.fieldOrder[asUuid("g-1")]).toEqual([asUuid("c-1")]);
-		expect(next.fields[asUuid("c-1")]).toBeDefined();
+		expect(next.fieldOrder[testUuid("g-1")]).toEqual([testUuid("c-1")]);
+		expect(next.fields[testUuid("c-1")]).toBeDefined();
 	});
 
 	it("repeat → group preserves id, label, uuid, and relevant", () => {
@@ -412,11 +408,11 @@ describe("convertField — structural family", () => {
 		const next = produce(doc, (d) => {
 			applyMutation(d, {
 				kind: "convertField",
-				uuid: asUuid("r-1"),
+				uuid: testUuid("r-1"),
 				toKind: "group",
 			});
 		});
-		const converted = next.fields[asUuid("r-1")] as Record<string, unknown>;
+		const converted = next.fields[testUuid("r-1")] as Record<string, unknown>;
 		expect(converted.kind).toBe("group");
 		expect(converted.id).toBe("visits");
 		expect(printSlot(converted.relevant, next)).toBe(
@@ -440,12 +436,12 @@ describe("convertField — invariants", () => {
 		const next = produce(doc, (d) => {
 			applyMutation(d, {
 				kind: "convertField",
-				uuid: asUuid("q-1"),
+				uuid: testUuid("q-1"),
 				toKind: "text",
 			});
 		});
 		// Immer returns the original object unchanged when no mutation occurs.
-		expect(next.fields[asUuid("q-1")]).toBe(doc.fields[asUuid("q-1")]);
+		expect(next.fields[testUuid("q-1")]).toBe(doc.fields[testUuid("q-1")]);
 	});
 
 	it("skips entirely when the source uuid is unknown", () => {
@@ -458,7 +454,7 @@ describe("convertField — invariants", () => {
 		const next = produce(doc, (d) => {
 			applyMutation(d, {
 				kind: "convertField",
-				uuid: asUuid("does-not-exist"),
+				uuid: testUuid("does-not-exist"),
 				toKind: "secret",
 			});
 		});
@@ -481,11 +477,11 @@ describe("convertField — invariants", () => {
 		const next = produce(doc, (d) => {
 			applyMutation(d, {
 				kind: "convertField",
-				uuid: asUuid("q-stable"),
+				uuid: testUuid("q-stable"),
 				toKind: "decimal",
 			});
 		});
-		expect(next.fields[asUuid("q-stable")]?.uuid).toBe("q-stable");
+		expect(next.fields[testUuid("q-stable")]?.uuid).toBe("q-stable");
 	});
 
 	it("no-ops when the target kind is not in the source's convertTargets", () => {
@@ -507,14 +503,14 @@ describe("convertField — invariants", () => {
 		const next = produce(doc, (d) => {
 			applyMutation(d, {
 				kind: "convertField",
-				uuid: asUuid("q-1"),
+				uuid: testUuid("q-1"),
 				toKind: "group",
 			});
 		});
 		expect(warn).toHaveBeenCalledTimes(1);
 		warn.mockRestore();
 		// Immer returns the original object unchanged when no mutation occurs.
-		expect(next.fields[asUuid("q-1")]).toBe(doc.fields[asUuid("q-1")]);
+		expect(next.fields[testUuid("q-1")]).toBe(doc.fields[testUuid("q-1")]);
 	});
 
 	it("no-ops on container → leaf (gate rejects; children stay intact)", () => {
@@ -558,7 +554,7 @@ describe("convertField — invariants", () => {
 		const next = produce(doc, (d) => {
 			applyMutation(d, {
 				kind: "convertField",
-				uuid: asUuid("g-1"),
+				uuid: testUuid("g-1"),
 				toKind: "text",
 			});
 		});
@@ -566,9 +562,9 @@ describe("convertField — invariants", () => {
 		warn.mockRestore();
 		// Group must remain a group — the entity, its fieldOrder entry, and
 		// its child must all be unchanged.
-		expect(next.fields[asUuid("g-1")]?.kind).toBe("group");
-		expect(next.fieldOrder[asUuid("g-1")]).toEqual([asUuid("c-1")]);
-		expect(next.fields[asUuid("c-1")]).toBeDefined();
+		expect(next.fields[testUuid("g-1")]?.kind).toBe("group");
+		expect(next.fieldOrder[testUuid("g-1")]).toEqual([testUuid("c-1")]);
+		expect(next.fields[testUuid("c-1")]).toBeDefined();
 	});
 });
 
@@ -591,11 +587,11 @@ describe("convertField — string-compatible tier", () => {
 		const next = produce(doc, (d) => {
 			applyMutation(d, {
 				kind: "convertField",
-				uuid: asUuid("q-1"),
+				uuid: testUuid("q-1"),
 				toKind: "barcode",
 			});
 		});
-		const converted = next.fields[asUuid("q-1")] as Record<string, unknown>;
+		const converted = next.fields[testUuid("q-1")] as Record<string, unknown>;
 		expect(converted.kind).toBe("barcode");
 		expect(converted.id).toBe("tracking_code");
 		expect(converted.uuid).toBe("q-1");
@@ -615,11 +611,11 @@ describe("convertField — string-compatible tier", () => {
 		const next = produce(doc, (d) => {
 			applyMutation(d, {
 				kind: "convertField",
-				uuid: asUuid("q-1"),
+				uuid: testUuid("q-1"),
 				toKind: "text",
 			});
 		});
-		const converted = next.fields[asUuid("q-1")] as Record<string, unknown>;
+		const converted = next.fields[testUuid("q-1")] as Record<string, unknown>;
 		expect(converted.kind).toBe("text");
 		expect(converted.id).toBe("sample_id");
 		expect(printSlot(converted.required, next)).toBe("true()");
@@ -638,23 +634,23 @@ describe("convertField — string-compatible tier", () => {
 			{
 				value: "clinic_a",
 				label: "Clinic A",
-				uuid: asUuid("o-1"),
+				uuid: testUuid("o-1"),
 			},
 			{
 				value: "clinic_b",
 				label: "Clinic B",
-				uuid: asUuid("o-2"),
+				uuid: testUuid("o-2"),
 			},
 		];
 		const next = produce(doc, (d) => {
 			applyMutation(d, {
 				kind: "convertField",
-				uuid: asUuid("q-1"),
+				uuid: testUuid("q-1"),
 				toKind: "single_select",
 				options: seed,
 			});
 		});
-		const converted = next.fields[asUuid("q-1")] as Record<string, unknown>;
+		const converted = next.fields[testUuid("q-1")] as Record<string, unknown>;
 		expect(converted.kind).toBe("single_select");
 		expect(converted.id).toBe("facility");
 		expect(converted.uuid).toBe("q-1");
@@ -677,13 +673,13 @@ describe("convertField — string-compatible tier", () => {
 		const next = produce(doc, (d) => {
 			applyMutation(d, {
 				kind: "convertField",
-				uuid: asUuid("q-1"),
+				uuid: testUuid("q-1"),
 				toKind: "single_select",
 			});
 		});
 		expect(warn).toHaveBeenCalledTimes(1);
 		warn.mockRestore();
-		expect(next.fields[asUuid("q-1")]).toBe(doc.fields[asUuid("q-1")]);
+		expect(next.fields[testUuid("q-1")]).toBe(doc.fields[testUuid("q-1")]);
 	});
 
 	it("text → hidden drops label/hint/required/validate, keeps id/uuid/relevant/default_value/case binding", () => {
@@ -702,11 +698,11 @@ describe("convertField — string-compatible tier", () => {
 		const next = produce(doc, (d) => {
 			applyMutation(d, {
 				kind: "convertField",
-				uuid: asUuid("q-1"),
+				uuid: testUuid("q-1"),
 				toKind: "hidden",
 			});
 		});
-		const converted = next.fields[asUuid("q-1")] as Record<string, unknown>;
+		const converted = next.fields[testUuid("q-1")] as Record<string, unknown>;
 		expect(converted.kind).toBe("hidden");
 		expect(converted.id).toBe("full_name");
 		expect(converted.uuid).toBe("q-1");
@@ -736,11 +732,11 @@ describe("convertField — string-compatible tier", () => {
 		const next = produce(doc, (d) => {
 			applyMutation(d, {
 				kind: "convertField",
-				uuid: asUuid("q-1"),
+				uuid: testUuid("q-1"),
 				toKind: "text",
 			});
 		});
-		const converted = next.fields[asUuid("q-1")] as Record<string, unknown>;
+		const converted = next.fields[testUuid("q-1")] as Record<string, unknown>;
 		expect(converted.kind).toBe("text");
 		expect(converted.id).toBe("status");
 		expect(converted.options).toBeUndefined();
@@ -761,7 +757,7 @@ describe("convertField — string-compatible tier", () => {
 		const next = produce(doc, (d) => {
 			applyMutation(d, {
 				kind: "convertField",
-				uuid: asUuid("q-1"),
+				uuid: testUuid("q-1"),
 				toKind: "secret",
 				options: [
 					{ value: "a", label: "A" },
@@ -769,7 +765,7 @@ describe("convertField — string-compatible tier", () => {
 				],
 			});
 		});
-		const converted = next.fields[asUuid("q-1")] as Record<string, unknown>;
+		const converted = next.fields[testUuid("q-1")] as Record<string, unknown>;
 		expect(converted.kind).toBe("secret");
 		expect(converted.options).toBeUndefined();
 	});

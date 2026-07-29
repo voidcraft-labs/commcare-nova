@@ -9,10 +9,10 @@
 import { renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { SEARCH_IDLE, useSearchFilter } from "@/lib/doc/hooks/useSearchFilter";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
 import type { BlueprintDoc } from "@/lib/doc/types";
-import { asUuid } from "@/lib/doc/types";
 
 /**
  * Build a small deterministic blueprint for filter testing: one module,
@@ -20,10 +20,10 @@ import { asUuid } from "@/lib/doc/types";
  * module/form/field matches.
  */
 function buildFixture(): BlueprintDoc {
-	const MOD = asUuid("module-aaaa-0000-0000-000000000000");
-	const FORM = asUuid("form-bbbb-0000-0000-000000000000");
-	const Q_NAME = asUuid("q-name-0000-0000-0000-000000000000");
-	const Q_AGE = asUuid("q-age-0000-0000-0000-000000000000");
+	const MOD = testUuid("module-aaaa-0000-0000-000000000000");
+	const FORM = testUuid("form-bbbb-0000-0000-000000000000");
+	const Q_NAME = testUuid("q-name-0000-0000-0000-000000000000");
+	const Q_AGE = testUuid("q-age-0000-0000-0000-000000000000");
 
 	return {
 		appId: "search-test",
@@ -114,11 +114,11 @@ describe("useSearchFilter", () => {
 		if (!r) return;
 
 		// Q_AGE has label "Age in Years" → visible.
-		const Q_AGE = asUuid("q-age-0000-0000-0000-000000000000");
+		const Q_AGE = testUuid("q-age-0000-0000-0000-000000000000");
 		expect(r.visibleFieldUuids.has(Q_AGE)).toBe(true);
 
 		// The form containing the match must be in visibleFormIds.
-		const FORM = asUuid("form-bbbb-0000-0000-000000000000");
+		const FORM = testUuid("form-bbbb-0000-0000-000000000000");
 		expect(r.visibleFormIds.has(FORM)).toBe(true);
 
 		// The form's collapse-key must be force-expanded so the match shows.

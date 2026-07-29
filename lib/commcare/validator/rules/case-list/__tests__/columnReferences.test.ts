@@ -1,12 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import {
-	asUuid,
-	calculatedColumn,
-	dateColumn,
-	plainColumn,
-} from "@/lib/domain";
+import { calculatedColumn, dateColumn, plainColumn } from "@/lib/domain";
 import { prop, term } from "@/lib/domain/predicate";
 import { runValidation } from "../../../runner";
 
@@ -59,9 +55,9 @@ describe("columnReferences", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [
-							plainColumn(asUuid("col-name"), "case_name", "Name"),
+							plainColumn(testUuid("col-name"), "case_name", "Name"),
 							plainColumn(
-								asUuid("col-sort"),
+								testUuid("col-sort"),
 								"missing_sort_property",
 								"Old sort",
 								{
@@ -154,9 +150,9 @@ describe("columnReferences", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [
-							plainColumn(asUuid("col-name"), "case_name", "Name"),
+							plainColumn(testUuid("col-name"), "case_name", "Name"),
 							dateColumn(
-								asUuid("col-date"),
+								testUuid("col-date"),
 								"missing_date",
 								"Date",
 								"%Y-%m-%d",
@@ -204,9 +200,9 @@ describe("columnReferences", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [
-							plainColumn(asUuid("col-name"), "case_name", "Name"),
+							plainColumn(testUuid("col-name"), "case_name", "Name"),
 							calculatedColumn(
-								asUuid("col-calc"),
+								testUuid("col-calc"),
 								"Display name",
 								term(prop("patient", "case_name")),
 							),

@@ -1,5 +1,6 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { wireToolSchema } from "@/lib/agent/wireSchemas";
 import {
@@ -7,13 +8,12 @@ import {
 	batchTargetsMissing,
 } from "@/lib/db/commitGuard";
 import type { Mutation } from "@/lib/doc/types";
-import {
-	asUuid,
-	type BlueprintDoc,
-	type CaseOperation,
-	type LookupColumnId,
-	type LookupTableId,
-	type Uuid,
+import type {
+	BlueprintDoc,
+	CaseOperation,
+	LookupColumnId,
+	LookupTableId,
+	Uuid,
 } from "@/lib/domain";
 import {
 	eq,
@@ -37,8 +37,8 @@ import {
 } from "../shared";
 import { updateCaseOperationTool } from "../updateCaseOperation";
 
-const TEXT = asUuid("44444444-4444-4444-8444-444444444444");
-const WORKER_PROPERTY = asUuid("55555555-5555-4555-8555-555555555555");
+const TEXT = testUuid("44444444-4444-4444-8444-444444444444");
+const WORKER_PROPERTY = testUuid("55555555-5555-4555-8555-555555555555");
 const LOOKUP_TABLE = "018f3e8a-7b2c-7def-8abc-1234567890ab" as LookupTableId;
 const LOOKUP_VALUE = "018f3e8a-7b2c-7def-8abc-1234567890ad" as LookupColumnId;
 const LOOKUP_FILTER = "018f3e8a-7b2c-7def-8abc-1234567890ae" as LookupColumnId;
@@ -54,8 +54,8 @@ const lookupPredicate = eq(
 
 function fixture(): {
 	readonly doc: BlueprintDoc;
-	readonly moduleUuid: ReturnType<typeof asUuid>;
-	readonly formUuid: ReturnType<typeof asUuid>;
+	readonly moduleUuid: ReturnType<typeof testUuid>;
+	readonly formUuid: ReturnType<typeof testUuid>;
 } {
 	const doc = buildDoc({
 		caseTypes: [
@@ -144,7 +144,7 @@ describe("case-operation author boundary", () => {
 		expect(
 			authorValueExpressionSchema.safeParse({
 				kind: "id-of",
-				opUuid: asUuid("11111111-1111-4111-8111-111111111111"),
+				opUuid: testUuid("11111111-1111-4111-8111-111111111111"),
 			}).success,
 		).toBe(false);
 	});
@@ -442,7 +442,7 @@ describe("shared case-operation tools", () => {
 			{
 				slot: "condition",
 				operation: {
-					uuid: asUuid("10000000-0000-4000-8000-000000000001"),
+					uuid: testUuid("10000000-0000-4000-8000-000000000001"),
 					id: "carrier_condition",
 					action: "create",
 					caseType: "visit",
@@ -459,7 +459,7 @@ describe("shared case-operation tools", () => {
 			{
 				slot: "name",
 				operation: {
-					uuid: asUuid("10000000-0000-4000-8000-000000000002"),
+					uuid: testUuid("10000000-0000-4000-8000-000000000002"),
 					id: "carrier_name",
 					action: "create",
 					caseType: "visit",
@@ -475,7 +475,7 @@ describe("shared case-operation tools", () => {
 			{
 				slot: "owner",
 				operation: {
-					uuid: asUuid("10000000-0000-4000-8000-000000000003"),
+					uuid: testUuid("10000000-0000-4000-8000-000000000003"),
 					id: "carrier_owner",
 					action: "create",
 					caseType: "visit",
@@ -492,7 +492,7 @@ describe("shared case-operation tools", () => {
 			{
 				slot: "rename",
 				operation: {
-					uuid: asUuid("10000000-0000-4000-8000-000000000004"),
+					uuid: testUuid("10000000-0000-4000-8000-000000000004"),
 					id: "carrier_rename",
 					action: "update",
 					caseType: "patient",
@@ -509,7 +509,7 @@ describe("shared case-operation tools", () => {
 			{
 				slot: "write value",
 				operation: {
-					uuid: asUuid("10000000-0000-4000-8000-000000000005"),
+					uuid: testUuid("10000000-0000-4000-8000-000000000005"),
 					id: "carrier_write_value",
 					action: "create",
 					caseType: "visit",
@@ -526,7 +526,7 @@ describe("shared case-operation tools", () => {
 			{
 				slot: "write condition",
 				operation: {
-					uuid: asUuid("10000000-0000-4000-8000-000000000006"),
+					uuid: testUuid("10000000-0000-4000-8000-000000000006"),
 					id: "carrier_write_condition",
 					action: "create",
 					caseType: "visit",
@@ -557,7 +557,7 @@ describe("shared case-operation tools", () => {
 			{
 				slot: "link target",
 				operation: {
-					uuid: asUuid("10000000-0000-4000-8000-000000000007"),
+					uuid: testUuid("10000000-0000-4000-8000-000000000007"),
 					id: "carrier_link",
 					action: "create",
 					caseType: "visit",
@@ -581,7 +581,7 @@ describe("shared case-operation tools", () => {
 			{
 				slot: "operation target",
 				operation: {
-					uuid: asUuid("10000000-0000-4000-8000-000000000008"),
+					uuid: testUuid("10000000-0000-4000-8000-000000000008"),
 					id: "carrier_target",
 					action: "update",
 					caseType: "patient",
@@ -600,7 +600,7 @@ describe("shared case-operation tools", () => {
 			const { doc, moduleUuid, formUuid } = fixture();
 			const operation = { ...scenario.operation, order: "a" };
 			const safePeer: CaseOperation = {
-				uuid: asUuid("10000000-0000-4000-8000-000000000099"),
+				uuid: testUuid("10000000-0000-4000-8000-000000000099"),
 				id: "safe_peer",
 				action: "update",
 				caseType: "patient",
@@ -1056,7 +1056,7 @@ describe("dependency refusals say which constraint refused", () => {
 							type: "followup",
 							fields: [
 								f({
-									uuid: asUuid("66666666-6666-4666-8666-666666666666"),
+									uuid: testUuid("66666666-6666-4666-8666-666666666666"),
 									kind: "text",
 									id: "note",
 									label: "Note",

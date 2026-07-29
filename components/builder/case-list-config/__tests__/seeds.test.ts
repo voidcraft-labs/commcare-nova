@@ -3,6 +3,7 @@
 // builds from the exact property the author chose in the canvas.
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import { mutationSchema } from "@/lib/doc/types";
 import type {
@@ -11,7 +12,7 @@ import type {
 	CaseType,
 	SearchInputDef,
 } from "@/lib/domain";
-import { asUuid, simpleSearchInputDef } from "@/lib/domain";
+import { simpleSearchInputDef } from "@/lib/domain";
 import { eq, literal, prop as propertyTerm } from "@/lib/domain/predicate";
 import {
 	labelFromProperty,
@@ -303,14 +304,14 @@ describe("chooser-first display fields", () => {
 	it.each(["list", "detail"] as const)(
 		"places a center-canvas %s add at the end of that screen",
 		(surface) => {
-			const moduleUuid = asUuid("10000000-0000-4000-8000-000000000000");
+			const moduleUuid = testUuid("10000000-0000-4000-8000-000000000000");
 			const seed = seedColumnForProperty(prop("case_name"));
 			const mutation = seededColumnAddMutation(
 				moduleUuid,
 				config({
 					columns: [
 						{
-							uuid: asUuid("20000000-0000-4000-8000-000000000000"),
+							uuid: testUuid("20000000-0000-4000-8000-000000000000"),
 							kind: "plain",
 							field: "external_id",
 							header: "External ID",
@@ -321,7 +322,7 @@ describe("chooser-first display fields", () => {
 				seed,
 			);
 
-			const existing = asUuid("20000000-0000-4000-8000-000000000000");
+			const existing = testUuid("20000000-0000-4000-8000-000000000000");
 			// The add lands after the column already on that screen, and joins
 			// the other screen at its end too — a column belongs to both from
 			// birth whatever surface the author was looking at.

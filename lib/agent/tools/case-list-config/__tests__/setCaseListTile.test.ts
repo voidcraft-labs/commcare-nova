@@ -17,9 +17,9 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
-	asUuid,
 	type BlueprintDoc,
 	type Column,
 	type Module,
@@ -42,8 +42,8 @@ beforeEach(() => {
 	vi.clearAllMocks();
 });
 
-const NAME_COLUMN = asUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
-const STATUS_COLUMN = asUuid("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+const NAME_COLUMN = testUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+const STATUS_COLUMN = testUuid("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
 
 /** A doc whose module carries a two-field case list, laid out as rows. */
 function docWithColumns(columns: Column[]): {

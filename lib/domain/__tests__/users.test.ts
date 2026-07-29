@@ -8,10 +8,10 @@
 // that every built-in slug is already unreachable through the slug rule.
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { userPropertySlugVerdict } from "@/lib/commcare/validator/userPropertySlug";
 import {
-	asUuid,
 	BUILT_IN_USER_PROPERTIES,
 	blueprintDocSchema,
 	personasOf,
@@ -148,9 +148,9 @@ describe("slug legality follows CommCare's rule clause by clause", () => {
 });
 
 describe("personaUserData", () => {
-	const REGION = asUuid("11111111-1111-4111-8111-111111111111");
-	const CADRE = asUuid("22222222-2222-4222-8222-222222222222");
-	const CHW = asUuid("33333333-3333-4333-8333-333333333333");
+	const REGION = testUuid("11111111-1111-4111-8111-111111111111");
+	const CADRE = testUuid("22222222-2222-4222-8222-222222222222");
+	const CHW = testUuid("33333333-3333-4333-8333-333333333333");
 
 	const doc: UserCollections = {
 		userTypes: {
@@ -166,7 +166,7 @@ describe("personaUserData", () => {
 		expect(
 			personaUserData(
 				{
-					uuid: asUuid("44444444-4444-4444-8444-444444444444"),
+					uuid: testUuid("44444444-4444-4444-8444-444444444444"),
 					name: "Asha",
 					userTypeUuid: CHW,
 					values: { [REGION]: "south" },
@@ -180,7 +180,7 @@ describe("personaUserData", () => {
 		expect(
 			personaUserData(
 				{
-					uuid: asUuid("44444444-4444-4444-8444-444444444444"),
+					uuid: testUuid("44444444-4444-4444-8444-444444444444"),
 					name: "Asha",
 					values: { [REGION]: "south" },
 				},
@@ -190,8 +190,8 @@ describe("personaUserData", () => {
 	});
 
 	it("resolves prototype-named role and property keys only as own data", () => {
-		const roleUuid = asUuid("constructor");
-		const propertyUuid = asUuid("__proto__");
+		const roleUuid = testUuid("constructor");
+		const propertyUuid = testUuid("__proto__");
 		const ownDoc: UserCollections = {
 			userTypes: Object.fromEntries([
 				[
@@ -205,7 +205,7 @@ describe("personaUserData", () => {
 			]),
 		};
 		const persona = {
-			uuid: asUuid("persona"),
+			uuid: testUuid("persona"),
 			name: "Asha",
 			userTypeUuid: roleUuid,
 		};
@@ -221,7 +221,7 @@ describe("user property accepted values", () => {
 	it("rejects duplicate values at the domain schema boundary", () => {
 		expect(
 			userPropertySchema.safeParse({
-				uuid: asUuid("property"),
+				uuid: testUuid("property"),
 				slug: "region",
 				label: "Region",
 				choices: ["north", "north"],
@@ -260,9 +260,9 @@ describe("prototype-safe user record parsing", () => {
 	});
 
 	it("preserves hostile collection identities through the blueprint boundary", () => {
-		const propertyUuid = asUuid("__proto__");
-		const typeUuid = asUuid("constructor");
-		const personaUuid = asUuid("toString");
+		const propertyUuid = testUuid("__proto__");
+		const typeUuid = testUuid("constructor");
+		const personaUuid = testUuid("toString");
 		const { fieldParent: _derived, ...persistable } = buildDoc({
 			appName: "Hostile identities",
 			modules: [],

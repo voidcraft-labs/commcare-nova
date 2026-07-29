@@ -17,8 +17,9 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type { BlueprintDoc } from "@/lib/domain";
-import { asUuid } from "@/lib/domain";
+
 import { searchBlueprintTool } from "../../tools/searchBlueprint";
 
 /**
@@ -30,7 +31,7 @@ function docWithModules(moduleCount: number): BlueprintDoc {
 	const modules: BlueprintDoc["modules"] = {};
 	const moduleOrder: BlueprintDoc["moduleOrder"] = [];
 	for (let i = 0; i < moduleCount; i++) {
-		const uuid = asUuid(
+		const uuid = testUuid(
 			`55555555-5555-5555-5555-${String(i).padStart(12, "0")}`,
 		);
 		modules[uuid] = {

@@ -14,8 +14,9 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
-import { asUuid, type BlueprintDoc, plainColumn } from "@/lib/domain";
+import { type BlueprintDoc, plainColumn } from "@/lib/domain";
 import { updateCaseListColumnTool } from "../updateCaseListColumn";
 import { MOD_A, makeCaseListFixture } from "./fixtures";
 
@@ -31,8 +32,8 @@ beforeEach(() => {
 	vi.clearAllMocks();
 });
 
-const TARGET_UUID = asUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
-const SIBLING_UUID = asUuid("cccccccc-cccc-cccc-cccc-cccccccccccc");
+const TARGET_UUID = testUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+const SIBLING_UUID = testUuid("cccccccc-cccc-cccc-cccc-cccccccccccc");
 
 function fixtureWithColumn(): BlueprintDoc {
 	const { doc } = makeCaseListFixture();
@@ -218,7 +219,7 @@ describe("updateCaseListColumn", () => {
 	it("returns an Elm-style error when the column uuid is unknown", async () => {
 		const { ctx } = makeCaseListFixture();
 		const doc = fixtureWithColumn();
-		const unknown = asUuid("dddddddd-dddd-dddd-dddd-dddddddddddd");
+		const unknown = testUuid("dddddddd-dddd-dddd-dddd-dddddddddddd");
 		const result = await updateCaseListColumnTool.execute(
 			{
 				moduleIndex: 0,

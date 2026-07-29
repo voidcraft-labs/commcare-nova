@@ -1,3 +1,4 @@
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { withUserSequences } from "@/lib/__tests__/docHelpers";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { backfillOptionUuids } from "@/lib/doc/optionIdentity";
@@ -27,7 +28,7 @@ import type { ValidationErrorCode } from "@/lib/commcare/validator/errors";
 import { scopeOfMutations } from "@/lib/commcare/validator/scopeOfMutations";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import type { Mutation } from "@/lib/doc/types";
-import { asUuid, type BlueprintDoc, type Field } from "@/lib/domain";
+import type { BlueprintDoc, Field } from "@/lib/domain";
 
 /** Field lookup by semantic id (unique across these fixtures). */
 function byId(doc: BlueprintDoc, id: string): Field {
@@ -123,8 +124,8 @@ function richDoc(): BlueprintDoc {
 							{
 								target: {
 									type: "form",
-									moduleUuid: asUuid("mod-patients"),
-									formUuid: asUuid("frm-reg"),
+									moduleUuid: testUuid("mod-patients"),
+									formUuid: testUuid("frm-reg"),
 								},
 							},
 						],
@@ -219,30 +220,30 @@ function _capWriterDoc(): BlueprintDoc {
 function usersDoc(): BlueprintDoc {
 	const doc = richDoc();
 	doc.userProperties = {
-		[asUuid("up-region")]: {
-			uuid: asUuid("up-region"),
+		[testUuid("up-region")]: {
+			uuid: testUuid("up-region"),
 			slug: "region",
 			label: "Region",
 			choices: ["north", "south"],
 		},
 	};
 	doc.userTypes = {
-		[asUuid("ut-chw")]: {
-			uuid: asUuid("ut-chw"),
+		[testUuid("ut-chw")]: {
+			uuid: testUuid("ut-chw"),
 			name: "CHW",
-			values: { [asUuid("up-region")]: "north" },
+			values: { [testUuid("up-region")]: "north" },
 		},
 	};
 	doc.personas = {
-		[asUuid("pers-asha")]: {
-			uuid: asUuid("pers-asha"),
+		[testUuid("pers-asha")]: {
+			uuid: testUuid("pers-asha"),
 			name: "Asha",
-			userTypeUuid: asUuid("ut-chw"),
+			userTypeUuid: testUuid("ut-chw"),
 		},
-		[asUuid("pers-bimal")]: {
-			uuid: asUuid("pers-bimal"),
+		[testUuid("pers-bimal")]: {
+			uuid: testUuid("pers-bimal"),
 			name: "Bimal",
-			userTypeUuid: asUuid("ut-chw"),
+			userTypeUuid: testUuid("ut-chw"),
 		},
 	};
 	// The record and its sequence cannot disagree in a real doc; a fixture
@@ -280,7 +281,7 @@ const GUARD_COVERAGE = {
 				{
 					kind: "addModule",
 					module: {
-						uuid: asUuid("m-new"),
+						uuid: testUuid("m-new"),
 						id: "households",
 						name: "Households",
 						caseType: "household",
@@ -372,7 +373,7 @@ const GUARD_COVERAGE = {
 						kind: "addForm",
 						moduleUuid: doc.moduleOrder[0],
 						form: {
-							uuid: asUuid("f-new"),
+							uuid: testUuid("f-new"),
 							id: "empty_form",
 							name: "Empty form",
 							type: "survey",
@@ -392,7 +393,7 @@ const GUARD_COVERAGE = {
 			const doc = richDoc();
 			return {
 				doc,
-				batch: [{ kind: "removeForm", uuid: asUuid("frm-reg") }],
+				batch: [{ kind: "removeForm", uuid: testUuid("frm-reg") }],
 			};
 		},
 		expectCodes: ["FORM_LINK_TARGET_NOT_FOUND"],
@@ -406,7 +407,7 @@ const GUARD_COVERAGE = {
 				batch: [
 					{
 						kind: "moveForm",
-						uuid: asUuid("frm-reg"),
+						uuid: testUuid("frm-reg"),
 						toModuleUuid: doc.moduleOrder[1],
 						after: null,
 					},
@@ -422,7 +423,7 @@ const GUARD_COVERAGE = {
 		build: () => ({
 			doc: richDoc(),
 			batch: [
-				{ kind: "renameForm", uuid: asUuid("frm-reg"), newId: "renamed" },
+				{ kind: "renameForm", uuid: testUuid("frm-reg"), newId: "renamed" },
 			],
 		}),
 	},
@@ -455,7 +456,7 @@ const GUARD_COVERAGE = {
 			batch: [
 				{
 					kind: "setFormMedia",
-					uuid: asUuid("frm-reg"),
+					uuid: testUuid("frm-reg"),
 					icon: null,
 					audioLabel: null,
 				},
@@ -474,9 +475,9 @@ const GUARD_COVERAGE = {
 				batch: [
 					{
 						kind: "addField",
-						parentUuid: asUuid("frm-reg"),
+						parentUuid: testUuid("frm-reg"),
 						field: {
-							uuid: asUuid("fld-stranger"),
+							uuid: testUuid("fld-stranger"),
 							kind: "text",
 							id: "stranger_note",
 							label: "Note",
@@ -731,9 +732,9 @@ const GUARD_COVERAGE = {
 				batch: [
 					{
 						kind: "addColumn",
-						moduleUuid: asUuid("mod-patients"),
+						moduleUuid: testUuid("mod-patients"),
 						column: {
-							uuid: asUuid("col-ghost"),
+							uuid: testUuid("col-ghost"),
 							kind: "plain",
 							field: "ghost",
 							header: "Ghost",
@@ -755,7 +756,7 @@ const GUARD_COVERAGE = {
 				batch: [
 					{
 						kind: "updateColumn",
-						moduleUuid: asUuid("mod-patients"),
+						moduleUuid: testUuid("mod-patients"),
 						uuid: col.uuid,
 						column: {
 							uuid: col.uuid,
@@ -778,7 +779,7 @@ const GUARD_COVERAGE = {
 				batch: [
 					{
 						kind: "removeColumn",
-						moduleUuid: asUuid("mod-patients"),
+						moduleUuid: testUuid("mod-patients"),
 						uuid: col.uuid,
 					},
 				],
@@ -798,7 +799,7 @@ const GUARD_COVERAGE = {
 				batch: [
 					{
 						kind: "moveColumn",
-						moduleUuid: asUuid("mod-patients"),
+						moduleUuid: testUuid("mod-patients"),
 						uuid: col.uuid,
 						surface: "list",
 						after: null,
@@ -817,9 +818,9 @@ const GUARD_COVERAGE = {
 				batch: [
 					{
 						kind: "addSearchInput",
-						moduleUuid: asUuid("mod-patients"),
+						moduleUuid: testUuid("mod-patients"),
 						searchInput: {
-							uuid: asUuid("si-new"),
+							uuid: testUuid("si-new"),
 							kind: "simple",
 							name: "name_q",
 							label: "Name",
@@ -853,8 +854,8 @@ const GUARD_COVERAGE = {
 				batch: [
 					{
 						kind: "setCaseListMeta",
-						uuid: asUuid("mod-patients"),
-						patch: { icon: asUuid("asset-1") },
+						uuid: testUuid("mod-patients"),
+						patch: { icon: testUuid("asset-1") },
 					},
 				],
 			};
@@ -912,7 +913,7 @@ const GUARD_COVERAGE = {
 					{
 						kind: "removeOption",
 						fieldUuid: field.uuid,
-						uuid: asUuid(options[0].uuid),
+						uuid: testUuid(options[0].uuid),
 					},
 				],
 			};
@@ -928,7 +929,7 @@ const GUARD_COVERAGE = {
 				{
 					kind: "addUserProperty",
 					property: {
-						uuid: asUuid("up-bad"),
+						uuid: testUuid("up-bad"),
 						slug: "commcare_region",
 						label: "Region",
 					},
@@ -943,7 +944,7 @@ const GUARD_COVERAGE = {
 			batch: [
 				{
 					kind: "updateUserProperty",
-					uuid: asUuid("up-region"),
+					uuid: testUuid("up-region"),
 					patch: { slug: "owner_id" },
 				},
 			],
@@ -956,7 +957,7 @@ const GUARD_COVERAGE = {
 		// bag in the same batch instead of leaving this behind.
 		build: () => ({
 			doc: usersDoc(),
-			batch: [{ kind: "removeUserProperty", uuid: asUuid("up-region") }],
+			batch: [{ kind: "removeUserProperty", uuid: testUuid("up-region") }],
 		}),
 		expectCodes: ["USER_DATA_UNKNOWN_PROPERTY"],
 	},
@@ -966,7 +967,7 @@ const GUARD_COVERAGE = {
 			batch: [
 				{
 					kind: "addUserType",
-					userType: { uuid: asUuid("ut-dupe"), name: "chw" },
+					userType: { uuid: testUuid("ut-dupe"), name: "chw" },
 				},
 			],
 		}),
@@ -978,8 +979,8 @@ const GUARD_COVERAGE = {
 			batch: [
 				{
 					kind: "updateUserType",
-					uuid: asUuid("ut-chw"),
-					patch: { values: { [asUuid("up-region")]: "atlantis" } },
+					uuid: testUuid("ut-chw"),
+					patch: { values: { [testUuid("up-region")]: "atlantis" } },
 				},
 			],
 		}),
@@ -988,7 +989,7 @@ const GUARD_COVERAGE = {
 	removeUserType: {
 		build: () => ({
 			doc: usersDoc(),
-			batch: [{ kind: "removeUserType", uuid: asUuid("ut-chw") }],
+			batch: [{ kind: "removeUserType", uuid: testUuid("ut-chw") }],
 		}),
 		expectCodes: ["PERSONA_USER_TYPE_UNKNOWN"],
 	},
@@ -999,9 +1000,9 @@ const GUARD_COVERAGE = {
 				{
 					kind: "addPersona",
 					persona: {
-						uuid: asUuid("pers-new"),
+						uuid: testUuid("pers-new"),
 						name: "Bimal",
-						userTypeUuid: asUuid("ut-gone"),
+						userTypeUuid: testUuid("ut-gone"),
 					},
 				},
 			],
@@ -1014,7 +1015,7 @@ const GUARD_COVERAGE = {
 			batch: [
 				{
 					kind: "updatePersona",
-					uuid: asUuid("pers-bimal"),
+					uuid: testUuid("pers-bimal"),
 					patch: { name: "asha" },
 				},
 			],
@@ -1026,16 +1027,16 @@ const GUARD_COVERAGE = {
 			"drops a preview actor — nothing references a persona, so removing one introduces no finding; app-scoped with no module or form widening",
 		build: () => ({
 			doc: usersDoc(),
-			batch: [{ kind: "removePersona", uuid: asUuid("pers-bimal") }],
+			batch: [{ kind: "removePersona", uuid: testUuid("pers-bimal") }],
 		}),
 	},
 } satisfies Record<Mutation["kind"], Coverage>;
 
 /** The single case-list column the rich Patients module is born with. */
 function patientsColumn(doc: BlueprintDoc): {
-	uuid: ReturnType<typeof asUuid>;
+	uuid: ReturnType<typeof testUuid>;
 } {
-	const col = doc.modules[asUuid("mod-patients")]?.caseListConfig?.columns[0];
+	const col = doc.modules[testUuid("mod-patients")]?.caseListConfig?.columns[0];
 	if (!col) throw new Error("fixture missing Patients case-list column");
 	return col;
 }

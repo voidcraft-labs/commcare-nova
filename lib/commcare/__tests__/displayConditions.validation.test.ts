@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
-import { asUuid } from "@/lib/doc/types";
+
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import {
 	actingUser,
@@ -99,14 +100,14 @@ const CASE_OPERATION_ONLY_CONDITIONS: readonly (readonly [
 	[
 		"form field",
 		eq(
-			formField(asUuid("11111111-1111-4111-8111-111111111111")),
+			formField(testUuid("11111111-1111-4111-8111-111111111111")),
 			literal("value"),
 		),
 	],
 	[
 		"operation id",
 		eq(
-			idOf(asUuid("22222222-2222-4222-8222-222222222222")),
+			idOf(testUuid("22222222-2222-4222-8222-222222222222")),
 			literal("case-id"),
 		),
 	],

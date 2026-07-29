@@ -1,5 +1,6 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f, withUserSequences } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
@@ -8,13 +9,13 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
 import { removeUserPropertyPlan } from "@/lib/doc/userMutations";
-import { asUuid, type BlueprintDoc } from "@/lib/domain";
+import type { BlueprintDoc } from "@/lib/domain";
 import { eq, literal, sessionUserProperty } from "@/lib/domain/predicate";
 
-const PROPERTY_A = asUuid("__proto__");
-const PROPERTY_B = asUuid("constructor");
-const TYPE = asUuid("toString");
-const PERSONA = asUuid("hasOwnProperty");
+const PROPERTY_A = testUuid("__proto__");
+const PROPERTY_B = testUuid("constructor");
+const TYPE = testUuid("toString");
+const PERSONA = testUuid("hasOwnProperty");
 
 function ownRecord<T>(
 	entries: ReadonlyArray<readonly [string, T]>,
@@ -74,9 +75,9 @@ function valueUpdate(
 ): Mutation {
 	return {
 		kind,
-		uuid: asUuid(uuid),
+		uuid: testUuid(uuid),
 		patch: { values: fallbackValues },
-		valuePatch: { userPropertyUuid: asUuid(propertyUuid), value },
+		valuePatch: { userPropertyUuid: testUuid(propertyUuid), value },
 	} as Mutation;
 }
 
@@ -84,7 +85,7 @@ describe("user collection mutations", () => {
 	it.each(["2fa_region", "-area"])(
 		"refuses the XML-unsafe slug %s at the shared commit gate",
 		(slug) => {
-			const propertyUuid = asUuid(`property-${slug}`);
+			const propertyUuid = testUuid(`property-${slug}`);
 			const verdict = mutationCommitVerdict(
 				buildDoc(),
 				[
@@ -243,7 +244,7 @@ describe("user collection mutations", () => {
 	});
 
 	it("refuses removal before cleanup when XPath or Predicate ASTs keep the identity", () => {
-		const propertyUuid = asUuid("worker-region");
+		const propertyUuid = testUuid("worker-region");
 		const doc = buildDoc({
 			modules: [
 				{
@@ -309,7 +310,7 @@ describe("user collection mutations", () => {
 	});
 
 	it("reports distinct relevant and required slots on the same field", () => {
-		const propertyUuid = asUuid("worker-region");
+		const propertyUuid = testUuid("worker-region");
 		const doc = buildDoc({
 			modules: [
 				{
@@ -369,8 +370,8 @@ describe("user collection diff", () => {
 			...before,
 			userTypes: ownRecord([
 				[
-					asUuid("constructor"),
-					{ uuid: asUuid("constructor"), name: "Constructor role" },
+					testUuid("constructor"),
+					{ uuid: testUuid("constructor"), name: "Constructor role" },
 				],
 			]),
 		});
@@ -379,11 +380,11 @@ describe("user collection diff", () => {
 			{
 				after: null,
 				kind: "addUserType",
-				userType: { uuid: asUuid("constructor"), name: "Constructor role" },
+				userType: { uuid: testUuid("constructor"), name: "Constructor role" },
 			},
 		]);
 		expect(diffDocsToMutations(after, before)).toEqual([
-			{ kind: "removeUserType", uuid: asUuid("constructor") },
+			{ kind: "removeUserType", uuid: testUuid("constructor") },
 		]);
 	});
 

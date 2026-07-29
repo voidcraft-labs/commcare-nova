@@ -14,7 +14,8 @@
 // an author can write into a slot the commit gate will reject.
 
 import { describe, expect, it } from "vitest";
-import { asUuid } from "@/lib/doc/types";
+import { testUuid } from "@/__tests__/helpers/uuid";
+
 import type { UserProperty } from "@/lib/domain";
 import {
 	actingUser,
@@ -35,9 +36,9 @@ import {
 import { buildEditorTypeContext } from "../editorContext";
 import { isAuthorableExpressionKind } from "../expressionEditorSchemas";
 
-const FIELD = asUuid("11111111-1111-4111-8111-111111111111");
-const CREATE = asUuid("22222222-2222-4222-8222-222222222222");
-const WORKER = asUuid("33333333-3333-4333-8333-333333333333");
+const FIELD = testUuid("11111111-1111-4111-8111-111111111111");
+const CREATE = testUuid("22222222-2222-4222-8222-222222222222");
+const WORKER = testUuid("33333333-3333-4333-8333-333333333333");
 
 const BARE = {
 	caseTypes: [],
@@ -117,7 +118,7 @@ describe("with an operation scope", () => {
 		// An answer the surface did not declare stays refused: the decl list
 		// IS the admission list, already narrowed by repeat scope.
 		expect(
-			checkValueExpression(term(formField(asUuid("not-in-scope"))), ctx).ok,
+			checkValueExpression(term(formField(testUuid("not-in-scope"))), ctx).ok,
 		).toBe(false);
 	});
 });

@@ -10,13 +10,14 @@
 //     validator scopes.
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { xp } from "@/lib/__tests__/docHelpers";
-import { asUuid, type BlueprintDoc, type ConnectConfig } from "@/lib/domain";
+import type { BlueprintDoc, ConnectConfig } from "@/lib/domain";
 import { collectConnectIds, enforceConnectIds } from "../connectIds";
 
-const FORM_A = asUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
-const FORM_B = asUuid("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
-const MOD = asUuid("cccccccc-cccc-cccc-cccc-cccccccccccc");
+const FORM_A = testUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+const FORM_B = testUuid("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+const MOD = testUuid("cccccccc-cccc-cccc-cccc-cccccccccccc");
 
 describe("enforceConnectIds — explicit-duplicate rejection", () => {
 	it("rejects an explicit id duplicating another form's id (no config returned)", () => {

@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f, resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import { buildFieldTree } from "@/lib/doc/fieldWalk";
 import {
 	advancedSearchInputDef,
-	asUuid,
 	type CaseOperation,
 	calculatedColumn,
 	emptyCaseListConfig,
@@ -29,15 +29,15 @@ import { getFieldTool } from "../getField";
 import { getFormTool } from "../getForm";
 import { getModuleTool } from "../getModule";
 
-const MODULE = asUuid("10000000-0000-4000-8000-000000000000");
-const FORM = asUuid("20000000-0000-4000-8000-000000000000");
-const GROUP = asUuid("30000000-0000-4000-8000-000000000000");
-const SELECT = asUuid("40000000-0000-4000-8000-000000000000");
-const SAFE_COLUMN = asUuid("50000000-0000-4000-8000-000000000000");
-const LOOKUP_COLUMN = asUuid("60000000-0000-4000-8000-000000000000");
-const SAFE_INPUT = asUuid("70000000-0000-4000-8000-000000000000");
-const DEFAULT_LOOKUP_INPUT = asUuid("80000000-0000-4000-8000-000000000000");
-const PREDICATE_LOOKUP_INPUT = asUuid("90000000-0000-4000-8000-000000000000");
+const MODULE = testUuid("10000000-0000-4000-8000-000000000000");
+const FORM = testUuid("20000000-0000-4000-8000-000000000000");
+const GROUP = testUuid("30000000-0000-4000-8000-000000000000");
+const SELECT = testUuid("40000000-0000-4000-8000-000000000000");
+const SAFE_COLUMN = testUuid("50000000-0000-4000-8000-000000000000");
+const LOOKUP_COLUMN = testUuid("60000000-0000-4000-8000-000000000000");
+const SAFE_INPUT = testUuid("70000000-0000-4000-8000-000000000000");
+const DEFAULT_LOOKUP_INPUT = testUuid("80000000-0000-4000-8000-000000000000");
+const PREDICATE_LOOKUP_INPUT = testUuid("90000000-0000-4000-8000-000000000000");
 
 const TABLE = "018f3e8a-7b2c-7def-8abc-1234567890ab" as LookupTableId;
 const VALUE_COLUMN = "018f3e8a-7b2c-7def-8abc-1234567890ad" as LookupColumnId;
@@ -129,12 +129,12 @@ function lookupCarrierDoc() {
 										label: "District",
 										options: [
 											{
-												uuid: asUuid("41000000-0000-4000-8000-000000000000"),
+												uuid: testUuid("41000000-0000-4000-8000-000000000000"),
 												value: "north",
 												label: "North",
 											},
 											{
-												uuid: asUuid("42000000-0000-4000-8000-000000000000"),
+												uuid: testUuid("42000000-0000-4000-8000-000000000000"),
 												value: "south",
 												label: "South",
 											},
@@ -152,7 +152,7 @@ function lookupCarrierDoc() {
 	});
 
 	const safeOperation: CaseOperation = {
-		uuid: asUuid("a0000000-0000-4000-8000-000000000000"),
+		uuid: testUuid("a0000000-0000-4000-8000-000000000000"),
 		id: "safe_update",
 		action: "update",
 		caseType: "person",
@@ -161,7 +161,7 @@ function lookupCarrierDoc() {
 		writes: [{ property: "safe", value: term(literal("safe-value")) }],
 	};
 	const partiallyDormantOperation: CaseOperation = {
-		uuid: asUuid("b0000000-0000-4000-8000-000000000000"),
+		uuid: testUuid("b0000000-0000-4000-8000-000000000000"),
 		id: "partial_update",
 		action: "update",
 		caseType: "person",
@@ -199,7 +199,7 @@ function lookupCarrierDoc() {
 		],
 	};
 	const dormantTargetOperation: CaseOperation = {
-		uuid: asUuid("c0000000-0000-4000-8000-000000000000"),
+		uuid: testUuid("c0000000-0000-4000-8000-000000000000"),
 		id: "dormant_target",
 		action: "update",
 		caseType: "person",
@@ -427,7 +427,7 @@ describe("shared read tools — dormant lookup carriers", () => {
 		};
 		doc.forms[FORM].caseOperations = [
 			{
-				uuid: asUuid("d0000000-0000-4000-8000-000000000000"),
+				uuid: testUuid("d0000000-0000-4000-8000-000000000000"),
 				id: "dormant_links",
 				action: "update",
 				caseType: "person",

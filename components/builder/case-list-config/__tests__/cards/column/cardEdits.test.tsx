@@ -22,7 +22,8 @@
 
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { asUuid } from "@/lib/doc/types";
+import { testUuid } from "@/__tests__/helpers/uuid";
+
 import {
 	type CaseType,
 	type Column,
@@ -47,7 +48,7 @@ const PATIENT: CaseType = {
 	],
 };
 
-const TEST_UUID = asUuid("00000000-0000-0000-0000-000000000001");
+const TEST_UUID = testUuid("00000000-0000-0000-0000-000000000001");
 
 const SURFACE_SLOTS = {
 	sort: { direction: "asc" as const, priority: 0 },

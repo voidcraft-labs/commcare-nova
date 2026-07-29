@@ -12,9 +12,10 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { buildReferenceIndex } from "@/lib/doc/referenceIndex";
-import { asUuid } from "@/lib/doc/types";
+
 import type { BlueprintDoc, FieldKind, Form } from "@/lib/domain";
 import { today } from "@/lib/domain/predicate";
 import { planKindConversion } from "../kindConversionCascade";
@@ -204,7 +205,7 @@ describe("planKindConversion — generalized escort", () => {
 		const formUuid = Object.keys(doc.forms)[0] as import("@/lib/domain").Uuid;
 		(doc.forms[formUuid] as Form).caseOperations = [
 			{
-				uuid: asUuid("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
+				uuid: testUuid("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
 				id: "record_visit_date",
 				action: "update",
 				caseType: "patient",
@@ -224,7 +225,7 @@ describe("planKindConversion — generalized escort", () => {
 			ok: false,
 			blocker: {
 				carrier: "case-operation",
-				uuid: asUuid("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
+				uuid: testUuid("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
 				id: "record_visit_date",
 			},
 		});

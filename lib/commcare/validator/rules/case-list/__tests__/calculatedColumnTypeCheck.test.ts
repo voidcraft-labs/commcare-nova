@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { asUuid, calculatedColumn, plainColumn } from "@/lib/domain";
+import { calculatedColumn, plainColumn } from "@/lib/domain";
 import { arith, prop, term } from "@/lib/domain/predicate";
 import { runValidation } from "../../../runner";
 
@@ -17,9 +18,9 @@ describe("calculatedColumnTypeCheck", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [
-							plainColumn(asUuid("col-name"), "case_name", "Name"),
+							plainColumn(testUuid("col-name"), "case_name", "Name"),
 							calculatedColumn(
-								asUuid("col-bad-arith"),
+								testUuid("col-bad-arith"),
 								"Bad",
 								arith(
 									"+",
@@ -78,9 +79,9 @@ describe("calculatedColumnTypeCheck", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [
-							plainColumn(asUuid("col-name"), "case_name", "Name"),
+							plainColumn(testUuid("col-name"), "case_name", "Name"),
 							calculatedColumn(
-								asUuid("col-age-plus"),
+								testUuid("col-age-plus"),
 								"Age + 1",
 								arith(
 									"+",
@@ -139,9 +140,9 @@ describe("calculatedColumnTypeCheck", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [
-							plainColumn(asUuid("col-name"), "case_name", "Name"),
+							plainColumn(testUuid("col-name"), "case_name", "Name"),
 							calculatedColumn(
-								asUuid("col-unknown"),
+								testUuid("col-unknown"),
 								"Unknown",
 								term(prop("patient", "ghost")),
 							),
@@ -180,7 +181,7 @@ describe("calculatedColumnTypeCheck", () => {
 		// detail carries the offending column's stable identity, not
 		// an array index, so the editor can highlight the right row
 		// after a reorder.
-		const calcUuid = asUuid("col-locator-target");
+		const calcUuid = testUuid("col-locator-target");
 		const doc = buildDoc({
 			appName: "Test",
 			modules: [
@@ -189,7 +190,7 @@ describe("calculatedColumnTypeCheck", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [
-							plainColumn(asUuid("col-name"), "case_name", "Name"),
+							plainColumn(testUuid("col-name"), "case_name", "Name"),
 							calculatedColumn(
 								calcUuid,
 								"Unknown",
@@ -244,9 +245,9 @@ describe("calculatedColumnTypeCheck", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [
-							plainColumn(asUuid("col-name"), "case_name", "Name"),
+							plainColumn(testUuid("col-name"), "case_name", "Name"),
 							calculatedColumn(
-								asUuid("col-nickname"),
+								testUuid("col-nickname"),
 								"Nickname",
 								term(prop("patient", "nickname")),
 							),
@@ -301,9 +302,9 @@ describe("calculatedColumnTypeCheck", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [
-							plainColumn(asUuid("col-name"), "case_name", "Name"),
+							plainColumn(testUuid("col-name"), "case_name", "Name"),
 							calculatedColumn(
-								asUuid("col-display-name"),
+								testUuid("col-display-name"),
 								"Display name",
 								term(prop("patient", "case_name")),
 							),
@@ -350,9 +351,9 @@ describe("calculatedColumnTypeCheck", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [
-							plainColumn(asUuid("col-name"), "case_name", "Name"),
+							plainColumn(testUuid("col-name"), "case_name", "Name"),
 							calculatedColumn(
-								asUuid("col-bad-arith"),
+								testUuid("col-bad-arith"),
 								"Bad",
 								arith(
 									"+",

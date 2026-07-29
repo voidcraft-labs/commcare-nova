@@ -69,6 +69,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { Kysely } from "kysely";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { CaseListScreen } from "@/components/preview/screens/CaseListScreen";
 import { FormScreen } from "@/components/preview/screens/FormScreen";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
@@ -79,9 +80,8 @@ import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 import type { Database } from "@/lib/case-store/sql/database";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
-import { asUuid as asDocUuid, type Uuid } from "@/lib/doc/types";
+import type { Uuid } from "@/lib/doc/types";
 import {
-	asUuid,
 	type BlueprintDoc,
 	calculatedColumn,
 	plainColumn,
@@ -126,20 +126,20 @@ const dbHandle = setupPerTestDatabase({
 const APP_ID = "case-list-search-int";
 const MODULE_NAME = "Patients";
 const OWNER_ID = "owner-int";
-const MODULE_UUID = asDocUuid("00000000-0000-0000-0000-00000000a001");
-const REG_FORM_UUID = asDocUuid("00000000-0000-0000-0000-00000000a002");
-const FOLLOWUP_FORM_UUID = asDocUuid("00000000-0000-0000-0000-00000000a003");
-const CLOSE_FORM_UUID = asDocUuid("00000000-0000-0000-0000-00000000a004");
+const MODULE_UUID = testUuid("00000000-0000-0000-0000-00000000a001");
+const REG_FORM_UUID = testUuid("00000000-0000-0000-0000-00000000a002");
+const FOLLOWUP_FORM_UUID = testUuid("00000000-0000-0000-0000-00000000a003");
+const CLOSE_FORM_UUID = testUuid("00000000-0000-0000-0000-00000000a004");
 
-const COL_NAME_UUID = asUuid("00000000-0000-4000-8000-000000000001");
-const COL_AGE_UUID = asUuid("00000000-0000-4000-8000-000000000002");
+const COL_NAME_UUID = testUuid("00000000-0000-4000-8000-000000000001");
+const COL_AGE_UUID = testUuid("00000000-0000-4000-8000-000000000002");
 // Calculated column projecting `age + 1` ("age next year"). Mirrors
 // the authoring integration test's calc-column shape — `arith` plus
 // a typed `int` literal compiles cleanly into the case-store's SQL
 // `calculated` projection and surfaces on `row.calculated[uuid]`.
 // The screen reads the slot through `evaluateColumnValue`.
-const COL_CALC_UUID = asUuid("00000000-0000-4000-8000-000000000003");
-const SI_NAME_UUID = asUuid("00000000-0000-4000-8000-000000000010");
+const COL_CALC_UUID = testUuid("00000000-0000-4000-8000-000000000003");
+const SI_NAME_UUID = testUuid("00000000-0000-4000-8000-000000000010");
 
 // ── Mocks ────────────────────────────────────────────────────────
 //

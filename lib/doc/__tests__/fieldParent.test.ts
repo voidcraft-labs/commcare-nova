@@ -22,13 +22,13 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { duplicateFieldMutations } from "@/lib/doc/duplicateFieldMutations";
 import type { BlueprintDocStoreApi } from "@/lib/doc/store";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
-import { asUuid } from "@/lib/domain";
 
 // ── Invariant checker ────────────────────────────────────────────────────────
 
@@ -104,14 +104,14 @@ function applyBatch(
 
 // ── Shared UUID factories ────────────────────────────────────────────────────
 // Fixed, readable test UUIDs so failure messages are greppable.
-const FRM = asUuid("frm1-0000-0000-0000-000000000000");
-const FLD_A = asUuid("flda-0000-0000-0000-000000000000");
-const FLD_B = asUuid("fldb-0000-0000-0000-000000000000");
-const FLD_C = asUuid("fldc-0000-0000-0000-000000000000");
-const GRP = asUuid("grp0-0000-0000-0000-000000000000");
-const GRP2 = asUuid("grp2-0000-0000-0000-000000000000");
-const RPT = asUuid("rpt0-0000-0000-0000-000000000000");
-const NESTED = asUuid("nst0-0000-0000-0000-000000000000");
+const FRM = testUuid("frm1-0000-0000-0000-000000000000");
+const FLD_A = testUuid("flda-0000-0000-0000-000000000000");
+const FLD_B = testUuid("fldb-0000-0000-0000-000000000000");
+const FLD_C = testUuid("fldc-0000-0000-0000-000000000000");
+const GRP = testUuid("grp0-0000-0000-0000-000000000000");
+const GRP2 = testUuid("grp2-0000-0000-0000-000000000000");
+const RPT = testUuid("rpt0-0000-0000-0000-000000000000");
+const NESTED = testUuid("nst0-0000-0000-0000-000000000000");
 
 // ── addField ─────────────────────────────────────────────────────────────────
 
@@ -882,7 +882,7 @@ describe("after applyMany batches", () => {
 
 		// Build 20 field mutations with distinct UUIDs to simulate a large agent batch.
 		const muts: Mutation[] = Array.from({ length: 20 }, (_, i) => {
-			const uuid = asUuid(
+			const uuid = testUuid(
 				`agent${i.toString().padStart(4, "0")}-0000-0000-0000-0000`,
 			);
 			return {

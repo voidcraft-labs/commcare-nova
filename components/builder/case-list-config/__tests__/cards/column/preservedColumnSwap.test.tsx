@@ -33,7 +33,8 @@
 // function with the same `ctx` reproduces them exactly.
 
 import { describe, expect, it } from "vitest";
-import { asUuid } from "@/lib/doc/types";
+import { testUuid } from "@/__tests__/helpers/uuid";
+
 import {
 	type CaseType,
 	calculatedColumn,
@@ -46,7 +47,7 @@ import { literal, term } from "@/lib/domain/predicate";
 import { preservedColumnSwap } from "../../../ColumnEditor";
 import type { ColumnEditContext } from "../../../columnEditorSchemas";
 
-const TEST_UUID = asUuid("00000000-0000-0000-0000-000000000001");
+const TEST_UUID = testUuid("00000000-0000-0000-0000-000000000001");
 
 const PATIENT: CaseType = {
 	name: "patient",

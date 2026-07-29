@@ -10,6 +10,7 @@
 import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	ScrollRegistryProvider,
 	useRegisterScrollCallback,
@@ -17,7 +18,6 @@ import {
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
-import { asUuid } from "@/lib/doc/types";
 
 /* Mock the client path hook — segments control the current location. */
 const mockSegments = { current: [] as string[] };
@@ -175,7 +175,7 @@ describe("useUndoRedo", () => {
 	it("undo reverses the last mutation; redo reapplies it", () => {
 		const store = makeStore();
 
-		const qaUuid = asUuid("q-a-0000-0000-0000-000000000000");
+		const qaUuid = testUuid("q-a-0000-0000-0000-000000000000");
 		act(() => {
 			store.getState().applyMany([{ kind: "removeField", uuid: qaUuid }]);
 		});
@@ -199,7 +199,7 @@ describe("useUndoRedo", () => {
 			store.getState().applyMany([
 				{
 					kind: "removeField",
-					uuid: asUuid("q-a-0000-0000-0000-000000000000"),
+					uuid: testUuid("q-a-0000-0000-0000-000000000000"),
 				},
 			]);
 		});
@@ -221,7 +221,7 @@ describe("useUndoRedo", () => {
 			store.getState().applyMany([
 				{
 					kind: "updateField",
-					uuid: asUuid("q-a-0000-0000-0000-000000000000"),
+					uuid: testUuid("q-a-0000-0000-0000-000000000000"),
 					targetKind: "text",
 					patch: { label: "Renamed" },
 				},
@@ -254,7 +254,7 @@ describe("useUndoRedo", () => {
 			store.getState().applyMany([
 				{
 					kind: "updateField",
-					uuid: asUuid("q-a-0000-0000-0000-000000000000"),
+					uuid: testUuid("q-a-0000-0000-0000-000000000000"),
 					targetKind: "text",
 					patch: { label: "Renamed" },
 				},
@@ -297,7 +297,7 @@ describe("useUndoRedo", () => {
 			store.getState().applyMany([
 				{
 					kind: "updateField",
-					uuid: asUuid("q-a-0000-0000-0000-000000000000"),
+					uuid: testUuid("q-a-0000-0000-0000-000000000000"),
 					targetKind: "text",
 					patch: { label: "Renamed" },
 				},

@@ -1,14 +1,16 @@
 // lib/domain/__tests__/fields.test.ts
+
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { fieldKinds, fieldRegistry, fieldSchema, isContainer } from "../fields";
-import { asUuid } from "../uuid";
+
 import { opaqueXPathExpression } from "../xpath";
 
 describe("fieldSchema", () => {
 	it("accepts a valid text field", () => {
 		const f = fieldSchema.parse({
 			kind: "text",
-			uuid: asUuid("abc-123"),
+			uuid: testUuid("abc-123"),
 			id: "age",
 			label: "Age",
 		});
@@ -17,7 +19,7 @@ describe("fieldSchema", () => {
 
 	it("rejects a text field missing kind", () => {
 		expect(() =>
-			fieldSchema.parse({ uuid: asUuid("abc"), id: "age", label: "Age" }),
+			fieldSchema.parse({ uuid: testUuid("abc"), id: "age", label: "Age" }),
 		).toThrow();
 	});
 
@@ -25,7 +27,7 @@ describe("fieldSchema", () => {
 		expect(() =>
 			fieldSchema.parse({
 				kind: "likert_scale",
-				uuid: asUuid("abc"),
+				uuid: testUuid("abc"),
 				id: "x",
 				label: "X",
 			}),
@@ -36,7 +38,7 @@ describe("fieldSchema", () => {
 		expect(() =>
 			fieldSchema.parse({
 				kind: "single_select",
-				uuid: asUuid("abc"),
+				uuid: testUuid("abc"),
 				id: "x",
 				label: "X",
 				options: [{ value: "a", label: "A" }],
@@ -47,7 +49,7 @@ describe("fieldSchema", () => {
 	it("accepts a valid single_select with options", () => {
 		const f = fieldSchema.parse({
 			kind: "single_select",
-			uuid: asUuid("abc"),
+			uuid: testUuid("abc"),
 			id: "x",
 			label: "X",
 			options: [
@@ -65,7 +67,7 @@ describe("fieldSchema", () => {
 		// group field fails to parse rather than stripping silently.
 		const parsed = fieldSchema.safeParse({
 			kind: "group",
-			uuid: asUuid("abc"),
+			uuid: testUuid("abc"),
 			id: "g",
 			label: "G",
 			options: [{ value: "a", label: "A" }],
@@ -81,7 +83,7 @@ describe("fieldSchema", () => {
 		expect(
 			fieldSchema.safeParse({
 				kind: "hidden",
-				uuid: asUuid("abc"),
+				uuid: testUuid("abc"),
 				id: "computed",
 				calculate: opaqueXPathExpression("today()"),
 			}).success,
@@ -89,7 +91,7 @@ describe("fieldSchema", () => {
 		expect(
 			fieldSchema.safeParse({
 				kind: "hidden",
-				uuid: asUuid("abc"),
+				uuid: testUuid("abc"),
 				id: "seeded",
 				default_value: opaqueXPathExpression("today()"),
 			}).success,
@@ -102,7 +104,7 @@ describe("fieldSchema", () => {
 		// matches CommCare's runtime behavior for unlabeled <group>.
 		const f = fieldSchema.parse({
 			kind: "group",
-			uuid: asUuid("abc"),
+			uuid: testUuid("abc"),
 			id: "structural_only",
 		});
 		expect(f.kind).toBe("group");
@@ -112,7 +114,7 @@ describe("fieldSchema", () => {
 	it("accepts a group with empty-string label", () => {
 		const f = fieldSchema.parse({
 			kind: "group",
-			uuid: asUuid("abc"),
+			uuid: testUuid("abc"),
 			id: "structural_only",
 			label: "",
 		});
@@ -128,7 +130,7 @@ describe("fieldSchema", () => {
 		// "minimal valid repeat" intent.
 		const f = fieldSchema.parse({
 			kind: "repeat",
-			uuid: asUuid("abc"),
+			uuid: testUuid("abc"),
 			id: "data_loop",
 			repeat_mode: "user_controlled",
 		});
@@ -143,7 +145,7 @@ describe("fieldSchema", () => {
 		expect(() =>
 			fieldSchema.parse({
 				kind: "text",
-				uuid: asUuid("abc"),
+				uuid: testUuid("abc"),
 				id: "name",
 			}),
 		).toThrow();
@@ -157,7 +159,7 @@ describe("fieldSchema", () => {
 		// silently. Callers must omit `label` for hidden fields.
 		const parsed = fieldSchema.safeParse({
 			kind: "hidden",
-			uuid: asUuid("abc"),
+			uuid: testUuid("abc"),
 			id: "h",
 			label: "should be rejected",
 			calculate: opaqueXPathExpression("today()"),
@@ -179,7 +181,7 @@ describe("isContainer", () => {
 	it("returns true for group and repeat", () => {
 		const g = fieldSchema.parse({
 			kind: "group",
-			uuid: asUuid("abc"),
+			uuid: testUuid("abc"),
 			id: "g",
 			label: "G",
 		});
@@ -187,7 +189,7 @@ describe("isContainer", () => {
 
 		const r = fieldSchema.parse({
 			kind: "repeat",
-			uuid: asUuid("abc"),
+			uuid: testUuid("abc"),
 			id: "r",
 			label: "R",
 			repeat_mode: "user_controlled",
@@ -198,7 +200,7 @@ describe("isContainer", () => {
 	it("returns false for input kinds", () => {
 		const t = fieldSchema.parse({
 			kind: "text",
-			uuid: asUuid("abc"),
+			uuid: testUuid("abc"),
 			id: "t",
 			label: "T",
 		});

@@ -7,21 +7,23 @@
  * The doc store's `load()` accepts this shape and rebuilds `fieldParent`
  * on load.
  */
+
 import { describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { xp } from "@/lib/__tests__/docHelpers";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { CaseType, Field, Uuid } from "@/lib/domain";
-import { asUuid } from "@/lib/domain";
+
 import type { PersistableDoc } from "@/lib/domain/blueprint";
 import { DEFAULT_RUNTIME_STATE, EngineController } from "../engineController";
 import { previewAsMe, type ResolvedPreviewIdentity } from "../identity";
 
 // ── Fixtures ───────────────────────────────────────────────────────────
 
-const MODULE_UUID = asUuid("module-1-uuid");
-const FORM_UUID = asUuid("form-1-uuid");
-const Q1_UUID = asUuid("aaaaaaaa-0001-0001-0001-000000000001");
-const Q2_UUID = asUuid("aaaaaaaa-0002-0002-0002-000000000002");
+const MODULE_UUID = testUuid("module-1-uuid");
+const FORM_UUID = testUuid("form-1-uuid");
+const Q1_UUID = testUuid("aaaaaaaa-0001-0001-0001-000000000001");
+const Q2_UUID = testUuid("aaaaaaaa-0002-0002-0002-000000000002");
 
 /** Build a minimal survey doc with the given fields attached to a single form. */
 function makeDoc(
@@ -126,7 +128,7 @@ describe("EngineController", () => {
 		});
 
 		it("classifies capture blockers through hide, re-show, and field deletion", async () => {
-			const captureUuid = asUuid("aaaaaaaa-0020-0020-0020-000000000020");
+			const captureUuid = testUuid("aaaaaaaa-0020-0020-0020-000000000020");
 			const store = createLoadedStore(
 				makeDoc(
 					{
@@ -170,8 +172,8 @@ describe("EngineController", () => {
 		});
 
 		it("retires a capture path when its repeat instance is removed", () => {
-			const repeatUuid = asUuid("aaaaaaaa-0030-0030-0030-000000000030");
-			const captureUuid = asUuid("aaaaaaaa-0031-0031-0031-000000000031");
+			const repeatUuid = testUuid("aaaaaaaa-0030-0030-0030-000000000030");
+			const captureUuid = testUuid("aaaaaaaa-0031-0031-0031-000000000031");
 			const store = createLoadedStore(
 				makeDoc(
 					{
@@ -212,8 +214,8 @@ describe("EngineController", () => {
 		});
 
 		it("preserves repeat render identities across a same-entry rebuild", () => {
-			const repeatUuid = asUuid("aaaaaaaa-0010-0010-0010-000000000010");
-			const childUuid = asUuid("aaaaaaaa-0011-0011-0011-000000000011");
+			const repeatUuid = testUuid("aaaaaaaa-0010-0010-0010-000000000010");
+			const childUuid = testUuid("aaaaaaaa-0011-0011-0011-000000000011");
 			const store = createLoadedStore(
 				makeDoc(
 					{
@@ -259,7 +261,7 @@ describe("EngineController", () => {
 			const ctrl = new EngineController();
 			ctrl.setDocStore(store);
 
-			ctrl.activateForm(asUuid("does-not-exist"));
+			ctrl.activateForm(testUuid("does-not-exist"));
 
 			/* Runtime store should be empty — no form was activated */
 			expect(Object.keys(ctrl.store.getState())).toHaveLength(0);
@@ -328,7 +330,7 @@ describe("EngineController", () => {
 			/* Initial state should have 2 fields */
 			expect(Object.keys(ctrl.store.getState())).toHaveLength(2);
 
-			const newUuid = asUuid("bbbbbbbb-0003-0003-0003-000000000003");
+			const newUuid = testUuid("bbbbbbbb-0003-0003-0003-000000000003");
 			store.getState().applyMany([
 				{
 					kind: "addField",
@@ -397,7 +399,7 @@ describe("EngineController", () => {
 		});
 
 		it("re-applies the new field's default value on retype", async () => {
-			const groupUuid = asUuid("dddddddd-0001-0001-0001-000000000001");
+			const groupUuid = testUuid("dddddddd-0001-0001-0001-000000000001");
 			const doc = makeDoc(
 				{
 					[groupUuid]: {
@@ -430,9 +432,9 @@ describe("EngineController", () => {
 		});
 
 		it("preserves answered child values across a group→repeat conversion (re-path, not drop)", async () => {
-			const groupUuid = asUuid("dddddddd-0002-0002-0002-000000000001");
-			const childAUuid = asUuid("dddddddd-0002-0002-0002-000000000002");
-			const childBUuid = asUuid("dddddddd-0002-0002-0002-000000000003");
+			const groupUuid = testUuid("dddddddd-0002-0002-0002-000000000001");
+			const childAUuid = testUuid("dddddddd-0002-0002-0002-000000000002");
+			const childBUuid = testUuid("dddddddd-0002-0002-0002-000000000003");
 			const doc = makeDoc(
 				{
 					[groupUuid]: {
@@ -486,8 +488,8 @@ describe("EngineController", () => {
 		});
 
 		it("preserves answered child values across a repeat→group conversion", async () => {
-			const repeatUuid = asUuid("dddddddd-0003-0003-0003-000000000001");
-			const childUuid = asUuid("dddddddd-0003-0003-0003-000000000002");
+			const repeatUuid = testUuid("dddddddd-0003-0003-0003-000000000001");
+			const childUuid = testUuid("dddddddd-0003-0003-0003-000000000002");
 			const doc = makeDoc(
 				{
 					[repeatUuid]: {
@@ -544,11 +546,11 @@ describe("EngineController", () => {
 					{ name: "note", label: "Note", data_type: "text" },
 				],
 			};
-			const moduleUuid = asUuid("eeeeeeee-0001-0001-0001-000000000001");
-			const formUuid = asUuid("eeeeeeee-0002-0002-0002-000000000001");
-			const nameUuid = asUuid("eeeeeeee-0003-0003-0003-000000000001");
-			const groupUuid = asUuid("eeeeeeee-0004-0004-0004-000000000001");
-			const noteUuid = asUuid("eeeeeeee-0005-0005-0005-000000000001");
+			const moduleUuid = testUuid("eeeeeeee-0001-0001-0001-000000000001");
+			const formUuid = testUuid("eeeeeeee-0002-0002-0002-000000000001");
+			const nameUuid = testUuid("eeeeeeee-0003-0003-0003-000000000001");
+			const groupUuid = testUuid("eeeeeeee-0004-0004-0004-000000000001");
+			const noteUuid = testUuid("eeeeeeee-0005-0005-0005-000000000001");
 			const doc: PersistableDoc = {
 				appId: "test-app",
 				appName: "Test App",
@@ -706,8 +708,8 @@ describe("EngineController", () => {
 	});
 
 	describe("repeat-instance runtime state", () => {
-		const repeatUuid = asUuid("eeeeeeee-0001-0001-0001-000000000001");
-		const nameUuid = asUuid("eeeeeeee-0001-0001-0001-000000000002");
+		const repeatUuid = testUuid("eeeeeeee-0001-0001-0001-000000000001");
+		const nameUuid = testUuid("eeeeeeee-0001-0001-0001-000000000002");
 
 		function repeatDoc(): PersistableDoc {
 			return makeDoc(
@@ -936,8 +938,8 @@ describe("EngineController", () => {
 		});
 
 		it("atomically swaps two capture paths once from the complete pre/post maps", () => {
-			const firstUuid = asUuid("eeeeeeee-0010-0010-0010-000000000001");
-			const secondUuid = asUuid("eeeeeeee-0010-0010-0010-000000000002");
+			const firstUuid = testUuid("eeeeeeee-0010-0010-0010-000000000001");
+			const secondUuid = testUuid("eeeeeeee-0010-0010-0010-000000000002");
 			const store = createLoadedStore(
 				makeDoc(
 					{
@@ -1024,9 +1026,9 @@ describe("EngineController", () => {
 		});
 
 		it("preserves a capture moved directly between group and repeat parents", () => {
-			const groupUuid = asUuid("eeeeeeee-0011-0011-0011-000000000001");
-			const repeatParentUuid = asUuid("eeeeeeee-0011-0011-0011-000000000002");
-			const captureUuid = asUuid("eeeeeeee-0011-0011-0011-000000000003");
+			const groupUuid = testUuid("eeeeeeee-0011-0011-0011-000000000001");
+			const repeatParentUuid = testUuid("eeeeeeee-0011-0011-0011-000000000002");
+			const captureUuid = testUuid("eeeeeeee-0011-0011-0011-000000000003");
 			const store = createLoadedStore(
 				makeDoc(
 					{
@@ -1123,9 +1125,9 @@ describe("EngineController", () => {
 		});
 
 		it("preserves capture descendants when their ancestor moves into and out of a repeat", () => {
-			const repeatParentUuid = asUuid("eeeeeeee-0012-0012-0012-000000000001");
-			const ancestorUuid = asUuid("eeeeeeee-0012-0012-0012-000000000002");
-			const captureUuid = asUuid("eeeeeeee-0012-0012-0012-000000000003");
+			const repeatParentUuid = testUuid("eeeeeeee-0012-0012-0012-000000000001");
+			const ancestorUuid = testUuid("eeeeeeee-0012-0012-0012-000000000002");
+			const captureUuid = testUuid("eeeeeeee-0012-0012-0012-000000000003");
 			const store = createLoadedStore(
 				makeDoc(
 					{
@@ -1313,7 +1315,7 @@ describe("EngineController", () => {
 			ctrl.activateForm(FORM_UUID);
 			ctrl.addRepeat(repeatUuid);
 
-			const doseUuid = asUuid("eeeeeeee-0002-0002-0002-000000000001");
+			const doseUuid = testUuid("eeeeeeee-0002-0002-0002-000000000001");
 			store.getState().applyMany([
 				{
 					kind: "addField",
@@ -1416,7 +1418,7 @@ describe("EngineController", () => {
 		});
 
 		it("an expression edit recomputes every live instance", async () => {
-			const tagUuid = asUuid("eeeeeeee-0003-0003-0003-000000000001");
+			const tagUuid = testUuid("eeeeeeee-0003-0003-0003-000000000001");
 			const doc = repeatDoc();
 			doc.fields[tagUuid] = {
 				uuid: tagUuid,
@@ -1507,10 +1509,10 @@ describe("EngineController", () => {
 
 		it("delegates to the engine and returns the typed mutation", () => {
 			// Build a registration-form fixture against a `patient` module.
-			const moduleUuid = asUuid("module-2-uuid");
-			const formUuid = asUuid("form-2-uuid");
-			const nameUuid = asUuid("cccccccc-0001-0001-0001-000000000001");
-			const ageUuid = asUuid("cccccccc-0002-0002-0002-000000000002");
+			const moduleUuid = testUuid("module-2-uuid");
+			const formUuid = testUuid("form-2-uuid");
+			const nameUuid = testUuid("cccccccc-0001-0001-0001-000000000001");
+			const ageUuid = testUuid("cccccccc-0002-0002-0002-000000000002");
 			const doc: PersistableDoc = {
 				appId: "test-app",
 				appName: "Test App",
@@ -1599,8 +1601,8 @@ describe("EngineController", () => {
 	});
 
 	describe("setPreviewIdentity", () => {
-		const WHO_UUID = asUuid("aaaaaaaa-0009-0009-0009-000000000009");
-		const REGION_UUID = asUuid("aaaaaaaa-0010-0010-0010-000000000010");
+		const WHO_UUID = testUuid("aaaaaaaa-0009-0009-0009-000000000009");
+		const REGION_UUID = testUuid("aaaaaaaa-0010-0010-0010-000000000010");
 		const ME = { id: "worker-1", email: "amina@example.org" };
 
 		/** Standard two-field doc plus a hidden `#user/username` calculate. */

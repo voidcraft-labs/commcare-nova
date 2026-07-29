@@ -10,9 +10,10 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import type { CaseType, Module, Uuid } from "@/lib/domain";
-import { asUuid } from "@/lib/domain";
+
 import {
 	describeUnwrittenProperty,
 	unwrittenProperties,
@@ -190,7 +191,7 @@ describe("unwrittenProperties — reads that count", () => {
 	});
 
 	it("a form-link condition (form carrier)", () => {
-		const moduleUuid = asUuid("mod-link-target");
+		const moduleUuid = testUuid("mod-link-target");
 		const doc = buildDoc({
 			caseTypes: ORDER_CATALOG,
 			modules: [
@@ -421,7 +422,7 @@ describe("carrier lookup + rendering", () => {
 						filter: ORDER_STATUS_IS_BLANK,
 						searchInputs: [
 							{
-								uuid: asUuid("si-status"),
+								uuid: testUuid("si-status"),
 								kind: "simple",
 								name: "order_status",
 								label: "Status",

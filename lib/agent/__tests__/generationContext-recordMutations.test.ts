@@ -15,6 +15,7 @@
 
 import type { LanguageModelUsage } from "ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type { ClassifiedError } from "@/lib/agent/errorClassifier";
 import { applyBlueprintChange } from "@/lib/db/applyBlueprintChange";
 import { commitGuardedBatch } from "@/lib/db/apps";
@@ -24,7 +25,7 @@ import {
 	CommitReauthError,
 } from "@/lib/db/commitGuard";
 import type { Mutation } from "@/lib/doc/types";
-import { asUuid } from "@/lib/domain";
+
 import { conversationPayloadSchema } from "@/lib/log/types";
 import { log } from "@/lib/logger";
 import type { GenerationContext } from "../generationContext";
@@ -55,10 +56,10 @@ vi.mock("@/lib/logger", () => ({
 
 const TEXT_FIELD_MUTATION: Mutation = {
 	kind: "addField",
-	parentUuid: asUuid("form-uuid"),
+	parentUuid: testUuid("form-uuid"),
 	field: {
 		kind: "text",
-		uuid: asUuid("field-uuid"),
+		uuid: testUuid("field-uuid"),
 		id: "patient_name",
 		label: "Patient name",
 	},
@@ -66,10 +67,10 @@ const TEXT_FIELD_MUTATION: Mutation = {
 
 const SECOND_MUTATION: Mutation = {
 	kind: "addField",
-	parentUuid: asUuid("form-uuid"),
+	parentUuid: testUuid("form-uuid"),
 	field: {
 		kind: "text",
-		uuid: asUuid("field-uuid-2"),
+		uuid: testUuid("field-uuid-2"),
 		id: "patient_age",
 		label: "Patient age",
 	},
@@ -151,7 +152,7 @@ describe("GenerationContext.recordMutations", () => {
 		});
 		const rename: Mutation = {
 			kind: "renameField",
-			uuid: asUuid("field-uuid"),
+			uuid: testUuid("field-uuid"),
 			newId: "patient_full_name",
 		};
 
@@ -201,7 +202,7 @@ describe("GenerationContext.recordMutations", () => {
 		});
 		const rename: Mutation = {
 			kind: "renameField",
-			uuid: asUuid("field-uuid"),
+			uuid: testUuid("field-uuid"),
 			newId: "patient_full_name",
 		};
 
@@ -224,8 +225,8 @@ describe("GenerationContext.recordMutations", () => {
 		});
 		const move: Mutation = {
 			kind: "moveField",
-			uuid: asUuid("field-uuid"),
-			toParentUuid: asUuid("form-uuid"),
+			uuid: testUuid("field-uuid"),
+			toParentUuid: testUuid("form-uuid"),
 			after: null,
 		};
 

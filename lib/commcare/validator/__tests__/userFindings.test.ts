@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, withUserSequences } from "@/lib/__tests__/docHelpers";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { asUuid, type BlueprintDoc } from "@/lib/domain";
+import type { BlueprintDoc } from "@/lib/domain";
 import { eq, literal, sessionUserProperty } from "@/lib/domain/predicate";
 import type { ValidationError, ValidationErrorCode } from "../errors";
 import { errorIdentity } from "../gate";
@@ -22,12 +23,12 @@ const USER_FINDING_CODE_SET: ReadonlySet<ValidationErrorCode> = new Set(
 );
 
 function userDoc(): BlueprintDoc {
-	const propertyUuid = asUuid("property-region");
-	const unknownPropertyUuid = asUuid("property-missing");
-	const roleOneUuid = asUuid("role-one");
-	const roleTwoUuid = asUuid("role-two");
-	const personaOneUuid = asUuid("persona-one");
-	const personaTwoUuid = asUuid("persona-two");
+	const propertyUuid = testUuid("property-region");
+	const unknownPropertyUuid = testUuid("property-missing");
+	const roleOneUuid = testUuid("role-one");
+	const roleTwoUuid = testUuid("role-two");
+	const personaOneUuid = testUuid("persona-one");
+	const personaTwoUuid = testUuid("persona-two");
 	return withUserSequences({
 		...buildDoc(),
 		userProperties: {
@@ -37,13 +38,13 @@ function userDoc(): BlueprintDoc {
 				label: "Region",
 				choices: ["north", "north"],
 			},
-			[asUuid("property-duplicate")]: {
-				uuid: asUuid("property-duplicate"),
+			[testUuid("property-duplicate")]: {
+				uuid: testUuid("property-duplicate"),
 				slug: "region",
 				label: "Duplicate region",
 			},
-			[asUuid("property-invalid")]: {
-				uuid: asUuid("property-invalid"),
+			[testUuid("property-invalid")]: {
+				uuid: testUuid("property-invalid"),
 				slug: "has spaces",
 				label: "Invalid",
 			},
@@ -67,7 +68,7 @@ function userDoc(): BlueprintDoc {
 			[personaOneUuid]: {
 				uuid: personaOneUuid,
 				name: "Amina",
-				userTypeUuid: asUuid("role-missing"),
+				userTypeUuid: testUuid("role-missing"),
 				values: { [unknownPropertyUuid]: "orphaned" },
 			},
 			[personaTwoUuid]: {
@@ -83,7 +84,7 @@ describe("user finding identity and scoping", () => {
 	it.each(["2fa_region", "-area"])(
 		"rejects the XML-unsafe worker-property slug %s",
 		(slug) => {
-			const propertyUuid = asUuid(`property-${slug}`);
+			const propertyUuid = testUuid(`property-${slug}`);
 			const doc: BlueprintDoc = withUserSequences({
 				...buildDoc(),
 				userProperties: {
@@ -134,7 +135,7 @@ describe("user finding identity and scoping", () => {
 			USER_FINDING_CODE_SET.has(finding.code),
 		);
 		const unrelatedScope = {
-			formUuids: new Set([asUuid("unrelated-form")]),
+			formUuids: new Set([testUuid("unrelated-form")]),
 		};
 
 		expect(
@@ -155,30 +156,30 @@ describe("user finding identity and scoping", () => {
 	it("reports every member of each duplicate group independent of record order", () => {
 		const properties = [
 			{
-				uuid: asUuid("property-a"),
+				uuid: testUuid("property-a"),
 				slug: "Region",
 				label: "Region A",
 			},
 			{
-				uuid: asUuid("property-b"),
+				uuid: testUuid("property-b"),
 				slug: "region",
 				label: "Region B",
 			},
 			{
-				uuid: asUuid("property-c"),
+				uuid: testUuid("property-c"),
 				slug: "REGION",
 				label: "Region C",
 			},
 		] as const;
 		const roles = [
-			{ uuid: asUuid("role-a"), name: "Nurse" },
-			{ uuid: asUuid("role-b"), name: " nurse " },
-			{ uuid: asUuid("role-c"), name: "NURSE" },
+			{ uuid: testUuid("role-a"), name: "Nurse" },
+			{ uuid: testUuid("role-b"), name: " nurse " },
+			{ uuid: testUuid("role-c"), name: "NURSE" },
 		] as const;
 		const personas = [
-			{ uuid: asUuid("persona-a"), name: "Amina" },
-			{ uuid: asUuid("persona-b"), name: " amina " },
-			{ uuid: asUuid("persona-c"), name: "AMINA" },
+			{ uuid: testUuid("persona-a"), name: "Amina" },
+			{ uuid: testUuid("persona-b"), name: " amina " },
+			{ uuid: testUuid("persona-c"), name: "AMINA" },
 		] as const;
 		// `reverse` flips the RECORDS' key order while every sequence stays put:
 		// the sequence decides what the author sees, so the findings must not
@@ -235,8 +236,8 @@ describe("user finding identity and scoping", () => {
 	});
 
 	it("requires references to resolve through own record membership", () => {
-		const roleUuid = asUuid("role");
-		const personaUuid = asUuid("persona");
+		const roleUuid = testUuid("role");
+		const personaUuid = testUuid("persona");
 		const doc: BlueprintDoc = withUserSequences({
 			...buildDoc(),
 			userTypes: {
@@ -250,7 +251,7 @@ describe("user finding identity and scoping", () => {
 				[personaUuid]: {
 					uuid: personaUuid,
 					name: "Asha",
-					userTypeUuid: asUuid("constructor"),
+					userTypeUuid: testUuid("constructor"),
 				},
 			},
 		});
@@ -271,7 +272,7 @@ describe("user finding identity and scoping", () => {
 	});
 
 	it("gives duplicate accepted values a stable property finding", () => {
-		const propertyUuid = asUuid("property-choices");
+		const propertyUuid = testUuid("property-choices");
 		const doc: BlueprintDoc = withUserSequences({
 			...buildDoc(),
 			userProperties: {
@@ -293,8 +294,8 @@ describe("user finding identity and scoping", () => {
 	});
 
 	it("does not read an inherited prototype member as a persona choice value", () => {
-		const propertyUuid = asUuid("constructor");
-		const personaUuid = asUuid("persona");
+		const propertyUuid = testUuid("constructor");
+		const personaUuid = testUuid("persona");
 		const doc: BlueprintDoc = withUserSequences({
 			...buildDoc(),
 			userProperties: Object.fromEntries([
@@ -347,7 +348,7 @@ describe("user finding identity and scoping", () => {
 	});
 
 	it("rejects a dangling custom worker-property identity", () => {
-		const propertyUuid = asUuid("missing-worker-property");
+		const propertyUuid = testUuid("missing-worker-property");
 		const doc = buildDoc({
 			modules: [
 				{

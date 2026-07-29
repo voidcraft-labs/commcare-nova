@@ -16,6 +16,7 @@
 
 import { Client } from "pg";
 import { describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import {
@@ -25,7 +26,7 @@ import {
 	normalizeLookupReferenceTargetSet,
 } from "@/lib/doc/lookupReferences";
 import { blankAppMutations } from "@/lib/doc/scaffolds";
-import { asUuid, type LookupOptionsSource, type Uuid } from "@/lib/domain";
+import type { LookupOptionsSource, Uuid } from "@/lib/domain";
 import {
 	type LookupColumnId,
 	type LookupTableId,
@@ -192,7 +193,7 @@ function lookupCarrierFixture(
 ): Omit<HistoricalLookupCarrier, "appId"> & {
 	readonly doc: ReturnType<typeof buildDoc>;
 } {
-	const fieldUuid = asUuid(crypto.randomUUID());
+	const fieldUuid = testUuid(crypto.randomUUID());
 	const optionsSource: LookupOptionsSource = {
 		kind: "lookup-table",
 		tableId,

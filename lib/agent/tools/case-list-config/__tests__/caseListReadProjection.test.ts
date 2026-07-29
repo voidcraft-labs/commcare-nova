@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { summarizeBlueprint } from "@/lib/agent/summarizeBlueprint";
-import { asUuid, plainColumn, tileCell } from "@/lib/domain";
+import { plainColumn, tileCell } from "@/lib/domain";
 import { getModuleTool } from "../../getModule";
 import { MOD_A, makeCaseListFixture } from "./fixtures";
 
-const A = asUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
-const B = asUuid("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
-const C = asUuid("cccccccc-cccc-cccc-cccc-cccccccccccc");
+const A = testUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+const B = testUuid("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+const C = testUuid("cccccccc-cccc-cccc-cccc-cccccccccccc");
 
 function independentlyArrangedFixture() {
 	const fixture = makeCaseListFixture();

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { asUuid } from "@/lib/doc/types";
+
 import {
 	caseOperationSchema,
 	effectiveCaseTypes,
@@ -19,8 +20,8 @@ import {
 	unowned,
 } from "@/lib/domain/predicate";
 
-const A = asUuid("11111111-1111-4111-8111-111111111111");
-const B = asUuid("22222222-2222-4222-8222-222222222222");
+const A = testUuid("11111111-1111-4111-8111-111111111111");
+const B = testUuid("22222222-2222-4222-8222-222222222222");
 
 describe("case-operation domain vocabulary", () => {
 	it("normalizes and bounds case name/owner facets with Java-compatible whitespace", () => {
@@ -293,7 +294,7 @@ describe("case-operation domain vocabulary", () => {
 		const formUuid = doc.formOrder[moduleUuid][0];
 		(doc.forms[formUuid] as Form).caseOperations = [
 			{
-				uuid: asUuid("33333333-3333-4333-8333-333333333333"),
+				uuid: testUuid("33333333-3333-4333-8333-333333333333"),
 				id: "copy_right_to_left",
 				action: "update",
 				caseType: "patient",
@@ -306,7 +307,7 @@ describe("case-operation domain vocabulary", () => {
 				],
 			},
 			{
-				uuid: asUuid("44444444-4444-4444-8444-444444444444"),
+				uuid: testUuid("44444444-4444-4444-8444-444444444444"),
 				id: "copy_left_to_right",
 				action: "update",
 				caseType: "patient",

@@ -30,9 +30,9 @@
  */
 
 import * as fc from "fast-check";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
-	asUuid,
 	type BlueprintDoc,
 	type CaseType,
 	type ConnectConfig,
@@ -59,7 +59,7 @@ export class IdMinter {
 	private n = 0;
 	uuid(prefix: string): Uuid {
 		this.n += 1;
-		return asUuid(`${prefix}-${this.n.toString(36)}`);
+		return testUuid(`${prefix}-${this.n.toString(36)}`);
 	}
 }
 

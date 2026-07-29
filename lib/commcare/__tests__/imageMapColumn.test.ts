@@ -12,6 +12,7 @@
 
 import AdmZip from "adm-zip";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
@@ -19,12 +20,7 @@ import type {
 	AssetManifest,
 	ResolvedMediaAsset,
 } from "@/lib/commcare/multimedia/assetWirePath";
-import {
-	asUuid,
-	columnSchema,
-	imageMapColumn,
-	imageMapEntry,
-} from "@/lib/domain";
+import { columnSchema, imageMapColumn, imageMapEntry } from "@/lib/domain";
 import { asAssetId } from "@/lib/domain/multimedia";
 
 const HASH_ACTIVE = "a".repeat(64);
@@ -64,7 +60,7 @@ function imageMapDoc() {
 				caseType: "patient",
 				caseListConfig: {
 					columns: [
-						imageMapColumn(asUuid("col-status"), "care_status", "Status", [
+						imageMapColumn(testUuid("col-status"), "care_status", "Status", [
 							imageMapEntry("active", "asset-active"),
 							imageMapEntry("closed", "asset-closed"),
 						]),
@@ -92,7 +88,7 @@ function imageMapDoc() {
 
 describe("image-map column schema", () => {
 	it("round-trips through columnSchema", () => {
-		const col = imageMapColumn(asUuid("c1"), "care_status", "Status", [
+		const col = imageMapColumn(testUuid("c1"), "care_status", "Status", [
 			imageMapEntry("active", "asset-1"),
 		]);
 		expect(columnSchema.parse(col)).toEqual(col);
@@ -100,7 +96,7 @@ describe("image-map column schema", () => {
 
 	it("rejects duplicate mapping values", () => {
 		const dup = {
-			uuid: asUuid("c1"),
+			uuid: testUuid("c1"),
 			kind: "image-map",
 			field: "care_status",
 			header: "Status",

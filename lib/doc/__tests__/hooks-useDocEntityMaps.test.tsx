@@ -8,15 +8,15 @@
 import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { useDocEntityMaps } from "@/lib/doc/hooks/useDocEntityMaps";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { BlueprintDoc } from "@/lib/doc/types";
-import { asUuid } from "@/lib/doc/types";
 
-const MOD_UUID = asUuid("module-1-uuid");
-const FORM_UUID = asUuid("form-1-uuid");
-const Q_UUID = asUuid("q-111-0000-0000-0000-000000000000");
+const MOD_UUID = testUuid("module-1-uuid");
+const FORM_UUID = testUuid("form-1-uuid");
+const Q_UUID = testUuid("q-111-0000-0000-0000-000000000000");
 
 function setup() {
 	const store = createBlueprintDocStore();

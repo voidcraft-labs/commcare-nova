@@ -14,8 +14,8 @@
 // the rule's own test proves the gate accepts.
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import {
-	asUuid,
 	type CaseType,
 	type SearchInputMode,
 	simpleSearchInputDef,
@@ -63,7 +63,7 @@ describe("seedCustomCondition", () => {
 		(mode) => {
 			const via = ancestorPath(relationStep("parent"));
 			const row = simpleSearchInputDef(
-				asUuid(`si-${mode.kind}`),
+				testUuid(`si-${mode.kind}`),
 				"query",
 				"Query",
 				"text",
@@ -87,7 +87,7 @@ describe("seedCustomCondition", () => {
 		// The exact shape from the screenshot: one text search on
 		// `case_name`, reference name `case_name`.
 		const row = simpleSearchInputDef(
-			asUuid("si-1"),
+			testUuid("si-1"),
 			"case_name",
 			"Client name",
 			"text",
@@ -113,7 +113,7 @@ describe("seedCustomCondition", () => {
 		// A row the author hasn't named yet has no input to gate on; the
 		// comparison reads against an empty literal and needs no envelope.
 		const row = simpleSearchInputDef(
-			asUuid("si-1"),
+			testUuid("si-1"),
 			"",
 			"Name",
 			"text",
@@ -126,7 +126,7 @@ describe("seedCustomCondition", () => {
 
 	it("keeps a nameless fuzzy row type-valid without inventing an input ref", () => {
 		const row = simpleSearchInputDef(
-			asUuid("si-1"),
+			testUuid("si-1"),
 			"",
 			"Name",
 			"text",
@@ -147,7 +147,7 @@ describe("seedCustomCondition", () => {
 
 	it("seeds an unbound row as match-all", () => {
 		const row = simpleSearchInputDef(
-			asUuid("si-1"),
+			testUuid("si-1"),
 			"case_name",
 			"Client name",
 			"text",
@@ -158,7 +158,7 @@ describe("seedCustomCondition", () => {
 
 	it("keeps an unbound non-exact row as the same valid match-all seed", () => {
 		const row = simpleSearchInputDef(
-			asUuid("si-1"),
+			testUuid("si-1"),
 			"case_name",
 			"Name",
 			"text",
@@ -174,7 +174,7 @@ describe("seedCustomCondition", () => {
 		// not on the current case type, which may not even declare it.
 		const via = ancestorPath(relationStep("parent"));
 		const row = simpleSearchInputDef(
-			asUuid("si-1"),
+			testUuid("si-1"),
 			"region",
 			"Region",
 			"text",
@@ -202,7 +202,7 @@ describe("canSeedCustomConditionFaithfully", () => {
 		"reports $kind as faithfully representable",
 		(mode) => {
 			const row = simpleSearchInputDef(
-				asUuid(`si-${mode.kind}`),
+				testUuid(`si-${mode.kind}`),
 				"query",
 				"Query",
 				"text",
@@ -221,7 +221,7 @@ describe("canSeedCustomConditionFaithfully", () => {
 		},
 	])("reports $mode.kind as requiring confirmation", ({ mode, type }) => {
 		const row = simpleSearchInputDef(
-			asUuid(`si-${mode.kind}`),
+			testUuid(`si-${mode.kind}`),
 			"query",
 			"Query",
 			type,
@@ -233,14 +233,14 @@ describe("canSeedCustomConditionFaithfully", () => {
 
 	it("uses the row type's effective default when mode is omitted", () => {
 		const textRow = simpleSearchInputDef(
-			asUuid("si-text"),
+			testUuid("si-text"),
 			"query",
 			"Query",
 			"text",
 			"case_name",
 		);
 		const rangeRow = simpleSearchInputDef(
-			asUuid("si-range"),
+			testUuid("si-range"),
 			"query",
 			"Query",
 			"date-range",
@@ -261,7 +261,7 @@ describe("searchInputDecls", () => {
 		// report "Unknown search input 'case_name'." against a condition
 		// the commit gate and wire emitter both accept.
 		const row = simpleSearchInputDef(
-			asUuid("si-1"),
+			testUuid("si-1"),
 			"case_name",
 			"Client name",
 			"text",
@@ -284,8 +284,8 @@ describe("searchInputDecls", () => {
 	});
 
 	it("skips rows that have no reference name yet", () => {
-		const named = simpleSearchInputDef(asUuid("si-1"), "a", "A", "text", "");
-		const unnamed = simpleSearchInputDef(asUuid("si-2"), "", "B", "text", "");
+		const named = simpleSearchInputDef(testUuid("si-1"), "a", "A", "text", "");
+		const unnamed = simpleSearchInputDef(testUuid("si-2"), "", "B", "text", "");
 		expect(searchInputDecls([named, unnamed]).map((d) => d.name)).toEqual([
 			"a",
 		]);
@@ -293,14 +293,14 @@ describe("searchInputDecls", () => {
 
 	it("uses the widget's runtime scalar type for every editor and verdict", () => {
 		const date = simpleSearchInputDef(
-			asUuid("date-input"),
+			testUuid("date-input"),
 			"visit_date",
 			"Visit date",
 			"date",
 			"dob",
 		);
 		const range = simpleSearchInputDef(
-			asUuid("range-input"),
+			testUuid("range-input"),
 			"visit_range",
 			"Visit range",
 			"date-range",
@@ -334,7 +334,7 @@ describe("legacy standard-property resolution", () => {
 			} as CaseType,
 		];
 		const row = simpleSearchInputDef(
-			asUuid("legacy-date-opened-search"),
+			testUuid("legacy-date-opened-search"),
 			"opened",
 			"Opened",
 			"date",
@@ -354,7 +354,7 @@ describe("legacy standard-property resolution", () => {
 describe("recoverAnchoredProperty", () => {
 	it("recovers the property through the when-input-present envelope", () => {
 		const row = simpleSearchInputDef(
-			asUuid("si-1"),
+			testUuid("si-1"),
 			"case_name",
 			"Name",
 			"text",

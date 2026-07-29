@@ -1,3 +1,4 @@
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * The scoped-runner law, property-tested (the load-bearing oracle for the
@@ -35,7 +36,7 @@ import { buildDoc, f, xp } from "@/lib/__tests__/docHelpers";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
-import { asUuid, type BlueprintDoc, type Field, type Uuid } from "@/lib/domain";
+import type { BlueprintDoc, Field, Uuid } from "@/lib/domain";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import { eq, formField, literal } from "@/lib/domain/predicate";
 import { blueprintDocArbitrary } from "../../__tests__/xformDocArbitrary";
@@ -155,7 +156,7 @@ function mutationArb(doc: BlueprintDoc): fc.Arbitrary<Mutation> {
 						kind: "addField",
 						parentUuid,
 						field: {
-							uuid: asUuid(`genfld-${n}`),
+							uuid: testUuid(`genfld-${n}`),
 							kind: "text",
 							id,
 							label: id,
@@ -192,7 +193,7 @@ function mutationArb(doc: BlueprintDoc): fc.Arbitrary<Mutation> {
 						kind: "addForm",
 						moduleUuid,
 						form: {
-							uuid: asUuid(`genform-${n}`),
+							uuid: testUuid(`genform-${n}`),
 							id: `genform_${n}`,
 							name: `Gen ${n}`,
 							type,
@@ -242,8 +243,8 @@ const docAndBatchesArb = blueprintDocArbitrary.chain((doc) =>
 
 describe("scoped validation ≡ full validation filtered to scope", () => {
 	it("holds for a lookup-backed select with a default/options dependency cycle", () => {
-		const sourceUuid = asUuid("20000000-0000-7000-8000-0000000000a1");
-		const selectUuid = asUuid("20000000-0000-7000-8000-0000000000b1");
+		const sourceUuid = testUuid("20000000-0000-7000-8000-0000000000a1");
+		const selectUuid = testUuid("20000000-0000-7000-8000-0000000000b1");
 		const lookupTable = "30000000-0000-7000-8000-0000000000a1" as LookupTableId;
 		const lookupColumn =
 			"40000000-0000-7000-8000-0000000000a1" as LookupColumnId;

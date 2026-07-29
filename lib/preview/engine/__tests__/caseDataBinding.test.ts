@@ -29,6 +29,7 @@
 
 import type { Kysely } from "kysely";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
 	buildCaseTypeMap,
@@ -53,7 +54,6 @@ import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestData
 import type { Database } from "@/lib/case-store/sql/database";
 import {
 	advancedSearchInputDef,
-	asUuid,
 	type BlueprintDoc,
 	type CaseListConfig,
 	type CaseOperation,
@@ -305,7 +305,7 @@ const LOOKUP_SCOPE = {
 	role: "owner",
 } as const;
 
-const FINAL_FORM_UUID = asUuid("10000000-0000-4000-8000-000000000001");
+const FINAL_FORM_UUID = testUuid("10000000-0000-4000-8000-000000000001");
 const FINAL_ENTRY_KEY = "10000000-0000-4000-8000-000000000002";
 
 const FINAL_SUBMISSION_PROTOCOL = {
@@ -803,7 +803,7 @@ describe("readCases", () => {
 						sort: { direction: "asc", priority: 0 },
 					}),
 					plainColumn(
-						asUuid("10000000-0000-0000-0000-000000000003"),
+						testUuid("10000000-0000-0000-0000-000000000003"),
 						"age",
 						"Age",
 						{
@@ -863,7 +863,7 @@ describe("readCases", () => {
 				properties: { name: "Alice", age: 30 },
 			},
 		});
-		const regionUuid = asUuid("00000000-0000-0000-0000-000000000b01");
+		const regionUuid = testUuid("00000000-0000-0000-0000-000000000b01");
 		const bindings = {
 			sessionContext: new Map([["userid", OWNER_A]]),
 			sessionUser: new Map<string, string>(),
@@ -907,13 +907,13 @@ describe("readCases", () => {
 // contributions. The tests below pin each compositional arm against
 // real Postgres state — the SQL layer is the authoritative semantic.
 
-const READCASES_PRIMARY_INPUT_UUID = asUuid(
+const READCASES_PRIMARY_INPUT_UUID = testUuid(
 	"60000000-0000-0000-0000-000000000001",
 );
-const READCASES_SECONDARY_INPUT_UUID = asUuid(
+const READCASES_SECONDARY_INPUT_UUID = testUuid(
 	"60000000-0000-0000-0000-000000000002",
 );
-const READCASES_ADVANCED_INPUT_UUID = asUuid(
+const READCASES_ADVANCED_INPUT_UUID = testUuid(
 	"60000000-0000-0000-0000-000000000003",
 );
 
@@ -1696,7 +1696,7 @@ describe("readCaseData", () => {
 				properties: { name: "Alice", age: 30 },
 			},
 		});
-		const calculatedUuid = asUuid("00000000-0000-0000-0000-000000000d01");
+		const calculatedUuid = testUuid("00000000-0000-0000-0000-000000000d01");
 		const caseListConfig: CaseListConfig = resolveCaseListConfig({
 			columns: [
 				calculatedColumn(
@@ -1741,7 +1741,7 @@ describe("readCaseData", () => {
 				properties: { name: "Alice", age: 30 },
 			},
 		});
-		const calculatedUuid = asUuid("00000000-0000-0000-0000-000000000d02");
+		const calculatedUuid = testUuid("00000000-0000-0000-0000-000000000d02");
 		const result = await readCaseData(store, {
 			appId: APP_ID,
 			caseType: "patient",
@@ -2724,8 +2724,8 @@ function makeCaseListConfig(
  * same constant. The rendered string respects the 8-4-4-4-12
  * grouping the schema accepts.
  */
-const NAME_COLUMN_UUID = asUuid("50000000-0000-0000-0000-000000000001");
-const NOTE_CALC_COLUMN_UUID = asUuid("50000000-0000-0000-0000-000000000002");
+const NAME_COLUMN_UUID = testUuid("50000000-0000-0000-0000-000000000001");
+const NOTE_CALC_COLUMN_UUID = testUuid("50000000-0000-0000-0000-000000000002");
 
 // ---------------------------------------------------------------
 // `applySubmission` — registration
@@ -3759,7 +3759,7 @@ describe("submitFormAction", () => {
 	 * stays keyed on the member.
 	 */
 	it("stamps the persona as the owner of what a submission writes, while the member still authorizes", async () => {
-		const PERSONA = asUuid("aa000000-0000-4000-8000-00000000000a");
+		const PERSONA = testUuid("aa000000-0000-4000-8000-00000000000a");
 		const { getSession } = await import("@/lib/auth-utils");
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValue({
@@ -3986,7 +3986,7 @@ describe("submitFormAction", () => {
 		)?.uuid as Uuid;
 		const form = doc.forms[formUuid];
 		const operation = {
-			uuid: asUuid("70000000-0000-7000-8000-00000000b001"),
+			uuid: testUuid("70000000-0000-7000-8000-00000000b001"),
 			id: "op_note",
 			action: "create",
 			caseType: "patient",
@@ -4478,8 +4478,8 @@ describe("submitFormAction", () => {
 		vi.mocked(withProjectContext).mockResolvedValueOnce(
 			stubCaseStore(applySubmission),
 		);
-		const formUuid = asUuid("41111111-1111-4111-8111-111111111111");
-		const fieldUuid = asUuid("51111111-1111-4111-8111-111111111111");
+		const formUuid = testUuid("41111111-1111-4111-8111-111111111111");
+		const fieldUuid = testUuid("51111111-1111-4111-8111-111111111111");
 		const mutation: SubmissionMutation = {
 			kind: "registration",
 			formUuid,
@@ -4548,7 +4548,7 @@ describe("submitFormAction", () => {
 		);
 		const mutation: SubmissionMutation = {
 			kind: "survey",
-			formUuid: asUuid("41111111-1111-4111-8111-111111111111"),
+			formUuid: testUuid("41111111-1111-4111-8111-111111111111"),
 			entryKey: "11111111-1111-4111-8111-111111111111",
 			attachmentRefs: [],
 		};
@@ -4592,7 +4592,7 @@ describe("submitFormAction", () => {
 				project_id: PROJECT_A,
 			},
 		});
-		const formUuid = asUuid("41111111-1111-4111-8111-111111111111");
+		const formUuid = testUuid("41111111-1111-4111-8111-111111111111");
 		const mutation: SubmissionMutation = {
 			kind: "registration",
 			formUuid,
@@ -4600,7 +4600,7 @@ describe("submitFormAction", () => {
 			attachmentRefs: [
 				{
 					attachmentName: "accepted.png",
-					fieldUuid: asUuid("51111111-1111-4111-8111-111111111111"),
+					fieldUuid: testUuid("51111111-1111-4111-8111-111111111111"),
 					instancePath: "/data/photo",
 				},
 			],
@@ -4728,7 +4728,7 @@ describe("loadCasesAction", () => {
 	});
 
 	it("binds persona reads to the member actor and persona owner from one authorized snapshot", async () => {
-		const personaUuid = asUuid("persona-results");
+		const personaUuid = testUuid("persona-results");
 		const { getSession } = await import("@/lib/auth-utils");
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
@@ -4770,7 +4770,7 @@ describe("loadCasesAction", () => {
 	});
 
 	it("binds custom worker identities through the committed catalog for self preview", async () => {
-		const propertyUuid = asUuid("worker-property-region");
+		const propertyUuid = testUuid("worker-property-region");
 		const { getSession } = await import("@/lib/auth-utils");
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
@@ -4787,7 +4787,7 @@ describe("loadCasesAction", () => {
 		loadAppMock.mockResolvedValueOnce({ blueprint: doc });
 		const store = actionStore({ query: vi.fn().mockResolvedValueOnce([]) });
 		vi.mocked(withProjectContext).mockResolvedValueOnce(store);
-		const columnUuid = asUuid("worker-column");
+		const columnUuid = testUuid("worker-column");
 
 		const { loadCasesAction } = await import("../caseDataBinding");
 		await loadCasesAction({
@@ -4871,7 +4871,7 @@ describe("loadCasesAction", () => {
 	);
 
 	it("resolves a prototype-named selector when it is an own persona key", async () => {
-		const personaUuid = asUuid("constructor");
+		const personaUuid = testUuid("constructor");
 		const { getSession } = await import("@/lib/auth-utils");
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
@@ -5047,7 +5047,7 @@ describe("loadCasesAction", () => {
 				columns: [],
 				searchInputs: [
 					advancedSearchInputDef(
-						asUuid("month-input"),
+						testUuid("month-input"),
 						"months",
 						"Months",
 						"text",
@@ -5193,7 +5193,7 @@ describe("loadCasesAction", () => {
 		vi.mocked(withProjectContext).mockResolvedValueOnce(stubStore);
 
 		const rangeInput = simpleSearchInputDef(
-			asUuid("range-action"),
+			testUuid("range-action"),
 			"visit_dates",
 			"Visit dates",
 			"date-range",
@@ -5268,7 +5268,7 @@ describe("loadCasesAction", () => {
 		vi.mocked(withProjectContext).mockResolvedValueOnce(stubStore);
 
 		const rangeInput = simpleSearchInputDef(
-			asUuid("range-action"),
+			testUuid("range-action"),
 			"visit_dates",
 			"Visit dates",
 			"date-range",
@@ -5389,7 +5389,7 @@ describe("loadCaseCountAction", () => {
 
 describe("countCasesOwnedByAction", () => {
 	it("counts every retained row for the server-resolved persona without a case-type list", async () => {
-		const personaUuid = asUuid("persona-owned-count");
+		const personaUuid = testUuid("persona-owned-count");
 		const { getSession } = await import("@/lib/auth-utils");
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
@@ -5516,7 +5516,7 @@ describe("resetSampleCasesAction", () => {
 	});
 
 	it("threads the selected persona through both populate and reset ownership", async () => {
-		const personaUuid = asUuid("persona-samples");
+		const personaUuid = testUuid("persona-samples");
 		const { getSession } = await import("@/lib/auth-utils");
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValue({
@@ -5698,7 +5698,7 @@ describe("loadCaseDataAction session projection", () => {
 			resetSampleData: vi.fn(),
 		} satisfies CaseStore;
 		vi.mocked(withProjectContext).mockResolvedValueOnce(stubStore);
-		const calculatedUuid = asUuid("00000000-0000-0000-0000-000000000d03");
+		const calculatedUuid = testUuid("00000000-0000-0000-0000-000000000d03");
 
 		const { loadCaseDataAction } = await import("../caseDataBinding");
 		const result = await loadCaseDataAction(
@@ -5727,7 +5727,7 @@ describe("loadCaseDataAction session projection", () => {
 	});
 
 	it("uses the persona owner for a selected row while membership stays on the member", async () => {
-		const personaUuid = asUuid("persona-details");
+		const personaUuid = testUuid("persona-details");
 		const { getSession } = await import("@/lib/auth-utils");
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
@@ -5768,8 +5768,8 @@ describe("loadCaseDataAction session projection", () => {
 	});
 
 	it("binds a persona's custom worker value by UUID through its current slug", async () => {
-		const propertyUuid = asUuid("worker-property-region");
-		const personaUuid = asUuid("persona-details-worker");
+		const propertyUuid = testUuid("worker-property-region");
+		const personaUuid = testUuid("persona-details-worker");
 		const { getSession } = await import("@/lib/auth-utils");
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
@@ -5793,7 +5793,7 @@ describe("loadCaseDataAction session projection", () => {
 		loadAppMock.mockResolvedValueOnce({ blueprint: doc });
 		const store = actionStore({ query: vi.fn().mockResolvedValueOnce([]) });
 		vi.mocked(withProjectContext).mockResolvedValueOnce(store);
-		const columnUuid = asUuid("worker-detail-column");
+		const columnUuid = testUuid("worker-detail-column");
 
 		const { loadCaseDataAction } = await import("../caseDataBinding");
 		await loadCaseDataAction(
@@ -6279,7 +6279,7 @@ describe("loadFilterPreviewAction", () => {
 			blueprint: {
 				...buildBlueprint([PATIENT_CASE_TYPE]),
 				fieldParent: {
-					[asUuid("70000000-0000-0000-0000-000000000001")]: asUuid(
+					[testUuid("70000000-0000-0000-0000-000000000001")]: testUuid(
 						"70000000-0000-0000-0000-000000000002",
 					),
 				},
@@ -6299,7 +6299,7 @@ describe("loadFilterPreviewAction", () => {
 	});
 
 	it("binds UUID worker refs through the parsed candidate catalog", async () => {
-		const propertyUuid = asUuid("worker-property-region");
+		const propertyUuid = testUuid("worker-property-region");
 		const { getSession } = await import("@/lib/auth-utils");
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
@@ -6327,7 +6327,7 @@ describe("loadFilterPreviewAction", () => {
 			caseListConfig: resolveCaseListConfig({
 				columns: [
 					calculatedColumn(
-						asUuid("candidate-worker-column"),
+						testUuid("candidate-worker-column"),
 						"Candidate area",
 						term(sessionUserProperty(propertyUuid)),
 					),

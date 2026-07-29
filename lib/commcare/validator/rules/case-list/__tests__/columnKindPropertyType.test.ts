@@ -1,3 +1,4 @@
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 // The gate half of the shared column-kind ↔ property-type predicate:
 // a RESOLVED mismatch is a finding; unknown passes (honest-unknown-
@@ -6,7 +7,7 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 
 import { describe, expect, it } from "vitest";
 import { buildDoc, type FieldSpec, f } from "@/lib/__tests__/docHelpers";
-import { asUuid, type Column, dateColumn, phoneColumn } from "@/lib/domain";
+import { type Column, dateColumn, phoneColumn } from "@/lib/domain";
 import { runValidation } from "../../../runner";
 
 const CODE = "CASE_LIST_COLUMN_KIND_PROPERTY_TYPE_MISMATCH";
@@ -35,7 +36,7 @@ function moduleWith(args: { columns: Column[]; fields: FieldSpec[] }) {
 describe("columnKindPropertyType", () => {
 	it("fires on a date column whose property RESOLVES to a non-date type", () => {
 		const doc = moduleWith({
-			columns: [dateColumn(asUuid("col-1"), "nickname", "Nick", "%Y-%m-%d")],
+			columns: [dateColumn(testUuid("col-1"), "nickname", "Nick", "%Y-%m-%d")],
 			fields: [
 				f({
 					kind: "text",
@@ -53,7 +54,7 @@ describe("columnKindPropertyType", () => {
 
 	it("passes a date column on a writer-derived date property", () => {
 		const doc = moduleWith({
-			columns: [dateColumn(asUuid("col-1"), "dob", "DOB", "%Y-%m-%d")],
+			columns: [dateColumn(testUuid("col-1"), "dob", "DOB", "%Y-%m-%d")],
 			fields: [
 				f({
 					kind: "date",
@@ -72,7 +73,9 @@ describe("columnKindPropertyType", () => {
 
 	it("passes a date column on a hidden today() writer — inference resolves date", () => {
 		const doc = moduleWith({
-			columns: [dateColumn(asUuid("col-1"), "visit_date", "Visit", "%Y-%m-%d")],
+			columns: [
+				dateColumn(testUuid("col-1"), "visit_date", "Visit", "%Y-%m-%d"),
+			],
 			fields: [
 				f({
 					kind: "hidden",
@@ -91,7 +94,9 @@ describe("columnKindPropertyType", () => {
 
 	it("passes on an UNKNOWN type — missing metadata never manufactures a finding", () => {
 		const doc = moduleWith({
-			columns: [dateColumn(asUuid("col-1"), "mystery", "Mystery", "%Y-%m-%d")],
+			columns: [
+				dateColumn(testUuid("col-1"), "mystery", "Mystery", "%Y-%m-%d"),
+			],
 			fields: [
 				f({
 					kind: "hidden",
@@ -110,7 +115,7 @@ describe("columnKindPropertyType", () => {
 
 	it("fires on a phone column over a standard datetime property", () => {
 		const doc = moduleWith({
-			columns: [phoneColumn(asUuid("col-1"), "date_opened", "Opened")],
+			columns: [phoneColumn(testUuid("col-1"), "date_opened", "Opened")],
 			fields: [
 				f({
 					kind: "text",

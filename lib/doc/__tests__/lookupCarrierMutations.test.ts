@@ -1,21 +1,21 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import { duplicateFieldMutations } from "@/lib/doc/duplicateFieldMutations";
 import { applyMutations } from "@/lib/doc/mutations";
 import { buildReferenceIndex } from "@/lib/doc/referenceIndex";
 import { type Mutation, mutationSchema } from "@/lib/doc/types";
 import {
-	asUuid,
 	type BlueprintDoc,
 	fieldSchema,
 	type LookupOptionsSource,
 } from "@/lib/domain";
 
-const MODULE = asUuid("10000000-0000-4000-8000-000000000000");
-const FORM = asUuid("20000000-0000-4000-8000-000000000000");
-const FIELD = asUuid("30000000-0000-4000-8000-000000000000");
+const MODULE = testUuid("10000000-0000-4000-8000-000000000000");
+const FORM = testUuid("20000000-0000-4000-8000-000000000000");
+const FIELD = testUuid("30000000-0000-4000-8000-000000000000");
 
 const TABLE_A = "018f3e8a-7b2c-7def-8abc-1234567890ab";
 const TABLE_B = "018f3e8a-7b2c-7def-8abc-1234567890ac";
@@ -53,12 +53,12 @@ function selectField(optionsSource?: LookupOptionsSource) {
 		label: "Status",
 		options: [
 			{
-				uuid: asUuid("40000000-0000-4000-8000-000000000000"),
+				uuid: testUuid("40000000-0000-4000-8000-000000000000"),
 				value: "active",
 				label: "Active",
 			},
 			{
-				uuid: asUuid("50000000-0000-4000-8000-000000000000"),
+				uuid: testUuid("50000000-0000-4000-8000-000000000000"),
 				value: "closed",
 				label: "Closed",
 			},

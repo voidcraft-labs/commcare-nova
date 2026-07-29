@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import {
 	type ExtractedLookupReference,
@@ -6,7 +7,7 @@ import {
 	type LookupReferenceExtractorRegistry,
 	type LookupValidationContext,
 } from "@/lib/doc/lookupReferences";
-import { asUuid, type BlueprintDoc } from "@/lib/domain";
+import type { BlueprintDoc } from "@/lib/domain";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import { literal, matchAll, tableLookup, term } from "@/lib/domain/predicate";
 import type { LookupRevision, LookupTableDefinition } from "@/lib/lookup/types";
@@ -21,16 +22,16 @@ const columnId = (suffix: string) =>
 const revision = (value: string) => value as LookupRevision;
 
 const BASE_OCCURRENCE: ExtractedLookupReference = {
-	carrierUuid: asUuid("carrier-1"),
+	carrierUuid: testUuid("carrier-1"),
 	subpath: ["lookup"],
 	tableId: tableId("1"),
 	columnId: columnId("1"),
 	acceptedColumnTypes: ["text"],
 	location: {
 		scope: "field",
-		moduleUuid: asUuid("module-1"),
-		formUuid: asUuid("form-1"),
-		fieldUuid: asUuid("carrier-1"),
+		moduleUuid: testUuid("module-1"),
+		formUuid: testUuid("form-1"),
+		fieldUuid: testUuid("carrier-1"),
 		field: "future.lookup",
 	},
 };
@@ -181,7 +182,7 @@ describe("lookup-aware commit delta", () => {
 	);
 
 	function operationCarrierDoc(): BlueprintDoc {
-		const formUuid = asUuid("form-operation-member-identity");
+		const formUuid = testUuid("form-operation-member-identity");
 		const doc = buildDoc({
 			caseTypes: [
 				{
@@ -209,7 +210,7 @@ describe("lookup-aware commit delta", () => {
 		});
 		doc.forms[formUuid].caseOperations = [
 			{
-				uuid: asUuid("operation-member-identity"),
+				uuid: testUuid("operation-member-identity"),
 				id: "update_patient",
 				action: "update",
 				caseType: "patient",

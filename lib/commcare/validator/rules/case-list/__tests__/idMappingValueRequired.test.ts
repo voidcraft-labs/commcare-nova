@@ -1,3 +1,4 @@
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * Tests for `idMappingValueRequired`. The schema admits empty
@@ -8,7 +9,7 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { asUuid, idMappingEntry } from "@/lib/domain";
+import { idMappingEntry } from "@/lib/domain";
 import { runValidation } from "../../../runner";
 
 const CODE = "CASE_LIST_ID_MAPPING_EMPTY_VALUE" as const;
@@ -48,7 +49,7 @@ describe("idMappingValueRequired", () => {
 						columns: [
 							{
 								kind: "id-mapping",
-								uuid: asUuid("col-1"),
+								uuid: testUuid("col-1"),
 								field: "region",
 								header: "Region",
 								mapping: [
@@ -57,8 +58,8 @@ describe("idMappingValueRequired", () => {
 								],
 							},
 						],
-						listColumnOrder: [asUuid("col-1")],
-						detailColumnOrder: [asUuid("col-1")],
+						listColumnOrder: [testUuid("col-1")],
+						detailColumnOrder: [testUuid("col-1")],
 						searchInputs: [],
 					},
 					forms: [standardForm],
@@ -86,7 +87,7 @@ describe("idMappingValueRequired", () => {
 						columns: [
 							{
 								kind: "id-mapping",
-								uuid: asUuid("col-1"),
+								uuid: testUuid("col-1"),
 								field: "region",
 								header: "Region",
 								mapping: [
@@ -95,8 +96,8 @@ describe("idMappingValueRequired", () => {
 								],
 							},
 						],
-						listColumnOrder: [asUuid("col-1")],
-						detailColumnOrder: [asUuid("col-1")],
+						listColumnOrder: [testUuid("col-1")],
+						detailColumnOrder: [testUuid("col-1")],
 						searchInputs: [],
 					},
 					forms: [standardForm],

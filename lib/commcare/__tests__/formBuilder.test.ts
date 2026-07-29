@@ -8,8 +8,10 @@
  * exercise `deriveCaseConfig` end-to-end through the same doc shape
  * that the expander + validator feed it in production.
  */
+
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f, xpIn } from "@/lib/__tests__/docHelpers";
 import {
 	addFieldMutations,
@@ -19,14 +21,14 @@ import {
 import { deriveCaseConfig } from "@/lib/commcare/deriveCaseConfig";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
-import { asUuid } from "@/lib/doc/types";
+
 import type { Field, Form, FormType } from "@/lib/domain";
 import { expressionSource } from "@/lib/domain";
 
 // ── Fixture builders ──────────────────────────────────────────────────
 
-const MOD = asUuid("11111111-1111-1111-1111-111111111111");
-const FORM = asUuid("22222222-2222-2222-2222-222222222222");
+const MOD = testUuid("11111111-1111-1111-1111-111111111111");
+const FORM = testUuid("22222222-2222-2222-2222-222222222222");
 
 /** Construct a minimal normalized doc with one module + one form. */
 function makeShellDoc(type: FormType = "registration"): BlueprintDoc {
@@ -82,7 +84,7 @@ function textField(
 	extras: Partial<Field> = {},
 ): Field {
 	return {
-		uuid: asUuid(crypto.randomUUID()),
+		uuid: testUuid(crypto.randomUUID()),
 		id,
 		label,
 		kind: "text",
@@ -93,7 +95,7 @@ function textField(
 /** Build a group container field. */
 function groupField(id: string, label: string): Field {
 	return {
-		uuid: asUuid(crypto.randomUUID()),
+		uuid: testUuid(crypto.randomUUID()),
 		id,
 		label,
 		kind: "group",
@@ -151,7 +153,7 @@ describe("Form Builder Agent Integration — mutation-builder helpers", () => {
 		it("adds a single_select field with options", () => {
 			const doc0 = makeShellDoc();
 			const field: Field = {
-				uuid: asUuid(crypto.randomUUID()),
+				uuid: testUuid(crypto.randomUUID()),
 				id: "gender",
 				label: "Gender",
 				kind: "single_select",
@@ -184,7 +186,7 @@ describe("Form Builder Agent Integration — mutation-builder helpers", () => {
 				}),
 			);
 			const hidden: Field = {
-				uuid: asUuid(crypto.randomUUID()),
+				uuid: testUuid(crypto.randomUUID()),
 				id: "age_group",
 				kind: "hidden",
 				calculate: xpIn(doc, FORM, "if(/data/age < 18, 'child', 'adult')"),
@@ -270,7 +272,7 @@ describe("Form Builder Agent Integration — mutation-builder helpers", () => {
 		it("is a no-op when parent uuid doesn't exist", () => {
 			const doc0 = makeShellDoc();
 			const muts = addFieldMutations(doc0, {
-				parentUuid: asUuid("99999999-9999-9999-9999-999999999999") as Uuid,
+				parentUuid: testUuid("99999999-9999-9999-9999-999999999999") as Uuid,
 				field: textField("orphan", "Orphan"),
 			});
 			expect(muts).toHaveLength(0);
@@ -281,7 +283,7 @@ describe("Form Builder Agent Integration — mutation-builder helpers", () => {
 		it("sets a close_condition on a close form", () => {
 			const doc0 = makeShellDoc("close");
 			const muts = updateFormMutations(doc0, FORM, {
-				closeCondition: { field: asUuid("discharge"), answer: "yes" },
+				closeCondition: { field: testUuid("discharge"), answer: "yes" },
 			});
 			const doc1 = apply(doc0, muts);
 			expect(doc1.forms[FORM].closeCondition).toEqual({
@@ -296,7 +298,7 @@ describe("Form Builder Agent Integration — mutation-builder helpers", () => {
 			doc = apply(
 				doc,
 				updateFormMutations(doc, FORM, {
-					closeCondition: { field: asUuid("x"), answer: "y" },
+					closeCondition: { field: testUuid("x"), answer: "y" },
 				}),
 			);
 			expect(doc.forms[FORM].closeCondition).toBeDefined();

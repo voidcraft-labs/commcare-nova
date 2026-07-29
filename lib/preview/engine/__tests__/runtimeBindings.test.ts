@@ -33,13 +33,13 @@ import {
 	PostgresQueryCompiler,
 } from "kysely";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import { compilePredicate, type Database } from "@/lib/case-store/sql";
 import { composeXPathQueryEmission } from "@/lib/commcare/suite/case-search/xpathQuery";
 import {
 	APPLICABLE_SEARCH_MODES,
 	advancedSearchInputDef,
-	asUuid,
 	type CaseListConfig,
 	type CaseType,
 	exactMode,
@@ -144,7 +144,7 @@ describe("searchInputValues wire bridge", () => {
 
 	it("adds CommCare's bare daterange token only for two complete bounds", () => {
 		const range = simpleSearchInputDef(
-			asUuid("range"),
+			testUuid("range"),
 			"visit_dates",
 			"Visit dates",
 			"date-range",
@@ -172,7 +172,7 @@ describe("searchInputValues wire bridge", () => {
 		"keeps the bare daterange key absent for a %s-only range",
 		(_side, raw) => {
 			const range = simpleSearchInputDef(
-				asUuid("range"),
+				testUuid("range"),
 				"visit_dates",
 				"Visit dates",
 				"date-range",
@@ -251,8 +251,14 @@ describe("composeRuntimeFilter — empty-input contributions", () => {
 
 	it("returns matchAll() when every input value is empty / absent", () => {
 		const inputs = [
-			simpleSearchInputDef(asUuid("a"), "name", "Name", "text", "name"),
-			simpleSearchInputDef(asUuid("b"), "status", "Status", "select", "status"),
+			simpleSearchInputDef(testUuid("a"), "name", "Name", "text", "name"),
+			simpleSearchInputDef(
+				testUuid("b"),
+				"status",
+				"Status",
+				"select",
+				"status",
+			),
 		];
 		const result = composeRuntimeFilter(
 			inputs,
@@ -264,7 +270,7 @@ describe("composeRuntimeFilter — empty-input contributions", () => {
 
 	it("treats an empty-string value as absent (per-input short-circuit)", () => {
 		const inputs = [
-			simpleSearchInputDef(asUuid("a"), "name", "Name", "text", "name"),
+			simpleSearchInputDef(testUuid("a"), "name", "Name", "text", "name"),
 		];
 		const result = composeRuntimeFilter(
 			inputs,
@@ -281,7 +287,7 @@ describe("composeRuntimeFilter — empty-input contributions", () => {
 		// matching nothing. Treating it as absent would make Preview show
 		// every case where the real app shows none.
 		const inputs = [
-			simpleSearchInputDef(asUuid("a"), "name", "Name", "text", "name"),
+			simpleSearchInputDef(testUuid("a"), "name", "Name", "text", "name"),
 		];
 		const result = composeRuntimeFilter(
 			inputs,
@@ -297,7 +303,7 @@ describe("composeRuntimeFilter — empty-input contributions", () => {
 		// app, so Preview must miss them too rather than quietly matching
 		// the trimmed spelling.
 		const inputs = [
-			simpleSearchInputDef(asUuid("a"), "name", "Name", "text", "name"),
+			simpleSearchInputDef(testUuid("a"), "name", "Name", "text", "name"),
 		];
 		const result = composeRuntimeFilter(
 			inputs,
@@ -311,7 +317,7 @@ describe("composeRuntimeFilter — empty-input contributions", () => {
 describe("composeRuntimeFilter — simple arm, per-mode dispatch", () => {
 	it("builds an `eq` clause for `exact` mode (explicit)", () => {
 		const inputs = [
-			simpleSearchInputDef(asUuid("a"), "name", "Name", "text", "name", {
+			simpleSearchInputDef(testUuid("a"), "name", "Name", "text", "name", {
 				mode: exactMode(),
 			}),
 		];
@@ -328,7 +334,7 @@ describe("composeRuntimeFilter — simple arm, per-mode dispatch", () => {
 	it("uses date-shaped whole-day bounds for an exact date property", () => {
 		const inputs = [
 			simpleSearchInputDef(
-				asUuid("day"),
+				testUuid("day"),
 				"visit_date",
 				"Visit date",
 				"date",
@@ -373,7 +379,7 @@ describe("composeRuntimeFilter — simple arm, per-mode dispatch", () => {
 	it("uses UTC datetime whole-day bounds for an exact custom datetime property", () => {
 		const inputs = [
 			simpleSearchInputDef(
-				asUuid("day"),
+				testUuid("day"),
 				"last_seen",
 				"Last seen",
 				"date",
@@ -418,7 +424,7 @@ describe("composeRuntimeFilter — simple arm, per-mode dispatch", () => {
 	it("uses the same UTC datetime bounds for indexed date_opened metadata", () => {
 		const inputs = [
 			simpleSearchInputDef(
-				asUuid("day"),
+				testUuid("day"),
 				"date_opened",
 				"Date opened",
 				"date",
@@ -451,7 +457,7 @@ describe("composeRuntimeFilter — simple arm, per-mode dispatch", () => {
 	it("drops a calendar-invalid exact date instead of querying with it", () => {
 		const inputs = [
 			simpleSearchInputDef(
-				asUuid("day"),
+				testUuid("day"),
 				"last_seen",
 				"Last seen",
 				"date",
@@ -472,7 +478,7 @@ describe("composeRuntimeFilter — simple arm, per-mode dispatch", () => {
 		const via = ancestorPath(relationStep("parent"));
 		const inputs = [
 			simpleSearchInputDef(
-				asUuid("day"),
+				testUuid("day"),
 				"household_visit",
 				"Household visit",
 				"date",
@@ -531,7 +537,7 @@ describe("composeRuntimeFilter — simple arm, per-mode dispatch", () => {
 		// the default. The result must be structurally identical to the
 		// explicit-mode case above.
 		const inputs = [
-			simpleSearchInputDef(asUuid("a"), "name", "Name", "text", "name"),
+			simpleSearchInputDef(testUuid("a"), "name", "Name", "text", "name"),
 		];
 		const result = composeRuntimeFilter(
 			inputs,
@@ -543,7 +549,13 @@ describe("composeRuntimeFilter — simple arm, per-mode dispatch", () => {
 
 	it("defaults to `exact` for `select` inputs when mode is absent", () => {
 		const inputs = [
-			simpleSearchInputDef(asUuid("a"), "status", "Status", "select", "status"),
+			simpleSearchInputDef(
+				testUuid("a"),
+				"status",
+				"Status",
+				"select",
+				"status",
+			),
 		];
 		const result = composeRuntimeFilter(
 			inputs,
@@ -556,7 +568,7 @@ describe("composeRuntimeFilter — simple arm, per-mode dispatch", () => {
 	it("defaults to `exact` for `barcode` inputs when mode is absent", () => {
 		const inputs = [
 			simpleSearchInputDef(
-				asUuid("a"),
+				testUuid("a"),
 				"barcode_id",
 				"Barcode",
 				"barcode",
@@ -573,7 +585,7 @@ describe("composeRuntimeFilter — simple arm, per-mode dispatch", () => {
 
 	it("builds a `fuzzy` `match` clause for `fuzzy` mode", () => {
 		const inputs = [
-			simpleSearchInputDef(asUuid("a"), "name", "Name", "text", "name", {
+			simpleSearchInputDef(testUuid("a"), "name", "Name", "text", "name", {
 				mode: fuzzyMode(),
 			}),
 		];
@@ -590,7 +602,7 @@ describe("composeRuntimeFilter — simple arm, per-mode dispatch", () => {
 
 	it("builds a `starts-with` `match` clause for `starts-with` mode", () => {
 		const inputs = [
-			simpleSearchInputDef(asUuid("a"), "name", "Name", "text", "name", {
+			simpleSearchInputDef(testUuid("a"), "name", "Name", "text", "name", {
 				mode: startsWithMode(),
 			}),
 		];
@@ -606,7 +618,7 @@ describe("composeRuntimeFilter — simple arm, per-mode dispatch", () => {
 
 	it("builds a `phonetic` `match` clause for `phonetic` mode", () => {
 		const inputs = [
-			simpleSearchInputDef(asUuid("a"), "name", "Name", "text", "name", {
+			simpleSearchInputDef(testUuid("a"), "name", "Name", "text", "name", {
 				mode: phoneticMode(),
 			}),
 		];
@@ -622,9 +634,16 @@ describe("composeRuntimeFilter — simple arm, per-mode dispatch", () => {
 
 	it("builds a `fuzzy-date` `match` clause for `fuzzy-date` mode", () => {
 		const inputs = [
-			simpleSearchInputDef(asUuid("a"), "dob", "Date of Birth", "text", "dob", {
-				mode: fuzzyDateMode(),
-			}),
+			simpleSearchInputDef(
+				testUuid("a"),
+				"dob",
+				"Date of Birth",
+				"text",
+				"dob",
+				{
+					mode: fuzzyDateMode(),
+				},
+			),
 		];
 		const result = composeRuntimeFilter(
 			inputs,
@@ -639,9 +658,16 @@ describe("composeRuntimeFilter — simple arm, per-mode dispatch", () => {
 	it("threads `via` (relation walk) into the `prop` reference", () => {
 		const via = ancestorPath(relationStep("parent", "household"));
 		const inputs = [
-			simpleSearchInputDef(asUuid("a"), "region", "Region", "text", "region", {
-				via,
-			}),
+			simpleSearchInputDef(
+				testUuid("a"),
+				"region",
+				"Region",
+				"text",
+				"region",
+				{
+					via,
+				},
+			),
 		];
 		const result = composeRuntimeFilter(
 			inputs,
@@ -656,7 +682,7 @@ describe("composeRuntimeFilter — simple arm, per-mode dispatch", () => {
 describe("composeRuntimeFilter — multi-select-contains mode", () => {
 	it("builds a `quantifier: any` predicate for the `any` quantifier", () => {
 		const inputs = [
-			simpleSearchInputDef(asUuid("a"), "tags", "Tags", "select", "tags", {
+			simpleSearchInputDef(testUuid("a"), "tags", "Tags", "select", "tags", {
 				mode: multiSelectContainsMode("any"),
 			}),
 		];
@@ -678,7 +704,7 @@ describe("composeRuntimeFilter — multi-select-contains mode", () => {
 
 	it("builds a `quantifier: all` predicate for the `all` quantifier", () => {
 		const inputs = [
-			simpleSearchInputDef(asUuid("a"), "tags", "Tags", "select", "tags", {
+			simpleSearchInputDef(testUuid("a"), "tags", "Tags", "select", "tags", {
 				mode: multiSelectContainsMode("all"),
 			}),
 		];
@@ -698,7 +724,7 @@ describe("composeRuntimeFilter — multi-select-contains mode", () => {
 
 	it("returns matchAll() when the value is comma-only / whitespace-only", () => {
 		const inputs = [
-			simpleSearchInputDef(asUuid("a"), "tags", "Tags", "select", "tags", {
+			simpleSearchInputDef(testUuid("a"), "tags", "Tags", "select", "tags", {
 				mode: multiSelectContainsMode("any"),
 			}),
 		];
@@ -716,7 +742,7 @@ describe("composeRuntimeFilter — multi-select-contains mode", () => {
 
 	it("trims whitespace around tokens", () => {
 		const inputs = [
-			simpleSearchInputDef(asUuid("a"), "tags", "Tags", "select", "tags", {
+			simpleSearchInputDef(testUuid("a"), "tags", "Tags", "select", "tags", {
 				mode: multiSelectContainsMode("any"),
 			}),
 		];
@@ -734,7 +760,7 @@ describe("composeRuntimeFilter — multi-select-contains mode", () => {
 describe("composeRuntimeFilter — range mode", () => {
 	it("rejects range mode paired with the one-date widget before composition", () => {
 		const input = simpleSearchInputDef(
-			asUuid("range-on-date"),
+			testUuid("range-on-date"),
 			"visit_date",
 			"Visit date",
 			"date",
@@ -754,7 +780,7 @@ describe("composeRuntimeFilter — range mode", () => {
 
 	it("rejects a date-range widget paired with a one-value mode", () => {
 		const input = simpleSearchInputDef(
-			asUuid("exact-on-range"),
+			testUuid("exact-on-range"),
 			"visit_date",
 			"Visit date",
 			"date-range",
@@ -778,7 +804,7 @@ describe("composeRuntimeFilter — range mode", () => {
 	it("reads `:from` and `:to` keys for an explicit `range` mode on a date-range input", () => {
 		const inputs = [
 			simpleSearchInputDef(
-				asUuid("a"),
+				testUuid("a"),
 				"dob",
 				"Date of Birth",
 				"date-range",
@@ -816,7 +842,7 @@ describe("composeRuntimeFilter — range mode", () => {
 	it("defaults to `range` for `date-range` inputs (per-type default)", () => {
 		const inputs = [
 			simpleSearchInputDef(
-				asUuid("a"),
+				testUuid("a"),
 				"visit_dates",
 				"Visit Dates",
 				"date-range",
@@ -850,7 +876,7 @@ describe("composeRuntimeFilter — range mode", () => {
 	it("includes the complete final UTC day when the range targets datetime", () => {
 		const inputs = [
 			simpleSearchInputDef(
-				asUuid("a"),
+				testUuid("a"),
 				"visit_window",
 				"Visit window",
 				"date-range",
@@ -901,7 +927,7 @@ describe("composeRuntimeFilter — range mode", () => {
 	it("rejects a lower-only draft because CommCare daterange requires a pair", () => {
 		const inputs = [
 			simpleSearchInputDef(
-				asUuid("a"),
+				testUuid("a"),
 				"visit_dates",
 				"Visit Dates",
 				"date-range",
@@ -925,7 +951,7 @@ describe("composeRuntimeFilter — range mode", () => {
 	it("rejects an upper-only draft because CommCare daterange requires a pair", () => {
 		const inputs = [
 			simpleSearchInputDef(
-				asUuid("a"),
+				testUuid("a"),
 				"visit_dates",
 				"Visit Dates",
 				"date-range",
@@ -945,7 +971,7 @@ describe("composeRuntimeFilter — range mode", () => {
 	it("returns matchAll() when both `:from` and `:to` are absent", () => {
 		const inputs = [
 			simpleSearchInputDef(
-				asUuid("a"),
+				testUuid("a"),
 				"visit_dates",
 				"Visit Dates",
 				"date-range",
@@ -960,7 +986,7 @@ describe("composeRuntimeFilter — range mode", () => {
 	it("rejects malformed submitted bounds before they reach SQL", () => {
 		const inputs = [
 			simpleSearchInputDef(
-				asUuid("a"),
+				testUuid("a"),
 				"visit_dates",
 				"Visit Dates",
 				"date-range",
@@ -988,7 +1014,7 @@ describe("composeRuntimeFilter — range mode", () => {
 	it("rejects calendar-invalid bounds (`2024-13-45` is not a real day)", () => {
 		const inputs = [
 			simpleSearchInputDef(
-				asUuid("a"),
+				testUuid("a"),
 				"visit_dates",
 				"Visit Dates",
 				"date-range",
@@ -1016,7 +1042,7 @@ describe("composeRuntimeFilter — range mode", () => {
 	it("rejects a completed pair when one bound is malformed", () => {
 		const inputs = [
 			simpleSearchInputDef(
-				asUuid("a"),
+				testUuid("a"),
 				"visit_dates",
 				"Visit Dates",
 				"date-range",
@@ -1041,7 +1067,7 @@ describe("composeRuntimeFilter — range mode", () => {
 	it("rejects a reversed pair instead of returning a mysterious empty list", () => {
 		const inputs = [
 			simpleSearchInputDef(
-				asUuid("a"),
+				testUuid("a"),
 				"visit_dates",
 				"Visit Dates",
 				"date-range",
@@ -1086,7 +1112,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 		"preserves a date widget through production binding and SQL compilation for a $label",
 		({ left, right, expectsTimestamp }) => {
 			const dateInput = advancedSearchInputDef(
-				asUuid("visit-day"),
+				testUuid("visit-day"),
 				"visit_day",
 				"Visit day",
 				"date",
@@ -1150,7 +1176,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 
 	it("keeps zero-ref advanced predicates present in both Preview and wire", () => {
 		const advanced = advancedSearchInputDef(
-			asUuid("constant"),
+			testUuid("constant"),
 			"unused_prompt",
 			"Optional prompt",
 			"text",
@@ -1171,14 +1197,14 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 
 	it("uses the authored sibling gate in both Preview and wire, never the owner", () => {
 		const advanced = advancedSearchInputDef(
-			asUuid("sibling"),
+			testUuid("sibling"),
 			"unused_prompt",
 			"Optional prompt",
 			"text",
 			whenInput(input("region"), eq(prop(PATIENT, "name"), input("region"))),
 		);
 		const region = simpleSearchInputDef(
-			asUuid("region"),
+			testUuid("region"),
 			"region",
 			"Region",
 			"text",
@@ -1208,7 +1234,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 
 	it("binds a wrapped completed date range with CommCare's scalar token", () => {
 		const advanced = advancedSearchInputDef(
-			asUuid("range"),
+			testUuid("range"),
 			"visit_dates",
 			"Visit dates",
 			"date-range",
@@ -1238,7 +1264,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 	it("substitutes a value-position `input(name)` term across `compare`", () => {
 		// Authored predicate: `prop("name") === input("name_search")`.
 		const advanced = advancedSearchInputDef(
-			asUuid("a"),
+			testUuid("a"),
 			"name_search",
 			"Name search",
 			"text",
@@ -1257,7 +1283,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 
 	it("substitutes through `match.value`", () => {
 		const advanced = advancedSearchInputDef(
-			asUuid("a"),
+			testUuid("a"),
 			"q",
 			"Query",
 			"text",
@@ -1275,7 +1301,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 
 	it("substitutes through nested `and`/`or` clauses", () => {
 		const advanced = advancedSearchInputDef(
-			asUuid("a"),
+			testUuid("a"),
 			"q",
 			"Query",
 			"text",
@@ -1306,7 +1332,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 
 	it("substitutes through `arith` operands inside a comparison (cross-family)", () => {
 		const advanced = advancedSearchInputDef(
-			asUuid("a"),
+			testUuid("a"),
 			"min_age",
 			"Min age",
 			"text",
@@ -1339,7 +1365,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 		// into the `if.cond` predicate slot via the cross-family
 		// recursion path.
 		const advanced = advancedSearchInputDef(
-			asUuid("a"),
+			testUuid("a"),
 			"q",
 			"Query",
 			"text",
@@ -1372,7 +1398,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 
 	it("substitutes through `switch.cases[].then` and `switch.fallback`", () => {
 		const advanced = advancedSearchInputDef(
-			asUuid("a"),
+			testUuid("a"),
 			"alias",
 			"Alias",
 			"text",
@@ -1406,7 +1432,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 		// `count(subcasePath("parent"), where: status === input("status_filter"))`
 		// inside a comparison.
 		const advanced = advancedSearchInputDef(
-			asUuid("a"),
+			testUuid("a"),
 			"status_filter",
 			"Filter",
 			"text",
@@ -1431,7 +1457,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 
 	it("substitutes inside a `not(...)` clause", () => {
 		const advanced = advancedSearchInputDef(
-			asUuid("a"),
+			testUuid("a"),
 			"q",
 			"Query",
 			"text",
@@ -1450,7 +1476,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 		// structural gate. Preview already knows the submitted value, so the
 		// gate must unwrap before the predicate reaches the SQL compiler.
 		const advanced = advancedSearchInputDef(
-			asUuid("a"),
+			testUuid("a"),
 			"q",
 			"Query",
 			"text",
@@ -1467,7 +1493,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 
 	it("resolves cross-input gates only from their own submitted values", () => {
 		const advanced = advancedSearchInputDef(
-			asUuid("a"),
+			testUuid("a"),
 			"q",
 			"Query",
 			"text",
@@ -1483,7 +1509,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 			),
 		);
 		const region = simpleSearchInputDef(
-			asUuid("region"),
+			testUuid("region"),
 			"region",
 			"Region",
 			"text",
@@ -1524,7 +1550,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 		// time; this test confirms the runtime substitution doesn't
 		// silently rewrite a different input's ref.)
 		const advanced = advancedSearchInputDef(
-			asUuid("a"),
+			testUuid("a"),
 			"q",
 			"Query",
 			"text",
@@ -1548,7 +1574,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 
 	it("binds an unanswered advanced input as empty instead of inventing an owner gate", () => {
 		const advanced = advancedSearchInputDef(
-			asUuid("a"),
+			testUuid("a"),
 			"q",
 			"Query",
 			"text",
@@ -1561,7 +1587,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 
 	it("always evaluates a zero-ref advanced predicate", () => {
 		const advanced = advancedSearchInputDef(
-			asUuid("a"),
+			testUuid("a"),
 			"q",
 			"Query",
 			"text",
@@ -1575,14 +1601,14 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 
 	it("evaluates an advanced predicate from a populated sibling when its owner is empty", () => {
 		const advanced = advancedSearchInputDef(
-			asUuid("a"),
+			testUuid("a"),
 			"q",
 			"Query",
 			"text",
 			whenInput(input("region"), eq(prop(PATIENT, "name"), input("region"))),
 		);
 		const region = simpleSearchInputDef(
-			asUuid("region"),
+			testUuid("region"),
 			"region",
 			"Region",
 			"text",
@@ -1610,7 +1636,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 		// semantically faithful: the AST is preserved through the
 		// substitution.
 		const advanced = advancedSearchInputDef(
-			asUuid("a"),
+			testUuid("a"),
 			"q",
 			"Query",
 			"text",
@@ -1629,7 +1655,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 		// the input ref sits inside one of the variadic `concat` parts.
 		// Substitution must reach into every part position.
 		const advanced = advancedSearchInputDef(
-			asUuid("a"),
+			testUuid("a"),
 			"suffix",
 			"Suffix",
 			"text",
@@ -1655,7 +1681,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 	it("substitutes through `coalesce.values` (advanced arm)", () => {
 		// Variadic `coalesce` — substitute through every fallback slot.
 		const advanced = advancedSearchInputDef(
-			asUuid("a"),
+			testUuid("a"),
 			"q",
 			"Query",
 			"text",
@@ -1681,7 +1707,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 		// `format-date` carries a single `date` slot; the input ref
 		// drives the date value.
 		const advanced = advancedSearchInputDef(
-			asUuid("a"),
+			testUuid("a"),
 			"raw_date",
 			"Raw date",
 			"text",
@@ -1702,7 +1728,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 		// input-ref-driven center expression is the load-bearing case
 		// for runtime distance filtering.
 		const advanced = advancedSearchInputDef(
-			asUuid("a"),
+			testUuid("a"),
 			"user_location",
 			"User location",
 			"text",
@@ -1729,7 +1755,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 		// `in.values` is literal-only (schema-enforced); the runtime
 		// passes the values list through unchanged.
 		const advanced = advancedSearchInputDef(
-			asUuid("a"),
+			testUuid("a"),
 			"q",
 			"Query",
 			"text",
@@ -1759,7 +1785,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 		// `between.lower` / `between.upper` are `ValueExpression` slots;
 		// an input-ref-driven bound exercises both.
 		const advanced = advancedSearchInputDef(
-			asUuid("a"),
+			testUuid("a"),
 			"max_age",
 			"Max age",
 			"text",
@@ -1789,7 +1815,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 		// replaced it with `predicate.left` would compile cleanly and
 		// pass the previous test (whose input ref sits in `upper`).
 		const advanced = advancedSearchInputDef(
-			asUuid("a"),
+			testUuid("a"),
 			"age",
 			"Age",
 			"text",
@@ -1818,7 +1844,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 		// so any of `gt` / `gte` / `lt` / `lte` exercises the same
 		// branch. `gt` is the most idiomatic age-gate example.
 		const advanced = advancedSearchInputDef(
-			asUuid("a"),
+			testUuid("a"),
 			"min_age",
 			"Min age",
 			"text",
@@ -1844,14 +1870,14 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 describe("composeRuntimeFilter — mixed-arm composition", () => {
 	it("AND-composes simple + advanced contributions in declaration order", () => {
 		const simple = simpleSearchInputDef(
-			asUuid("a"),
+			testUuid("a"),
 			"status",
 			"Status",
 			"text",
 			"status",
 		);
 		const advanced = advancedSearchInputDef(
-			asUuid("b"),
+			testUuid("b"),
 			"q",
 			"Query",
 			"text",
@@ -1877,8 +1903,8 @@ describe("composeRuntimeFilter — mixed-arm composition", () => {
 		// should be the bare `eq` clause, not a one-clause `and`
 		// envelope.
 		const inputs = [
-			simpleSearchInputDef(asUuid("a"), "status", "Status", "text", "status"),
-			simpleSearchInputDef(asUuid("b"), "name", "Name", "text", "name"),
+			simpleSearchInputDef(testUuid("a"), "status", "Status", "text", "status"),
+			simpleSearchInputDef(testUuid("b"), "name", "Name", "text", "name"),
 		];
 		const result = composeRuntimeFilter(
 			inputs,
@@ -1891,14 +1917,14 @@ describe("composeRuntimeFilter — mixed-arm composition", () => {
 
 	it("composes range + advanced inputs into one AND chain", () => {
 		const simple = simpleSearchInputDef(
-			asUuid("a"),
+			testUuid("a"),
 			"visit_dates",
 			"Visit Dates",
 			"date-range",
 			"visit_date",
 		);
 		const advanced = advancedSearchInputDef(
-			asUuid("b"),
+			testUuid("b"),
 			"q",
 			"Query",
 			"text",
@@ -1945,9 +1971,9 @@ describe("composeRuntimeFilter — mixed-arm composition", () => {
 		// Only `name` contributes; the result collapses to the lone
 		// clause (single-clause `and` reduction).
 		const inputs = [
-			simpleSearchInputDef(asUuid("a"), "status", "Status", "text", "status"),
-			simpleSearchInputDef(asUuid("b"), "name", "Name", "text", "name"),
-			simpleSearchInputDef(asUuid("c"), "alias", "Alias", "text", "alias"),
+			simpleSearchInputDef(testUuid("a"), "status", "Status", "text", "status"),
+			simpleSearchInputDef(testUuid("b"), "name", "Name", "text", "name"),
+			simpleSearchInputDef(testUuid("c"), "alias", "Alias", "text", "alias"),
 		];
 		const result = composeRuntimeFilter(
 			inputs,
@@ -1964,21 +1990,21 @@ describe("composeRuntimeFilter — round-trip + builder reuse", () => {
 		// the bindings layer constructs. Round-trip parse confirms the
 		// schema accepts every shape produced.
 		const inputs = [
-			simpleSearchInputDef(asUuid("a"), "name", "Name", "text", "name", {
+			simpleSearchInputDef(testUuid("a"), "name", "Name", "text", "name", {
 				mode: fuzzyMode(),
 			}),
-			simpleSearchInputDef(asUuid("b"), "tags", "Tags", "select", "tags", {
+			simpleSearchInputDef(testUuid("b"), "tags", "Tags", "select", "tags", {
 				mode: multiSelectContainsMode("any"),
 			}),
 			simpleSearchInputDef(
-				asUuid("c"),
+				testUuid("c"),
 				"visit_dates",
 				"Visit Dates",
 				"date-range",
 				"visit_date",
 			),
 			advancedSearchInputDef(
-				asUuid("d"),
+				testUuid("d"),
 				"q",
 				"Query",
 				"text",
@@ -2019,7 +2045,7 @@ describe("composeRuntimeFilter — round-trip + builder reuse", () => {
 		// silently produces `match-none` from this layer fails this
 		// test loudly.
 		const inputs = [
-			simpleSearchInputDef(asUuid("a"), "name", "Name", "text", "name"),
+			simpleSearchInputDef(testUuid("a"), "name", "Name", "text", "name"),
 		];
 		const result = composeRuntimeFilter(
 			inputs,
@@ -2035,7 +2061,7 @@ describe("composeRuntimeFilter — round-trip + builder reuse", () => {
 		// equality checks would fail.
 		const inputs = [
 			simpleSearchInputDef(
-				asUuid("a"),
+				testUuid("a"),
 				"visit_dates",
 				"Visit Dates",
 				"date-range",
@@ -2076,7 +2102,7 @@ describe("composeRuntimeFilter — advanced arm rewriter, Predicate-side arm cov
 		// `isNull` carries a single `left: ValueExpression` slot. The
 		// input ref sits in value position via the `term` arm.
 		const advanced = advancedSearchInputDef(
-			asUuid("a"),
+			testUuid("a"),
 			"q",
 			"Query",
 			"text",
@@ -2095,7 +2121,7 @@ describe("composeRuntimeFilter — advanced arm rewriter, Predicate-side arm cov
 		// `missing.where` is a `Predicate` (cross-family). The
 		// `via` slot is a `RelationPath` and carries no input refs.
 		const advanced = advancedSearchInputDef(
-			asUuid("a"),
+			testUuid("a"),
 			"q",
 			"Query",
 			"text",
@@ -2130,7 +2156,7 @@ describe("composeRuntimeFilter — advanced arm rewriter, Predicate-side arm cov
 		// so the constructed multi-clause `and` keeps the sentinel
 		// at index 0 and substitution flows through to index 1.
 		const advanced = advancedSearchInputDef(
-			asUuid("a"),
+			testUuid("a"),
 			"q",
 			"Query",
 			"text",
@@ -2154,7 +2180,7 @@ describe("composeRuntimeFilter — advanced arm rewriter, Predicate-side arm cov
 		// from a multi-clause envelope), so the sentinel survives at
 		// index 0 and substitution flows through to index 1.
 		const advanced = advancedSearchInputDef(
-			asUuid("a"),
+			testUuid("a"),
 			"q",
 			"Query",
 			"text",
@@ -2179,7 +2205,7 @@ describe("composeRuntimeFilter — advanced arm rewriter, ValueExpression-side a
 		// slot fixture would let a regression that recurses only one
 		// slot pass; the two-slot pin catches that bug class.
 		const advanced = advancedSearchInputDef(
-			asUuid("a"),
+			testUuid("a"),
 			"base",
 			"Base date",
 			"date",
@@ -2211,7 +2237,7 @@ describe("composeRuntimeFilter — advanced arm rewriter, ValueExpression-side a
 		// the input ref sits there. Combined with the previous test,
 		// both slots have explicit coverage.
 		const advanced = advancedSearchInputDef(
-			asUuid("a"),
+			testUuid("a"),
 			"offset",
 			"Offset",
 			"text",
@@ -2235,7 +2261,7 @@ describe("composeRuntimeFilter — advanced arm rewriter, ValueExpression-side a
 
 	it("substitutes through `date-coerce.value` (advanced arm)", () => {
 		const advanced = advancedSearchInputDef(
-			asUuid("a"),
+			testUuid("a"),
 			"raw",
 			"Raw date",
 			"text",
@@ -2253,7 +2279,7 @@ describe("composeRuntimeFilter — advanced arm rewriter, ValueExpression-side a
 
 	it("substitutes through `datetime-coerce.value` (advanced arm)", () => {
 		const advanced = advancedSearchInputDef(
-			asUuid("a"),
+			testUuid("a"),
 			"raw",
 			"Raw datetime",
 			"text",
@@ -2274,7 +2300,7 @@ describe("composeRuntimeFilter — advanced arm rewriter, ValueExpression-side a
 
 	it("substitutes through `double.value` (advanced arm)", () => {
 		const advanced = advancedSearchInputDef(
-			asUuid("a"),
+			testUuid("a"),
 			"q",
 			"Query",
 			"text",
@@ -2294,7 +2320,7 @@ describe("composeRuntimeFilter — advanced arm rewriter, ValueExpression-side a
 		// has to recurse into the `value` slot — substitution is
 		// AST-level and indifferent to the wire target.
 		const advanced = advancedSearchInputDef(
-			asUuid("a"),
+			testUuid("a"),
 			"q",
 			"Query",
 			"text",
@@ -2315,7 +2341,7 @@ describe("composeRuntimeFilter — advanced arm rewriter, ValueExpression-side a
 		// substitution. The rewriter hits the no-op return arm and
 		// the AST flows through unchanged.
 		const advanced = advancedSearchInputDef(
-			asUuid("a"),
+			testUuid("a"),
 			"q",
 			"Query",
 			"text",
@@ -2334,7 +2360,7 @@ describe("composeRuntimeFilter — advanced arm rewriter, ValueExpression-side a
 		// Symmetric to the `today` test — `now` is a discriminator-
 		// only constant.
 		const advanced = advancedSearchInputDef(
-			asUuid("a"),
+			testUuid("a"),
 			"q",
 			"Query",
 			"text",
@@ -2370,7 +2396,7 @@ describe("composeRuntimeFilter — default-mode table contract", () => {
 		for (const type of types) {
 			const expected = APPLICABLE_SEARCH_MODES[type][0];
 			const inputs = [
-				simpleSearchInputDef(asUuid("a"), "field", "Field", type, "field"),
+				simpleSearchInputDef(testUuid("a"), "field", "Field", type, "field"),
 			];
 			// Use the input.name key for non-range defaults; the
 			// `:from`/`:to` key shape for the range default.

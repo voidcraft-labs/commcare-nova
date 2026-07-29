@@ -23,7 +23,8 @@
 // `concat(...)` argument).
 
 import { describe, expect, it } from "vitest";
-import { asUuid } from "@/lib/doc/types";
+import { testUuid } from "@/__tests__/helpers/uuid";
+
 import {
 	actingUser,
 	arith,
@@ -454,7 +455,7 @@ describe("emitCsqlExpressionSegments — non-whitelist arms throw", () => {
 	});
 
 	it("throws on a submission-local case-operation id", () => {
-		const expr = idOf(asUuid("11111111-1111-4111-8111-111111111111"));
+		const expr = idOf(testUuid("11111111-1111-4111-8111-111111111111"));
 		expect(() => emitCsqlExpressionSegments(expr)).toThrow(/whitelist/i);
 	});
 

@@ -131,7 +131,7 @@ describe("lookup Server Actions", () => {
 		expect(result).toEqual({ success: true, value: manifest });
 	});
 
-	it("runtime-parses a table identity before calling the read service", async () => {
+	it("rejects a noncanonical table identity before calling the read service", async () => {
 		const table = { id: TABLE_ID };
 		mocks.getLookupTable.mockResolvedValue(table);
 
@@ -140,15 +140,19 @@ describe("lookup Server Actions", () => {
 			TABLE_ID.toUpperCase(),
 		);
 
-		expect(mocks.getLookupTable).toHaveBeenCalledWith(
-			{
-				projectId: "project-1",
-				actorId: "user-1",
-				role: "editor",
-			},
-			TABLE_ID,
-		);
-		expect(result).toEqual({ success: true, value: table });
+		expect(mocks.getLookupTable).not.toHaveBeenCalled();
+		expect(result).toEqual({
+			success: false,
+			code: "invalid_input",
+			message: expect.any(String),
+			details: [
+				{
+					code: "invalid_input",
+					message: "Expected a canonical lowercase UUIDv7 identifier.",
+				},
+			],
+			totalDetailCount: 1,
+		});
 	});
 
 	it("requires edit for additive schema and row creation, returning minted ids", async () => {

@@ -57,6 +57,7 @@ import {
 	it,
 	vi,
 } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 import { createReconciler, type MutationFrame } from "@/lib/collab/reconciler";
@@ -69,7 +70,6 @@ import { __setAppDbForTests, type AppDatabase } from "@/lib/db/pg";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { Mutation } from "@/lib/doc/types";
 import {
-	asUuid,
 	type LookupOptionsSource,
 	lookupOptionsSourceSchema,
 	type PersistableDoc,
@@ -155,11 +155,11 @@ const USER = "user-1";
 const OTHER_USER = "user-2";
 const PROJECT = "project-1";
 const OTHER_PROJECT = "project-2";
-const LOOKUP_MODULE = asUuid("10000000-0000-4000-8000-000000000000");
-const LOOKUP_FORM = asUuid("20000000-0000-4000-8000-000000000000");
-const LOOKUP_FIELD = asUuid("30000000-0000-4000-8000-000000000000");
-const LOOKUP_OPTION_A = asUuid("40000000-0000-4000-8000-000000000000");
-const LOOKUP_OPTION_B = asUuid("50000000-0000-4000-8000-000000000000");
+const LOOKUP_MODULE = testUuid("10000000-0000-4000-8000-000000000000");
+const LOOKUP_FORM = testUuid("20000000-0000-4000-8000-000000000000");
+const LOOKUP_FIELD = testUuid("30000000-0000-4000-8000-000000000000");
+const LOOKUP_OPTION_A = testUuid("40000000-0000-4000-8000-000000000000");
+const LOOKUP_OPTION_B = testUuid("50000000-0000-4000-8000-000000000000");
 const LOOKUP_SOURCE_A = lookupOptionsSourceSchema.parse({
 	kind: "lookup-table",
 	tableId: "018f3e8a-7b2c-7def-8abc-1234567890ab",

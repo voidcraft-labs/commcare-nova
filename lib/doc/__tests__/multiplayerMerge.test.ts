@@ -1,3 +1,4 @@
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { backfillOptionUuids } from "@/lib/doc/optionIdentity";
 /**
@@ -43,7 +44,6 @@ import { searchInputUpdateMutation } from "@/lib/doc/searchInputMutations";
 import type { Mutation, Uuid } from "@/lib/doc/types";
 import { updateUserTypeValueMutations } from "@/lib/doc/userMutations";
 import {
-	asUuid,
 	type BlueprintDoc,
 	calculatedColumn,
 	emptyCaseListConfig,
@@ -778,14 +778,14 @@ describe("disjoint collection edits merge", () => {
 
 	it("two search-order gestures write one moved field each and commute", () => {
 		const inputA = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000321"),
+			testUuid("00000000-0000-4000-8000-000000000321"),
 			"case_name",
 			"Patient name",
 			"text",
 			"case_name",
 		);
 		const inputB = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000322"),
+			testUuid("00000000-0000-4000-8000-000000000322"),
 			"external_id",
 			"External ID",
 			"text",
@@ -892,8 +892,8 @@ describe("disjoint collection edits merge", () => {
 		const field = byId(doc, "color") as Field & {
 			options: Array<{ uuid?: Uuid; value: string; label: string }>;
 		};
-		const optR = asUuid(field.options[0].uuid as string);
-		const optG = asUuid(field.options[1].uuid as string);
+		const optR = testUuid(field.options[0].uuid as string);
+		const optG = testUuid(field.options[1].uuid as string);
 		const batchA: Mutation[] = [
 			{
 				kind: "updateOption",
@@ -955,7 +955,7 @@ describe("disjoint collection edits merge", () => {
 			{
 				kind: "removeOption",
 				fieldUuid: field.uuid,
-				uuid: asUuid(field.options[0].uuid as string),
+				uuid: testUuid(field.options[0].uuid as string),
 			},
 		];
 		const verdict = mutationCommitVerdict(
@@ -1136,8 +1136,8 @@ describe("diff — case-list presence transition", () => {
 			}),
 		);
 		const moduleUuid = prev.moduleOrder[0];
-		const localColumnUuid = asUuid("00000000-0000-4000-8000-000000000061");
-		const peerColumnUuid = asUuid("00000000-0000-4000-8000-000000000062");
+		const localColumnUuid = testUuid("00000000-0000-4000-8000-000000000061");
+		const peerColumnUuid = testUuid("00000000-0000-4000-8000-000000000062");
 		const next = produce(prev, (draft) => {
 			draft.modules[moduleUuid].caseListConfig = {
 				columns: [
@@ -1213,8 +1213,8 @@ describe("diff — case-list presence transition", () => {
 			}),
 		);
 		const moduleUuid = prev.moduleOrder[0];
-		const localColumnUuid = asUuid("00000000-0000-4000-8000-000000000063");
-		const peerInputUuid = asUuid("00000000-0000-4000-8000-000000000064");
+		const localColumnUuid = testUuid("00000000-0000-4000-8000-000000000063");
+		const peerInputUuid = testUuid("00000000-0000-4000-8000-000000000064");
 		const next = produce(prev, (draft) => {
 			draft.modules[moduleUuid].caseType = "visit";
 			draft.modules[moduleUuid].caseListConfig?.columns.push({
@@ -1494,7 +1494,7 @@ describe("case-search marker merges", () => {
 		moduleUuid: Uuid;
 		inputUuid: Uuid;
 	} {
-		const inputUuid = asUuid("00000000-0000-4000-8000-000000000051");
+		const inputUuid = testUuid("00000000-0000-4000-8000-000000000051");
 		const doc = buildDoc({
 			appName: "Search merge",
 			caseTypes: [
@@ -1534,7 +1534,7 @@ describe("case-search marker merges", () => {
 		const markerless = produce(doc, (draft) => {
 			delete draft.modules[moduleUuid].caseSearchConfig;
 		});
-		const peerInputUuid = asUuid("00000000-0000-4000-8000-000000000052");
+		const peerInputUuid = testUuid("00000000-0000-4000-8000-000000000052");
 		const peerBatch: Mutation[] = [
 			{
 				kind: "updateModule",
@@ -2021,7 +2021,7 @@ describe("case-search marker merges", () => {
 
 	it("a stale disable preserves peer settings and their newly-added input", () => {
 		const { doc, moduleUuid, inputUuid } = searchDoc();
-		const peerInputUuid = asUuid("00000000-0000-4000-8000-000000000053");
+		const peerInputUuid = testUuid("00000000-0000-4000-8000-000000000053");
 		const peerBatch: Mutation[] = [
 			{
 				kind: "updateModule",
@@ -2105,7 +2105,7 @@ describe("case-search marker merges", () => {
 
 describe("Search-input rename merges", () => {
 	it("defensively rewrites an invalid imported form display-condition ref", () => {
-		const inputUuid = asUuid("00000000-0000-4000-8000-000000000066");
+		const inputUuid = testUuid("00000000-0000-4000-8000-000000000066");
 		const config = caseListConfig([{ field: "case_name", header: "Name" }]);
 		config.searchInputs = [
 			simpleSearchInputDef(inputUuid, "old_name", "Name", "text", "case_name"),
@@ -2149,10 +2149,12 @@ describe("Search-input rename merges", () => {
 		moduleUuid: Uuid;
 		inputUuid: Uuid;
 	} {
-		const inputUuid = asUuid("00000000-0000-4000-8000-000000000061");
-		const siblingUuid = asUuid("00000000-0000-4000-8000-000000000062");
-		const advancedSiblingUuid = asUuid("00000000-0000-4000-8000-000000000063");
-		const calculatedUuid = asUuid("00000000-0000-4000-8000-000000000064");
+		const inputUuid = testUuid("00000000-0000-4000-8000-000000000061");
+		const siblingUuid = testUuid("00000000-0000-4000-8000-000000000062");
+		const advancedSiblingUuid = testUuid(
+			"00000000-0000-4000-8000-000000000063",
+		);
+		const calculatedUuid = testUuid("00000000-0000-4000-8000-000000000064");
 		const config = caseListConfig([{ field: "case_name", header: "Name" }]);
 		config.columns.push(
 			calculatedColumn(
@@ -2288,7 +2290,7 @@ describe("Search-input rename merges", () => {
 				throw new Error("missing Search config fixture");
 			config.searchInputs.push(
 				simpleSearchInputDef(
-					asUuid("00000000-0000-4000-8000-000000000065"),
+					testUuid("00000000-0000-4000-8000-000000000065"),
 					"old_name",
 					"Reused old name",
 					"text",
@@ -2432,7 +2434,7 @@ describe("Search-input rename merges", () => {
 		const current = produce(doc, (draft) => {
 			draft.modules[moduleUuid].caseListConfig?.searchInputs.push(
 				simpleSearchInputDef(
-					asUuid("00000000-0000-4000-8000-000000000066"),
+					testUuid("00000000-0000-4000-8000-000000000066"),
 					"new_name",
 					"Peer-owned desired name",
 					"text",
@@ -2507,7 +2509,7 @@ describe("diff — evacuation into a same-diff-added container", () => {
 	it("hoists the added destination before the evacuation so the batch replays in order", () => {
 		// One accumulated save (in-flight PUT / retry backoff) carrying three
 		// gestures: create group G, drag X out of group H into G, delete H.
-		const G = asUuid("44444444-4444-4444-4444-444444444444");
+		const G = testUuid("44444444-4444-4444-4444-444444444444");
 		const prev = backfilled(
 			buildDoc({
 				modules: [
@@ -2579,9 +2581,9 @@ describe("diff — evacuation into a same-diff-added container", () => {
 
 describe("user-data value multiplayer convergence", () => {
 	it("merges peers editing different role values in either commit order", () => {
-		const propertyA = asUuid("property-a");
-		const propertyB = asUuid("property-b");
-		const roleUuid = asUuid("role");
+		const propertyA = testUuid("property-a");
+		const propertyB = testUuid("property-b");
+		const roleUuid = testUuid("role");
 		const base: BlueprintDoc = {
 			...buildDoc(),
 			userProperties: {

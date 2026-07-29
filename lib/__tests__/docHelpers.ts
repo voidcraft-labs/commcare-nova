@@ -12,6 +12,7 @@
  * whatever keys that variant supports.
  */
 
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { parseXPathExpression } from "@/lib/commcare/xpath";
 import {
 	resolvableUserPropertySlug,
@@ -19,7 +20,6 @@ import {
 } from "@/lib/doc/expressionText";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import {
-	asUuid,
 	type BlueprintDoc,
 	type CaseType,
 	type ConnectType,
@@ -70,7 +70,7 @@ export function xpIn(
 let counter = 0;
 function nextUuid(prefix: string): Uuid {
 	counter++;
-	return asUuid(`${prefix}-${counter.toString().padStart(4, "0")}`);
+	return testUuid(`${prefix}-${counter.toString().padStart(4, "0")}`);
 }
 
 /**
@@ -266,7 +266,7 @@ export function buildDoc(spec: DocSpec = {}): BlueprintDoc {
 	const fieldOrder: BlueprintDoc["fieldOrder"] = {};
 
 	for (const modSpec of spec.modules ?? []) {
-		const moduleUuid = asUuid(modSpec.uuid ?? nextUuid("mod"));
+		const moduleUuid = testUuid(modSpec.uuid ?? nextUuid("mod"));
 		moduleOrder.push(moduleUuid);
 		formOrder[moduleUuid] = [];
 
@@ -291,7 +291,7 @@ export function buildDoc(spec: DocSpec = {}): BlueprintDoc {
 		};
 
 		for (const formSpec of modSpec.forms ?? []) {
-			const formUuid = asUuid(formSpec.uuid ?? nextUuid("frm"));
+			const formUuid = testUuid(formSpec.uuid ?? nextUuid("frm"));
 			formOrder[moduleUuid].push(formUuid);
 			fieldOrder[formUuid] = [];
 
@@ -337,7 +337,7 @@ export function buildDoc(spec: DocSpec = {}): BlueprintDoc {
 	resolveDocExpressions(doc);
 	for (const [formUuid, form] of Object.entries(doc.forms)) {
 		if (form.closeCondition && form.closeCondition.field.length > 0) {
-			form.closeCondition.field = asUuid(
+			form.closeCondition.field = testUuid(
 				resolveCloseFieldRef(doc, formUuid, form.closeCondition.field),
 			);
 		}
@@ -424,7 +424,7 @@ function installFields(
 ): void {
 	for (const spec of specs) {
 		const { children, uuid: rawUuid, kind, id, label, ...rest } = spec;
-		const uuid = asUuid(rawUuid ?? nextUuid("fld"));
+		const uuid = testUuid(rawUuid ?? nextUuid("fld"));
 		fieldOrder[parentUuid].push(uuid);
 
 		const base: Record<string, unknown> = {

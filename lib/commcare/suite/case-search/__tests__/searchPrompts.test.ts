@@ -47,10 +47,10 @@
 // display block) matches the fixture row-for-row.
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
 	advancedSearchInputDef,
-	asUuid,
 	type CaseListConfig,
 	type SearchInputDef,
 	type SearchInputType,
@@ -91,9 +91,9 @@ import {
 // ============================================================
 
 const INPUT_UUIDS = {
-	a: asUuid("00000000-0000-4000-8000-aaaa00000001"),
-	b: asUuid("00000000-0000-4000-8000-aaaa00000002"),
-	c: asUuid("00000000-0000-4000-8000-aaaa00000003"),
+	a: testUuid("00000000-0000-4000-8000-aaaa00000001"),
+	b: testUuid("00000000-0000-4000-8000-aaaa00000002"),
+	c: testUuid("00000000-0000-4000-8000-aaaa00000003"),
 } as const;
 
 /** Wire-side module identifier matching CCHQ's `m{idx}` pattern. */
@@ -291,7 +291,7 @@ describe("emitSearchPrompts — per-input-type attribute mapping", () => {
 			),
 		);
 		const triggerOnly = advancedSearchInputDef(
-			asUuid("00000000-0000-4000-8000-aaaa00000004"),
+			testUuid("00000000-0000-4000-8000-aaaa00000004"),
 			"trigger_only",
 			"Optional rule",
 			"text",

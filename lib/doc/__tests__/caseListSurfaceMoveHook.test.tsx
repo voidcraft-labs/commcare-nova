@@ -4,11 +4,12 @@ import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { useContext } from "react";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { BlueprintDocContext, BlueprintDocProvider } from "@/lib/doc/provider";
-import { asUuid, simpleSearchInputDef } from "@/lib/domain";
+import { simpleSearchInputDef } from "@/lib/domain";
 
 describe("useBlueprintMutations.moveColumnOnSurface", () => {
 	it("one gesture commits exactly one moved column", () => {
@@ -103,14 +104,14 @@ describe("useBlueprintMutations.moveColumnOnSurface", () => {
 describe("useBlueprintMutations.moveSearchInputToIndex", () => {
 	it("one gesture commits exactly one moved search field", () => {
 		const first = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000331"),
+			testUuid("00000000-0000-4000-8000-000000000331"),
 			"case_name",
 			"Patient name",
 			"text",
 			"case_name",
 		);
 		const second = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000332"),
+			testUuid("00000000-0000-4000-8000-000000000332"),
 			"external_id",
 			"External ID",
 			"text",

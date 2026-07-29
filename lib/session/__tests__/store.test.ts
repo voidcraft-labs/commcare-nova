@@ -13,9 +13,10 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, xp } from "@/lib/__tests__/docHelpers";
 import { createBlueprintDocStore } from "@/lib/doc/store";
-import { asUuid } from "@/lib/doc/types";
+
 import type { Event } from "@/lib/log/types";
 import { toastStore } from "@/lib/ui/toastStore";
 import { createBuilderSessionStore } from "../store";
@@ -195,7 +196,7 @@ describe("BuilderSession store", () => {
 
 	it("setPreviewCaseTarget sets the target and no-ops on a shallow-equal value", () => {
 		const store = createBuilderSessionStore();
-		const formUuid = asUuid("form-1");
+		const formUuid = testUuid("form-1");
 
 		store.getState().setPreviewCaseTarget({ formUuid });
 		expect(store.getState().previewCaseTarget).toEqual({ formUuid });
@@ -227,7 +228,7 @@ describe("BuilderSession store", () => {
 
 	it("setPreviewing clears the case target AND selected case on both transitions", () => {
 		const store = createBuilderSessionStore();
-		const formUuid = asUuid("form-1");
+		const formUuid = testUuid("form-1");
 
 		/* Entering preview clears any stray target + selection. */
 		store
@@ -255,7 +256,7 @@ describe("BuilderSession store", () => {
 			role: "editor",
 			canEdit: true,
 		});
-		const formUuid = asUuid("form-1");
+		const formUuid = testUuid("form-1");
 		store.getState().setPreviewing(true);
 		store
 			.getState()

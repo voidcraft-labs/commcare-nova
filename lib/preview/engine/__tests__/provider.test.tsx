@@ -16,9 +16,10 @@
 import { act, render, renderHook, waitFor } from "@testing-library/react";
 import { type ReactNode, useEffect } from "react";
 import { describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
-import { asUuid } from "@/lib/domain";
+
 import type { PersistableDoc } from "@/lib/domain/blueprint";
 import { useFormEngine } from "@/lib/preview/hooks/useFormEngine";
 import {
@@ -54,9 +55,9 @@ vi.mock("@/lib/auth/hooks/useAuth", () => ({
 
 /** Single-form doc with one text field — the minimum structure the engine
  *  needs to produce a non-empty runtime state from `activateForm(FORM_UUID)`. */
-const MODULE_UUID = asUuid("module-1-uuid");
-const FORM_UUID = asUuid("form-1-uuid");
-const FIELD_UUID = asUuid("11111111-1111-1111-1111-111111111111");
+const MODULE_UUID = testUuid("module-1-uuid");
+const FORM_UUID = testUuid("form-1-uuid");
+const FIELD_UUID = testUuid("11111111-1111-1111-1111-111111111111");
 
 const DOC: PersistableDoc = {
 	appId: "test-app",

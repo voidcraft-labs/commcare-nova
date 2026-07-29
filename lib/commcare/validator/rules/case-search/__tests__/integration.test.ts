@@ -1,3 +1,4 @@
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * Cross-rule integration tests for the case-search-config validator
@@ -16,7 +17,6 @@ import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import {
 	advancedSearchInputDef,
-	asUuid,
 	plainColumn,
 	simpleSearchInputDef,
 } from "@/lib/domain";
@@ -51,9 +51,9 @@ describe("case-search validator — cross-rule integration", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
-						listColumnOrder: [asUuid("col-name")],
-						detailColumnOrder: [asUuid("col-name")],
+						columns: [plainColumn(testUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [testUuid("col-name")],
+						detailColumnOrder: [testUuid("col-name")],
 						// Filter targets `region` (self-walk on patient) — same
 						// destination as the simple-arm input below.
 						filter: eq(prop("patient", "region"), literal("North")),
@@ -62,7 +62,7 @@ describe("case-search validator — cross-rule integration", () => {
 							// Default referencing an unknown property triggers the
 							// per-input default type check.
 							simpleSearchInputDef(
-								asUuid("si-region"),
+								testUuid("si-region"),
 								"region_search",
 								"Region",
 								"text",
@@ -72,7 +72,7 @@ describe("case-search validator — cross-rule integration", () => {
 							// Advanced input with an ill-typed predicate (gt against
 							// text-typed `case_name`).
 							advancedSearchInputDef(
-								asUuid("si-advanced"),
+								testUuid("si-advanced"),
 								"adv_input",
 								"Advanced",
 								"text",
@@ -166,16 +166,16 @@ describe("case-search validator — cross-rule integration", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
-						listColumnOrder: [asUuid("col-name")],
-						detailColumnOrder: [asUuid("col-name")],
+						columns: [plainColumn(testUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [testUuid("col-name")],
+						detailColumnOrder: [testUuid("col-name")],
 						filter: eq(prop("patient", "region"), literal("North")),
 						searchInputs: [
 							// Simple input on patient's region (self-walk) with a
 							// text-typed default — `text`-widget expectedType pins
 							// to `text`, so a literal text seed type-checks cleanly.
 							simpleSearchInputDef(
-								asUuid("si-region"),
+								testUuid("si-region"),
 								"region_search",
 								"Region",
 								"text",
@@ -184,7 +184,7 @@ describe("case-search validator — cross-rule integration", () => {
 							),
 							// Advanced input with a well-typed predicate.
 							advancedSearchInputDef(
-								asUuid("si-advanced"),
+								testUuid("si-advanced"),
 								"adv_input",
 								"Advanced",
 								"text",

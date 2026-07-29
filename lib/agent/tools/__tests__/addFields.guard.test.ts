@@ -17,13 +17,8 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import {
-	asUuid,
-	type BlueprintDoc,
-	type Field,
-	type Form,
-	type Module,
-} from "@/lib/domain";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import type { BlueprintDoc, Field, Form, Module } from "@/lib/domain";
 import {
 	makeMcpTestContext,
 	makeStubToolContext,
@@ -37,11 +32,11 @@ vi.mock("@/lib/db/applyBlueprintChange", () => ({
 	applyBlueprintChange: vi.fn(() => Promise.resolve({ seq: 0 })),
 }));
 
-const MOD = asUuid("11111111-1111-1111-1111-111111111111");
-const FORM = asUuid("22222222-2222-2222-2222-222222222222");
-const AGE = asUuid("33333333-3333-3333-3333-333333333333");
-const GRP = asUuid("44444444-4444-4444-4444-444444444444");
-const NOTE = asUuid("55555555-5555-5555-5555-555555555555");
+const MOD = testUuid("11111111-1111-1111-1111-111111111111");
+const FORM = testUuid("22222222-2222-2222-2222-222222222222");
+const AGE = testUuid("33333333-3333-3333-3333-333333333333");
+const GRP = testUuid("44444444-4444-4444-4444-444444444444");
+const NOTE = testUuid("55555555-5555-5555-5555-555555555555");
 
 /** One form holding a top-level `age` field and a group `grp` with a
  *  child `note` — enough structure to exercise sibling vs cousin scope. */

@@ -16,10 +16,10 @@
 // false-positive churn.
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
 	advancedSearchInputDef,
-	asUuid,
 	type CaseListConfig,
 	type CaseSearchConfig,
 	type Module,
@@ -40,7 +40,7 @@ import { emitRemoteRequest } from "../remoteRequest";
 
 // ── Test helpers ────────────────────────────────────────────────────
 
-const MODULE_UUID = asUuid("00000000-0000-4000-8000-000000000010");
+const MODULE_UUID = testUuid("00000000-0000-4000-8000-000000000010");
 
 function makeListConfig(
 	overrides: Partial<CaseListConfig> = {},
@@ -248,7 +248,7 @@ describe("emitRemoteRequest — <instance> declarations", () => {
 		// references `instance('search-input:results')` (the envelope
 		// trigger itself), so the instance accumulator must walk it.
 		const advancedInput = advancedSearchInputDef(
-			asUuid("00000000-0000-4000-8000-00000000aaaa"),
+			testUuid("00000000-0000-4000-8000-00000000aaaa"),
 			"city_q",
 			"City",
 			"text",
@@ -280,7 +280,7 @@ describe("emitRemoteRequest — <instance> declarations", () => {
 		// no matching `<instance>` declaration and the runtime would
 		// raise an XPath resolution error at search-execution time.
 		const simpleViaInput = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-00000000bbbb"),
+			testUuid("00000000-0000-4000-8000-00000000bbbb"),
 			"region_q",
 			"Region",
 			"text",
@@ -307,7 +307,7 @@ describe("emitRemoteRequest — <instance> declarations", () => {
 		// `instance('search-input:results')`; the instance accumulator
 		// must walk the default expression too.
 		const primaryInput = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-00000000cccc"),
+			testUuid("00000000-0000-4000-8000-00000000cccc"),
 			"primary_q",
 			"Primary",
 			"text",
@@ -315,7 +315,7 @@ describe("emitRemoteRequest — <instance> declarations", () => {
 		);
 		const echoInput = {
 			...simpleSearchInputDef(
-				asUuid("00000000-0000-4000-8000-00000000dddd"),
+				testUuid("00000000-0000-4000-8000-00000000dddd"),
 				"echo_q",
 				"Echo",
 				"text",
@@ -462,7 +462,7 @@ describe("emitRemoteRequest — Nova-shaped end-to-end composition", () => {
 				caseListConfig: makeListConfig({
 					columns: [
 						plainColumn(
-							asUuid("00000000-0000-4000-8000-aaaa00000000"),
+							testUuid("00000000-0000-4000-8000-aaaa00000000"),
 							"case_name",
 							"Name",
 						),
@@ -470,14 +470,14 @@ describe("emitRemoteRequest — Nova-shaped end-to-end composition", () => {
 					filter,
 					searchInputs: [
 						simpleSearchInputDef(
-							asUuid("00000000-0000-4000-8000-aaaa00000001"),
+							testUuid("00000000-0000-4000-8000-aaaa00000001"),
 							"name",
 							"Name",
 							"text",
 							"name",
 						),
 						advancedSearchInputDef(
-							asUuid("00000000-0000-4000-8000-aaaa00000002"),
+							testUuid("00000000-0000-4000-8000-aaaa00000002"),
 							"adv",
 							"Advanced",
 							"text",

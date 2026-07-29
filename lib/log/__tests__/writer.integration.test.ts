@@ -10,11 +10,12 @@
  * Runs unconditionally under `npm test` (the case-store testcontainer boots in
  * `globalSetup`).
  */
+
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import type { Mutation } from "@/lib/doc/types";
 import {
-	asUuid,
 	type LookupOptionsSource,
 	lookupOptionsSourceSchema,
 } from "@/lib/domain";
@@ -25,7 +26,7 @@ import { LogWriter } from "../writer";
 const h = setupAppStateTestDb("log_writer_");
 
 const APP = "app-writer-int";
-const LOOKUP_FIELD = asUuid("30000000-0000-4000-8000-000000000000");
+const LOOKUP_FIELD = testUuid("30000000-0000-4000-8000-000000000000");
 const LOOKUP_SOURCE_A = lookupOptionsSourceSchema.parse({
 	kind: "lookup-table",
 	tableId: "018f3e8a-7b2c-7def-8abc-1234567890ab",

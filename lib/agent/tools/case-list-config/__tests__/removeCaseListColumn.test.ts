@@ -12,8 +12,9 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
-import { asUuid, type BlueprintDoc, plainColumn } from "@/lib/domain";
+import { type BlueprintDoc, plainColumn } from "@/lib/domain";
 import { removeCaseListColumnTool } from "../removeCaseListColumn";
 import { MOD_A, makeCaseListFixture } from "./fixtures";
 
@@ -29,8 +30,8 @@ beforeEach(() => {
 	vi.clearAllMocks();
 });
 
-const TARGET_UUID = asUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
-const SIBLING_UUID = asUuid("cccccccc-cccc-cccc-cccc-cccccccccccc");
+const TARGET_UUID = testUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+const SIBLING_UUID = testUuid("cccccccc-cccc-cccc-cccc-cccccccccccc");
 
 function fixtureWithColumns(): BlueprintDoc {
 	const { doc } = makeCaseListFixture();
@@ -102,7 +103,7 @@ describe("removeCaseListColumn", () => {
 	it("returns an Elm-style error when the column uuid is unknown", async () => {
 		const { ctx } = makeCaseListFixture();
 		const doc = fixtureWithColumns();
-		const unknown = asUuid("dddddddd-dddd-dddd-dddd-dddddddddddd");
+		const unknown = testUuid("dddddddd-dddd-dddd-dddd-dddddddddddd");
 		const result = await removeCaseListColumnTool.execute(
 			{ moduleIndex: 0, columnUuid: unknown },
 			ctx,

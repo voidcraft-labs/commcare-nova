@@ -1,21 +1,18 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	caseOperationTargetTypeAfter,
 	retargetCaseOperation,
 	retargetCaseOperationLink,
 } from "@/lib/doc/caseOperationIntents";
-import {
-	asUuid,
-	type CaseOperation,
-	type CaseOperationLink,
-} from "@/lib/domain";
+import type { CaseOperation, CaseOperationLink } from "@/lib/domain";
 import { literal, matchAll, term } from "@/lib/domain/predicate";
 
-const CREATE = asUuid("10000000-0000-4000-8000-000000000001");
-const RETYPE_CREATE = asUuid("10000000-0000-4000-8000-000000000002");
-const RETYPE_SESSION = asUuid("10000000-0000-4000-8000-000000000003");
-const EDITED = asUuid("10000000-0000-4000-8000-000000000004");
-const UNKNOWN = asUuid("10000000-0000-4000-8000-000000000099");
+const CREATE = testUuid("10000000-0000-4000-8000-000000000001");
+const RETYPE_CREATE = testUuid("10000000-0000-4000-8000-000000000002");
+const RETYPE_SESSION = testUuid("10000000-0000-4000-8000-000000000003");
+const EDITED = testUuid("10000000-0000-4000-8000-000000000004");
+const UNKNOWN = testUuid("10000000-0000-4000-8000-000000000099");
 
 const create: CaseOperation = {
 	uuid: CREATE,

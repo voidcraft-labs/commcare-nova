@@ -4,9 +4,9 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { rowMatchesFilterText } from "@/components/preview/shared/listFilter";
 import {
-	asUuid,
 	calculatedColumn,
 	dateColumn,
 	idMappingColumn,
@@ -30,7 +30,7 @@ import {
 } from "../columnCellRenderer";
 
 const originalTimeZone = process.env.TZ;
-const COLUMN_UUID = asUuid("00000000-0000-4000-8000-000000000001");
+const COLUMN_UUID = testUuid("00000000-0000-4000-8000-000000000001");
 const TODAY = new Date("2026-07-17T12:00:00.000Z");
 const EMPTY_CONTEXT: ColumnDisplayContext = {
 	calculatedTemporalTypes: new Map(),
@@ -341,19 +341,19 @@ describe("case-list Preview cell formatting", () => {
 
 	it("keeps Quick Filter aligned with every semantic cell format", () => {
 		const status = idMappingColumn(
-			asUuid("00000000-0000-4000-8000-000000000002"),
+			testUuid("00000000-0000-4000-8000-000000000002"),
 			"status_code",
 			"Status",
 			[idMappingEntry("active", "Active"), idMappingEntry("urgent", "Urgent")],
 		);
 		const visit = dateColumn(
-			asUuid("00000000-0000-4000-8000-000000000003"),
+			testUuid("00000000-0000-4000-8000-000000000003"),
 			"visit_date",
 			"Visit date",
 			"long",
 		);
 		const followUp = intervalColumn(
-			asUuid("00000000-0000-4000-8000-000000000004"),
+			testUuid("00000000-0000-4000-8000-000000000004"),
 			"visit_date",
 			"Follow-up",
 			1,
@@ -362,7 +362,7 @@ describe("case-list Preview cell formatting", () => {
 			"Follow-up due",
 		);
 		const ready = calculatedColumn(
-			asUuid("00000000-0000-4000-8000-000000000005"),
+			testUuid("00000000-0000-4000-8000-000000000005"),
 			"Ready",
 			{ kind: "term", term: { kind: "literal", value: true } },
 		);

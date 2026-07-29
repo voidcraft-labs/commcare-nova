@@ -14,18 +14,18 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { batchTargetsMissing } from "@/lib/db/commitGuard";
 import type { Mutation } from "@/lib/doc/types";
 import {
-	asUuid,
 	type BlueprintDoc,
 	type CaseOperation,
 	emptyCaseListConfig,
 } from "@/lib/domain";
 
-const OPERATION = asUuid("11111111-1111-4111-8111-111111111111");
-const OTHER_OPERATION = asUuid("22222222-2222-4222-8222-222222222222");
+const OPERATION = testUuid("11111111-1111-4111-8111-111111111111");
+const OTHER_OPERATION = testUuid("22222222-2222-4222-8222-222222222222");
 
 function value(value: string) {
 	return {
@@ -101,7 +101,7 @@ function fixture(): {
 			}[];
 		};
 	};
-	const searchInputUuid = asUuid("search-input-1");
+	const searchInputUuid = testUuid("search-input-1");
 	mod.caseListConfig.searchInputs = [
 		{
 			uuid: searchInputUuid,
@@ -136,9 +136,9 @@ function fixture(): {
 	const select = doc.fields[selectField.uuid] as {
 		options: { value: string; uuid?: string }[];
 	};
-	const optionUuid = asUuid("option-red");
+	const optionUuid = testUuid("option-red");
 	select.options[0].uuid = optionUuid;
-	select.options[1].uuid = asUuid("option-green");
+	select.options[1].uuid = testUuid("option-green");
 
 	return {
 		doc,
@@ -206,7 +206,7 @@ describe("batchTargetsMissing — entity kinds", () => {
 
 	it("tracks intra-batch adds — an add-then-edit of the same entity is not missing", () => {
 		const { doc, moduleUuid } = fixture();
-		const newFormUuid = asUuid("new-form");
+		const newFormUuid = testUuid("new-form");
 		const batch: Mutation[] = [
 			{
 				kind: "addForm",
@@ -408,8 +408,8 @@ describe("batchTargetsMissing — granular collection kinds (item uuid)", () => 
 
 	it("tracks an intra-batch column add before its visibility patch", () => {
 		const { doc, moduleUuid } = fixture();
-		const owner = asUuid(moduleUuid);
-		const uuid = asUuid("column-new");
+		const owner = testUuid(moduleUuid);
+		const uuid = testUuid("column-new");
 		const column = {
 			uuid,
 			kind: "plain" as const,
@@ -444,7 +444,7 @@ describe("batchTargetsMissing — granular collection kinds (item uuid)", () => 
 					kind: "addColumn",
 					moduleUuid: MISSING,
 					column: {
-						uuid: asUuid("c-new"),
+						uuid: testUuid("c-new"),
 						kind: "plain",
 						field: "x",
 						header: "X",
@@ -457,7 +457,7 @@ describe("batchTargetsMissing — granular collection kinds (item uuid)", () => 
 				{
 					kind: "addOption",
 					fieldUuid: MISSING,
-					option: { value: "v", label: "V", uuid: asUuid("o-new") },
+					option: { value: "v", label: "V", uuid: testUuid("o-new") },
 				} as unknown as Mutation,
 			]),
 		).toBe(true);
@@ -536,7 +536,7 @@ describe("batchTargetsMissing — granular collection kinds (item uuid)", () => 
 					kind: "addColumn",
 					moduleUuid,
 					column: {
-						uuid: asUuid("col-birth"),
+						uuid: testUuid("col-birth"),
 						kind: "plain",
 						field: "case_name",
 						header: "N",
@@ -553,8 +553,8 @@ describe("batchTargetsMissing — granular collection kinds (item uuid)", () => 
 
 	it("seeds an intra-batch addColumn/addOption before a follow-up edit of the same item", () => {
 		const { doc, moduleUuid, selectUuid } = fixture();
-		const newColUuid = asUuid("col-new");
-		const newOptUuid = asUuid("opt-new");
+		const newColUuid = testUuid("col-new");
+		const newOptUuid = testUuid("opt-new");
 		const batch: Mutation[] = [
 			{
 				kind: "addColumn",
@@ -602,7 +602,7 @@ describe("batchTargetsMissing — case-operation logical identities", () => {
 	): Mutation {
 		return {
 			kind: "updateForm",
-			uuid: asUuid(formUuid),
+			uuid: testUuid(formUuid),
 			patch: {},
 			caseOperationChange: {
 				operation: "update",
@@ -693,7 +693,7 @@ describe("batchTargetsMissing — case-operation logical identities", () => {
 			batchTargetsMissing(doc, [
 				{
 					kind: "updateForm",
-					uuid: asUuid(formUuid),
+					uuid: testUuid(formUuid),
 					patch: {},
 					caseOperationChange: {
 						operation: "add",
@@ -762,7 +762,7 @@ describe("batchTargetsMissing — case-operation logical identities", () => {
 		const { doc, formUuid } = fixture();
 		const born: CaseOperation = {
 			...operationIn(doc, formUuid),
-			uuid: asUuid("55555555-5555-4555-8555-555555555555"),
+			uuid: testUuid("55555555-5555-4555-8555-555555555555"),
 			id: "born_here",
 			writes: [{ property: "note", value: value("hello") }],
 			links: [
@@ -778,7 +778,7 @@ describe("batchTargetsMissing — case-operation logical identities", () => {
 			batchTargetsMissing(doc, [
 				{
 					kind: "updateForm",
-					uuid: asUuid(formUuid),
+					uuid: testUuid(formUuid),
 					patch: {},
 					caseOperationChange: { operation: "add", value: born },
 				},
@@ -803,12 +803,12 @@ describe("batchTargetsMissing — case-operation logical identities", () => {
 		const first = operationIn(doc, formUuid);
 		const peer: CaseOperation = {
 			...first,
-			uuid: asUuid("44444444-4444-4444-8444-444444444444"),
+			uuid: testUuid("44444444-4444-4444-8444-444444444444"),
 			id: "same_batch_birth",
 		};
-		const move = (after: ReturnType<typeof asUuid> | null): Mutation => ({
+		const move = (after: ReturnType<typeof testUuid> | null): Mutation => ({
 			kind: "updateForm",
-			uuid: asUuid(formUuid),
+			uuid: testUuid(formUuid),
 			patch: {},
 			caseOperationChange: { operation: "move", uuid: OPERATION, after },
 			caseOperationPatch: { operation: "move", uuid: OPERATION, after },
@@ -823,7 +823,7 @@ describe("batchTargetsMissing — case-operation logical identities", () => {
 				move(peer.uuid),
 				{
 					kind: "updateForm",
-					uuid: asUuid(formUuid),
+					uuid: testUuid(formUuid),
 					patch: {},
 					caseOperationChange: { operation: "add", value: peer },
 				},
@@ -848,7 +848,7 @@ describe("batchTargetsMissing — case-operation logical identities", () => {
 			batchTargetsMissing(doc, [
 				{
 					kind: "updateForm",
-					uuid: asUuid(formUuid),
+					uuid: testUuid(formUuid),
 					patch: {},
 					caseOperationChange: { operation: "add", value: born },
 				},
@@ -873,7 +873,7 @@ describe("batchTargetsMissing — case-operation logical identities", () => {
 			batchTargetsMissing(doc, [
 				{
 					kind: "updateForm",
-					uuid: asUuid(formUuid),
+					uuid: testUuid(formUuid),
 					patch: {},
 					caseOperationChange: {
 						operation: "update",
@@ -900,7 +900,7 @@ describe("batchTargetsMissing — case-operation logical identities", () => {
 			batchTargetsMissing(doc, [
 				{
 					kind: "updateForm",
-					uuid: asUuid(formUuid),
+					uuid: testUuid(formUuid),
 					patch: {},
 					caseOperationChange: {
 						operation: "update",

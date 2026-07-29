@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { adjudicateSubmissionReceipt } from "@/lib/case-store";
-import { asUuid, type CaseOperation } from "@/lib/domain";
+import type { CaseOperation } from "@/lib/domain";
 import { formField, literal, term } from "@/lib/domain/predicate";
 import { buildDoc, f } from "../../../__tests__/docHelpers";
 import type { SubmissionMutation } from "../caseDataBindingTypes";
@@ -31,8 +32,8 @@ const LOOKUP_SCOPE = {
 } as const;
 const ACTOR_ID = "capture-intent-unit-actor";
 const ENTRY_KEY = "11111111-1111-4111-8111-111111111111";
-const FORM_UUID = asUuid("22222222-2222-4222-8222-222222222222");
-const FIELD_UUID = asUuid("33333333-3333-4333-8333-333333333333");
+const FORM_UUID = testUuid("22222222-2222-4222-8222-222222222222");
+const FIELD_UUID = testUuid("33333333-3333-4333-8333-333333333333");
 
 const IDENTITY: ResolvedPreviewIdentity = {
 	actorUserId: ACTOR_ID,
@@ -67,9 +68,9 @@ function surveyDoc(fieldKind: "image" | "text") {
 	});
 }
 
-const REPEAT_UUID = asUuid("44444444-4444-4444-8444-444444444444");
-const REPEAT_FIELD_UUID = asUuid("55555555-5555-4555-8555-555555555555");
-const OPERATION_UUID = asUuid("66666666-6666-4666-8666-666666666666");
+const REPEAT_UUID = testUuid("44444444-4444-4444-8444-444444444444");
+const REPEAT_FIELD_UUID = testUuid("55555555-5555-4555-8555-555555555555");
+const OPERATION_UUID = testUuid("66666666-6666-4666-8666-666666666666");
 
 /** A form whose one case operation runs once per `visits` iteration. */
 function repeatScopedOperationDoc(opts: { readsVisitNote?: boolean } = {}) {

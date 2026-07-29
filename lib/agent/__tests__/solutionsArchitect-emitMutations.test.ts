@@ -34,6 +34,7 @@
 
 import { produce } from "immer";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { AppAccessError } from "@/lib/db/appAccess";
 import {
 	AppProjectChangedError,
@@ -43,7 +44,7 @@ import {
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, Field, Form, Module } from "@/lib/domain";
-import { asUuid } from "@/lib/domain";
+
 import type { GenerationContext } from "../generationContext";
 import { createSolutionsArchitect } from "../solutionsArchitect";
 import { removeMediaAssetTool } from "../tools/media/removeMediaAsset";
@@ -121,10 +122,10 @@ const FORBIDDEN_LEGACY_EVENTS = [
 
 // ── Uuid helpers ─────────────────────────────────────────────────────────
 
-const MOD_A = asUuid("11111111-1111-1111-1111-111111111111");
-const MOD_B = asUuid("22222222-2222-2222-2222-222222222222");
-const FORM_A = asUuid("33333333-3333-3333-3333-333333333333");
-const FIELD_A = asUuid("44444444-4444-4444-4444-444444444444");
+const MOD_A = testUuid("11111111-1111-1111-1111-111111111111");
+const MOD_B = testUuid("22222222-2222-2222-2222-222222222222");
+const FORM_A = testUuid("33333333-3333-3333-3333-333333333333");
+const FIELD_A = testUuid("44444444-4444-4444-4444-444444444444");
 
 // ── Fixture builders ─────────────────────────────────────────────────────
 
@@ -459,7 +460,7 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		/* Rename a non-case_name field: renaming the registration form's
 		 * case_name writer away would introduce NO_CASE_NAME_FIELD and the
 		 * gate would rightly reject the whole edit. */
-		const VILLAGE = asUuid("55555555-5555-5555-5555-555555555555");
+		const VILLAGE = testUuid("55555555-5555-5555-5555-555555555555");
 		const doc = makeFixtureDoc();
 		doc.fields[VILLAGE] = {
 			uuid: VILLAGE,
@@ -725,7 +726,7 @@ describe("solutionsArchitect — wrapMutating conflict reload / terminal reauth"
 	 *  SA rebased onto the authorized snapshot after a conflict. */
 	function reloadedDoc(): BlueprintDoc {
 		const base = makeFixtureDoc();
-		const PEER_FIELD = asUuid("99999999-9999-9999-9999-999999999999");
+		const PEER_FIELD = testUuid("99999999-9999-9999-9999-999999999999");
 		return {
 			...base,
 			fields: {

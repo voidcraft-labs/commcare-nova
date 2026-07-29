@@ -9,10 +9,10 @@ import {
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { settleBaseUiTransitions } from "@/__tests__/helpers/baseUiInteractions";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
 	advancedSearchInputDef,
-	asUuid,
 	type CaseProperty,
 	type CaseType,
 	type Column,
@@ -65,7 +65,7 @@ vi.mock("@/components/builder/inspector/OptionalMarkdownRow", () => ({
 
 function column(uuidSuffix: string, field: string, header: string): Column {
 	return {
-		uuid: asUuid(`00000000-0000-4000-8000-${uuidSuffix.padStart(12, "0")}`),
+		uuid: testUuid(`00000000-0000-4000-8000-${uuidSuffix.padStart(12, "0")}`),
 		kind: "plain",
 		field,
 		header,
@@ -903,7 +903,7 @@ describe("case workspace chrome", () => {
 
 	it("opens Search screen settings without depicting a submit button", () => {
 		const input = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000004"),
+			testUuid("00000000-0000-4000-8000-000000000004"),
 			"case_name",
 			"Patient name",
 			"text",
@@ -953,14 +953,14 @@ describe("case workspace chrome", () => {
 
 	it("moves a search field with one identity-keyed gesture", () => {
 		const first = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000041"),
+			testUuid("00000000-0000-4000-8000-000000000041"),
 			"case_name",
 			"Patient name",
 			"text",
 			"case_name",
 		);
 		const second = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000042"),
+			testUuid("00000000-0000-4000-8000-000000000042"),
 			"external_id",
 			"External ID",
 			"text",
@@ -995,14 +995,14 @@ describe("case workspace chrome", () => {
 
 	it("groups authored Search fields as one labelled ordered list", () => {
 		const first = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000041"),
+			testUuid("00000000-0000-4000-8000-000000000041"),
 			"case_name",
 			"Patient name",
 			"text",
 			"case_name",
 		);
 		const second = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000042"),
+			testUuid("00000000-0000-4000-8000-000000000042"),
 			"external_id",
 			"External ID",
 			"text",
@@ -1037,7 +1037,7 @@ describe("case workspace chrome", () => {
 		const longLabel =
 			"Client name exactly as it appears on the household registration document";
 		const input = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000043"),
+			testUuid("00000000-0000-4000-8000-000000000043"),
 			"missing_property",
 			longLabel,
 			"text",
@@ -1067,7 +1067,7 @@ describe("case workspace chrome", () => {
 
 	it("keeps date-range fields readable in the open-sidebar canvas", () => {
 		const input = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000045"),
+			testUuid("00000000-0000-4000-8000-000000000045"),
 			"last_visit",
 			"Last visit",
 			"date-range",
@@ -1111,7 +1111,7 @@ describe("case workspace chrome", () => {
 
 	it("canonicalizes a legacy alias when a custom binding returns to this case", async () => {
 		const input = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000044"),
+			testUuid("00000000-0000-4000-8000-000000000044"),
 			"name",
 			"Name",
 			"text",
@@ -1794,7 +1794,7 @@ describe("case workspace chrome", () => {
 
 	it("uses the shared search input inside the information picker", async () => {
 		const input = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000045"),
+			testUuid("00000000-0000-4000-8000-000000000045"),
 			"case_name",
 			"Patient name",
 			"text",
@@ -1838,7 +1838,7 @@ describe("case workspace chrome", () => {
 		const longPropertyLabel =
 			"Preferred household contact name from the most recent registration visit";
 		const input = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000049"),
+			testUuid("00000000-0000-4000-8000-000000000049"),
 			"preferred_household_contact_name",
 			"Preferred contact",
 			"text",
@@ -1894,7 +1894,7 @@ describe("case workspace chrome", () => {
 
 	it("opens a custom search match in the center editor as soon as it is chosen", async () => {
 		const input = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000046"),
+			testUuid("00000000-0000-4000-8000-000000000046"),
 			"case_name",
 			"Patient name",
 			"text",
@@ -1935,7 +1935,7 @@ describe("case workspace chrome", () => {
 
 	it("keeps a saved match and starting value until a field-type change is confirmed", async () => {
 		const input = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000146"),
+			testUuid("00000000-0000-4000-8000-000000000146"),
 			"visit_date",
 			"Visit date",
 			"text",
@@ -2004,7 +2004,7 @@ describe("case workspace chrome", () => {
 
 	it("makes Between dates one atomic date-range transition", async () => {
 		const input = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000246"),
+			testUuid("00000000-0000-4000-8000-000000000246"),
 			"visit_date",
 			"Visit date",
 			"date",
@@ -2052,7 +2052,7 @@ describe("case workspace chrome", () => {
 
 	it("clears a saved one-date default in the same confirmed range transition", async () => {
 		const input = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000247"),
+			testUuid("00000000-0000-4000-8000-000000000247"),
 			"visit_date",
 			"Visit date",
 			"date",
@@ -2107,7 +2107,7 @@ describe("case workspace chrome", () => {
 
 	it("shows no starting-value control for a date range and only repairs a legacy one", () => {
 		const base = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000248"),
+			testUuid("00000000-0000-4000-8000-000000000248"),
 			"visit_date",
 			"Visit date",
 			"date-range",
@@ -2145,7 +2145,7 @@ describe("case workspace chrome", () => {
 
 	it("replaces an incompatible match and starting value only after confirmation", async () => {
 		const input = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000151"),
+			testUuid("00000000-0000-4000-8000-000000000151"),
 			"visit_date",
 			"Visit date",
 			"text",
@@ -2205,7 +2205,7 @@ describe("case workspace chrome", () => {
 
 	it("preserves a compatible saved match and starting value without interruption", async () => {
 		const input = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000147"),
+			testUuid("00000000-0000-4000-8000-000000000147"),
 			"case_name",
 			"Patient name",
 			"text",
@@ -2255,7 +2255,7 @@ describe("case workspace chrome", () => {
 
 	it("keeps binding-driven match and default changes behind one consequence dialog", async () => {
 		const input = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000148"),
+			testUuid("00000000-0000-4000-8000-000000000148"),
 			"birth_date",
 			"Birth date",
 			"date",
@@ -2334,7 +2334,7 @@ describe("case workspace chrome", () => {
 
 	it("explains the unsupported range-to-custom transition before replacing it", async () => {
 		const input = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000149"),
+			testUuid("00000000-0000-4000-8000-000000000149"),
 			"visit_range",
 			"Visit range",
 			"date-range",
@@ -2403,7 +2403,7 @@ describe("case workspace chrome", () => {
 
 	it("names the authored multi-select quantifier in the custom consequence", async () => {
 		const input = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000150"),
+			testUuid("00000000-0000-4000-8000-000000000150"),
 			"services",
 			"Services",
 			"text",
@@ -2447,7 +2447,7 @@ describe("case workspace chrome", () => {
 			term(sessionContext("userid")),
 		);
 		const input = advancedSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000054"),
+			testUuid("00000000-0000-4000-8000-000000000054"),
 			"status_search",
 			"Status",
 			"text",
@@ -2509,7 +2509,7 @@ describe("case workspace chrome", () => {
 			term(sessionContext("userid")),
 		);
 		const input = advancedSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000055"),
+			testUuid("00000000-0000-4000-8000-000000000055"),
 			"status_search",
 			"Status",
 			"date",
@@ -2579,7 +2579,7 @@ describe("case workspace chrome", () => {
 
 	it("keeps the unsupported choice-list field type out of normal authoring", async () => {
 		const input = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000048"),
+			testUuid("00000000-0000-4000-8000-000000000048"),
 			"case_name",
 			"Patient name",
 			"text",
@@ -2608,7 +2608,7 @@ describe("case workspace chrome", () => {
 
 	it("shows a saved choice list only as a legacy repair state", async () => {
 		const input = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000049"),
+			testUuid("00000000-0000-4000-8000-000000000049"),
 			"status",
 			"Status",
 			"select",
@@ -2642,14 +2642,14 @@ describe("case workspace chrome", () => {
 
 	it("only foregrounds the condition name when it needs attention", () => {
 		const input = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000052"),
+			testUuid("00000000-0000-4000-8000-000000000052"),
 			"case_name",
 			"Patient name",
 			"text",
 			"case_name",
 		);
 		const duplicate = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000053"),
+			testUuid("00000000-0000-4000-8000-000000000053"),
 			"case_name",
 			"Another patient name",
 			"text",
@@ -2691,7 +2691,7 @@ describe("case workspace chrome", () => {
 
 	it("opens a search field's additional settings from the keyboard", () => {
 		const input = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000054"),
+			testUuid("00000000-0000-4000-8000-000000000054"),
 			"case_name",
 			"Patient name",
 			"text",
@@ -2728,7 +2728,7 @@ describe("case workspace chrome", () => {
 
 	it("describes forgiving match modes by their outcome", async () => {
 		const input = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000050"),
+			testUuid("00000000-0000-4000-8000-000000000050"),
 			"case_name",
 			"Patient name",
 			"text",
@@ -2765,7 +2765,7 @@ describe("case workspace chrome", () => {
 
 	it("calls forgiving date matching Flexible date", () => {
 		const input = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000051"),
+			testUuid("00000000-0000-4000-8000-000000000051"),
 			"visit_date",
 			"Visit date",
 			"date",
@@ -2793,7 +2793,7 @@ describe("case workspace chrome", () => {
 
 	it("summarizes a custom search match in the inspector", () => {
 		const input = advancedSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000047"),
+			testUuid("00000000-0000-4000-8000-000000000047"),
 			"case_name",
 			"Patient name",
 			"text",

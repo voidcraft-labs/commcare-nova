@@ -5,7 +5,9 @@
  * the same domain shape produced by the normalized doc store. These tests
  * build fixtures directly in that shape via the `dTree` helper.
  */
+
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type {
 	CaseType,
 	Field,
@@ -14,7 +16,7 @@ import type {
 	FormType,
 	Uuid,
 } from "@/lib/domain";
-import { asUuid } from "@/lib/domain";
+
 import {
 	type CaseDataByType,
 	FormEngine,
@@ -65,7 +67,7 @@ function dTree(
 	fields: DField[],
 	formType: FormType = "registration",
 ): FormEngineInput {
-	const formUuid = asUuid("test-form-uuid");
+	const formUuid = testUuid("test-form-uuid");
 	const form: Form = {
 		uuid: formUuid,
 		id: "test-form",
@@ -81,7 +83,7 @@ function dTree(
 	function walk(nodes: DField[], parentUuid: Uuid, pathPrefix: string) {
 		const order: Uuid[] = [];
 		for (const n of nodes) {
-			const uuid = asUuid(`${pathPrefix}.${n.id}`);
+			const uuid = testUuid(`${pathPrefix}.${n.id}`);
 			order.push(uuid);
 			const { children, ...rest } = n;
 			fieldMap[uuid as string] = {

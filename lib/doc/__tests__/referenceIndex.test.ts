@@ -15,8 +15,10 @@
  * The standing incremental ≡ rebuild proof lives in
  * `referenceIndex.fuzz.test.ts`; these are the targeted, readable pins.
  */
+
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { parseXPathForForm } from "@/lib/doc/expressionText";
 import { applyMutations } from "@/lib/doc/mutations";
@@ -27,7 +29,6 @@ import {
 } from "@/lib/doc/referenceIndex";
 import type { Mutation } from "@/lib/doc/types";
 import {
-	asUuid,
 	type BlueprintDoc,
 	casePropertyTargetKey,
 	caseTypeTargetKey,
@@ -150,7 +151,7 @@ function richDoc(): BlueprintDoc {
 
 describe("buildReferenceIndex — identity-keyed edges", () => {
 	it("indexes custom worker references by user-property identity across both AST families", () => {
-		const propertyUuid = asUuid("worker-property-region");
+		const propertyUuid = testUuid("worker-property-region");
 		const doc = buildDoc({
 			modules: [
 				{

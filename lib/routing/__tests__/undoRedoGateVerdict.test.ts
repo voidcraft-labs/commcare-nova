@@ -11,13 +11,14 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import {
 	hydratePersistedBlueprint,
 	toPersistableDoc,
 } from "@/lib/doc/fieldParent";
 import { buildReferenceIndex } from "@/lib/doc/referenceIndex";
-import { asUuid, type BlueprintDoc } from "@/lib/doc/types";
+import type { BlueprintDoc } from "@/lib/doc/types";
 import { undoRedoGateVerdict } from "@/lib/routing/builderActions";
 
 /** Hydrate a spec-built doc into a fully-indexed working doc (fieldParent +
@@ -61,7 +62,7 @@ describe("undoRedoGateVerdict", () => {
 		const verdict = undoRedoGateVerdict(displayed, [
 			{
 				kind: "updateField",
-				uuid: asUuid("q-a"),
+				uuid: testUuid("q-a"),
 				targetKind: "text",
 				patch: { label: "A" },
 			},
@@ -83,7 +84,7 @@ describe("undoRedoGateVerdict", () => {
 			{ uuid: "q-a", kind: "text", id: "a", label: "A" },
 		]);
 		const verdict = undoRedoGateVerdict(displayed, [
-			{ kind: "removeField", uuid: asUuid("q-a") },
+			{ kind: "removeField", uuid: testUuid("q-a") },
 		]);
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {

@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveDocExpressions } from "@/lib/__tests__/docHelpers";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
-import { asUuid } from "@/lib/doc/types";
+
 import { expressionSource } from "@/lib/domain";
 
 /** Printed text of an AST-stored expression slot off the live store doc. */
@@ -12,12 +13,12 @@ function calcText(doc: BlueprintDoc, uuid: Uuid): string | undefined {
 }
 
 // Fixed UUIDs for all entities in the fixture.
-const MOD = asUuid("module-1-uuid");
-const FORM = asUuid("form-1-uuid");
-const GRP1 = asUuid("g1-0000-0000-0000-000000000000");
-const GRP2 = asUuid("g2-0000-0000-0000-000000000000");
-const SRC = asUuid("src-0000-0000-0000-000000000000");
-const REF = asUuid("ref-0000-0000-0000-000000000000");
+const MOD = testUuid("module-1-uuid");
+const FORM = testUuid("form-1-uuid");
+const GRP1 = testUuid("g1-0000-0000-0000-000000000000");
+const GRP2 = testUuid("g2-0000-0000-0000-000000000000");
+const SRC = testUuid("src-0000-0000-0000-000000000000");
+const REF = testUuid("ref-0000-0000-0000-000000000000");
 
 /**
  * Build a normalized `BlueprintDoc` fixture for XPath-rewrite tests.
@@ -102,11 +103,11 @@ describe("moveField + path rewrite", () => {
 
 // ── Moved-container descendants ─────────────────────────────────────
 
-const OUTER = asUuid("out-0000-0000-0000-000000000000");
-const GRP = asUuid("grp-0000-0000-0000-000000000000");
-const CHILD = asUuid("chd-0000-0000-0000-000000000000");
-const WATCH = asUuid("wat-0000-0000-0000-000000000000");
-const LABELED = asUuid("lbl-0000-0000-0000-000000000000");
+const OUTER = testUuid("out-0000-0000-0000-000000000000");
+const GRP = testUuid("grp-0000-0000-0000-000000000000");
+const CHILD = testUuid("chd-0000-0000-0000-000000000000");
+const WATCH = testUuid("wat-0000-0000-0000-000000000000");
+const LABELED = testUuid("lbl-0000-0000-0000-000000000000");
 
 /**
  * M → F → outer {}
@@ -204,11 +205,11 @@ describe("moveField re-anchors refs to a moved CONTAINER's descendants", () => {
 
 // ── Cross-form moves ────────────────────────────────────────────────
 
-const FORM_B = asUuid("form-2-uuid");
-const NOTES_A = asUuid("nta-0000-0000-0000-000000000000");
-const WATCH_A = asUuid("wta-0000-0000-0000-000000000000");
-const NOTES_B = asUuid("ntb-0000-0000-0000-000000000000");
-const WATCH_B = asUuid("wtb-0000-0000-0000-000000000000");
+const FORM_B = testUuid("form-2-uuid");
+const NOTES_A = testUuid("nta-0000-0000-0000-000000000000");
+const WATCH_A = testUuid("wta-0000-0000-0000-000000000000");
+const NOTES_B = testUuid("ntb-0000-0000-0000-000000000000");
+const WATCH_B = testUuid("wtb-0000-0000-0000-000000000000");
 
 /**
  * M → A { notes, watch_a (references /data/notes — A's own `notes`) }
@@ -295,9 +296,9 @@ describe("moveField across forms is warn-and-skipped (undesigned operation)", ()
 		// grp { a, b(calc /data/grp/a) } in form A; destination is form B's
 		// group `sec`. The skip must resolve the container's containing form,
 		// not just compare against form uuids.
-		const SEC = asUuid("sec-0000-0000-0000-000000000000");
-		const SUB_A = asUuid("sba-0000-0000-0000-000000000000");
-		const SUB_B = asUuid("sbb-0000-0000-0000-000000000000");
+		const SEC = testUuid("sec-0000-0000-0000-000000000000");
+		const SUB_A = testUuid("sba-0000-0000-0000-000000000000");
+		const SUB_B = testUuid("sbb-0000-0000-0000-000000000000");
 		const doc = crossFormFixture();
 		doc.fields[GRP] = {
 			uuid: GRP,
@@ -353,7 +354,7 @@ describe("moveField across forms is warn-and-skipped (undesigned operation)", ()
 		// would teleport the field out of its form with zero reference
 		// rewriting, the exact dangling-then-captured bug class the skip
 		// exists to eliminate.
-		const ORPHAN = asUuid("orp-0000-0000-0000-000000000000");
+		const ORPHAN = testUuid("orp-0000-0000-0000-000000000000");
 		const doc = fixture();
 		doc.fields[ORPHAN] = {
 			uuid: ORPHAN,
@@ -383,9 +384,9 @@ describe("moveField across forms is warn-and-skipped (undesigned operation)", ()
 
 // ── Self-subtree moves ──────────────────────────────────────────────
 
-const PAR = asUuid("par-0000-0000-0000-000000000000");
-const INNER = asUuid("inr-0000-0000-0000-000000000000");
-const LEAF = asUuid("lef-0000-0000-0000-000000000000");
+const PAR = testUuid("par-0000-0000-0000-000000000000");
+const INNER = testUuid("inr-0000-0000-0000-000000000000");
+const LEAF = testUuid("lef-0000-0000-0000-000000000000");
 
 /**
  * M → F → par { inner { leaf } }

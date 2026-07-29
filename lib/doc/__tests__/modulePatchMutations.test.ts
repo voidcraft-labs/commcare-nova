@@ -8,10 +8,11 @@
 // spread-built no-change caller while the clear never replicates.
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { modulePatchMutations } from "@/lib/doc/modulePatchMutations";
-import { asUuid, type Module } from "@/lib/domain";
+import type { Module } from "@/lib/domain";
 
-const MODULE_UUID = asUuid("00000000-0000-4000-8000-0000000000aa");
+const MODULE_UUID = testUuid("00000000-0000-4000-8000-0000000000aa");
 
 // The planner reads only `uuid` and `caseSearchConfig`; a minimal shape
 // keeps the test on the planner's contract instead of a doc fixture.

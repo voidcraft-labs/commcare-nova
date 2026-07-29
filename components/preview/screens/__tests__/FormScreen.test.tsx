@@ -36,10 +36,11 @@ import {
 	waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { xp } from "@/lib/__tests__/docHelpers";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
-import { asUuid, type Uuid } from "@/lib/doc/types";
+import type { Uuid } from "@/lib/doc/types";
 import type { SubmissionResult } from "@/lib/preview/engine/caseDataBindingTypes";
 import type { EngineController } from "@/lib/preview/engine/engineController";
 import { useBuilderFormEngine } from "@/lib/preview/engine/provider";
@@ -53,37 +54,41 @@ import {
 // ── Mocks ────────────────────────────────────────────────────────
 
 const APP_ID = "app-form-screen-test";
-const MODULE_UUID = asUuid("00000000-0000-0000-0000-000000000a01");
+const MODULE_UUID = testUuid("00000000-0000-0000-0000-000000000a01");
 /* One UUID per FormType — the test suite mounts a different form
  * arm per case under one BlueprintDocProvider seed, and `formUuid` is
  * the URL discriminator the screen reads. Distinct UUIDs keep each
  * test's mounted form independent. */
-const REG_FORM_UUID = asUuid("00000000-0000-0000-0000-000000000b01");
-const FOLLOWUP_FORM_UUID = asUuid("00000000-0000-0000-0000-000000000b02");
-const CLOSE_FORM_UUID = asUuid("00000000-0000-0000-0000-000000000b03");
-const SURVEY_FORM_UUID = asUuid("00000000-0000-0000-0000-000000000b04");
+const REG_FORM_UUID = testUuid("00000000-0000-0000-0000-000000000b01");
+const FOLLOWUP_FORM_UUID = testUuid("00000000-0000-0000-0000-000000000b02");
+const CLOSE_FORM_UUID = testUuid("00000000-0000-0000-0000-000000000b03");
+const SURVEY_FORM_UUID = testUuid("00000000-0000-0000-0000-000000000b04");
 /* The validate-fail test mounts this fifth form whose single field
  *  is required. With no user input the engine's `validateAll()`
  *  marks the field invalid and returns `false`, exercising the
  *  short-circuit branch of `handleSubmit` that scrolls to the
  *  first invalid field WITHOUT firing `submitFormAction`. */
-const REQUIRED_FORM_UUID = asUuid("00000000-0000-0000-0000-000000000b05");
-const STRUCTURE_FORM_UUID = asUuid("00000000-0000-0000-0000-000000000b06");
-const CAPTURE_REQUIRED_FORM_UUID = asUuid(
+const REQUIRED_FORM_UUID = testUuid("00000000-0000-0000-0000-000000000b05");
+const STRUCTURE_FORM_UUID = testUuid("00000000-0000-0000-0000-000000000b06");
+const CAPTURE_REQUIRED_FORM_UUID = testUuid(
 	"00000000-0000-0000-0000-000000000b07",
 );
-const FIELD_UUID = asUuid("00000000-0000-0000-0000-000000000c01");
-const FIELD_REQUIRED_UUID = asUuid("00000000-0000-0000-0000-000000000c02");
-const GROUP_ONE_UUID = asUuid("00000000-0000-0000-0000-000000000c11");
-const GROUP_TWO_UUID = asUuid("00000000-0000-0000-0000-000000000c12");
-const REPEAT_UUID = asUuid("00000000-0000-0000-0000-000000000c13");
-const GROUP_ONE_PHOTO_UUID = asUuid("00000000-0000-0000-0000-000000000c21");
-const GROUP_TWO_PHOTO_UUID = asUuid("00000000-0000-0000-0000-000000000c22");
-const REPEAT_PHOTO_UUID = asUuid("00000000-0000-0000-0000-000000000c23");
-const GROUP_TWO_SIGNATURE_UUID = asUuid("00000000-0000-0000-0000-000000000c24");
-const REQUIRED_PHOTO_UUID = asUuid("00000000-0000-0000-0000-000000000c31");
-const REQUIRED_SIGNATURE_UUID = asUuid("00000000-0000-0000-0000-000000000c32");
-const PERSONA_UUID = asUuid("00000000-0000-0000-0000-000000000d01");
+const FIELD_UUID = testUuid("00000000-0000-0000-0000-000000000c01");
+const FIELD_REQUIRED_UUID = testUuid("00000000-0000-0000-0000-000000000c02");
+const GROUP_ONE_UUID = testUuid("00000000-0000-0000-0000-000000000c11");
+const GROUP_TWO_UUID = testUuid("00000000-0000-0000-0000-000000000c12");
+const REPEAT_UUID = testUuid("00000000-0000-0000-0000-000000000c13");
+const GROUP_ONE_PHOTO_UUID = testUuid("00000000-0000-0000-0000-000000000c21");
+const GROUP_TWO_PHOTO_UUID = testUuid("00000000-0000-0000-0000-000000000c22");
+const REPEAT_PHOTO_UUID = testUuid("00000000-0000-0000-0000-000000000c23");
+const GROUP_TWO_SIGNATURE_UUID = testUuid(
+	"00000000-0000-0000-0000-000000000c24",
+);
+const REQUIRED_PHOTO_UUID = testUuid("00000000-0000-0000-0000-000000000c31");
+const REQUIRED_SIGNATURE_UUID = testUuid(
+	"00000000-0000-0000-0000-000000000c32",
+);
+const PERSONA_UUID = testUuid("00000000-0000-0000-0000-000000000d01");
 
 /* The currentLocation is mutated per-test (one shared `Location`
  *  carrier the `useLocation` mock reads from) so each test can pin

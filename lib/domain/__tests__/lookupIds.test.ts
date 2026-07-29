@@ -11,13 +11,14 @@ import {
 const UUID_V7 = "01890f45-0000-7000-8000-000000000001";
 
 describe("lookup identities", () => {
-	it("runtime-parses UUIDv7 and canonicalizes hex casing", () => {
+	it("accepts only canonical lowercase UUIDv7 identities", () => {
 		for (const schema of [
 			lookupTableIdSchema,
 			lookupColumnIdSchema,
 			lookupRowIdSchema,
 		]) {
-			expect(schema.parse(UUID_V7.toUpperCase())).toBe(UUID_V7);
+			expect(schema.parse(UUID_V7)).toBe(UUID_V7);
+			expect(schema.safeParse(UUID_V7.toUpperCase()).success).toBe(false);
 			expect(
 				schema.safeParse("01890f45-0000-4000-8000-000000000001").success,
 			).toBe(false);

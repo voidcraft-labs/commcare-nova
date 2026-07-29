@@ -2,11 +2,12 @@ import { type Element, isTag } from "domhandler";
 import { findAll, getAttributeValue, getChildren } from "domutils";
 import { parseDocument } from "htmlparser2";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { validateXForm } from "@/lib/commcare/validator/xformOracle";
 import { buildXForm } from "@/lib/commcare/xform";
-import { asUuid, type Uuid } from "@/lib/domain";
+import type { Uuid } from "@/lib/domain";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import {
 	eq,
@@ -169,7 +170,7 @@ describe("buildXForm — lookup-backed select itemset", () => {
 
 describe("buildXForm — lookup itemset filters", () => {
 	it("prints a root form-field filter as an absolute /data path", () => {
-		const province = asUuid("018f3e8a-7b2c-7def-8abc-0000000000c1");
+		const province = testUuid("018f3e8a-7b2c-7def-8abc-0000000000c1");
 		const doc = buildDoc({
 			appName: "Filtered lookup",
 			modules: [
@@ -222,7 +223,7 @@ describe("buildXForm — lookup itemset filters", () => {
 	});
 
 	it("prints a same-repeat form-field filter through current()/..", () => {
-		const zone = asUuid("018f3e8a-7b2c-7def-8abc-0000000000c2");
+		const zone = testUuid("018f3e8a-7b2c-7def-8abc-0000000000c2");
 		const doc = buildDoc({
 			appName: "Repeated lookup",
 			modules: [

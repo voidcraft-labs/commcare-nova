@@ -4,6 +4,7 @@
 // undefined — the client half of the S07b program-builder contract.
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type {
 	CaseOperation,
 	Field,
@@ -12,7 +13,7 @@ import type {
 	FormType,
 	Uuid,
 } from "@/lib/domain";
-import { asUuid } from "@/lib/domain";
+
 import { FormEngine, type FormEngineInput } from "../formEngine";
 
 const ENTRY_KEY = "11111111-1111-4111-8111-111111111111";
@@ -30,7 +31,7 @@ function dTree(
 	caseOperations?: CaseOperation[],
 	formType: FormType = "survey",
 ): FormEngineInput {
-	const formUuid = asUuid("test-form-uuid");
+	const formUuid = testUuid("test-form-uuid");
 	const form: Form = {
 		uuid: formUuid,
 		id: "test-form",
@@ -43,7 +44,7 @@ function dTree(
 	const walk = (nodes: DField[], parentUuid: Uuid, prefix: string): void => {
 		const order: Uuid[] = [];
 		for (const n of nodes) {
-			const uuid = asUuid(`${prefix}.${n.id}`);
+			const uuid = testUuid(`${prefix}.${n.id}`);
 			order.push(uuid);
 			const { children, ...rest } = n;
 			fieldMap[uuid as string] = { uuid, ...rest } as Field;
@@ -58,7 +59,7 @@ function dTree(
 }
 
 const OPERATION: CaseOperation = {
-	uuid: asUuid("op.a"),
+	uuid: testUuid("op.a"),
 	id: "op_a",
 	action: "update",
 	caseType: "patient",
@@ -104,8 +105,8 @@ describe("computeOperationAnswers", () => {
 		const answers = engine.computeOperationAnswers();
 		expect(answers).toBeDefined();
 		expect(valuesOf(answers?.root ?? [])).toEqual({
-			[asUuid("form.name") as string]: "Ada",
-			[asUuid("form.symptoms") as string]: ["fever", "cough"],
+			[testUuid("form.name") as string]: "Ada",
+			[testUuid("form.symptoms") as string]: ["fever", "cough"],
 		});
 		expect(answers?.repeats).toEqual([]);
 	});
@@ -142,17 +143,17 @@ describe("computeOperationAnswers", () => {
 
 		const answers = engine.computeOperationAnswers();
 		const visits = answers?.repeats.find(
-			(r) => r.repeat === (asUuid("form.visits") as string),
+			(r) => r.repeat === (testUuid("form.visits") as string),
 		);
 		const meds = answers?.repeats.find(
-			(r) => r.repeat === (asUuid("form.visits.meds") as string),
+			(r) => r.repeat === (testUuid("form.visits.meds") as string),
 		);
 		expect(visits?.iterations).toHaveLength(2);
 		expect(meds?.iterations).toHaveLength(2);
 
-		const regionUuid = asUuid("form.region") as string;
-		const noteUuid = asUuid("form.visits.visit_note") as string;
-		const medUuid = asUuid("form.visits.meds.med_name") as string;
+		const regionUuid = testUuid("form.region") as string;
+		const noteUuid = testUuid("form.visits.visit_note") as string;
+		const medUuid = testUuid("form.visits.meds.med_name") as string;
 
 		// Visit iterations: root + own; the nested meds scope is EXCLUDED.
 		expect(valuesOf(visits?.iterations[0] ?? [])).toEqual({

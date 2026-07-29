@@ -26,6 +26,7 @@
 // needed; only the CLI wrappers read the app-state tables.
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	buildDoc,
 	caseListConfig,
@@ -36,12 +37,7 @@ import {
 	type ValidationError,
 	validationError,
 } from "@/lib/commcare/validator/errors";
-import {
-	asUuid,
-	type BlueprintDoc,
-	type Form,
-	plainColumn,
-} from "@/lib/domain";
+import { type BlueprintDoc, type Form, plainColumn } from "@/lib/domain";
 import {
 	evaluateLegacyFindings,
 	gatingValidationCodes,
@@ -463,7 +459,7 @@ describe("close-condition repairs", () => {
 			(field) => field.id === "village",
 		);
 		doc.forms[formUuid].closeCondition = {
-			field: village?.uuid ?? asUuid("missing"),
+			field: village?.uuid ?? testUuid("missing"),
 			answer: "x",
 		};
 		const outcome = expectRepaired(doc, "CLOSE_CONDITION_WRONG_TYPE");
@@ -478,14 +474,14 @@ describe("close-condition repairs", () => {
 			(field) => field.id === "outcome",
 		);
 		doc.forms[closeFormUuid].closeCondition = {
-			field: outcomeField?.uuid ?? asUuid("missing"),
+			field: outcomeField?.uuid ?? testUuid("missing"),
 			answer: "",
 		};
 		expectRepaired(doc, "CLOSE_CONDITION_INCOMPLETE");
 	});
 
 	it("CLOSE_CONDITION_FIELD_NOT_FOUND: needs the owner — never auto-dropped", () => {
-		const doc = closeFormDoc({ field: asUuid("ghost"), answer: "done" });
+		const doc = closeFormDoc({ field: testUuid("ghost"), answer: "done" });
 		const outcome = repairApp(doc, { applyProposed: false });
 		expect(codes(outcome.before)).toContain("CLOSE_CONDITION_FIELD_NOT_FOUND");
 		expect(codes(outcome.after)).toContain("CLOSE_CONDITION_FIELD_NOT_FOUND");
@@ -630,16 +626,16 @@ describe("case-list repairs", () => {
 		const moduleUuid = doc.moduleOrder[0];
 		doc.modules[moduleUuid].caseListConfig = resolveCaseListConfig({
 			columns: [
-				plainColumn(asUuid("col-a"), "case_name", "Name", {
+				plainColumn(testUuid("col-a"), "case_name", "Name", {
 					sort: { direction: "asc", priority: 1 },
 				}),
-				plainColumn(asUuid("col-b"), "village", "Village", {
+				plainColumn(testUuid("col-b"), "village", "Village", {
 					sort: { direction: "desc", priority: 1 },
 				}),
 			],
 			// Results shows Village above Name; storage holds them the other way.
-			listColumnOrder: [asUuid("col-b"), asUuid("col-a")],
-			detailColumnOrder: [asUuid("col-a"), asUuid("col-b")],
+			listColumnOrder: [testUuid("col-b"), testUuid("col-a")],
+			detailColumnOrder: [testUuid("col-a"), testUuid("col-b")],
 			searchInputs: [],
 		});
 		const outcome = expectRepaired(doc, "CASE_LIST_DUPLICATE_SORT_PRIORITY");
@@ -650,8 +646,8 @@ describe("case-list repairs", () => {
 		expect(columns?.map((column) => column.sort?.priority)).toEqual([1, 0]);
 		// Direction and storage order stay untouched — only the colliding ranks move.
 		expect(columns?.map((column) => column.uuid)).toEqual([
-			asUuid("col-a"),
-			asUuid("col-b"),
+			testUuid("col-a"),
+			testUuid("col-b"),
 		]);
 		expect(columns?.map((column) => column.sort?.direction)).toEqual([
 			"asc",
@@ -750,10 +746,10 @@ describe("case-list repairs", () => {
 
 describe("repairOutcomeVerdict", () => {
 	const e1 = validationError("EMPTY_FORM", "form", "form one is empty", {
-		formUuid: asUuid("form-1"),
+		formUuid: testUuid("form-1"),
 	});
 	const e2 = validationError("EMPTY_FORM", "form", "form two is empty", {
-		formUuid: asUuid("form-2"),
+		formUuid: testUuid("form-2"),
 	});
 
 	it("accepts a no-repair outcome trivially", () => {
@@ -773,7 +769,7 @@ describe("repairOutcomeVerdict", () => {
 			[e1, e2],
 			[
 				validationError("EMPTY_FORM", "form", "a third form went empty", {
-					formUuid: asUuid("form-3"),
+					formUuid: testUuid("form-3"),
 				}),
 			],
 			1,
@@ -921,7 +917,7 @@ describe("guarded per-app entry points — one broken doc never takes down the r
 	 *  `undefined` and throws. */
 	function brokenStoredDoc(): Record<string, unknown> {
 		const doc = minDoc();
-		doc.moduleOrder.push(asUuid("ghost-module"));
+		doc.moduleOrder.push(testUuid("ghost-module"));
 		const raw = structuredClone(doc) as unknown as Record<string, unknown>;
 		delete raw.fieldParent;
 		return raw;

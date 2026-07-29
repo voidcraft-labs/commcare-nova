@@ -20,9 +20,9 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
-	asUuid,
 	type BlueprintDoc,
 	type Module,
 	plainColumn,
@@ -120,7 +120,7 @@ describe("addCaseListColumns", () => {
 	it("preserves filter and searchInputs when adding columns", async () => {
 		const { doc: baseDoc, ctx } = makeCaseListFixture();
 		const seededInput = simpleSearchInputDef(
-			asUuid("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
+			testUuid("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
 			"name_search",
 			"Name",
 			"text",
@@ -158,7 +158,7 @@ describe("addCaseListColumns", () => {
 	it("appends to an existing columns array without disturbing prior entries", async () => {
 		const { doc: baseDoc, ctx } = makeCaseListFixture();
 		const existing = plainColumn(
-			asUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+			testUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
 			"existing",
 			"Existing",
 		);
@@ -194,14 +194,14 @@ describe("addCaseListColumns", () => {
 		const { doc: baseDoc, ctx } = makeCaseListFixture();
 		const first = {
 			...plainColumn(
-				asUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+				testUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
 				"first",
 				"First",
 			),
 		};
 		const second = {
 			...plainColumn(
-				asUuid("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
+				testUuid("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
 				"second",
 				"Second",
 			),

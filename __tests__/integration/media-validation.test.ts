@@ -1,3 +1,4 @@
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * Integration: a real `BlueprintDoc` round-trips through
@@ -17,7 +18,7 @@ import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
-import { asAssetId, asUuid, imageMapEntry } from "@/lib/domain";
+import { asAssetId, imageMapEntry } from "@/lib/domain";
 
 const OWNER = "owner-integration-fixture";
 
@@ -72,7 +73,7 @@ describe("media validation integration", () => {
 						columns: [
 							{
 								kind: "image-map",
-								uuid: asUuid("col-img"),
+								uuid: testUuid("col-img"),
 								field: "region",
 								header: "Region",
 								mapping: [

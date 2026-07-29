@@ -3,7 +3,8 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { asUuid } from "@/lib/doc/types";
+import { testUuid } from "@/__tests__/helpers/uuid";
+
 import {
 	type CaseType,
 	type Column,
@@ -30,7 +31,7 @@ vi.mock("@/components/builder/media/MediaSlot", () => ({
 	),
 }));
 
-const TEST_UUID = asUuid("00000000-0000-0000-0000-000000000001");
+const TEST_UUID = testUuid("00000000-0000-0000-0000-000000000001");
 
 const PATIENT: CaseType = {
 	name: "patient",

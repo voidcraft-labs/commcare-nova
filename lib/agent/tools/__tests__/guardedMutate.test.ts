@@ -16,9 +16,10 @@
  */
 
 import { describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
 import type { Mutation } from "@/lib/doc/types";
-import { asUuid, type BlueprintDoc } from "@/lib/domain";
+import type { BlueprintDoc } from "@/lib/domain";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { guardedMutate } from "../common";
 import { editFieldTool } from "../editField";
@@ -167,7 +168,7 @@ describe("guardedMutate", () => {
 				kind: "addForm",
 				moduleUuid: doc.moduleOrder[0],
 				form: {
-					uuid: asUuid("form-new"),
+					uuid: testUuid("form-new"),
 					id: "form_new",
 					name: "Empty survey",
 					type: "survey",

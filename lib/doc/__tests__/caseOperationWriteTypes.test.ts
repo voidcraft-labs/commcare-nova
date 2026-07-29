@@ -1,14 +1,15 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { caseOperationWriteValueType } from "@/lib/doc/caseOperationWriteTypes";
-import { asUuid } from "@/lib/doc/types";
+
 import type { BlueprintDoc, CaseOperation, Form, Uuid } from "@/lib/domain";
 import { formField, literal, term } from "@/lib/domain/predicate";
 
-const SUBJECT = asUuid("11111111-1111-4111-8111-111111111111");
-const SIBLING = asUuid("22222222-2222-4222-8222-222222222222");
-const ELSEWHERE = asUuid("33333333-3333-4333-8333-333333333333");
-const DATE_FIELD = asUuid("44444444-4444-4444-8444-444444444444");
+const SUBJECT = testUuid("11111111-1111-4111-8111-111111111111");
+const SIBLING = testUuid("22222222-2222-4222-8222-222222222222");
+const ELSEWHERE = testUuid("33333333-3333-4333-8333-333333333333");
+const DATE_FIELD = testUuid("44444444-4444-4444-8444-444444444444");
 
 /**
  * One case type whose properties cover each way a type can already be

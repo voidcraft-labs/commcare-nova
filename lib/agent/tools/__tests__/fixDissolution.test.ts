@@ -1,3 +1,4 @@
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * Fix-registry dissolution proofs — one test per entry of the RETIRED
@@ -31,7 +32,7 @@ import { describe, expect, it, vi } from "vitest";
 import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import type { Mutation } from "@/lib/doc/types";
-import { asUuid, type BlueprintDoc, fieldSchema } from "@/lib/domain";
+import { type BlueprintDoc, fieldSchema } from "@/lib/domain";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { addFieldsItemSchema, editFieldUpdatesSchema } from "../../toolSchemas";
 import { addFieldsTool } from "../addFields";
@@ -516,7 +517,9 @@ describe("CLOSE_CONDITION_* — rejected at the introducing commit", () => {
 				{
 					kind: "updateForm",
 					uuid: closeFormUuid,
-					patch: { closeCondition: { field: asUuid("ghost"), answer: "done" } },
+					patch: {
+						closeCondition: { field: testUuid("ghost"), answer: "done" },
+					},
 				},
 			],
 			LOOKUP_CONTEXT_UNAVAILABLE,
@@ -540,7 +543,7 @@ describe("CLOSE_CONDITION_* — rejected at the introducing commit", () => {
 					kind: "updateForm",
 					uuid: doc.formOrder[doc.moduleOrder[0]][0],
 					patch: {
-						closeCondition: { field: asUuid("village"), answer: "done" },
+						closeCondition: { field: testUuid("village"), answer: "done" },
 					},
 				},
 			],
@@ -565,7 +568,7 @@ describe("CLOSE_CONDITION_* — rejected at the introducing commit", () => {
 					uuid: closeFormUuid,
 					// The schema admits empty strings, so this is a live input
 					// shape — both halves are required for a conditional close.
-					patch: { closeCondition: { field: asUuid("outcome"), answer: "" } },
+					patch: { closeCondition: { field: testUuid("outcome"), answer: "" } },
 				},
 			],
 			LOOKUP_CONTEXT_UNAVAILABLE,

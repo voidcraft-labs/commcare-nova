@@ -1,7 +1,8 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { asUuid, type BlueprintDoc } from "@/lib/domain";
+import type { BlueprintDoc } from "@/lib/domain";
 import { buildDoc, caseListConfig, f, xp } from "../../__tests__/docHelpers";
 import { errorIdentity, evaluateBoundary } from "../validator/gate";
 import { runValidation } from "../validator/runner";
@@ -997,8 +998,8 @@ describe("form_links validation", () => {
 					{
 						target: {
 							type: "form",
-							moduleUuid: asUuid("ghost-module"),
-							formUuid: asUuid("ghost-form"),
+							moduleUuid: testUuid("ghost-module"),
+							formUuid: testUuid("ghost-form"),
 						},
 					},
 				];
@@ -1019,7 +1020,7 @@ describe("form_links validation", () => {
 					target: {
 						type: "form",
 						moduleUuid,
-						formUuid: asUuid("nonexistent-form"),
+						formUuid: testUuid("nonexistent-form"),
 					},
 				},
 			];
@@ -1923,12 +1924,12 @@ describe("CCHQ-only features stay unauthorable via the strict schema", () => {
 		const base =
 			schemaName === "moduleSchema"
 				? {
-						uuid: asUuid("00000000000000000000000000000001"),
+						uuid: testUuid("00000000000000000000000000000001"),
 						id: "m",
 						name: "M",
 					}
 				: {
-						uuid: asUuid("00000000000000000000000000000002"),
+						uuid: testUuid("00000000000000000000000000000002"),
 						id: "f",
 						name: "F",
 						type: "survey",

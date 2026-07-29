@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
 import {
 	advancedSearchInputDef,
-	asUuid,
 	calculatedColumn,
 	type Module,
 	plainColumn,
@@ -76,9 +76,9 @@ function errorsFor(
 				name: "Clients",
 				caseType: "patient",
 				caseListConfig: {
-					columns: [plainColumn(asUuid("column-name"), "case_name", "Name")],
-					listColumnOrder: [asUuid("column-name")],
-					detailColumnOrder: [asUuid("column-name")],
+					columns: [plainColumn(testUuid("column-name"), "case_name", "Name")],
+					listColumnOrder: [testUuid("column-name")],
+					detailColumnOrder: [testUuid("column-name")],
 					searchInputs: [],
 					...caseListPatch,
 				},
@@ -173,10 +173,10 @@ describe("dateAddOnDeviceCompatibility", () => {
 	});
 
 	it("checks runtime calculated columns, including a hidden sort key", () => {
-		const columnUuid = asUuid("column-derived");
+		const columnUuid = testUuid("column-derived");
 		const hits = errorsFor({
 			columns: [
-				plainColumn(asUuid("column-name"), "case_name", "Name"),
+				plainColumn(testUuid("column-name"), "case_name", "Name"),
 				calculatedColumn(
 					columnUuid,
 					"Follow-up date",
@@ -203,9 +203,9 @@ describe("dateAddOnDeviceCompatibility", () => {
 	it("ignores a fully off-screen unsorted calculated definition", () => {
 		const hits = errorsFor({
 			columns: [
-				plainColumn(asUuid("column-name"), "case_name", "Name"),
+				plainColumn(testUuid("column-name"), "case_name", "Name"),
 				calculatedColumn(
-					asUuid("column-retired"),
+					testUuid("column-retired"),
 					"Retired",
 					dateAdd(today(), "months", term(literal(1))),
 					{ visibleInList: false, visibleInDetail: false },
@@ -216,8 +216,8 @@ describe("dateAddOnDeviceCompatibility", () => {
 	});
 
 	it("checks both simple and advanced search-input defaults", () => {
-		const simpleUuid = asUuid("input-simple");
-		const advancedUuid = asUuid("input-advanced");
+		const simpleUuid = testUuid("input-simple");
+		const advancedUuid = testUuid("input-advanced");
 		const unsupportedDefault = dateAdd(today(), "months", term(literal(1)));
 		const hits = errorsFor({
 			searchInputs: [
@@ -300,7 +300,7 @@ describe("dateAddOnDeviceCompatibility", () => {
 		const hits = errorsFor({
 			searchInputs: [
 				advancedSearchInputDef(
-					asUuid("input-native"),
+					testUuid("input-native"),
 					"native_date",
 					"Native date",
 					"date",
@@ -318,7 +318,7 @@ describe("dateAddOnDeviceCompatibility", () => {
 		const hits = errorsFor({
 			searchInputs: [
 				advancedSearchInputDef(
-					asUuid("input-native-datetime"),
+					testUuid("input-native-datetime"),
 					"native_datetime",
 					"Native date and time",
 					"text",
@@ -333,7 +333,7 @@ describe("dateAddOnDeviceCompatibility", () => {
 	});
 
 	it("rejects date-add nested under an advanced expression root that CSQL inlines on-device", () => {
-		const inputUuid = asUuid("input-runtime");
+		const inputUuid = testUuid("input-runtime");
 		const hits = errorsFor({
 			searchInputs: [
 				advancedSearchInputDef(
@@ -367,7 +367,7 @@ describe("dateAddOnDeviceCompatibility", () => {
 			filter: matchNone(),
 			searchInputs: [
 				advancedSearchInputDef(
-					asUuid("input-dead"),
+					testUuid("input-dead"),
 					"dead_date",
 					"Dead date",
 					"date",
@@ -393,14 +393,14 @@ describe("dateAddOnDeviceCompatibility", () => {
 			),
 			searchInputs: [
 				advancedSearchInputDef(
-					asUuid("input-match-none"),
+					testUuid("input-match-none"),
 					"nothing",
 					"Nothing",
 					"text",
 					matchNone(),
 				),
 				advancedSearchInputDef(
-					asUuid("input-dead-advanced"),
+					testUuid("input-dead-advanced"),
 					"dead_advanced",
 					"Dead advanced",
 					"date",

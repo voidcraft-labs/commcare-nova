@@ -1,3 +1,4 @@
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 // lib/commcare/suite/case-search/__tests__/caseSearch.integration.test.ts
@@ -63,7 +64,6 @@ import { expandDoc } from "@/lib/commcare/expander";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import {
 	advancedSearchInputDef,
-	asUuid,
 	type BlueprintDoc,
 	caseSearchConfigSchema,
 	plainColumn,
@@ -120,11 +120,11 @@ import { compileForPlatform } from "../compileForPlatform";
 //     simple + one advanced) — AND-composed into one
 //     `<data key="_xpath_query">` element on `<query>`.
 
-const MOD_UUID = asUuid("11111111-1111-1111-1111-111111111111");
-const COL_NAME_UUID = asUuid("22222222-2222-2222-2222-aaaaaaaa0001");
-const COL_REGION_UUID = asUuid("22222222-2222-2222-2222-aaaaaaaa0002");
-const SI_NAME_UUID = asUuid("33333333-3333-3333-3333-bbbbbbbb0001");
-const SI_STATUS_UUID = asUuid("33333333-3333-3333-3333-bbbbbbbb0002");
+const MOD_UUID = testUuid("11111111-1111-1111-1111-111111111111");
+const COL_NAME_UUID = testUuid("22222222-2222-2222-2222-aaaaaaaa0001");
+const COL_REGION_UUID = testUuid("22222222-2222-2222-2222-aaaaaaaa0002");
+const SI_NAME_UUID = testUuid("33333333-3333-3333-3333-bbbbbbbb0001");
+const SI_STATUS_UUID = testUuid("33333333-3333-3333-3333-bbbbbbbb0002");
 
 /**
  * Build the realistic search-enabled blueprint. Returns a fully-

@@ -17,8 +17,9 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { generateText, type ModelMessage, tool } from "ai";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type { BlueprintDoc } from "@/lib/domain";
-import { asUuid } from "@/lib/domain/uuid";
+
 import { reasoningProviderOptions, SA_EDIT_MODEL } from "@/lib/models";
 import {
 	buildAppStateMessage,
@@ -27,9 +28,9 @@ import {
 } from "../prompts";
 
 function fixtureDoc(): BlueprintDoc {
-	const modUuid = asUuid("11111111-1111-1111-1111-111111111111");
-	const formUuid = asUuid("22222222-2222-2222-2222-222222222222");
-	const fieldUuid = asUuid("33333333-3333-3333-3333-333333333333");
+	const modUuid = testUuid("11111111-1111-1111-1111-111111111111");
+	const formUuid = testUuid("22222222-2222-2222-2222-222222222222");
+	const fieldUuid = testUuid("33333333-3333-3333-3333-333333333333");
 	return {
 		appId: "a-probe",
 		appName: "Probe App",

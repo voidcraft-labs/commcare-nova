@@ -30,9 +30,9 @@
 //      Nova → CCHQ translation.
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
-	asUuid,
 	type BlueprintDoc,
 	calculatedColumn,
 	dateColumn,
@@ -54,7 +54,7 @@ import {
 // Test helpers
 // ============================================================
 
-const MODULE_UUID = asUuid("00000000-0000-4000-8000-000000000010");
+const MODULE_UUID = testUuid("00000000-0000-4000-8000-000000000010");
 
 /**
  * Build a minimal `BlueprintDoc` carrying one module + a populated
@@ -180,7 +180,7 @@ describe("buildSortDirectives — sortable-column collection", () => {
 				{
 					uuid: "a",
 					column: plainColumn(
-						asUuid("00000000-0000-4000-8000-aaaa00000001"),
+						testUuid("00000000-0000-4000-8000-aaaa00000001"),
 						"name",
 						"Name",
 					),
@@ -210,13 +210,13 @@ describe("buildSortDirectives — sortable-column collection", () => {
 
 	it("includes only the columns whose `sort` slot is defined", () => {
 		const sorted = plainColumn(
-			asUuid("00000000-0000-4000-8000-aaaa00000010"),
+			testUuid("00000000-0000-4000-8000-aaaa00000010"),
 			"name",
 			"Name",
 			{ sort: { direction: "asc", priority: 0 } },
 		);
 		const unsorted = plainColumn(
-			asUuid("00000000-0000-4000-8000-aaaa00000011"),
+			testUuid("00000000-0000-4000-8000-aaaa00000011"),
 			"phone",
 			"Phone",
 		);
@@ -245,19 +245,19 @@ describe("buildSortDirectives — sortable-column collection", () => {
 describe("buildSortDirectives — priority ordering", () => {
 	it("orders directives ascending by `priority` regardless of source-array order", () => {
 		const colA = plainColumn(
-			asUuid("00000000-0000-4000-8000-aaaa00000020"),
+			testUuid("00000000-0000-4000-8000-aaaa00000020"),
 			"a",
 			"A",
 			{ sort: { direction: "asc", priority: 2 } },
 		);
 		const colB = plainColumn(
-			asUuid("00000000-0000-4000-8000-aaaa00000021"),
+			testUuid("00000000-0000-4000-8000-aaaa00000021"),
 			"b",
 			"B",
 			{ sort: { direction: "asc", priority: 0 } },
 		);
 		const colC = plainColumn(
-			asUuid("00000000-0000-4000-8000-aaaa00000022"),
+			testUuid("00000000-0000-4000-8000-aaaa00000022"),
 			"c",
 			"C",
 			{ sort: { direction: "asc", priority: 1 } },
@@ -291,7 +291,7 @@ describe("buildSortDirectives — priority ordering", () => {
 describe("buildSortDirectives — tie-break to Results order", () => {
 	it("uses Results order for priority ties and ignores the independent Details order", () => {
 		const colA = plainColumn(
-			asUuid("00000000-0000-4000-8000-aaaa00000033"),
+			testUuid("00000000-0000-4000-8000-aaaa00000033"),
 			"a",
 			"A",
 			{
@@ -299,7 +299,7 @@ describe("buildSortDirectives — tie-break to Results order", () => {
 			},
 		);
 		const colB = plainColumn(
-			asUuid("00000000-0000-4000-8000-aaaa00000034"),
+			testUuid("00000000-0000-4000-8000-aaaa00000034"),
 			"b",
 			"B",
 			{
@@ -335,19 +335,19 @@ describe("buildSortDirectives — tie-break to Results order", () => {
 		// Three columns at the same priority. Explicit Results order A, B, C
 		// determines wire orders 1, 2, 3 regardless of membership position.
 		const colA = plainColumn(
-			asUuid("00000000-0000-4000-8000-aaaa00000030"),
+			testUuid("00000000-0000-4000-8000-aaaa00000030"),
 			"a",
 			"A",
 			{ sort: { direction: "asc", priority: 0 } },
 		);
 		const colB = plainColumn(
-			asUuid("00000000-0000-4000-8000-aaaa00000031"),
+			testUuid("00000000-0000-4000-8000-aaaa00000031"),
 			"b",
 			"B",
 			{ sort: { direction: "asc", priority: 0 } },
 		);
 		const colC = plainColumn(
-			asUuid("00000000-0000-4000-8000-aaaa00000032"),
+			testUuid("00000000-0000-4000-8000-aaaa00000032"),
 			"c",
 			"C",
 			{ sort: { direction: "asc", priority: 0 } },
@@ -380,19 +380,19 @@ describe("buildSortDirectives — tie-break to Results order", () => {
 		// Sort: B (priority 0, order 1), A (priority 1, display 0,
 		// order 2), C (priority 1, display 2, order 3).
 		const colA = plainColumn(
-			asUuid("00000000-0000-4000-8000-aaaa00000040"),
+			testUuid("00000000-0000-4000-8000-aaaa00000040"),
 			"a",
 			"A",
 			{ sort: { direction: "asc", priority: 1 } },
 		);
 		const colB = plainColumn(
-			asUuid("00000000-0000-4000-8000-aaaa00000041"),
+			testUuid("00000000-0000-4000-8000-aaaa00000041"),
 			"b",
 			"B",
 			{ sort: { direction: "asc", priority: 0 } },
 		);
 		const colC = plainColumn(
-			asUuid("00000000-0000-4000-8000-aaaa00000042"),
+			testUuid("00000000-0000-4000-8000-aaaa00000042"),
 			"c",
 			"C",
 			{ sort: { direction: "asc", priority: 1 } },
@@ -428,7 +428,7 @@ describe("buildSortDirectives — tie-break to Results order", () => {
 describe("buildSortDirectives — comparator type derivation", () => {
 	it("picks `plain` for text-typed properties", () => {
 		const col = plainColumn(
-			asUuid("00000000-0000-4000-8000-aaaa00000050"),
+			testUuid("00000000-0000-4000-8000-aaaa00000050"),
 			"name",
 			"Name",
 			{ sort: { direction: "asc", priority: 0 } },
@@ -448,7 +448,7 @@ describe("buildSortDirectives — comparator type derivation", () => {
 
 	it("picks `integer` for int-typed properties", () => {
 		const col = plainColumn(
-			asUuid("00000000-0000-4000-8000-aaaa00000051"),
+			testUuid("00000000-0000-4000-8000-aaaa00000051"),
 			"age",
 			"Age",
 			{ sort: { direction: "asc", priority: 0 } },
@@ -468,7 +468,7 @@ describe("buildSortDirectives — comparator type derivation", () => {
 
 	it("picks `decimal` for decimal-typed properties", () => {
 		const col = plainColumn(
-			asUuid("00000000-0000-4000-8000-aaaa00000052"),
+			testUuid("00000000-0000-4000-8000-aaaa00000052"),
 			"weight",
 			"Weight",
 			{ sort: { direction: "asc", priority: 0 } },
@@ -488,7 +488,7 @@ describe("buildSortDirectives — comparator type derivation", () => {
 
 	it("picks `date` for date-typed properties", () => {
 		const col = dateColumn(
-			asUuid("00000000-0000-4000-8000-aaaa00000053"),
+			testUuid("00000000-0000-4000-8000-aaaa00000053"),
 			"birthdate",
 			"Birthdate",
 			"%Y-%m-%d",
@@ -509,7 +509,7 @@ describe("buildSortDirectives — comparator type derivation", () => {
 
 	it("picks `date` for datetime-typed properties", () => {
 		const col = plainColumn(
-			asUuid("00000000-0000-4000-8000-aaaa00000054"),
+			testUuid("00000000-0000-4000-8000-aaaa00000054"),
 			"opened_on",
 			"Opened",
 			{ sort: { direction: "desc", priority: 0 } },
@@ -529,7 +529,7 @@ describe("buildSortDirectives — comparator type derivation", () => {
 
 	it("falls back to `plain` when the property is unresolved on the case type", () => {
 		const col = plainColumn(
-			asUuid("00000000-0000-4000-8000-aaaa00000055"),
+			testUuid("00000000-0000-4000-8000-aaaa00000055"),
 			"phantom",
 			"Phantom",
 			{ sort: { direction: "asc", priority: 0 } },
@@ -565,7 +565,7 @@ describe("buildSortDirectives — calculated column happy path", () => {
 		// `term(prop("patient", "age"))` — `age` declared as `int` →
 		// expression resolves to `int` → comparator `"integer"`.
 		const col = calculatedColumn(
-			asUuid("00000000-0000-4000-8000-aaaa00000060"),
+			testUuid("00000000-0000-4000-8000-aaaa00000060"),
 			"Age",
 			term(prop("patient", "age")),
 			{ sort: { direction: "asc", priority: 0 } },
@@ -588,7 +588,7 @@ describe("buildSortDirectives — calculated column happy path", () => {
 		// as `date` → expression resolves to `date` → comparator
 		// `"date"`.
 		const col = calculatedColumn(
-			asUuid("00000000-0000-4000-8000-aaaa00000061"),
+			testUuid("00000000-0000-4000-8000-aaaa00000061"),
 			"Birthdate calc",
 			term(prop("patient", "birthdate")),
 			{ sort: { direction: "desc", priority: 0 } },
@@ -616,7 +616,7 @@ describe("buildSortDirectives — calc fallback: undefined result type", () => {
 		// `calculatedColumnTypeCheck` reports the same failure
 		// upstream) and falls back to `"plain"`.
 		const col = calculatedColumn(
-			asUuid("00000000-0000-4000-8000-aaaa00000070"),
+			testUuid("00000000-0000-4000-8000-aaaa00000070"),
 			"Unresolved",
 			term(prop("patient", "phantom")),
 			{ sort: { direction: "asc", priority: 0 } },
@@ -642,7 +642,7 @@ describe("buildSortDirectives — calc fallback: ANY_TYPE result type", () => {
 		// sentinel; the checker propagates it through. The wire
 		// emitter's fallback rule routes ANY_TYPE to `"plain"`.
 		const col = calculatedColumn(
-			asUuid("00000000-0000-4000-8000-aaaa00000071"),
+			testUuid("00000000-0000-4000-8000-aaaa00000071"),
 			"Null literal",
 			term(literal(null)),
 			{ sort: { direction: "asc", priority: 0 } },
@@ -669,7 +669,7 @@ describe("buildSortDirectives — calc fallback: unmapped ResolvedType", () => {
 		// Core's on-device evaluator, so the validator must reject this shape
 		// and the low-level emitter must fail closed if a caller bypasses it.
 		const col = calculatedColumn(
-			asUuid("00000000-0000-4000-8000-aaaa00000072"),
+			testUuid("00000000-0000-4000-8000-aaaa00000072"),
 			"Tags sequence",
 			unwrapList(term(prop("patient", "tags"))),
 			{ sort: { direction: "asc", priority: 0 } },

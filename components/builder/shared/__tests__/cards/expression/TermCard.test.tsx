@@ -7,12 +7,12 @@ import {
 	focusElement,
 	settleBaseUiTransitions,
 } from "@/__tests__/helpers/baseUiInteractions";
-import {
-	asUuid,
-	type CaseType,
-	type LookupColumnId,
-	type LookupTableId,
-	type UserProperty,
+import { testUuid } from "@/__tests__/helpers/uuid";
+import type {
+	CaseType,
+	LookupColumnId,
+	LookupTableId,
+	UserProperty,
 } from "@/lib/domain";
 import {
 	ancestorPath,
@@ -53,13 +53,13 @@ const PATIENT_WITH_INFORMATION: CaseType = {
 const TRANSITION_CASE_TYPES = [HOUSEHOLD, PATIENT_WITH_INFORMATION] as const;
 const LOOKUP_TABLE = "018f3e8a-7b2c-7def-8abc-1234567890ab" as LookupTableId;
 const LOOKUP_COLUMN = "018f3e8a-7b2c-7def-8abc-1234567890ac" as LookupColumnId;
-const WORKER_PROPERTY_UUID = asUuid("worker-property-region");
+const WORKER_PROPERTY_UUID = testUuid("worker-property-region");
 const WORKER_PROPERTY: UserProperty = {
 	uuid: WORKER_PROPERTY_UUID,
 	slug: "assigned_region",
 	label: "Assigned region",
 };
-const WORKER_CADRE_UUID = asUuid("worker-property-cadre");
+const WORKER_CADRE_UUID = testUuid("worker-property-cadre");
 const WORKER_CADRE: UserProperty = {
 	uuid: WORKER_CADRE_UUID,
 	slug: "cadre-code",

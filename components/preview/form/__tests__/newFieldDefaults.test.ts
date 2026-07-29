@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { asUuid, type Field, fieldKinds, fieldSchema } from "@/lib/domain";
+import { type Field, fieldKinds, fieldSchema } from "@/lib/domain";
 import { NEW_FIELD_BUILDERS } from "../newFieldDefaults";
 
-const UUID = asUuid("00000000-0000-4000-8000-000000000000");
+const UUID = testUuid("00000000-0000-4000-8000-000000000000");
 
 describe("NEW_FIELD_BUILDERS — every kind's starter field is schema-valid", () => {
 	// The mapped type guarantees each builder's STRUCTURE matches its kind, but

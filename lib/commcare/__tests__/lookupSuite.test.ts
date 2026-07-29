@@ -3,13 +3,14 @@ import { type Document, type Element, isTag } from "domhandler";
 import { findAll, getAttributeValue, getChildren } from "domutils";
 import { parseDocument } from "htmlparser2";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import { buildLookupFixtures } from "@/lib/commcare/lookup/fixtures";
 import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { validateSuite } from "@/lib/commcare/validator/suiteOracle";
-import { asUuid, calculatedColumn, plainColumn } from "@/lib/domain";
+import { calculatedColumn, plainColumn } from "@/lib/domain";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import {
 	eq,
@@ -84,12 +85,12 @@ function lookupApp() {
 				caseListConfig: {
 					columns: [
 						plainColumn(
-							asUuid("018f3e8a-7b2c-7def-8abc-0000000000e1"),
+							testUuid("018f3e8a-7b2c-7def-8abc-0000000000e1"),
 							"case_name",
 							"Name",
 						),
 						calculatedColumn(
-							asUuid("018f3e8a-7b2c-7def-8abc-0000000000e2"),
+							testUuid("018f3e8a-7b2c-7def-8abc-0000000000e2"),
 							"Region",
 							tableLookup(
 								REGIONS,

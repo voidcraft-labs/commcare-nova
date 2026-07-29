@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	buildDoc,
 	type CaseListConfigSpec,
@@ -14,7 +15,6 @@ import { validateXForm } from "@/lib/commcare/validator/xformOracle";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
 	advancedSearchInputDef,
-	asUuid,
 	calculatedColumn,
 	dateColumn,
 	idMappingColumn,
@@ -2397,18 +2397,18 @@ describe("case detail (long) view", () => {
 		// `plain` format because `visibleInDetail` is unset (default
 		// true).
 		const caseNameCol = plainColumn(
-			asUuid("00000000-0000-4000-8000-000000000001"),
+			testUuid("00000000-0000-4000-8000-000000000001"),
 			"case_name",
 			"Name",
 		);
 		const ageCol = plainColumn(
-			asUuid("00000000-0000-4000-8000-000000000002"),
+			testUuid("00000000-0000-4000-8000-000000000002"),
 			"age",
 			"Age",
 			{ visibleInList: false },
 		);
 		const dobCol = plainColumn(
-			asUuid("00000000-0000-4000-8000-000000000003"),
+			testUuid("00000000-0000-4000-8000-000000000003"),
 			"dob",
 			"Date of Birth",
 			{ visibleInList: false },
@@ -3587,8 +3587,8 @@ describe("form_links emission", () => {
 									condition: "/data/outcome = 'yes'",
 									target: {
 										type: "form",
-										moduleUuid: asUuid(moduleUuid),
-										formUuid: asUuid(followupUuid),
+										moduleUuid: testUuid(moduleUuid),
+										formUuid: testUuid(followupUuid),
 									},
 								},
 							],
@@ -3651,7 +3651,7 @@ describe("form_links emission", () => {
 							type: "survey",
 							formLinks: [
 								{
-									target: { type: "module", moduleUuid: asUuid(modB) },
+									target: { type: "module", moduleUuid: testUuid(modB) },
 								},
 							],
 							fields: [f({ kind: "text", id: "x", label: "X" })],
@@ -3700,8 +3700,8 @@ describe("form_links emission", () => {
 									condition: "/data/severity = 'high'",
 									target: {
 										type: "form",
-										moduleUuid: asUuid(moduleUuid),
-										formUuid: asUuid(triageUuid),
+										moduleUuid: testUuid(moduleUuid),
+										formUuid: testUuid(triageUuid),
 									},
 									datums: [{ name: "case_id", xpath: "/data/patient_id" }],
 								},
@@ -3779,7 +3779,7 @@ describe("form_links emission", () => {
 									// the expander must still render it harmless.
 									target: {
 										type: "module",
-										moduleUuid: asUuid("mod-never-registered"),
+										moduleUuid: testUuid("mod-never-registered"),
 									},
 								},
 							],
@@ -3861,7 +3861,7 @@ describe("Connect mode gate", () => {
 //      suppress Core's implicit property matcher while their predicates
 //      + filter AND-compose into `_xpath_query` on `default_properties`.
 
-const HQ_PROJECTION_MODULE_UUID = asUuid(
+const HQ_PROJECTION_MODULE_UUID = testUuid(
 	"77777777-7777-4777-8777-777777777771",
 );
 
@@ -3934,7 +3934,7 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 		const doc = buildHqProjectionDoc({
 			columns: [
 				plainColumn(
-					asUuid("00000000-0000-4000-8000-000000010001"),
+					testUuid("00000000-0000-4000-8000-000000010001"),
 					"case_name",
 					"Name",
 				),
@@ -3952,7 +3952,7 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 		const doc = buildHqProjectionDoc({
 			columns: [
 				plainColumn(
-					asUuid("00000000-0000-4000-8000-000000010013"),
+					testUuid("00000000-0000-4000-8000-000000010013"),
 					"tags",
 					"Tags",
 				),
@@ -3976,7 +3976,7 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 			resolveCaseListConfig({
 				columns: [
 					dateColumn(
-						asUuid("00000000-0000-4000-8000-000000010002"),
+						testUuid("00000000-0000-4000-8000-000000010002"),
 						"last_visit",
 						"Last Visit",
 						"%Y-%m-%d",
@@ -3997,7 +3997,7 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 			resolveCaseListConfig({
 				columns: [
 					dateColumn(
-						asUuid("00000000-0000-4000-8000-000000010012"),
+						testUuid("00000000-0000-4000-8000-000000010012"),
 						"last_visit",
 						"Last Visit",
 						"long",
@@ -4021,7 +4021,7 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 			resolveCaseListConfig({
 				columns: [
 					phoneColumn(
-						asUuid("00000000-0000-4000-8000-000000010003"),
+						testUuid("00000000-0000-4000-8000-000000010003"),
 						"phone",
 						"Phone",
 					),
@@ -4043,7 +4043,7 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 			resolveCaseListConfig({
 				columns: [
 					idMappingColumn(
-						asUuid("00000000-0000-4000-8000-000000010004"),
+						testUuid("00000000-0000-4000-8000-000000010004"),
 						"region",
 						"Region",
 						[idMappingEntry("N", "North"), idMappingEntry("S", "South")],
@@ -4066,7 +4066,7 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 			resolveCaseListConfig({
 				columns: [
 					intervalColumn(
-						asUuid("00000000-0000-4000-8000-000000010005"),
+						testUuid("00000000-0000-4000-8000-000000010005"),
 						"last_visit",
 						"Days since visit",
 						3,
@@ -4091,7 +4091,7 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 			resolveCaseListConfig({
 				columns: [
 					intervalColumn(
-						asUuid("00000000-0000-4000-8000-000000010006"),
+						testUuid("00000000-0000-4000-8000-000000010006"),
 						"last_visit",
 						"Overdue",
 						2,
@@ -4121,7 +4121,7 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 			resolveCaseListConfig({
 				columns: [
 					calculatedColumn(
-						asUuid("00000000-0000-4000-8000-000000010007"),
+						testUuid("00000000-0000-4000-8000-000000010007"),
 						"Age Next Year",
 						toValueExpression(prop("patient", "age")),
 					),
@@ -4144,7 +4144,7 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 		const doc = buildHqProjectionDoc({
 			columns: [
 				plainColumn(
-					asUuid("00000000-0000-4000-8000-000000010008"),
+					testUuid("00000000-0000-4000-8000-000000010008"),
 					"phone",
 					"Phone",
 					{ visibleInList: false },
@@ -4166,13 +4166,13 @@ describe("expandDoc HQ JSON projection — sort_elements", () => {
 		const doc = buildHqProjectionDoc({
 			columns: [
 				plainColumn(
-					asUuid("00000000-0000-4000-8000-000000020001"),
+					testUuid("00000000-0000-4000-8000-000000020001"),
 					"case_name",
 					"Name",
 					{ sort: { direction: "asc", priority: 1 } },
 				),
 				plainColumn(
-					asUuid("00000000-0000-4000-8000-000000020002"),
+					testUuid("00000000-0000-4000-8000-000000020002"),
 					"age",
 					"Age",
 					{ sort: { direction: "desc", priority: 0 } },
@@ -4206,7 +4206,7 @@ describe("expandDoc HQ JSON projection — sort_elements", () => {
 			resolveCaseListConfig({
 				columns: [
 					calculatedColumn(
-						asUuid("00000000-0000-4000-8000-000000020003"),
+						testUuid("00000000-0000-4000-8000-000000020003"),
 						"Age Next Year",
 						toValueExpression(prop("patient", "age")),
 						{ sort: { direction: "asc", priority: 0 } },
@@ -4234,13 +4234,13 @@ describe("expandDoc HQ JSON projection — sort_elements", () => {
 			resolveCaseListConfig({
 				columns: [
 					calculatedColumn(
-						asUuid("00000000-0000-4000-8000-000000020003"),
+						testUuid("00000000-0000-4000-8000-000000020003"),
 						"Age Next Year",
 						toValueExpression(prop("patient", "age")),
 						{ sort: { direction: "asc", priority: 0 } },
 					),
 					calculatedColumn(
-						asUuid("00000000-0000-4000-8000-000000020004"),
+						testUuid("00000000-0000-4000-8000-000000020004"),
 						"Visits Doubled",
 						toValueExpression(prop("patient", "visit_count")),
 						{ sort: { direction: "desc", priority: 1 } },
@@ -4275,12 +4275,12 @@ describe("expandDoc HQ JSON projection — sort_elements", () => {
 		const doc = buildHqProjectionDoc({
 			columns: [
 				plainColumn(
-					asUuid("00000000-0000-4000-8000-000000020005"),
+					testUuid("00000000-0000-4000-8000-000000020005"),
 					"case_name",
 					"Name",
 				),
 				plainColumn(
-					asUuid("00000000-0000-4000-8000-000000020006"),
+					testUuid("00000000-0000-4000-8000-000000020006"),
 					"tags",
 					"Tags",
 					{ sort: { direction: "asc", priority: 0 } },
@@ -4304,7 +4304,7 @@ describe("expandDoc HQ JSON projection — sort_elements", () => {
 			resolveCaseListConfig({
 				columns: [
 					intervalColumn(
-						asUuid("00000000-0000-4000-8000-000000020007"),
+						testUuid("00000000-0000-4000-8000-000000020007"),
 						"last_visit",
 						"Since Visit",
 						30,
@@ -4338,7 +4338,7 @@ describe("expandDoc HQ JSON projection — sort_elements", () => {
 		const doc = buildHqProjectionDoc({
 			columns: [
 				plainColumn(
-					asUuid("00000000-0000-4000-8000-000000020008"),
+					testUuid("00000000-0000-4000-8000-000000020008"),
 					"tags",
 					"Tags",
 					{ visibleInList: false, sort: { direction: "asc", priority: 0 } },
@@ -4358,7 +4358,7 @@ describe("expandDoc HQ JSON projection — sort_elements", () => {
 		const doc = buildHqProjectionDoc({
 			columns: [
 				plainColumn(
-					asUuid("00000000-0000-4000-8000-000000020004"),
+					testUuid("00000000-0000-4000-8000-000000020004"),
 					"case_name",
 					"Name",
 				),
@@ -4383,7 +4383,7 @@ describe("expandDoc HQ JSON projection — case_list_filter", () => {
 		const doc = buildHqProjectionDoc({
 			columns: [
 				plainColumn(
-					asUuid("00000000-0000-4000-8000-000000030001"),
+					testUuid("00000000-0000-4000-8000-000000030001"),
 					"case_name",
 					"Name",
 				),
@@ -4399,7 +4399,7 @@ describe("expandDoc HQ JSON projection — case_list_filter", () => {
 		const doc = buildHqProjectionDoc({
 			columns: [
 				plainColumn(
-					asUuid("00000000-0000-4000-8000-000000030002"),
+					testUuid("00000000-0000-4000-8000-000000030002"),
 					"case_name",
 					"Name",
 				),
@@ -4414,7 +4414,7 @@ describe("expandDoc HQ JSON projection — case_list_filter", () => {
 			{
 				columns: [
 					plainColumn(
-						asUuid("00000000-0000-4000-8000-000000030003"),
+						testUuid("00000000-0000-4000-8000-000000030003"),
 						"case_name",
 						"Name",
 					),
@@ -4443,7 +4443,7 @@ describe("expandDoc HQ JSON projection — case_list_filter", () => {
 			{
 				columns: [
 					plainColumn(
-						asUuid("00000000-0000-4000-8000-000000030004"),
+						testUuid("00000000-0000-4000-8000-000000030004"),
 						"case_name",
 						"Name",
 					),
@@ -4469,7 +4469,7 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 			{
 				columns: [
 					plainColumn(
-						asUuid("00000000-0000-4000-8000-000000040099"),
+						testUuid("00000000-0000-4000-8000-000000040099"),
 						"case_name",
 						"Name",
 					),
@@ -4496,7 +4496,7 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 		const doc = buildHqProjectionDoc({
 			columns: [
 				plainColumn(
-					asUuid("00000000-0000-4000-8000-000000040000"),
+					testUuid("00000000-0000-4000-8000-000000040000"),
 					"case_name",
 					"Name",
 				),
@@ -4523,7 +4523,7 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 			{
 				columns: [
 					plainColumn(
-						asUuid("00000000-0000-4000-8000-000000040001"),
+						testUuid("00000000-0000-4000-8000-000000040001"),
 						"case_name",
 						"Name",
 					),
@@ -4563,7 +4563,7 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 			{
 				columns: [
 					plainColumn(
-						asUuid("00000000-0000-4000-8000-000000040002"),
+						testUuid("00000000-0000-4000-8000-000000040002"),
 						"case_name",
 						"Name",
 					),
@@ -4589,28 +4589,28 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 		const doc = buildHqProjectionDoc({
 			columns: [
 				plainColumn(
-					asUuid("00000000-0000-4000-8000-000000040003"),
+					testUuid("00000000-0000-4000-8000-000000040003"),
 					"case_name",
 					"Name",
 				),
 			],
 			searchInputs: [
 				simpleSearchInputDef(
-					asUuid("00000000-0000-4000-8000-000000040011"),
+					testUuid("00000000-0000-4000-8000-000000040011"),
 					"name_search",
 					"Name",
 					"text",
 					"case_name",
 				),
 				simpleSearchInputDef(
-					asUuid("00000000-0000-4000-8000-000000040012"),
+					testUuid("00000000-0000-4000-8000-000000040012"),
 					"dob_search",
 					"DOB",
 					"date",
 					"dob",
 				),
 				simpleSearchInputDef(
-					asUuid("00000000-0000-4000-8000-000000040013"),
+					testUuid("00000000-0000-4000-8000-000000040013"),
 					"scan_search",
 					"Scan",
 					"barcode",
@@ -4636,14 +4636,14 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 		const doc = buildHqProjectionDoc({
 			columns: [
 				plainColumn(
-					asUuid("00000000-0000-4000-8000-000000040014"),
+					testUuid("00000000-0000-4000-8000-000000040014"),
 					"case_name",
 					"Name",
 				),
 			],
 			searchInputs: [
 				simpleSearchInputDef(
-					asUuid("00000000-0000-4000-8000-000000040015"),
+					testUuid("00000000-0000-4000-8000-000000040015"),
 					"last_visit",
 					"Visit window",
 					"date-range",
@@ -4664,28 +4664,28 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 		const doc = buildHqProjectionDoc({
 			columns: [
 				plainColumn(
-					asUuid("00000000-0000-4000-8000-0000000400a1"),
+					testUuid("00000000-0000-4000-8000-0000000400a1"),
 					"case_name",
 					"Name",
 				),
 			],
 			searchInputs: [
 				simpleSearchInputDef(
-					asUuid("00000000-0000-4000-8000-0000000400a2"),
+					testUuid("00000000-0000-4000-8000-0000000400a2"),
 					"case_name",
 					"Name",
 					"text",
 					"case_name",
 				),
 				advancedSearchInputDef(
-					asUuid("00000000-0000-4000-8000-0000000400a3"),
+					testUuid("00000000-0000-4000-8000-0000000400a3"),
 					"status",
 					"Status rule",
 					"text",
 					eq(prop("patient", "status"), literal("open")),
 				),
 				advancedSearchInputDef(
-					asUuid("00000000-0000-4000-8000-0000000400a4"),
+					testUuid("00000000-0000-4000-8000-0000000400a4"),
 					"visited_after",
 					"",
 					"date",
@@ -4735,14 +4735,14 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 		const doc = buildHqProjectionDoc({
 			columns: [
 				plainColumn(
-					asUuid("00000000-0000-4000-8000-0000000400f1"),
+					testUuid("00000000-0000-4000-8000-0000000400f1"),
 					"case_name",
 					"Name",
 				),
 			],
 			searchInputs: [
 				simpleSearchInputDef(
-					asUuid("00000000-0000-4000-8000-0000000400f2"),
+					testUuid("00000000-0000-4000-8000-0000000400f2"),
 					"name_fuzzy",
 					"Name",
 					"text",
@@ -4750,7 +4750,7 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 					{ mode: { kind: "fuzzy" } },
 				),
 				simpleSearchInputDef(
-					asUuid("00000000-0000-4000-8000-0000000400f3"),
+					testUuid("00000000-0000-4000-8000-0000000400f3"),
 					"name_starts",
 					"Starts",
 					"text",
@@ -4783,7 +4783,7 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 		const doc = buildHqProjectionDoc({
 			columns: [
 				plainColumn(
-					asUuid("00000000-0000-4000-8000-000000040004"),
+					testUuid("00000000-0000-4000-8000-000000040004"),
 					"case_name",
 					"Name",
 				),
@@ -4793,7 +4793,7 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 			filter: eq(prop("patient", "region"), literal("North")),
 			searchInputs: [
 				advancedSearchInputDef(
-					asUuid("00000000-0000-4000-8000-000000040014"),
+					testUuid("00000000-0000-4000-8000-000000040014"),
 					"status_search",
 					"Status",
 					"text",
@@ -4828,7 +4828,7 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 		const doc = buildHqProjectionDoc({
 			columns: [
 				plainColumn(
-					asUuid("00000000-0000-4000-8000-000000040005"),
+					testUuid("00000000-0000-4000-8000-000000040005"),
 					"case_name",
 					"Name",
 				),
@@ -4856,14 +4856,14 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 		const doc = buildHqProjectionDoc({
 			columns: [
 				plainColumn(
-					asUuid("00000000-0000-4000-8000-000000040006"),
+					testUuid("00000000-0000-4000-8000-000000040006"),
 					"case_name",
 					"Name",
 				),
 			],
 			searchInputs: [
 				advancedSearchInputDef(
-					asUuid("00000000-0000-4000-8000-000000040016"),
+					testUuid("00000000-0000-4000-8000-000000040016"),
 					"age_filter",
 					"Age",
 					"text",
@@ -4922,7 +4922,7 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 					caseListConfig: {
 						columns: [
 							plainColumn(
-								asUuid("00000000-0000-4000-8000-000000040007"),
+								testUuid("00000000-0000-4000-8000-000000040007"),
 								"case_name",
 								"Name",
 							),
@@ -5015,12 +5015,12 @@ describe("expandDoc HQ JSON projection — case-search integration", () => {
 			{
 				columns: [
 					plainColumn(
-						asUuid("00000000-0000-4000-8000-000000050001"),
+						testUuid("00000000-0000-4000-8000-000000050001"),
 						"case_name",
 						"Name",
 					),
 					dateColumn(
-						asUuid("00000000-0000-4000-8000-000000050002"),
+						testUuid("00000000-0000-4000-8000-000000050002"),
 						"last_visit",
 						"Last Visit",
 						"%Y-%m-%d",
@@ -5030,14 +5030,14 @@ describe("expandDoc HQ JSON projection — case-search integration", () => {
 				filter: eq(prop("patient", "region"), literal("North")),
 				searchInputs: [
 					simpleSearchInputDef(
-						asUuid("00000000-0000-4000-8000-000000050011"),
+						testUuid("00000000-0000-4000-8000-000000050011"),
 						"name_search",
 						"Name",
 						"text",
 						"case_name",
 					),
 					advancedSearchInputDef(
-						asUuid("00000000-0000-4000-8000-000000050012"),
+						testUuid("00000000-0000-4000-8000-000000050012"),
 						"age_filter",
 						"Age",
 						"text",
@@ -5113,14 +5113,14 @@ describe("expandDoc HQ JSON projection — case-search integration", () => {
 		const doc = buildHqProjectionDoc({
 			columns: [
 				plainColumn(
-					asUuid("00000000-0000-4000-8000-000000060001"),
+					testUuid("00000000-0000-4000-8000-000000060001"),
 					"case_name",
 					"Name",
 				),
 			],
 			searchInputs: [
 				simpleSearchInputDef(
-					asUuid("00000000-0000-4000-8000-000000060011"),
+					testUuid("00000000-0000-4000-8000-000000060011"),
 					"parent_region",
 					"Parent region",
 					"text",
@@ -5168,21 +5168,21 @@ describe("expandDoc HQ JSON projection — case-search integration", () => {
 		const doc = buildHqProjectionDoc({
 			columns: [
 				plainColumn(
-					asUuid("00000000-0000-4000-8000-000000060002"),
+					testUuid("00000000-0000-4000-8000-000000060002"),
 					"case_name",
 					"Name",
 				),
 			],
 			searchInputs: [
 				simpleSearchInputDef(
-					asUuid("00000000-0000-4000-8000-000000060021"),
+					testUuid("00000000-0000-4000-8000-000000060021"),
 					"case_name",
 					"Self name",
 					"text",
 					"case_name",
 				),
 				simpleSearchInputDef(
-					asUuid("00000000-0000-4000-8000-000000060022"),
+					testUuid("00000000-0000-4000-8000-000000060022"),
 					"parent_region",
 					"Parent region",
 					"text",
@@ -5233,14 +5233,14 @@ describe("expandDoc HQ JSON projection — case-search integration", () => {
 		const doc = buildHqProjectionDoc({
 			columns: [
 				plainColumn(
-					asUuid("00000000-0000-4000-8000-000000060030"),
+					testUuid("00000000-0000-4000-8000-000000060030"),
 					"case_name",
 					"Name",
 				),
 			],
 			searchInputs: [
 				simpleSearchInputDef(
-					asUuid("00000000-0000-4000-8000-000000060031"),
+					testUuid("00000000-0000-4000-8000-000000060031"),
 					"name_search",
 					"Name",
 					"text",
@@ -5274,14 +5274,14 @@ describe("expandDoc HQ JSON projection — case-search integration", () => {
 		const doc = buildHqProjectionDoc({
 			columns: [
 				plainColumn(
-					asUuid("00000000-0000-4000-8000-000000060040"),
+					testUuid("00000000-0000-4000-8000-000000060040"),
 					"case_name",
 					"Name",
 				),
 			],
 			searchInputs: [
 				simpleSearchInputDef(
-					asUuid("00000000-0000-4000-8000-000000060041"),
+					testUuid("00000000-0000-4000-8000-000000060041"),
 					"case_name",
 					"Name",
 					"text",

@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { asUuid, type Column, calculatedColumn } from "@/lib/domain";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { type Column, calculatedColumn } from "@/lib/domain";
 import { columnLabel } from "../canvas/ColumnInventory";
 
 function blankHeaderColumn(field: string): Column {
 	return {
-		uuid: asUuid("00000000-0000-4000-8000-000000000901"),
+		uuid: testUuid("00000000-0000-4000-8000-000000000901"),
 		kind: "plain",
 		field,
 		header: "",
@@ -32,7 +33,7 @@ describe("columnLabel", () => {
 	it("uses the same friendly fallback as Preview for a blank calculated label", () => {
 		expect(
 			columnLabel(
-				calculatedColumn(asUuid("00000000-0000-4000-8000-000000000902"), "", {
+				calculatedColumn(testUuid("00000000-0000-4000-8000-000000000902"), "", {
 					kind: "today",
 				}),
 			),

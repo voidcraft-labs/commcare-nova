@@ -14,8 +14,10 @@
  * negative shapes (cousins sharing a leaf id, non-matching case
  * types, relation walks without an explicit destination).
  */
+
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	resolveCaseListConfig,
 	resolveDocExpressions,
@@ -23,7 +25,7 @@ import {
 import { applyMutation } from "@/lib/doc/mutations";
 import type { FieldRenameMeta } from "@/lib/doc/mutations/fields";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
-import { asUuid } from "@/lib/doc/types";
+
 import type { Field, Form, Module } from "@/lib/domain";
 import {
 	expressionSource,
@@ -41,11 +43,11 @@ import {
 	term,
 } from "@/lib/domain/predicate";
 
-const M = (s: string) => asUuid(`mod${s}-0000-0000-0000-000000000000`);
-const F = (s: string) => asUuid(`frm${s}-0000-0000-0000-000000000000`);
-const Q = (s: string) => asUuid(`qst${s}-0000-0000-0000-000000000000`);
-const C = (s: string) => asUuid(`col${s}-0000-0000-0000-000000000000`);
-const S = (s: string) => asUuid(`sin${s}-0000-0000-0000-000000000000`);
+const M = (s: string) => testUuid(`mod${s}-0000-0000-0000-000000000000`);
+const F = (s: string) => testUuid(`frm${s}-0000-0000-0000-000000000000`);
+const Q = (s: string) => testUuid(`qst${s}-0000-0000-0000-000000000000`);
+const C = (s: string) => testUuid(`col${s}-0000-0000-0000-000000000000`);
+const S = (s: string) => testUuid(`sin${s}-0000-0000-0000-000000000000`);
 
 /** Same loose fixture builder as `mutations-fields.test.ts`. */
 function field_(

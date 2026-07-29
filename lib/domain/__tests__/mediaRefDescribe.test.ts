@@ -6,7 +6,8 @@
 // `uncarriedLogoAsset` (the standalone-logo predicate).
 
 import { describe, expect, it } from "vitest";
-import { asUuid, type BlueprintDoc } from "@/lib/domain";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import type { BlueprintDoc } from "@/lib/domain";
 import {
 	type AssetRef,
 	carriesViaBulkUpload,
@@ -23,7 +24,7 @@ function ref(
 	return { assetId: "x", slotKind, location };
 }
 
-const U = asUuid("u");
+const U = testUuid("u");
 
 describe("describeCarrier", () => {
 	it("names the app logo", () => {

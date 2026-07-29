@@ -1,3 +1,4 @@
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * Tests for `sortPriorityUniqueness`. The rule rejects two sorted
@@ -8,7 +9,7 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { asUuid, plainColumn } from "@/lib/domain";
+import { plainColumn } from "@/lib/domain";
 import { runValidation } from "../../../runner";
 
 const CODE = "CASE_LIST_DUPLICATE_SORT_PRIORITY" as const;
@@ -38,8 +39,8 @@ const standardCaseTypes = [
 
 describe("sortPriorityUniqueness", () => {
 	it("fires when two sorted columns share a priority", () => {
-		const colA = plainColumn(asUuid("col-a"), "case_name", "Name");
-		const colB = plainColumn(asUuid("col-b"), "age", "Age");
+		const colA = plainColumn(testUuid("col-a"), "case_name", "Name");
+		const colB = plainColumn(testUuid("col-b"), "age", "Age");
 		const doc = buildDoc({
 			appName: "T",
 			modules: [
@@ -69,8 +70,8 @@ describe("sortPriorityUniqueness", () => {
 	});
 
 	it("is silent when priorities are unique across sorted columns", () => {
-		const colA = plainColumn(asUuid("col-a"), "case_name", "Name");
-		const colB = plainColumn(asUuid("col-b"), "age", "Age");
+		const colA = plainColumn(testUuid("col-a"), "case_name", "Name");
+		const colB = plainColumn(testUuid("col-b"), "age", "Age");
 		const doc = buildDoc({
 			appName: "T",
 			modules: [
@@ -96,7 +97,7 @@ describe("sortPriorityUniqueness", () => {
 	});
 
 	it("is silent when at most one column carries a sort directive", () => {
-		const col = plainColumn(asUuid("col-a"), "case_name", "Name");
+		const col = plainColumn(testUuid("col-a"), "case_name", "Name");
 		const doc = buildDoc({
 			appName: "T",
 			modules: [
@@ -106,10 +107,10 @@ describe("sortPriorityUniqueness", () => {
 					caseListConfig: {
 						columns: [
 							{ ...col, sort: { direction: "asc", priority: 0 } },
-							plainColumn(asUuid("col-b"), "age", "Age"),
+							plainColumn(testUuid("col-b"), "age", "Age"),
 						],
-						listColumnOrder: [asUuid("col-b")],
-						detailColumnOrder: [asUuid("col-b")],
+						listColumnOrder: [testUuid("col-b")],
+						detailColumnOrder: [testUuid("col-b")],
 						searchInputs: [],
 					},
 					forms: [standardForm],

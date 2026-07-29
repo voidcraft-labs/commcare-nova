@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type { BlueprintDoc } from "@/lib/domain";
-import { asUuid } from "@/lib/domain";
+
 import { renderAgentPrompt } from "../prompts";
 
 function editableDoc(): BlueprintDoc {
-	const moduleUuid = asUuid("11111111-1111-1111-1111-111111111111");
+	const moduleUuid = testUuid("11111111-1111-1111-1111-111111111111");
 	return {
 		appId: "app-1",
 		appName: "Test",

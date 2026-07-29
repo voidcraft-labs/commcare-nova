@@ -6,16 +6,16 @@
 import { renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { useHasFieldsInForm } from "@/lib/doc/hooks/useHasFieldsInForm";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { BlueprintDoc } from "@/lib/doc/types";
-import { asUuid } from "@/lib/doc/types";
 
-const MOD_UUID = asUuid("module-1-uuid");
-const FORM_WITH_FIELDS = asUuid("form-with-uuid");
-const FORM_EMPTY = asUuid("form-empty-uuid");
-const Q_UUID = asUuid("q-111-0000-0000-0000-000000000000");
+const MOD_UUID = testUuid("module-1-uuid");
+const FORM_WITH_FIELDS = testUuid("form-with-uuid");
+const FORM_EMPTY = testUuid("form-empty-uuid");
+const Q_UUID = testUuid("q-111-0000-0000-0000-000000000000");
 
 function setup() {
 	const store = createBlueprintDocStore();
@@ -84,7 +84,7 @@ describe("useHasFieldsInForm", () => {
 	it("returns false when the form has no fieldOrder entry at all", () => {
 		const { wrapper } = setup();
 		const { result } = renderHook(
-			() => useHasFieldsInForm(asUuid("no-entry-uuid")),
+			() => useHasFieldsInForm(testUuid("no-entry-uuid")),
 			{ wrapper },
 		);
 		expect(result.current).toBe(false);

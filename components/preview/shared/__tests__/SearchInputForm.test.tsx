@@ -39,12 +39,9 @@ import {
 	type Mock,
 	vi,
 } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type { CaseType } from "@/lib/domain";
-import {
-	advancedSearchInputDef,
-	asUuid,
-	simpleSearchInputDef,
-} from "@/lib/domain";
+import { advancedSearchInputDef, simpleSearchInputDef } from "@/lib/domain";
 import { matchAll } from "@/lib/domain/predicate";
 import {
 	DATE_RANGE_ORDER_MESSAGE,
@@ -103,12 +100,12 @@ const ORIGINAL_SRC_OBJECT = Object.getOwnPropertyDescriptor(
 
 // ── Fixtures ────────────────────────────────────────────────────────
 
-const UUID_NAME = asUuid("00000000-0000-0000-0000-000000000001");
-const UUID_STATUS = asUuid("00000000-0000-0000-0000-000000000002");
-const UUID_DOB = asUuid("00000000-0000-0000-0000-000000000003");
-const UUID_REG_RANGE = asUuid("00000000-0000-0000-0000-000000000004");
-const UUID_BARCODE = asUuid("00000000-0000-0000-0000-000000000005");
-const UUID_ADV_SELECT = asUuid("00000000-0000-0000-0000-000000000006");
+const UUID_NAME = testUuid("00000000-0000-0000-0000-000000000001");
+const UUID_STATUS = testUuid("00000000-0000-0000-0000-000000000002");
+const UUID_DOB = testUuid("00000000-0000-0000-0000-000000000003");
+const UUID_REG_RANGE = testUuid("00000000-0000-0000-0000-000000000004");
+const UUID_BARCODE = testUuid("00000000-0000-0000-0000-000000000005");
+const UUID_ADV_SELECT = testUuid("00000000-0000-0000-0000-000000000006");
 
 const READABLE_DATE_FORMAT_OPTIONS: Intl.DateTimeFormatOptions = {
 	day: "numeric",

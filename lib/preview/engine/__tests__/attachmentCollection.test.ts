@@ -14,8 +14,9 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type { Field, Form, Uuid } from "@/lib/domain";
-import { asUuid } from "@/lib/domain";
+
 import { FormEngine, type FormEngineInput } from "../formEngine";
 
 const ENTRY_KEY = "11111111-1111-4111-8111-111111111111";
@@ -31,7 +32,7 @@ type Spec = {
 
 /** Build a `FormEngineInput` from a nested spec, mirroring `dTree`. */
 function input(fields: Spec[]): FormEngineInput {
-	const formUuid = asUuid("form");
+	const formUuid = testUuid("form");
 	const form: Form = {
 		uuid: formUuid,
 		id: "f",
@@ -43,7 +44,7 @@ function input(fields: Spec[]): FormEngineInput {
 	const walk = (nodes: Spec[], parentUuid: Uuid, prefix: string) => {
 		const order: Uuid[] = [];
 		for (const node of nodes) {
-			const uuid = asUuid(`${prefix}.${node.id}`);
+			const uuid = testUuid(`${prefix}.${node.id}`);
 			order.push(uuid);
 			const { children, ...rest } = node;
 			// `relevant` rides through as a plain string: the engine reads

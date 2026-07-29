@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { collectDormantLookupCarriers } from "@/lib/doc/dormantLookupCarriers";
 import {
@@ -14,7 +15,6 @@ import {
 } from "@/lib/doc/lookupReferences";
 import {
 	advancedSearchInputDef,
-	asUuid,
 	calculatedColumn,
 	simpleSearchInputDef,
 	type Uuid,
@@ -117,13 +117,13 @@ describe("lookup reference extraction", () => {
 	});
 
 	it("extracts every production carrier slot with the exact nested owner identity", () => {
-		const moduleUuid = asUuid("module-lookup");
-		const formUuid = asUuid("form-lookup");
-		const fieldUuid = asUuid("field-lookup");
-		const columnUuid = asUuid("column-lookup");
-		const simpleInputUuid = asUuid("search-simple");
-		const advancedInputUuid = asUuid("search-advanced");
-		const operationUuid = asUuid("operation-lookup");
+		const moduleUuid = testUuid("module-lookup");
+		const formUuid = testUuid("form-lookup");
+		const fieldUuid = testUuid("field-lookup");
+		const columnUuid = testUuid("column-lookup");
+		const simpleInputUuid = testUuid("search-simple");
+		const advancedInputUuid = testUuid("search-advanced");
+		const operationUuid = testUuid("operation-lookup");
 		const sourceTable = tableId("1");
 		const nestedTable = tableId("2");
 
@@ -574,23 +574,23 @@ describe("lookup reference extraction", () => {
 				registrySlot: "future.itemset.value",
 				extract: () => [
 					{
-						carrierUuid: asUuid("carrier-b"),
+						carrierUuid: testUuid("carrier-b"),
 						subpath: ["value", 1],
 						tableId: tableId("2"),
 						columnId: columnId("2"),
 						acceptedColumnTypes: ["decimal", "int", "decimal"] as const,
 						location: {
 							scope: "field" as const,
-							fieldUuid: asUuid("carrier-b"),
+							fieldUuid: testUuid("carrier-b"),
 						},
 					},
 					{
-						carrierUuid: asUuid("carrier-a"),
+						carrierUuid: testUuid("carrier-a"),
 						subpath: ["value", 0],
 						tableId: tableId("1"),
 						location: {
 							scope: "module" as const,
-							moduleUuid: asUuid("carrier-a"),
+							moduleUuid: testUuid("carrier-a"),
 						},
 					},
 				],
@@ -627,7 +627,7 @@ describe("lookup reference extraction", () => {
 					registrySlot: "future.typed",
 					extract: () => [
 						{
-							carrierUuid: asUuid("carrier"),
+							carrierUuid: testUuid("carrier"),
 							subpath: [],
 							tableId: tableId("1"),
 							acceptedColumnTypes: ["text"],
@@ -644,7 +644,7 @@ describe("lookup reference extraction", () => {
 					registrySlot: "future.empty-types",
 					extract: () => [
 						{
-							carrierUuid: asUuid("carrier"),
+							carrierUuid: testUuid("carrier"),
 							subpath: [],
 							tableId: tableId("1"),
 							columnId: columnId("1"),
@@ -684,7 +684,7 @@ describe("lookup reference target normalization", () => {
 
 	it("projects occurrences and unions partitions through the same normalizer", () => {
 		const occurrence = {
-			carrierUuid: asUuid("carrier"),
+			carrierUuid: testUuid("carrier"),
 			registrySlot: "future.slot",
 			subpath: "",
 			tableId: tableId("1"),

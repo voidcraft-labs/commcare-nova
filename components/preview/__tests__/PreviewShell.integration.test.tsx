@@ -19,12 +19,13 @@
 
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { CaseListWorkspaceProvider } from "@/components/builder/case-list-config/CaseListConfigWorkspace";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
-import { asUuid } from "@/lib/doc/types";
+
 import type { Location } from "@/lib/routing/types";
 
-const MODULE_UUID = asUuid("mod-1");
+const MODULE_UUID = testUuid("mod-1");
 const setPreviewingMock = vi.fn();
 
 // Mutable location state so the test can flip between module and
@@ -46,7 +47,7 @@ const navigateMock = {
 		// PreviewShell and observe the post-navigation state.
 		currentLocation = {
 			kind: "cases",
-			moduleUuid: asUuid(uuid),
+			moduleUuid: testUuid(uuid),
 		};
 	}),
 	openCaseDetail: vi.fn(),

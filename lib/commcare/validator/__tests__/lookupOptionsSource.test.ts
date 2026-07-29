@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, type FieldSpec, f } from "@/lib/__tests__/docHelpers";
 import {
 	LOOKUP_CONTEXT_UNAVAILABLE,
@@ -6,7 +7,6 @@ import {
 } from "@/lib/doc/lookupReferences";
 import {
 	advancedSearchInputDef,
-	asUuid,
 	type BlueprintDoc,
 	type CaseOperation,
 	calculatedColumn,
@@ -48,14 +48,14 @@ const DATE_A = "10000000-0000-7000-8000-0000000000a3" as LookupColumnId;
 const TEXT_B = "10000000-0000-7000-8000-0000000000b1" as LookupColumnId;
 const MISSING_COLUMN = "10000000-0000-7000-8000-0000000000f1" as LookupColumnId;
 
-const FIELD_1 = asUuid("20000000-0000-7000-8000-000000000001");
-const FIELD_2 = asUuid("20000000-0000-7000-8000-000000000002");
-const FIELD_3 = asUuid("20000000-0000-7000-8000-000000000003");
-const FIELD_4 = asUuid("20000000-0000-7000-8000-000000000004");
-const FIELD_5 = asUuid("20000000-0000-7000-8000-000000000005");
-const FIELD_6 = asUuid("20000000-0000-7000-8000-000000000006");
-const FIELD_7 = asUuid("20000000-0000-7000-8000-000000000007");
-const FIELD_8 = asUuid("20000000-0000-7000-8000-000000000008");
+const FIELD_1 = testUuid("20000000-0000-7000-8000-000000000001");
+const FIELD_2 = testUuid("20000000-0000-7000-8000-000000000002");
+const FIELD_3 = testUuid("20000000-0000-7000-8000-000000000003");
+const FIELD_4 = testUuid("20000000-0000-7000-8000-000000000004");
+const FIELD_5 = testUuid("20000000-0000-7000-8000-000000000005");
+const FIELD_6 = testUuid("20000000-0000-7000-8000-000000000006");
+const FIELD_7 = testUuid("20000000-0000-7000-8000-000000000007");
+const FIELD_8 = testUuid("20000000-0000-7000-8000-000000000008");
 
 const REVISION = "1" as LookupRevision;
 
@@ -118,12 +118,12 @@ function select(
 		label: id,
 		options: [
 			{
-				uuid: asUuid("21000000-0000-7000-8000-000000000001"),
+				uuid: testUuid("21000000-0000-7000-8000-000000000001"),
 				value: "a",
 				label: "A",
 			},
 			{
-				uuid: asUuid("21000000-0000-7000-8000-000000000002"),
+				uuid: testUuid("21000000-0000-7000-8000-000000000002"),
 				value: "b",
 				label: "B",
 			},
@@ -157,13 +157,13 @@ function surveyDoc(
 					caseType: "patient",
 					caseListConfig: {
 						columns: [
-							plainColumn(asUuid("lookup-test-column"), "region", "Region"),
+							plainColumn(testUuid("lookup-test-column"), "region", "Region"),
 						],
-						listColumnOrder: [asUuid("lookup-test-column")],
-						detailColumnOrder: [asUuid("lookup-test-column")],
+						listColumnOrder: [testUuid("lookup-test-column")],
+						detailColumnOrder: [testUuid("lookup-test-column")],
 						searchInputs: [
 							simpleSearchInputDef(
-								asUuid("lookup-test-input"),
+								testUuid("lookup-test-input"),
 								"region_query",
 								"Region",
 								"text",
@@ -658,16 +658,16 @@ describe("lookup type-context integration", () => {
 					displayCondition: eq(lookupText, literal("North")),
 					caseListConfig: {
 						columns: [
-							plainColumn(asUuid("lookup-carrier-name"), "case_name", "Name"),
+							plainColumn(testUuid("lookup-carrier-name"), "case_name", "Name"),
 							calculatedColumn(
-								asUuid("lookup-carrier-rank"),
+								testUuid("lookup-carrier-rank"),
 								"Rank",
 								lookupInt,
 							),
 						],
 						searchInputs: [
 							simpleSearchInputDef(
-								asUuid("lookup-carrier-default"),
+								testUuid("lookup-carrier-default"),
 								"case_name_query",
 								"Name",
 								"text",
@@ -675,7 +675,7 @@ describe("lookup type-context integration", () => {
 								{ default: lookupText },
 							),
 							advancedSearchInputDef(
-								asUuid("lookup-carrier-advanced"),
+								testUuid("lookup-carrier-advanced"),
 								"advanced_query",
 								"Advanced",
 								"text",
@@ -710,7 +710,7 @@ describe("lookup type-context integration", () => {
 		const formUuid = doc.formOrder[moduleUuid][0];
 		doc.forms[formUuid].caseOperations = [
 			{
-				uuid: asUuid("lookup-carrier-create-operation"),
+				uuid: testUuid("lookup-carrier-create-operation"),
 				id: "create_patient",
 				action: "create",
 				caseType: "patient",
@@ -718,7 +718,7 @@ describe("lookup type-context integration", () => {
 				name: lookupText,
 			},
 			{
-				uuid: asUuid("lookup-carrier-operation"),
+				uuid: testUuid("lookup-carrier-operation"),
 				id: "update_patient",
 				action: "update",
 				caseType: "patient",
@@ -766,9 +766,9 @@ describe("lookup type-context integration", () => {
 		const lookupText = tableLookup(TABLE_A, TEXT_A, matchAll());
 		const lookupInt = tableLookup(TABLE_A, INT_A, matchAll());
 		const wrongPredicate = eq(lookupInt, literal("North"));
-		const calculatedUuid = asUuid("typed-lookup-carrier-rank");
-		const defaultInputUuid = asUuid("typed-lookup-carrier-default");
-		const advancedInputUuid = asUuid("typed-lookup-carrier-advanced");
+		const calculatedUuid = testUuid("typed-lookup-carrier-rank");
+		const defaultInputUuid = testUuid("typed-lookup-carrier-default");
+		const advancedInputUuid = testUuid("typed-lookup-carrier-advanced");
 		const doc = buildDoc({
 			appName: "Typed lookup carriers",
 			caseTypes: [
@@ -788,7 +788,7 @@ describe("lookup type-context integration", () => {
 					caseListConfig: {
 						columns: [
 							plainColumn(
-								asUuid("typed-lookup-carrier-name"),
+								testUuid("typed-lookup-carrier-name"),
 								"case_name",
 								"Name",
 							),
@@ -905,7 +905,7 @@ describe("lookup type-context integration", () => {
 				label: "target expression",
 				operation: {
 					...baseUpdate,
-					uuid: asUuid("typed-operation-target"),
+					uuid: testUuid("typed-operation-target"),
 					id: "target_expression",
 					target: { kind: "expression", expr: lookupInt },
 				},
@@ -914,7 +914,7 @@ describe("lookup type-context integration", () => {
 				label: "condition",
 				operation: {
 					...baseUpdate,
-					uuid: asUuid("typed-operation-condition"),
+					uuid: testUuid("typed-operation-condition"),
 					id: "condition",
 					condition: wrongPredicate,
 				},
@@ -922,7 +922,7 @@ describe("lookup type-context integration", () => {
 			{
 				label: "create name",
 				operation: {
-					uuid: asUuid("typed-operation-name"),
+					uuid: testUuid("typed-operation-name"),
 					id: "create_name",
 					action: "create",
 					caseType: "patient",
@@ -934,7 +934,7 @@ describe("lookup type-context integration", () => {
 				label: "owner",
 				operation: {
 					...baseUpdate,
-					uuid: asUuid("typed-operation-owner"),
+					uuid: testUuid("typed-operation-owner"),
 					id: "owner",
 					owner: lookupInt,
 				},
@@ -943,7 +943,7 @@ describe("lookup type-context integration", () => {
 				label: "rename",
 				operation: {
 					...baseUpdate,
-					uuid: asUuid("typed-operation-rename"),
+					uuid: testUuid("typed-operation-rename"),
 					id: "rename",
 					rename: lookupInt,
 				},
@@ -952,7 +952,7 @@ describe("lookup type-context integration", () => {
 				label: "write value",
 				operation: {
 					...baseUpdate,
-					uuid: asUuid("typed-operation-write-value"),
+					uuid: testUuid("typed-operation-write-value"),
 					id: "write_value",
 					writes: [{ property: "rank", value: lookupText }],
 				},
@@ -961,7 +961,7 @@ describe("lookup type-context integration", () => {
 				label: "write condition",
 				operation: {
 					...baseUpdate,
-					uuid: asUuid("typed-operation-write-condition"),
+					uuid: testUuid("typed-operation-write-condition"),
 					id: "write_condition",
 					writes: [
 						{
@@ -976,7 +976,7 @@ describe("lookup type-context integration", () => {
 				label: "link target expression",
 				operation: {
 					...baseUpdate,
-					uuid: asUuid("typed-operation-link-target"),
+					uuid: testUuid("typed-operation-link-target"),
 					id: "link_target",
 					links: [
 						{
@@ -1009,13 +1009,13 @@ describe("lookup type-context integration", () => {
 						caseListConfig: {
 							columns: [
 								plainColumn(
-									asUuid("typed-operation-case-name"),
+									testUuid("typed-operation-case-name"),
 									"case_name",
 									"Name",
 								),
 							],
-							listColumnOrder: [asUuid("typed-operation-case-name")],
-							detailColumnOrder: [asUuid("typed-operation-case-name")],
+							listColumnOrder: [testUuid("typed-operation-case-name")],
+							detailColumnOrder: [testUuid("typed-operation-case-name")],
 							searchInputs: [],
 						},
 						forms: [
@@ -1067,12 +1067,12 @@ describe("lookup type-context integration", () => {
 					caseListConfig: {
 						columns: [
 							plainColumn(
-								asUuid("missing-lookup-carrier-name"),
+								testUuid("missing-lookup-carrier-name"),
 								"case_name",
 								"Name",
 							),
 							calculatedColumn(
-								asUuid("missing-lookup-carrier-value"),
+								testUuid("missing-lookup-carrier-value"),
 								"Lookup value",
 								missingText,
 							),
@@ -1102,7 +1102,7 @@ describe("lookup type-context integration", () => {
 		const formUuid = doc.formOrder[moduleUuid][0];
 		doc.forms[formUuid].caseOperations = [
 			{
-				uuid: asUuid("missing-lookup-carrier-operation"),
+				uuid: testUuid("missing-lookup-carrier-operation"),
 				id: "update_patient",
 				action: "update",
 				caseType: "patient",

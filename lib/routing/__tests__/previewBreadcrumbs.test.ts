@@ -12,7 +12,8 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { asUuid } from "@/lib/domain";
+import { testUuid } from "@/__tests__/helpers/uuid";
+
 import type { BreadcrumbItem } from "@/lib/routing/hooks";
 import {
 	type PreviewTrailForm,
@@ -21,10 +22,10 @@ import {
 } from "@/lib/routing/previewBreadcrumbs";
 import type { Location } from "@/lib/routing/types";
 
-const moduleUuid = asUuid("module-1");
-const registerUuid = asUuid("form-register");
-const followupUuid = asUuid("form-followup");
-const closeUuid = asUuid("form-close");
+const moduleUuid = testUuid("module-1");
+const registerUuid = testUuid("form-register");
+const followupUuid = testUuid("form-followup");
+const closeUuid = testUuid("form-close");
 
 /** A case-managing module: one register + two case-loading forms. */
 const forms: PreviewTrailForm[] = [
@@ -44,7 +45,7 @@ const moduleCrumb: BreadcrumbItem = {
 	location: { kind: "module", moduleUuid },
 };
 
-const formLoc = (formUuid: ReturnType<typeof asUuid>): Location => ({
+const formLoc = (formUuid: ReturnType<typeof testUuid>): Location => ({
 	kind: "form",
 	moduleUuid,
 	formUuid,
@@ -193,7 +194,7 @@ describe("previewBreadcrumbTrail — form screens", () => {
 	});
 
 	it("falls back to a 'Form' label when the form is unknown", () => {
-		const trail = run({ loc: formLoc(asUuid("ghost")) });
+		const trail = run({ loc: formLoc(testUuid("ghost")) });
 		expect(trail[2].label).toBe("Form");
 		expect(trail[2].reselectCaseFor).toBeUndefined();
 	});

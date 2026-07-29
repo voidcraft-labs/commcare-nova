@@ -5,7 +5,8 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { asUuid, type Column, emptyCaseListConfig } from "@/lib/domain";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { type Column, emptyCaseListConfig } from "@/lib/domain";
 import {
 	projectCaseWorkspaceColumns,
 	pruneStoppedSortOrphans,
@@ -18,7 +19,7 @@ function column(
 	visibility: Pick<Column, "visibleInList" | "visibleInDetail"> = {},
 ): Column {
 	return {
-		uuid: asUuid(uuid),
+		uuid: testUuid(uuid),
 		kind: "plain",
 		field: uuid,
 		header: uuid,

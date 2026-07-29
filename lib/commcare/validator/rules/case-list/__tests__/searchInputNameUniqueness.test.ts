@@ -1,3 +1,4 @@
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * Tests for `searchInputNameUniqueness`. One invariant per `it` block.
@@ -5,7 +6,7 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { asUuid, plainColumn, simpleSearchInputDef } from "@/lib/domain";
+import { plainColumn, simpleSearchInputDef } from "@/lib/domain";
 import { runValidation } from "../../../runner";
 
 describe("searchInputNameUniqueness", () => {
@@ -17,19 +18,19 @@ describe("searchInputNameUniqueness", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("col-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("col-1")],
-						detailColumnOrder: [asUuid("col-1")],
+						columns: [plainColumn(testUuid("col-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("col-1")],
+						detailColumnOrder: [testUuid("col-1")],
 						searchInputs: [
 							simpleSearchInputDef(
-								asUuid("si-1"),
+								testUuid("si-1"),
 								"shared_name",
 								"First",
 								"text",
 								"case_name",
 							),
 							simpleSearchInputDef(
-								asUuid("si-2"),
+								testUuid("si-2"),
 								"shared_name",
 								"Second",
 								"text",
@@ -79,19 +80,19 @@ describe("searchInputNameUniqueness", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("col-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("col-1")],
-						detailColumnOrder: [asUuid("col-1")],
+						columns: [plainColumn(testUuid("col-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("col-1")],
+						detailColumnOrder: [testUuid("col-1")],
 						searchInputs: [
 							simpleSearchInputDef(
-								asUuid("si-1"),
+								testUuid("si-1"),
 								"name_input",
 								"Name",
 								"text",
 								"case_name",
 							),
 							simpleSearchInputDef(
-								asUuid("si-2"),
+								testUuid("si-2"),
 								"age_input",
 								"Age",
 								"text",
@@ -136,26 +137,26 @@ describe("searchInputNameUniqueness", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("col-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("col-1")],
-						detailColumnOrder: [asUuid("col-1")],
+						columns: [plainColumn(testUuid("col-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("col-1")],
+						detailColumnOrder: [testUuid("col-1")],
 						searchInputs: [
 							simpleSearchInputDef(
-								asUuid("si-1"),
+								testUuid("si-1"),
 								"dup",
 								"First",
 								"text",
 								"case_name",
 							),
 							simpleSearchInputDef(
-								asUuid("si-2"),
+								testUuid("si-2"),
 								"dup",
 								"Second",
 								"text",
 								"case_name",
 							),
 							simpleSearchInputDef(
-								asUuid("si-3"),
+								testUuid("si-3"),
 								"dup",
 								"Third",
 								"text",
@@ -201,12 +202,12 @@ describe("searchInputNameUniqueness", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("col-1"), "case_name", "Name")],
-						listColumnOrder: [asUuid("col-1")],
-						detailColumnOrder: [asUuid("col-1")],
+						columns: [plainColumn(testUuid("col-1"), "case_name", "Name")],
+						listColumnOrder: [testUuid("col-1")],
+						detailColumnOrder: [testUuid("col-1")],
 						searchInputs: [
 							simpleSearchInputDef(
-								asUuid("si-only"),
+								testUuid("si-only"),
 								"name_input",
 								"Name",
 								"text",

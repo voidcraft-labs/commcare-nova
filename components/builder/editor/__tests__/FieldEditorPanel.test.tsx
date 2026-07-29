@@ -19,7 +19,8 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { asUuid } from "@/lib/doc/types";
+import { testUuid } from "@/__tests__/helpers/uuid";
+
 import {
 	type Field,
 	fieldKinds,
@@ -33,7 +34,7 @@ import { sectionHasContent } from "../partitionEditorEntries";
 // Trivial fixtures — only the discriminant + identity keys are read by
 // the schema's visibility predicates. The schemas are kind-typed so the
 // `field` cast inside each test narrows safely.
-const FIELD_UUID = asUuid("q-panel-0000-0000-0000-000000000000");
+const FIELD_UUID = testUuid("q-panel-0000-0000-0000-000000000000");
 
 function textField(extras: Partial<TextField> = {}): TextField {
 	return {

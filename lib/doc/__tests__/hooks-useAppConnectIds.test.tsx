@@ -9,6 +9,7 @@
 import { renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { xp } from "@/lib/__tests__/docHelpers";
 import {
 	type AppConnectId,
@@ -18,12 +19,11 @@ import {
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { BlueprintDoc } from "@/lib/doc/types";
-import { asUuid } from "@/lib/doc/types";
 
-const MOD_A = asUuid("mod-a");
-const MOD_B = asUuid("mod-b");
-const FORM_A = asUuid("form-a");
-const FORM_B = asUuid("form-b");
+const MOD_A = testUuid("mod-a");
+const MOD_B = testUuid("mod-b");
+const FORM_A = testUuid("form-a");
+const FORM_B = testUuid("form-b");
 
 /** Learn doc: form A has learn_module "intro" + assessment "intro_quiz";
  *  form B (other module) has learn_module "lesson_two". */

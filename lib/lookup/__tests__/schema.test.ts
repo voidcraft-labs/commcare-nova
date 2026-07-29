@@ -88,8 +88,14 @@ describe("lookup identity schemas", () => {
 	});
 
 	it("uses the domain-owned identity parsers", () => {
-		expect(lookupTableIdSchema.parse(TABLE_ID.toUpperCase())).toBe(TABLE_ID);
-		expect(lookupColumnIdSchema.parse(COLUMN_ID.toUpperCase())).toBe(COLUMN_ID);
+		expect(lookupTableIdSchema.parse(TABLE_ID)).toBe(TABLE_ID);
+		expect(lookupColumnIdSchema.parse(COLUMN_ID)).toBe(COLUMN_ID);
+		expect(lookupTableIdSchema.safeParse(TABLE_ID.toUpperCase()).success).toBe(
+			false,
+		);
+		expect(
+			lookupColumnIdSchema.safeParse(COLUMN_ID.toUpperCase()).success,
+		).toBe(false);
 		expect(
 			lookupRowIdSchema.safeParse("01890f45-0000-4000-8000-000000000001")
 				.success,
@@ -150,10 +156,14 @@ describe("lookup input schemas", () => {
 		).toBe(false);
 	});
 
-	it("normalizes UUID-keyed primitive rows and rejects every other JSON shape", () => {
+	it("accepts canonical UUID-keyed primitive rows and rejects every other JSON shape", () => {
+		expect(lookupRowValuesSchema.parse({ [COLUMN_ID]: "" })).toEqual({
+			[COLUMN_ID]: "",
+		});
 		expect(
-			lookupRowValuesSchema.parse({ [COLUMN_ID.toUpperCase()]: "" }),
-		).toEqual({ [COLUMN_ID]: "" });
+			lookupRowValuesSchema.safeParse({ [COLUMN_ID.toUpperCase()]: "" })
+				.success,
+		).toBe(false);
 		for (const value of [null, true, false, [], {}, Number.NaN, Infinity]) {
 			expect(
 				lookupRowValuesSchema.safeParse({ [COLUMN_ID]: value }).success,

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
 import {
-	asUuid,
 	type CaseType,
 	reachableCaseTypes,
 	toReachableIndex,
@@ -123,7 +123,7 @@ describe("ReferenceProvider — custom worker properties", () => {
 			...formCtx("formA", []),
 			userProperties: [
 				{
-					uuid: asUuid("property-1"),
+					uuid: testUuid("property-1"),
 					slug: "supervisor_area",
 					label: "Supervisor area",
 				},
@@ -150,7 +150,7 @@ describe("ReferenceProvider — custom worker properties", () => {
 
 	it("reads mutable worker names live so an open XPath chip follows a rename", () => {
 		let property = {
-			uuid: asUuid("property-1"),
+			uuid: testUuid("property-1"),
 			slug: "district",
 			label: "District",
 		};
@@ -180,7 +180,7 @@ describe("ReferenceProvider — custom worker properties", () => {
 			...formCtx("formA", []),
 			userProperties: [
 				{
-					uuid: asUuid("property-1"),
+					uuid: testUuid("property-1"),
 					slug: "username",
 					label: "Program username",
 				},

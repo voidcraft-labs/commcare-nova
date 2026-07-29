@@ -18,10 +18,11 @@
  */
 
 import { assert, describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { docHasData } from "@/lib/doc/predicates";
 import type { BlueprintDocStoreApi } from "@/lib/doc/store";
 import type { Mutation } from "@/lib/doc/types";
-import { asUuid } from "@/lib/domain";
+
 import type {
 	ConversationEvent,
 	ConversationPayload,
@@ -122,10 +123,10 @@ function emitConversation(
 
 // ── Fixture data ──────────────────────────────────────────────────────
 
-const MOD_UUID = asUuid("mod-registration");
-const FORM_UUID = asUuid("form-register");
-const Q_NAME_UUID = asUuid("q-patient-name");
-const Q_AGE_UUID = asUuid("q-patient-age");
+const MOD_UUID = testUuid("mod-registration");
+const FORM_UUID = testUuid("form-register");
+const Q_NAME_UUID = testUuid("q-patient-name");
+const Q_AGE_UUID = testUuid("q-patient-age");
 
 const CASE_TYPES = [
 	{ name: "patient", properties: [{ name: "name", label: "Name" }] },
@@ -226,14 +227,14 @@ describe("generation lifecycle (end-to-end)", () => {
 		const config = {
 			columns: [
 				{
-					uuid: asUuid("c0000000-0000-0000-0000-000000000001"),
+					uuid: testUuid("c0000000-0000-0000-0000-000000000001"),
 					kind: "plain" as const,
 					field: "name",
 					header: "Name",
 				},
 			],
-			listColumnOrder: [asUuid("c0000000-0000-0000-0000-000000000001")],
-			detailColumnOrder: [asUuid("c0000000-0000-0000-0000-000000000001")],
+			listColumnOrder: [testUuid("c0000000-0000-0000-0000-000000000001")],
+			detailColumnOrder: [testUuid("c0000000-0000-0000-0000-000000000001")],
 			searchInputs: [],
 		};
 		emitMutations(

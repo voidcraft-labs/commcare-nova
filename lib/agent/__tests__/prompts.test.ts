@@ -13,9 +13,10 @@
 
 import type { ModelMessage } from "ai";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { xp } from "@/lib/__tests__/docHelpers";
 import type { BlueprintDoc } from "@/lib/domain";
-import { asUuid } from "@/lib/domain";
+
 import {
 	buildAppStateMessage,
 	buildSolutionsArchitectPrompt,
@@ -27,9 +28,9 @@ import {
  *  distinctive names the assertions can spot in (or prove absent from)
  *  rendered output. */
 function fixtureDoc(appName: string, moduleName: string): BlueprintDoc {
-	const modUuid = asUuid("11111111-1111-1111-1111-111111111111");
-	const formUuid = asUuid("22222222-2222-2222-2222-222222222222");
-	const fieldUuid = asUuid("33333333-3333-3333-3333-333333333333");
+	const modUuid = testUuid("11111111-1111-1111-1111-111111111111");
+	const formUuid = testUuid("22222222-2222-2222-2222-222222222222");
+	const fieldUuid = testUuid("33333333-3333-3333-3333-333333333333");
 	return {
 		appId: "a-edit",
 		appName,

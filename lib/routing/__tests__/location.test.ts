@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type { BlueprintDoc } from "@/lib/doc/types";
-import { asUuid } from "@/lib/doc/types";
+
 import type { LocationParseDoc } from "@/lib/routing/location";
 import {
 	isValidLocation,
@@ -9,9 +10,9 @@ import {
 } from "@/lib/routing/location";
 import type { Location } from "@/lib/routing/types";
 
-const modUuid = asUuid("11111111-1111-1111-1111-111111111111");
-const formUuid = asUuid("22222222-2222-2222-2222-222222222222");
-const qUuid = asUuid("33333333-3333-3333-3333-333333333333");
+const modUuid = testUuid("11111111-1111-1111-1111-111111111111");
+const formUuid = testUuid("22222222-2222-2222-2222-222222222222");
+const qUuid = testUuid("33333333-3333-3333-3333-333333333333");
 
 describe("serializePath", () => {
 	it("returns empty array for home", () => {
@@ -327,8 +328,8 @@ describe("parsePathToLocation", () => {
 	});
 
 	it("resolves nested field (inside a group) to its parent form", () => {
-		const groupUuid = asUuid("44444444-4444-4444-4444-444444444444");
-		const nestedQUuid = asUuid("55555555-5555-5555-5555-555555555555");
+		const groupUuid = testUuid("44444444-4444-4444-4444-444444444444");
+		const nestedQUuid = testUuid("55555555-5555-5555-5555-555555555555");
 		const doc = makeParseDoc({
 			forms: { [formUuid]: { uuid: formUuid } as never },
 			fields: {

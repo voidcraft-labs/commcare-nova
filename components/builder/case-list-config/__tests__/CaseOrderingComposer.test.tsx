@@ -10,8 +10,8 @@ import {
 } from "@testing-library/react";
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import {
-	asUuid,
 	type CaseListConfig,
 	type CaseType,
 	type Column,
@@ -44,7 +44,7 @@ function column(
 	sort?: Column["sort"],
 ): Column {
 	return {
-		uuid: asUuid(`00000000-0000-4000-8000-${uuidSuffix.padStart(12, "0")}`),
+		uuid: testUuid(`00000000-0000-4000-8000-${uuidSuffix.padStart(12, "0")}`),
 		kind: "plain",
 		field,
 		header,
@@ -399,7 +399,7 @@ describe("CaseOrderingComposer", () => {
 	it("uses the calculated result type for friendly directions", () => {
 		const score = {
 			...calculatedColumn(
-				asUuid("00000000-0000-4000-8000-000000000090"),
+				testUuid("00000000-0000-4000-8000-000000000090"),
 				"Risk score",
 				term(prop("patient", "age")),
 			),
@@ -407,7 +407,7 @@ describe("CaseOrderingComposer", () => {
 		};
 		const nextVisit = {
 			...calculatedColumn(
-				asUuid("00000000-0000-4000-8000-000000000091"),
+				testUuid("00000000-0000-4000-8000-000000000091"),
 				"Calculated visit date",
 				term(prop("patient", "dob")),
 			),

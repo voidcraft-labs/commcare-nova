@@ -14,13 +14,8 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import {
-	asUuid,
-	type BlueprintDoc,
-	type Field,
-	type Form,
-	type Module,
-} from "@/lib/domain";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import type { BlueprintDoc, Field, Form, Module } from "@/lib/domain";
 import {
 	makeMcpTestContext,
 	makeStubToolContext,
@@ -34,9 +29,9 @@ vi.mock("@/lib/db/applyBlueprintChange", () => ({
 	applyBlueprintChange: vi.fn(() => Promise.resolve({ seq: 0 })),
 }));
 
-const MOD = asUuid("11111111-1111-1111-1111-111111111111");
-const FORM = asUuid("22222222-2222-2222-2222-222222222222");
-const FIELD = asUuid("33333333-3333-3333-3333-333333333333");
+const MOD = testUuid("11111111-1111-1111-1111-111111111111");
+const FORM = testUuid("22222222-2222-2222-2222-222222222222");
+const FIELD = testUuid("33333333-3333-3333-3333-333333333333");
 
 /** Minimal doc with one input (`text`) field that supports `help`. */
 function makeDoc(help?: string): BlueprintDoc {
@@ -138,7 +133,7 @@ describe("editField — help text", () => {
 
 /* --- Rename identifier guard ----------------------------------------- */
 
-const AGE = asUuid("66666666-6666-6666-6666-666666666666");
+const AGE = testUuid("66666666-6666-6666-6666-666666666666");
 
 /** `makeDoc` plus a second top-level field `age`, so a rename of
  *  `patient_name` → `age` is a sibling-id conflict. */
@@ -250,9 +245,9 @@ describe("editField — rename identifier guard", () => {
 
 /* --- Wholesale options replacement keeps identity --------------------- */
 
-const SEL = asUuid("77777777-7777-7777-7777-777777777777");
-const OPT_YES = asUuid("88888888-8888-8888-8888-888888888888");
-const OPT_NO = asUuid("99999999-9999-9999-9999-999999999999");
+const SEL = testUuid("77777777-7777-7777-7777-777777777777");
+const OPT_YES = testUuid("88888888-8888-8888-8888-888888888888");
+const OPT_NO = testUuid("99999999-9999-9999-9999-999999999999");
 
 /** `makeDoc` plus a single-select whose options already carry identity. */
 function makeSelectDoc(): BlueprintDoc {

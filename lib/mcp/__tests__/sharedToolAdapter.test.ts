@@ -24,6 +24,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import type { ToolExecutionContext } from "@/lib/agent/toolExecutionContext";
 import type { MutatingToolResult } from "@/lib/agent/tools/common";
@@ -37,7 +38,7 @@ import type {
 	LookupTableId,
 	Uuid,
 } from "@/lib/domain";
-import { asUuid, calculatedColumn, plainColumn } from "@/lib/domain";
+import { calculatedColumn, plainColumn } from "@/lib/domain";
 import {
 	concat,
 	eq,
@@ -125,8 +126,8 @@ function mockBlueprintWithForm(): {
 	modUuid: Uuid;
 	formUuid: Uuid;
 } {
-	const modUuid = asUuid("44444444-4444-4444-4444-444444444444");
-	const formUuid = asUuid("55555555-5555-5555-5555-555555555555");
+	const modUuid = testUuid("44444444-4444-4444-4444-444444444444");
+	const formUuid = testUuid("55555555-5555-5555-5555-555555555555");
 	return {
 		blueprint: {
 			appId: "a1",
@@ -493,8 +494,8 @@ describe("registerSharedTool — dormant lookup read projection", () => {
 			term(literal("prefix:")),
 			tableLookup(table, valueColumn, where),
 		);
-		const safeColumn = asUuid("71111111-1111-4111-8111-111111111111");
-		const dormantColumn = asUuid("72222222-2222-4222-8222-222222222222");
+		const safeColumn = testUuid("71111111-1111-4111-8111-111111111111");
+		const dormantColumn = testUuid("72222222-2222-4222-8222-222222222222");
 
 		blueprint.modules[modUuid] = {
 			...blueprint.modules[modUuid],
@@ -563,7 +564,7 @@ describe("registerSharedTool — dormant lookup read projection", () => {
 			...blueprint.forms[formUuid],
 			caseOperations: [
 				{
-					uuid: asUuid("73333333-3333-4333-8333-333333333333"),
+					uuid: testUuid("73333333-3333-4333-8333-333333333333"),
 					id: "link_household",
 					action: "update",
 					caseType: "patient",
@@ -643,7 +644,7 @@ describe("registerSharedTool — real mutating tool integration (addFields)", ()
 			type: "followup",
 			caseOperations: [
 				{
-					uuid: asUuid("73333333-3333-4333-8333-333333333333"),
+					uuid: testUuid("73333333-3333-4333-8333-333333333333"),
 					id: "dormant_update",
 					action: "update",
 					caseType: "patient",
@@ -658,7 +659,7 @@ describe("registerSharedTool — real mutating tool integration (addFields)", ()
 					),
 				},
 				{
-					uuid: asUuid("74444444-4444-4444-8444-444444444444"),
+					uuid: testUuid("74444444-4444-4444-8444-444444444444"),
 					id: "safe_peer",
 					action: "update",
 					caseType: "patient",
@@ -898,7 +899,7 @@ describe("registerSharedTool — real mutating tool integration (addFields)", ()
 		 * field so the incoming duplicate has a sibling to collide
 		 * with. */
 		const { blueprint, formUuid } = mockBlueprintWithForm();
-		const existingUuid = asUuid("66666666-6666-6666-6666-666666666666");
+		const existingUuid = testUuid("66666666-6666-6666-6666-666666666666");
 		blueprint.fields[existingUuid] = {
 			uuid: existingUuid,
 			id: "age",

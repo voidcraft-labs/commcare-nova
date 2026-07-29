@@ -18,17 +18,18 @@
 
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { validateBlueprintDeep } from "@/lib/commcare/validator";
 import { duplicateFieldMutations } from "@/lib/doc/duplicateFieldMutations";
 import { applyMutation, applyMutations } from "@/lib/doc/mutations";
 import type { BlueprintDoc, Mutation, Uuid } from "@/lib/doc/types";
-import { asUuid } from "@/lib/doc/types";
+
 import type { CaseProperty, Field, Form, Module } from "@/lib/domain";
 import { buildDoc, f } from "../../__tests__/docHelpers";
 
-const M = (s: string) => asUuid(`mod${s}-0000-0000-0000-000000000000`);
-const F = (s: string) => asUuid(`frm${s}-0000-0000-0000-000000000000`);
-const Q = (s: string) => asUuid(`qst${s}-0000-0000-0000-000000000000`);
+const M = (s: string) => testUuid(`mod${s}-0000-0000-0000-000000000000`);
+const F = (s: string) => testUuid(`frm${s}-0000-0000-0000-000000000000`);
+const Q = (s: string) => testUuid(`qst${s}-0000-0000-0000-000000000000`);
 
 /** Same loose fixture builder as `mutations-fields.test.ts`. */
 function field_(
@@ -498,7 +499,7 @@ describe("acceptance — a writer-introduced property validates without setCaseT
 		const next = apply(
 			scaffold(),
 			addField(
-				asUuid("frm-accept"),
+				testUuid("frm-accept"),
 				field_(Q("w"), "age", { kind: "int", case_property_on: "patient" }),
 			),
 		);

@@ -19,8 +19,8 @@
 //      keyed under the column's uuid.
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import {
-	asUuid,
 	type Column,
 	calculatedColumn,
 	dateColumn,
@@ -41,12 +41,12 @@ import type { CaseListEmitContext } from "../types";
 // ============================================================
 
 const COL_UUIDS = {
-	a: asUuid("00000000-0000-4000-8000-cccc00000001"),
-	b: asUuid("00000000-0000-4000-8000-cccc00000002"),
-	c: asUuid("00000000-0000-4000-8000-cccc00000003"),
-	d: asUuid("00000000-0000-4000-8000-cccc00000004"),
-	e: asUuid("00000000-0000-4000-8000-cccc00000005"),
-	f: asUuid("00000000-0000-4000-8000-cccc00000006"),
+	a: testUuid("00000000-0000-4000-8000-cccc00000001"),
+	b: testUuid("00000000-0000-4000-8000-cccc00000002"),
+	c: testUuid("00000000-0000-4000-8000-cccc00000003"),
+	d: testUuid("00000000-0000-4000-8000-cccc00000004"),
+	e: testUuid("00000000-0000-4000-8000-cccc00000005"),
+	f: testUuid("00000000-0000-4000-8000-cccc00000006"),
 } as const;
 
 /**
@@ -551,7 +551,7 @@ describe("emitColumnField — sort integration", () => {
 
 	it("does not attach a sort block when the column's uuid has no directive in ctx.sortByUuid", () => {
 		const col = plainColumn(COL_UUIDS.a, "full_name", "Name");
-		const otherUuid = asUuid("00000000-0000-4000-8000-cccc99999999");
+		const otherUuid = testUuid("00000000-0000-4000-8000-cccc99999999");
 		const ctx: CaseListEmitContext = {
 			moduleIndex: 0,
 			detailKind: "short",

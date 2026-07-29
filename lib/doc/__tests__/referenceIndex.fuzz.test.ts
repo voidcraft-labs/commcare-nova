@@ -32,6 +32,7 @@
 import * as fc from "fast-check";
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { duplicateFieldMutations } from "@/lib/doc/duplicateFieldMutations";
 import {
@@ -44,7 +45,6 @@ import { findContainingForm } from "@/lib/doc/mutations/helpers";
 import { buildReferenceIndex } from "@/lib/doc/referenceIndex";
 import type { Mutation } from "@/lib/doc/types";
 import {
-	asUuid,
 	type BlueprintDoc,
 	entityTargetKey,
 	fieldCasePropertyOn,
@@ -75,13 +75,13 @@ function seedDoc(): BlueprintDoc {
 				caseListConfig: {
 					columns: [
 						{
-							uuid: asUuid("col00000-0000-4000-8000-000000000001"),
+							uuid: testUuid("col00000-0000-4000-8000-000000000001"),
 							kind: "plain",
 							field: "case_name",
 							header: "Name",
 						},
 						{
-							uuid: asUuid("col00000-0000-4000-8000-000000000002"),
+							uuid: testUuid("col00000-0000-4000-8000-000000000002"),
 							kind: "calculated",
 							header: "Age calc",
 							expression: term(prop("patient", "age")),
@@ -89,7 +89,7 @@ function seedDoc(): BlueprintDoc {
 					],
 					searchInputs: [
 						{
-							uuid: asUuid("sin00000-0000-4000-8000-000000000001"),
+							uuid: testUuid("sin00000-0000-4000-8000-000000000001"),
 							kind: "simple",
 							name: "by_village",
 							label: "Village",
@@ -97,7 +97,7 @@ function seedDoc(): BlueprintDoc {
 							property: "village",
 						},
 						{
-							uuid: asUuid("sin00000-0000-4000-8000-000000000002"),
+							uuid: testUuid("sin00000-0000-4000-8000-000000000002"),
 							kind: "advanced",
 							name: "age_filter",
 							label: "Age",
@@ -118,7 +118,7 @@ function seedDoc(): BlueprintDoc {
 								condition: "#form/age > 17 and #patient/age > 17",
 								target: {
 									type: "module",
-									moduleUuid: asUuid("mod00000-0000-4000-8000-00000000000a"),
+									moduleUuid: testUuid("mod00000-0000-4000-8000-00000000000a"),
 								},
 								datums: [{ name: "case_id", xpath: "/data/age" }],
 							},
@@ -627,7 +627,7 @@ function lower(doc: BlueprintDoc, op: FuzzOp): Mutation[] {
 					uuid,
 					patch: {
 						closeCondition: {
-							field: asUuid(
+							field: testUuid(
 								resolveCloseFieldRef(doc, uuid, ID_POOL[op.closeIdPick]),
 							),
 							answer: "done",

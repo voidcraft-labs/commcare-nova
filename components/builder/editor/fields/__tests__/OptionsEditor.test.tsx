@@ -17,8 +17,9 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
-import { asUuid } from "@/lib/doc/types";
+
 import type { SelectOption, SingleSelectField } from "@/lib/domain";
 import { BuilderSessionProvider } from "@/lib/session/provider";
 import { OptionsEditor } from "../OptionsEditor";
@@ -34,7 +35,7 @@ const wrapper = ({ children }: { children: React.ReactNode }) => (
 
 const baseField: SingleSelectField = {
 	kind: "single_select",
-	uuid: asUuid("u1-options"),
+	uuid: testUuid("u1-options"),
 	id: "color",
 	label: "Color",
 	options: [

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { asUuid, type CaseType } from "@/lib/domain";
+import type { CaseType } from "@/lib/domain";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import { eq, formField, literal } from "@/lib/domain/predicate";
 import {
@@ -614,9 +615,9 @@ const DAG_LOOKUP_COLUMN =
 	"40000000-0000-7000-8000-000000000001" as LookupColumnId;
 
 function lookupSelectForDag(
-	uuid: ReturnType<typeof asUuid>,
+	uuid: ReturnType<typeof testUuid>,
 	id: string,
-	dependsOn: ReturnType<typeof asUuid>,
+	dependsOn: ReturnType<typeof testUuid>,
 ): FieldSpec {
 	return f({
 		uuid,
@@ -675,8 +676,8 @@ describe("TriggerDag.reportCycles", () => {
 	});
 
 	it("includes field defaults and lookup filters in the authoring-time cycle proof", () => {
-		const fieldA = asUuid("20000000-0000-7000-8000-0000000000a1");
-		const fieldB = asUuid("20000000-0000-7000-8000-0000000000b1");
+		const fieldA = testUuid("20000000-0000-7000-8000-0000000000a1");
+		const fieldB = testUuid("20000000-0000-7000-8000-0000000000b1");
 		const { tree, doc } = treeFromFields([
 			f({
 				uuid: fieldA,
@@ -704,8 +705,8 @@ describe("TriggerDag.reportCycles", () => {
 	});
 
 	it("detects a calculate-to-options cycle", () => {
-		const fieldA = asUuid("20000000-0000-7000-8000-0000000000a3");
-		const fieldB = asUuid("20000000-0000-7000-8000-0000000000b3");
+		const fieldA = testUuid("20000000-0000-7000-8000-0000000000a3");
+		const fieldB = testUuid("20000000-0000-7000-8000-0000000000b3");
 		const { tree, doc } = treeFromFields([
 			f({
 				uuid: fieldA,
@@ -724,9 +725,9 @@ describe("TriggerDag.reportCycles", () => {
 	});
 
 	it("detects a multi-hop relevance/options cycle", () => {
-		const fieldA = asUuid("20000000-0000-7000-8000-0000000000a4");
-		const fieldB = asUuid("20000000-0000-7000-8000-0000000000b4");
-		const fieldC = asUuid("20000000-0000-7000-8000-0000000000c4");
+		const fieldA = testUuid("20000000-0000-7000-8000-0000000000a4");
+		const fieldB = testUuid("20000000-0000-7000-8000-0000000000b4");
+		const fieldC = testUuid("20000000-0000-7000-8000-0000000000c4");
 		const { tree, doc } = treeFromFields([
 			f({
 				uuid: fieldA,
@@ -753,9 +754,9 @@ describe("TriggerDag.reportCycles", () => {
 	});
 
 	it("promotes lookup filter edges to runtime while defaults stay authoring-only", () => {
-		const fieldA = asUuid("20000000-0000-7000-8000-0000000000a2");
-		const fieldB = asUuid("20000000-0000-7000-8000-0000000000b2");
-		const fieldC = asUuid("20000000-0000-7000-8000-0000000000c2");
+		const fieldA = testUuid("20000000-0000-7000-8000-0000000000a2");
+		const fieldB = testUuid("20000000-0000-7000-8000-0000000000b2");
+		const fieldC = testUuid("20000000-0000-7000-8000-0000000000c2");
 		const { tree, doc } = treeFromFields([
 			f({
 				uuid: fieldA,
@@ -1526,7 +1527,7 @@ describe("INVALID_REF stored-reference classification", () => {
 	});
 
 	it("classifies a dangling identity leaf and never prints the bare uuid as a path", () => {
-		const ghost = asUuid("dead0000-0000-4000-8000-000000000001");
+		const ghost = testUuid("dead0000-0000-4000-8000-000000000001");
 		const doc = makeDoc([
 			f({ kind: "int", id: "score", label: "Score" }),
 			f({

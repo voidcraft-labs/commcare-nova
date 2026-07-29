@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { xp } from "@/lib/__tests__/docHelpers";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { Field, Uuid } from "@/lib/domain";
-import { asUuid } from "@/lib/domain";
+
 import type { PersistableDoc } from "@/lib/domain/blueprint";
 import { EngineController } from "@/lib/preview/engine/engineController";
 import {
@@ -21,8 +22,8 @@ import {
 } from "../attachmentClient";
 
 const APP_ID = "test-app";
-const MODULE_UUID = asUuid("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
-const FORM_UUID = asUuid("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
+const MODULE_UUID = testUuid("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+const FORM_UUID = testUuid("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
 
 function makeDoc(
 	fields: Record<string, Field>,
@@ -150,8 +151,8 @@ afterEach(async () => {
 
 describe("engine-to-attachment migration boundary", () => {
 	it("installs both sides of an atomic capture swap before either PATCH starts", async () => {
-		const firstUuid = asUuid("11111111-1111-4111-8111-111111111111");
-		const secondUuid = asUuid("22222222-2222-4222-8222-222222222222");
+		const firstUuid = testUuid("11111111-1111-4111-8111-111111111111");
+		const secondUuid = testUuid("22222222-2222-4222-8222-222222222222");
 		const { store, controller, entryKey } = loadedController(
 			makeDoc(
 				{
@@ -291,9 +292,9 @@ describe("engine-to-attachment migration boundary", () => {
 	});
 
 	it("maps index zero and retires only higher instances across distinct repeat parents", async () => {
-		const leftUuid = asUuid("33333333-3333-4333-8333-333333333333");
-		const rightUuid = asUuid("44444444-4444-4444-8444-444444444444");
-		const captureUuid = asUuid("55555555-5555-4555-8555-555555555555");
+		const leftUuid = testUuid("33333333-3333-4333-8333-333333333333");
+		const rightUuid = testUuid("44444444-4444-4444-8444-444444444444");
+		const captureUuid = testUuid("55555555-5555-4555-8555-555555555555");
 		const { store, controller, entryKey } = loadedController(
 			makeDoc(
 				{
@@ -383,9 +384,9 @@ describe("engine-to-attachment migration boundary", () => {
 	});
 
 	it("preserves retained inner repeat indices when its ancestor gains depth", async () => {
-		const outerUuid = asUuid("66666666-6666-4666-8666-666666666666");
-		const innerUuid = asUuid("77777777-7777-4777-8777-777777777777");
-		const captureUuid = asUuid("88888888-8888-4888-8888-888888888888");
+		const outerUuid = testUuid("66666666-6666-4666-8666-666666666666");
+		const innerUuid = testUuid("77777777-7777-4777-8777-777777777777");
+		const captureUuid = testUuid("88888888-8888-4888-8888-888888888888");
 		const { store, controller, entryKey } = loadedController(
 			makeDoc(
 				{

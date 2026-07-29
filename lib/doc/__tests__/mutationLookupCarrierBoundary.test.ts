@@ -1,21 +1,21 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { applyMutations } from "@/lib/doc/mutations";
 import { buildReferenceIndex } from "@/lib/doc/referenceIndex";
 import { canonicalMutationSchema, mutationSchema } from "@/lib/doc/types";
 import {
-	asUuid,
 	type BlueprintDoc,
 	type CaseOperation,
 	moduleSchema,
 } from "@/lib/domain";
 
-const MODULE = asUuid("10000000-0000-4000-8000-000000000000");
-const FORM = asUuid("20000000-0000-4000-8000-000000000000");
-const OPERATION = asUuid("30000000-0000-4000-8000-000000000000");
-const COLUMN = asUuid("40000000-0000-4000-8000-000000000000");
-const INPUT = asUuid("50000000-0000-4000-8000-000000000000");
+const MODULE = testUuid("10000000-0000-4000-8000-000000000000");
+const FORM = testUuid("20000000-0000-4000-8000-000000000000");
+const OPERATION = testUuid("30000000-0000-4000-8000-000000000000");
+const COLUMN = testUuid("40000000-0000-4000-8000-000000000000");
+const INPUT = testUuid("50000000-0000-4000-8000-000000000000");
 const TABLE = "018f3e8a-7b2c-7def-8abc-1234567890ab";
 const VALUE_COLUMN = "018f3e8a-7b2c-7def-8abc-1234567890ad";
 
@@ -614,18 +614,18 @@ describe("rolling mutation lookup-carrier boundary", () => {
 			filter: TABLE_COLUMN_PREDICATE,
 		};
 		const field = {
-			uuid: asUuid("60000000-0000-4000-8000-000000000000"),
+			uuid: testUuid("60000000-0000-4000-8000-000000000000"),
 			id: "status",
 			kind: "single_select",
 			label: "Status",
 			options: [
 				{
-					uuid: asUuid("70000000-0000-4000-8000-000000000000"),
+					uuid: testUuid("70000000-0000-4000-8000-000000000000"),
 					value: "active",
 					label: "Active",
 				},
 				{
-					uuid: asUuid("80000000-0000-4000-8000-000000000000"),
+					uuid: testUuid("80000000-0000-4000-8000-000000000000"),
 					value: "closed",
 					label: "Closed",
 				},
@@ -677,7 +677,7 @@ describe("rolling mutation lookup-carrier boundary", () => {
 				kind: "addField",
 				parentUuid: FORM,
 				field: {
-					uuid: asUuid("90000000-0000-4000-8000-000000000000"),
+					uuid: testUuid("90000000-0000-4000-8000-000000000000"),
 					id: "status",
 					kind: "single_select",
 					label: "Status",
@@ -735,7 +735,7 @@ describe("rolling mutation lookup-carrier boundary", () => {
 					operation: "update",
 					uuid: OPERATION,
 					value: operationWith({
-						uuid: asUuid("a0000000-0000-4000-8000-000000000000"),
+						uuid: testUuid("a0000000-0000-4000-8000-000000000000"),
 					}),
 				},
 			},

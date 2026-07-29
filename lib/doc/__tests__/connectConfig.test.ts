@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	buildDoc,
 	type FieldSpec,
@@ -11,7 +12,7 @@ import { expandDoc } from "@/lib/commcare/expander";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import type { AppConnectId } from "@/lib/doc/hooks/useAppConnectIds";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { asUuid } from "@/lib/doc/types";
+
 import type { ConnectConfig, ConnectType, Uuid } from "@/lib/domain";
 import {
 	dedupeRestoredConnectIds,
@@ -28,8 +29,8 @@ import {
 // uniqueness is re-checked: a still-unique id is kept, a colliding one is
 // suffixed from itself, an absent one is autofilled from the entity name.
 
-const FORM_A = asUuid("form-a");
-const FORM_B = asUuid("form-b");
+const FORM_A = testUuid("form-a");
+const FORM_B = testUuid("form-b");
 
 describe("dedupeRestoredConnectIds", () => {
 	// Module/form names feed the absent-id autofill: "Module A" snakes to

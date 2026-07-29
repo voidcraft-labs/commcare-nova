@@ -1,3 +1,4 @@
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * `mutationCommitVerdict` — the shared pre-dispatch gate every commit
@@ -20,7 +21,7 @@ import {
 	mutationCommitVerdict,
 } from "@/lib/doc/commitVerdicts";
 import type { Mutation } from "@/lib/doc/types";
-import { asUuid, type BlueprintDoc } from "@/lib/domain";
+import type { BlueprintDoc } from "@/lib/domain";
 
 /** Minimal valid doc: one registration module/form writing two properties. */
 function minDoc(): BlueprintDoc {
@@ -176,7 +177,7 @@ describe("mutationCommitVerdict", () => {
 				kind: "addForm",
 				moduleUuid: doc.moduleOrder[0],
 				form: {
-					uuid: asUuid("form-new"),
+					uuid: testUuid("form-new"),
 					id: "form_new",
 					name: "Empty survey",
 					type: "survey",

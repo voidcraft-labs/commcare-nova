@@ -1,5 +1,6 @@
 import { produce } from "immer";
 import { describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	resolveCaseListConfig,
 	resolveDocExpressions,
@@ -12,14 +13,14 @@ import type {
 	MoveFieldResult,
 } from "@/lib/doc/mutations/fields";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
-import { asUuid, mutationSchema } from "@/lib/doc/types";
+import { mutationSchema } from "@/lib/doc/types";
 import type { Column, Field, Form, Module } from "@/lib/domain";
 import { expressionSource } from "@/lib/domain";
 
-const M = (s: string) => asUuid(`mod${s}-0000-0000-0000-000000000000`);
-const F = (s: string) => asUuid(`frm${s}-0000-0000-0000-000000000000`);
-const Q = (s: string) => asUuid(`qst${s}-0000-0000-0000-000000000000`);
-const C = (s: string) => asUuid(`col${s}-0000-0000-0000-000000000000`);
+const M = (s: string) => testUuid(`mod${s}-0000-0000-0000-000000000000`);
+const F = (s: string) => testUuid(`frm${s}-0000-0000-0000-000000000000`);
+const Q = (s: string) => testUuid(`qst${s}-0000-0000-0000-000000000000`);
+const C = (s: string) => testUuid(`col${s}-0000-0000-0000-000000000000`);
 
 /**
  * Build a Field fixture for tests.

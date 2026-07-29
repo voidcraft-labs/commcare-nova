@@ -40,7 +40,8 @@
 
 import { sql } from "kysely";
 import { describe } from "vitest";
-import { asUuid } from "@/lib/doc/types";
+import { testUuid } from "@/__tests__/helpers/uuid";
+
 import type { CaseType } from "@/lib/domain";
 import {
 	ancestorPath,
@@ -135,7 +136,7 @@ describe("compileExpression — round-trip — form bindings", () => {
 	test("preserves a multi-select answer as a JSONB array for operation writes", async ({
 		db,
 	}) => {
-		const fieldUuid = asUuid("44444444-4444-4444-8444-444444444444");
+		const fieldUuid = testUuid("44444444-4444-4444-8444-444444444444");
 		const expr = compileExpression(
 			term(formField(fieldUuid)),
 			makeCtx(db, {

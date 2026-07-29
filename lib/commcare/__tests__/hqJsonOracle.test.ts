@@ -25,6 +25,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import {
 	applicationShell,
@@ -41,7 +42,6 @@ import { expandDoc } from "@/lib/commcare/expander";
 import type { ValidationErrorCode } from "@/lib/commcare/validator/errors";
 import { validateHqJson } from "@/lib/commcare/validator/hqJsonOracle";
 import {
-	asUuid,
 	calculatedColumn,
 	emptyCaseListConfig,
 	plainColumn,
@@ -147,13 +147,13 @@ function moduleOf(app: HqApplication): HqModule {
 describe("HQ-JSON oracle — clean baseline", () => {
 	it("accepts independently ordered short and long column arrays with list-indexed calculated sort", () => {
 		const name = plainColumn(
-			asUuid("00000000-0000-4000-8000-000000000091"),
+			testUuid("00000000-0000-4000-8000-000000000091"),
 			"name",
 			"Name",
 			{ listOrder: "a", detailOrder: "b" },
 		);
 		const age = calculatedColumn(
-			asUuid("00000000-0000-4000-8000-000000000092"),
+			testUuid("00000000-0000-4000-8000-000000000092"),
 			"Age",
 			toValueExpression(prop("patient", "age")),
 			{
@@ -207,12 +207,12 @@ describe("HQ-JSON oracle — clean baseline", () => {
 
 	it("keeps a Results sort carrier invisible and omits it from Details", () => {
 		const name = plainColumn(
-			asUuid("00000000-0000-4000-8000-000000000093"),
+			testUuid("00000000-0000-4000-8000-000000000093"),
 			"name",
 			"Name",
 		);
 		const sortOnly = plainColumn(
-			asUuid("00000000-0000-4000-8000-000000000094"),
+			testUuid("00000000-0000-4000-8000-000000000094"),
 			"external_id",
 			"External ID",
 			{
@@ -266,13 +266,13 @@ describe("HQ-JSON oracle — clean baseline", () => {
 
 	it("joins attribute-backed sorts to their visible HQ column and drops useless hidden definitions", () => {
 		const status = plainColumn(
-			asUuid("00000000-0000-4000-8000-000000000095"),
+			testUuid("00000000-0000-4000-8000-000000000095"),
 			"status",
 			"Case status",
 			{ sort: { direction: "asc", priority: 0 } },
 		);
 		const hidden = plainColumn(
-			asUuid("00000000-0000-4000-8000-000000000096"),
+			testUuid("00000000-0000-4000-8000-000000000096"),
 			"external-id",
 			"External ID",
 			{ visibleInList: false, visibleInDetail: false },

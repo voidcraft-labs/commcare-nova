@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
-import {
-	asUuid,
-	type CaseType,
-	fieldKinds,
-	opaqueXPathExpression,
-} from "@/lib/domain";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { type CaseType, fieldKinds, opaqueXPathExpression } from "@/lib/domain";
 import {
 	applyDefaults,
 	type FlatField,
@@ -272,7 +268,7 @@ function validFlatPayload(kind: string): FlatField {
 	return p as FlatField;
 }
 
-const TEST_UUID = asUuid("00000000-0000-4000-8000-000000000000");
+const TEST_UUID = testUuid("00000000-0000-4000-8000-000000000000");
 
 describe("flatFieldToField — totality + failure reasons", () => {
 	// The totality proof: after the per-kind tool inputs + kind-aware

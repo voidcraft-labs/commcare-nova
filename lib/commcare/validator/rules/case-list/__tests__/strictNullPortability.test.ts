@@ -1,3 +1,4 @@
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * Preview/Postgres can distinguish an absent case property from a recorded
@@ -11,7 +12,6 @@ import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
 import {
 	advancedSearchInputDef,
-	asUuid,
 	calculatedColumn,
 	plainColumn,
 	simpleSearchInputDef,
@@ -72,9 +72,9 @@ function buildCaseListDoc(args: {
 				name: "Clients",
 				caseType: "patient",
 				caseListConfig: {
-					columns: [plainColumn(asUuid("column-name"), "case_name", "Name")],
-					listColumnOrder: [asUuid("column-name")],
-					detailColumnOrder: [asUuid("column-name")],
+					columns: [plainColumn(testUuid("column-name"), "case_name", "Name")],
+					listColumnOrder: [testUuid("column-name")],
+					detailColumnOrder: [testUuid("column-name")],
 					...(args.filter !== undefined ? { filter: args.filter } : {}),
 					searchInputs: [],
 				},
@@ -186,7 +186,7 @@ describe("strictNullPortability", () => {
 	});
 
 	it("rejects strict is-null nested in a runtime calculated-column expression", () => {
-		const columnUuid = asUuid("column-calculated");
+		const columnUuid = testUuid("column-calculated");
 		const doc = buildDoc({
 			appName: "Clinic",
 			modules: [
@@ -195,7 +195,7 @@ describe("strictNullPortability", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [
-							plainColumn(asUuid("column-name"), "case_name", "Name"),
+							plainColumn(testUuid("column-name"), "case_name", "Name"),
 							calculatedColumn(
 								columnUuid,
 								"Availability",
@@ -233,9 +233,9 @@ describe("strictNullPortability", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [
-							plainColumn(asUuid("column-name"), "case_name", "Name"),
+							plainColumn(testUuid("column-name"), "case_name", "Name"),
 							calculatedColumn(
-								asUuid("column-retired"),
+								testUuid("column-retired"),
 								"Retired",
 								strictNullTextExpression(),
 								{ visibleInList: false, visibleInDetail: false },
@@ -257,7 +257,7 @@ describe("strictNullPortability", () => {
 	});
 
 	it("rejects strict is-null in a search-input default with stable friendly attribution", () => {
-		const inputUuid = asUuid("input-note");
+		const inputUuid = testUuid("input-note");
 		const doc = buildDoc({
 			appName: "Clinic",
 			modules: [
@@ -265,7 +265,9 @@ describe("strictNullPortability", () => {
 					name: "Clients",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("column-name"), "case_name", "Name")],
+						columns: [
+							plainColumn(testUuid("column-name"), "case_name", "Name"),
+						],
 						searchInputs: [
 							simpleSearchInputDef(
 								inputUuid,
@@ -335,12 +337,14 @@ describe("strictNullPortability", () => {
 					name: "Clients",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("column-name"), "case_name", "Name")],
-						listColumnOrder: [asUuid("column-name")],
-						detailColumnOrder: [asUuid("column-name")],
+						columns: [
+							plainColumn(testUuid("column-name"), "case_name", "Name"),
+						],
+						listColumnOrder: [testUuid("column-name")],
+						detailColumnOrder: [testUuid("column-name")],
 						searchInputs: [
 							advancedSearchInputDef(
-								asUuid("input-note"),
+								testUuid("input-note"),
 								"note",
 								"Note",
 								"text",
@@ -370,13 +374,15 @@ describe("strictNullPortability", () => {
 					name: "Clients",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("column-name"), "case_name", "Name")],
-						listColumnOrder: [asUuid("column-name")],
-						detailColumnOrder: [asUuid("column-name")],
+						columns: [
+							plainColumn(testUuid("column-name"), "case_name", "Name"),
+						],
+						listColumnOrder: [testUuid("column-name")],
+						detailColumnOrder: [testUuid("column-name")],
 						filter: matchNone(),
 						searchInputs: [
 							advancedSearchInputDef(
-								asUuid("input-note"),
+								testUuid("input-note"),
 								"note",
 								"Note",
 								"text",
@@ -405,13 +411,15 @@ describe("strictNullPortability", () => {
 					name: "Clients",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("column-name"), "case_name", "Name")],
-						listColumnOrder: [asUuid("column-name")],
-						detailColumnOrder: [asUuid("column-name")],
+						columns: [
+							plainColumn(testUuid("column-name"), "case_name", "Name"),
+						],
+						listColumnOrder: [testUuid("column-name")],
+						detailColumnOrder: [testUuid("column-name")],
 						filter: isNull(prop("patient", "status_note")),
 						searchInputs: [
 							advancedSearchInputDef(
-								asUuid("input-none"),
+								testUuid("input-none"),
 								"none",
 								"None",
 								"text",

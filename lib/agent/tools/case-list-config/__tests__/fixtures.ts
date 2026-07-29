@@ -12,12 +12,8 @@
  * same mutation batch on both surfaces.
  */
 
-import {
-	asUuid,
-	type BlueprintDoc,
-	type Form,
-	type Module,
-} from "@/lib/domain";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import type { BlueprintDoc, Form, Module } from "@/lib/domain";
 import {
 	type MakeMcpTestContextHandles,
 	makeMcpTestContext,
@@ -28,8 +24,8 @@ import {
 /* Stable uuid constants — imported by the per-tool tests so each
  * assertion can reference the module / form by uuid against the
  * post-mutation doc. */
-export const MOD_A = asUuid("11111111-1111-1111-1111-111111111111");
-export const FORM_A = asUuid("33333333-3333-3333-3333-333333333333");
+export const MOD_A = testUuid("11111111-1111-1111-1111-111111111111");
+export const FORM_A = testUuid("33333333-3333-3333-3333-333333333333");
 
 /**
  * Minimal `BlueprintDoc` with one `patient` case-carrying module

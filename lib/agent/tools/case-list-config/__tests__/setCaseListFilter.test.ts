@@ -19,9 +19,9 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
-	asUuid,
 	type BlueprintDoc,
 	emptyCaseListConfig,
 	type Module,
@@ -191,13 +191,13 @@ describe("setCaseListFilter", () => {
 	it("preserves columns and search inputs when setting filter", async () => {
 		const { doc: baseDoc, ctx } = makeCaseListFixture();
 		const seededColumn = plainColumn(
-			asUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+			testUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
 			"case_name",
 			"Patient",
 			{ sort: { direction: "asc", priority: 0 } },
 		);
 		const seededInput = simpleSearchInputDef(
-			asUuid("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
+			testUuid("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
 			"name_search",
 			"Name",
 			"text",

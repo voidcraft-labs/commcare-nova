@@ -7,12 +7,12 @@
 // the planner's own arithmetic.
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { Mutation } from "@/lib/doc/types";
 import {
-	asUuid,
 	type BlueprintDoc,
 	type Column,
 	emptyCaseListConfig,
@@ -66,7 +66,7 @@ function docWithColumns(columns: readonly Column[]): {
 
 function column(field: string, header: string, slots: Partial<Column> = {}) {
 	return {
-		...plainColumn(asUuid(`col-${field}`), field, header),
+		...plainColumn(testUuid(`col-${field}`), field, header),
 		...slots,
 	} as Column;
 }
@@ -138,7 +138,7 @@ describe("turning the tile on", () => {
 	it("stays accepted at a full grid of single squares", () => {
 		const columns = Array.from({ length: 144 }, (_unused, index) =>
 			column(`age`, `Field ${index}`),
-		).map((entry, index) => ({ ...entry, uuid: asUuid(`col-${index}`) }));
+		).map((entry, index) => ({ ...entry, uuid: testUuid(`col-${index}`) }));
 		const { doc, moduleUuid } = docWithColumns(columns);
 		const plan = planTileLayoutEnable({
 			moduleUuid,
@@ -212,7 +212,7 @@ describe("joining Results while it is a tile", () => {
 
 		const columns =
 			enabled.nextDoc.modules[moduleUuid]?.caseListConfig?.columns ?? [];
-		const hidden = columns.find((entry) => entry.uuid === asUuid("col-age"));
+		const hidden = columns.find((entry) => entry.uuid === testUuid("col-age"));
 		expect(hidden).toBeDefined();
 		if (hidden === undefined) return;
 

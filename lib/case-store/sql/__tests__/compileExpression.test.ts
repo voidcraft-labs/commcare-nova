@@ -36,7 +36,8 @@ import {
 	sql,
 } from "kysely";
 import { describe, expect, it } from "vitest";
-import { asUuid } from "@/lib/doc/types";
+import { testUuid } from "@/__tests__/helpers/uuid";
+
 import type { CaseType } from "@/lib/domain";
 import {
 	actingUser,
@@ -199,7 +200,7 @@ describe("compileExpression — term arm", () => {
 	});
 
 	it("binds a multi-select form answer as JSONB rather than a Postgres array", () => {
-		const fieldUuid = asUuid("44444444-4444-4444-8444-444444444444");
+		const fieldUuid = testUuid("44444444-4444-4444-8444-444444444444");
 		const compiled = compileExpression_(
 			compileExpression(
 				term(formField(fieldUuid)),
@@ -271,7 +272,7 @@ describe("compileExpression — case-operation owner values", () => {
 });
 
 describe("compileExpression — case-operation id", () => {
-	const operationUuid = asUuid("11111111-1111-4111-8111-111111111111");
+	const operationUuid = testUuid("11111111-1111-4111-8111-111111111111");
 
 	it("resolves an earlier create id from the operationIds binding map", () => {
 		const compiled = compileExpression_(

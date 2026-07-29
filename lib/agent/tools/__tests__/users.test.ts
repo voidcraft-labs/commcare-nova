@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import type { Mutation } from "@/lib/doc/types";
-import { asUuid, type BlueprintDoc } from "@/lib/domain";
+import type { BlueprintDoc } from "@/lib/domain";
 import { eq, literal, sessionUserProperty } from "@/lib/domain/predicate";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import {
@@ -358,7 +359,7 @@ describe("user authoring tools", () => {
 	});
 
 	it("refuses to remove referenced worker information without committing", async () => {
-		const propertyUuid = asUuid("worker-region");
+		const propertyUuid = testUuid("worker-region");
 		const doc = buildDoc({
 			modules: [
 				{
@@ -578,7 +579,7 @@ describe("user authoring tools", () => {
 		const { ctx, recordMutations } = makeCtx();
 
 		const result = await execute(
-			{ uuid: asUuid("constructor"), name: "Forged" },
+			{ uuid: testUuid("constructor"), name: "Forged" },
 			ctx,
 			emptyDoc(),
 		);

@@ -1,5 +1,6 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	enableCaseSearchMutation,
 	legacyCompatibleCaseSearchConfig,
@@ -8,7 +9,6 @@ import {
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
 import {
-	asUuid,
 	type BlueprintDoc,
 	type CaseSearchConfig,
 	effectiveCaseSearchConfig,
@@ -17,8 +17,8 @@ import {
 	normalizeOwnerOnlyCaseSearchConfig,
 } from "@/lib/domain";
 
-const MODULE = asUuid("10000000-0000-4000-8000-000000000001");
-const INPUT = asUuid("20000000-0000-4000-8000-000000000001");
+const MODULE = testUuid("10000000-0000-4000-8000-000000000001");
+const INPUT = testUuid("20000000-0000-4000-8000-000000000001");
 const OWNER_EXPRESSION = {
 	kind: "term" as const,
 	term: { kind: "literal" as const, value: "owner-a" },

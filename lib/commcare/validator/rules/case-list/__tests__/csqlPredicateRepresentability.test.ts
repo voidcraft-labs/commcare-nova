@@ -1,3 +1,4 @@
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * CSQL is narrower than Nova's predicate AST: a server-side case-search
@@ -11,7 +12,7 @@ import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { emitCsql } from "@/lib/commcare/predicate";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
-import { advancedSearchInputDef, asUuid, plainColumn } from "@/lib/domain";
+import { advancedSearchInputDef, plainColumn } from "@/lib/domain";
 import {
 	ancestorPath,
 	arith,
@@ -89,9 +90,9 @@ function docWithFilter(
 				name: "Clients",
 				caseType: "patient",
 				caseListConfig: {
-					columns: [plainColumn(asUuid("column-name"), "case_name", "Name")],
-					listColumnOrder: [asUuid("column-name")],
-					detailColumnOrder: [asUuid("column-name")],
+					columns: [plainColumn(testUuid("column-name"), "case_name", "Name")],
+					listColumnOrder: [testUuid("column-name")],
+					detailColumnOrder: [testUuid("column-name")],
 					filter,
 					searchInputs: [],
 				},
@@ -118,12 +119,12 @@ function docWithAdvancedPredicate(predicate: Predicate) {
 				name: "Clients",
 				caseType: "patient",
 				caseListConfig: {
-					columns: [plainColumn(asUuid("column-name"), "case_name", "Name")],
-					listColumnOrder: [asUuid("column-name")],
-					detailColumnOrder: [asUuid("column-name")],
+					columns: [plainColumn(testUuid("column-name"), "case_name", "Name")],
+					listColumnOrder: [testUuid("column-name")],
+					detailColumnOrder: [testUuid("column-name")],
 					searchInputs: [
 						advancedSearchInputDef(
-							asUuid("input-condition"),
+							testUuid("input-condition"),
 							"condition_value",
 							"Condition value",
 							"text",
@@ -429,7 +430,7 @@ describe("csqlPredicateRepresentability", () => {
 	});
 
 	it("attributes advanced-input findings to the stable input identity", () => {
-		const inputUuid = asUuid("input-score");
+		const inputUuid = testUuid("input-score");
 		const doc = buildDoc({
 			appName: "Clinic",
 			modules: [
@@ -438,9 +439,11 @@ describe("csqlPredicateRepresentability", () => {
 					name: "Clients",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("column-name"), "case_name", "Name")],
-						listColumnOrder: [asUuid("column-name")],
-						detailColumnOrder: [asUuid("column-name")],
+						columns: [
+							plainColumn(testUuid("column-name"), "case_name", "Name"),
+						],
+						listColumnOrder: [testUuid("column-name")],
+						detailColumnOrder: [testUuid("column-name")],
 						filter: eq(prop("patient", "age"), prop("patient", "score")),
 						searchInputs: [
 							advancedSearchInputDef(

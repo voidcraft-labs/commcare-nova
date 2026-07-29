@@ -1,5 +1,8 @@
 // @vitest-environment happy-dom
 
+import { renderHook } from "@testing-library/react";
+import { act } from "react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 /**
  * Tests for `useAppTreeSelection` — the dispatcher the AppTree row
  * components invoke when the user clicks a tree item.
@@ -14,11 +17,8 @@
  * The routing module + the scroll registry are both mocked so the hook
  * can be tested in isolation from the full builder provider stack.
  */
-import { renderHook } from "@testing-library/react";
-import { act } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { useAppTreeSelection } from "@/components/builder/appTree/useAppTreeSelection";
-import { asUuid } from "@/lib/doc/types";
 
 /**
  * The navigate mock captures every dispatch so assertions can verify
@@ -69,7 +69,7 @@ describe("useAppTreeSelection", () => {
 
 	it("dispatches `module` → navigate.openModule with the uuid", () => {
 		const { result } = renderHook(() => useAppTreeSelection());
-		const moduleUuid = asUuid("mod-1");
+		const moduleUuid = testUuid("mod-1");
 		act(() => result.current({ kind: "module", moduleUuid }));
 		expect(navigateMock.openModule).toHaveBeenCalledOnce();
 		expect(navigateMock.openModule).toHaveBeenCalledWith(moduleUuid);
@@ -80,7 +80,7 @@ describe("useAppTreeSelection", () => {
 		// The tree's Case List & Search node is the workspace's single
 		// entry point — pinning the dispatch keeps it reachable.
 		const { result } = renderHook(() => useAppTreeSelection());
-		const moduleUuid = asUuid("mod-1");
+		const moduleUuid = testUuid("mod-1");
 		act(() => result.current({ kind: "cases", moduleUuid }));
 		expect(navigateMock.openCaseList).toHaveBeenCalledOnce();
 		expect(navigateMock.openCaseList).toHaveBeenCalledWith(moduleUuid);
@@ -89,8 +89,8 @@ describe("useAppTreeSelection", () => {
 
 	it("dispatches `form` → navigate.openForm with module + form uuids", () => {
 		const { result } = renderHook(() => useAppTreeSelection());
-		const moduleUuid = asUuid("mod-1");
-		const formUuid = asUuid("form-1");
+		const moduleUuid = testUuid("mod-1");
+		const formUuid = testUuid("form-1");
 		act(() => result.current({ kind: "form", moduleUuid, formUuid }));
 		expect(navigateMock.openForm).toHaveBeenCalledOnce();
 		expect(navigateMock.openForm).toHaveBeenCalledWith(moduleUuid, formUuid);
@@ -99,9 +99,9 @@ describe("useAppTreeSelection", () => {
 
 	it("dispatches `field` → setPending BEFORE navigate.openForm", () => {
 		const { result } = renderHook(() => useAppTreeSelection());
-		const moduleUuid = asUuid("mod-1");
-		const formUuid = asUuid("form-1");
-		const fieldUuid = asUuid("q-1");
+		const moduleUuid = testUuid("mod-1");
+		const formUuid = testUuid("form-1");
+		const fieldUuid = testUuid("q-1");
 
 		act(() =>
 			result.current({ kind: "field", moduleUuid, formUuid, fieldUuid }),

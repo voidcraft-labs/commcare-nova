@@ -11,8 +11,9 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
-import { asUuid, type BlueprintDoc, simpleSearchInputDef } from "@/lib/domain";
+import { type BlueprintDoc, simpleSearchInputDef } from "@/lib/domain";
 import { reorderSearchInputsTool } from "../reorderSearchInputs";
 import { MOD_A, makeCaseListFixture } from "./fixtures";
 
@@ -28,9 +29,9 @@ beforeEach(() => {
 	vi.clearAllMocks();
 });
 
-const A = asUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
-const B = asUuid("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
-const C = asUuid("cccccccc-cccc-cccc-cccc-cccccccccccc");
+const A = testUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+const B = testUuid("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+const C = testUuid("cccccccc-cccc-cccc-cccc-cccccccccccc");
 
 function fixtureWithThreeInputs(): BlueprintDoc {
 	const { doc } = makeCaseListFixture();
@@ -121,7 +122,7 @@ describe("reorderSearchInputs", () => {
 	it("returns an Elm-style error on unknown uuid in the request", async () => {
 		const { ctx } = makeCaseListFixture();
 		const doc = fixtureWithThreeInputs();
-		const unknown = asUuid("dddddddd-dddd-dddd-dddd-dddddddddddd");
+		const unknown = testUuid("dddddddd-dddd-dddd-dddd-dddddddddddd");
 		const result = await reorderSearchInputsTool.execute(
 			{ moduleIndex: 0, searchInputUuids: [A, B, unknown] },
 			ctx,

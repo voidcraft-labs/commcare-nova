@@ -6,6 +6,7 @@
 // decompose can't carry as rows and assemble must re-seed.
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { applyMutations } from "@/lib/doc/mutations";
 import {
@@ -13,7 +14,6 @@ import {
 	surveyModuleMutations,
 } from "@/lib/doc/scaffolds";
 import {
-	asUuid,
 	type BlueprintDoc,
 	type LookupOptionsSource,
 	personasOf,
@@ -77,9 +77,9 @@ describe("blueprint entity-row round trip", () => {
 	});
 
 	it("preserves a dormant lookup-backed select through entity-row hydration", () => {
-		const moduleUuid = asUuid("10000000-0000-4000-8000-000000000001");
-		const formUuid = asUuid("20000000-0000-4000-8000-000000000001");
-		const fieldUuid = asUuid("30000000-0000-4000-8000-000000000001");
+		const moduleUuid = testUuid("10000000-0000-4000-8000-000000000001");
+		const formUuid = testUuid("20000000-0000-4000-8000-000000000001");
+		const fieldUuid = testUuid("30000000-0000-4000-8000-000000000001");
 		const tableId = "018f3e8a-7b2c-7def-8abc-1234567890ab";
 		const valueColumnId = "018f3e8a-7b2c-7def-8abc-1234567890ad";
 		const labelColumnId = "018f3e8a-7b2c-7def-8abc-1234567890ae";
@@ -190,9 +190,9 @@ describe("blueprint entity-row round trip", () => {
  * rather than always-present empty records.
  */
 describe("the user collections", () => {
-	const PROPERTY = asUuid("a1111111-1111-4111-8111-111111111111");
-	const TYPE = asUuid("a2222222-2222-4222-8222-222222222222");
-	const PERSONA = asUuid("a3333333-3333-4333-8333-333333333333");
+	const PROPERTY = testUuid("a1111111-1111-4111-8111-111111111111");
+	const TYPE = testUuid("a2222222-2222-4222-8222-222222222222");
+	const PERSONA = testUuid("a3333333-3333-4333-8333-333333333333");
 
 	function docWithUsers(): BlueprintDoc {
 		const doc = emptyDoc("rt-users");
@@ -344,7 +344,7 @@ describe("the user collections", () => {
 		const doc = emptyDoc("rt-users-identity-collision");
 		applyMutations(doc, surveyModuleMutations(doc).mutations);
 		const moduleUuid = doc.moduleOrder[0];
-		const aliasKey = asUuid("aliased-property-row-key");
+		const aliasKey = testUuid("aliased-property-row-key");
 		doc.userProperties = {
 			[aliasKey]: {
 				uuid: moduleUuid,
@@ -361,9 +361,9 @@ describe("the user collections", () => {
 	it.each(["__proto__", "constructor"])(
 		"round-trips %s as the own identity of every entity kind",
 		(identity) => {
-			const uuid = asUuid(identity);
-			const parentModule = asUuid("parent-module");
-			const parentForm = asUuid("parent-form");
+			const uuid = testUuid(identity);
+			const parentModule = testUuid("parent-module");
+			const parentForm = testUuid("parent-form");
 			const cases: Array<{
 				kind: string;
 				doc: BlueprintDoc;

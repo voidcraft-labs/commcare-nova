@@ -4,18 +4,20 @@
  * The event log reader validates persisted mutation payloads via this
  * schema, so every new mutation variant needs a fixture here.
  */
+
 import { describe, expect, it } from "vitest";
-import { asUuid, type Mutation, mutationSchema } from "@/lib/doc/types";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { type Mutation, mutationSchema } from "@/lib/doc/types";
 import type { Field, Form, Module } from "@/lib/domain";
 import { emptyCaseListConfig } from "@/lib/domain";
 import { eq, literal, sessionUser } from "@/lib/domain/predicate";
 
 // Shared fixtures — stable UUIDs so failures point at specific payloads.
-const moduleUuid = asUuid("11111111-1111-1111-1111-111111111111");
-const formUuid = asUuid("22222222-2222-2222-2222-222222222222");
-const fieldUuid = asUuid("33333333-3333-3333-3333-333333333333");
-const otherModuleUuid = asUuid("44444444-4444-4444-4444-444444444444");
-const otherFieldUuid = asUuid("55555555-5555-5555-5555-555555555555");
+const moduleUuid = testUuid("11111111-1111-1111-1111-111111111111");
+const formUuid = testUuid("22222222-2222-2222-2222-222222222222");
+const fieldUuid = testUuid("33333333-3333-3333-3333-333333333333");
+const otherModuleUuid = testUuid("44444444-4444-4444-4444-444444444444");
+const otherFieldUuid = testUuid("55555555-5555-5555-5555-555555555555");
 
 const module_: Module = {
 	uuid: moduleUuid,
@@ -61,7 +63,7 @@ describe("mutationSchema round-trip", () => {
 		});
 
 		it("addModule carrying a case list", () => {
-			const columnUuid = asUuid("66666666-6666-6666-6666-666666666666");
+			const columnUuid = testUuid("66666666-6666-6666-6666-666666666666");
 			expectRoundTrip({
 				kind: "addModule",
 				module: {
@@ -167,7 +169,7 @@ describe("mutationSchema round-trip", () => {
 		});
 
 		it("updateModule replaces a whole case list, sequences included", () => {
-			const columnUuid = asUuid("66666666-6666-6666-6666-666666666666");
+			const columnUuid = testUuid("66666666-6666-6666-6666-666666666666");
 			expectRoundTrip({
 				kind: "updateModule",
 				uuid: moduleUuid,
@@ -368,7 +370,7 @@ describe("mutationSchema round-trip", () => {
 	});
 
 	describe("case-list column surface order", () => {
-		const columnUuid = asUuid("66666666-6666-6666-6666-666666666666");
+		const columnUuid = testUuid("66666666-6666-6666-6666-666666666666");
 		const column = {
 			uuid: columnUuid,
 			kind: "plain" as const,
@@ -635,7 +637,7 @@ describe("mutationSchema round-trip", () => {
 	});
 
 	describe("Search-input rename compatibility", () => {
-		const inputUuid = asUuid("77777777-7777-4777-8777-777777777777");
+		const inputUuid = testUuid("77777777-7777-4777-8777-777777777777");
 
 		it("carries the desired name outside the origin-compatible row", () => {
 			expectRoundTrip({

@@ -25,9 +25,9 @@
 
 import { produce } from "immer";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { applyMutations } from "@/lib/doc/mutations";
-import type { Field, Form, Module } from "@/lib/domain";
-import { asUuid, type BlueprintDoc } from "@/lib/domain";
+import type { BlueprintDoc, Field, Form, Module } from "@/lib/domain";
 import type { GenerationContext } from "../generationContext";
 import { createSolutionsArchitect } from "../solutionsArchitect";
 import { makeTestContext } from "./fixtures";
@@ -66,9 +66,9 @@ vi.mock("@/lib/db/apps", () => ({
 	commitGuardedBatch: commitGuardedBatchMock,
 }));
 
-const MOD = asUuid("11111111-1111-1111-1111-111111111111");
-const FORM = asUuid("22222222-2222-2222-2222-222222222222");
-const SEED_FIELD = asUuid("33333333-3333-3333-3333-333333333333");
+const MOD = testUuid("11111111-1111-1111-1111-111111111111");
+const FORM = testUuid("22222222-2222-2222-2222-222222222222");
+const SEED_FIELD = testUuid("33333333-3333-3333-3333-333333333333");
 
 /** A doc with one module + one registration form + one seed field, so
  *  the test's two new addFields calls land on a real form. */

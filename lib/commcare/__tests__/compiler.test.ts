@@ -4,6 +4,7 @@ import { join } from "node:path";
 import AdmZip from "adm-zip";
 import { Parser } from "htmlparser2";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
@@ -11,7 +12,6 @@ import { runValidation } from "@/lib/commcare/validator/runner";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
 	advancedSearchInputDef,
-	asUuid,
 	simpleSearchInputDef,
 	type TileCell,
 	tileCell,
@@ -148,7 +148,7 @@ describe("compileCcz", () => {
 		const config = caseListConfig([{ field: "case_name", header: "Name" }]);
 		config.searchInputs = [
 			simpleSearchInputDef(
-				asUuid("00000000-0000-4000-8000-00000000a001"),
+				testUuid("00000000-0000-4000-8000-00000000a001"),
 				"case_name",
 				"Name",
 				"text",
@@ -241,7 +241,7 @@ describe("compileCcz", () => {
 		]);
 		config.searchInputs = [
 			advancedSearchInputDef(
-				asUuid("00000000-0000-4000-8000-00000000a002"),
+				testUuid("00000000-0000-4000-8000-00000000a002"),
 				"base_date",
 				"Starting date",
 				"date",
@@ -304,21 +304,21 @@ describe("compileCcz", () => {
 		]);
 		config.searchInputs = [
 			simpleSearchInputDef(
-				asUuid("00000000-0000-4000-8000-00000000a003"),
+				testUuid("00000000-0000-4000-8000-00000000a003"),
 				"visit_date",
 				"Visit day",
 				"date",
 				"visit_date",
 			),
 			simpleSearchInputDef(
-				asUuid("00000000-0000-4000-8000-00000000a005"),
+				testUuid("00000000-0000-4000-8000-00000000a005"),
 				"last_seen",
 				"Last seen day",
 				"date",
 				"last_seen",
 			),
 			simpleSearchInputDef(
-				asUuid("00000000-0000-4000-8000-00000000a006"),
+				testUuid("00000000-0000-4000-8000-00000000a006"),
 				"date_opened",
 				"Date opened",
 				"date",
@@ -401,7 +401,7 @@ describe("compileCcz", () => {
 		]);
 		config.searchInputs = [
 			advancedSearchInputDef(
-				asUuid("00000000-0000-4000-8000-00000000a004"),
+				testUuid("00000000-0000-4000-8000-00000000a004"),
 				"base_date",
 				"Starting date",
 				"date",
@@ -869,8 +869,8 @@ describe("compileCcz", () => {
 									condition: "/data/refer = 'yes'",
 									target: {
 										type: "form",
-										moduleUuid: asUuid(moduleUuid),
-										formUuid: asUuid(followupUuid),
+										moduleUuid: testUuid(moduleUuid),
+										formUuid: testUuid(followupUuid),
 									},
 								},
 							],

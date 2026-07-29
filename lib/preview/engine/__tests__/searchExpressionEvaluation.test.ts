@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { asUuid, simpleSearchInputDef } from "@/lib/domain";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { simpleSearchInputDef } from "@/lib/domain";
 import {
 	concat,
 	dateAdd,
@@ -84,7 +85,7 @@ describe("preview case-search expression evaluation", () => {
 
 	it("keeps a date widget typed while evaluating dependent date arithmetic", () => {
 		const visitDay = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000104"),
+			testUuid("00000000-0000-4000-8000-000000000104"),
 			"visit_day",
 			"Visit day",
 			"date",
@@ -102,7 +103,7 @@ describe("preview case-search expression evaluation", () => {
 
 	it("evaluates search predicates against live inputs, session values, and an empty preselection case context", () => {
 		const clinicInput = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000103"),
+			testUuid("00000000-0000-4000-8000-000000000103"),
 			"clinic",
 			"Clinic",
 			"text",
@@ -140,7 +141,7 @@ describe("preview case-search expression evaluation", () => {
 		const defaults = resolveSearchInputDefaults(
 			[
 				simpleSearchInputDef(
-					asUuid("00000000-0000-4000-8000-000000000101"),
+					testUuid("00000000-0000-4000-8000-000000000101"),
 					"worker",
 					"Worker",
 					"text",
@@ -148,7 +149,7 @@ describe("preview case-search expression evaluation", () => {
 					{ default: term(sessionContext("userid")) },
 				),
 				simpleSearchInputDef(
-					asUuid("00000000-0000-4000-8000-000000000102"),
+					testUuid("00000000-0000-4000-8000-000000000102"),
 					"visit_date",
 					"Visit date",
 					"date-range",

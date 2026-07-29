@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type { BlueprintDoc } from "@/lib/domain";
-import { asUuid } from "@/lib/domain";
+
 import { buildExpressionReference } from "../expressionReference";
 import { buildSolutionsArchitectPrompt } from "../prompts";
 import { addCaseListColumnsTool } from "../tools/case-list-config/addCaseListColumns";
@@ -427,7 +428,7 @@ const TOOL_CASES: readonly ToolBoundaryCase[] = [
 ];
 
 function editableDoc(): BlueprintDoc {
-	const moduleUuid = asUuid("11111111-1111-1111-1111-111111111111");
+	const moduleUuid = testUuid("11111111-1111-1111-1111-111111111111");
 	return {
 		appId: "app-1",
 		appName: "Test",

@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import {
 	advancedSearchInputDef,
-	asUuid,
 	type CaseSearchConfig,
 	type Column,
 	calculatedColumn,
@@ -30,8 +30,8 @@ import {
 import { caseWorkspaceBoundaryVerdicts } from "../commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "../lookupReferences";
 
-const MODULE_UUID = asUuid("module-clients");
-const CALCULATED_UUID = asUuid("calculated-tags");
+const MODULE_UUID = testUuid("module-clients");
+const CALCULATED_UUID = testUuid("calculated-tags");
 const LOOKUP_TABLE = "00000000-0000-7000-8000-0000000000a1" as LookupTableId;
 const LOOKUP_COLUMN = "10000000-0000-7000-8000-0000000000a1" as LookupColumnId;
 
@@ -52,7 +52,7 @@ function docWith({
 	filter,
 	searchInputs = [],
 	caseSearchConfig,
-	columns = [plainColumn(asUuid("name-column"), "case_name", "Name")],
+	columns = [plainColumn(testUuid("name-column"), "case_name", "Name")],
 }: {
 	readonly filter?: Predicate;
 	readonly searchInputs?: SearchInputDef[];
@@ -142,7 +142,7 @@ describe("caseWorkspaceBoundaryVerdicts", () => {
 			filter: eq(prop("client", "age"), prop("client", "score")),
 			searchInputs: [
 				advancedSearchInputDef(
-					asUuid("score-input"),
+					testUuid("score-input"),
 					"score",
 					"Score",
 					"text",
@@ -151,7 +151,7 @@ describe("caseWorkspaceBoundaryVerdicts", () => {
 			],
 			caseSearchConfig: {},
 			columns: [
-				plainColumn(asUuid("name-column"), "case_name", "Name"),
+				plainColumn(testUuid("name-column"), "case_name", "Name"),
 				calculatedColumn(
 					CALCULATED_UUID,
 					"Tags",
@@ -174,10 +174,10 @@ describe("caseWorkspaceBoundaryVerdicts", () => {
 		// `CASE_LIST_ID_MAPPING_EMPTY_VALUE` is a gating finding the repair
 		// pipeline defers to the owner, so the workspace must surface it —
 		// otherwise export fails naming a column the UI shows as clean.
-		const columnUuid = asUuid("status-mapping-column");
+		const columnUuid = testUuid("status-mapping-column");
 		const doc = docWith({
 			columns: [
-				plainColumn(asUuid("name-column"), "case_name", "Name"),
+				plainColumn(testUuid("name-column"), "case_name", "Name"),
 				idMappingColumn(columnUuid, "case_name", "Status", [
 					idMappingEntry("", "Blank"),
 				]),
@@ -194,10 +194,10 @@ describe("caseWorkspaceBoundaryVerdicts", () => {
 	});
 
 	it("marks a column broken for a duplicate image-map value", () => {
-		const columnUuid = asUuid("flag-image-column");
+		const columnUuid = testUuid("flag-image-column");
 		const doc = docWith({
 			columns: [
-				plainColumn(asUuid("name-column"), "case_name", "Name"),
+				plainColumn(testUuid("name-column"), "case_name", "Name"),
 				imageMapColumn(columnUuid, "case_name", "Flag", [
 					imageMapEntry("open", "asset-a"),
 					imageMapEntry("open", "asset-b"),
@@ -220,7 +220,7 @@ describe("caseWorkspaceBoundaryVerdicts", () => {
 		const doc = docWith({
 			searchInputs: [
 				simpleSearchInputDef(
-					asUuid("age-range-input"),
+					testUuid("age-range-input"),
 					"age",
 					"Age",
 					"text",
@@ -258,7 +258,7 @@ describe("caseWorkspaceBoundaryVerdicts", () => {
 		const doc = docWith({
 			searchInputs: [
 				advancedSearchInputDef(
-					asUuid("historical-lookup-input"),
+					testUuid("historical-lookup-input"),
 					"lookup_query",
 					"Lookup query",
 					"text",

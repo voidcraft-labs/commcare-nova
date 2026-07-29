@@ -18,7 +18,8 @@
 
 import { type Kysely, sql } from "kysely";
 import { beforeEach, describe, expect, it } from "vitest";
-import { asUuid, type CaseOperation, type CaseType } from "@/lib/domain";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import type { CaseOperation, CaseType } from "@/lib/domain";
 import {
 	actingUser,
 	eq,
@@ -69,18 +70,18 @@ const APP_ID = "test-app";
 const PROJECT_A = "project-a";
 const PROJECT_B = "project-b";
 const ACTOR = "worker-1";
-const FORM_UUID = asUuid("66666666-6666-4666-8666-666666666666");
-const VECTOR_OP_UUID = asUuid("44444444-4444-4444-8444-444444444444");
+const FORM_UUID = testUuid("66666666-6666-4666-8666-666666666666");
+const VECTOR_OP_UUID = testUuid("44444444-4444-4444-8444-444444444444");
 const PINNED_VECTOR_PREFIX =
 	"nova-case-v1:9ac52723-445f-54a7-8c1b-7e90c985637b:";
 
-const OP_A = asUuid("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
-const OP_B = asUuid("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
-const OP_C = asUuid("cccccccc-cccc-4ccc-8ccc-cccccccccccc");
-const REPEAT_UUID = asUuid("99999999-9999-4999-8999-999999999999");
-const KEY_FIELD = asUuid("11111111-1111-4111-8111-111111111111");
-const FLAG_FIELD = asUuid("22222222-2222-4222-8222-222222222222");
-const MEDS_FIELD = asUuid("33333333-3333-4333-8333-333333333333");
+const OP_A = testUuid("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+const OP_B = testUuid("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
+const OP_C = testUuid("cccccccc-cccc-4ccc-8ccc-cccccccccccc");
+const REPEAT_UUID = testUuid("99999999-9999-4999-8999-999999999999");
+const KEY_FIELD = testUuid("11111111-1111-4111-8111-111111111111");
+const FLAG_FIELD = testUuid("22222222-2222-4222-8222-222222222222");
+const MEDS_FIELD = testUuid("33333333-3333-4333-8333-333333333333");
 
 const SESSION_CASE_ID = "00000000-0000-7000-8000-00000000aaaa";
 
@@ -237,7 +238,7 @@ function rootProgram(
 				iterations: [
 					{
 						formFields: new Map(
-							(opts?.formFields ?? []).map(([k, v]) => [asUuid(k), v]),
+							(opts?.formFields ?? []).map(([k, v]) => [testUuid(k), v]),
 						),
 					},
 				],

@@ -1,3 +1,4 @@
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * Cross-rule integration tests for the case-list-config validator
@@ -11,7 +12,6 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import {
-	asUuid,
 	calculatedColumn,
 	dateColumn,
 	idMappingEntry,
@@ -36,12 +36,12 @@ describe("case-list validator — cross-rule integration", () => {
 					name: "Mod",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
-						listColumnOrder: [asUuid("col-name")],
-						detailColumnOrder: [asUuid("col-name")],
+						columns: [plainColumn(testUuid("col-name"), "case_name", "Name")],
+						listColumnOrder: [testUuid("col-name")],
+						detailColumnOrder: [testUuid("col-name")],
 						searchInputs: [
 							simpleSearchInputDef(
-								asUuid("si-name-range"),
+								testUuid("si-name-range"),
 								"name_range",
 								"Name range",
 								"text",
@@ -187,15 +187,15 @@ describe("case-list validator — cross-rule integration", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [
-							plainColumn(asUuid("col-name"), "case_name", "Name", {
+							plainColumn(testUuid("col-name"), "case_name", "Name", {
 								sort: { direction: "asc", priority: 0 },
 							}),
 						],
-						listColumnOrder: [asUuid("col-name")],
-						detailColumnOrder: [asUuid("col-name")],
+						listColumnOrder: [testUuid("col-name")],
+						detailColumnOrder: [testUuid("col-name")],
 						searchInputs: [
 							simpleSearchInputDef(
-								asUuid("si-name-search"),
+								testUuid("si-name-search"),
 								"name_search",
 								"Name",
 								"text",
@@ -264,22 +264,22 @@ describe("case-list validator — cross-rule integration", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [
-							plainColumn(asUuid("col-name"), "case_name", "Name"),
+							plainColumn(testUuid("col-name"), "case_name", "Name"),
 							plainColumn(
-								asUuid("col-unknown"),
+								testUuid("col-unknown"),
 								"missing_property",
 								"Old field",
 								dormant,
 							),
 							dateColumn(
-								asUuid("col-wrong-kind"),
+								testUuid("col-wrong-kind"),
 								"case_name",
 								"Old date",
 								"%Y-%m-%d",
 								dormant,
 							),
 							calculatedColumn(
-								asUuid("col-bad-calc"),
+								testUuid("col-bad-calc"),
 								"Old calculation",
 								arith(
 									"+",
@@ -289,14 +289,14 @@ describe("case-list validator — cross-rule integration", () => {
 								dormant,
 							),
 							calculatedColumn(
-								asUuid("col-bare-input"),
+								testUuid("col-bare-input"),
 								"Old input calculation",
 								term(input("missing_search_input")),
 								dormant,
 							),
 							{
 								kind: "id-mapping",
-								uuid: asUuid("col-bad-map"),
+								uuid: testUuid("col-bad-map"),
 								field: "case_name",
 								header: "Old labels",
 								mapping: [idMappingEntry("", "Blank")],
@@ -304,7 +304,7 @@ describe("case-list validator — cross-rule integration", () => {
 							},
 							{
 								kind: "image-map",
-								uuid: asUuid("col-bad-images"),
+								uuid: testUuid("col-bad-images"),
 								field: "case_name",
 								header: "Old images",
 								mapping: [

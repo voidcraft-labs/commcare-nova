@@ -25,14 +25,15 @@
 
 import { fireEvent, render } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
-import { asUuid } from "@/lib/doc/types";
+
 import type { SelectedPreviewIdentityState } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
 import type { Location } from "@/lib/routing/types";
 import type { PreviewCaseTarget } from "@/lib/session/types";
 
-const MODULE_UUID = asUuid("mod-1");
-const FORM_UUID = asUuid("form-1");
+const MODULE_UUID = testUuid("mod-1");
+const FORM_UUID = testUuid("form-1");
 
 // `useLocation` and `useEditMode` are the dispatch knobs; the rest of
 // the routing/session surface is forwarded from the real module.
@@ -347,7 +348,7 @@ describe("PreviewShell — preview case-datum injection", () => {
 		editModeMock.mockReturnValue("preview");
 		locationMock.mockReturnValue(FORM_LOCATION);
 		previewCaseTargetMock.mockReturnValue({
-			formUuid: asUuid("some-other-form"),
+			formUuid: testUuid("some-other-form"),
 			caseId: "case-xyz",
 		});
 		const { getByTestId } = renderShell();

@@ -1,3 +1,4 @@
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import { emptyCaseListConfig } from "@/lib/domain";
 // lib/domain/__tests__/modules.test.ts
@@ -51,12 +52,12 @@ import {
 	simpleSearchInputDef,
 } from "../modules";
 import { eq, literal, sessionUser, term } from "../predicate";
-import { asUuid, type Uuid } from "../uuid";
+import type { Uuid } from "../uuid";
 
 // Sample uuids — sequential nibbles so test failure diffs are easy
 // to read at a glance (each column / input gets a distinct uuid).
 const u = (n: number): Uuid =>
-	asUuid(`00000000-0000-7000-8000-${n.toString(16).padStart(12, "0")}`);
+	testUuid(`00000000-0000-7000-8000-${n.toString(16).padStart(12, "0")}`);
 
 describe("moduleSchema — caseListConfig presence", () => {
 	it("parses a module without caseListConfig (survey-only module)", () => {

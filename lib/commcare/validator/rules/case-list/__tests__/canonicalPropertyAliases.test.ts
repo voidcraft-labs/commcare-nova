@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
-	asUuid,
 	calculatedColumn,
 	plainColumn,
 	simpleSearchInputDef,
@@ -58,9 +58,9 @@ describe("canonical case-property aliases in case-list validation", () => {
 					caseType: "patient",
 					caseListConfig: {
 						columns: [
-							plainColumn(asUuid("name-column"), "case_name", "Name"),
+							plainColumn(testUuid("name-column"), "case_name", "Name"),
 							calculatedColumn(
-								asUuid("legacy-calculation"),
+								testUuid("legacy-calculation"),
 								"Name arithmetic",
 								arith(
 									"+",
@@ -121,12 +121,14 @@ describe("canonical case-property aliases in case-list validation", () => {
 					name: "Patients",
 					caseType: "patient",
 					caseListConfig: {
-						columns: [plainColumn(asUuid("name-column"), "case_name", "Name")],
-						listColumnOrder: [asUuid("name-column")],
-						detailColumnOrder: [asUuid("name-column")],
+						columns: [
+							plainColumn(testUuid("name-column"), "case_name", "Name"),
+						],
+						listColumnOrder: [testUuid("name-column")],
+						detailColumnOrder: [testUuid("name-column")],
 						searchInputs: [
 							simpleSearchInputDef(
-								asUuid("external-id-search"),
+								testUuid("external-id-search"),
 								"external_id_search",
 								"External ID",
 								"date",

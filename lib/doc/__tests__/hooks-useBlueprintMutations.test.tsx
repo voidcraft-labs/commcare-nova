@@ -28,6 +28,7 @@ import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { useContext } from "react";
 import { assert, describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveDocExpressions } from "@/lib/__tests__/docHelpers";
 import {
 	useBlueprintDoc,
@@ -47,8 +48,7 @@ import {
 	BlueprintDocProvider,
 	type BlueprintDocStore,
 } from "@/lib/doc/provider";
-import type { BlueprintDoc } from "@/lib/doc/types";
-import { asUuid, type Uuid } from "@/lib/doc/types";
+import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
 import { asAssetId, type FieldKind } from "@/lib/domain";
 import { toastStore } from "@/lib/ui/toastStore";
 
@@ -56,14 +56,14 @@ import { toastStore } from "@/lib/ui/toastStore";
 // Declared here (not inside the fixture) so tests can reference them
 // without extracting from store state.
 
-const MOD1 = asUuid("module-1-uuid");
-const FORM1 = asUuid("form-1-uuid");
-const FORM2 = asUuid("form-2-uuid");
-const Q_A = asUuid("q-a-0000-0000-0000-000000000000");
-const Q_B = asUuid("q-b-0000-0000-0000-000000000000");
-const Q_G = asUuid("q-g-0000-0000-0000-000000000000");
-const Q_C = asUuid("q-c-0000-0000-0000-000000000000");
-const Q_X = asUuid("q-x-0000-0000-0000-000000000000");
+const MOD1 = testUuid("module-1-uuid");
+const FORM1 = testUuid("form-1-uuid");
+const FORM2 = testUuid("form-2-uuid");
+const Q_A = testUuid("q-a-0000-0000-0000-000000000000");
+const Q_B = testUuid("q-b-0000-0000-0000-000000000000");
+const Q_G = testUuid("q-g-0000-0000-0000-000000000000");
+const Q_C = testUuid("q-c-0000-0000-0000-000000000000");
+const Q_X = testUuid("q-x-0000-0000-0000-000000000000");
 
 /**
  * Normalized `BlueprintDoc` fixture. One module, two forms:
@@ -453,12 +453,12 @@ describe("useBlueprintMutations", () => {
 		// already contains a sibling with the target id. The cascade would
 		// silently create a duplicate sibling id unless the conflict check
 		// scans peer parents too.
-		const CP_M = asUuid("cp-mod-uuid");
-		const CP_F1 = asUuid("cp-form-1-uuid");
-		const CP_F2 = asUuid("cp-form-2-uuid");
-		const CP_PRIMARY = asUuid("cp-primary-uuid");
-		const CP_PEER = asUuid("cp-peer-uuid");
-		const CP_BLOCKER = asUuid("cp-blocker-uuid");
+		const CP_M = testUuid("cp-mod-uuid");
+		const CP_F1 = testUuid("cp-form-1-uuid");
+		const CP_F2 = testUuid("cp-form-2-uuid");
+		const CP_PRIMARY = testUuid("cp-primary-uuid");
+		const CP_PEER = testUuid("cp-peer-uuid");
+		const CP_BLOCKER = testUuid("cp-blocker-uuid");
 
 		const peerDoc: BlueprintDoc = {
 			appId: "t",
@@ -602,7 +602,7 @@ describe("useBlueprintMutations", () => {
 		expect(returned.messages.length).toBeGreaterThan(0);
 		const s = result.current.store?.getState();
 		assert(s);
-		expect(s.forms[asUuid("form-3-uuid")]).toBeUndefined();
+		expect(s.forms[testUuid("form-3-uuid")]).toBeUndefined();
 	});
 
 	it("applyMany lands a new form together with its first field in one gated batch", () => {
@@ -619,7 +619,7 @@ describe("useBlueprintMutations", () => {
 					kind: "addForm",
 					moduleUuid,
 					form: {
-						uuid: asUuid("form-3-uuid"),
+						uuid: testUuid("form-3-uuid"),
 						id: "f2",
 						name: "F2",
 						type: "survey",
@@ -627,9 +627,9 @@ describe("useBlueprintMutations", () => {
 				},
 				{
 					kind: "addField",
-					parentUuid: asUuid("form-3-uuid"),
+					parentUuid: testUuid("form-3-uuid"),
 					field: {
-						uuid: asUuid("q-n-0000-0000-0000-000000000000"),
+						uuid: testUuid("q-n-0000-0000-0000-000000000000"),
 						id: "note",
 						kind: "text",
 						label: "Note",
@@ -640,8 +640,8 @@ describe("useBlueprintMutations", () => {
 
 		const s = result.current.store?.getState();
 		assert(s);
-		expect(s.forms[asUuid("form-3-uuid")]).toBeDefined();
-		expect(s.forms[asUuid("form-3-uuid")].name).toBe("F2");
+		expect(s.forms[testUuid("form-3-uuid")]).toBeDefined();
+		expect(s.forms[testUuid("form-3-uuid")].name).toBe("F2");
 	});
 
 	// ── addModule returns uuid ────────────────────────────────────────────
@@ -1061,10 +1061,10 @@ describe("useBlueprintMutations", () => {
 		// The dep's calculate is an identity-leaf AST — a rename rewrites
 		// NOTHING (the new name arrives at print), so the surfaced count is
 		// zero. The metadata channel itself is what this pins.
-		const MOD4 = asUuid("module-4-uuid");
-		const FORM3 = asUuid("form-3-uuid");
-		const Q_SRC = asUuid("q-src-0000-0000-0000-000000000000");
-		const Q_DEP = asUuid("q-dep-0000-0000-0000-000000000000");
+		const MOD4 = testUuid("module-4-uuid");
+		const FORM3 = testUuid("form-3-uuid");
+		const Q_SRC = testUuid("q-src-0000-0000-0000-000000000000");
+		const Q_DEP = testUuid("q-dep-0000-0000-0000-000000000000");
 		const bpWithRefs: BlueprintDoc = {
 			appId: "t",
 			appName: "Refs",
@@ -1112,7 +1112,7 @@ describe("useBlueprintMutations", () => {
 		} = {};
 		act(() => {
 			captured.value = result.current.renameField(
-				asUuid("q-src-0000-0000-0000-000000000000"),
+				testUuid("q-src-0000-0000-0000-000000000000"),
 				"primary",
 			);
 		});
@@ -1278,7 +1278,7 @@ describe("useBlueprintMutations", () => {
 			expect(() => {
 				act(() => {
 					result.current.mutations.convertField(
-						asUuid("bogus-uuid-convert"),
+						testUuid("bogus-uuid-convert"),
 						"secret" as FieldKind,
 					);
 				});
@@ -1323,27 +1323,30 @@ describe("useBlueprintMutations", () => {
 		expect(() => {
 			act(() => {
 				// Bogus uuids should all silently no-op.
-				result.current.mutations.updateField(asUuid("bogus-uuid"), "text", {
+				result.current.mutations.updateField(testUuid("bogus-uuid"), "text", {
 					label: "x",
 				});
-				result.current.mutations.removeField(asUuid("bogus-uuid"));
-				result.current.mutations.renameField(asUuid("bogus-uuid"), "also_nope");
-				result.current.mutations.moveField(asUuid("bogus-uuid"), {});
-				result.current.mutations.duplicateField(asUuid("bogus-uuid"));
-				result.current.mutations.addField(asUuid("bogus-parent"), {
+				result.current.mutations.removeField(testUuid("bogus-uuid"));
+				result.current.mutations.renameField(
+					testUuid("bogus-uuid"),
+					"also_nope",
+				);
+				result.current.mutations.moveField(testUuid("bogus-uuid"), {});
+				result.current.mutations.duplicateField(testUuid("bogus-uuid"));
+				result.current.mutations.addField(testUuid("bogus-parent"), {
 					id: "should_not_exist",
 					kind: "text",
 					label: "Nope",
 				});
-				result.current.mutations.updateForm(asUuid("bogus-uuid"), {
+				result.current.mutations.updateForm(testUuid("bogus-uuid"), {
 					name: "nope",
 				});
-				result.current.mutations.removeForm(asUuid("bogus-uuid"));
-				result.current.mutations.updateModule(asUuid("bogus-uuid"), {
+				result.current.mutations.removeForm(testUuid("bogus-uuid"));
+				result.current.mutations.updateModule(testUuid("bogus-uuid"), {
 					name: "nope",
 				});
-				result.current.mutations.removeModule(asUuid("bogus-uuid"));
-				result.current.mutations.addForm(asUuid("bogus-module"), {
+				result.current.mutations.removeModule(testUuid("bogus-uuid"));
+				result.current.mutations.addForm(testUuid("bogus-module"), {
 					uuid: "form-6-uuid",
 					id: "nope",
 					name: "nope",
@@ -1392,7 +1395,7 @@ describe("useBlueprintMutations — commit gate", () => {
 		assert(!returned.ok);
 		expect(returned.messages[0]).toContain("doesn't have any fields");
 		const s = result.current.store?.getState();
-		expect(s?.forms[asUuid("form-gated-uuid")]).toBeUndefined();
+		expect(s?.forms[testUuid("form-gated-uuid")]).toBeUndefined();
 		// The rejection surfaced person-to-person, not silently — each
 		// finding rides the toast's structured lines.
 		const toast = toastStore.toasts.at(-1);
@@ -1425,7 +1428,7 @@ describe("useBlueprintMutations — commit gate", () => {
 		assert(!returned.ok);
 		expect(returned.messages[0]).toContain("doesn't have any fields");
 		const s = result.current.store?.getState();
-		expect(s?.forms[asUuid("form-gated-inline-uuid")]).toBeUndefined();
+		expect(s?.forms[testUuid("form-gated-inline-uuid")]).toBeUndefined();
 		// …and the toast stays quiet: one rejection, one presentation.
 		expect(toastStore.toasts).toHaveLength(0);
 	});

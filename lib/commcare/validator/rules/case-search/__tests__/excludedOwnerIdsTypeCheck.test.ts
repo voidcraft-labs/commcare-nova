@@ -1,3 +1,4 @@
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * Contract tests for the assigned-case exclusion expression.
@@ -11,7 +12,6 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import {
-	asUuid,
 	plainColumn,
 	type SearchInputDef,
 	simpleSearchInputDef,
@@ -47,9 +47,9 @@ function docWithExpression(
 				name: "Patients",
 				caseType: "patient",
 				caseListConfig: {
-					columns: [plainColumn(asUuid("col-name"), "case_name", "Name")],
-					listColumnOrder: [asUuid("col-name")],
-					detailColumnOrder: [asUuid("col-name")],
+					columns: [plainColumn(testUuid("col-name"), "case_name", "Name")],
+					listColumnOrder: [testUuid("col-name")],
+					detailColumnOrder: [testUuid("col-name")],
 					searchInputs: [...searchInputs],
 				},
 				...(expression === undefined
@@ -149,7 +149,7 @@ describe("excludedOwnerIdsTypeCheck", () => {
 
 	it("retains literals, current-user/session values, Search answers, and pure calculations", () => {
 		const searchInput = simpleSearchInputDef(
-			asUuid("owner-input"),
+			testUuid("owner-input"),
 			"owner_ids",
 			"Owner IDs",
 			"text",

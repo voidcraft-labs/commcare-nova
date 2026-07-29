@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
 import {
 	advancedSearchInputDef,
-	asUuid,
 	SEARCH_INPUT_RUNTIME_VALUE_TYPES,
 	simpleSearchInputDef,
 } from "@/lib/domain";
@@ -24,28 +24,28 @@ describe("moduleTypeContext search-input runtime values", () => {
 		const config = caseListConfig([]);
 		config.searchInputs = [
 			simpleSearchInputDef(
-				asUuid("00000000-0000-4000-8000-00000000b001"),
+				testUuid("00000000-0000-4000-8000-00000000b001"),
 				"simple_date",
 				"Simple date",
 				"date",
 				"seen_at",
 			),
 			advancedSearchInputDef(
-				asUuid("00000000-0000-4000-8000-00000000b002"),
+				testUuid("00000000-0000-4000-8000-00000000b002"),
 				"advanced_date",
 				"Advanced date",
 				"date",
 				matchAll(),
 			),
 			simpleSearchInputDef(
-				asUuid("00000000-0000-4000-8000-00000000b003"),
+				testUuid("00000000-0000-4000-8000-00000000b003"),
 				"simple_range",
 				"Simple range",
 				"date-range",
 				"visit_date",
 			),
 			advancedSearchInputDef(
-				asUuid("00000000-0000-4000-8000-00000000b004"),
+				testUuid("00000000-0000-4000-8000-00000000b004"),
 				"advanced_range",
 				"Advanced range",
 				"date-range",

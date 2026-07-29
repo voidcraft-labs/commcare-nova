@@ -1,3 +1,4 @@
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 // @vitest-environment happy-dom
@@ -18,7 +19,6 @@ import { applyMutations as replayMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	advancedSearchInputDef,
-	asUuid,
 	type BlueprintDoc,
 	type CaseListConfig,
 	type CaseSearchConfig,
@@ -51,7 +51,7 @@ import {
 import { searchInputRemovalDependencies } from "../searchInputRemovalDependencies";
 
 interface MutableWorkspaceModule {
-	uuid: ReturnType<typeof asUuid>;
+	uuid: ReturnType<typeof testUuid>;
 	id: string;
 	name: string;
 	caseType: string;
@@ -347,7 +347,7 @@ vi.mock("../configValidity", () => ({
 	}),
 }));
 
-const MODULE_UUID = asUuid("00000000-0000-4000-8000-000000000001");
+const MODULE_UUID = testUuid("00000000-0000-4000-8000-000000000001");
 
 /* The workspace is now split: a shared controller (mounted by
  * `CaseListWorkspaceProvider`, reading the URL) feeds the center canvas and the
@@ -373,7 +373,7 @@ function CaseListConfigWorkspace({
 	moduleUuid,
 	tab,
 }: {
-	moduleUuid: ReturnType<typeof asUuid>;
+	moduleUuid: ReturnType<typeof testUuid>;
 	tab: CaseListWorkspaceTab;
 }) {
 	harness.moduleUuid = moduleUuid;
@@ -385,11 +385,11 @@ function CaseListConfigWorkspace({
 		</CaseListWorkspaceProvider>
 	);
 }
-const FIRST_UUID = asUuid("00000000-0000-4000-8000-000000000011");
-const SECOND_UUID = asUuid("00000000-0000-4000-8000-000000000012");
-const COLUMN_UUID = asUuid("00000000-0000-4000-8000-000000000021");
-const SECOND_COLUMN_UUID = asUuid("00000000-0000-4000-8000-000000000022");
-const PEER_COLUMN_UUID = asUuid("00000000-0000-4000-8000-000000000023");
+const FIRST_UUID = testUuid("00000000-0000-4000-8000-000000000011");
+const SECOND_UUID = testUuid("00000000-0000-4000-8000-000000000012");
+const COLUMN_UUID = testUuid("00000000-0000-4000-8000-000000000021");
+const SECOND_COLUMN_UUID = testUuid("00000000-0000-4000-8000-000000000022");
+const PEER_COLUMN_UUID = testUuid("00000000-0000-4000-8000-000000000023");
 const NAME_COLUMN: Column = {
 	uuid: COLUMN_UUID,
 	kind: "plain",
@@ -1098,7 +1098,7 @@ describe("Search field removal", () => {
 		]);
 
 		const peerInput = input(
-			asUuid("00000000-0000-4000-8000-000000000013"),
+			testUuid("00000000-0000-4000-8000-000000000013"),
 			"peer_added",
 			"Peer-added search",
 		);

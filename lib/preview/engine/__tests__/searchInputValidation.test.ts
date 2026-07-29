@@ -1,10 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
-import {
-	advancedSearchInputDef,
-	asUuid,
-	type CaseListConfig,
-} from "@/lib/domain";
+import { advancedSearchInputDef, type CaseListConfig } from "@/lib/domain";
 import {
 	and,
 	concat,
@@ -29,9 +26,9 @@ import {
 	searchInputSubmissionErrors,
 } from "../searchInputValidation";
 
-const FIRST = asUuid("00000000-0000-0000-0000-0000000000a1");
-const SECOND = asUuid("00000000-0000-0000-0000-0000000000a2");
-const THIRD = asUuid("00000000-0000-0000-0000-0000000000a3");
+const FIRST = testUuid("00000000-0000-0000-0000-0000000000a1");
+const SECOND = testUuid("00000000-0000-0000-0000-0000000000a2");
+const THIRD = testUuid("00000000-0000-0000-0000-0000000000a3");
 
 function locationInput(uuid: typeof FIRST, name: string, property: string) {
 	return advancedSearchInputDef(

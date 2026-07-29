@@ -7,9 +7,9 @@
 // comes back intact).
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type { Mutation } from "@/lib/doc/types";
 import {
-	asUuid,
 	type CaseListConfig,
 	type Column,
 	emptyCaseListConfig,
@@ -26,14 +26,14 @@ import {
 } from "../tile/tileMutationPlan";
 import { TILE_PRESETS } from "../tile/tilePresets";
 
-const MODULE = asUuid("module-1");
+const MODULE = testUuid("module-1");
 
 function column(
 	id: string,
 	header: string,
 	slots: Partial<Column> = {},
 ): Column {
-	return { ...plainColumn(asUuid(id), id, header), ...slots } as Column;
+	return { ...plainColumn(testUuid(id), id, header), ...slots } as Column;
 }
 
 /**
@@ -315,7 +315,7 @@ describe("planTilePlaceField", () => {
 				}),
 				column("village", "Village"),
 			]),
-			uuid: asUuid("village"),
+			uuid: testUuid("village"),
 		});
 		expect(plan.ok).toBe(true);
 		if (!plan.ok) return;
@@ -333,7 +333,7 @@ describe("planTilePlaceField", () => {
 				}),
 				column("village", "Village"),
 			]),
-			uuid: asUuid("village"),
+			uuid: testUuid("village"),
 		});
 		expect(plan.ok).toBe(false);
 		expect(plan.ok === false && plan.reason).toBe(
