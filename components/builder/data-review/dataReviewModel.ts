@@ -5,6 +5,10 @@
 // it never re-derives a verdict (those are computed server-side
 // against the property's current declaration).
 
+import {
+	storageDatetimeValue,
+	storageTimeValue,
+} from "@/lib/domain/temporalValues";
 import type {
 	CasePropertyDataType,
 	JsonValue,
@@ -162,20 +166,25 @@ export function standingPhrase(
 /**
  * Normalize a Replace-editor draft into the typed value the property's
  * CURRENT declaration stores, or report it not-submittable (empty,
- * malformed, or a shape the control can't hand over). The temporal
- * arms stamp the explicit UTC designator the strict row schema
- * requires (`format: "time"` / `"date-time"` demand an offset; Nova
- * authors no app timezone, so an offset-less value reads as UTC — the
- * same stance the cast matrix and the sample generator take), and
- * they parse strictly because the time half is HAND-TYPED (the date
- * half comes from the Calendar picker as `YYYY-MM-DD`). The server's
- * schema validation remains the authority — a value this function
- * admits can still come back as the typed `invalid-value` arm (e.g. a
- * geopoint that misses the pattern).
+ * malformed, or a shape the control can't hand over). The temporal arms
+ * hand off to `lib/domain/temporalValues.ts`, which owns what the strict
+ * row schema requires on top of CommCare's own shapes; they parse
+ * strictly because the time half is HAND-TYPED (the date half comes from
+ * the Calendar picker as `YYYY-MM-DD`). The server's schema validation
+ * remains the authority — a value this function admits can still come
+ * back as the typed `invalid-value` arm (e.g. a geopoint that misses the
+ * pattern).
+ *
+ * `zone` is the editing viewer's timezone, for the same reason the form
+ * engine passes one: a datetime someone types here lands in the property a
+ * form answer lands in, and the viewer-local `format-date` renders both. A
+ * value put back through this editor must not read an offset away from the
+ * identical value entered through a form.
  */
 export function replacementDraftToValue(
 	dataType: CasePropertyDataType,
 	draft: string | readonly string[],
+	zone = "UTC",
 ): { ok: true; value: JsonValue } | { ok: false } {
 	if (Array.isArray(draft)) {
 		if (dataType !== "multi_select" || draft.length === 0) return { ok: false };
@@ -195,7 +204,7 @@ export function replacementDraftToValue(
 		case "time": {
 			const clock = parseClockTime(text);
 			if (clock === null) return { ok: false };
-			return { ok: true, value: `${clock}Z` };
+			return { ok: true, value: storageTimeValue(clock) };
 		}
 		case "datetime": {
 			// The draft carries `<calendar date>T<typed time>`; either half
@@ -204,7 +213,10 @@ export function replacementDraftToValue(
 			if (match === null) return { ok: false };
 			const clock = parseClockTime(match[2] as string);
 			if (clock === null) return { ok: false };
-			return { ok: true, value: `${match[1]}T${clock}Z` };
+			return {
+				ok: true,
+				value: storageDatetimeValue(`${match[1]}T${clock}`, zone),
+			};
 		}
 		case "multi_select":
 			return { ok: false };

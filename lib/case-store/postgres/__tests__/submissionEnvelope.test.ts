@@ -2535,10 +2535,31 @@ describe("storageValueFromEvaluation", () => {
 		);
 	});
 
-	it("suffixes an offset-less pg time as UTC, keeping explicit offsets", () => {
-		expect(storageValueFromEvaluation("05:12:11", "time")).toBe("05:12:11Z");
+	it("tags an offset-less pg time for storage, keeping explicit offsets", () => {
+		// The wire's time answer is a wall clock with three fractional
+		// digits and no zone (`TimeData::uncast`); the `Z` is the tag the
+		// strict `format: "time"` schema requires on top of it.
+		expect(storageValueFromEvaluation("05:12:11", "time")).toBe(
+			"05:12:11.000Z",
+		);
 		expect(storageValueFromEvaluation("05:12:11+02:00", "time")).toBe(
-			"05:12:11+02:00",
+			"05:12:11.000+02:00",
+		);
+	});
+
+	it("stamps a naive datetime answer with the submitting viewer's zone", () => {
+		// A string (rather than a pg `Date`) is a form answer's wall clock,
+		// and the device stamps the zone it was entered in. Without a zone
+		// the caller gets the deterministic UTC reading.
+		expect(
+			storageValueFromEvaluation(
+				"2026-07-24T05:12:11",
+				"datetime",
+				"America/New_York",
+			),
+		).toBe("2026-07-24T05:12:11.000-04:00");
+		expect(storageValueFromEvaluation("2026-07-24T05:12:11", "datetime")).toBe(
+			"2026-07-24T05:12:11.000Z",
 		);
 	});
 

@@ -229,6 +229,81 @@ describe("FormEngine", () => {
 			expect(engine.getState("/data/case_name").value).toBe("Alice");
 			expect(engine.getState("/data/age").value).toBe("30");
 		});
+
+		it("strips the time storage tag so a saved wall clock comes back whole", () => {
+			// The store keeps a time tagged with the `Z` its strict schema
+			// demands; the instance holds the bare wall clock the device's
+			// `TimeData` holds. Preloading the stored spelling verbatim
+			// would hand the question a value it cannot display — which is
+			// what a native `<input type="time">` silently blanked.
+			const input = dTree(
+				[
+					{ id: "case_name", kind: "text", case_property_on: "patient" },
+					{ id: "wake_time", kind: "time", case_property_on: "patient" },
+					{ id: "last_seen", kind: "datetime", case_property_on: "patient" },
+				],
+				"followup",
+			);
+
+			const caseData = caseDataFor("patient", [
+				["case_name", "Alice"],
+				["wake_time", "07:30:00.000Z"],
+				["last_seen", "2026-05-06T12:34:56.000-04:00"],
+			]);
+			const engine = new FormEngine(input, "patient", caseData);
+
+			expect(engine.getState("/data/wake_time").value).toBe("07:30:00.000");
+			// A datetime is stored in exactly the shape the instance wants,
+			// so it must NOT be rewritten on the way in.
+			expect(engine.getState("/data/last_seen").value).toBe(
+				"2026-05-06T12:34:56.000-04:00",
+			);
+		});
+
+		it("round-trips a time from submission through preload unchanged", () => {
+			const roundTripCaseTypes: CaseType[] = [
+				{
+					name: "patient",
+					properties: [
+						{ name: "case_name", label: "Name", data_type: "text" },
+						{ name: "wake_time", label: "Wake time", data_type: "time" },
+					],
+				},
+			];
+			const registration = dTree([
+				{ id: "case_name", kind: "text", case_property_on: "patient" },
+				{ id: "wake_time", kind: "time", case_property_on: "patient" },
+			]);
+			const writer = new FormEngine(registration, "patient");
+			writer.setValue("/data/case_name", "Alice");
+			writer.setValue("/data/wake_time", "07:30:00.000");
+			const mutation = writer.computeSubmissionMutation({
+				caseTypes: roundTripCaseTypes,
+				entryKey: ENTRY_KEY,
+				viewerTimeZone: "America/New_York",
+			});
+			if (mutation.kind !== "registration")
+				throw new Error("expected register");
+			const stored = mutation.primary.properties.wake_time;
+
+			const followup = dTree(
+				[
+					{ id: "case_name", kind: "text", case_property_on: "patient" },
+					{ id: "wake_time", kind: "time", case_property_on: "patient" },
+				],
+				"followup",
+			);
+			const reader = new FormEngine(
+				followup,
+				"patient",
+				caseDataFor("patient", [
+					["case_name", "Alice"],
+					["wake_time", String(stored)],
+				]),
+			);
+
+			expect(reader.getState("/data/wake_time").value).toBe("07:30:00.000");
+		});
 	});
 
 	describe("default_value", () => {
@@ -1296,8 +1371,9 @@ describe("FormEngine", () => {
 				{ name: "weight", label: "Weight", data_type: "decimal" },
 				{ name: "tags", label: "Tags", data_type: "multi_select" },
 				{ name: "notes", label: "Notes", data_type: "text" },
-				// String-passthrough data types — the coercion layer
-				// returns the raw string for each. Declared on the
+				// The remaining scalar data types. `date`, `geopoint`, and
+				// `single_select` pass through untouched; `time` and
+				// `datetime` cross the storage boundary. Declared on the
 				// canonical `patient` case-type so the per-type coercion
 				// tests below match a real property declaration rather
 				// than tripping the unknown-property fallthrough.
@@ -1945,13 +2021,14 @@ describe("FormEngine", () => {
 				expect(mutation.primary.properties.age).toBe("not-a-number");
 			});
 
-			// String-passthrough data types: `date`, `datetime`, `time`,
-			// `geopoint`, and `single_select` all return the raw string
-			// from the coercion layer (verbatim from `caseTypeToJsonSchema`'s
-			// type-mapping). The wire shape is the user-typed value;
-			// AJV's `format` keyword validates it at insert time. These
-			// tests pin the per-type contract so a future coercion-layer
-			// change that accidentally unboxes one of them surfaces here.
+			// The string-shaped data types. `date`, `geopoint`, and
+			// `single_select` return the raw value verbatim; `time` and
+			// `datetime` are the two the coercion layer adapts, because the
+			// strict RFC 3339 formats the row schema compiles demand an
+			// offset that CommCare's own time answer does not carry (see
+			// `lib/domain/temporalValues.ts`). These tests pin the per-type
+			// contract so a change that unboxes one of them, or that quietly
+			// reinterprets a wall clock as an instant, surfaces here.
 			it("coerces date to its raw string", () => {
 				const input = dTree([
 					{ id: "case_name", kind: "text", case_property_on: "patient" },
@@ -1971,7 +2048,7 @@ describe("FormEngine", () => {
 				expect(mutation.primary.properties.dob).toBe("1995-03-12");
 			});
 
-			it("coerces datetime to its raw string", () => {
+			it("keeps a datetime's own offset and pads it to the wire's precision", () => {
 				const input = dTree([
 					{ id: "case_name", kind: "text", case_property_on: "patient" },
 					{
@@ -1988,15 +2065,49 @@ describe("FormEngine", () => {
 				const mutation = engine.computeSubmissionMutation({
 					caseTypes,
 					entryKey: ENTRY_KEY,
+					viewerTimeZone: "America/New_York",
 				});
 				expect(mutation.kind).toBe("registration");
 				if (mutation.kind !== "registration") return;
+				// The value already carried a zone, so the viewer's is NOT
+				// imposed on it — only the fractional digits `DateTimeData`
+				// always writes are filled in.
 				expect(mutation.primary.properties.last_seen).toBe(
-					"2026-05-06T12:34:56Z",
+					"2026-05-06T12:34:56.000Z",
 				);
 			});
 
-			it("coerces time to its raw string", () => {
+			it("stamps a naive datetime with the viewer's offset, as the device would", () => {
+				const input = dTree([
+					{ id: "case_name", kind: "text", case_property_on: "patient" },
+					{
+						id: "last_seen",
+						kind: "datetime",
+						case_property_on: "patient",
+					},
+				]);
+				const engine = new FormEngine(input, "patient");
+
+				engine.setValue("/data/case_name", "Alice");
+				engine.setValue("/data/last_seen", "2026-05-06T12:34:56");
+
+				const mutation = engine.computeSubmissionMutation({
+					caseTypes,
+					entryKey: ENTRY_KEY,
+					viewerTimeZone: "America/New_York",
+				});
+				expect(mutation.kind).toBe("registration");
+				if (mutation.kind !== "registration") return;
+				// `DateTimeData::uncast` writes the wall clock plus the zone
+				// the answer was entered in; Preview's author browser stands
+				// in for the device, so the same gesture means the same
+				// instant. Stamping `Z` here would move it four hours.
+				expect(mutation.primary.properties.last_seen).toBe(
+					"2026-05-06T12:34:56.000-04:00",
+				);
+			});
+
+			it("tags a time for storage without claiming it is an instant", () => {
 				const input = dTree([
 					{ id: "case_name", kind: "text", case_property_on: "patient" },
 					{
@@ -2013,10 +2124,15 @@ describe("FormEngine", () => {
 				const mutation = engine.computeSubmissionMutation({
 					caseTypes,
 					entryKey: ENTRY_KEY,
+					viewerTimeZone: "America/New_York",
 				});
 				expect(mutation.kind).toBe("registration");
 				if (mutation.kind !== "registration") return;
-				expect(mutation.primary.properties.wake_time).toBe("07:30:00");
+				// A time answer is a wall clock with no zone of its own
+				// (`TimeData::uncast` suppresses the offset), so the viewer's
+				// zone is deliberately NOT applied — the `Z` is only the tag
+				// the strict `format: "time"` schema requires.
+				expect(mutation.primary.properties.wake_time).toBe("07:30:00.000Z");
 			});
 
 			it("coerces geopoint to its raw string", () => {

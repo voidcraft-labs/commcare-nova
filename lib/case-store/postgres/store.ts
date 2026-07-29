@@ -70,6 +70,10 @@ import {
 } from "@/lib/domain/predicate/jsonSchema";
 import type { RelationPath } from "@/lib/domain/predicate/types";
 import {
+	storageDatetimeValue,
+	storageTimeValue,
+} from "@/lib/domain/temporalValues";
+import {
 	CaseNotFoundError,
 	CasePropertiesValidationError,
 	CaseTypeNotInBlueprintError,
@@ -3741,25 +3745,6 @@ const castConformance = (() => {
 })();
 
 /**
- * Normalize a time-of-day fragment to `HH:MM:SS` plus an explicit
- * offset. Strict `format: "time"` (RFC 3339 full-time) REQUIRES the
- * offset; Nova authors no app timezone, so an offset-less value reads
- * as UTC — the same stance the exact-day search helpers and the
- * sample generator take. Fractional seconds drop (one canonical
- * shape). Anything the padding can't make conformant is left for the
- * conformance check to reject.
- */
-function normalizeTimeOfDay(fragment: string): string {
-	const withoutFraction = fragment.replace(/\.\d+/, "");
-	const withSeconds = /^\d{2}:\d{2}$/.test(withoutFraction)
-		? `${withoutFraction}:00`
-		: withoutFraction;
-	return /(?:Z|[+-]\d{2}:\d{2})$/.test(withSeconds)
-		? withSeconds
-		: `${withSeconds}Z`;
-}
-
-/**
  * Try to cast a stored value to a new property data type during a
  * per-row migration (the write-time retype detection, the explicit
  * `retype` arm, and the rename arm's destination cast). Failure
@@ -3853,37 +3838,24 @@ function normalizeValueForType(
 		}
 		case "time": {
 			// A canonical datetime truncates to its time-of-day (an
-			// explicit offset survives the cut); a bare time pads to the
-			// offset-carrying canonical shape.
+			// explicit offset survives the cut); a bare time takes the
+			// storage tag the strict `format: "time"` schema requires.
 			const trimmed = stringValue.trim();
 			const tIndex = trimmed.indexOf("T");
 			return {
 				ok: true,
-				value: normalizeTimeOfDay(
+				value: storageTimeValue(
 					tIndex >= 0 ? trimmed.slice(tIndex + 1) : trimmed,
 				),
 			};
 		}
 		case "datetime": {
-			const trimmed = stringValue.trim();
-			if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
-				// A bare date extends to midnight UTC — Nova authors no
-				// app timezone, so UTC is the codebase-wide reading of an
-				// offset-less temporal value.
-				return { ok: true, value: `${trimmed}T00:00:00.000Z` };
-			}
-			if (
-				/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(trimmed)
-			) {
-				// The offset-less `datetime-local` shape: pad seconds to
-				// the full RFC 3339 grammar and read the wall-clock as UTC.
-				const withSeconds = /T\d{2}:\d{2}$/.test(trimmed)
-					? `${trimmed}:00`
-					: trimmed;
-				return { ok: true, value: `${withSeconds}Z` };
-			}
-			// Already canonical (or garbage) — conformance adjudicates.
-			return { ok: true, value: trimmed };
+			// UTC, because a migration has no viewer whose zone could
+			// stand in for the device's. The value being cast is stored
+			// text with no zone of its own, so any other reading would be
+			// invented — and one that varied by whoever triggered the
+			// migration would make the same row convert differently.
+			return { ok: true, value: storageDatetimeValue(stringValue, "UTC") };
 		}
 		case "multi_select": {
 			if (Array.isArray(value)) {

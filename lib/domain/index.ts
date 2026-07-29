@@ -30,6 +30,7 @@ export * from "./records";
 export * from "./referenceIndex";
 export * from "./referenceSlots";
 export * from "./standardCaseProperties";
+export * from "./temporalValues";
 export * from "./users";
 export * from "./uuid";
 export * from "./xpath";

@@ -60,6 +60,7 @@ import { useMaterializableCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useModule } from "@/lib/doc/hooks/useEntity";
 import type { Uuid } from "@/lib/doc/types";
 import type { CaseProperty, CasePropertyDataType } from "@/lib/domain";
+import { viewerTimeZone } from "@/lib/preview/engine/caseDataBindingClient";
 import type {
 	CasePropertyFailure,
 	ParkedValueEntryWire,
@@ -307,6 +308,7 @@ export function DataReviewScreen({ moduleUuid }: { moduleUuid: Uuid }) {
 			currentType === "multi_select"
 				? replaceDraft.selections
 				: replaceDraft.text,
+			viewerTimeZone(),
 		);
 		if (!draft.ok) return;
 		setReplaceDraft({ ...replaceDraft, saving: true, failures: null });
