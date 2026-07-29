@@ -12,7 +12,10 @@
  */
 
 import { beforeEach, describe, expect, it } from "vitest";
-import { asAssetId, MEDIA_EXTRACT_STATUSES } from "@/lib/domain/multimedia";
+import {
+	asMediaAssetId,
+	MEDIA_EXTRACT_STATUSES,
+} from "@/lib/domain/multimedia";
 import type { MediaAssetExtract } from "../types";
 import { setupAppStateTestDb } from "./appStateTestDb";
 
@@ -88,7 +91,7 @@ describe("toRecord mapping (via loadAssetById)", () => {
 
 	it("maps a ready image row — bigint size_bytes → number, dimensions present", async () => {
 		const id = await seedRow();
-		const record = await loadAssetById(asAssetId(id));
+		const record = await loadAssetById(asMediaAssetId(id));
 		expect(record).toMatchObject({
 			id,
 			kind: "image",
@@ -113,7 +116,7 @@ describe("toRecord mapping (via loadAssetById)", () => {
 			dimensions: null,
 			duration_ms: 30_000,
 		});
-		const record = await loadAssetById(asAssetId(id));
+		const record = await loadAssetById(asMediaAssetId(id));
 		expect(record?.durationMs).toBe(30_000);
 		expect(typeof record?.durationMs).toBe("number");
 		expect(record?.dimensions).toBeUndefined();
@@ -131,7 +134,7 @@ describe("toRecord mapping (via loadAssetById)", () => {
 			summary: "It says things.",
 		};
 		const id = await seedRow({ kind: "document", extract });
-		const record = await loadAssetById(asAssetId(id));
+		const record = await loadAssetById(asMediaAssetId(id));
 		expect(record?.extract).toEqual(extract);
 	});
 
@@ -142,7 +145,7 @@ describe("toRecord mapping (via loadAssetById)", () => {
 			display_name: null,
 			extract: null,
 		});
-		const record = await loadAssetById(asAssetId(id));
+		const record = await loadAssetById(asMediaAssetId(id));
 		expect(record).not.toHaveProperty("dimensions");
 		expect(record).not.toHaveProperty("durationMs");
 		expect(record).not.toHaveProperty("displayName");
@@ -150,7 +153,7 @@ describe("toRecord mapping (via loadAssetById)", () => {
 	});
 
 	it("returns null for a missing id", async () => {
-		const record = await loadAssetById(asAssetId(crypto.randomUUID()));
+		const record = await loadAssetById(asMediaAssetId(crypto.randomUUID()));
 		expect(record).toBeNull();
 	});
 
@@ -160,14 +163,14 @@ describe("toRecord mapping (via loadAssetById)", () => {
 		const { claimExtractionIfIdle } = await import("../mediaAssets");
 
 		await expect(
-			claimExtractionIfIdle(asAssetId(id), {
+			claimExtractionIfIdle(asMediaAssetId(id), {
 				now: 1_700_000_100_000,
 				staleMs: 300_000,
 				currentVersion: 3,
 				model: "older-model",
 			}),
 		).resolves.toEqual({ kind: "superseded", extract: newer });
-		expect((await loadAssetById(asAssetId(id)))?.extract).toEqual(newer);
+		expect((await loadAssetById(asMediaAssetId(id)))?.extract).toEqual(newer);
 	});
 
 	it("canonicalizes copied extract metadata across duplicates while preserving higher state", async () => {
@@ -206,17 +209,19 @@ describe("toRecord mapping (via loadAssetById)", () => {
 		);
 
 		await installCopiedReadyExtract(
-			{ assetId: asAssetId(selectedId), extract: canonical },
+			{ assetId: asMediaAssetId(selectedId), extract: canonical },
 			h.db(),
 		);
 
-		expect((await loadAssetById(asAssetId(selectedId)))?.extract).toEqual(
+		expect((await loadAssetById(asMediaAssetId(selectedId)))?.extract).toEqual(
 			canonical,
 		);
-		expect((await loadAssetById(asAssetId(equalId)))?.extract).toEqual(
+		expect((await loadAssetById(asMediaAssetId(equalId)))?.extract).toEqual(
 			canonical,
 		);
-		expect((await loadAssetById(asAssetId(higherId)))?.extract).toEqual(higher);
+		expect((await loadAssetById(asMediaAssetId(higherId)))?.extract).toEqual(
+			higher,
+		);
 	});
 
 	it("does not publish after an equal-version ready copy supersedes the claim", async () => {
@@ -240,7 +245,7 @@ describe("toRecord mapping (via loadAssetById)", () => {
 
 		const result = await publishClaimedAssetExtract(
 			{
-				assetId: asAssetId(id),
+				assetId: asMediaAssetId(id),
 				claim: {
 					version: 3,
 					model: "stale-model",
@@ -265,7 +270,9 @@ describe("toRecord mapping (via loadAssetById)", () => {
 			extract: copiedReady,
 		});
 		expect(publishCallbackRan).toBe(false);
-		expect((await loadAssetById(asAssetId(id)))?.extract).toEqual(copiedReady);
+		expect((await loadAssetById(asMediaAssetId(id)))?.extract).toEqual(
+			copiedReady,
+		);
 	});
 
 	it("does not publish after a newer exact claim supersedes the stale job", async () => {
@@ -288,7 +295,7 @@ describe("toRecord mapping (via loadAssetById)", () => {
 
 		const result = await publishClaimedAssetExtract(
 			{
-				assetId: asAssetId(id),
+				assetId: asMediaAssetId(id),
 				claim: {
 					version: 3,
 					model: "same-model",
@@ -313,7 +320,9 @@ describe("toRecord mapping (via loadAssetById)", () => {
 			extract: newerClaim,
 		});
 		expect(publishCallbackRan).toBe(false);
-		expect((await loadAssetById(asAssetId(id)))?.extract).toEqual(newerClaim);
+		expect((await loadAssetById(asMediaAssetId(id)))?.extract).toEqual(
+			newerClaim,
+		);
 	});
 
 	it("makes the first duplicate-row publisher canonical for the shared extract", async () => {
@@ -359,7 +368,7 @@ describe("toRecord mapping (via loadAssetById)", () => {
 
 		const first = await publishClaimedAssetExtract(
 			{
-				assetId: asAssetId(firstId),
+				assetId: asMediaAssetId(firstId),
 				claim: firstClaim,
 				extract: {
 					status: "ready",
@@ -380,7 +389,7 @@ describe("toRecord mapping (via loadAssetById)", () => {
 
 		const second = await publishClaimedAssetExtract(
 			{
-				assetId: asAssetId(secondId),
+				assetId: asMediaAssetId(secondId),
 				claim: secondClaim,
 				extract: {
 					status: "ready",
@@ -403,10 +412,10 @@ describe("toRecord mapping (via loadAssetById)", () => {
 		});
 		expect(firstObjectWrites).toBe(1);
 		expect(secondObjectWrites).toBe(0);
-		expect((await loadAssetById(asAssetId(firstId)))?.extract).toEqual(
+		expect((await loadAssetById(asMediaAssetId(firstId)))?.extract).toEqual(
 			first.extract,
 		);
-		expect((await loadAssetById(asAssetId(secondId)))?.extract).toEqual(
+		expect((await loadAssetById(asMediaAssetId(secondId)))?.extract).toEqual(
 			first.extract,
 		);
 	});

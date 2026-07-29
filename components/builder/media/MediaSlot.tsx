@@ -7,7 +7,7 @@
 //    single "Attach" control that opens the picker. The picker's type
 //    filter is how a carrier with several allowed kinds chooses what to
 //    add — one entry point, not one pill per kind.
-//  - `SingleAssetSlot` — one `AssetId` of a fixed kind (module icon,
+//  - `SingleAssetSlot` — one `MediaAssetId` of a fixed kind (module icon,
 //    case-list icon, app logo). One chip, one "Attach" control.
 //
 // The doc never references an asset that isn't `ready`, so picking a
@@ -53,10 +53,19 @@ import {
 } from "@/components/shadcn/popover";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { useProjectToast } from "@/lib/collab/useProjectToast";
-import type { IconSlotKind } from "@/lib/domain/builtinIcons";
+import {
+	type BuiltinIconRef,
+	type FormIconRef,
+	formIconRefSchema,
+	type IconRef,
+	isBuiltinIconRef,
+	type ModuleIconRef,
+	moduleIconRefSchema,
+} from "@/lib/domain/builtinIcons";
 import {
 	isMediaKind,
 	type Media,
+	type MediaAssetId,
 	type MediaKind,
 } from "@/lib/domain/multimedia";
 import {
@@ -69,7 +78,10 @@ import {
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import type { StagedUpload } from "@/lib/session/types";
 import { ASSET_KIND_META } from "./assetKindMeta";
-import { MediaPickerDialog } from "./MediaPickerDialog";
+import {
+	MediaPickerDialog,
+	type MediaPickerSelection,
+} from "./MediaPickerDialog";
 import {
 	clearMediaSlot,
 	type MediaAssetView,
@@ -168,7 +180,10 @@ export function MediaSlot({
 
 	// Attached kinds in the carrier's canonical order, so the chips read
 	// image → audio → video regardless of which was added first.
-	const attached = kinds.filter((kind) => value?.[kind]);
+	const attached = kinds.flatMap((kind) => {
+		const assetId = value?.[kind];
+		return assetId ? [{ kind, assetId }] : [];
+	});
 	const stagedKinds = kinds.filter((kind) => staged[kind]);
 	const allBusy = kinds.every((kind) => value?.[kind] || staged[kind]);
 	const groupProps = ariaLabel
@@ -177,11 +192,11 @@ export function MediaSlot({
 
 	return (
 		<div className="flex flex-wrap items-center gap-1.5" {...groupProps}>
-			{attached.map((kind) => (
+			{attached.map(({ kind, assetId }) => (
 				<AssetChip
 					key={kind}
 					kind={kind}
-					assetId={value?.[kind] as string}
+					assetId={assetId}
 					editable={canEdit}
 					onReplace={() => {
 						if (session.getState().canEdit)
@@ -229,12 +244,14 @@ export function MediaSlot({
 				// ceiling never reaches the doc; the shared prose lands as a
 				// toast (the picker has already closed).
 				onPick={(asset) => {
-					if (!isMediaKind(asset.kind)) return;
-					const kind = asset.kind;
+					if (asset.kind !== "uploaded") return;
+					const uploaded = asset.asset;
+					if (!isMediaKind(uploaded.kind)) return;
+					const kind = uploaded.kind;
 					const start = session.getState();
 					if (start.accessPhase !== "authorized" || !start.canEdit) return;
 					const pickScopeEpoch = start.scopeEpoch;
-					void checkAttachBudget(asset).then((verdict) => {
+					void checkAttachBudget(uploaded).then((verdict) => {
 						const current = session.getState();
 						if (
 							current.scopeEpoch !== pickScopeEpoch ||
@@ -250,7 +267,9 @@ export function MediaSlot({
 							);
 							return;
 						}
-						onChangeRef.current(setMediaSlot(valueRef.current, kind, asset.id));
+						onChangeRef.current(
+							setMediaSlot(valueRef.current, kind, uploaded.id),
+						);
 					});
 				}}
 				// A picked FILE stages instead of attaching: the upload runs
@@ -268,9 +287,7 @@ export function MediaSlot({
 
 // ── SingleAssetSlot — one fixed-kind id ──────────────────────────
 
-export interface SingleAssetSlotProps {
-	value: string | undefined;
-	onChange: (next: string | undefined) => void;
+interface SingleAssetSlotBase {
 	kind: MediaKind;
 	/** Stable identity of this carrier slot — see `MediaSlotProps.slotKey`.
 	 *  Single slots stage directly under it (the kind is fixed). */
@@ -283,31 +300,63 @@ export interface SingleAssetSlotProps {
 	ariaLabel?: string;
 }
 
-/**
- * The built-in icon family an image slot should offer, or `undefined` when it
- * shouldn't. Only menu-tile icon slots qualify (`module:`/`caselist:`/`form:` +
- * `:icon`): module and case-list tiles take topic icons, form tiles take action
- * icons. The app logo, field/option message media, image-map cells, and audio
- * slots all fall through to `undefined`, so the Icon Library never appears there
- * (image questions and non-icon attachments aren't menu tiles).
- */
-function iconLibraryFamilyFor(
-	slotKey: string,
-	kind: MediaKind,
-): IconSlotKind | undefined {
-	if (kind !== "image") return undefined;
-	const match = /^(module|caselist|form):.+:icon$/.exec(slotKey);
-	if (!match) return undefined;
-	return match[1] === "form" ? "form" : "module";
+interface UploadedAssetSlotProps extends SingleAssetSlotBase {
+	value: MediaAssetId | undefined;
+	onChange: (next: MediaAssetId | undefined) => void;
+	iconLibrary?: undefined;
 }
 
-export function SingleAssetSlot({
-	value,
-	onChange,
-	kind,
-	slotKey,
-	ariaLabel,
-}: SingleAssetSlotProps) {
+interface ModuleIconSlotProps extends SingleAssetSlotBase {
+	kind: "image";
+	value: ModuleIconRef | undefined;
+	onChange: (next: ModuleIconRef | undefined) => void;
+	iconLibrary: "module";
+}
+
+interface FormIconSlotProps extends SingleAssetSlotBase {
+	kind: "image";
+	value: FormIconRef | undefined;
+	onChange: (next: FormIconRef | undefined) => void;
+	iconLibrary: "form";
+}
+
+export type SingleAssetSlotProps =
+	| UploadedAssetSlotProps
+	| ModuleIconSlotProps
+	| FormIconSlotProps;
+
+/** Commit a picker identity through the exact slot family. An ordinary media
+ * slot refuses a built-in ref; module/form icon slots re-parse against their
+ * closed family before invoking the carrier callback. */
+function commitSingleAssetValue(
+	props: SingleAssetSlotProps,
+	value: MediaAssetId | BuiltinIconRef | undefined,
+): void {
+	if (props.iconLibrary === "module") {
+		if (value === undefined) {
+			props.onChange(undefined);
+			return;
+		}
+		const parsed = moduleIconRefSchema.safeParse(value);
+		if (!parsed.success) return;
+		props.onChange(parsed.data);
+		return;
+	}
+	if (props.iconLibrary === "form") {
+		if (value === undefined) {
+			props.onChange(undefined);
+			return;
+		}
+		const parsed = formIconRefSchema.safeParse(value);
+		if (!parsed.success) return;
+		props.onChange(parsed.data);
+		return;
+	}
+	if (value === undefined || !isBuiltinIconRef(value)) props.onChange(value);
+}
+
+export function SingleAssetSlot(props: SingleAssetSlotProps) {
+	const { value, kind, slotKey, ariaLabel } = props;
 	const [pickerOpen, setPickerOpen] = useState(false);
 	const staged = useStagedUpload(slotKey);
 	const session = useBuilderSessionApi();
@@ -317,12 +366,12 @@ export function SingleAssetSlot({
 	const recordLoadedAssets = useRecordLoadedAssets();
 	const projectToast = useProjectToast();
 
-	const onChangeRef = useRef(onChange);
+	const propsRef = useRef(props);
 	useEffect(() => {
-		onChangeRef.current = onChange;
+		propsRef.current = props;
 	});
 	const startUpload = useStagedSlotUpload((asset) => {
-		onChangeRef.current(asset.id);
+		commitSingleAssetValue(propsRef.current, asset.id);
 	});
 
 	const groupProps = ariaLabel
@@ -340,7 +389,9 @@ export function SingleAssetSlot({
 						if (session.getState().canEdit) setPickerOpen(true);
 					}}
 					onRemove={() => {
-						if (session.getState().canEdit) onChange(undefined);
+						if (session.getState().canEdit) {
+							commitSingleAssetValue(propsRef.current, undefined);
+						}
 					}}
 				/>
 			)}
@@ -359,14 +410,19 @@ export function SingleAssetSlot({
 				onOpenChange={setPickerOpen}
 				kinds={[kind]}
 				appId={appId}
-				iconLibrary={iconLibraryFamilyFor(slotKey, kind)}
+				iconLibrary={props.iconLibrary}
 				onAssetsLoaded={recordLoadedAssets}
 				// Budget BEFORE dispatch — an over-ceiling pick never reaches
 				// the doc; the shared prose lands as a toast (the picker has
 				// already closed).
-				onPick={(asset) => {
+				onPick={(selection: MediaPickerSelection) => {
 					const start = session.getState();
 					if (start.accessPhase !== "authorized" || !start.canEdit) return;
+					if (selection.kind === "builtin-icon") {
+						commitSingleAssetValue(propsRef.current, selection.ref);
+						return;
+					}
+					const asset = selection.asset;
 					const pickScopeEpoch = start.scopeEpoch;
 					void checkAttachBudget(asset).then((verdict) => {
 						const current = session.getState();
@@ -384,7 +440,7 @@ export function SingleAssetSlot({
 							);
 							return;
 						}
-						onChangeRef.current(asset.id);
+						commitSingleAssetValue(propsRef.current, asset.id);
 					});
 				}}
 				onUploadStart={(file, pickedKind) => {
@@ -510,7 +566,7 @@ function AssetChip({
 	onRemove,
 }: {
 	kind: MediaKind;
-	assetId: string;
+	assetId: IconRef;
 	editable: boolean;
 	onReplace: () => void;
 	onRemove: () => void;
@@ -576,7 +632,7 @@ function AssetChip({
 }
 
 /** Compact thumbnail: image bitmap, or a kind glyph for audio/video. */
-function ThumbBox({ kind, assetId }: { kind: MediaKind; assetId: string }) {
+function ThumbBox({ kind, assetId }: { kind: MediaKind; assetId: IconRef }) {
 	if (kind === "image") {
 		return (
 			<ProjectMediaImage
@@ -597,7 +653,13 @@ function ThumbBox({ kind, assetId }: { kind: MediaKind; assetId: string }) {
 }
 
 /** Larger preview inside the popover — image bitmap or a native player. */
-function AssetPreview({ kind, assetId }: { kind: MediaKind; assetId: string }) {
+function AssetPreview({
+	kind,
+	assetId,
+}: {
+	kind: MediaKind;
+	assetId: IconRef;
+}) {
 	if (kind === "image") {
 		return (
 			<ProjectMediaImage
@@ -607,6 +669,7 @@ function AssetPreview({ kind, assetId }: { kind: MediaKind; assetId: string }) {
 			/>
 		);
 	}
+	if (isBuiltinIconRef(assetId)) return null;
 	if (kind === "audio") {
 		// A native `<audio>` player has no intrinsic width, so `w-full` collapses
 		// it to 0 inside the shrink-to-fit popover (an `<img>` escapes this because

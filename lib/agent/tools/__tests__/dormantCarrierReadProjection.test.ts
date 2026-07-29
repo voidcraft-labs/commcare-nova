@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { testUuid } from "@/__tests__/helpers/uuid";
+import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f, resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import { buildFieldTree } from "@/lib/doc/fieldWalk";
 import {
@@ -101,7 +101,7 @@ function lookupCarrierDoc() {
 							deepLookupPredicate,
 						),
 					],
-					icon: "asset-case-list",
+					icon: testMediaAssetId("asset-case-list"),
 				},
 				caseSearchConfig: {
 					searchScreenTitle: "Find a person",
@@ -310,7 +310,7 @@ describe("shared read tools — dormant lookup carriers", () => {
 		});
 
 		expect(moduleRead.data.case_list_config).toMatchObject({
-			icon: "asset-case-list",
+			icon: testMediaAssetId("asset-case-list"),
 			columns: [expect.objectContaining({ uuid: SAFE_COLUMN, header: "Name" })],
 		});
 		expect(moduleRead.data.case_list_config?.filter).toBeUndefined();

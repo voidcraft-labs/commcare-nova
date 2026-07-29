@@ -2,6 +2,7 @@
 
 import { act, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import {
 	ProjectMediaAudio,
 	ProjectMediaImage,
@@ -34,13 +35,15 @@ describe("Project media resources", () => {
 			subscribeProjectScopeReset: registry.subscribe,
 			isProjectScopeCurrent: registry.isCurrent,
 		} as ReconcilerContextValue;
+		const sourceImageId = testMediaAssetId("source-image");
+		const sourceAudioId = testMediaAssetId("source-audio");
 
 		render(
 			<BuilderSessionContext value={store}>
 				<ReconcilerContext value={reconciler}>
-					<ProjectMediaImage assetId="source-image" alt="Source image" />
+					<ProjectMediaImage assetId={sourceImageId} alt="Source image" />
 					<ProjectMediaAudio
-						assetId="source-audio"
+						assetId={sourceAudioId}
 						aria-label="Source audio"
 						controls
 					/>
@@ -50,10 +53,10 @@ describe("Project media resources", () => {
 		const sourceImage = screen.getByRole("img", { name: "Source image" });
 		const sourceAudio = screen.getByLabelText("Source audio");
 		expect(sourceImage.getAttribute("src")).toBe(
-			"/api/media/source-image?scope=0",
+			`/api/media/${sourceImageId}?scope=0`,
 		);
 		expect(sourceAudio.getAttribute("src")).toBe(
-			"/api/media/source-audio?scope=0",
+			`/api/media/${sourceAudioId}?scope=0`,
 		);
 
 		act(() => {
@@ -83,10 +86,10 @@ describe("Project media resources", () => {
 		expect(destinationImage).not.toBe(sourceImage);
 		expect(destinationAudio).not.toBe(sourceAudio);
 		expect(destinationImage.getAttribute("src")).toBe(
-			"/api/media/source-image?scope=1",
+			`/api/media/${sourceImageId}?scope=1`,
 		);
 		expect(destinationAudio.getAttribute("src")).toBe(
-			"/api/media/source-audio?scope=1",
+			`/api/media/${sourceAudioId}?scope=1`,
 		);
 	});
 });

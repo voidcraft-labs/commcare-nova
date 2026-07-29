@@ -4,7 +4,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { testUuid } from "@/__tests__/helpers/uuid";
+import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { rowMatchesFilterText } from "@/components/preview/shared/listFilter";
 import {
 	calculatedColumn,
@@ -392,8 +392,8 @@ describe("case-list Preview cell formatting", () => {
 
 	it("uses the first selected image mapping as its alt and filter text", () => {
 		const column = imageMapColumn(COLUMN_UUID, "badge", "Badge", [
-			imageMapEntry("primary", "asset-primary"),
-			imageMapEntry("secondary", "asset-secondary"),
+			imageMapEntry("primary", testMediaAssetId("asset-primary")),
+			imageMapEntry("secondary", testMediaAssetId("asset-secondary")),
 		]);
 		const row = makeRow({ badge: ["secondary", "primary"] });
 		const context: ColumnDisplayContext = {

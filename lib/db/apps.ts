@@ -76,7 +76,7 @@ import {
 	collectRealAssetRefs,
 	remapAssetRefs,
 } from "../domain/mediaRefs";
-import type { AssetId } from "../domain/multimedia";
+import { asMediaAssetId, type MediaAssetId } from "../domain/multimedia";
 import {
 	assembleBlueprint,
 	decomposeBlueprint,
@@ -174,8 +174,8 @@ export interface AppSummary {
 	module_count: number;
 	form_count: number;
 	status: AppDoc["status"];
-	/** App-logo asset id (a plain column); `null` when unset. */
-	logo: string | null;
+	/** Strict app-logo asset UUID; `null` when unset. */
+	logo: MediaAssetId | null;
 	/** Error classification string — present only when status is 'error'. */
 	error_type: string | null;
 	/** ISO 8601 string. */
@@ -583,7 +583,7 @@ export async function withAuthorizedAppEditSideEffect<T>(
  */
 export async function deleteMediaAssetForChatRun(args: {
 	appId: string;
-	assetId: AssetId;
+	assetId: MediaAssetId;
 	actorUserId: string;
 	expectedProjectId: string;
 	holder: ChatRunHolderCapability;
@@ -1488,8 +1488,8 @@ interface ProjectMoveThreadSnapshot {
 export type PrepareProjectMoveResult =
 	| {
 			kind: "ready";
-			requiredAssetIds: readonly string[];
-			historicalAssetIds: readonly string[];
+			requiredAssetIds: readonly MediaAssetId[];
+			historicalAssetIds: readonly MediaAssetId[];
 	  }
 	| { kind: "already_moved" }
 	| { kind: "busy" }
@@ -1512,8 +1512,8 @@ interface ProjectMoveCoreArgs {
 }
 
 interface ProjectMoveCommitArgs extends ProjectMoveCoreArgs {
-	readonly assetIdMap: ReadonlyMap<string, string>;
-	readonly attemptedRealIds: ReadonlySet<string>;
+	readonly assetIdMap: ReadonlyMap<MediaAssetId, MediaAssetId>;
+	readonly attemptedRealIds: ReadonlySet<MediaAssetId>;
 }
 
 async function authorizeProjectMoveGovernance(
@@ -1612,12 +1612,13 @@ async function lockProjectMoveThreads(
 
 function realHistoricalAssetIds(
 	threads: readonly ProjectMoveThreadSnapshot[],
-): string[] {
+): MediaAssetId[] {
 	return [
 		...new Set(
 			threads
 				.flatMap((thread) => collectThreadAttachmentAssetIds(thread.messages))
-				.filter((assetId) => !isBuiltinIconRef(assetId)),
+				.filter((assetId) => !isBuiltinIconRef(assetId))
+				.map(asMediaAssetId),
 		),
 	].sort();
 }
@@ -3047,7 +3048,7 @@ function projectAppSummary(row: AppRow, now: number): AppSummary {
 		form_count: row.form_count,
 		status: isStale ? "error" : (row.status as AppDoc["status"]),
 		error_type: isStale ? "internal" : row.error_type,
-		logo: row.logo,
+		logo: row.logo === null ? null : asMediaAssetId(row.logo),
 		created_at: row.created_at.toISOString(),
 		updated_at: row.updated_at.toISOString(),
 	};
@@ -3279,7 +3280,7 @@ export async function listDeletedApps(
 			 * the old status-flip flow still carry the literal `"deleted"`). */
 			status: row.status as AppDoc["status"],
 			error_type: row.error_type,
-			logo: row.logo,
+			logo: row.logo === null ? null : asMediaAssetId(row.logo),
 			created_at: row.created_at.toISOString(),
 			updated_at: row.updated_at.toISOString(),
 			deleted_at: deletedAt.toISOString(),

@@ -32,13 +32,13 @@
 
 import AdmZip from "adm-zip";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import type { HqApplication } from "@/lib/commcare/types";
 import { validationError } from "@/lib/commcare/validator/errors";
 import type { AppDoc } from "@/lib/db/types";
 import type { BlueprintDoc } from "@/lib/domain";
-import { asAssetId } from "@/lib/domain/multimedia";
 import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
 import { resolveMediaManifest } from "@/lib/media/manifest";
 import { type LoadedApp, loadAppBlueprint } from "../loadApp";
@@ -493,7 +493,7 @@ describe("registerCompileApp — media validation gate", () => {
 		/* A media-bearing manifest (one ready image with bytes) flips the
 		 * json output from bare text to the shared `<app>.zip` bundle. */
 		const asset = {
-			assetId: asAssetId("a1"),
+			assetId: testMediaAssetId("a1"),
 			wirePath: "commcare/abc123def.png",
 			kind: "image" as const,
 			mimeType: "image/png",
@@ -565,7 +565,7 @@ describe("registerCompileApp — json compiledAtSeq (_meta carrier)", () => {
 		);
 		vi.mocked(expandDoc).mockReturnValueOnce(FAKE_HQ_JSON);
 		const asset = {
-			assetId: asAssetId("a1"),
+			assetId: testMediaAssetId("a1"),
 			wirePath: "commcare/abc123def.png",
 			kind: "image" as const,
 			mimeType: "image/png",

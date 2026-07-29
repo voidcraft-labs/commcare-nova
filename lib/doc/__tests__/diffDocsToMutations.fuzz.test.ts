@@ -37,6 +37,7 @@
 import * as fc from "fast-check";
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
+import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import {
@@ -180,12 +181,12 @@ function richDoc(): BlueprintDoc {
 			},
 		],
 	});
-	doc.logo = "asset-logo-1";
+	doc.logo = testMediaAssetId("asset-logo-1");
 	// Attach message media to one field so the field-media diff branch fires.
 	const ageField = Object.values(doc.fields).find((fld) => fld.id === "age");
 	if (ageField) {
 		(ageField as Record<string, unknown>).label_media = {
-			image: "asset-img-1",
+			image: testMediaAssetId("asset-img-1"),
 		};
 	}
 	return doc;
@@ -597,7 +598,9 @@ function lower(doc: BlueprintDoc, op: FuzzOp): Mutation[] {
 					kind: "setFieldMedia",
 					fieldUuid: uuid,
 					slot: "label",
-					media: op.clear ? null : { image: `asset-${mintUuid()}` },
+					media: op.clear
+						? null
+						: { image: testMediaAssetId(`asset-${mintUuid()}`) },
 				},
 			];
 		}

@@ -32,7 +32,6 @@ import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { type MutatingToolResult, toToolErrorResult } from "../common";
 import type { MutationSuccess } from "../shared/toolCallSummary";
 import {
-	brandMediaBundle,
 	bundleExpectations,
 	commitMediaBatch,
 	joinBatchLines,
@@ -129,8 +128,7 @@ export const attachOptionMediaTool = {
 				// sets it. An all-empty bundle resolves to `undefined` so the
 				// option drops its `media` key rather than storing an empty
 				// object.
-				const branded = brandMediaBundle(media);
-				const setKinds = Object.entries(branded)
+				const setKinds = Object.entries(media)
 					.filter(([, v]) => v !== undefined)
 					.map(([k]) => k);
 
@@ -144,7 +142,7 @@ export const attachOptionMediaTool = {
 					targetOption.uuid ?? asUuid(`${field.uuid}-opt-${index}`);
 				const updated = withMedia(
 					{ ...targetOption, uuid: optionUuid },
-					setKinds.length > 0 ? branded : undefined,
+					setKinds.length > 0 ? media : undefined,
 				);
 				resolved.push({
 					mutations: [
@@ -156,7 +154,7 @@ export const attachOptionMediaTool = {
 						},
 					],
 					expectations: bundleExpectations(
-						branded,
+						media,
 						`option "${optionValue}" of field "${field.id}"`,
 					),
 					line:

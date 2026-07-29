@@ -46,7 +46,7 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { walkAssetRefs } from "@/lib/domain/mediaRefs";
-import { type AssetId, asAssetId } from "@/lib/domain/multimedia";
+import { asMediaAssetId, type MediaAssetId } from "@/lib/domain/multimedia";
 
 // ── Stable id minting ──────────────────────────────────────────────
 
@@ -454,7 +454,7 @@ function injectSubcaseRepeat(
  */
 /**
  * Optional media populations the lowering attaches to a field. Each `1` slot
- * means "emit a fresh `AssetId` here"; the lowering mints the id at build
+ * means "emit a fresh `MediaAssetId` here"; the lowering mints the id at build
  * time via the shared `IdMinter`, so every asset id is globally unique and
  * conforms to `uuidSchema`. Slots default to no media — leaving the doc
  * media-free is the common shape.
@@ -588,12 +588,16 @@ function buildMediaSlot(
 	kinds: ReadonlyArray<"image" | "audio" | "video"> | undefined,
 ): Media | undefined {
 	if (!kinds || kinds.length === 0) return undefined;
-	const slot: { image?: AssetId; audio?: AssetId; video?: AssetId } = {};
+	const slot: {
+		image?: MediaAssetId;
+		audio?: MediaAssetId;
+		video?: MediaAssetId;
+	} = {};
 	for (const kind of kinds) {
-		// AssetId is a branded plain-string (`assetIdSchema = z.string().min(1)`);
+		// MediaAssetId is a branded plain-string (`mediaAssetIdSchema = z.string().min(1)`);
 		// the minter emits ids of shape `<prefix>-<base36>` which satisfies the
-		// non-empty constraint and brands cleanly via `asAssetId`.
-		slot[kind] = asAssetId(minter.uuid(`media${kind[0]}`));
+		// non-empty constraint and brands cleanly via `asMediaAssetId`.
+		slot[kind] = asMediaAssetId(minter.uuid(`media${kind[0]}`));
 	}
 	return slot;
 }
@@ -1055,13 +1059,13 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 		caseTypeNames.add(modSpec.caseType);
 
 		// Menu-tile media on the module's home tile. Each slot is independent;
-		// the lowering mints an `AssetId` per requested slot via the shared
+		// the lowering mints an `MediaAssetId` per requested slot via the shared
 		// minter so every id is globally unique.
 		const moduleIcon = modSpec.hasIcon
-			? asAssetId(minter.uuid("modicon"))
+			? asMediaAssetId(minter.uuid("modicon"))
 			: undefined;
 		const moduleAudio = modSpec.hasAudioLabel
-			? asAssetId(minter.uuid("modaud"))
+			? asMediaAssetId(minter.uuid("modaud"))
 			: undefined;
 
 		modules[moduleUuid] = {
@@ -1085,10 +1089,10 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 			fieldOrder[formUuid] = [];
 
 			const formIcon = formSpec.hasIcon
-				? asAssetId(minter.uuid("frmicon"))
+				? asMediaAssetId(minter.uuid("frmicon"))
 				: undefined;
 			const formAudio = formSpec.hasAudioLabel
-				? asAssetId(minter.uuid("frmaud"))
+				? asMediaAssetId(minter.uuid("frmaud"))
 				: undefined;
 
 			forms[formUuid] = {
@@ -1211,7 +1215,7 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 
 	// App-level logo (web-apps banner). Single optional slot; minted late so
 	// it doesn't collide with field-mint id sequencing.
-	const logo = spec.hasLogo ? asAssetId(minter.uuid("logo")) : undefined;
+	const logo = spec.hasLogo ? asMediaAssetId(minter.uuid("logo")) : undefined;
 
 	return {
 		appId: "fuzz-app",
@@ -1264,7 +1268,7 @@ const SLOT_EXTENSION_BY_KIND: Record<
  * have to import + assemble the full storage shape.
  */
 export interface FuzzMediaAsset {
-	readonly assetId: AssetId;
+	readonly assetId: MediaAssetId;
 	readonly wirePath: string;
 	readonly kind: "image" | "audio" | "video";
 	readonly mimeType: string;
@@ -1300,7 +1304,7 @@ export function hasFormItextMedia(doc: BlueprintDoc): boolean {
 }
 
 /**
- * Build a deterministic manifest covering every `AssetId` the doc
+ * Build a deterministic manifest covering every `MediaAssetId` the doc
  * references. Walks via `walkAssetRefs` (the same single-source-of-truth
  * walker the validator + manifest loader consume) so the fuzz manifest
  * matches the emitter's actual reference set 1:1.
@@ -1315,15 +1319,15 @@ export function hasFormItextMedia(doc: BlueprintDoc): boolean {
  *     extensions sensible).
  *
  * Same-asset-id collisions across slots use the FIRST seen slot's kind —
- * one `AssetId` produces exactly one wire-path entry, which is the
+ * one `MediaAssetId` produces exactly one wire-path entry, which is the
  * shape the dedup bundler relies on.
  */
 export function fuzzManifestFromDoc(
 	doc: BlueprintDoc,
-): Map<AssetId, FuzzMediaAsset> {
-	const manifest = new Map<AssetId, FuzzMediaAsset>();
+): Map<MediaAssetId, FuzzMediaAsset> {
+	const manifest = new Map<MediaAssetId, FuzzMediaAsset>();
 	for (const ref of walkAssetRefs(doc)) {
-		const branded = asAssetId(ref.assetId);
+		const branded = asMediaAssetId(ref.assetId);
 		if (manifest.has(branded)) continue;
 		const { extension, mimeType } = SLOT_EXTENSION_BY_KIND[ref.slotKind];
 		// Deterministic 64-hex content hash derived from the asset id — same id

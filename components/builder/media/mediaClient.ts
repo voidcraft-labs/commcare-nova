@@ -13,6 +13,7 @@
 import type { WireMediaAsset } from "@/lib/db/mediaAssets";
 import {
 	builtinIconPublicPath,
+	type IconRef,
 	isBuiltinIconRef,
 	parseBuiltinIconSlug,
 } from "@/lib/domain/builtinIcons";
@@ -20,6 +21,7 @@ import {
 	type AssetKind,
 	EXTRACTOR_VERSION,
 	type Media,
+	type MediaAssetId,
 	type MediaKind,
 	resolveUploadMimeType,
 } from "@/lib/domain/multimedia";
@@ -40,7 +42,7 @@ export type ExtractMeta = NonNullable<WireMediaAsset["extract"]>;
 export function setMediaSlot(
 	value: Media | undefined,
 	kind: MediaKind,
-	assetId: string,
+	assetId: MediaAssetId,
 ): Media {
 	return { ...value, [kind]: assetId };
 }
@@ -67,11 +69,11 @@ export function clearMediaSlot(
  * `<audio src>` / `<video src>` works without extra wiring.
  *
  * Takes a plain `string`: carrier slots (`Media`, `module.icon`)
- * infer their id type as `string` from the Zod schema (the `AssetId`
+ * infer their id type as `string` from the Zod schema (the `MediaAssetId`
  * brand is a server-side type only), and `MediaAssetView.id` is
  * assignable to it.
  */
-export function mediaSrc(assetId: string): string {
+export function mediaSrc(assetId: IconRef): string {
 	// Built-in icon refs (`nova-icon:<slug>`) aren't stored assets — their
 	// bytes ship statically at `/nova-icons/<slug>.png`. A known slug resolves to
 	// that static URL; an unknown/stale slug falls through to the API route, which
@@ -295,7 +297,7 @@ function putBytesWithProgress(
  * not-ready state rather than an error. Throws only on an unexpected failure.
  */
 export async function fetchAssetExtract(
-	assetId: string,
+	assetId: MediaAssetId,
 	signal?: AbortSignal,
 ): Promise<string | null> {
 	const res = await fetch(`/api/media/${assetId}/extract`, {
@@ -320,7 +322,7 @@ export async function fetchAssetExtract(
  * back to the filename alone), and `{}`/partial when the doc isn't ready yet.
  */
 export async function fetchAssetExtractMeta(
-	assetId: string,
+	assetId: MediaAssetId,
 	signal?: AbortSignal,
 ): Promise<{ title?: string; summary?: string } | null> {
 	try {

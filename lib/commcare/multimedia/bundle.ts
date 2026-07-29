@@ -114,7 +114,7 @@ export function buildMediaBundle(
 	where: string,
 ): MediaBundle {
 	// Dedupe by `wirePath` before producing the bundle's outputs. Two
-	// distinct `AssetId`s can share the same `(contentHash, extension)`
+	// distinct `MediaAssetId`s can share the same `(contentHash, extension)`
 	// — and therefore the same wire path — when the storage-layer dedup
 	// probe races (a concurrent upload of the same bytes lands two
 	// `ready` rows because the probe ignores `pending` rows;

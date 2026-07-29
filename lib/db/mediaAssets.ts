@@ -18,10 +18,10 @@ import { randomUUID } from "node:crypto";
 import { type Kysely, type Selectable, sql, type Transaction } from "kysely";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import {
-	type AssetId,
 	type AssetKind,
 	type AssetMimeType,
-	asAssetId,
+	asMediaAssetId,
+	type MediaAssetId,
 	type MediaAssetStatus,
 	pendingGcsObjectKeyFor,
 } from "@/lib/domain/multimedia";
@@ -44,7 +44,7 @@ import {
  * convenience. The row body never carries `id` (it is the primary key), so
  * reattaching here saves every caller from threading the id through.
  */
-export type MediaAssetRecord = MediaAssetDoc & { id: AssetId };
+export type MediaAssetRecord = MediaAssetDoc & { id: MediaAssetId };
 
 /** Identity of one extraction claim. `extractedAt` is the row-stored fencing
  * token, not merely display metadata: a stale job may publish only while this
@@ -75,7 +75,7 @@ export function mediaAssetRecordFromRow(
 	row: Selectable<MediaAssetsTable>,
 ): MediaAssetRecord {
 	return {
-		id: asAssetId(row.id),
+		id: asMediaAssetId(row.id),
 		project_id: row.project_id,
 		owner: row.owner,
 		contentHash: row.content_hash,
@@ -105,7 +105,7 @@ export function mediaAssetRecordFromRow(
  * storage key is a server-only detail).
  */
 export interface WireMediaAsset {
-	id: AssetId;
+	id: MediaAssetId;
 	contentHash: string;
 	mimeType: string;
 	kind: AssetKind;
@@ -207,10 +207,10 @@ export async function createPendingAsset(
 	},
 	lockedDb?: Kysely<AppDatabase>,
 ): Promise<{
-	assetId: AssetId;
+	assetId: MediaAssetId;
 	gcsObjectKey: string;
 }> {
-	const assetId = asAssetId(randomUUID());
+	const assetId = asMediaAssetId(randomUUID());
 	const gcsObjectKey =
 		args.gcsObjectKey ??
 		pendingGcsObjectKeyFor(args.project_id, assetId, args.extension);
@@ -254,7 +254,7 @@ export async function createPendingAsset(
  */
 export async function confirmAssetReady(
 	args: {
-		assetId: AssetId;
+		assetId: MediaAssetId;
 		gcsObjectKey?: string;
 		mimeType?: AssetMimeType;
 		extension?: string;
@@ -311,7 +311,7 @@ export type PendingAssetPublicationResult =
  */
 export async function publishPendingAssetForActor(
 	args: {
-		assetId: AssetId;
+		assetId: MediaAssetId;
 		actorUserId: string;
 		expectedProjectId: string;
 		gcsObjectKey: string;
@@ -381,7 +381,7 @@ export type PendingAssetDeleteResult =
  */
 export async function deletePendingAssetForActor(
 	args: {
-		assetId: AssetId;
+		assetId: MediaAssetId;
 		actorUserId: string;
 		expectedProjectId: string;
 	},
@@ -444,8 +444,8 @@ export type PendingAssetCanonicalizationResult =
  */
 export async function canonicalizePendingAssetForActor(
 	args: {
-		attemptAssetId: AssetId;
-		canonicalAssetId: AssetId;
+		attemptAssetId: MediaAssetId;
+		canonicalAssetId: MediaAssetId;
 		actorUserId: string;
 		expectedProjectId: string;
 		expectedContentHash: string;
@@ -583,7 +583,7 @@ export async function canonicalizePendingAssetForActor(
  * freshly proves Project edit authority before taking the asset share lock.
  */
 export async function resolveReadyUploadAliasForActor(args: {
-	attemptAssetId: AssetId;
+	attemptAssetId: MediaAssetId;
 	actorUserId: string;
 }): Promise<MediaAssetRecord | null> {
 	const db = await getAppDb();
@@ -595,7 +595,7 @@ export async function resolveReadyUploadAliasForActor(args: {
 async function resolveReadyUploadAliasInTransaction(
 	tx: Transaction<AppDatabase>,
 	args: {
-		attemptAssetId: AssetId;
+		attemptAssetId: MediaAssetId;
 		actorUserId: string;
 	},
 ): Promise<MediaAssetRecord | null> {
@@ -655,7 +655,7 @@ export async function purgeExpiredMediaUploadAliases(
 }
 
 export interface ReadyAssetInsert {
-	assetId: AssetId;
+	assetId: MediaAssetId;
 	owner: string;
 	project_id: string;
 	contentHash: string;
@@ -732,8 +732,8 @@ export async function insertReadyAsset(
 export async function createReadyAsset(
 	args: Omit<ReadyAssetInsert, "assetId">,
 	lockedDb?: Kysely<AppDatabase>,
-): Promise<{ assetId: AssetId }> {
-	const assetId = asAssetId(randomUUID());
+): Promise<{ assetId: MediaAssetId }> {
+	const assetId = asMediaAssetId(randomUUID());
 	await insertReadyAsset({ ...args, assetId }, lockedDb);
 	return { assetId };
 }
@@ -747,7 +747,7 @@ export async function createReadyAsset(
  */
 export async function installCopiedReadyExtract(
 	args: {
-		assetId: AssetId;
+		assetId: MediaAssetId;
 		extract: MediaAssetExtract;
 	},
 	lockedDb?: Kysely<AppDatabase>,
@@ -791,7 +791,7 @@ export async function installCopiedReadyExtract(
 					args.extract.version
 				);
 			})
-			.map((row) => asAssetId(row.id));
+			.map((row) => asMediaAssetId(row.id));
 		if (eligibleIds.length > 0) {
 			await tx
 				.updateTable("media_assets")
@@ -831,7 +831,7 @@ export async function installCopiedReadyExtract(
  */
 export async function publishClaimedAssetExtract(
 	args: {
-		readonly assetId: AssetId;
+		readonly assetId: MediaAssetId;
 		readonly claim: AssetExtractionClaim;
 		readonly extract: Omit<MediaAssetExtract, "extractedAt" | "status"> & {
 			readonly status: "ready" | "failed";
@@ -921,7 +921,7 @@ export async function publishClaimedAssetExtract(
 					const siblingExtract = mediaAssetExtractSchema.parse(sibling.extract);
 					return siblingExtract.version <= extract.version;
 				})
-				.map((sibling) => asAssetId(sibling.id));
+				.map((sibling) => asMediaAssetId(sibling.id));
 		}
 		await tx
 			.updateTable("media_assets")
@@ -950,7 +950,7 @@ export async function publishClaimedAssetExtract(
  * backs off.
  */
 export async function claimExtractionIfIdle(
-	assetId: AssetId,
+	assetId: MediaAssetId,
 	opts: { now: number; staleMs: number; currentVersion: number; model: string },
 ): Promise<AssetExtractionClaimResult> {
 	return withAppTx(async (tx) => {
@@ -1010,7 +1010,7 @@ export async function claimExtractionIfIdle(
  */
 export async function hasOtherAssetForGcsObjectKey(
 	gcsObjectKey: string,
-	excludeAssetId: AssetId,
+	excludeAssetId: MediaAssetId,
 	lockedDb?: Kysely<AppDatabase>,
 ): Promise<boolean> {
 	const db = lockedDb ?? (await getAppDb());
@@ -1131,7 +1131,7 @@ export async function findReadyAssetByProjectAndHash(
  * row so ids stay non-enumerable. Returns `null` for a missing row.
  */
 export async function loadAssetById(
-	assetId: AssetId,
+	assetId: MediaAssetId,
 ): Promise<MediaAssetRecord | null> {
 	const db = await getAppDb();
 	const row = await db
@@ -1144,7 +1144,7 @@ export async function loadAssetById(
 
 /**
  * Bulk-load a Project's assets among a set of ids — the compile / upload
- * manifest loader's primary call. Resolves every `AssetId` a blueprint
+ * manifest loader's primary call. Resolves every `MediaAssetId` a blueprint
  * references (from `lib/domain/mediaRefs::collectAssetRefs`) into rows in one
  * pass (`id = ANY($ids)`), then filters to the Project IN MEMORY.
  *
@@ -1427,7 +1427,7 @@ export async function listReferencingAppIds(
  * cascade on the row delete.
  */
 export async function deleteAsset(
-	assetId: AssetId,
+	assetId: MediaAssetId,
 	lockedDb?: Kysely<AppDatabase>,
 ): Promise<void> {
 	const db = lockedDb ?? (await getAppDb());

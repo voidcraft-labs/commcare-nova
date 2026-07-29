@@ -7,13 +7,12 @@
 //
 // What this module owns:
 //
-//  - `AssetId` — a branded reference to one stored asset.
+//  - `MediaAssetId` — a branded reference to one stored asset.
 //  - `Media` — the slot bundle a carrier (a field message, a select
 //    option) attaches. Image/audio/video are independent slots; a
-//    carrier can populate any combination. Menu carriers (module /
-//    form / case-list link) reference `AssetId` directly and carry
-//    only image + audio (no video), so they use a narrower shape that
-//    rejects a video at compile time rather than at validate.
+//    carrier can populate any combination. Menu audio carriers and app
+//    logo reference `MediaAssetId` directly. Menu icon carriers use the
+//    slot-specific uploaded-or-built-in unions in `builtinIcons.ts`.
 //  - MIME-type partitions, per-kind size caps, the kind/extension
 //    lookups, and the GCS object-key derivations — the cross-cutting
 //    constants both the storage layer and the upload routes consume.
@@ -23,52 +22,35 @@
 // wire shape in `lib/db/mediaAssets.ts`.
 
 import { z } from "zod";
-import type { Uuid } from "./uuid";
+import { CANONICAL_UUID_PATTERN, type Uuid } from "./uuid";
 
 /**
  * Branded identifier for a stored media asset. Distinct from any
  * other UUID brand in the codebase (field uuids, app ids, etc.) so
  * the compiler catches accidental cross-domain reference.
  *
- * The brand is compile-time only — `assetIdSchema.parse(s)` returns
- * `string`, and call sites that need the brand apply `asAssetId`
- * explicitly. We avoided a Zod `.transform()` here because the
- * SA's tool-schema generator serializes per-field schemas (which
- * carry media slots via the field bases + select options) into
- * JSON Schema for the Anthropic structured-output API, and Zod
- * v4 cannot represent transforms in JSON Schema. The brand is
- * still load-bearing at compile time even without the runtime
- * transform.
+ * Uploaded assets share Nova's canonical lowercase RFC UUID syntax, while
+ * retaining a distinct brand so an entity UUID cannot satisfy a media slot.
+ * Built-in menu icons are a separate closed `BuiltinIconRef` vocabulary in
+ * `builtinIcons.ts`; they never pass this parser.
  */
-export type AssetId = string & { readonly __brand: "AssetId" };
+export const mediaAssetIdSchema = z
+	.string()
+	.regex(
+		CANONICAL_UUID_PATTERN,
+		"Expected a canonical lowercase uploaded-media UUID.",
+	)
+	.brand<"MediaAssetId">();
+export type MediaAssetId = z.infer<typeof mediaAssetIdSchema>;
 
-/** Narrowing cast from string → AssetId. Prefer over `as AssetId`. */
-export function asAssetId(s: string): AssetId {
-	return s as AssetId;
+/**
+ * Parse and narrow untrusted input. This rejects rather than lowercasing or
+ * otherwise normalizing; every route, tool, database projection, and carrier
+ * therefore sees one spelling.
+ */
+export function asMediaAssetId(s: string): MediaAssetId {
+	return mediaAssetIdSchema.parse(s);
 }
-
-/**
- * Zod schema for `AssetId`. Plain non-empty string at runtime; the
- * brand is applied at the type system only. Pairs with `asAssetId`
- * for the explicit cast where the brand matters.
- *
- * Reserved form: an id starting `nova-icon:` is NOT a stored upload but a
- * reference to a built-in library icon (see `builtinIcons.ts`). The blueprint
- * carries just the slug; every app points at one shared, deployment-bundled
- * copy. The prefix can't collide with a real id — those are `randomUUID()`
- * (`lib/db/mediaAssets.ts::createPendingAsset`), which never contain a colon —
- * so consumers ask `isBuiltinIconRef` BEFORE any Postgres/GCS lookup
- * (`lib/media/manifest.ts`, `boundaryValidation.ts`, `lib/db/apps.ts`,
- * `components/builder/media/mediaClient.ts`, `useAttachBudget.ts`).
- */
-export const assetIdSchema = z.string().min(1);
-
-/**
- * Prefix marking an `AssetId` as a built-in library icon reference rather than
- * a stored upload. The slug follows (`nova-icon:household`). Lives here beside
- * the `AssetId` contract; the catalog + helpers are in `builtinIcons.ts`.
- */
-export const NOVA_ICON_REF_PREFIX = "nova-icon:";
 
 /**
  * MIME types accepted at the upload validation gate, partitioned by
@@ -145,7 +127,7 @@ export type AssetMimeType = (typeof ALL_MIME_TYPES)[number];
  * bundle below is keyed by exactly these.
  *
  * NOTE the boundary is NOT compile-time: a slot's VALUE is an opaque
- * `AssetId` (the brand doesn't encode the asset's kind), so a document's
+ * `MediaAssetId` (the brand doesn't encode the asset's kind), so a document's
  * id is type-indistinguishable from a media id in a slot. The wire/library
  * split — a document never reaching a carrier or the emitter — is enforced
  * at RUNTIME, fail-closed, in three places: the SA media tools gate kind
@@ -411,20 +393,17 @@ export function resolveUploadMimeType(
  * none. Slot key encodes the kind; the value is the asset id, full
  * stop.
  *
- * Menu-style carriers (module/form/case-list link, app logo) use
- * `AssetId` slots directly on the parent (`module.icon`,
- * `module.audioLabel`, `blueprintDoc.logo`) rather than this
- * bundle, because their slot count is small + asymmetric (image +
- * audio, no video — or just image for the logo). Forcing those
- * onto `Media` would either add a wire-rejected `video` slot or
- * require a separate sibling type for "image + audio without
- * video"; the direct `AssetId` slots are clearer at the carrier.
+ * Menu-style carriers and the app logo use direct parent slots rather than
+ * this bundle because their slot count is small + asymmetric (image + audio,
+ * no video — or just image for the logo). Audio labels and the logo are strict
+ * `MediaAssetId`s; menu icons use the slot-specific `ModuleIconRef` /
+ * `FormIconRef` unions in `builtinIcons.ts`.
  */
 export const mediaSchema = z
 	.object({
-		image: assetIdSchema.optional(),
-		audio: assetIdSchema.optional(),
-		video: assetIdSchema.optional(),
+		image: mediaAssetIdSchema.optional(),
+		audio: mediaAssetIdSchema.optional(),
+		video: mediaAssetIdSchema.optional(),
 	})
 	.strict();
 export type Media = z.infer<typeof mediaSchema>;
@@ -598,7 +577,7 @@ export const PENDING_OBJECT_PREFIX = "pending/";
  */
 export function pendingGcsObjectKeyFor(
 	projectId: string,
-	assetId: AssetId,
+	assetId: MediaAssetId,
 	extension: string,
 ): string {
 	return `${PENDING_OBJECT_PREFIX}${projectId}/${assetId}${extension}`;
@@ -606,8 +585,8 @@ export function pendingGcsObjectKeyFor(
 
 /**
  * Re-export of the `Uuid` brand for callers that need to type a
- * field uuid alongside an `AssetId`. The domain field schemas use
+ * field uuid alongside a `MediaAssetId`. The domain field schemas use
  * `uuidSchema` directly for field identity; media uses the distinct
- * `AssetId` brand.
+ * `MediaAssetId` brand.
  */
 export type { Uuid };

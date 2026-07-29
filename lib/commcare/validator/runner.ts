@@ -50,7 +50,7 @@ import type { XPathError } from "./xpathValidator";
 /** Optional context for a validation run. */
 export interface RunValidationOptions {
 	/**
-	 * Resolved media-asset manifest — every `AssetId` the doc
+	 * Resolved media-asset manifest — every `MediaAssetId` the doc
 	 * references that the loader was willing to return, mapped to its
 	 * loaded media-asset row. Built by the caller from
 	 * `collectAssetRefs(doc)` + `loadAssetsByIds(owner, ...)`. When

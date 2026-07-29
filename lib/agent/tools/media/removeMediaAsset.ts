@@ -31,7 +31,7 @@ import {
 	MediaAssetStillReferencedError,
 } from "@/lib/db/mediaDeletion";
 import type { BlueprintDoc } from "@/lib/domain";
-import { asAssetId } from "@/lib/domain";
+import { asMediaAssetId } from "@/lib/domain";
 import { extractObjectKeyForAsset } from "@/lib/domain/multimedia";
 import {
 	carriersForAsset,
@@ -69,7 +69,7 @@ export const removeMediaAssetTool = {
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<ReadToolResult<RemoveMediaAssetResult>> {
-		const assetId = asAssetId(input.assetId);
+		const assetId = asMediaAssetId(input.assetId);
 
 		const projectId = await requireToolProjectId(ctx.appId);
 

@@ -9,6 +9,7 @@
 
 import AdmZip from "adm-zip";
 import { describe, expect, it } from "vitest";
+import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
@@ -16,7 +17,7 @@ import type {
 	AssetManifest,
 	ResolvedMediaAsset,
 } from "@/lib/commcare/multimedia/assetWirePath";
-import { asAssetId } from "@/lib/domain/multimedia";
+import type { MediaAssetId } from "@/lib/domain/multimedia";
 
 const ICON_HASH = "a".repeat(64);
 const LOGO_HASH = "b".repeat(64);
@@ -28,18 +29,21 @@ function manifest(): AssetManifest {
 		id: string,
 		hash: string,
 		bytes: Buffer,
-	): [ReturnType<typeof asAssetId>, ResolvedMediaAsset] => [
-		asAssetId(id),
-		{
-			assetId: asAssetId(id),
-			wirePath: `commcare/${hash}.png`,
-			kind: "image",
-			mimeType: "image/png",
-			contentHash: hash,
-			extension: ".png",
-			bytes,
-		},
-	];
+	): [MediaAssetId, ResolvedMediaAsset] => {
+		const assetId = testMediaAssetId(id);
+		return [
+			assetId,
+			{
+				assetId,
+				wirePath: `commcare/${hash}.png`,
+				kind: "image",
+				mimeType: "image/png",
+				contentHash: hash,
+				extension: ".png",
+				bytes,
+			},
+		];
+	};
 	return new Map([
 		entry("icon", ICON_HASH, ICON_BYTES),
 		entry("logo", LOGO_HASH, LOGO_BYTES),
@@ -73,8 +77,8 @@ function mediaDoc() {
 			},
 		],
 	});
-	doc.modules[doc.moduleOrder[0]].icon = "icon";
-	doc.logo = "logo";
+	doc.modules[doc.moduleOrder[0]].icon = testMediaAssetId("icon");
+	doc.logo = testMediaAssetId("logo");
 	return doc;
 }
 

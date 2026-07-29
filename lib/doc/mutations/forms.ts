@@ -330,7 +330,7 @@ export function applyFormMutation(
 		}
 		case "setFormMedia": {
 			// Set or clear the form's menu media (tile `icon` + `audioLabel`).
-			// Mirrors `setModuleMedia` one level down: explicit `AssetId | null`
+			// Mirrors `setModuleMedia` one level down: explicit `MediaAssetId | null`
 			// slots so a clear survives JSON over the SSE wire (a generic
 			// `updateForm` patch would encode it as `{ key: undefined }`, which
 			// `JSON.stringify` drops). Each `null` maps to `undefined` so the

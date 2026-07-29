@@ -1,5 +1,6 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
+import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { applyMutation } from "@/lib/doc/mutations";
 import type { BlueprintDoc } from "@/lib/doc/types";
 
@@ -88,14 +89,18 @@ describe("applyMutation: setCaseTypes", () => {
 
 describe("applyMutation: setAppLogo", () => {
 	it("sets the logo to an asset id", () => {
+		const logo = testMediaAssetId("asset-logo");
 		const next = produce(emptyDoc(), (d) => {
-			applyMutation(d, { kind: "setAppLogo", logo: "asset-logo" });
+			applyMutation(d, { kind: "setAppLogo", logo });
 		});
-		expect(next.logo).toBe("asset-logo");
+		expect(next.logo).toBe(logo);
 	});
 
 	it("clears the logo by mapping null to undefined (not a literal null)", () => {
-		const withLogo: BlueprintDoc = { ...emptyDoc(), logo: "asset-logo" };
+		const withLogo: BlueprintDoc = {
+			...emptyDoc(),
+			logo: testMediaAssetId("asset-logo"),
+		};
 		const next = produce(withLogo, (d) => {
 			applyMutation(d, { kind: "setAppLogo", logo: null });
 		});
@@ -108,7 +113,10 @@ describe("applyMutation: setAppLogo", () => {
 	it("does not mutate the input doc", () => {
 		const doc = emptyDoc();
 		produce(doc, (d) => {
-			applyMutation(d, { kind: "setAppLogo", logo: "asset-logo" });
+			applyMutation(d, {
+				kind: "setAppLogo",
+				logo: testMediaAssetId("asset-logo"),
+			});
 		});
 		expect(doc.logo).toBeUndefined();
 	});

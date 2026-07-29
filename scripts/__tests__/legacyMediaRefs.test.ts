@@ -1,3 +1,4 @@
+import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 // scripts/__tests__/legacyMediaRefs.test.ts
 //
@@ -23,7 +24,7 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
-import { asAssetId, type BlueprintDoc, type Field } from "@/lib/domain";
+import type { BlueprintDoc, Field, MediaAssetId } from "@/lib/domain";
 import { walkAssetRefs } from "@/lib/domain/mediaRefs";
 import {
 	classifyMediaRefs,
@@ -39,11 +40,12 @@ const OWNER = "owner-1";
 function row(
 	id: string,
 	overrides: Partial<Omit<ScanAssetRow, "id">> = {},
-): [string, ScanAssetRow] {
+): [MediaAssetId, ScanAssetRow] {
+	const assetId = testMediaAssetId(id);
 	return [
-		id,
+		assetId,
 		{
-			id,
+			id: assetId,
 			owner: OWNER,
 			status: "ready",
 			kind: "image",
@@ -99,10 +101,10 @@ function mediaDoc(): BlueprintDoc {
 		],
 	});
 
-	doc.logo = asAssetId("dead-logo");
+	doc.logo = testMediaAssetId("dead-logo");
 	const mod = doc.modules[doc.moduleOrder[0]];
-	mod.icon = asAssetId("dead-icon");
-	mod.audioLabel = asAssetId("live-audio");
+	mod.icon = testMediaAssetId("dead-icon");
+	mod.audioLabel = testMediaAssetId("live-audio");
 	if (mod.caseListConfig) {
 		mod.caseListConfig = {
 			...mod.caseListConfig,
@@ -113,21 +115,34 @@ function mediaDoc(): BlueprintDoc {
 					uuid: doc.moduleOrder[0],
 					field: "case_name",
 					header: "Status",
-					mapping: [{ value: "open", assetId: "dead-mapimg" }],
+					mapping: [
+						{ value: "open", assetId: testMediaAssetId("dead-mapimg") },
+					],
 				} as (typeof mod.caseListConfig.columns)[number],
 			],
 		};
 	}
 	const fields = Object.values(doc.fields);
 	const textField = fields.find((fl) => fl.id === "case_name") as Field & {
-		label_media?: { image?: string; audio?: string };
+		label_media?: { image?: MediaAssetId; audio?: MediaAssetId };
 	};
-	textField.label_media = { image: "dead-bundle-img", audio: "live-audio" };
+	textField.label_media = {
+		image: testMediaAssetId("dead-bundle-img"),
+		audio: testMediaAssetId("live-audio"),
+	};
 	const selectField = fields.find((fl) => fl.id === "symptom") as Field & {
-		options: { value: string; label: string; media?: { image?: string } }[];
+		options: {
+			value: string;
+			label: string;
+			media?: { image?: MediaAssetId };
+		}[];
 	};
 	selectField.options = [
-		{ value: "fever", label: "Fever", media: { image: "dead-option-img" } },
+		{
+			value: "fever",
+			label: "Fever",
+			media: { image: testMediaAssetId("dead-option-img") },
+		},
 		{ value: "cough", label: "Cough" },
 	];
 	return doc;
@@ -141,7 +156,7 @@ function liveRows(): Map<string, ScanAssetRow> {
 describe("classifyMediaRefs", () => {
 	it("judges each reference by whether usable bytes exist", () => {
 		const doc = buildDoc({ appName: "X" });
-		doc.logo = asAssetId("the-asset");
+		doc.logo = testMediaAssetId("the-asset");
 		const judge = (rows: Map<string, ScanAssetRow>) =>
 			classifyMediaRefs(doc, OWNER, rows, { nowMs: NOW });
 
@@ -221,11 +236,15 @@ describe("planMediaRefClears", () => {
 		// …while the live slots survived intact.
 		const mod = gate.nextDoc.modules[gate.nextDoc.moduleOrder[0]];
 		expect(mod.icon).toBeUndefined();
-		expect(mod.audioLabel).toBe("live-audio");
+		expect(mod.audioLabel).toBe(testMediaAssetId("live-audio"));
 		const textField = Object.values(gate.nextDoc.fields).find(
 			(fl) => fl.id === "case_name",
-		) as Field & { label_media?: { image?: string; audio?: string } };
-		expect(textField.label_media).toEqual({ audio: "live-audio" });
+		) as Field & {
+			label_media?: { image?: MediaAssetId; audio?: MediaAssetId };
+		};
+		expect(textField.label_media).toEqual({
+			audio: testMediaAssetId("live-audio"),
+		});
 		const selectField = Object.values(gate.nextDoc.fields).find(
 			(fl) => fl.id === "symptom",
 		) as Field & {

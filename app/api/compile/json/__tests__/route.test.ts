@@ -14,12 +14,12 @@
 
 import AdmZip from "adm-zip";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { requireSession } from "@/lib/auth-utils";
 import { expandDoc } from "@/lib/commcare/expander";
 import { validationError } from "@/lib/commcare/validator/errors";
 import { resolveAppAccess } from "@/lib/db/appAccess";
-import { asAssetId } from "@/lib/domain/multimedia";
 import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
 import { resolveMediaManifest } from "@/lib/media/manifest";
 import { POST } from "../route";
@@ -129,7 +129,7 @@ describe("POST /api/compile/json", () => {
 
 	it("returns a zip bundling the json + HQ-format multimedia.zip when the app has media", async () => {
 		const asset = {
-			assetId: asAssetId("a1"),
+			assetId: testMediaAssetId("a1"),
 			wirePath: "commcare/abc123def.png",
 			kind: "image" as const,
 			mimeType: "image/png",

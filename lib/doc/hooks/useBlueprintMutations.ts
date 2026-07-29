@@ -94,7 +94,6 @@ import {
 	updateUserTypeValueMutations,
 } from "@/lib/doc/userMutations";
 import {
-	type AssetId,
 	asUuid,
 	type CarrierBlindField,
 	type CaseProperty,
@@ -106,10 +105,13 @@ import {
 	type FieldKind,
 	type FieldPatchFor,
 	type Form,
+	type FormIconRef,
 	type FormType,
 	fieldRegistry,
 	HIDDEN_INERT_DEFAULT_VALUE,
+	type MediaAssetId,
 	type Module,
+	type ModuleIconRef,
 	ownRecordValue,
 	type Persona,
 	type SelectOption,
@@ -324,7 +326,7 @@ export interface BlueprintMutations {
 	 */
 	setFormMedia: (
 		uuid: Uuid,
-		media: { icon: AssetId | null; audioLabel: AssetId | null },
+		media: { icon: FormIconRef | null; audioLabel: MediaAssetId | null },
 	) => CommitOutcome;
 	removeForm: (uuid: Uuid) => CommitOutcome;
 
@@ -359,12 +361,12 @@ export interface BlueprintMutations {
 	 * `{ key: undefined }`, which `JSON.stringify` DROPS on the SSE wire —
 	 * the cleared slot would never reach the client doc and the stale ref
 	 * would survive. The `setModuleMedia` kind carries an explicit
-	 * `AssetId | null` per slot (which survives JSON) and maps `null →
+	 * `MediaAssetId | null` per slot (which survives JSON) and maps `null →
 	 * undefined` inside the reducer, so both set and clear round-trip.
 	 */
 	setModuleMedia: (
 		uuid: Uuid,
-		media: { icon: AssetId | null; audioLabel: AssetId | null },
+		media: { icon: ModuleIconRef | null; audioLabel: MediaAssetId | null },
 	) => CommitOutcome;
 	removeModule: (uuid: Uuid) => CommitOutcome;
 
@@ -470,13 +472,13 @@ export interface BlueprintMutations {
 	 * mutation. The doc's `logo` slot is `.optional()`, not `.nullable()`,
 	 * so a clear must DROP the key rather than store a literal `null` the
 	 * schema rejects — and the SSE wire would silently lose an
-	 * `undefined`-valued clear. Passing an explicit `AssetId | null` (set
+	 * `undefined`-valued clear. Passing an explicit `MediaAssetId | null` (set
 	 * vs clear) keeps the intent on the wire; the reducer maps `null →
 	 * undefined` so the cleared key falls off the doc. Takes no uuid —
 	 * the logo is a single app-level slot, so there is no entity to
 	 * validate (mirrors `setCaseTypes`, not `setFormMedia`).
 	 */
-	setAppLogo: (logo: AssetId | null) => CommitOutcome;
+	setAppLogo: (logo: MediaAssetId | null) => CommitOutcome;
 	setCaseTypes: (caseTypes: CaseType[] | null) => CommitOutcome;
 	/**
 	 * Update a single property on a case type's property list.
@@ -1393,7 +1395,7 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 					// No uuid to validate — the logo is a single app-level slot, so
 					// this mirrors `setCaseTypes` (bare dispatch) rather than the
 					// entity-guarded `setFormMedia` / `setModuleMedia`. The payload
-					// carries an explicit `AssetId | null`; the reducer maps `null →
+					// carries an explicit `MediaAssetId | null`; the reducer maps `null →
 					// undefined` so a clear drops the optional key off the doc.
 					return toOutcome(guardedApply([{ kind: "setAppLogo", logo }]));
 				},

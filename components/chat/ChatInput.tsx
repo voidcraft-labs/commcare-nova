@@ -399,7 +399,9 @@ export function ChatInput({
 				}}
 				kinds={CHAT_ATTACHMENT_KINDS}
 				appId={appId}
-				onPick={addPicked}
+				onPick={(selection) => {
+					if (selection.kind === "uploaded") addPicked(selection.asset);
+				}}
 				// Let the file manager warn before deleting a file that's staged as a
 				// chip here, and drop the chip when it's deleted — otherwise the chip
 				// would dangle, pointing at bytes that no longer exist.

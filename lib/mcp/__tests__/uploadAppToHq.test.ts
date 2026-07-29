@@ -25,6 +25,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { importApp, uploadAppMediaBundle } from "@/lib/commcare/client";
 import { expandDoc } from "@/lib/commcare/expander";
 import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
@@ -409,7 +410,10 @@ describe("registerUploadAppToHq — media upload ordering", () => {
 		// unmatched by design (logos aren't in its bulk-match set). This is the
 		// real NOVA-1P scenario — surfaced gently, never as a failed attach.
 		vi.mocked(loadAppBlueprint).mockResolvedValueOnce({
-			doc: { ...fixtureBlueprint(), logo: "logoA" },
+			doc: {
+				...fixtureBlueprint(),
+				logo: testMediaAssetId("logoA"),
+			},
 			app: fixtureAppDoc(),
 			access: fixtureLoadedApp().access,
 		});

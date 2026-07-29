@@ -84,13 +84,6 @@ export function useAttachBudgetGuard(): (
 				);
 			};
 			if (start.accessPhase !== "authorized") return accessChanged();
-			// Built-in icons (`nova-icon:<slug>`) are shared, tiny, and have no
-			// `media_assets` row — they can't meaningfully move the export budget and a
-			// gap-fetch for one would 404. Picking one always passes.
-			if (isBuiltinIconRef(candidate.id)) {
-				return isCurrentAndAuthorized() ? { ok: true } : accessChanged();
-			}
-
 			// The candidate's own row is known-good metadata — record it so
 			// a later check (or a re-attach) needs no fetch for it.
 			session.getState().recordAssetMeta([candidate]);

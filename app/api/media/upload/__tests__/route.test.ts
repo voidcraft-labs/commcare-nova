@@ -8,17 +8,18 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { requireSession, resolveActiveProjectId } from "@/lib/auth-utils";
 import {
 	createPendingAsset,
 	findReadyAssetByProjectAndHash,
 	type MediaAssetRecord,
 } from "@/lib/db/mediaAssets";
-import { asAssetId } from "@/lib/domain";
 import { createSignedUploadUrl } from "@/lib/storage/media";
 import { POST } from "../route";
 
 const HASH = "a".repeat(64);
+const ASSET_ID = testMediaAssetId("asset-1");
 
 const {
 	requireSessionMock,
@@ -76,7 +77,7 @@ beforeEach(() => {
 	resolveProjectAccessMock.mockResolvedValue(undefined);
 	vi.mocked(findReadyAssetByProjectAndHash).mockResolvedValue(null);
 	vi.mocked(createPendingAsset).mockResolvedValue({
-		assetId: asAssetId("asset-1"),
+		assetId: ASSET_ID,
 		gcsObjectKey: "pending/project-1/asset-1.png",
 	});
 	vi.mocked(createSignedUploadUrl).mockResolvedValue({
@@ -103,7 +104,7 @@ describe("POST /api/media/upload", () => {
 		};
 
 		expect(res.status).toBe(200);
-		expect(body.assetId).toBe("asset-1");
+		expect(body.assetId).toBe(ASSET_ID);
 		expect(body.uploadUrl).toBe("https://storage.example/signed");
 		// The signed `x-goog-content-length-range` header the browser MUST echo on
 		// the PUT — the most deploy-fragile wire of this change. If the route

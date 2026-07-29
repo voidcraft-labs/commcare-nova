@@ -16,6 +16,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Media } from "@/lib/domain";
 import { attachOptionMediaTool } from "../attachOptionMedia";
 import {
+	ASSET_AUD_1,
+	ASSET_IMG_1,
 	errorOf,
 	makeMediaFixture,
 	makeMediaMcpFixture,
@@ -68,7 +70,7 @@ describe("attachOptionMedia", () => {
 	it("sets media on the named option without disturbing siblings", async () => {
 		const { doc, ctx } = makeMediaFixture();
 		const result = await attachOptionMediaTool.execute(
-			input(attachment("fever", { image: "asset-img-1" })),
+			input(attachment("fever", { image: ASSET_IMG_1 })),
 			ctx,
 			doc,
 		);
@@ -76,7 +78,7 @@ describe("attachOptionMedia", () => {
 		expect(result.kind).toBe("mutate");
 		const options = optionsOf(result.newDoc);
 		expect(options[0].value).toBe("fever");
-		expect(options[0].media).toEqual({ image: "asset-img-1" });
+		expect(options[0].media).toEqual({ image: ASSET_IMG_1 });
 		// Sibling option keeps no media.
 		expect(options[1].value).toBe("cough");
 		expect(options[1].media).toBeUndefined();
@@ -86,15 +88,15 @@ describe("attachOptionMedia", () => {
 		const { doc, ctx } = makeMediaFixture();
 		const result = await attachOptionMediaTool.execute(
 			input(
-				attachment("fever", { image: "asset-img-1" }),
-				attachment("cough", { audio: "asset-aud-1" }),
+				attachment("fever", { image: ASSET_IMG_1 }),
+				attachment("cough", { audio: ASSET_AUD_1 }),
 			),
 			ctx,
 			doc,
 		);
 		const options = optionsOf(result.newDoc);
-		expect(options[0].media).toEqual({ image: "asset-img-1" });
-		expect(options[1].media).toEqual({ audio: "asset-aud-1" });
+		expect(options[0].media).toEqual({ image: ASSET_IMG_1 });
+		expect(options[1].media).toEqual({ audio: ASSET_AUD_1 });
 		const success = result.result as { summary?: { count?: number } };
 		expect(success.summary).toEqual({ count: 2 });
 	});
@@ -102,7 +104,7 @@ describe("attachOptionMedia", () => {
 	it("clears the option's media with an empty bundle", async () => {
 		const { doc: baseDoc, ctx } = makeMediaFixture();
 		const seeded = await attachOptionMediaTool.execute(
-			input(attachment("fever", { image: "asset-img-1" })),
+			input(attachment("fever", { image: ASSET_IMG_1 })),
 			ctx,
 			baseDoc,
 		);
@@ -127,7 +129,7 @@ describe("attachOptionMedia", () => {
 						formIndex: 0,
 						fieldId: "patient_name",
 						optionValue: "fever",
-						media: { image: "asset-img-1" },
+						media: { image: ASSET_IMG_1 },
 					},
 				],
 			},
@@ -141,7 +143,7 @@ describe("attachOptionMedia", () => {
 	it("refuses an unknown option value and names the existing values", async () => {
 		const { doc, ctx } = makeMediaFixture();
 		const result = await attachOptionMediaTool.execute(
-			input(attachment("nope", { image: "asset-img-1" })),
+			input(attachment("nope", { image: ASSET_IMG_1 })),
 			ctx,
 			doc,
 		);
@@ -156,8 +158,8 @@ describe("attachOptionMedia", () => {
 		const { doc, ctx } = makeMediaFixture();
 		const result = await attachOptionMediaTool.execute(
 			input(
-				attachment("fever", { image: "asset-img-1" }),
-				attachment("nope", { image: "asset-img-1" }),
+				attachment("fever", { image: ASSET_IMG_1 }),
+				attachment("nope", { image: ASSET_IMG_1 }),
 			),
 			ctx,
 			doc,
@@ -172,7 +174,7 @@ describe("attachOptionMedia", () => {
 	it("emits the same mutation batch through chat + MCP contexts", async () => {
 		const { doc, ctx: chatCtx } = makeMediaFixture();
 		const { ctx: mcpCtx } = makeMediaMcpFixture();
-		const batch = input(attachment("fever", { audio: "asset-aud-1" }));
+		const batch = input(attachment("fever", { audio: ASSET_AUD_1 }));
 		const r1 = await attachOptionMediaTool.execute(batch, chatCtx, doc);
 		const r2 = await attachOptionMediaTool.execute(batch, mcpCtx, doc);
 		expect(r1.mutations).toEqual(r2.mutations);

@@ -176,7 +176,7 @@ export interface CaseListEmitContext {
 	readonly userPropertySlugs?: ReadonlyMap<Uuid, string>;
 	/**
 	 * Resolved media manifest, for image-map columns to resolve their
-	 * per-value `AssetId` → `jr://file/...` path. `undefined` when media
+	 * per-value `MediaAssetId` → `jr://file/...` path. `undefined` when media
 	 * emission is off — image-map columns then degrade to plain (raw
 	 * value) columns.
 	 */

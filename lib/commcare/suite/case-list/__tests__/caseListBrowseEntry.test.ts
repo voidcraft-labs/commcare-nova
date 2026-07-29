@@ -29,7 +29,7 @@
 
 import AdmZip from "adm-zip";
 import { describe, expect, it } from "vitest";
-import { testUuid } from "@/__tests__/helpers/uuid";
+import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
@@ -37,8 +37,7 @@ import type {
 	AssetManifest,
 	ResolvedMediaAsset,
 } from "@/lib/commcare/multimedia/assetWirePath";
-import { plainColumn } from "@/lib/domain";
-import { asAssetId } from "@/lib/domain/multimedia";
+import { type ModuleIconRef, plainColumn } from "@/lib/domain";
 import { eq, literal, sessionUser, term } from "@/lib/domain/predicate";
 
 const ICON_HASH = "c".repeat(64);
@@ -46,7 +45,7 @@ const ICON_BYTES = Buffer.from("CASE-LIST-ICON-PNG-BYTES");
 
 /** A manifest carrying one resolved image for the case-list link icon. */
 function manifest(): AssetManifest {
-	const id = asAssetId("cl-icon");
+	const id = testMediaAssetId("cl-icon");
 	const asset: ResolvedMediaAsset = {
 		assetId: id,
 		wirePath: `commcare/${ICON_HASH}.png`,
@@ -66,7 +65,7 @@ function manifest(): AssetManifest {
  * construction — passing it here keeps the config fully typed without a
  * post-construction non-null mutation.
  */
-function caseListOnlyDoc(caseListIcon?: string) {
+function caseListOnlyDoc(caseListIcon?: ModuleIconRef) {
 	return buildDoc({
 		appName: "Browse app",
 		caseTypes: [
@@ -160,7 +159,7 @@ describe("caseListOnly browse-entry emission (local .ccz)", () => {
 	it("renders the case-list command as a media <display> when the link carries an icon", () => {
 		// Seed the case-list-link icon at construction (resolved by the
 		// manifest above) so the config stays fully typed.
-		const doc = caseListOnlyDoc("cl-icon");
+		const doc = caseListOnlyDoc(testMediaAssetId("cl-icon"));
 
 		const suite = suiteXml(doc, manifest());
 

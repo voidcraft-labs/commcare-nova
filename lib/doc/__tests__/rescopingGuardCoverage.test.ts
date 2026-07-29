@@ -1,4 +1,4 @@
-import { testUuid } from "@/__tests__/helpers/uuid";
+import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { withUserSequences } from "@/lib/__tests__/docHelpers";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { backfillOptionUuids } from "@/lib/doc/optionIdentity";
@@ -855,7 +855,7 @@ const GUARD_COVERAGE = {
 					{
 						kind: "setCaseListMeta",
 						uuid: testUuid("mod-patients"),
-						patch: { icon: testUuid("asset-1") },
+						patch: { icon: testMediaAssetId("asset-1") },
 					},
 				],
 			};

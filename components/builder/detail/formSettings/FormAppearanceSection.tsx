@@ -4,7 +4,6 @@ import { SingleAssetSlot } from "@/components/builder/media/MediaSlot";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useForm } from "@/lib/doc/hooks/useEntity";
 import { asUuid } from "@/lib/doc/types";
-import { asAssetId } from "@/lib/domain";
 import type { FormSettingsSectionProps } from "./types";
 
 /**
@@ -33,12 +32,13 @@ export function FormAppearanceSection({ formUuid }: FormSettingsSectionProps) {
 					<SingleAssetSlot
 						value={form.icon}
 						kind="image"
+						iconLibrary="form"
 						slotKey={`form:${formUuid}:icon`}
 						ariaLabel="Form menu icon"
 						onChange={(icon) =>
 							setFormMedia(uuid, {
-								icon: icon ? asAssetId(icon) : null,
-								audioLabel: form.audioLabel ? asAssetId(form.audioLabel) : null,
+								icon: icon ?? null,
+								audioLabel: form.audioLabel ?? null,
 							})
 						}
 					/>
@@ -54,8 +54,8 @@ export function FormAppearanceSection({ formUuid }: FormSettingsSectionProps) {
 						ariaLabel="Form audio label"
 						onChange={(audioLabel) =>
 							setFormMedia(uuid, {
-								icon: form.icon ? asAssetId(form.icon) : null,
-								audioLabel: audioLabel ? asAssetId(audioLabel) : null,
+								icon: form.icon ?? null,
+								audioLabel: audioLabel ?? null,
 							})
 						}
 					/>

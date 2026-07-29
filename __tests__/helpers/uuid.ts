@@ -1,3 +1,4 @@
+import { asMediaAssetId, type MediaAssetId } from "@/lib/domain/multimedia";
 import { asUuid, type Uuid, uuidSchema } from "@/lib/domain/uuid";
 
 /**
@@ -28,6 +29,11 @@ export function testUuid(label: string): Uuid {
 		hex.slice(20),
 	].join("-");
 	return asUuid(uuid);
+}
+
+/** Deterministic valid uploaded-media identity for test fixtures. */
+export function testMediaAssetId(label: string): MediaAssetId {
+	return asMediaAssetId(testUuid(`media:${label}`));
 }
 
 function fnv1a(value: string, seed: number): number {

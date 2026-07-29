@@ -19,10 +19,11 @@ import {
 } from "@/lib/commcare/multimedia/assetWirePath";
 import { loadAssetsByIds, type MediaAssetRecord } from "@/lib/db/mediaAssets";
 import type { BlueprintDoc } from "@/lib/domain";
+import type { IconRef } from "@/lib/domain/builtinIcons";
 import { collectAssetRefs } from "@/lib/domain/mediaRefs";
 import {
 	ASSET_SIZE_CAPS_BYTES,
-	asAssetId,
+	asMediaAssetId,
 	isMediaKind,
 	type MediaKind,
 } from "@/lib/domain/multimedia";
@@ -96,7 +97,7 @@ export async function resolveMediaManifest(
 	const { realIds, builtinSlugs } = partitionAssetRefs(ids);
 
 	// Keep `ready` rows of a wire-attachable (media) kind. Carrier slots
-	// hold an opaque `AssetId` (the brand doesn't encode kind), so the
+	// hold an opaque `MediaAssetId` (the brand doesn't encode kind), so the
 	// wire/library boundary is RUNTIME-enforced and fail-closed, not
 	// compile-time: the validator's `mediaKindMatches` rule rejects a
 	// document id in a media slot before compile, and this `isMediaKind`
@@ -130,7 +131,7 @@ export async function resolveMediaManifest(
 						ASSET_SIZE_CAPS_BYTES[row.kind],
 					)
 				: undefined;
-			const id = asAssetId(row.id);
+			const id = asMediaAssetId(row.id);
 			return [
 				id,
 				{
@@ -153,11 +154,14 @@ export async function resolveMediaManifest(
 		builtinSlugs,
 		options.withBytes,
 	);
-	return new Map([...entries, ...builtinEntries]);
+	const manifest = new Map<IconRef, ResolvedMediaAsset>();
+	for (const [id, asset] of entries) manifest.set(id, asset);
+	for (const [id, asset] of builtinEntries) manifest.set(id, asset);
+	return manifest;
 }
 
 /**
- * Project a resolved manifest to its `AssetId → wirePath` map — the input
+ * Project a resolved manifest to its `MediaAssetId → wirePath` map — the input
  * the upload-outcome interpreter (`./uploadOutcome.ts`) joins against the
  * doc's references to name which media, where, didn't attach. Keeps the
  * `AssetManifest` type (a `lib/commcare` shape) on this side of the import

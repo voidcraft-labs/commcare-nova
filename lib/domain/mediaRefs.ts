@@ -1,6 +1,6 @@
 // lib/domain/mediaRefs.ts
 //
-// The single walk that enumerates every media `AssetId` a blueprint
+// The single walk that enumerates every media `MediaAssetId` a blueprint
 // references. One source of truth for "which assets does this app
 // use," consumed by:
 //
@@ -34,10 +34,15 @@
 
 import { produce } from "immer";
 import type { BlueprintDoc, PersistableDoc } from "./blueprint";
-import { isBuiltinIconRef } from "./builtinIcons";
+import {
+	type FormIconRef,
+	type IconRef,
+	isBuiltinIconRef,
+	type ModuleIconRef,
+} from "./builtinIcons";
 import { type Field, isContainer } from "./fields";
 import { caseListColumnHasRuntimeRole } from "./modules";
-import type { Media } from "./multimedia";
+import type { Media, MediaAssetId } from "./multimedia";
 import type { Uuid } from "./uuid";
 
 /**
@@ -154,12 +159,12 @@ export type MediaRefLocation =
  * and the location info a validator error needs to point at the
  * exact carrier.
  *
- * `assetId` is the plain string the doc carries (the `AssetId` brand
- * is compile-time only). Consumers that need the brand re-cast at
- * use; the walker stays brand-agnostic because the doc itself is.
+ * Uploaded references are strict `MediaAssetId`; the three menu-icon carriers
+ * may instead hold a closed `BuiltinIconRef`. `IconRef` is exactly that union
+ * and is therefore the complete type of a walked carrier identity.
  */
 export interface AssetRef {
-	readonly assetId: string;
+	readonly assetId: IconRef;
 	readonly slotKind: MediaSlotKind;
 	readonly location: MediaRefLocation;
 }
@@ -471,16 +476,16 @@ function* walkFieldOptionMedia(
 }
 
 /**
- * Collect the de-duplicated set of every media `AssetId` referenced
+ * Collect the de-duplicated set of every media `MediaAssetId` referenced
  * anywhere in the blueprint — a thin wrapper over `walkAssetRefs` for
  * consumers (the manifest loader) that need only the asset ids.
  *
- * Returns plain asset-id strings (the doc carries `AssetId` as a plain
+ * Returns plain asset-id strings (the doc carries `MediaAssetId` as a plain
  * string — the brand is compile-time only). The caller re-brands when
  * keying the resolved manifest.
  */
-export function collectAssetRefs(doc: BlueprintDoc): Set<string> {
-	const ids = new Set<string>();
+export function collectAssetRefs(doc: BlueprintDoc): Set<IconRef> {
+	const ids = new Set<IconRef>();
 	for (const ref of walkAssetRefs(doc)) {
 		ids.add(ref.assetId);
 	}
@@ -499,7 +504,7 @@ export function collectAssetRefs(doc: BlueprintDoc): Set<string> {
  * index's) collection basis; the gated `collectAssetRefs` stays the emit/
  * validate basis.
  */
-export function collectMovableAssetRefs(doc: BlueprintDoc): Set<string> {
+export function collectMovableAssetRefs(doc: BlueprintDoc): Set<IconRef> {
 	const ids = collectAssetRefs(doc);
 	for (const mod of Object.values(doc.modules)) {
 		if (!mod.caseListOnly) {
@@ -524,14 +529,14 @@ export function collectMovableAssetRefs(doc: BlueprintDoc): Set<string> {
  * Built on {@link collectMovableAssetRefs} so a dead-but-present ref is still
  * indexed (deletion guard) and carried by a move.
  */
-export function collectRealAssetRefs(doc: BlueprintDoc): string[] {
+export function collectRealAssetRefs(doc: BlueprintDoc): MediaAssetId[] {
 	return [...collectMovableAssetRefs(doc)].filter(
-		(id) => !isBuiltinIconRef(id),
+		(id): id is MediaAssetId => !isBuiltinIconRef(id),
 	);
 }
 
 /**
- * Rewrite every media `AssetId` the blueprint references through `idMap`,
+ * Rewrite every media `MediaAssetId` the blueprint references through `idMap`,
  * returning a new doc (the input is untouched). An id absent from the map —
  * a built-in `nova-icon:` ref, or any id the caller chose not to remap — is
  * left exactly as-is, so a partial map only touches the ids it names.
@@ -553,45 +558,56 @@ export function collectRealAssetRefs(doc: BlueprintDoc): string[] {
  */
 export function remapAssetRefs(
 	doc: PersistableDoc,
-	idMap: ReadonlyMap<string, string>,
+	idMap: ReadonlyMap<MediaAssetId, MediaAssetId>,
 ): PersistableDoc {
 	if (idMap.size === 0) return doc;
-	const remap = (id: string): string => idMap.get(id) ?? id;
+	const remapUploaded = (id: MediaAssetId): MediaAssetId => idMap.get(id) ?? id;
+	const remapIcon = (id: IconRef): IconRef =>
+		isBuiltinIconRef(id) ? id : remapUploaded(id);
+	const remapModuleIcon = (id: ModuleIconRef): ModuleIconRef =>
+		remapIcon(id) as ModuleIconRef;
+	const remapFormIcon = (id: FormIconRef): FormIconRef =>
+		remapIcon(id) as FormIconRef;
 	return produce(doc, (draft) => {
-		if (draft.logo) draft.logo = remap(draft.logo);
+		if (draft.logo) draft.logo = remapUploaded(draft.logo);
 
 		for (const moduleUuid of draft.moduleOrder) {
 			const mod = draft.modules[moduleUuid];
 			if (!mod) continue;
-			if (mod.icon) mod.icon = remap(mod.icon);
-			if (mod.audioLabel) mod.audioLabel = remap(mod.audioLabel);
+			if (mod.icon) mod.icon = remapModuleIcon(mod.icon);
+			if (mod.audioLabel) mod.audioLabel = remapUploaded(mod.audioLabel);
 			if (mod.caseListConfig?.icon) {
-				mod.caseListConfig.icon = remap(mod.caseListConfig.icon);
+				mod.caseListConfig.icon = remapModuleIcon(mod.caseListConfig.icon);
 			}
 			if (mod.caseListConfig?.audioLabel) {
-				mod.caseListConfig.audioLabel = remap(mod.caseListConfig.audioLabel);
+				mod.caseListConfig.audioLabel = remapUploaded(
+					mod.caseListConfig.audioLabel,
+				);
 			}
 			for (const column of mod.caseListConfig?.columns ?? []) {
 				if (column.kind !== "image-map") continue;
 				for (const row of column.mapping) {
-					row.assetId = remap(row.assetId);
+					row.assetId = remapUploaded(row.assetId);
 				}
 			}
 		}
 
 		for (const form of Object.values(draft.forms)) {
-			if (form.icon) form.icon = remap(form.icon);
-			if (form.audioLabel) form.audioLabel = remap(form.audioLabel);
+			if (form.icon) form.icon = remapFormIcon(form.icon);
+			if (form.audioLabel) form.audioLabel = remapUploaded(form.audioLabel);
 		}
 
 		for (const field of Object.values(draft.fields)) {
-			remapFieldMedia(field, remap);
+			remapFieldMedia(field, remapUploaded);
 		}
 	});
 }
 
 /** Rewrite the media ids on one field's message bundles + select options. */
-function remapFieldMedia(field: Field, remap: (id: string) => string): void {
+function remapFieldMedia(
+	field: Field,
+	remap: (id: MediaAssetId) => MediaAssetId,
+): void {
 	if ("label_media" in field) remapMediaBundle(field.label_media, remap);
 	if ("hint_media" in field) remapMediaBundle(field.hint_media, remap);
 	if ("help_media" in field) remapMediaBundle(field.help_media, remap);
@@ -606,7 +622,7 @@ function remapFieldMedia(field: Field, remap: (id: string) => string): void {
 /** Rewrite the image/audio/video slots on one `Media` bundle in place. */
 function remapMediaBundle(
 	bundle: Media | undefined,
-	remap: (id: string) => string,
+	remap: (id: MediaAssetId) => MediaAssetId,
 ): void {
 	if (!bundle) return;
 	for (const slotKind of MEDIA_BUNDLE_KEYS) {
@@ -636,7 +652,7 @@ export function carriesViaBulkUpload(location: MediaRefLocation): boolean {
 }
 
 /**
- * The app logo's `AssetId` IF it won't reach the device on its own —
+ * The app logo's `MediaAssetId` IF it won't reach the device on its own —
  * otherwise `undefined`.
  *
  * An image used ONLY as the app logo is never carried by the bulk upload

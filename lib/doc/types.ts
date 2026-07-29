@@ -13,7 +13,6 @@ export { asUuid } from "@/lib/domain";
 
 import { z } from "zod";
 import {
-	assetIdSchema,
 	CONNECT_TYPES,
 	carrierBlindFieldPatchSchemaByKind,
 	carrierBlindFieldSchema,
@@ -27,9 +26,12 @@ import {
 	columnSchema,
 	columnSortSchema,
 	fieldKinds,
+	formIconRefSchema,
 	formSchema,
 	lookupOptionsSourceSchema,
+	mediaAssetIdSchema,
 	mediaSchema,
+	moduleIconRefSchema,
 	moduleSchema,
 	personaSchema,
 	searchInputDefSchema,
@@ -1442,7 +1444,7 @@ function createMutationSchema({
 			kind: z.literal("setConnectType"),
 			connectType: z.enum(CONNECT_TYPES).nullable(),
 		}),
-		// `logo` is `assetIdSchema.optional()` on the doc — there is no
+		// `logo` is `mediaAssetIdSchema.optional()` on the doc — there is no
 		// stored `null`. The payload is `.nullable()` (not optional) so the
 		// mutation always carries an explicit intent: an asset id sets the
 		// logo, `null` clears it. The reducer maps `null → undefined` so the
@@ -1452,7 +1454,7 @@ function createMutationSchema({
 		// `null` verbatim.
 		z.object({
 			kind: z.literal("setAppLogo"),
-			logo: assetIdSchema.nullable(),
+			logo: mediaAssetIdSchema.nullable(),
 		}),
 		z.object({
 			kind: z.literal("setCaseTypes"),
@@ -1772,8 +1774,8 @@ function createMutationSchema({
 			patch: z
 				.object({
 					filter: mutationPredicateSchema.nullable().optional(),
-					icon: assetIdSchema.nullable().optional(),
-					audioLabel: assetIdSchema.nullable().optional(),
+					icon: moduleIconRefSchema.nullable().optional(),
+					audioLabel: mediaAssetIdSchema.nullable().optional(),
 				})
 				.strict(),
 			// The tile layout is the same kind of non-array case-list metadata as
@@ -1842,14 +1844,14 @@ function createMutationSchema({
 		z.object({
 			kind: z.literal("setModuleMedia"),
 			uuid: uuidSchema,
-			icon: assetIdSchema.nullable(),
-			audioLabel: assetIdSchema.nullable(),
+			icon: moduleIconRefSchema.nullable(),
+			audioLabel: mediaAssetIdSchema.nullable(),
 		}),
 		z.object({
 			kind: z.literal("setFormMedia"),
 			uuid: uuidSchema,
-			icon: assetIdSchema.nullable(),
-			audioLabel: assetIdSchema.nullable(),
+			icon: formIconRefSchema.nullable(),
+			audioLabel: mediaAssetIdSchema.nullable(),
 		}),
 	]);
 	// Placement is a rule about the untouched envelope, including subtrees that

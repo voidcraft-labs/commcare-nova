@@ -13,7 +13,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { testUuid } from "@/__tests__/helpers/uuid";
+import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, xp } from "@/lib/__tests__/docHelpers";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 
@@ -306,6 +306,7 @@ describe("BuilderSession store", () => {
 	});
 
 	it("Project-scope reset retires attachment/tool run payloads and phase state", () => {
+		const sourceAsset = testMediaAssetId("source-asset");
 		const store = createBuilderSessionStore();
 		store.getState().beginRun({ startedWithData: true });
 		store.getState().pushEvents([
@@ -320,7 +321,7 @@ describe("BuilderSession store", () => {
 					text: "Use this",
 					attachments: [
 						{
-							assetId: "source-asset",
+							assetId: sourceAsset,
 							kind: "pdf",
 							filename: "source.pdf",
 							mimeType: "application/pdf",

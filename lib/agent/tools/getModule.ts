@@ -17,13 +17,10 @@
  * every authoring handle without a parallel call.
  *
  * `icon` / `audio_label` (on the module AND each form summary) carry the
- * STORED menu-media refs — an uploaded asset id or a built-in
- * `nova-icon:<slug>` ref, `null` when unset. This is the read side of
- * `setMenuMedia`'s single-slot contract: its slots are
- * required-and-nullable, so to touch one slot of a tile the SA reads the
- * other's current value here and passes it back verbatim
- * (`resolveIconInput` round-trips a stored built-in ref unchanged). One
- * read covers every tile of the module, matching the batch shape.
+ * authoring values accepted by `setMenuMedia`: uploaded-media UUIDs pass
+ * through, while a stored built-in ref projects to its catalog slug. Internal
+ * `nova-icon:<slug>` identities never leak into the tool protocol. One read
+ * covers every tile of the module, matching the batch shape.
  */
 
 import { z } from "zod";
@@ -32,10 +29,19 @@ import type {
 	BlueprintDoc,
 	CaseListConfig,
 	CaseSearchConfig,
+	FormIconRef,
+	FormIconSlug,
 	FormType,
+	MediaAssetId,
+	ModuleIconRef,
+	ModuleIconSlug,
 	Uuid,
 } from "@/lib/domain";
-import { orderedColumns } from "@/lib/domain";
+import {
+	isBuiltinIconRef,
+	orderedColumns,
+	parseBuiltinIconSlug,
+} from "@/lib/domain";
 import { resolveModuleUuid } from "../blueprintHelpers";
 import {
 	carrierBlindCaseListConfig,
@@ -56,7 +62,8 @@ export type GetModuleInput = z.infer<typeof getModuleInputSchema>;
  * Per-form summary included in the `getModule` result. `fieldCount`
  * counts fields at every nesting depth so the SA gets a real size signal
  * (a form with three groups of five fields reads as 15, not 3).
- * `icon` / `audio_label` are the form tile's stored menu-media refs.
+ * `icon` projects a built-in ref to its authoring slug while uploaded-media
+ * UUIDs pass through unchanged. `audio_label` is an uploaded-media UUID.
  */
 export interface GetModuleFormSummary {
 	formIndex: number;
@@ -65,8 +72,8 @@ export interface GetModuleFormSummary {
 	name: string;
 	type: FormType;
 	fieldCount: number;
-	icon: string | null;
-	audio_label: string | null;
+	icon: FormIconSlug | MediaAssetId | null;
+	audio_label: MediaAssetId | null;
 }
 
 /**
@@ -87,8 +94,8 @@ export type GetModuleResult =
 			uuid: Uuid;
 			name: string;
 			case_type: string | null;
-			icon: string | null;
-			audio_label: string | null;
+			icon: ModuleIconSlug | MediaAssetId | null;
+			audio_label: MediaAssetId | null;
 			case_list_config: CaseListConfig | null;
 			/** Visible field uuids in the exact order each screen renders them. */
 			results_column_order: Uuid[];
@@ -151,7 +158,7 @@ export const getModuleTool = {
 				uuid: moduleUuid,
 				name: mod.name,
 				case_type: mod.caseType ?? null,
-				icon: mod.icon ?? null,
+				icon: projectModuleIcon(mod.icon),
 				audio_label: mod.audioLabel ?? null,
 				case_list_config: caseListConfig ?? null,
 				results_column_order: resultsColumns
@@ -169,7 +176,7 @@ export const getModuleTool = {
 						name: f?.name ?? "",
 						type: f?.type ?? "survey",
 						fieldCount: countFieldsUnder(doc, fUuid),
-						icon: f?.icon ?? null,
+						icon: projectFormIcon(f?.icon),
 						audio_label: f?.audioLabel ?? null,
 					};
 				}),
@@ -177,3 +184,19 @@ export const getModuleTool = {
 		};
 	},
 };
+
+function projectModuleIcon(
+	icon: ModuleIconRef | undefined,
+): ModuleIconSlug | MediaAssetId | null {
+	if (icon === undefined) return null;
+	if (!isBuiltinIconRef(icon)) return icon;
+	return parseBuiltinIconSlug(icon) as ModuleIconSlug;
+}
+
+function projectFormIcon(
+	icon: FormIconRef | undefined,
+): FormIconSlug | MediaAssetId | null {
+	if (icon === undefined) return null;
+	if (!isBuiltinIconRef(icon)) return icon;
+	return parseBuiltinIconSlug(icon) as FormIconSlug;
+}

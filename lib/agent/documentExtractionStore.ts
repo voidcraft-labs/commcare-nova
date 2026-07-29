@@ -35,10 +35,10 @@ import {
 } from "@/lib/db/mediaAssets";
 import {
 	ASSET_SIZE_CAPS_BYTES,
-	type AssetId,
 	type DocumentKind,
 	EXTRACTOR_VERSION,
 	extractGcsObjectKeyFor,
+	type MediaAssetId,
 	type MediaExtractStatus,
 } from "@/lib/domain/multimedia";
 import { log } from "@/lib/logger";
@@ -163,7 +163,7 @@ function readyResult(
  * authorize extraction.
  */
 async function reloadExtractStatus(
-	assetId: AssetId,
+	assetId: MediaAssetId,
 ): Promise<{ snapshot: ExtractStatusSnapshot; truncated: boolean } | null> {
 	const fresh = await loadAssetById(assetId).catch((err: unknown) => {
 		log.warn("[extract-store] status reload failed", { assetId, err });
@@ -197,7 +197,7 @@ async function reloadExtractStatus(
  * the caller re-runs the fenced decision.
  */
 async function waitForInflight(
-	assetId: AssetId,
+	assetId: MediaAssetId,
 	key: string,
 	version = EXTRACTOR_VERSION,
 ): Promise<StoredExtractResult | null> {

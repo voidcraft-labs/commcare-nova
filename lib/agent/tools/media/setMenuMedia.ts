@@ -16,10 +16,8 @@
  * Both slots are set per item; each is required-and-nullable so the SA
  * states intent explicitly (an asset id or built-in slug sets the slot,
  * `null` clears it). To touch only one slot, read the other's current
- * value — `getModule` surfaces every tile's stored `icon` /
- * `audio_label`, `getForm` a form's — and pass it back verbatim
- * (`resolveIconInput` round-trips a stored `nova-icon:<slug>` ref
- * unchanged).
+ * value — `getModule` surfaces each built-in icon as its accepted catalog slug
+ * and uploaded slots as UUIDs — and pass that authoring value back.
  *
  * The batch is all-or-nothing (`commitMediaBatch`): every item must
  * resolve (module / form exists) and every set slot must pass the
@@ -33,9 +31,7 @@
  */
 
 import { z } from "zod";
-import type { Mutation } from "@/lib/doc/types";
 import {
-	type AssetId,
 	type BlueprintDoc,
 	FORM_ICON_SLUGS,
 	MODULE_ICON_SLUGS,
@@ -50,7 +46,6 @@ import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { type MutatingToolResult, toToolErrorResult } from "../common";
 import type { MutationSuccess } from "../shared/toolCallSummary";
 import {
-	brandAssetSlot,
 	commitMediaBatch,
 	nullableAssetSlot,
 	nullableIconSlot,
@@ -130,35 +125,9 @@ export const setMenuMediaTool = {
 			// Resolve every item before writing anything, collecting every
 			// failure — `commitMediaBatch` reports them as one all-or-nothing
 			// error. The two arms differ only in target resolution, the
-			// mutation builder, and the carrier phrase; `resolveTile` carries
-			// the shared shape.
+			// mutation builder, and the carrier phrase.
 			const resolved: ResolvedMediaBatchItem[] = [];
 			const failures: string[] = [];
-			const resolveTile = (
-				item: SetMenuMediaInput["items"][number],
-				carrierPhrase: string,
-				buildMutations: (
-					icon: AssetId | null,
-					audioLabel: AssetId | null,
-				) => Mutation[],
-			): ResolvedMediaBatchItem => {
-				const icon = resolveIconInput(
-					item.icon,
-					`the icon on ${carrierPhrase}`,
-				);
-				return {
-					mutations: buildMutations(icon.icon, brandAssetSlot(item.audioLabel)),
-					expectations: [
-						...icon.expectations,
-						...slotExpectation(
-							item.audioLabel,
-							"audio",
-							`the audio label on ${carrierPhrase}`,
-						),
-					],
-					line: `${carrierPhrase}: icon ${describeSlot(item.icon)}, audio label ${describeSlot(item.audioLabel)}`,
-				};
-			};
 			for (const [i, item] of items.entries()) {
 				if (item.target === "module") {
 					const moduleUuid = resolveModuleUuid(doc, item.moduleIndex);
@@ -169,11 +138,27 @@ export const setMenuMediaTool = {
 						);
 						continue;
 					}
-					resolved.push(
-						resolveTile(item, `module "${mod.name}"`, (icon, audioLabel) =>
-							setModuleMediaMutations(mod.uuid, icon, audioLabel),
-						),
+					const carrierPhrase = `module "${mod.name}"`;
+					const icon = resolveIconInput(
+						item.icon,
+						`the icon on ${carrierPhrase}`,
 					);
+					resolved.push({
+						mutations: setModuleMediaMutations(
+							mod.uuid,
+							icon.icon,
+							item.audioLabel,
+						),
+						expectations: [
+							...icon.expectations,
+							...slotExpectation(
+								item.audioLabel,
+								"audio",
+								`the audio label on ${carrierPhrase}`,
+							),
+						],
+						line: `${carrierPhrase}: icon ${describeSlot(item.icon)}, audio label ${describeSlot(item.audioLabel)}`,
+					});
 				} else {
 					const formUuid = resolveFormUuid(
 						doc,
@@ -187,11 +172,27 @@ export const setMenuMediaTool = {
 						);
 						continue;
 					}
-					resolved.push(
-						resolveTile(item, `form "${form.name}"`, (icon, audioLabel) =>
-							setFormMediaMutations(form.uuid, icon, audioLabel),
-						),
+					const carrierPhrase = `form "${form.name}"`;
+					const icon = resolveIconInput(
+						item.icon,
+						`the icon on ${carrierPhrase}`,
 					);
+					resolved.push({
+						mutations: setFormMediaMutations(
+							form.uuid,
+							icon.icon,
+							item.audioLabel,
+						),
+						expectations: [
+							...icon.expectations,
+							...slotExpectation(
+								item.audioLabel,
+								"audio",
+								`the audio label on ${carrierPhrase}`,
+							),
+						],
+						line: `${carrierPhrase}: icon ${describeSlot(item.icon)}, audio label ${describeSlot(item.audioLabel)}`,
+					});
 				}
 			}
 

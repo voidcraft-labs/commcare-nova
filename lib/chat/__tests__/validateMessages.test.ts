@@ -8,6 +8,7 @@
 // absent `metadata` is a valid attachment-free message, not a schema violation).
 
 import { describe, expect, it } from "vitest";
+import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import type { AttachmentRef, NovaUIMessage } from "../attachmentRefs";
 import {
 	MAX_ATTACHMENTS_PER_MESSAGE,
@@ -19,7 +20,7 @@ import { validateChatMessages } from "../validateMessages";
 /** A valid image attachment ref, overridable per test. */
 function ref(over: Partial<AttachmentRef> = {}): AttachmentRef {
 	return {
-		assetId: "11111111-1111-1111-1111-111111111111",
+		assetId: testMediaAssetId("chat-attachment"),
 		kind: "image",
 		filename: "diagram.png",
 		mimeType: "image/png",
@@ -111,7 +112,12 @@ describe("validateChatMessages", () => {
 
 	it("rejects an attachment ref missing a required field", () => {
 		// assetId is required + non-empty; an empty one is a malformed ref.
-		const result = validateChatMessages([userMsg([ref({ assetId: "" })])]);
+		const result = validateChatMessages([
+			{
+				...userMsg(),
+				metadata: { attachments: [{ ...ref(), assetId: "" }] },
+			},
+		]);
 		expect(result.ok).toBe(false);
 	});
 

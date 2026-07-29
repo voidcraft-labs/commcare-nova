@@ -13,7 +13,7 @@ import { Client } from "pg";
 import { describe, expect, it } from "vitest";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import type { Mutation } from "@/lib/doc/types";
-import { asAssetId } from "@/lib/domain/multimedia";
+import { asMediaAssetId } from "@/lib/domain/multimedia";
 import { setupAppStateTestDb } from "./appStateTestDb";
 import { createPerTestAppDb } from "./perTestAppDb";
 
@@ -132,7 +132,7 @@ async function seedApp(): Promise<{
 }
 
 function attachLogo(assetId: string): Mutation[] {
-	return [{ kind: "setAppLogo", logo: asAssetId(assetId) }];
+	return [{ kind: "setAppLogo", logo: asMediaAssetId(assetId) }];
 }
 
 async function waitForBlockedLocks(
@@ -181,7 +181,7 @@ describe("transactional media deletion", () => {
 
 		const publication = publishPendingAssetForActor(
 			{
-				assetId: asAssetId(assetId),
+				assetId: asMediaAssetId(assetId),
 				actorUserId: ACTOR,
 				expectedProjectId: PROJECT,
 				gcsObjectKey: finalKey,
@@ -196,7 +196,7 @@ describe("transactional media deletion", () => {
 		try {
 			await waitForBlockedLocks(gate, 1);
 			rejection = deletePendingAssetForActor({
-				assetId: asAssetId(assetId),
+				assetId: asMediaAssetId(assetId),
 				actorUserId: ACTOR,
 				expectedProjectId: PROJECT,
 			});
@@ -352,7 +352,7 @@ describe("transactional media deletion", () => {
 
 		const publication = publishClaimedAssetExtract(
 			{
-				assetId: asAssetId(asset.id),
+				assetId: asMediaAssetId(asset.id),
 				claim: asset.claim,
 				extract: {
 					status: "ready",
@@ -434,7 +434,7 @@ describe("transactional media deletion", () => {
 			await deletionExecuted;
 			publication = publishClaimedAssetExtract(
 				{
-					assetId: asAssetId(asset.id),
+					assetId: asMediaAssetId(asset.id),
 					claim: asset.claim,
 					extract: {
 						status: "ready",
@@ -485,7 +485,7 @@ describe("transactional media deletion", () => {
 		if (moduleUuid === undefined) throw new Error("module fixture missing");
 		const module = doc.modules[moduleUuid];
 		if (module === undefined) throw new Error("module fixture missing");
-		module.icon = asAssetId(assetId);
+		module.icon = asMediaAssetId(assetId);
 		const appId = await h.seedAppWithBlueprint(doc, {
 			owner: ACTOR,
 			projectId: PROJECT,
@@ -521,7 +521,7 @@ describe("transactional media deletion", () => {
 					icon: null,
 					audioLabel: null,
 				},
-				{ kind: "setAppLogo", logo: asAssetId(assetId) },
+				{ kind: "setAppLogo", logo: asMediaAssetId(assetId) },
 			],
 			actorUserId: ACTOR,
 			kind: "autosave",

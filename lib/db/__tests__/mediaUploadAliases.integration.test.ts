@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { asAssetId } from "@/lib/domain/multimedia";
+import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import {
 	canonicalizePendingAssetForActor,
 	findReadyAssetByProjectAndHash,
@@ -67,8 +67,8 @@ describe("durable media upload aliases", () => {
 
 		const result = await canonicalizePendingAssetForActor(
 			{
-				attemptAssetId: asAssetId("asset-attempt"),
-				canonicalAssetId: asAssetId("asset-canonical"),
+				attemptAssetId: testMediaAssetId("asset-attempt"),
+				canonicalAssetId: testMediaAssetId("asset-canonical"),
 				actorUserId: ACTOR,
 				expectedProjectId: PROJECT,
 				expectedContentHash: HASH,
@@ -107,15 +107,15 @@ describe("durable media upload aliases", () => {
 		// Model a dropped 200 response: the next request has only the original id.
 		await expect(
 			resolveReadyUploadAliasForActor({
-				attemptAssetId: asAssetId("asset-attempt"),
+				attemptAssetId: testMediaAssetId("asset-attempt"),
 				actorUserId: ACTOR,
 			}),
 		).resolves.toMatchObject({ id: "asset-canonical", status: "ready" });
 		await expect(
 			canonicalizePendingAssetForActor(
 				{
-					attemptAssetId: asAssetId("asset-attempt"),
-					canonicalAssetId: asAssetId("asset-canonical"),
+					attemptAssetId: testMediaAssetId("asset-attempt"),
+					canonicalAssetId: testMediaAssetId("asset-canonical"),
 					actorUserId: ACTOR,
 					expectedProjectId: PROJECT,
 					expectedContentHash: HASH,
@@ -130,7 +130,7 @@ describe("durable media upload aliases", () => {
 		// A Project viewer cannot spend the write-capable confirm endpoint.
 		await expect(
 			resolveReadyUploadAliasForActor({
-				attemptAssetId: asAssetId("asset-attempt"),
+				attemptAssetId: testMediaAssetId("asset-attempt"),
 				actorUserId: VIEWER,
 			}),
 		).resolves.toBeNull();
@@ -144,8 +144,8 @@ describe("durable media upload aliases", () => {
 		await expect(
 			canonicalizePendingAssetForActor(
 				{
-					attemptAssetId: asAssetId("asset-attempt"),
-					canonicalAssetId: asAssetId("asset-canonical"),
+					attemptAssetId: testMediaAssetId("asset-attempt"),
+					canonicalAssetId: testMediaAssetId("asset-canonical"),
 					actorUserId: VIEWER,
 					expectedProjectId: PROJECT,
 					expectedContentHash: HASH,
@@ -178,8 +178,8 @@ describe("durable media upload aliases", () => {
 		const canonicalize = () =>
 			canonicalizePendingAssetForActor(
 				{
-					attemptAssetId: asAssetId("asset-attempt"),
-					canonicalAssetId: asAssetId("asset-canonical"),
+					attemptAssetId: testMediaAssetId("asset-attempt"),
+					canonicalAssetId: testMediaAssetId("asset-canonical"),
 					actorUserId: ACTOR,
 					expectedProjectId: PROJECT,
 					expectedContentHash: HASH,
@@ -206,7 +206,7 @@ describe("durable media upload aliases", () => {
 		]);
 		await expect(
 			resolveReadyUploadAliasForActor({
-				attemptAssetId: asAssetId("asset-attempt"),
+				attemptAssetId: testMediaAssetId("asset-attempt"),
 				actorUserId: ACTOR,
 			}),
 		).resolves.toMatchObject({ id: "asset-canonical", status: "ready" });
@@ -249,7 +249,7 @@ describe("durable media upload aliases", () => {
 
 		await expect(
 			resolveReadyUploadAliasForActor({
-				attemptAssetId: asAssetId("attempt-expired-newer"),
+				attemptAssetId: testMediaAssetId("attempt-expired-newer"),
 				actorUserId: ACTOR,
 			}),
 		).resolves.toBeNull();

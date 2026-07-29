@@ -3,13 +3,14 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { testUuid } from "@/__tests__/helpers/uuid";
+import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 
 import {
 	type CaseType,
 	type Column,
 	idMappingColumn,
 	imageMapColumn,
+	type MediaAssetId,
 } from "@/lib/domain";
 import { ColumnEditor } from "../../../ColumnEditor";
 
@@ -21,10 +22,13 @@ vi.mock("@/components/builder/media/MediaSlot", () => ({
 	}: {
 		slotKey: string;
 		ariaLabel: string;
-		onChange: (next: string) => void;
+		onChange: (next: MediaAssetId) => void;
 	}) => (
 		<fieldset aria-label={ariaLabel} data-slot-key={slotKey}>
-			<button type="button" onClick={() => onChange("asset-selected")}>
+			<button
+				type="button"
+				onClick={() => onChange(testMediaAssetId("asset-selected"))}
+			>
 				Choose image
 			</button>
 		</fieldset>
@@ -32,6 +36,8 @@ vi.mock("@/components/builder/media/MediaSlot", () => ({
 }));
 
 const TEST_UUID = testUuid("00000000-0000-0000-0000-000000000001");
+const ASSET_OPEN = testMediaAssetId("asset-open");
+const ASSET_CLOSED = testMediaAssetId("asset-closed");
 
 const PATIENT: CaseType = {
 	name: "patient",
@@ -61,7 +67,7 @@ describe("mapping row UI identity", () => {
 		[
 			"images",
 			imageMapColumn(TEST_UUID, "status", "Status", [
-				{ value: "open", assetId: "asset-open" },
+				{ value: "open", assetId: ASSET_OPEN },
 			]),
 		],
 	] as const)(
@@ -87,7 +93,7 @@ describe("mapping row UI identity", () => {
 		render(
 			<ControlledColumnEditor
 				initial={imageMapColumn(TEST_UUID, "status", "Status", [
-					{ value: "open", assetId: "" },
+					{ value: "open", assetId: ASSET_OPEN },
 				])}
 			/>,
 		);
@@ -105,8 +111,8 @@ describe("mapping row UI identity", () => {
 		render(
 			<ControlledColumnEditor
 				initial={imageMapColumn(TEST_UUID, "status", "Status", [
-					{ value: "open", assetId: "asset-open" },
-					{ value: "closed", assetId: "asset-closed" },
+					{ value: "open", assetId: ASSET_OPEN },
+					{ value: "closed", assetId: ASSET_CLOSED },
 				])}
 			/>,
 		);

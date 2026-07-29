@@ -2,7 +2,7 @@
 //
 // Menu-item media — the icon + audio on a module home tile, a form
 // command, and a case-list link. Two wire surfaces, both fed from the
-// carrier's `icon` / `audioLabel` `AssetId` slots:
+// carrier's `icon` / `audioLabel` `MediaAssetId` slots:
 //
 //   1. HQ-JSON shell dicts (the upload path — CCHQ regenerates the
 //      suite from these on import). CommCare's `NavMenuItemMediaMixin`
@@ -31,6 +31,8 @@
 
 import type { Element } from "domhandler";
 import { el } from "@/lib/commcare/elementBuilders";
+import type { IconRef } from "@/lib/domain/builtinIcons";
+import type { MediaAssetId } from "@/lib/domain/multimedia";
 import { type AssetManifest, requireAssetRef } from "./assetWirePath";
 
 /**
@@ -56,8 +58,8 @@ export interface NavMediaDicts {
  * Module / Form / CaseList shells for the upload path.
  */
 export function buildNavMediaDicts(
-	icon: string | undefined,
-	audioLabel: string | undefined,
+	icon: IconRef | undefined,
+	audioLabel: MediaAssetId | undefined,
 	manifest: AssetManifest | undefined,
 	where: string,
 ): NavMediaDicts {
@@ -93,8 +95,8 @@ export interface NavMenuNode {
  */
 export function buildNavMenuNode(
 	baseLocaleId: string,
-	icon: string | undefined,
-	audioLabel: string | undefined,
+	icon: IconRef | undefined,
+	audioLabel: MediaAssetId | undefined,
 	manifest: AssetManifest | undefined,
 	where: string,
 ): NavMenuNode {

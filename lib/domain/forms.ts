@@ -1,6 +1,7 @@
 // lib/domain/forms.ts
 import { z } from "zod";
-import { assetIdSchema } from "./multimedia";
+import { formIconRefSchema } from "./builtinIcons";
+import { mediaAssetIdSchema } from "./multimedia";
 import {
 	type Predicate,
 	predicateSchema,
@@ -362,9 +363,9 @@ export const formSchema = z
 		 * Image shown on the form's menu tile — the per-form
 		 * affordance within a module's menu.
 		 */
-		icon: assetIdSchema.optional(),
+		icon: formIconRefSchema.optional(),
 		/** Audio version of the form's menu label, for audio-prompt playback. */
-		audioLabel: assetIdSchema.optional(),
+		audioLabel: mediaAssetIdSchema.optional(),
 	})
 	.strict();
 export type Form = z.infer<typeof formSchema>;

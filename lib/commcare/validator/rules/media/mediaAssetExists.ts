@@ -1,5 +1,5 @@
 /**
- * Rule: every `AssetId` referenced by the blueprint resolves to a
+ * Rule: every `MediaAssetId` referenced by the blueprint resolves to a
  * row in the resolved manifest.
  *
  * Fires when a carrier holds an asset id the manifest doesn't carry.

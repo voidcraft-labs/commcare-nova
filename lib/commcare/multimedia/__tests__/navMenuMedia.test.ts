@@ -1,21 +1,21 @@
 import render from "dom-serializer";
 import { describe, expect, it } from "vitest";
+import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { RENDER_OPTS } from "@/lib/commcare/elementBuilders";
-import { asAssetId } from "@/lib/domain/multimedia";
+import type { MediaAssetId } from "@/lib/domain/multimedia";
 import type { AssetManifest, ResolvedMediaAsset } from "../assetWirePath";
 import { buildNavMediaDicts, buildNavMenuNode } from "../navMenuMedia";
 
 const HASH_ICON = "1".repeat(64);
 const HASH_AUDIO = "2".repeat(64);
+const ICON = testMediaAssetId("icon-1");
+const AUDIO = testMediaAssetId("audio-1");
 
-const MANIFEST: AssetManifest = new Map<
-	ReturnType<typeof asAssetId>,
-	ResolvedMediaAsset
->([
+const MANIFEST: AssetManifest = new Map<MediaAssetId, ResolvedMediaAsset>([
 	[
-		asAssetId("icon-1"),
+		ICON,
 		{
-			assetId: asAssetId("icon-1"),
+			assetId: ICON,
 			wirePath: `commcare/${HASH_ICON}.png`,
 			kind: "image",
 			mimeType: "image/png",
@@ -24,9 +24,9 @@ const MANIFEST: AssetManifest = new Map<
 		},
 	],
 	[
-		asAssetId("audio-1"),
+		AUDIO,
 		{
-			assetId: asAssetId("audio-1"),
+			assetId: AUDIO,
 			wirePath: `commcare/${HASH_AUDIO}.mp3`,
 			kind: "audio",
 			mimeType: "audio/mpeg",
@@ -45,14 +45,14 @@ describe("buildNavMediaDicts", () => {
 	});
 
 	it("returns empty dicts when media emission is off (no manifest)", () => {
-		expect(buildNavMediaDicts("icon-1", "audio-1", undefined, "t")).toEqual({
+		expect(buildNavMediaDicts(ICON, AUDIO, undefined, "t")).toEqual({
 			media_image: {},
 			media_audio: {},
 		});
 	});
 
 	it("stamps an en-keyed jr:// path per present slot", () => {
-		expect(buildNavMediaDicts("icon-1", "audio-1", MANIFEST, "t")).toEqual({
+		expect(buildNavMediaDicts(ICON, AUDIO, MANIFEST, "t")).toEqual({
 			media_image: { en: `jr://file/commcare/${HASH_ICON}.png` },
 			media_audio: { en: `jr://file/commcare/${HASH_AUDIO}.mp3` },
 		});
@@ -77,8 +77,8 @@ describe("buildNavMenuNode", () => {
 	it("wraps the text in a <display> with media locales + app_strings when media is set", () => {
 		const { node, strings } = buildNavMenuNode(
 			"modules.m0",
-			"icon-1",
-			"audio-1",
+			ICON,
+			AUDIO,
 			MANIFEST,
 			"t",
 		);
@@ -98,7 +98,7 @@ describe("buildNavMenuNode", () => {
 	it("emits a <display> with only the icon when audio is absent", () => {
 		const { node, strings } = buildNavMenuNode(
 			"forms.m0f0",
-			"icon-1",
+			ICON,
 			undefined,
 			MANIFEST,
 			"t",

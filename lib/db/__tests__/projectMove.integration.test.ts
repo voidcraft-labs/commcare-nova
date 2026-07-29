@@ -4,10 +4,12 @@ import type { UIMessage } from "ai";
 import type { Kysely } from "kysely";
 import { Client } from "pg";
 import { describe, expect, it } from "vitest";
+import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
 import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
 import type { Database } from "@/lib/case-store/sql/database";
 import type { CaseType } from "@/lib/domain";
+import type { MediaAssetId } from "@/lib/domain/multimedia";
 import {
 	commitAppProjectMoveInTransaction,
 	prepareAppProjectMoveInTransaction,
@@ -48,8 +50,8 @@ async function prepareMove(appId: string, actorUserId = ACTOR) {
 async function commitMove(
 	appId: string,
 	options: {
-		assetIdMap?: ReadonlyMap<string, string>;
-		attemptedRealIds?: ReadonlySet<string>;
+		assetIdMap?: ReadonlyMap<MediaAssetId, MediaAssetId>;
+		attemptedRealIds?: ReadonlySet<MediaAssetId>;
 		insideTransaction?: () => Promise<void>;
 	} = {},
 ) {
@@ -486,12 +488,12 @@ describe("dormant atomic Project move", () => {
 		// retained at the destination.
 		await h.seedProjectMember(SOURCE_OWNER, SOURCE, "owner");
 
-		const sourceLogo = "source-logo";
-		const destinationLogo = "destination-logo";
-		const sourceImage = "source-chat-image";
-		const destinationImage = "destination-chat-image";
-		const sourceDocument = "source-chat-document";
-		const destinationDocument = "destination-chat-document";
+		const sourceLogo = testMediaAssetId("source-logo");
+		const destinationLogo = testMediaAssetId("destination-logo");
+		const sourceImage = testMediaAssetId("source-chat-image");
+		const destinationImage = testMediaAssetId("destination-chat-image");
+		const sourceDocument = testMediaAssetId("source-chat-document");
+		const destinationDocument = testMediaAssetId("destination-chat-document");
 		for (const [id, projectId, kind] of [
 			[sourceLogo, SOURCE, "image"],
 			[destinationLogo, DESTINATION, "image"],
@@ -509,7 +511,7 @@ describe("dormant atomic Project move", () => {
 			.where("id", "=", appId)
 			.execute();
 
-		const missingHistorical = "missing-historical-document";
+		const missingHistorical = testMediaAssetId("missing-historical-document");
 		const originalMessages = [
 			attachedMessage("message-1", [
 				{

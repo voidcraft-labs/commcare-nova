@@ -1,4 +1,4 @@
-import { testUuid } from "@/__tests__/helpers/uuid";
+import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * Cross-rule integration tests for the case-list-config validator
@@ -308,8 +308,8 @@ describe("case-list validator — cross-rule integration", () => {
 								field: "case_name",
 								header: "Old images",
 								mapping: [
-									imageMapEntry("same", "missing-image-a"),
-									imageMapEntry("same", "missing-image-b"),
+									imageMapEntry("same", testMediaAssetId("missing-image-a")),
+									imageMapEntry("same", testMediaAssetId("missing-image-b")),
 								],
 								...dormant,
 							},

@@ -6,7 +6,7 @@
 // `uncarriedLogoAsset` (the standalone-logo predicate).
 
 import { describe, expect, it } from "vitest";
-import { testUuid } from "@/__tests__/helpers/uuid";
+import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import type { BlueprintDoc } from "@/lib/domain";
 import {
 	type AssetRef,
@@ -21,7 +21,7 @@ function ref(
 	location: MediaRefLocation,
 	slotKind: MediaSlotKind = "image",
 ): AssetRef {
-	return { assetId: "x", slotKind, location };
+	return { assetId: testMediaAssetId("x"), slotKind, location };
 }
 
 const U = testUuid("u");

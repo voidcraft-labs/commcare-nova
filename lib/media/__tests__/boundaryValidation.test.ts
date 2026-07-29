@@ -21,12 +21,16 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { makeAssetRecord } from "@/lib/commcare/validator/rules/media/__tests__/fixtures";
 import { loadAssetsByIds } from "@/lib/db/mediaAssets";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { builtinIconRef } from "@/lib/domain/builtinIcons";
-import { MAX_MEDIA_EXPORT_BYTES } from "@/lib/domain/multimedia";
+import {
+	MAX_MEDIA_EXPORT_BYTES,
+	type MediaAssetId,
+} from "@/lib/domain/multimedia";
 import { collectExportBoundaryViolations as collectBoundaryViolationsWithContext } from "@/lib/export/boundaryValidation";
 
 const PROJECT = "project-1";
@@ -58,7 +62,7 @@ beforeEach(() => {
  * a column. The optional `assetId` attaches a label image so each media
  * case introduces exactly one failure mode against this baseline.
  */
-function validDoc(assetId?: string) {
+function validDoc(assetId?: MediaAssetId) {
 	return buildDoc({
 		appName: "T",
 		caseTypes: [
@@ -109,7 +113,7 @@ describe("collectExportBoundaryViolations media arm", () => {
 			makeAssetRecord("good-asset"),
 		]);
 		const errors = await collectBoundaryViolations(
-			validDoc("good-asset"),
+			validDoc(testMediaAssetId("good-asset")),
 			PROJECT,
 		);
 		expect(errors).toHaveLength(0);
@@ -121,13 +125,13 @@ describe("collectExportBoundaryViolations media arm", () => {
 		vi.mocked(loadAssetsByIds).mockResolvedValue([]);
 
 		const errors = await collectBoundaryViolations(
-			validDoc("ghost-asset"),
+			validDoc(testMediaAssetId("ghost-asset")),
 			PROJECT,
 		);
 
 		expect(errors).toHaveLength(1);
 		expect(errors[0].code).toBe("MEDIA_ASSET_NOT_FOUND");
-		expect(errors[0].details?.assetId).toBe("ghost-asset");
+		expect(errors[0].details?.assetId).toBe(testMediaAssetId("ghost-asset"));
 	});
 
 	it("flags a still-uploading (pending) asset as MEDIA_ASSET_NOT_READY", async () => {
@@ -139,7 +143,7 @@ describe("collectExportBoundaryViolations media arm", () => {
 		]);
 
 		const errors = await collectBoundaryViolations(
-			validDoc("pending-asset"),
+			validDoc(testMediaAssetId("pending-asset")),
 			PROJECT,
 		);
 
@@ -159,7 +163,7 @@ describe("collectExportBoundaryViolations media arm", () => {
 		]);
 
 		const errors = await collectBoundaryViolations(
-			validDoc("wrong-kind"),
+			validDoc(testMediaAssetId("wrong-kind")),
 			PROJECT,
 		);
 
@@ -188,7 +192,12 @@ describe("collectExportBoundaryViolations media arm", () => {
 								uuid: "col-img" as never,
 								field: "region",
 								header: "Region",
-								mapping: [{ value: "N", assetId: "missing" }],
+								mapping: [
+									{
+										value: "N",
+										assetId: testMediaAssetId("missing"),
+									},
+								],
 							},
 						],
 						listColumnOrder: ["col-img" as never],
@@ -219,7 +228,7 @@ describe("collectExportBoundaryViolations media arm", () => {
 		]);
 
 		const errors = await collectBoundaryViolations(
-			validDoc("huge-asset"),
+			validDoc(testMediaAssetId("huge-asset")),
 			PROJECT,
 		);
 
@@ -238,23 +247,24 @@ describe("collectExportBoundaryViolations media arm", () => {
 
 	it("passes the owner through to the loader", async () => {
 		vi.mocked(loadAssetsByIds).mockResolvedValue([]);
-		await collectBoundaryViolations(validDoc("some-asset"), PROJECT);
-		expect(loadAssetsByIds).toHaveBeenCalledWith(["some-asset"], PROJECT);
+		const assetId = testMediaAssetId("some-asset");
+		await collectBoundaryViolations(validDoc(assetId), PROJECT);
+		expect(loadAssetsByIds).toHaveBeenCalledWith([assetId], PROJECT);
 	});
 
 	it("resolves a built-in icon ref clean, with no asset-row read", async () => {
-		// A built-in icon (`nova-icon:<slug>`) in an image slot has no library
+		// A built-in menu icon has no library
 		// row — the boundary synthesizes a ready/image row from the catalog, so
 		// the media rules pass and `loadAssetsByIds` is never called (no real ids).
-		const errors = await collectBoundaryViolations(
-			validDoc(builtinIconRef("household")),
-			PROJECT,
-		);
+		const doc = validDoc();
+		doc.modules[doc.moduleOrder[0]].icon = builtinIconRef("household");
+		const errors = await collectBoundaryViolations(doc, PROJECT);
 		expect(errors).toHaveLength(0);
 		expect(loadAssetsByIds).not.toHaveBeenCalled();
 	});
 
 	it("loads only the real ids when a doc mixes built-in and uploaded refs", async () => {
+		const realAssetId = testMediaAssetId("real-asset");
 		vi.mocked(loadAssetsByIds).mockResolvedValue([
 			makeAssetRecord("real-asset"),
 		]);
@@ -286,14 +296,13 @@ describe("collectExportBoundaryViolations media arm", () => {
 									id: "case_name",
 									label: "Name",
 									case_property_on: "patient",
-									label_media: { image: "real-asset" },
+									label_media: { image: realAssetId },
 								}),
 								f({
 									kind: "text",
 									id: "village",
 									label: "Village",
 									case_property_on: "patient",
-									label_media: { image: builtinIconRef("household") },
 								}),
 							],
 						},
@@ -301,11 +310,12 @@ describe("collectExportBoundaryViolations media arm", () => {
 				},
 			],
 		});
+		doc.modules[doc.moduleOrder[0]].icon = builtinIconRef("household");
 
 		const errors = await collectBoundaryViolations(doc, PROJECT);
 		expect(errors).toHaveLength(0);
 		// Only the uploaded asset hit Postgres; the built-in resolved from the
 		// catalog without a read.
-		expect(loadAssetsByIds).toHaveBeenCalledWith(["real-asset"], PROJECT);
+		expect(loadAssetsByIds).toHaveBeenCalledWith([realAssetId], PROJECT);
 	});
 });

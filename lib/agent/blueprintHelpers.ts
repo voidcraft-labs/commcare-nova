@@ -49,7 +49,6 @@ import { anchorForIndex, sequenceMovesTo } from "@/lib/doc/mutations/sequence";
 import { searchInputUpdateMutation as planSearchInputUpdate } from "@/lib/doc/searchInputMutations";
 import type { Mutation } from "@/lib/doc/types";
 import type {
-	AssetId,
 	BlueprintDoc,
 	CarrierBlindField,
 	Column,
@@ -58,14 +57,25 @@ import type {
 	FieldKind,
 	FieldPatchFor,
 	Form,
+	FormIconRef,
+	FormIconSlug,
 	FormType,
 	Media,
+	MediaAssetId,
 	Module,
+	ModuleIconRef,
 	PostSubmitDestination,
 	SearchInputDef,
 	Uuid,
 } from "@/lib/domain";
-import { asUuid, fieldKinds, isContainer, slugifyId } from "@/lib/domain";
+import {
+	asUuid,
+	fieldKinds,
+	isBuiltinIconRef,
+	isContainer,
+	parseBuiltinIconSlug,
+	slugifyId,
+} from "@/lib/domain";
 import { effectiveFilterForEmission } from "@/lib/domain/predicate";
 import {
 	type CarrierBlindCaseOperationProjection,
@@ -360,7 +370,9 @@ export function resolveFormContext(
  * Lives alongside the positional lookup helpers because it's a
  * `BlueprintDoc`-read derived shape — the same category of surface.
  */
-export type FormSnapshot = Omit<Form, "caseOperations"> & {
+export type FormSnapshot = Omit<Form, "caseOperations" | "icon"> & {
+	/** Built-ins project to their accepted catalog slug; uploads stay UUIDs. */
+	icon?: FormIconSlug | MediaAssetId;
 	fields: FieldWithChildren[];
 	caseOperations?: CarrierBlindCaseOperationProjection[];
 };
@@ -376,22 +388,24 @@ export function formSnapshot(
 ): FormSnapshot | undefined {
 	const form = doc.forms[formUuid];
 	if (!form) return undefined;
-	// The SA speaks field ids; the stored close-condition ref is the
-	// field's stable uuid — project it back (a dangler shows its text).
-	const closeCondition = form.closeCondition
-		? {
-				...form.closeCondition,
-				field: asUuid(
-					doc.fields[form.closeCondition.field]?.id ??
-						form.closeCondition.field,
-				),
-			}
-		: undefined;
-	return carrierBlindFormProjection({
+	const projected = carrierBlindFormProjection({
 		...form,
-		...(closeCondition !== undefined && { closeCondition }),
 		fields: buildFieldTree(doc, formUuid),
 	});
+	const { icon, ...withoutStoredIcon } = projected;
+	return {
+		...withoutStoredIcon,
+		...(icon !== undefined && {
+			icon: projectFormIconForAuthoring(icon),
+		}),
+	};
+}
+
+function projectFormIconForAuthoring(
+	icon: FormIconRef,
+): FormIconSlug | MediaAssetId {
+	if (!isBuiltinIconRef(icon)) return icon;
+	return parseBuiltinIconSlug(icon) as FormIconSlug;
 }
 
 // ── Mutation builders — modules ─────────────────────────────────────────
@@ -477,7 +491,7 @@ export function updateModuleMutations(
  * for `doc.logo`. Passing an asset id sets it; passing `null` clears it.
  * The `setAppLogo` reducer maps `null → undefined` so the cleared key
  * drops off the doc rather than persisting as a literal `null`. */
-export function setAppLogoMutations(logo: AssetId | null): Mutation[] {
+export function setAppLogoMutations(logo: MediaAssetId | null): Mutation[] {
 	return [{ kind: "setAppLogo", logo }];
 }
 
@@ -518,8 +532,8 @@ export function setFieldMediaMutations(
  * Both slots are set in one call — pass `null` on either to clear it. */
 export function setModuleMediaMutations(
 	moduleUuid: Uuid,
-	icon: AssetId | null,
-	audioLabel: AssetId | null,
+	icon: ModuleIconRef | null,
+	audioLabel: MediaAssetId | null,
 ): Mutation[] {
 	return [{ kind: "setModuleMedia", uuid: moduleUuid, icon, audioLabel }];
 }
@@ -530,8 +544,8 @@ export function setModuleMediaMutations(
  * mutation so a clear survives the SSE wire as an explicit `null`. */
 export function setFormMediaMutations(
 	formUuid: Uuid,
-	icon: AssetId | null,
-	audioLabel: AssetId | null,
+	icon: FormIconRef | null,
+	audioLabel: MediaAssetId | null,
 ): Mutation[] {
 	return [{ kind: "setFormMedia", uuid: formUuid, icon, audioLabel }];
 }

@@ -77,7 +77,7 @@ import {
 	tileCell,
 	type Uuid,
 } from "@/lib/domain";
-import { asAssetId } from "@/lib/domain/multimedia";
+import { asMediaAssetId } from "@/lib/domain/multimedia";
 import {
 	concat,
 	eq,
@@ -184,7 +184,7 @@ const columnSpecArb: fc.Arbitrary<ColumnGenSpec> = fc.oneof(
 		}),
 	),
 	// Image-map: same value-keyed lookup shape as id-mapping, but resolves
-	// each value to an image `AssetId`. The lowering mints two distinct
+	// each value to an image `MediaAssetId`. The lowering mints two distinct
 	// values (`"a"` / `"i"`) so the imageMapValueUnique validator rule
 	// always passes; the assets themselves are minted at lowering time.
 	fc.constantFrom("status_code").map(
@@ -245,9 +245,9 @@ function lowerColumn(
 			// Two distinct value→asset entries — the `imageMapValueUnique`
 			// validator rule rejects duplicate `value` strings, so the keys
 			// MUST stay distinct. The assets are minted via the shared minter
-			// so each id is globally unique and conforms to `assetIdSchema`.
-			const assetA = asAssetId(minter.uuid("imageA"));
-			const assetB = asAssetId(minter.uuid("imageB"));
+			// so each id is globally unique and conforms to `mediaAssetIdSchema`.
+			const assetA = asMediaAssetId(minter.uuid("imageA"));
+			const assetB = asMediaAssetId(minter.uuid("imageB"));
 			return imageMapColumn(
 				uuid,
 				spec.field,
@@ -689,12 +689,12 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 			: undefined;
 
 		// Menu-tile media on the module. Each slot is independent and mints a
-		// fresh `AssetId` via the shared minter.
+		// fresh `MediaAssetId` via the shared minter.
 		const moduleIcon = modSpec.hasIcon
-			? asAssetId(minter.uuid("modicon"))
+			? asMediaAssetId(minter.uuid("modicon"))
 			: undefined;
 		const moduleAudio = modSpec.hasAudioLabel
-			? asAssetId(minter.uuid("modaud"))
+			? asMediaAssetId(minter.uuid("modaud"))
 			: undefined;
 
 		modules[moduleUuid] = {
@@ -724,10 +724,10 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 			fieldOrder[formUuid] = [];
 
 			const formIcon = formSpec.hasIcon
-				? asAssetId(minter.uuid("frmicon"))
+				? asMediaAssetId(minter.uuid("frmicon"))
 				: undefined;
 			const formAudio = formSpec.hasAudioLabel
-				? asAssetId(minter.uuid("frmaud"))
+				? asMediaAssetId(minter.uuid("frmaud"))
 				: undefined;
 
 			forms[formUuid] = {
@@ -785,7 +785,7 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 	});
 
 	// App-level logo (web-apps banner) — minted only when the spec asks for it.
-	const logo = spec.hasLogo ? asAssetId(minter.uuid("logo")) : undefined;
+	const logo = spec.hasLogo ? asMediaAssetId(minter.uuid("logo")) : undefined;
 
 	return {
 		appId: "suite-fuzz-app",

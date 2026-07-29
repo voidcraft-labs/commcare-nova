@@ -113,6 +113,7 @@ import {
 	TIME_SINCE_UNIT_DAYS,
 	tileCellFor,
 } from "@/lib/domain";
+import type { MediaAssetId } from "@/lib/domain/multimedia";
 import { emitCasePropertyWirePath } from "../../casePropertyWire";
 import { emitOnDeviceExpression } from "../../expression/onDeviceEmitter";
 import {
@@ -675,7 +676,10 @@ function idMappingDisplayXpath(
  */
 function imageMapDisplayXpath(
 	field: string,
-	mapping: ReadonlyArray<{ readonly value: string; readonly assetId: string }>,
+	mapping: ReadonlyArray<{
+		readonly value: string;
+		readonly assetId: MediaAssetId;
+	}>,
 	assets: AssetManifest,
 ): string {
 	// Fold right so the first entry is the outermost `if`, matching the

@@ -29,13 +29,15 @@ import {
 } from "@/lib/commcare/multimedia/assetWirePath";
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
 import {
+	type BuiltinIconRef,
 	builtinIconRef,
+	type IconRef,
 	type IconSlug,
 	iconCatalogEntry,
 	isBuiltinIconRef,
 	parseBuiltinIconSlug,
 } from "@/lib/domain/builtinIcons";
-import type { AssetId } from "@/lib/domain/multimedia";
+import type { MediaAssetId } from "@/lib/domain/multimedia";
 
 const BUILTIN_IMAGE_MIME = "image/png";
 const BUILTIN_IMAGE_EXTENSION = ".png";
@@ -46,11 +48,11 @@ const BUILTIN_IMAGE_EXTENSION = ".png";
  * a stale `nova-icon:<gone>` ref drops out here (parse returns `null`) so it
  * fails closed downstream exactly like a deleted upload.
  */
-export function partitionAssetRefs(ids: readonly string[]): {
-	realIds: string[];
+export function partitionAssetRefs(ids: readonly IconRef[]): {
+	realIds: MediaAssetId[];
 	builtinSlugs: IconSlug[];
 } {
-	const realIds: string[] = [];
+	const realIds: MediaAssetId[] = [];
 	const builtinSlugs: IconSlug[] = [];
 	const seen = new Set<IconSlug>();
 	for (const id of ids) {
@@ -96,7 +98,7 @@ function catalogEntryOrThrow(slug: IconSlug) {
 export async function resolveBuiltinManifestEntries(
 	slugs: readonly IconSlug[],
 	withBytes: boolean,
-): Promise<Array<readonly [AssetId, ResolvedMediaAsset]>> {
+): Promise<Array<readonly [BuiltinIconRef, ResolvedMediaAsset]>> {
 	return Promise.all(
 		slugs.map(async (slug) => {
 			const entry = catalogEntryOrThrow(slug);

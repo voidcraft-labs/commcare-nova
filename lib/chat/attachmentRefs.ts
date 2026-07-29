@@ -20,6 +20,7 @@ import {
 	ASSET_KINDS,
 	DOCUMENT_KINDS,
 	isDocumentKind,
+	mediaAssetIdSchema,
 } from "@/lib/domain/multimedia";
 import { MAX_ATTACHMENTS_PER_MESSAGE } from "./limits";
 
@@ -39,7 +40,7 @@ import { MAX_ATTACHMENTS_PER_MESSAGE } from "./limits";
  * extracted title is ~ten words / a summary two-to-four sentences.
  */
 export const attachmentRefSchema = z.object({
-	assetId: z.string().min(1).max(128),
+	assetId: mediaAssetIdSchema,
 	kind: z.enum(ASSET_KINDS),
 	filename: z.string().min(1).max(255),
 	mimeType: z.string().min(1).max(255),

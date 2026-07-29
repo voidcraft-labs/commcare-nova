@@ -41,10 +41,10 @@ import {
 import { loadAssetsByIds, type MediaAssetRecord } from "@/lib/db/mediaAssets";
 import {
 	ASSET_SIZE_CAPS_BYTES,
-	type AssetId,
-	asAssetId,
+	asMediaAssetId,
 	type DocumentKind,
 	isDocumentKind,
+	type MediaAssetId,
 } from "@/lib/domain/multimedia";
 import { log } from "@/lib/logger";
 import { downloadAssetBytes } from "@/lib/storage/media";
@@ -224,7 +224,7 @@ export async function resolveAttachments(
 			count: ids.size,
 		});
 	}
-	const assetById = new Map<AssetId, MediaAssetRecord>(
+	const assetById = new Map<MediaAssetId, MediaAssetRecord>(
 		records.map((r) => [r.id, r]),
 	);
 
@@ -236,7 +236,7 @@ export async function resolveAttachments(
 		if (!p) {
 			p = resolveRef(
 				ref,
-				assetById.get(asAssetId(ref.assetId)),
+				assetById.get(asMediaAssetId(ref.assetId)),
 				condenser,
 				onProgress,
 			);

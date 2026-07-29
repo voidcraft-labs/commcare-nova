@@ -769,7 +769,7 @@ function readFieldMedia(field: Field, key: string): Media | undefined {
  *   - text absent + manifest present + at least one media slot set → emit.
  *
  * Keeps the check cheap (no manifest lookup), so a missing-from-manifest
- * `AssetId` still throws from `requireAssetRef` at the actual registration
+ * `MediaAssetId` still throws from `requireAssetRef` at the actual registration
  * site, not silently here.
  */
 function hasItextContent(

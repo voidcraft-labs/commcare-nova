@@ -1,4 +1,4 @@
-import { testUuid } from "@/__tests__/helpers/uuid";
+import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * Tests for `imageMapValueUnique` — within one image-map column, every
@@ -62,8 +62,8 @@ describe("imageMapValueUnique", () => {
 								field: "region",
 								header: "Region",
 								mapping: [
-									imageMapEntry("N", "asset-n"),
-									imageMapEntry("N", "asset-n-dup"),
+									imageMapEntry("N", testMediaAssetId("asset-n")),
+									imageMapEntry("N", testMediaAssetId("asset-n-dup")),
 								],
 							},
 						],
@@ -103,8 +103,8 @@ describe("imageMapValueUnique", () => {
 								field: "region",
 								header: "Region",
 								mapping: [
-									imageMapEntry("N", "asset-n"),
-									imageMapEntry("S", "asset-s"),
+									imageMapEntry("N", testMediaAssetId("asset-n")),
+									imageMapEntry("S", testMediaAssetId("asset-s")),
 								],
 							},
 						],
@@ -137,14 +137,14 @@ describe("imageMapValueUnique", () => {
 								uuid: testUuid("col-region"),
 								field: "region",
 								header: "Region",
-								mapping: [imageMapEntry("N", "asset-r-n")],
+								mapping: [imageMapEntry("N", testMediaAssetId("asset-r-n"))],
 							},
 							{
 								kind: "image-map",
 								uuid: testUuid("col-color"),
 								field: "color",
 								header: "Color",
-								mapping: [imageMapEntry("N", "asset-c-n")],
+								mapping: [imageMapEntry("N", testMediaAssetId("asset-c-n"))],
 							},
 						],
 						searchInputs: [],

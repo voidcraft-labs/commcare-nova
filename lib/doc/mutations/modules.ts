@@ -294,7 +294,7 @@ export function applyModuleMutation(
 		}
 		case "setModuleMedia": {
 			// Set or clear the module's menu media (home-screen tile `icon` +
-			// `audioLabel`). The mutation carries explicit `AssetId | null`
+			// `audioLabel`). The mutation carries explicit `MediaAssetId | null`
 			// slots so a clear survives JSON over the SSE wire — a generic
 			// `updateModule` patch would encode the clear as `{ key: undefined }`,
 			// which `JSON.stringify` drops, leaving the stale ref on the client.

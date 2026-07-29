@@ -40,7 +40,7 @@ import { errorToString } from "@/lib/commcare/validator/errors";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc } from "@/lib/domain";
-import type { AssetId } from "@/lib/domain/multimedia";
+import type { MediaAssetId } from "@/lib/domain/multimedia";
 import {
 	blueprintDocArbitrary,
 	type FuzzMediaAsset,
@@ -148,10 +148,10 @@ function parseSuite(suiteXml: string): {
  * passes (the fuzz doesn't validate archive bytes — empty buffers suffice).
  */
 function toAssetManifest(
-	fuzzManifest: ReadonlyMap<AssetId, FuzzMediaAsset>,
+	fuzzManifest: ReadonlyMap<MediaAssetId, FuzzMediaAsset>,
 ): AssetManifest {
 	const placeholderBytes = Buffer.alloc(0);
-	const m = new Map<AssetId, ResolvedMediaAsset>();
+	const m = new Map<MediaAssetId, ResolvedMediaAsset>();
 	for (const [id, fuzz] of fuzzManifest) {
 		m.set(id, {
 			assetId: fuzz.assetId,
@@ -168,7 +168,7 @@ function toAssetManifest(
 
 /** Set of bundled wire paths for the binding-resolution media check. */
 function wirePathSet(
-	fuzzManifest: ReadonlyMap<AssetId, FuzzMediaAsset>,
+	fuzzManifest: ReadonlyMap<MediaAssetId, FuzzMediaAsset>,
 ): Set<string> {
 	return new Set(Array.from(fuzzManifest.values(), (asset) => asset.wirePath));
 }

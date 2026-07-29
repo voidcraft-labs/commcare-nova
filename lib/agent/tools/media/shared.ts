@@ -16,7 +16,7 @@
  *     — image + audio + video, any subset. `mediaSchema` is the single
  *     source of truth for that bundle; the tools reuse it directly.
  *   - **Menu carriers** (module / form menu tiles, app logo) take only
- *     direct `AssetId` slots (image + audio, or just image for the logo)
+ *     direct `MediaAssetId` slots (image + audio, or just image for the logo)
  *     — see `lib/domain/multimedia.ts::mediaSchema`'s docstring for why
  *     menu carriers don't use the bundle.
  *
@@ -36,14 +36,15 @@ import { z } from "zod";
 import { loadAppProjectId } from "@/lib/db/apps";
 import type { Mutation } from "@/lib/doc/types";
 import {
-	type AssetId,
 	type BlueprintDoc,
+	type BuiltinIconRefFor,
 	builtinIconRef,
 	type IconSlug,
 	iconCatalogEntry,
 	type Media,
+	type MediaAssetId,
+	mediaAssetIdSchema,
 	mediaSchema,
-	parseBuiltinIconSlug,
 } from "@/lib/domain";
 import {
 	type MediaAttachExpectation,
@@ -56,7 +57,7 @@ import { type GuardedMutateOutcome, guardedMutate } from "../common";
  * The full image/audio/video bundle carried by question-message slots and
  * select options. Reuses the domain `mediaSchema` verbatim so the tool
  * boundary and the stored shape can't drift — `mediaSchema` is
- * `.strict()` with three optional `assetIdSchema` slots, none of which
+ * `.strict()` with three optional `mediaAssetIdSchema` slots, none of which
  * carries a `.transform()`, so it lowers cleanly to JSON Schema for the
  * provider tool-input compiler.
  *
@@ -68,11 +69,9 @@ export const mediaBundleInput = (description: string) =>
 	mediaSchema.describe(description);
 
 /**
- * A single asset-id slot for the menu carriers (module / form icon +
- * audio label, app logo). `assetIdSchema` is a plain non-empty string at
- * runtime (the `AssetId` brand is compile-time only), so it lowers to
- * JSON Schema cleanly. Tool bodies cast the parsed value to `AssetId`
- * before threading it into the branded mutation builders.
+ * A single uploaded-asset slot for menu audio labels and the app logo.
+ * `mediaAssetIdSchema` admits only Nova's canonical lowercase UUID spelling
+ * and lowers to the same regex-constrained JSON Schema for SA/MCP callers.
  *
  * The SA passes `null` to clear the slot and a non-null asset id to set
  * it — a required-and-nullable shape that removes the "absent vs null"
@@ -80,7 +79,7 @@ export const mediaBundleInput = (description: string) =>
  * `null → null` straight through to the mutation builders, which clear.
  */
 export const nullableAssetSlot = (description: string) =>
-	z.string().min(1).nullable().describe(description);
+	mediaAssetIdSchema.nullable().describe(description);
 
 /**
  * The icon slot for a menu carrier (module / form tile). Unlike a plain
@@ -91,36 +90,16 @@ export const nullableAssetSlot = (description: string) =>
  * `anyOf` carries the slug list so the model sees the choices while still
  * allowing an asset-id string. `resolveIconInput` disambiguates at runtime.
  */
-export const nullableIconSlot = (
-	slugs: readonly [string, ...string[]],
+export const nullableIconSlot = <
+	const Slugs extends readonly [string, ...string[]],
+>(
+	slugs: Slugs,
 	description: string,
 ) =>
 	z
-		.union([z.enum(slugs), z.string().min(1)])
+		.union([z.enum(slugs), mediaAssetIdSchema])
 		.nullable()
 		.describe(description);
-
-/**
- * Cast a parsed nullable asset-slot value to the branded `AssetId | null`
- * the mutation builders expect. The runtime value is already a string (or
- * null); the cast only re-applies the compile-time brand the wire schema
- * drops. Centralized here so every menu-media tool brands its slots the
- * same way.
- */
-export function brandAssetSlot(value: string | null): AssetId | null {
-	return value as AssetId | null;
-}
-
-/**
- * Cast a parsed `Media` bundle's slot values to the branded `Media`
- * shape. `mediaSchema` parses each slot to a plain string; the doc stores
- * `AssetId`, whose brand is compile-time only — so the parsed value is
- * structurally identical and the cast just re-applies the brand. Returns
- * the bundle unchanged at runtime.
- */
-export function brandMediaBundle(bundle: z.infer<typeof mediaSchema>): Media {
-	return bundle as Media;
-}
 
 /**
  * The four field-message slots a `Media` bundle can attach to. Mirrors
@@ -188,7 +167,7 @@ export function bundleExpectations(
  * the carrier slot itself (`the icon on module "x"`).
  */
 export function slotExpectation(
-	value: string | null,
+	value: MediaAssetId | null,
 	kind: MediaAttachExpectation["kind"],
 	slotPhrase: string,
 ): MediaAttachExpectation[] {
@@ -196,40 +175,35 @@ export function slotExpectation(
 }
 
 /**
- * Resolve a menu-tile icon input (from `nullableIconSlot`) into the `AssetId`
- * the mutation stores plus the attach expectation it imposes:
+ * Resolve a menu-tile icon input into the exact built-in ref or uploaded-media
+ * UUID the matching mutation stores, plus the attach expectation it imposes:
  *
  *   - a value matching a built-in icon slug → the reserved `nova-icon:<slug>`
  *     ref and NO expectation. Built-ins have no library row — they're always a
  *     ready image, resolved from the shipped set at emit — so the at-source
  *     verdict (which reads the asset row) must not run for them. An empty
  *     expectation list is exactly what skips it.
- *   - a STORED built-in ref (`nova-icon:<slug>`, a valid catalog slug) → the
- *     ref unchanged, NO expectation. This is the echo-back path: the SA
- *     preserves a tile's current icon by reading it (getModule / getForm) and
- *     passing the stored value back, so the stored form must round-trip. A
- *     STALE prefixed ref (slug gone from the catalog) falls through to the
- *     uploaded-id arm and fails closed at the verdict, like any dangling ref.
- *   - any other non-null value → an uploaded asset id: branded, with the
+ *   - any other non-null value is already a schema-validated uploaded UUID,
+ *     with the
  *     standard image expectation so the verdict checks it exists / is ready.
  *   - `null` → clear, no expectation.
  *
  * Slugs and uploaded asset-id UUIDs can't collide, so catalog membership is a
  * sound discriminator.
  */
-export function resolveIconInput(
-	value: string | null,
+export function resolveIconInput<Slug extends IconSlug>(
+	value: Slug | MediaAssetId | null,
 	slotPhrase: string,
-): { icon: AssetId | null; expectations: MediaAttachExpectation[] } {
+): {
+	icon: MediaAssetId | BuiltinIconRefFor<Slug> | null;
+	expectations: MediaAttachExpectation[];
+} {
 	if (value === null) return { icon: null, expectations: [] };
 	if (iconCatalogEntry(value)) {
-		return { icon: builtinIconRef(value as IconSlug), expectations: [] };
-	}
-	if (parseBuiltinIconSlug(value)) {
-		return { icon: brandAssetSlot(value), expectations: [] };
+		return { icon: builtinIconRef(value as Slug), expectations: [] };
 	}
 	return {
-		icon: brandAssetSlot(value),
+		icon: value as MediaAssetId,
 		expectations: [{ assetId: value, kind: "image", slot: slotPhrase }],
 	};
 }

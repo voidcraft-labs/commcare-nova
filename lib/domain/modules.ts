@@ -29,9 +29,10 @@
 // bound against the same Zod schemas.
 
 import { z } from "zod";
+import { moduleIconRefSchema } from "./builtinIcons";
 import type { CasePropertyDataType } from "./casePropertyTypes";
 import { COMMCARE_DATE_PATTERN_REGEX } from "./commCareDatePattern";
-import { assetIdSchema } from "./multimedia";
+import { type MediaAssetId, mediaAssetIdSchema } from "./multimedia";
 import type {
 	Predicate,
 	RelationPath,
@@ -550,7 +551,7 @@ const idMappingColumnSchema = columnBase.extend({
 
 /**
  * Single image-map entry — pairs a case-property value with the image
- * `AssetId` shown for that value. The image-map analogue of
+ * `MediaAssetId` shown for that value. The image-map analogue of
  * `idMappingEntrySchema`: same whitespace-free `value` token (matched
  * on the wire via XPath's space-tokenized `selected()` predicate), but
  * the cell renders the mapped IMAGE instead of a text label.
@@ -567,7 +568,7 @@ const imageMapEntrySchema = z
 				/^\S*$/,
 				"Image-map value must be a single whitespace-free token — the wire layer matches it via XPath's space-tokenized `selected()` predicate, which splits both sides on whitespace before testing set membership. A value with spaces would never match any property and the cell would render no image.",
 			),
-		assetId: assetIdSchema,
+		assetId: mediaAssetIdSchema,
 	})
 	.strict();
 const imageMapColumnSchema = columnBase.extend({
@@ -810,14 +811,14 @@ export function idMappingEntry(value: string, label: string): IdMappingEntry {
 	return { value, label };
 }
 
-/** Single image-map entry — value-to-image-`AssetId` pair surfaced by
+/** Single image-map entry — value-to-image-`MediaAssetId` pair surfaced by
  *  an image-map column's lookup. Constructing through the matching
  *  builder pins the key order against schema drift. */
 export type ImageMapEntry = z.infer<typeof imageMapEntrySchema>;
 
 /**
  * Constructs an image-map column. `mapping` is the lookup table from
- * raw property value to image `AssetId`; the runtime renders the
+ * raw property value to image `MediaAssetId`; the runtime renders the
  * matched image (no image when no entry matches). Mirrors
  * `idMappingColumn` — same value-keyed lookup shape, image instead of
  * a text label.
@@ -837,7 +838,10 @@ export function imageMapColumn(
 
 /** Constructs a single image-map entry. Routes every entry through one
  *  helper so ad-hoc literals can't drift out of the schema shape. */
-export function imageMapEntry(value: string, assetId: string): ImageMapEntry {
+export function imageMapEntry(
+	value: string,
+	assetId: MediaAssetId,
+): ImageMapEntry {
 	return { value, assetId };
 }
 
@@ -1566,7 +1570,7 @@ export const caseListConfigSchema = z
 		 * slot is a no-op there. The bytes are collected by the
 		 * `mediaRefs.ts` walk under the same `caseListOnly` gate.
 		 */
-		icon: assetIdSchema.optional(),
+		icon: moduleIconRefSchema.optional(),
 		/**
 		 * Audio prompt for the case-list link. Same `caseListOnly`-only
 		 * emission shape as `icon` above (local command `<display>` +
@@ -1574,7 +1578,7 @@ export const caseListConfigSchema = z
 		 * audio only — there is no video slot (unlike a question
 		 * message, which can carry all three).
 		 */
-		audioLabel: assetIdSchema.optional(),
+		audioLabel: mediaAssetIdSchema.optional(),
 	})
 	.strict();
 export type CaseListConfig = z.infer<typeof caseListConfigSchema>;
@@ -1811,14 +1815,14 @@ export const moduleSchema = z
 		caseListConfig: caseListConfigSchema.optional(),
 		caseSearchConfig: caseSearchConfigSchema.optional(),
 		/** Image shown on the module's home-screen tile. */
-		icon: assetIdSchema.optional(),
+		icon: moduleIconRefSchema.optional(),
 		/**
 		 * Audio version of the module's home-screen label, played by
 		 * audio-prompt mode — an accessibility affordance for
 		 * low-literacy field workers. Menu affordances carry image +
 		 * audio only; there is no video slot here.
 		 */
-		audioLabel: assetIdSchema.optional(),
+		audioLabel: mediaAssetIdSchema.optional(),
 	})
 	.strict();
 export type Module = z.infer<typeof moduleSchema>;

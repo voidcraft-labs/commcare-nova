@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
-import { asAssetId } from "@/lib/domain/multimedia";
+import type { MediaAssetId } from "@/lib/domain/multimedia";
 import { copyAssetsIntoProject, MediaCopyFailedError } from "../moveMedia";
 
 const {
@@ -66,14 +67,14 @@ vi.mock("../assetDeletion", () => ({
 
 const FROM = "project-source";
 const TO = "project-destination";
-let freshSourceRows = new Map<string, MediaAssetRecord>();
+let freshSourceRows = new Map<MediaAssetId, MediaAssetRecord>();
 
 function asset(
 	id: string,
 	overrides: Partial<MediaAssetRecord> = {},
 ): MediaAssetRecord {
 	return {
-		id: asAssetId(id),
+		id: testMediaAssetId(id),
 		owner: "owner-source",
 		project_id: FROM,
 		contentHash: id.padEnd(64, "a").slice(0, 64),
@@ -144,35 +145,39 @@ beforeEach(() => {
 	installCopiedReadyExtract.mockImplementation(async (args) => args.extract);
 	cleanupUnpublishedAssetObject.mockResolvedValue(undefined);
 	cleanupUnpublishedExtractObject.mockResolvedValue(undefined);
-	getAssetsInTransaction.mockImplementation(async (_tx, ids: string[]) => {
-		return new Map(
-			ids.flatMap((id) => {
-				const row = freshSourceRows.get(id);
-				return row === undefined ? [] : [[id, row] as const];
-			}),
-		);
-	});
+	getAssetsInTransaction.mockImplementation(
+		async (_tx, ids: MediaAssetId[]) => {
+			return new Map(
+				ids.flatMap((id) => {
+					const row = freshSourceRows.get(id);
+					return row === undefined ? [] : [[id, row] as const];
+				}),
+			);
+		},
+	);
 	let copy = 0;
 	createReadyAsset.mockImplementation(async () => ({
-		assetId: asAssetId(`destination-${++copy}`),
+		assetId: testMediaAssetId(`destination-${++copy}`),
 	}));
 });
 
 describe("copyAssetsIntoProject", () => {
 	it("fails closed when a required blueprint asset is missing or unready", async () => {
+		const requiredMissing = testMediaAssetId("required-missing");
+		const historicalMissing = testMediaAssetId("historical-missing");
 		arrangeLoadedAssets([]);
 
 		await expect(
 			copyAssetsIntoProject({
-				requiredAssetIds: ["required-missing"],
-				historicalAssetIds: ["historical-missing"],
+				requiredAssetIds: [requiredMissing],
+				historicalAssetIds: [historicalMissing],
 				fromProjectId: FROM,
 				toProjectId: TO,
 				actorUserId: "actor-1",
 			}),
 		).rejects.toMatchObject({
 			name: "MediaCopyFailedError",
-			assetId: "required-missing",
+			assetId: requiredMissing,
 		});
 		expect(copyAssetObject).not.toHaveBeenCalled();
 	});
@@ -198,9 +203,10 @@ describe("copyAssetsIntoProject", () => {
 		});
 		arrangeLoadedAssets([image, document]);
 
+		const oldMissing = testMediaAssetId("old-missing");
 		const result = await copyAssetsIntoProject({
 			requiredAssetIds: [image.id],
-			historicalAssetIds: [document.id, "old-missing"],
+			historicalAssetIds: [document.id, oldMissing],
 			fromProjectId: FROM,
 			toProjectId: TO,
 			actorUserId: "actor-1",
@@ -208,7 +214,7 @@ describe("copyAssetsIntoProject", () => {
 
 		expect(result.get(image.id)).toBeDefined();
 		expect(result.get(document.id)).toBeDefined();
-		expect(result.has("old-missing")).toBe(false);
+		expect(result.has(oldMissing)).toBe(false);
 		expect(copyAssetObject).toHaveBeenCalledWith(
 			document.gcsObjectKey,
 			`projects/${TO}/${"d".repeat(64)}.pdf`,

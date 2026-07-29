@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { testUuid } from "@/__tests__/helpers/uuid";
+import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import {
 	advancedSearchInputDef,
@@ -199,8 +199,8 @@ describe("caseWorkspaceBoundaryVerdicts", () => {
 			columns: [
 				plainColumn(testUuid("name-column"), "case_name", "Name"),
 				imageMapColumn(columnUuid, "case_name", "Flag", [
-					imageMapEntry("open", "asset-a"),
-					imageMapEntry("open", "asset-b"),
+					imageMapEntry("open", testMediaAssetId("asset-a")),
+					imageMapEntry("open", testMediaAssetId("asset-b")),
 				]),
 			],
 		});

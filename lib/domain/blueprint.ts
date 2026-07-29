@@ -16,7 +16,7 @@ import {
 import { fieldSchema } from "./fields";
 import { formSchema } from "./forms";
 import { moduleSchema } from "./modules";
-import { assetIdSchema } from "./multimedia";
+import { mediaAssetIdSchema } from "./multimedia";
 import { ownRecordSchema } from "./records";
 import type { ReferenceIndex } from "./referenceIndex";
 import { personaSchema, userPropertySchema, userTypeSchema } from "./users";
@@ -107,7 +107,7 @@ export const blueprintDocSchema = z
 		 * and home screens. Android-only logo slots are out of scope
 		 * for Nova's web-apps target.
 		 */
-		logo: assetIdSchema.optional(),
+		logo: mediaAssetIdSchema.optional(),
 
 		/**
 		 * Who runs the app (`./users.ts`): the user-data property catalog,

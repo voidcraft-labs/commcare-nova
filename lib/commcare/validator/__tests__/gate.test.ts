@@ -2,12 +2,11 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
-import { testUuid } from "@/__tests__/helpers/uuid";
+import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, Field, Uuid } from "@/lib/domain";
-import { asAssetId } from "@/lib/domain/multimedia";
 import { buildDoc, caseListConfig, f, xp } from "../../../__tests__/docHelpers";
 import { MEDIA_VALIDATION_CODES, type ValidationError } from "../errors";
 import {
@@ -599,7 +598,7 @@ describe("evaluateCommit", () => {
 				kind: "setFieldMedia",
 				fieldUuid,
 				slot: "label",
-				media: { image: asAssetId("asset-missing") },
+				media: { image: testMediaAssetId("asset-missing") },
 			},
 		]);
 		expect(verdict).toEqual({ ok: true });
@@ -865,7 +864,7 @@ describe("evaluateBoundary", () => {
 				kind: "setFieldMedia",
 				fieldUuid: Object.values(doc.fields)[0].uuid,
 				slot: "label",
-				media: { image: asAssetId("asset-missing") },
+				media: { image: testMediaAssetId("asset-missing") },
 			},
 		]);
 		const findings = evaluateBoundary(

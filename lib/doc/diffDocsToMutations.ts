@@ -105,13 +105,15 @@ import {
 	updateUserTypeMutations,
 } from "@/lib/doc/userMutations";
 import type {
-	AssetId,
 	CaseListConfig,
 	CaseType,
 	Field,
 	Form,
+	FormIconRef,
 	Media,
+	MediaAssetId,
 	Module,
+	ModuleIconRef,
 	SearchInputDef,
 	SelectOption,
 } from "@/lib/domain";
@@ -515,8 +517,8 @@ export function diffDocsToMutations(
 			media.push({
 				kind: "setModuleMedia",
 				uuid,
-				icon: (n.icon ?? null) as AssetId | null,
-				audioLabel: (n.audioLabel ?? null) as AssetId | null,
+				icon: (n.icon ?? null) as ModuleIconRef | null,
+				audioLabel: (n.audioLabel ?? null) as MediaAssetId | null,
 			});
 		}
 		// `caseListConfig` is excluded from the generic patch — its content is
@@ -551,8 +553,8 @@ export function diffDocsToMutations(
 			media.push({
 				kind: "setFormMedia",
 				uuid,
-				icon: (n.icon ?? null) as AssetId | null,
-				audioLabel: (n.audioLabel ?? null) as AssetId | null,
+				icon: (n.icon ?? null) as FormIconRef | null,
+				audioLabel: (n.audioLabel ?? null) as MediaAssetId | null,
 			});
 		}
 	}
@@ -1383,8 +1385,8 @@ function diffCaseListMeta(
 ): Mutation[] {
 	const patch: {
 		filter?: CaseListConfig["filter"] | null;
-		icon?: string | null;
-		audioLabel?: string | null;
+		icon?: CaseListConfig["icon"] | null;
+		audioLabel?: CaseListConfig["audioLabel"] | null;
 	} = {};
 	if (!deepEqual(prev.filter, next.filter)) {
 		patch.filter = next.filter === undefined ? null : cloneEntity(next.filter);

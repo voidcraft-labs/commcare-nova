@@ -28,7 +28,7 @@ import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { useContext } from "react";
 import { assert, describe, expect, it, vi } from "vitest";
-import { testUuid } from "@/__tests__/helpers/uuid";
+import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { resolveDocExpressions } from "@/lib/__tests__/docHelpers";
 import {
 	useBlueprintDoc,
@@ -49,7 +49,7 @@ import {
 	type BlueprintDocStore,
 } from "@/lib/doc/provider";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
-import { asAssetId, type FieldKind } from "@/lib/domain";
+import type { FieldKind } from "@/lib/domain";
 import { toastStore } from "@/lib/ui/toastStore";
 
 // ── Fixed UUIDs ────────────────────────────────────────────────────────
@@ -591,7 +591,7 @@ describe("useBlueprintMutations", () => {
 			assert(s);
 			const moduleUuid = s.moduleOrder[0];
 			returned = result.current.mutations.addForm(moduleUuid, {
-				uuid: "form-3-uuid",
+				uuid: testUuid("form-3-uuid"),
 				id: "f2",
 				name: "F2",
 				type: "survey",
@@ -694,29 +694,29 @@ describe("useBlueprintMutations", () => {
 		const formUuid = getFormUuid(result.current.store);
 		act(() => {
 			result.current.mutations.setFormMedia(formUuid, {
-				icon: asAssetId("image-asset"),
-				audioLabel: asAssetId("audio-asset"),
+				icon: testMediaAssetId("image-asset"),
+				audioLabel: testMediaAssetId("audio-asset"),
 			});
 		});
 		expect(result.current.store?.getState().forms[formUuid]).toMatchObject({
-			icon: "image-asset",
-			audioLabel: "audio-asset",
+			icon: testMediaAssetId("image-asset"),
+			audioLabel: testMediaAssetId("audio-asset"),
 		});
 
 		act(() => {
 			result.current.mutations.setFormMedia(formUuid, {
 				icon: null,
-				audioLabel: asAssetId("audio-asset"),
+				audioLabel: testMediaAssetId("audio-asset"),
 			});
 		});
 		const form = result.current.store?.getState().forms[formUuid];
 		expect(form?.icon).toBeUndefined();
-		expect(form?.audioLabel).toBe("audio-asset");
+		expect(form?.audioLabel).toBe(testMediaAssetId("audio-asset"));
 	});
 
 	it("setModuleMedia sets and clears module media through explicit nulls", () => {
 		// Mirrors `setFormMedia`: the dedicated `setModuleMedia` kind carries
-		// an explicit `AssetId | null` per slot so a clear survives JSON over
+		// an explicit `MediaAssetId | null` per slot so a clear survives JSON over
 		// the SSE wire (a generic `updateModule` patch would encode the clear
 		// as `{ key: undefined }`, which `JSON.stringify` drops). The reducer
 		// maps `null → undefined`, so a cleared slot drops off the module.
@@ -727,13 +727,13 @@ describe("useBlueprintMutations", () => {
 		// Set both slots.
 		act(() => {
 			result.current.mutations.setModuleMedia(MOD1, {
-				icon: asAssetId("image-asset"),
-				audioLabel: asAssetId("audio-asset"),
+				icon: testMediaAssetId("image-asset"),
+				audioLabel: testMediaAssetId("audio-asset"),
 			});
 		});
 		expect(result.current.store?.getState().modules[MOD1]).toMatchObject({
-			icon: "image-asset",
-			audioLabel: "audio-asset",
+			icon: testMediaAssetId("image-asset"),
+			audioLabel: testMediaAssetId("audio-asset"),
 		});
 
 		// Clear only the icon (null) and keep the audio — proves per-slot
@@ -741,18 +741,18 @@ describe("useBlueprintMutations", () => {
 		act(() => {
 			result.current.mutations.setModuleMedia(MOD1, {
 				icon: null,
-				audioLabel: asAssetId("audio-asset"),
+				audioLabel: testMediaAssetId("audio-asset"),
 			});
 		});
 		const mod = result.current.store?.getState().modules[MOD1];
 		expect(mod?.icon).toBeUndefined();
-		expect(mod?.audioLabel).toBe("audio-asset");
+		expect(mod?.audioLabel).toBe(testMediaAssetId("audio-asset"));
 	});
 
 	it("setAppLogo sets and clears the app logo through an explicit null", () => {
 		// The doc's `logo` slot is `.optional()` (no stored `null`), so a
 		// clear must DROP the key — the `setAppLogo` payload carries an
-		// explicit `AssetId | null` and the reducer maps `null → undefined`.
+		// explicit `MediaAssetId | null` and the reducer maps `null → undefined`.
 		// Unlike the entity-scoped media mutations, `setAppLogo` takes no
 		// uuid (the logo is a single app-level slot), so there is no
 		// unresolved-uuid guard to exercise.
@@ -761,9 +761,11 @@ describe("useBlueprintMutations", () => {
 		});
 
 		act(() => {
-			result.current.mutations.setAppLogo(asAssetId("logo-asset"));
+			result.current.mutations.setAppLogo(testMediaAssetId("logo-asset"));
 		});
-		expect(result.current.store?.getState().logo).toBe("logo-asset");
+		expect(result.current.store?.getState().logo).toBe(
+			testMediaAssetId("logo-asset"),
+		);
 
 		act(() => {
 			result.current.mutations.setAppLogo(null);
@@ -1302,7 +1304,7 @@ describe("useBlueprintMutations", () => {
 					"[useBlueprintMutations.convertField] unresolved uuid",
 				),
 				expect.objectContaining({
-					uuid: "bogus-uuid-convert",
+					uuid: testUuid("bogus-uuid-convert"),
 					toKind: "secret",
 				}),
 			);
@@ -1383,7 +1385,7 @@ describe("useBlueprintMutations — commit gate", () => {
 			// An empty survey form on a complete app introduces EMPTY_FORM —
 			// the ratchet rejects it.
 			returned = result.current.mutations.addForm(s.moduleOrder[0], {
-				uuid: "form-gated-uuid",
+				uuid: testUuid("form-gated-uuid"),
 				id: "gated",
 				name: "Gated",
 				type: "survey",
@@ -1416,7 +1418,7 @@ describe("useBlueprintMutations — commit gate", () => {
 			const s = result.current.store?.getState();
 			assert(s);
 			returned = result.current.mutations.inline.addForm(s.moduleOrder[0], {
-				uuid: "form-gated-inline-uuid",
+				uuid: testUuid("form-gated-inline-uuid"),
 				id: "gated_inline",
 				name: "Gated Inline",
 				type: "survey",

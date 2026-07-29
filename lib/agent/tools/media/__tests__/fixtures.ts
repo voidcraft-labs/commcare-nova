@@ -11,11 +11,15 @@
  * is the MCP-surface sibling for cross-surface parity.
  */
 
-import { testUuid } from "@/__tests__/helpers/uuid";
+import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { xp } from "@/lib/__tests__/docHelpers";
 import { backfillOptionUuids } from "@/lib/doc/optionIdentity";
 import type { BlueprintDoc, Field, Form, Module } from "@/lib/domain";
-import type { AssetKind, MediaAssetStatus } from "@/lib/domain/multimedia";
+import type {
+	AssetKind,
+	MediaAssetId,
+	MediaAssetStatus,
+} from "@/lib/domain/multimedia";
 import {
 	type MakeMcpTestContextHandles,
 	makeMcpTestContext,
@@ -36,28 +40,34 @@ import {
 
 /** The row fields the attach verdict reads, plus the id. */
 export interface TestAssetRow {
-	id: string;
+	id: MediaAssetId;
 	project_id: string;
 	status: MediaAssetStatus;
 	kind: AssetKind;
 	sizeBytes: number;
 }
 
-const testAssetRows = new Map<string, TestAssetRow>();
+const testAssetRows = new Map<MediaAssetId, TestAssetRow>();
+
+export const ASSET_IMG_1 = testMediaAssetId("asset-img-1");
+export const ASSET_AUD_1 = testMediaAssetId("asset-aud-1");
+export const ASSET_ICON = testMediaAssetId("asset-icon");
+export const ASSET_AUDIO = testMediaAssetId("asset-audio");
+export const ASSET_LOGO = testMediaAssetId("asset-logo");
 
 /** The ready, in-Project rows every happy-path attach test relies on. */
-const CANONICAL_ASSETS: ReadonlyArray<[string, AssetKind]> = [
-	["asset-img-1", "image"],
-	["asset-aud-1", "audio"],
-	["asset-icon", "image"],
-	["asset-audio", "audio"],
-	["asset-logo", "image"],
+const CANONICAL_ASSETS: ReadonlyArray<[MediaAssetId, AssetKind]> = [
+	[ASSET_IMG_1, "image"],
+	[ASSET_AUD_1, "audio"],
+	[ASSET_ICON, "image"],
+	[ASSET_AUDIO, "audio"],
+	[ASSET_LOGO, "image"],
 ];
 
 /** Seed (or overwrite) one asset row. Defaults: project "project-1" (the test
  *  app's Project), ready, 1 KiB. */
 export function seedTestAsset(
-	id: string,
+	id: MediaAssetId,
 	kind: AssetKind,
 	overrides: Partial<Omit<TestAssetRow, "id" | "kind">> = {},
 ): void {
@@ -80,7 +90,7 @@ resetTestAssets();
 /** Mock implementation of `loadAssetsByIds` — Project-filtered like the
  *  real one (a foreign-Project row reads as missing). */
 export async function loadAssetsByIdsMock(
-	ids: readonly string[],
+	ids: readonly MediaAssetId[],
 	projectId: string,
 ): Promise<TestAssetRow[]> {
 	return [...new Set(ids)]

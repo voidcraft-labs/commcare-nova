@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { asAssetId } from "@/lib/domain/multimedia";
+import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import type { AssetManifest, ResolvedMediaAsset } from "../assetWirePath";
 import { buildMediaBundle, buildMultimediaMap } from "../bundle";
 
@@ -14,7 +14,7 @@ function asset(
 	withBytes: boolean,
 ): ResolvedMediaAsset {
 	return {
-		assetId: asAssetId(id),
+		assetId: testMediaAssetId(id),
 		wirePath: `commcare/${hash}${extension}`,
 		kind,
 		mimeType: kind === "image" ? "image/png" : "audio/mpeg",

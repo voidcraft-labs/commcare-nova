@@ -1,4 +1,4 @@
-import { testUuid } from "@/__tests__/helpers/uuid";
+import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * Integration: a real `BlueprintDoc` round-trips through
@@ -18,7 +18,7 @@ import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
-import { asAssetId, imageMapEntry } from "@/lib/domain";
+import { imageMapEntry } from "@/lib/domain";
 
 const OWNER = "owner-integration-fixture";
 
@@ -46,7 +46,7 @@ function record(
 		status: "ready",
 		created_at: new Date(0),
 		...overrides,
-		id: asAssetId(overrides.id ?? id),
+		id: overrides.id ?? testMediaAssetId(id),
 	};
 }
 
@@ -78,11 +78,11 @@ describe("media validation integration", () => {
 								header: "Region",
 								mapping: [
 									// Good row — owned, ready, image.
-									imageMapEntry("N", "good-image"),
+									imageMapEntry("N", testMediaAssetId("good-image")),
 									// Row whose asset is missing from the manifest
 									// (production: the loader filtered it because the
 									// row was deleted or belongs to a foreign owner).
-									imageMapEntry("S", "missing-asset"),
+									imageMapEntry("S", testMediaAssetId("missing-asset")),
 								],
 							},
 						],
@@ -101,7 +101,9 @@ describe("media validation integration", () => {
 									help: "Help text",
 									// Pending asset — manifest carries the row but
 									// `status: "pending"`.
-									help_media: { audio: "pending-audio" },
+									help_media: {
+										audio: testMediaAssetId("pending-audio"),
+									},
 								}),
 								f({
 									kind: "single_select",
@@ -112,7 +114,9 @@ describe("media validation integration", () => {
 											value: "r",
 											label: "Red",
 											// Kind mismatch — audio asset in an image slot.
-											media: { image: "audio-asset" },
+											media: {
+												image: testMediaAssetId("audio-asset"),
+											},
 										},
 										{ value: "g", label: "Green" },
 									],
@@ -124,25 +128,22 @@ describe("media validation integration", () => {
 			],
 		});
 
-		const manifest = new Map<string, MediaAssetRecord>([
-			["good-image", record("good-image")],
-			[
-				"pending-audio",
-				record("pending-audio", {
-					kind: "audio",
-					mimeType: "audio/mpeg",
-					extension: ".mp3",
-					status: "pending",
-				}),
-			],
-			[
-				"audio-asset",
-				record("audio-asset", {
-					kind: "audio",
-					mimeType: "audio/mpeg",
-					extension: ".mp3",
-				}),
-			],
+		const goodImage = record("good-image");
+		const pendingAudio = record("pending-audio", {
+			kind: "audio",
+			mimeType: "audio/mpeg",
+			extension: ".mp3",
+			status: "pending",
+		});
+		const audioAsset = record("audio-asset", {
+			kind: "audio",
+			mimeType: "audio/mpeg",
+			extension: ".mp3",
+		});
+		const manifest = new Map([
+			[goodImage.id, goodImage],
+			[pendingAudio.id, pendingAudio],
+			[audioAsset.id, audioAsset],
 			// `missing-asset` deliberately absent — exercises
 			// MEDIA_ASSET_NOT_FOUND.
 		]);
@@ -188,7 +189,9 @@ describe("media validation integration", () => {
 									id: "case_name",
 									label: "Patient name",
 									case_property_on: "patient",
-									label_media: { image: "missing-asset" },
+									label_media: {
+										image: testMediaAssetId("missing-asset"),
+									},
 								}),
 							],
 						},

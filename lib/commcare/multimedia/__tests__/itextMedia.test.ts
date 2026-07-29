@@ -1,17 +1,22 @@
 import render from "dom-serializer";
 import { describe, expect, it } from "vitest";
+import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { RENDER_OPTS } from "@/lib/commcare/elementBuilders";
-import { asAssetId, type Media } from "@/lib/domain/multimedia";
+import type { Media, MediaAssetId } from "@/lib/domain/multimedia";
 import type { AssetManifest, ResolvedMediaAsset } from "../assetWirePath";
 import { itextMediaValues } from "../itextMedia";
 
 /** Build a manifest from terse asset specs, deriving the wire path. */
 function manifestOf(
-	specs: ReadonlyArray<Omit<ResolvedMediaAsset, "wirePath" | "mimeType">>,
+	specs: ReadonlyArray<
+		Omit<ResolvedMediaAsset, "assetId" | "wirePath" | "mimeType"> & {
+			assetId: MediaAssetId;
+		}
+	>,
 ): AssetManifest {
-	const m = new Map<ReturnType<typeof asAssetId>, ResolvedMediaAsset>();
+	const m = new Map<MediaAssetId, ResolvedMediaAsset>();
 	for (const s of specs) {
-		m.set(asAssetId(s.assetId), {
+		m.set(s.assetId, {
 			...s,
 			wirePath: `commcare/${s.contentHash}${s.extension}`,
 			mimeType: "image/png",
@@ -23,22 +28,25 @@ function manifestOf(
 const HASH_IMG = "a".repeat(64);
 const HASH_AUD = "b".repeat(64);
 const HASH_VID = "c".repeat(64);
+const IMG = testMediaAssetId("img-1");
+const AUD = testMediaAssetId("aud-1");
+const VID = testMediaAssetId("vid-1");
 
 const MANIFEST = manifestOf([
 	{
-		assetId: asAssetId("img-1"),
+		assetId: IMG,
 		contentHash: HASH_IMG,
 		extension: ".png",
 		kind: "image",
 	},
 	{
-		assetId: asAssetId("aud-1"),
+		assetId: AUD,
 		contentHash: HASH_AUD,
 		extension: ".mp3",
 		kind: "audio",
 	},
 	{
-		assetId: asAssetId("vid-1"),
+		assetId: VID,
 		contentHash: HASH_VID,
 		extension: ".mp4",
 		kind: "video",
@@ -60,22 +68,17 @@ describe("itextMediaValues", () => {
 	});
 
 	it("emits no values when the manifest is absent (media emission off)", () => {
-		expect(itextMediaValues({ image: "img-1" }, undefined, "test")).toEqual([]);
+		expect(itextMediaValues({ image: IMG }, undefined, "test")).toEqual([]);
 	});
 
 	it("emits one <value form=image> with the jr://file/commcare path", () => {
-		expect(renderValues({ image: "img-1" }, MANIFEST)).toBe(
+		expect(renderValues({ image: IMG }, MANIFEST)).toBe(
 			`<value form="image">jr://file/commcare/${HASH_IMG}.png</value>`,
 		);
 	});
 
 	it("emits image, then audio, then video — one per present slot", () => {
-		expect(
-			renderValues(
-				{ image: "img-1", audio: "aud-1", video: "vid-1" },
-				MANIFEST,
-			),
-		).toBe(
+		expect(renderValues({ image: IMG, audio: AUD, video: VID }, MANIFEST)).toBe(
 			`<value form="image">jr://file/commcare/${HASH_IMG}.png</value>` +
 				`<value form="audio">jr://file/commcare/${HASH_AUD}.mp3</value>` +
 				`<value form="video">jr://file/commcare/${HASH_VID}.mp4</value>`,
@@ -83,14 +86,18 @@ describe("itextMediaValues", () => {
 	});
 
 	it("emits only the present slots (audio-only)", () => {
-		expect(renderValues({ audio: "aud-1" }, MANIFEST)).toBe(
+		expect(renderValues({ audio: AUD }, MANIFEST)).toBe(
 			`<value form="audio">jr://file/commcare/${HASH_AUD}.mp3</value>`,
 		);
 	});
 
 	it("throws a compiler-bug when a referenced asset is missing from the manifest", () => {
-		expect(() => renderValues({ image: "ghost" }, MANIFEST)).toThrow(
-			/references a media asset that couldn't be loaded.*ghost/s,
+		const ghost = testMediaAssetId("ghost");
+		expect(() => renderValues({ image: ghost }, MANIFEST)).toThrow(
+			new RegExp(
+				`references a media asset that couldn't be loaded.*${ghost}`,
+				"s",
+			),
 		);
 	});
 });

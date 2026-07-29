@@ -4,7 +4,7 @@ import { SingleAssetSlot } from "@/components/builder/media/MediaSlot";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useModule } from "@/lib/doc/hooks/useEntity";
 import { asUuid, type Mutation, type Uuid } from "@/lib/doc/types";
-import { asAssetId } from "@/lib/domain";
+import type { MediaAssetId, ModuleIconRef } from "@/lib/domain";
 
 /** Props for the module-appearance section — just the module being edited. */
 interface ModuleAppearanceSectionProps {
@@ -29,16 +29,16 @@ export function ModuleAppearanceSection({
 	const caseListConfig = module.caseListConfig;
 
 	const setCaseListLinkMedia = (
-		icon: string | undefined,
-		audioLabel: string | undefined,
+		icon: ModuleIconRef | undefined,
+		audioLabel: MediaAssetId | undefined,
 	) =>
 		commitMany([
 			{
 				kind: "setCaseListMeta",
 				uuid,
 				patch: {
-					icon: icon ? asAssetId(icon) : null,
-					audioLabel: audioLabel ? asAssetId(audioLabel) : null,
+					icon: icon ?? null,
+					audioLabel: audioLabel ?? null,
 				},
 			} satisfies Mutation,
 		]);
@@ -63,14 +63,13 @@ export function ModuleAppearanceSection({
 						<SingleAssetSlot
 							value={module.icon}
 							kind="image"
+							iconLibrary="module"
 							slotKey={`module:${moduleUuid}:icon`}
 							ariaLabel="App home tile icon"
 							onChange={(icon) =>
 								setModuleMedia(uuid, {
-									icon: icon ? asAssetId(icon) : null,
-									audioLabel: module.audioLabel
-										? asAssetId(module.audioLabel)
-										: null,
+									icon: icon ?? null,
+									audioLabel: module.audioLabel ?? null,
 								})
 							}
 						/>
@@ -86,8 +85,8 @@ export function ModuleAppearanceSection({
 							ariaLabel="App home tile spoken label"
 							onChange={(audioLabel) =>
 								setModuleMedia(uuid, {
-									icon: module.icon ? asAssetId(module.icon) : null,
-									audioLabel: audioLabel ? asAssetId(audioLabel) : null,
+									icon: module.icon ?? null,
+									audioLabel: audioLabel ?? null,
 								})
 							}
 						/>
@@ -117,6 +116,7 @@ export function ModuleAppearanceSection({
 							<SingleAssetSlot
 								value={caseListConfig.icon}
 								kind="image"
+								iconLibrary="module"
 								slotKey={`caselist:${moduleUuid}:icon`}
 								ariaLabel="Case list link icon"
 								onChange={(icon) =>

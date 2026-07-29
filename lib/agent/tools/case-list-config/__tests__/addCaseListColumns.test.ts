@@ -20,7 +20,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { testUuid } from "@/__tests__/helpers/uuid";
+import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
 	type BlueprintDoc,
@@ -280,8 +280,14 @@ describe("addCaseListColumns", () => {
 				field: "status",
 				header: "Status",
 				mapping: [
-					{ value: "active", assetId: "asset-active" },
-					{ value: "closed", assetId: "asset-closed" },
+					{
+						value: "active",
+						assetId: testMediaAssetId("asset-active"),
+					},
+					{
+						value: "closed",
+						assetId: testMediaAssetId("asset-closed"),
+					},
 				],
 			},
 		];

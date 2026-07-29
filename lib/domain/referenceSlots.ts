@@ -41,7 +41,7 @@
 //     runtime), and its `parent_type` case-type link is consumed
 //     through `caseTypes.ts`'s reachability helpers, not through a
 //     per-entity rewrite walk.
-//   - Media asset slots: they reference stored media by `AssetId`, and
+//   - Media asset slots: they reference stored media by `MediaAssetId`, and
 //     `mediaRefs.ts::walkAssetRefs` is the single walk that owns them.
 //     They are classified `media` in the non-reference maps so the
 //     audit stays total without duplicating that registry.
@@ -900,7 +900,7 @@ export type NonReferenceReason =
 	/** Literal data value compared against case/form data at runtime
 	 *  (option values, mapping values, close-condition answers). */
 	| "data-literal"
-	/** Media `AssetId` slot — owned by the `mediaRefs.ts` walk. */
+	/** Media `MediaAssetId` slot — owned by the `mediaRefs.ts` walk. */
 	| "media"
 	/** CommCare wire-vocabulary token (a session-datum name the target
 	 *  form's entry expects), not a blueprint-entity reference. */

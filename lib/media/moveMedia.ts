@@ -33,6 +33,7 @@ import {
 	extractGcsObjectKeyFor,
 	extractObjectKeyForAsset,
 	gcsObjectKeyFor,
+	type MediaAssetId,
 } from "@/lib/domain/multimedia";
 import { log } from "@/lib/logger";
 import { copyAssetObject, getStoredObjectSize } from "@/lib/storage/media";
@@ -42,7 +43,6 @@ import {
 	cleanupUnpublishedAssetObject,
 	cleanupUnpublishedExtractObject,
 } from "./assetDeletion";
-import { partitionAssetRefs } from "./builtinIconAssets";
 
 /**
  * Max asset copies in flight at once. Each copy is one dedup query + (on a miss)
@@ -97,17 +97,15 @@ export class MediaCopyFailedError extends Error {
  */
 export async function copyAssetsIntoProject(args: {
 	/** Blueprint carriers: every real id must resolve to a ready source asset. */
-	requiredAssetIds: readonly string[];
+	requiredAssetIds: readonly MediaAssetId[];
 	/** Historical chat attachments: broken old references remain unavailable. */
-	historicalAssetIds?: readonly string[];
+	historicalAssetIds?: readonly MediaAssetId[];
 	fromProjectId: string;
 	toProjectId: string;
 	actorUserId: string;
-}): Promise<Map<string, string>> {
-	const { realIds: requiredIds } = partitionAssetRefs(args.requiredAssetIds);
-	const { realIds: historicalIds } = partitionAssetRefs(
-		args.historicalAssetIds ?? [],
-	);
+}): Promise<Map<MediaAssetId, MediaAssetId>> {
+	const requiredIds = [...args.requiredAssetIds];
+	const historicalIds = [...(args.historicalAssetIds ?? [])];
 	const allIds = [...new Set([...requiredIds, ...historicalIds])].sort();
 	if (allIds.length === 0) return new Map();
 
@@ -161,7 +159,9 @@ export async function copyAssetsIntoProject(args: {
 	);
 
 	return new Map(
-		entries.filter((entry): entry is [string, string] => entry !== null),
+		entries.filter(
+			(entry): entry is [MediaAssetId, MediaAssetId] => entry !== null,
+		),
 	);
 }
 
@@ -178,7 +178,7 @@ async function copyOneAsset(
 		toProjectId: string;
 		actorUserId: string;
 	},
-): Promise<[string, string]> {
+): Promise<[MediaAssetId, MediaAssetId]> {
 	let lastErr: unknown;
 	for (let attempt = 1; attempt <= MAX_COPY_ATTEMPTS; attempt++) {
 		const destKey = gcsObjectKeyFor(
@@ -232,7 +232,7 @@ async function copyOneAsset(
 								extractObjectMayNeedCleanup = cleanup;
 							},
 						);
-						return [row.id, existing.id] as [string, string];
+						return [row.id, existing.id] satisfies [MediaAssetId, MediaAssetId];
 					}
 
 					baseObjectMayNeedCleanup = destKey;
@@ -270,7 +270,7 @@ async function copyOneAsset(
 					// as an unpublished attempt after releasing the content locks.
 					baseObjectMayNeedCleanup = null;
 					extractObjectMayNeedCleanup = null;
-					return [row.id, assetId] as [string, string];
+					return [row.id, assetId] satisfies [MediaAssetId, MediaAssetId];
 				},
 			);
 			baseObjectMayNeedCleanup = null;

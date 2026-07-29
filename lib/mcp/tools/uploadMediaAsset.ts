@@ -46,7 +46,7 @@ import {
 } from "@/lib/db/mediaAssets";
 import {
 	ASSET_SIZE_CAPS_BYTES,
-	asAssetId,
+	asMediaAssetId,
 	gcsObjectKeyFor,
 } from "@/lib/domain/multimedia";
 import { log } from "@/lib/logger";
@@ -177,7 +177,7 @@ export function registerUploadMediaAsset(
 					validated.contentHash,
 					validated.extension,
 				);
-				const attemptAssetId = asAssetId(randomUUID());
+				const attemptAssetId = asMediaAssetId(randomUUID());
 				let finalObjectMayNeedCleanup = false;
 				let publication:
 					| { kind: "deduplicated"; assetId: string }
