@@ -1,3 +1,4 @@
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
@@ -199,7 +200,7 @@ describe("case-operation schema materialization", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "score", label: "Score" }],
+					properties: [{ name: "score", label: proseText("Score") }],
 				},
 			],
 			modules: [

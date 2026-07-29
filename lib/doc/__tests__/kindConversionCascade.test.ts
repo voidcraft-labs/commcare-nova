@@ -11,6 +11,7 @@
  * select↔text reshapes — plus the risk verdict's exact boundary.
  */
 
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
@@ -28,8 +29,8 @@ function temporalDoc(): BlueprintDoc {
 			{
 				name: "patient",
 				properties: [
-					{ name: "case_name", label: "Name" },
-					{ name: "visit_on", label: "Visited", data_type: "date" },
+					{ name: "case_name", label: proseText("Name") },
+					{ name: "visit_on", label: proseText("Visited"), data_type: "date" },
 				],
 			},
 		],
@@ -118,14 +119,14 @@ describe("planKindConversion — generalized escort", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name" },
+						{ name: "case_name", label: proseText("Name") },
 						{
 							name: "symptoms",
-							label: "Symptoms",
+							label: proseText("Symptoms"),
 							data_type: "multi_select",
 							options: [
-								{ value: "fever", label: "Fever" },
-								{ value: "cough", label: "Cough" },
+								{ value: "fever", label: proseText("Fever") },
+								{ value: "cough", label: proseText("Cough") },
 							],
 						},
 					],

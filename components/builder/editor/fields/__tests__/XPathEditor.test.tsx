@@ -38,6 +38,7 @@
 // context hooks are stubbed since they have no bearing on the
 // regression.
 
+import { proseText } from "@/lib/domain/prose";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -106,7 +107,7 @@ const baseField: TextField = {
 	kind: "text",
 	uuid: testUuid("u1-text"),
 	id: "patient_age",
-	label: "Patient age",
+	label: proseText("Patient age"),
 	validate: xp(". > 0"),
 };
 
@@ -164,7 +165,10 @@ describe("XPathEditor — validate_msg clear-arm split", () => {
 
 		render(
 			<XPathEditor
-				field={{ ...baseField, validate_msg: "Must be greater than zero." }}
+				field={{
+					...baseField,
+					validate_msg: proseText("Must be greater than zero."),
+				}}
 				value={xp(". > 0")}
 				onChange={() => ({ ok: true }) as const}
 				label="Validation"

@@ -16,6 +16,7 @@
  * `referenceIndex.fuzz.test.ts`; these are the targeted, readable pins.
  */
 
+import { proseText } from "@/lib/domain/prose";
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -80,8 +81,8 @@ function richDoc(): BlueprintDoc {
 			{
 				name: "patient",
 				properties: [
-					{ name: "case_name", label: "Name" },
-					{ name: "age", label: "Age" },
+					{ name: "case_name", label: proseText("Name") },
+					{ name: "age", label: proseText("Age") },
 				],
 			},
 		],
@@ -196,7 +197,9 @@ describe("buildReferenceIndex — identity-keyed edges", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "age", label: "Age", data_type: "int" }],
+					properties: [
+						{ name: "age", label: proseText("Age"), data_type: "int" },
+					],
 				},
 			],
 			modules: [

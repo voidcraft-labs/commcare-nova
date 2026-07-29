@@ -12,6 +12,7 @@
  * blueprint server-side), the boundary gate, manifest, expand, and compile.
  */
 
+import { proseText } from "@/lib/domain/prose";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { requireSession } from "@/lib/auth-utils";
@@ -43,7 +44,10 @@ function validDoc() {
 	const { fieldParent: _fieldParent, ...doc } = buildDoc({
 		appName: "Vaccine Tracker",
 		caseTypes: [
-			{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+			{
+				name: "patient",
+				properties: [{ name: "case_name", label: proseText("Name") }],
+			},
 		],
 		modules: [
 			{

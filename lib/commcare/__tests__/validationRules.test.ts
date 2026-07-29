@@ -1,3 +1,4 @@
+import { proseText } from "@/lib/domain/prose";
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -42,7 +43,10 @@ function minDoc(): BlueprintDoc {
 			},
 		],
 		caseTypes: [
-			{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+			{
+				name: "patient",
+				properties: [{ name: "case_name", label: proseText("Name") }],
+			},
 		],
 	});
 }
@@ -146,7 +150,10 @@ describe("app rules", () => {
 		// commits records ahead of their modules, so this state must be legal.
 		const planned = update(minDoc(), (d) => {
 			d.caseTypes = [
-				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 				{ name: "visit", parent_type: "patient", properties: [] },
 			];
 		});
@@ -190,7 +197,10 @@ describe("app rules", () => {
 				},
 			],
 			caseTypes: [
-				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 				{ name: "visit", parent_type: "patient", properties: [] },
 			],
 		});
@@ -387,7 +397,10 @@ describe("form rules", () => {
 				},
 			],
 			caseTypes: [
-				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 			],
 		});
 		expect(
@@ -430,7 +443,10 @@ describe("form rules", () => {
 				},
 			],
 			caseTypes: [
-				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 			],
 		});
 		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
@@ -475,7 +491,10 @@ describe("form rules", () => {
 				},
 			],
 			caseTypes: [
-				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 			],
 		});
 		expect(
@@ -952,7 +971,10 @@ describe("post_submit validation", () => {
 				},
 			],
 			caseTypes: [
-				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 			],
 		});
 		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
@@ -1489,7 +1511,7 @@ describe("PRIMARY_CASE_FIELD_IN_REPEAT", () => {
 			caseTypes: [
 				{
 					name: "parent",
-					properties: [{ name: "case_name", label: "Name" }],
+					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 			],
 		});
@@ -1549,8 +1571,8 @@ describe("PRIMARY_CASE_FIELD_IN_REPEAT", () => {
 				{
 					name: "parent",
 					properties: [
-						{ name: "case_name", label: "Name" },
-						{ name: "extra_property", label: "Extra" },
+						{ name: "case_name", label: proseText("Name") },
+						{ name: "extra_property", label: proseText("Extra") },
 					],
 				},
 			],
@@ -1601,7 +1623,10 @@ describe("PRIMARY_CASE_FIELD_IN_REPEAT", () => {
 				},
 			],
 			caseTypes: [
-				{ name: "parent", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "parent",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 			],
 		});
 		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
@@ -1658,11 +1683,11 @@ describe("PRIMARY_CASE_FIELD_IN_REPEAT", () => {
 			caseTypes: [
 				{
 					name: "parent",
-					properties: [{ name: "case_name", label: "Name" }],
+					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 				{
 					name: "child",
-					properties: [{ name: "child_name", label: "Name" }],
+					properties: [{ name: "child_name", label: proseText("Name") }],
 				},
 			],
 		});
@@ -1719,11 +1744,11 @@ describe("CHILD_CASE_NO_NAME_FIELD", () => {
 			caseTypes: [
 				{
 					name: "parent",
-					properties: [{ name: "case_name", label: "Name" }],
+					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 				{
 					name: "child",
-					properties: [{ name: "child_label", label: "Label" }],
+					properties: [{ name: "child_label", label: proseText("Label") }],
 				},
 			],
 		});
@@ -1785,11 +1810,11 @@ describe("CHILD_CASE_NO_NAME_FIELD", () => {
 			caseTypes: [
 				{
 					name: "family",
-					properties: [{ name: "case_name", label: "Name" }],
+					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 				{
 					name: "child",
-					properties: [{ name: "kid_age", label: "Age" }],
+					properties: [{ name: "kid_age", label: proseText("Age") }],
 				},
 			],
 		});
@@ -1843,11 +1868,11 @@ describe("CHILD_CASE_NO_NAME_FIELD", () => {
 			caseTypes: [
 				{
 					name: "parent",
-					properties: [{ name: "case_name", label: "Name" }],
+					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 				{
 					name: "child",
-					properties: [{ name: "case_name", label: "Name" }],
+					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 			],
 		});
@@ -1886,7 +1911,7 @@ describe("CHILD_CASE_NO_NAME_FIELD", () => {
 			caseTypes: [
 				{
 					name: "parent",
-					properties: [{ name: "case_name", label: "Name" }],
+					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 			],
 		});
@@ -2023,7 +2048,10 @@ describe("CASE_HASHTAG_ON_CREATE_FORM", () => {
 				},
 			],
 			caseTypes: [
-				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 			],
 		});
 	}
@@ -2125,7 +2153,10 @@ describe("CASE_HASHTAG_ON_CREATE_FORM", () => {
 				},
 			],
 			caseTypes: [
-				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 			],
 		});
 		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
@@ -2188,8 +2219,8 @@ describe("prose case-ref validation", () => {
 				{
 					name: "mother",
 					properties: [
-						{ name: "case_name", label: "Name" },
-						{ name: "household_code", label: "Household code" },
+						{ name: "case_name", label: proseText("Name") },
+						{ name: "household_code", label: proseText("Household code") },
 					],
 				},
 			],
@@ -2301,7 +2332,9 @@ describe("RESERVED_CASE_TYPE_NAME", () => {
 					],
 				},
 			],
-			caseTypes: [{ name, properties: [{ name: "case_name", label: "Name" }] }],
+			caseTypes: [
+				{ name, properties: [{ name: "case_name", label: proseText("Name") }] },
+			],
 		});
 	}
 

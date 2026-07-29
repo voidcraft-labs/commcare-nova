@@ -5,6 +5,7 @@
 // verbMenuBuildFuzz) prove seeds are well-typed; this suite proves their
 // TRUTH — the axis a well-typed always-false placeholder still breaks.
 
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import {
 	firstComparisonDefault,
@@ -27,7 +28,9 @@ const GLOBAL_CTX: PredicateEditContext = {
 	caseTypes: [
 		{
 			name: "patient",
-			properties: [{ name: "status", label: "Status", data_type: "text" }],
+			properties: [
+				{ name: "status", label: proseText("Status"), data_type: "text" },
+			],
 		},
 	],
 	currentCaseType: "patient",

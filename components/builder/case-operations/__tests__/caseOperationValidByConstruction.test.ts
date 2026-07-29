@@ -30,6 +30,7 @@
 // seeds are deliberately incomplete, so asserting them tested a path no
 // author can take.
 
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { firstComparisonDefault } from "@/components/builder/shared/cards/comparisonSeed";
@@ -131,20 +132,20 @@ function fixture(formType: "followup" | "registration"): {
 			{
 				name: "patient",
 				properties: [
-					{ name: "nickname", label: "Nickname", data_type: "text" },
-					{ name: "score", label: "Score", data_type: "int" },
-					{ name: "seen_on", label: "Seen on", data_type: "date" },
-					{ name: "tags", label: "Tags", data_type: "multi_select" },
-					{ name: "place", label: "Place", data_type: "geopoint" },
+					{ name: "nickname", label: proseText("Nickname"), data_type: "text" },
+					{ name: "score", label: proseText("Score"), data_type: "int" },
+					{ name: "seen_on", label: proseText("Seen on"), data_type: "date" },
+					{ name: "tags", label: proseText("Tags"), data_type: "multi_select" },
+					{ name: "place", label: proseText("Place"), data_type: "geopoint" },
 				],
 			},
 			{
 				name: "visit",
 				parent_type: "patient",
 				properties: [
-					{ name: "note", label: "Note", data_type: "text" },
-					{ name: "rating", label: "Rating", data_type: "int" },
-					{ name: "held_on", label: "Held on", data_type: "date" },
+					{ name: "note", label: proseText("Note"), data_type: "text" },
+					{ name: "rating", label: proseText("Rating"), data_type: "int" },
+					{ name: "held_on", label: proseText("Held on"), data_type: "date" },
 				],
 			},
 		],

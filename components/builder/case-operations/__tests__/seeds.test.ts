@@ -8,6 +8,7 @@
 // `mutationCommitVerdict` here for exactly that reason; a seed that
 // forgets a required facet fails this test rather than the author.
 
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
@@ -53,7 +54,10 @@ function caseFirstDoc(): {
 } {
 	const doc = buildDoc({
 		caseTypes: [
-			{ name: "patient", properties: [{ name: "nickname", label: "Nick" }] },
+			{
+				name: "patient",
+				properties: [{ name: "nickname", label: proseText("Nick") }],
+			},
 		],
 		modules: [
 			{
@@ -249,7 +253,9 @@ describe("the value a fresh write starts from", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "p", label: "P", data_type: dataType }],
+					properties: [
+						{ name: "p", label: proseText("P"), data_type: dataType },
+					],
 				},
 			],
 			modules: [

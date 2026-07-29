@@ -32,6 +32,7 @@
  * shape and its `schema` stage tag.
  */
 
+import { proseText } from "@/lib/domain/prose";
 import { produce } from "immer";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -171,7 +172,7 @@ function makeFixtureDoc(): BlueprintDoc {
 		caseTypes: [
 			{
 				name: "patient",
-				properties: [{ name: "case_name", label: "Full name" }],
+				properties: [{ name: "case_name", label: proseText("Full name") }],
 			},
 		],
 		modules: { [MOD_A]: mod, [MOD_B]: modB },
@@ -353,7 +354,11 @@ describe("solutionsArchitect — emitMutations migration", () => {
 			{
 				name: "visit",
 				properties: [
-					{ name: "visit_date", label: "visit_date", data_type: "date" },
+					{
+						name: "visit_date",
+						label: proseText("visit_date"),
+						data_type: "date",
+					},
 				],
 			},
 		];

@@ -112,5 +112,5 @@ function isRequiredCaseProperty(property: CaseProperty): boolean {
 	// non-empty requirement is conservatively treated as active. S07 may refine
 	// this with the shared evaluator, but it must never weaken atomic safety by
 	// guessing from expression text here.
-	return property.required !== undefined && property.required.trim().length > 0;
+	return property.required !== undefined && property.required.parts.length > 0;
 }

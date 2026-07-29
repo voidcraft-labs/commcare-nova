@@ -40,6 +40,7 @@
 //      base `casedb` + `commcaresession` + the chosen results
 //      instance.
 
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
@@ -674,7 +675,7 @@ describe("emitSearchSession — simple-arm-with-via _xpath_query routing", () =>
 					properties: [
 						{
 							name: "visit_date",
-							label: "Visit date",
+							label: proseText("Visit date"),
 							data_type: "date",
 						},
 					],
@@ -722,7 +723,7 @@ describe("emitSearchSession — simple-arm-with-via _xpath_query routing", () =>
 					properties: [
 						{
 							name: "last_seen",
-							label: "Last seen",
+							label: proseText("Last seen"),
 							data_type: "datetime",
 						},
 					],

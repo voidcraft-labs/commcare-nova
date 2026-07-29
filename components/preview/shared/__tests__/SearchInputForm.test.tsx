@@ -29,6 +29,7 @@
 // unless wired through `advanceTimers`. Sticking to `fireEvent.change`
 // keeps the timing model deterministic.
 
+import { proseText } from "@/lib/domain/prose";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import {
 	afterEach,
@@ -126,20 +127,20 @@ function readableDate(year: number, monthIndex: number, day: number): string {
 const PATIENT_CASE_TYPE: CaseType = {
 	name: "patient",
 	properties: [
-		{ name: "name", label: "Name", data_type: "text" },
-		{ name: "case_name", label: "Case name", data_type: "text" },
+		{ name: "name", label: proseText("Name"), data_type: "text" },
+		{ name: "case_name", label: proseText("Case name"), data_type: "text" },
 		{
 			name: "status",
-			label: "Status",
+			label: proseText("Status"),
 			data_type: "single_select",
 			options: [
-				{ value: "active", label: "Active" },
-				{ value: "closed", label: "Closed" },
+				{ value: "active", label: proseText("Active") },
+				{ value: "closed", label: proseText("Closed") },
 			],
 		},
-		{ name: "dob", label: "Date of birth", data_type: "date" },
-		{ name: "reg_at", label: "Registered at", data_type: "date" },
-		{ name: "barcode", label: "Barcode", data_type: "text" },
+		{ name: "dob", label: proseText("Date of birth"), data_type: "date" },
+		{ name: "reg_at", label: proseText("Registered at"), data_type: "date" },
+		{ name: "barcode", label: proseText("Barcode"), data_type: "text" },
 	],
 };
 

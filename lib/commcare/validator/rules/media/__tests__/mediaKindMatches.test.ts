@@ -1,3 +1,4 @@
+import { proseText } from "@/lib/domain/prose";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * Tests for `mediaKindMatches` — every referenced asset's MIME kind
@@ -20,7 +21,10 @@ describe("mediaKindMatches", () => {
 		const doc = buildDoc({
 			appName: "T",
 			caseTypes: [
-				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 			],
 			modules: [
 				{
@@ -67,7 +71,10 @@ describe("mediaKindMatches", () => {
 		const doc = buildDoc({
 			appName: "T",
 			caseTypes: [
-				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 			],
 			modules: [
 				{
@@ -112,7 +119,10 @@ describe("mediaKindMatches", () => {
 		const doc = buildDoc({
 			appName: "T",
 			caseTypes: [
-				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 			],
 			modules: [
 				{
@@ -156,7 +166,10 @@ describe("mediaKindMatches", () => {
 		const doc = buildDoc({
 			appName: "T",
 			caseTypes: [
-				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 			],
 			modules: [
 				{
@@ -202,7 +215,10 @@ describe("mediaKindMatches", () => {
 		const doc = buildDoc({
 			appName: "T",
 			caseTypes: [
-				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 			],
 			modules: [
 				{
@@ -248,7 +264,10 @@ describe("mediaKindMatches", () => {
 		const doc = buildDoc({
 			appName: "T",
 			caseTypes: [
-				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 			],
 			modules: [
 				{

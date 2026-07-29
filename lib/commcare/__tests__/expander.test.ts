@@ -1,3 +1,4 @@
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import {
@@ -60,7 +61,7 @@ describe("display-condition HQ projection", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "status", label: "Status" }],
+					properties: [{ name: "status", label: proseText("Status") }],
 				},
 			],
 		});
@@ -138,8 +139,8 @@ const followupDoc = buildDoc({
 		{
 			name: "patient",
 			properties: [
-				{ name: "full_name", label: "Full Name" },
-				{ name: "total_visits", label: "Total Visits" },
+				{ name: "full_name", label: proseText("Full Name") },
+				{ name: "total_visits", label: proseText("Total Visits") },
 			],
 		},
 	],
@@ -188,8 +189,8 @@ const registrationDoc = buildDoc({
 		{
 			name: "patient",
 			properties: [
-				{ name: "case_name", label: "Full Name" },
-				{ name: "age", label: "Age" },
+				{ name: "case_name", label: proseText("Full Name") },
+				{ name: "age", label: proseText("Age") },
 			],
 		},
 	],
@@ -246,7 +247,7 @@ describe("expandDoc", () => {
 			caseTypes: [
 				{
 					name: "case",
-					properties: [{ name: "some_prop", label: "Some Prop" }],
+					properties: [{ name: "some_prop", label: proseText("Some Prop") }],
 				},
 			],
 		});
@@ -357,7 +358,10 @@ describe("expandDoc", () => {
 				},
 			],
 			caseTypes: [
-				{ name: "c", properties: [{ name: "full_name", label: "Full Name" }] },
+				{
+					name: "c",
+					properties: [{ name: "full_name", label: proseText("Full Name") }],
+				},
 			],
 		});
 		const hq = expandDoc(doc);
@@ -411,7 +415,10 @@ describe("expandDoc", () => {
 				},
 			],
 			caseTypes: [
-				{ name: "case", properties: [{ name: "name", label: "Name" }] },
+				{
+					name: "case",
+					properties: [{ name: "name", label: proseText("Name") }],
+				},
 			],
 		});
 		const hq = expandDoc(doc);
@@ -458,7 +465,10 @@ describe("case_name in case list columns", () => {
 			},
 		],
 		caseTypes: [
-			{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+			{
+				name: "patient",
+				properties: [{ name: "case_name", label: proseText("Name") }],
+			},
 		],
 	});
 
@@ -537,7 +547,9 @@ describe("runValidation", () => {
 					],
 				},
 			],
-			caseTypes: [{ name: "c", properties: [{ name: "name", label: "Q" }] }],
+			caseTypes: [
+				{ name: "c", properties: [{ name: "name", label: proseText("Q") }] },
+			],
 		});
 		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(errors.some((e) => e.code === "RESERVED_CASE_PROPERTY")).toBe(true);
@@ -562,7 +574,9 @@ describe("runValidation", () => {
 					],
 				},
 			],
-			caseTypes: [{ name: "c", properties: [{ name: "q", label: "Q" }] }],
+			caseTypes: [
+				{ name: "c", properties: [{ name: "q", label: proseText("Q") }] },
+			],
 		});
 		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(errors.some((e) => e.code === "NO_CASE_NAME_FIELD")).toBe(true);
@@ -638,7 +652,10 @@ describe("output references in labels", () => {
 				},
 			],
 			caseTypes: [
-				{ name: "c", properties: [{ name: "full_name", label: "Full Name" }] },
+				{
+					name: "c",
+					properties: [{ name: "full_name", label: proseText("Full Name") }],
+				},
 			],
 		});
 		const hq = expandDoc(doc);
@@ -693,9 +710,9 @@ describe("output references in labels", () => {
 				{
 					name: "c",
 					properties: [
-						{ name: "case_name", label: "Name" },
-						{ name: "start_date", label: "Start" },
-						{ name: "end_date", label: "End" },
+						{ name: "case_name", label: proseText("Name") },
+						{ name: "start_date", label: proseText("Start") },
+						{ name: "end_date", label: proseText("End") },
 					],
 				},
 			],
@@ -786,8 +803,8 @@ describe("output references in labels", () => {
 				{
 					name: "c",
 					properties: [
-						{ name: "case_name", label: "Name" },
-						{ name: "status", label: "Status" },
+						{ name: "case_name", label: proseText("Name") },
+						{ name: "status", label: proseText("Status") },
 					],
 				},
 			],
@@ -897,7 +914,10 @@ describe("label/hint prose entity escaping", () => {
 				},
 			],
 			caseTypes: [
-				{ name: "c", properties: [{ name: "full_name", label: "Full Name" }] },
+				{
+					name: "c",
+					properties: [{ name: "full_name", label: proseText("Full Name") }],
+				},
 			],
 		});
 		const xml = firstFormXml(doc);
@@ -945,7 +965,9 @@ describe("label/hint prose entity escaping", () => {
 					],
 				},
 			],
-			caseTypes: [{ name: "c", properties: [{ name: "name", label: "Name" }] }],
+			caseTypes: [
+				{ name: "c", properties: [{ name: "name", label: proseText("Name") }] },
+			],
 		});
 		const xml = firstFormXml(doc);
 		expect(xml).not.toContain("Hello #case/name<");
@@ -1886,11 +1908,13 @@ describe("#form/ hashtag expansion", () => {
 				{
 					name: "pregnancy",
 					parent_type: "mother",
-					properties: [{ name: "ga", label: "GA" }],
+					properties: [{ name: "ga", label: proseText("GA") }],
 				},
 				{
 					name: "mother",
-					properties: [{ name: "household_code", label: "Household Code" }],
+					properties: [
+						{ name: "household_code", label: proseText("Household Code") },
+					],
 				},
 			],
 		});
@@ -1945,11 +1969,13 @@ describe("#form/ hashtag expansion", () => {
 				{
 					name: "pregnancy",
 					parent_type: "mother",
-					properties: [{ name: "ga", label: "GA" }],
+					properties: [{ name: "ga", label: proseText("GA") }],
 				},
 				{
 					name: "mother",
-					properties: [{ name: "household_code", label: "Household Code" }],
+					properties: [
+						{ name: "household_code", label: proseText("Household Code") },
+					],
 				},
 			],
 		});
@@ -2011,8 +2037,8 @@ describe("#form/ hashtag expansion", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "name", label: "Name" },
-						{ name: "allergen", label: "Allergen" },
+						{ name: "name", label: proseText("Name") },
+						{ name: "allergen", label: proseText("Allergen") },
 					],
 				},
 			],
@@ -2093,7 +2119,10 @@ describe("#form/ hashtag expansion", () => {
 				},
 			],
 			caseTypes: [
-				{ name: "patient", properties: [{ name: "name", label: "Name" }] },
+				{
+					name: "patient",
+					properties: [{ name: "name", label: proseText("Name") }],
+				},
 			],
 		});
 		const hq = expandDoc(doc);
@@ -2141,7 +2170,10 @@ describe("#form/ hashtag expansion", () => {
 				},
 			],
 			caseTypes: [
-				{ name: "pregnancy", properties: [{ name: "ga", label: "GA" }] },
+				{
+					name: "pregnancy",
+					properties: [{ name: "ga", label: proseText("GA") }],
+				},
 			],
 		});
 		const hq = expandDoc(doc);
@@ -2187,11 +2219,13 @@ describe("#form/ hashtag expansion", () => {
 				{
 					name: "pregnancy",
 					parent_type: "mother",
-					properties: [{ name: "ga", label: "GA" }],
+					properties: [{ name: "ga", label: proseText("GA") }],
 				},
 				{
 					name: "mother",
-					properties: [{ name: "household_code", label: "Household Code" }],
+					properties: [
+						{ name: "household_code", label: proseText("Household Code") },
+					],
 				},
 			],
 		});
@@ -2336,7 +2370,9 @@ describe("conditional required", () => {
 					],
 				},
 			],
-			caseTypes: [{ name: "c", properties: [{ name: "risk", label: "Risk" }] }],
+			caseTypes: [
+				{ name: "c", properties: [{ name: "risk", label: proseText("Risk") }] },
+			],
 		});
 		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
@@ -2378,7 +2414,10 @@ describe("case detail (long) view", () => {
 				},
 			],
 			caseTypes: [
-				{ name: "c", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "c",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 			],
 		});
 		const hq = expandDoc(doc);
@@ -2440,7 +2479,10 @@ describe("case detail (long) view", () => {
 				},
 			],
 			caseTypes: [
-				{ name: "c", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "c",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 			],
 		});
 		const hq = expandDoc(doc);
@@ -2630,7 +2672,10 @@ describe("expansion with complete fields", () => {
 				},
 			],
 			caseTypes: [
-				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 			],
 		});
 		const hq = expandDoc(doc);
@@ -2665,7 +2710,7 @@ describe("expansion with complete fields", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "case_name", label: "WRONG" }],
+					properties: [{ name: "case_name", label: proseText("WRONG") }],
 				},
 			],
 		});
@@ -2907,12 +2952,12 @@ describe("child case type module requirement", () => {
 			caseTypes: [
 				{
 					name: "plan",
-					properties: [{ name: "case_name", label: "Plan Name" }],
+					properties: [{ name: "case_name", label: proseText("Plan Name") }],
 				},
 				{
 					name: "service",
 					parent_type: "plan",
-					properties: [{ name: "case_name", label: "Service Name" }],
+					properties: [{ name: "case_name", label: proseText("Service Name") }],
 				},
 			],
 		});
@@ -2960,12 +3005,12 @@ describe("child case type module requirement", () => {
 			caseTypes: [
 				{
 					name: "plan",
-					properties: [{ name: "case_name", label: "Plan Name" }],
+					properties: [{ name: "case_name", label: proseText("Plan Name") }],
 				},
 				{
 					name: "service",
 					parent_type: "plan",
-					properties: [{ name: "case_name", label: "Service Name" }],
+					properties: [{ name: "case_name", label: proseText("Service Name") }],
 				},
 			],
 		});
@@ -3086,12 +3131,12 @@ describe("case_list_only expansion", () => {
 			caseTypes: [
 				{
 					name: "plan",
-					properties: [{ name: "case_name", label: "Plan Name" }],
+					properties: [{ name: "case_name", label: proseText("Plan Name") }],
 				},
 				{
 					name: "service",
 					parent_type: "plan",
-					properties: [{ name: "case_name", label: "Service Name" }],
+					properties: [{ name: "case_name", label: proseText("Service Name") }],
 				},
 			],
 		});
@@ -3116,7 +3161,10 @@ describe("case_list_only expansion", () => {
 				},
 			],
 			caseTypes: [
-				{ name: "service", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "service",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 			],
 		});
 		const hq = expandDoc(doc);
@@ -3158,12 +3206,12 @@ describe("case_list_only expansion", () => {
 			caseTypes: [
 				{
 					name: "plan",
-					properties: [{ name: "case_name", label: "Plan Name" }],
+					properties: [{ name: "case_name", label: proseText("Plan Name") }],
 				},
 				{
 					name: "service",
 					parent_type: "plan",
-					properties: [{ name: "case_name", label: "Service Name" }],
+					properties: [{ name: "case_name", label: proseText("Service Name") }],
 				},
 			],
 		});
@@ -4966,15 +5014,15 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 					name: "patient",
 					parent_type: "household",
 					properties: [
-						{ name: "case_name", label: "Name", data_type: "text" },
-						{ name: "region", label: "Region", data_type: "text" },
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+						{ name: "region", label: proseText("Region"), data_type: "text" },
 					],
 				},
 				{
 					name: "household",
 					properties: [
-						{ name: "case_name", label: "Name", data_type: "text" },
-						{ name: "region", label: "Region", data_type: "text" },
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+						{ name: "region", label: proseText("Region"), data_type: "text" },
 					],
 				},
 			],

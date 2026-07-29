@@ -1,3 +1,4 @@
+import { proseText } from "@/lib/domain/prose";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
@@ -80,8 +81,8 @@ function docWithExpression(
 			{
 				name: "patient",
 				properties: [
-					{ name: "case_name", label: "Name", data_type: "text" },
-					{ name: "age", label: "Age", data_type: "int" },
+					{ name: "case_name", label: proseText("Name"), data_type: "text" },
+					{ name: "age", label: proseText("Age"), data_type: "int" },
 				],
 			},
 		],

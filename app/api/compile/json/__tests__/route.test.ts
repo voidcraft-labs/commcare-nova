@@ -12,6 +12,7 @@
  * blueprint server-side), the boundary gate, manifest, and expand.
  */
 
+import { proseText } from "@/lib/domain/prose";
 import AdmZip from "adm-zip";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
@@ -39,7 +40,10 @@ function validDoc() {
 	const { fieldParent: _fieldParent, ...doc } = buildDoc({
 		appName: "Vaccine Tracker",
 		caseTypes: [
-			{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+			{
+				name: "patient",
+				properties: [{ name: "case_name", label: proseText("Name") }],
+			},
 		],
 		modules: [
 			{

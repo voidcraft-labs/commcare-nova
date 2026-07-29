@@ -1,3 +1,4 @@
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
@@ -68,12 +69,12 @@ describe("moduleTypeContext search-input runtime values", () => {
 					properties: [
 						{
 							name: "seen_at",
-							label: "Seen at",
+							label: proseText("Seen at"),
 							data_type: "datetime",
 						},
 						{
 							name: "visit_date",
-							label: "Visit date",
+							label: proseText("Visit date"),
 							data_type: "date",
 						},
 					],

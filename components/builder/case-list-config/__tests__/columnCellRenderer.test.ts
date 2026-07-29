@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { proseText } from "@/lib/domain/prose";
 import { fireEvent, render, screen } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -320,11 +321,11 @@ describe("case-list Preview cell formatting", () => {
 			caseProperties: [
 				{
 					name: "tags",
-					label: "Tags",
+					label: proseText("Tags"),
 					data_type: "multi_select" as const,
 					options: [
-						{ value: "vip", label: "VIP" },
-						{ value: "follow_up", label: "Needs follow-up" },
+						{ value: "vip", label: proseText("VIP") },
+						{ value: "follow_up", label: proseText("Needs follow-up") },
 					],
 				},
 			],
@@ -401,11 +402,11 @@ describe("case-list Preview cell formatting", () => {
 			caseProperties: [
 				{
 					name: "badge",
-					label: "Badge",
+					label: proseText("Badge"),
 					data_type: "single_select",
 					options: [
-						{ value: "primary", label: "Primary alert" },
-						{ value: "secondary", label: "Secondary alert" },
+						{ value: "primary", label: proseText("Primary alert") },
+						{ value: "secondary", label: proseText("Secondary alert") },
 					],
 				},
 			],

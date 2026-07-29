@@ -1,3 +1,4 @@
+import { proseText } from "@/lib/domain/prose";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * Per-mode + per-nest compiler tests for repeat-context subcase
@@ -407,11 +408,11 @@ describe("repeat-context subcase emission — cross-shape variants", () => {
 			caseTypes: [
 				{
 					name: "household",
-					properties: [{ name: "case_name", label: "Name" }],
+					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 				{
 					name: "person",
-					properties: [{ name: "case_name", label: "Name" }],
+					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 			],
 		});
@@ -504,15 +505,15 @@ describe("repeat-context subcase emission — cross-shape variants", () => {
 			caseTypes: [
 				{
 					name: "household",
-					properties: [{ name: "case_name", label: "Name" }],
+					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 				{
 					name: "guardian",
-					properties: [{ name: "case_name", label: "Name" }],
+					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 				{
 					name: "child",
-					properties: [{ name: "case_name", label: "Name" }],
+					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 			],
 		});

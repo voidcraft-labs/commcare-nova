@@ -49,12 +49,7 @@ import { z } from "zod";
 import { fieldSlotAfter } from "@/lib/doc/fieldSlot";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, Field, Uuid } from "@/lib/domain";
-import { isContainer } from "@/lib/domain";
-import {
-	FIELD_REF_HINT,
-	resolveFieldInForm,
-	resolveFieldTarget,
-} from "../blueprintHelpers";
+import { fallbackProseProjection, isContainer, uuidSchema } from "@/lib/domain";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import {
 	guardedMutate,
@@ -65,30 +60,26 @@ import type {
 	MutationSuccess,
 	ToolCallSummary,
 } from "./shared/toolCallSummary";
+import {
+	fieldAddressSchema,
+	resolveFieldAddress,
+} from "./shared/entityAddresses";
 
-export const moveFieldInputSchema = z
-	.object({
-		moduleIndex: z.number().describe("0-based module index"),
-		formIndex: z.number().describe("0-based form index"),
-		fieldId: z.string().describe(`Field to move — ${FIELD_REF_HINT}`),
-		beforeFieldId: z
-			.string()
+export const moveFieldInputSchema = fieldAddressSchema
+	.extend({
+		beforeFieldUuid: uuidSchema
 			.optional()
 			.describe(
-				"Place the moved field immediately before this field (id or uuid). The destination is the anchor's own parent, so the field lands beside it wherever it nests. Takes precedence over afterFieldId.",
+				"Place the moved field immediately before this field UUID. The destination is the anchor's own parent. Takes precedence over afterFieldUuid.",
 			),
-		afterFieldId: z
-			.string()
+		afterFieldUuid: uuidSchema
 			.optional()
-			.describe(
-				"Place the moved field immediately after this field (id or uuid).",
-			),
-		parentId: z
-			.string()
+			.describe("Place the moved field immediately after this field UUID."),
+		parentUuid: uuidSchema
 			.nullable()
 			.optional()
 			.describe(
-				"Group/repeat (id or uuid) to move the field into, appended at its end when no anchor is given. null moves it to the form's top level. Omit when an anchor is given — the anchor's parent wins.",
+				"Group/repeat UUID to move the field into, appended at its end when no anchor is given. null moves it to the form root. Omit when an anchor is given.",
 			),
 	})
 	.strict();
@@ -102,14 +93,14 @@ export type MoveFieldToolResult = MutationSuccess | { error: string };
 
 export const moveFieldTool = {
 	description:
-		"Move an existing field within its form — same identity, every reference to it preserved (never remove-and-re-add a field to reposition it). Anchor it beside another field with beforeFieldId/afterFieldId (it lands in that field's parent), or pass parentId to append it into a group/repeat (null = the form's top level). A group/repeat moves with its children.",
+		"Move an existing field within its form by stable UUID — same identity, every reference preserved. Anchor with beforeFieldUuid/afterFieldUuid, or pass parentUuid to append into a group/repeat (null = form root).",
 	inputSchema: moveFieldInputSchema,
 	async execute(
 		input: MoveFieldInput,
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<MoveFieldToolResult>> {
-		const { moduleIndex, formIndex, fieldId, parentId } = input;
+		const { moduleUuid, formUuid, parentUuid } = input;
 		const fail = (error: string): MutatingToolResult<MoveFieldToolResult> => ({
 			kind: "mutate" as const,
 			mutations: [],
@@ -119,26 +110,27 @@ export const moveFieldTool = {
 		try {
 			// One positional resolution covers the form too — the target's
 			// `formUuid` scopes every later anchor/parent lookup.
-			const target = resolveFieldTarget(doc, moduleIndex, formIndex, fieldId);
+			const target = resolveFieldAddress(doc, input);
 			if (!target.ok) return fail(target.error);
 			const moved = target.field;
-			const formUuid = target.formUuid;
-			const formName =
-				doc.forms[formUuid]?.name ?? `m${moduleIndex}-f${formIndex}`;
+			const formName = target.form.name;
+			const resolveOther = (fieldUuid: string) =>
+				resolveFieldAddress(doc, { moduleUuid, formUuid, fieldUuid });
 
 			// `beforeFieldId` wins when both anchors are given — the same
 			// precedence `addFields` documents on its anchor pair.
-			const anchorRef = input.beforeFieldId ?? input.afterFieldId;
-			const anchorSide = input.beforeFieldId !== undefined ? "before" : "after";
-			if (anchorRef === undefined && parentId === undefined) {
+			const anchorRef = input.beforeFieldUuid ?? input.afterFieldUuid;
+			const anchorSide =
+				input.beforeFieldUuid !== undefined ? "before" : "after";
+			if (anchorRef === undefined && parentUuid === undefined) {
 				return fail(
-					`Nothing says where "${moved.id}" should go. Pass beforeFieldId or afterFieldId (a field it lands beside), parentId (a group or repeat to append it into), or parentId: null (append at the form's top level).`,
+					`Nothing says where "${moved.id}" should go. Pass beforeFieldUuid or afterFieldUuid, parentUuid for a group/repeat, or parentUuid: null for the form root.`,
 				);
 			}
 
 			let anchor: Field | undefined;
 			if (anchorRef !== undefined) {
-				const resolvedAnchor = resolveFieldInForm(doc, formUuid, anchorRef);
+				const resolvedAnchor = resolveOther(anchorRef);
 				if (!resolvedAnchor.ok) return fail(`Anchor: ${resolvedAnchor.error}`);
 				if (resolvedAnchor.field.uuid === moved.uuid) {
 					return fail(
@@ -156,33 +148,33 @@ export const moveFieldTool = {
 			let destParentUuid: Uuid;
 			if (anchor) {
 				destParentUuid = doc.fieldParent[anchor.uuid] ?? formUuid;
-				if (parentId !== undefined) {
+				if (parentUuid !== undefined) {
 					const anchorParentField = doc.fields[destParentUuid];
 					const anchorParentName = anchorParentField
 						? `inside "${anchorParentField.id}"`
 						: "at the form's top level";
-					if (parentId === null) {
+					if (parentUuid === null) {
 						if (anchorParentField !== undefined) {
 							return fail(
-								`Anchor "${anchor.id}" sits ${anchorParentName}, but parentId: null says the form's top level. Drop parentId — the anchor's parent wins — or anchor to a top-level field.`,
+								`Anchor "${anchor.id}" sits ${anchorParentName}, but parentUuid: null says the form root. Drop parentUuid or anchor to a top-level field.`,
 							);
 						}
 					} else {
-						const resolvedParent = resolveFieldInForm(doc, formUuid, parentId);
+						const resolvedParent = resolveOther(parentUuid);
 						if (!resolvedParent.ok) {
 							return fail(`Destination parent: ${resolvedParent.error}`);
 						}
 						if (resolvedParent.field.uuid !== destParentUuid) {
 							return fail(
-								`Anchor "${anchor.id}" sits ${anchorParentName}, not inside "${resolvedParent.field.id}". Drop parentId — the anchor's parent wins — or pick an anchor inside that container.`,
+								`Anchor "${anchor.id}" sits ${anchorParentName}, not inside "${resolvedParent.field.id}". Drop parentUuid or pick an anchor inside that container.`,
 							);
 						}
 					}
 				}
-			} else if (parentId == null) {
+			} else if (parentUuid == null) {
 				destParentUuid = formUuid;
 			} else {
-				const resolvedParent = resolveFieldInForm(doc, formUuid, parentId);
+				const resolvedParent = resolveOther(parentUuid);
 				if (!resolvedParent.ok) {
 					return fail(`Destination parent: ${resolvedParent.error}`);
 				}
@@ -242,7 +234,7 @@ export const moveFieldTool = {
 				ctx,
 				doc,
 				mutations,
-				`form:${moduleIndex}-${formIndex}`,
+				`form:${formUuid}`,
 			);
 			if (!commit.ok) return fail(commit.error);
 			const newDoc = commit.newDoc;
@@ -293,7 +285,10 @@ export const moveFieldTool = {
 				: destField
 					? `to the end of "${destField.id}"`
 					: "to the end of the form's top level";
-			const label = postField && "label" in postField ? postField.label : "";
+			const label =
+				postField && "label" in postField && postField.label
+					? fallbackProseProjection(postField.label)
+					: "";
 			return {
 				kind: "mutate" as const,
 				mutations,

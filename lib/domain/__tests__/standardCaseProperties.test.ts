@@ -1,3 +1,4 @@
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import {
@@ -23,14 +24,34 @@ describe("Nova standard case-property vocabulary", () => {
 
 	it("offers one canonical choice for each CCHQ alias pair", () => {
 		const properties = authorableCaseProperties([
-			{ name: "case_name", label: "Case name", data_type: "text" },
-			{ name: "name", label: "Name", data_type: "text" },
-			{ name: "external_id", label: "External ID", data_type: "text" },
-			{ name: "external-id", label: "External ID", data_type: "text" },
-			{ name: "date_opened", label: "Date opened", data_type: "datetime" },
-			{ name: "date-opened", label: "Date opened", data_type: "datetime" },
-			{ name: "status", label: "Status", data_type: "text" },
-			{ name: "current_status", label: "Workflow status", data_type: "text" },
+			{ name: "case_name", label: proseText("Case name"), data_type: "text" },
+			{ name: "name", label: proseText("Name"), data_type: "text" },
+			{
+				name: "external_id",
+				label: proseText("External ID"),
+				data_type: "text",
+			},
+			{
+				name: "external-id",
+				label: proseText("External ID"),
+				data_type: "text",
+			},
+			{
+				name: "date_opened",
+				label: proseText("Date opened"),
+				data_type: "datetime",
+			},
+			{
+				name: "date-opened",
+				label: proseText("Date opened"),
+				data_type: "datetime",
+			},
+			{ name: "status", label: proseText("Status"), data_type: "text" },
+			{
+				name: "current_status",
+				label: proseText("Workflow status"),
+				data_type: "text",
+			},
 		]);
 
 		expect(properties.map((property) => property.name)).toEqual([
@@ -45,7 +66,11 @@ describe("Nova standard case-property vocabulary", () => {
 	it("promotes an alias-only catalog entry to Nova's canonical name", () => {
 		expect(
 			authorableCaseProperties([
-				{ name: "external-id", label: "Legacy external ID", data_type: "text" },
+				{
+					name: "external-id",
+					label: proseText("Legacy external ID"),
+					data_type: "text",
+				},
 			]),
 		).toEqual([
 			{
@@ -66,8 +91,8 @@ describe("Nova standard case-property vocabulary", () => {
 					properties: [
 						{
 							name: "name",
-							label: "Patient name",
-							hint: "As shown on their card",
+							label: proseText("Patient name"),
+							hint: proseText("As shown on their card"),
 							data_type: "date",
 						},
 					],
@@ -103,7 +128,11 @@ describe("Nova standard case-property vocabulary", () => {
 		expect(standardCasePropertyDisplayLabel("constructor")).toBe("constructor");
 		expect(
 			authorableCaseProperties([
-				{ name: "toString", label: "Display text", data_type: "text" },
+				{
+					name: "toString",
+					label: proseText("Display text"),
+					data_type: "text",
+				},
 			]),
 		).toEqual([{ name: "toString", label: "Display text", data_type: "text" }]);
 	});

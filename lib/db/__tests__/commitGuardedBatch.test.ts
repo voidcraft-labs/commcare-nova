@@ -15,6 +15,7 @@
  * `commitGuardedBatch.integration.test.ts`.)
  */
 
+import { proseText } from "@/lib/domain/prose";
 import { Kysely, PostgresDialect, type PostgresPool } from "kysely";
 import { Pool } from "pg";
 import { describe, expect, it } from "vitest";
@@ -65,8 +66,8 @@ function minDoc(): BlueprintDoc {
 			{
 				name: "patient",
 				properties: [
-					{ name: "case_name", label: "Name" },
-					{ name: "village", label: "Village" },
+					{ name: "case_name", label: proseText("Name") },
+					{ name: "village", label: proseText("Village") },
 				],
 			},
 		],

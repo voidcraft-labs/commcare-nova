@@ -8,6 +8,7 @@ import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useForm } from "@/lib/doc/hooks/useEntity";
 import { useFieldsAndOrder } from "@/lib/doc/hooks/useFieldsAndOrder";
 import { asUuid } from "@/lib/doc/types";
+import { fallbackProseProjection } from "@/lib/domain";
 import { InlineField } from "./InlineField";
 import { SelectMenu, type SelectMenuOption } from "./SelectMenu";
 import type { FormSettingsSectionProps } from "./types";
@@ -80,7 +81,10 @@ export function CloseConditionSection({ formUuid }: FormSettingsSectionProps) {
 		return "options" in closeField &&
 			closeField.options &&
 			closeField.options.length > 0
-			? [...closeField.options]
+			? closeField.options.map((option) => ({
+					...option,
+					label: fallbackProseProjection(option.label),
+				}))
 			: undefined;
 	}, [closeField]);
 

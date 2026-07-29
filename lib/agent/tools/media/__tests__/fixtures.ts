@@ -11,6 +11,7 @@
  * is the MCP-surface sibling for cross-surface parity.
  */
 
+import { proseText } from "@/lib/domain/prose";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { xp } from "@/lib/__tests__/docHelpers";
 import { backfillOptionUuids } from "@/lib/doc/optionIdentity";
@@ -157,7 +158,7 @@ export function makeMediaDoc(): BlueprintDoc {
 		caseTypes: [
 			{
 				name: "patient",
-				properties: [{ name: "case_name", label: "Full name" }],
+				properties: [{ name: "case_name", label: proseText("Full name") }],
 			},
 		],
 		modules: { [MOD_A]: mod },

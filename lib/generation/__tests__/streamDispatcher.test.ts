@@ -10,6 +10,7 @@
  * `streamDispatcher-mutations.test.ts`.
  */
 
+import { proseText } from "@/lib/domain/prose";
 import { beforeEach, describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import {
@@ -72,7 +73,7 @@ const MINIMAL_DOC: PersistableDoc = {
 	caseTypes: [
 		{
 			name: "patient",
-			properties: [{ name: "case_name", label: "Name" }],
+			properties: [{ name: "case_name", label: proseText("Name") }],
 		},
 	],
 	modules: {

@@ -70,6 +70,7 @@ import type { CasePropertyDataType } from "./casePropertyTypes";
 import { caseDataTypeForFieldKind, fieldCasePropertyOn } from "./caseTypes";
 import type { Field, HiddenField } from "./fields";
 import { orderedCaseOperations } from "./forms";
+import { proseText } from "./prose";
 import {
 	ANY_TYPE,
 	type CheckError,
@@ -225,7 +226,7 @@ function materializeEffectiveCaseTypes(
 			if (!isStandardCaseListProperty(name)) continue;
 			properties.push({
 				name,
-				label: standardCasePropertyDisplayLabel(name),
+				label: proseText(standardCasePropertyDisplayLabel(name)),
 				data_type: STANDARD_CASE_LIST_PROPERTY_DATA_TYPES[name],
 			});
 		}
@@ -238,7 +239,7 @@ function materializeEffectiveCaseTypes(
 				const derived = writerType(ct.name, name);
 				properties.push({
 					name,
-					label: name,
+					label: proseText(name),
 					...(derived !== undefined && { data_type: derived }),
 				});
 			}

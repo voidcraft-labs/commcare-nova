@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { proseText } from "@/lib/domain/prose";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
@@ -41,7 +42,9 @@ const ASSET_CLOSED = testMediaAssetId("asset-closed");
 
 const PATIENT: CaseType = {
 	name: "patient",
-	properties: [{ name: "status", label: "Status", data_type: "text" }],
+	properties: [
+		{ name: "status", label: proseText("Status"), data_type: "text" },
+	],
 };
 
 function ControlledColumnEditor({ initial }: { initial: Column }) {

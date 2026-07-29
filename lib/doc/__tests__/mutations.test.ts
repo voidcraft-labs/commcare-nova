@@ -5,6 +5,7 @@
  * schema, so every new mutation variant needs a fixture here.
  */
 
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { type Mutation, mutationSchema } from "@/lib/doc/types";
@@ -36,7 +37,7 @@ const field_: Field = {
 	kind: "text",
 	uuid: fieldUuid,
 	id: "name",
-	label: "Name",
+	label: proseText("Name"),
 };
 
 const displayCondition = eq(sessionUser("role"), literal("supervisor"));
@@ -321,7 +322,10 @@ describe("mutationSchema round-trip", () => {
 				kind: "updateField",
 				uuid: fieldUuid,
 				targetKind: "text",
-				patch: { label: "Updated Label", hint: "Enter name" },
+				patch: {
+					label: proseText("Updated Label"),
+					hint: proseText("Enter name"),
+				},
 			});
 		});
 

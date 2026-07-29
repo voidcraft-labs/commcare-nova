@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useFieldsAndOrder } from "@/lib/doc/hooks/useFieldsAndOrder";
-import { fieldRegistry } from "@/lib/domain";
+import { fallbackProseProjection, fieldRegistry } from "@/lib/domain";
 import {
 	discardAttachmentInvariantRecovery,
 	listAttachmentInvariantRecoveries,
@@ -52,9 +52,9 @@ export function AttachmentInvariantRecoveryPanel({
 					const authoredLabel =
 						field !== undefined &&
 						"label" in field &&
-						typeof field.label === "string" &&
-						field.label.trim().length > 0
-							? field.label.trim()
+						field.label &&
+						fallbackProseProjection(field.label).trim().length > 0
+							? fallbackProseProjection(field.label).trim()
 							: undefined;
 					const question =
 						authoredLabel ??

@@ -1,3 +1,4 @@
+import { proseText } from "@/lib/domain/prose";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { produce } from "immer";
@@ -62,8 +63,8 @@ function minDoc(): BlueprintDoc {
 			{
 				name: "patient",
 				properties: [
-					{ name: "case_name", label: "Name" },
-					{ name: "village", label: "Village" },
+					{ name: "case_name", label: proseText("Name") },
+					{ name: "village", label: proseText("Village") },
 				],
 			},
 		],
@@ -659,8 +660,14 @@ describe("evaluateCommit", () => {
 				},
 			],
 			caseTypes: [
-				{ name: "household", properties: [{ name: "case_name", label: "N" }] },
-				{ name: "patient", properties: [{ name: "age", label: "Age" }] },
+				{
+					name: "household",
+					properties: [{ name: "case_name", label: proseText("N") }],
+				},
+				{
+					name: "patient",
+					properties: [{ name: "age", label: proseText("Age") }],
+				},
 			],
 		});
 		const age = Object.values(doc.fields).find((x) => x.id === "age");
@@ -739,12 +746,12 @@ describe("evaluateCommit", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "case_name", label: "Name" }],
+					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 				{
 					name: "household",
 					parent_type: "patient",
-					properties: [{ name: "case_name", label: "Name" }],
+					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 			],
 		});
@@ -830,7 +837,10 @@ describe("evaluateCommit", () => {
 				},
 			],
 			caseTypes: [
-				{ name: "patient", properties: [{ name: "case_name", label: "N" }] },
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("N") }],
+				},
 			],
 		});
 		const firstScore = Object.values(doc.fields).find((x) => x.id === "score");

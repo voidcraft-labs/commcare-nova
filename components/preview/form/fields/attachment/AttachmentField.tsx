@@ -4,7 +4,11 @@ import tablerAlertTriangle from "@iconify-icons/tabler/alert-triangle";
 import tablerPaperclip from "@iconify-icons/tabler/paperclip";
 import tablerX from "@iconify-icons/tabler/x";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
-import { type CaptureField, fieldRegistry } from "@/lib/domain";
+import {
+	type CaptureField,
+	fallbackProseProjection,
+	fieldRegistry,
+} from "@/lib/domain";
 import {
 	captureAcceptAttribute,
 	MAX_CAPTURE_BYTES,
@@ -224,7 +228,10 @@ function AttachmentControl({
 	const helpId = useId();
 	const inputRef = useRef<HTMLInputElement>(null);
 	const accessibleQuestionLabel =
-		questionLabel ?? field.label ?? fieldRegistry[field.kind].label;
+		questionLabel ??
+		(field.label
+			? fallbackProseProjection(field.label)
+			: fieldRegistry[field.kind].label);
 	const slotKey = resolveAttachmentSlotKey({
 		appId,
 		entryKey,

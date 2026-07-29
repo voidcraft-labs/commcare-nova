@@ -1,10 +1,9 @@
 import { z } from "zod";
 import {
 	type CaseOperationMutationPlan,
-	caseOperationAuthoringVerdict,
 	removeCaseOperationMutation,
 } from "@/lib/doc/caseOperationMutations";
-import type { BlueprintDoc } from "@/lib/domain";
+import { asUuid, type BlueprintDoc, uuidSchema } from "@/lib/domain";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import {
 	guardedMutate,
@@ -15,12 +14,12 @@ import type { MutationSuccess } from "../shared/toolCallSummary";
 import {
 	dependentOperationNames,
 	operationAddressSchema,
-	operationById,
+	operationByUuid,
 	resolveOperationAddress,
 } from "./shared";
 
 export const removeCaseOperationInputSchema = operationAddressSchema.extend({
-	operationId: z.string().min(1),
+	operationUuid: uuidSchema,
 });
 
 export type RemoveCaseOperationInput = z.infer<
@@ -62,7 +61,7 @@ function removalRefusal(
 
 export const removeCaseOperationTool = {
 	description:
-		"Remove one case operation by id. Refuses removal while another operation still depends on it or while the operation carries preserved logic this surface cannot safely author; dependency refusals name every dependent.",
+		"Remove one case operation by stable UUID. Refuses removal while another operation still depends on it; dependency refusals name every dependent.",
 	inputSchema: removeCaseOperationInputSchema,
 	async execute(
 		input: RemoveCaseOperationInput,
@@ -79,25 +78,18 @@ export const removeCaseOperationTool = {
 					result: { error: address.error },
 				};
 			}
-			const operation = operationById(doc, address.formUuid, input.operationId);
+			const operation = operationByUuid(
+				doc,
+				address.formUuid,
+				asUuid(input.operationUuid),
+			);
 			if (operation === undefined) {
 				return {
 					kind: "mutate",
 					mutations: [],
 					newDoc: doc,
 					result: {
-						error: `Case operation "${input.operationId}" not found in form "${doc.forms[address.formUuid]?.name ?? input.formUuid}".`,
-					},
-				};
-			}
-			const authoringVerdict = caseOperationAuthoringVerdict(operation);
-			if (!authoringVerdict.ok) {
-				return {
-					kind: "mutate",
-					mutations: [],
-					newDoc: doc,
-					result: {
-						error: `Operation "${input.operationId}" was not removed: ${authoringVerdict.reason}`,
+						error: `Case operation UUID "${input.operationUuid}" not found in form "${doc.forms[address.formUuid]?.name ?? input.formUuid}".`,
 					},
 				};
 			}
@@ -113,7 +105,7 @@ export const removeCaseOperationTool = {
 					newDoc: doc,
 					result: {
 						error: removalRefusal(
-							input.operationId,
+							operation.id,
 							plan,
 							dependentOperationNames(
 								doc,
@@ -144,10 +136,10 @@ export const removeCaseOperationTool = {
 				mutations,
 				newDoc: commit.newDoc,
 				result: {
-					message: `Removed case operation "${input.operationId}".`,
+					message: `Removed case operation "${operation.id}".`,
 					summary: {
 						location: doc.forms[address.formUuid]?.name ?? input.formUuid,
-						subject: input.operationId,
+						subject: operation.id,
 					},
 				},
 			};

@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { proseText } from "@/lib/domain/prose";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { CaseType } from "@/lib/domain";
@@ -25,11 +26,15 @@ const CASE_TYPES: readonly CaseType[] = [
 	{
 		name: "patient",
 		parent_type: "household",
-		properties: [{ name: "status", label: "Status", data_type: "text" }],
+		properties: [
+			{ name: "status", label: proseText("Status"), data_type: "text" },
+		],
 	},
 	{
 		name: "household",
-		properties: [{ name: "region", label: "Region", data_type: "text" }],
+		properties: [
+			{ name: "region", label: proseText("Region"), data_type: "text" },
+		],
 	},
 ];
 const KNOWN_INPUTS = [{ name: "query", data_type: "text" }] as const;

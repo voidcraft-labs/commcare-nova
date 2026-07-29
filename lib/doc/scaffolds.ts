@@ -30,6 +30,7 @@ import {
 	humanizeId,
 	type Module,
 	plainColumn,
+	proseText,
 	type TextField,
 	type Uuid,
 	uniqueSlug,
@@ -141,7 +142,7 @@ function textField(id: string, label: string, caseType?: string): TextField {
 		kind: "text",
 		uuid: asUuid(crypto.randomUUID()),
 		id,
-		label,
+		label: proseText(label),
 		...(caseType !== undefined && { case_property_on: caseType }),
 	};
 }
@@ -219,7 +220,7 @@ export function caseOperationCatalogMutations(
 			caseType: destination,
 			property: {
 				name: write.property,
-				label: humanizeId(write.property),
+				label: proseText(humanizeId(write.property)),
 			},
 		});
 	}

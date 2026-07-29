@@ -24,6 +24,7 @@
  * value) the check exists to catch.
  */
 
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
@@ -182,8 +183,8 @@ describe("HQ-JSON oracle — clean baseline", () => {
 					{
 						name: "patient",
 						properties: [
-							{ name: "name", label: "Name", data_type: "text" },
-							{ name: "age", label: "Age", data_type: "int" },
+							{ name: "name", label: proseText("Name"), data_type: "text" },
+							{ name: "age", label: proseText("Age"), data_type: "int" },
 						],
 					},
 				],
@@ -239,10 +240,10 @@ describe("HQ-JSON oracle — clean baseline", () => {
 					{
 						name: "patient",
 						properties: [
-							{ name: "name", label: "Name", data_type: "text" },
+							{ name: "name", label: proseText("Name"), data_type: "text" },
 							{
 								name: "external_id",
-								label: "External ID",
+								label: proseText("External ID"),
 								data_type: "text",
 							},
 						],

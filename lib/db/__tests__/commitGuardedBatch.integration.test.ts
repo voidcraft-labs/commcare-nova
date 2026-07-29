@@ -34,6 +34,7 @@
  * Runs unconditionally under `npm test`.
  */
 
+import { proseText } from "@/lib/domain/prose";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
 import { MAX_RUN_MINUTES } from "@/lib/db/constants";
@@ -109,8 +110,8 @@ function minDoc(appName = "Test"): BlueprintDoc {
 			{
 				name: "patient",
 				properties: [
-					{ name: "case_name", label: "Name" },
-					{ name: "village", label: "Village" },
+					{ name: "case_name", label: proseText("Name") },
+					{ name: "village", label: proseText("Village") },
 				],
 			},
 		],
@@ -1019,8 +1020,8 @@ describe("commitGuardedBatch — rename-expectation gate", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name" },
-						{ name: "village", label: "Village" },
+						{ name: "case_name", label: proseText("Name") },
+						{ name: "village", label: proseText("Village") },
 					],
 				},
 			],

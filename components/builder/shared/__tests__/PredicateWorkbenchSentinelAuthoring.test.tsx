@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { proseText } from "@/lib/domain/prose";
 import {
 	cleanup,
 	fireEvent,
@@ -24,7 +25,9 @@ import { PredicateWorkbench } from "../PredicateWorkbench";
 const CASE_TYPES: readonly CaseType[] = [
 	{
 		name: "patient",
-		properties: [{ name: "region", label: "Region", data_type: "text" }],
+		properties: [
+			{ name: "region", label: proseText("Region"), data_type: "text" },
+		],
 	},
 ];
 

@@ -16,6 +16,7 @@
  * cell so a leak would also flip the whole tile to boxed.
  */
 
+import { proseText } from "@/lib/domain/prose";
 import AdmZip from "adm-zip";
 import { Parser } from "htmlparser2";
 import { describe, expect, it } from "vitest";
@@ -75,8 +76,8 @@ function tiledDoc(): BlueprintDoc {
 			{
 				name: "patient",
 				properties: [
-					{ name: "case_name", label: "Name" },
-					{ name: "village", label: "Village" },
+					{ name: "case_name", label: proseText("Name") },
+					{ name: "village", label: proseText("Village") },
 				],
 			},
 		],

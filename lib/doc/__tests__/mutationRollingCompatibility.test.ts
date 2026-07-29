@@ -1,3 +1,4 @@
+import { proseText } from "@/lib/domain/prose";
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -421,17 +422,17 @@ function lookupSelectField(
 		uuid: FIELD,
 		id: "status",
 		kind: "single_select",
-		label: "Status",
+		label: proseText("Status"),
 		options: [
 			{
 				uuid: OPTION_A,
 				value: "active",
-				label: "Active",
+				label: proseText("Active"),
 			},
 			{
 				uuid: OPTION_B,
 				value: "closed",
-				label: "Closed",
+				label: proseText("Closed"),
 			},
 		],
 		...(optionsSource !== undefined && { optionsSource }),
@@ -649,8 +650,8 @@ function operationDoc(operation: CaseOperation): BlueprintDoc {
 			{
 				name: "patient",
 				properties: [
-					{ name: "status", label: "Status" },
-					{ name: "note", label: "Note" },
+					{ name: "status", label: proseText("Status") },
+					{ name: "note", label: proseText("Note") },
 				],
 			},
 		],

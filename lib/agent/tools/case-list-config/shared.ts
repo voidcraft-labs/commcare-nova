@@ -52,39 +52,28 @@ import {
 	TILE_GRID_ROWS,
 	tileCellSchema,
 	type Uuid,
+	uuidSchema,
 } from "@/lib/domain";
 import {
-	carrierBlindPredicateSchema,
-	carrierBlindValueExpressionSchema,
 	expressionReadsCaseData,
 	type Predicate,
+	predicateSchema,
 	type ValueExpression,
+	valueExpressionSchema,
 } from "@/lib/domain/predicate";
 import {
 	canonicalizeExpressionCaseProperties,
 	canonicalizePredicateCaseProperties,
 } from "../shared/canonicalCaseProperties";
 
-// `moduleNotFoundResult` is shared across SA tool families (the
-// case-list-config quartet here, the case-search-config tools, …) so
-// it lives at `tools/shared/`. The re-export below keeps every existing
-// case-list-config consumer's import path stable on the relocation.
-export { moduleNotFoundResult } from "../shared/moduleNotFoundResult";
-
 /**
- * Runtime-narrow, statically canonical views of the authoring schemas.
+ * Statically canonical views of the authoring schemas.
  *
- * Predicate builders deliberately return the canonical persisted unions:
- * TypeScript cannot prove that a particular builder call omitted a dormant
- * recursive arm even when its concrete value did. Tool callers and tests have
- * always composed those builders directly. Keep that ergonomic input type
- * while the underlying Zod nodes remain structurally carrier-blind at parse
- * and JSON-schema emission time.
+ * SA, MCP, builder, and document storage all speak this same UUID-backed AST.
  */
-const carrierBlindPredicateInputSchema =
-	carrierBlindPredicateSchema as z.ZodType<Predicate>;
-const carrierBlindValueExpressionInputSchema =
-	carrierBlindValueExpressionSchema as z.ZodType<ValueExpression>;
+const predicateInputSchema = predicateSchema as z.ZodType<Predicate>;
+const valueExpressionInputSchema =
+	valueExpressionSchema as z.ZodType<ValueExpression>;
 
 // ── Tool input schemas — column + search-input shapes without uuid ──
 //
@@ -130,15 +119,34 @@ const columnToolOwnedSlots = { uuid: true } as const;
  * exists: `Iterable<ZodObject>.map(...)` collapses the per-arm narrowing into a
  * union `omit` can't dispatch through. Binding them also lets the update-path
  * union below drop one more slot from the SAME arms without restating them. */
-const plainColumnInputArm = plainColumnArm.omit(columnToolOwnedSlots);
-const dateColumnInputArm = dateColumnArm.omit(columnToolOwnedSlots);
-const phoneColumnInputArm = phoneColumnArm.omit(columnToolOwnedSlots);
-const idMappingColumnInputArm = idMappingColumnArm.omit(columnToolOwnedSlots);
-const imageMapColumnInputArm = imageMapColumnArm.omit(columnToolOwnedSlots);
-const intervalColumnInputArm = intervalColumnArm.omit(columnToolOwnedSlots);
+const newColumnIdentity = {
+	columnUuid: uuidSchema
+		.optional()
+		.describe(
+			"Stable UUID for this new column. Supply it when another item in the call references the column; otherwise Nova mints it.",
+		),
+};
+const plainColumnInputArm = plainColumnArm
+	.omit(columnToolOwnedSlots)
+	.extend(newColumnIdentity);
+const dateColumnInputArm = dateColumnArm
+	.omit(columnToolOwnedSlots)
+	.extend(newColumnIdentity);
+const phoneColumnInputArm = phoneColumnArm
+	.omit(columnToolOwnedSlots)
+	.extend(newColumnIdentity);
+const idMappingColumnInputArm = idMappingColumnArm
+	.omit(columnToolOwnedSlots)
+	.extend(newColumnIdentity);
+const imageMapColumnInputArm = imageMapColumnArm
+	.omit(columnToolOwnedSlots)
+	.extend(newColumnIdentity);
+const intervalColumnInputArm = intervalColumnArm
+	.omit(columnToolOwnedSlots)
+	.extend(newColumnIdentity);
 const calculatedColumnInputArm = calculatedColumnArm
 	.omit(columnToolOwnedSlots)
-	.extend({ expression: carrierBlindValueExpressionInputSchema });
+	.extend({ ...newColumnIdentity, expression: valueExpressionInputSchema });
 
 /**
  * A definition absent from both worker-facing screens has no job unless
@@ -201,13 +209,13 @@ export type ColumnInput = z.infer<typeof columnInputSchema>;
  */
 export const columnUpdateInputSchema = z
 	.discriminatedUnion("kind", [
-		plainColumnInputArm.omit({ tile: true }),
-		dateColumnInputArm.omit({ tile: true }),
-		phoneColumnInputArm.omit({ tile: true }),
-		idMappingColumnInputArm.omit({ tile: true }),
-		imageMapColumnInputArm.omit({ tile: true }),
-		intervalColumnInputArm.omit({ tile: true }),
-		calculatedColumnInputArm.omit({ tile: true }),
+		plainColumnInputArm.omit({ tile: true, columnUuid: true }),
+		dateColumnInputArm.omit({ tile: true, columnUuid: true }),
+		phoneColumnInputArm.omit({ tile: true, columnUuid: true }),
+		idMappingColumnInputArm.omit({ tile: true, columnUuid: true }),
+		imageMapColumnInputArm.omit({ tile: true, columnUuid: true }),
+		intervalColumnInputArm.omit({ tile: true, columnUuid: true }),
+		calculatedColumnInputArm.omit({ tile: true, columnUuid: true }),
 	])
 	.superRefine(refineColumnScreenMembership);
 export type ColumnUpdateInput = z.infer<typeof columnUpdateInputSchema>;
@@ -311,6 +319,47 @@ const saSearchInputType = z
 		"Widget the search screen renders for this input. There is no dropdown widget — filter a fixed-option property with a `text` input, or compose the membership check as an advanced-arm `selected(...)` predicate.",
 	);
 
+function refineSearchInputBoundary(
+	input: {
+		kind: "simple" | "advanced";
+		type: SearchInputType;
+		mode?: { kind: string };
+		default?: ValueExpression;
+	},
+	ctx: z.RefinementCtx,
+): void {
+	if (input.kind === "simple") {
+		const modeKind = input.mode?.kind ?? DEFAULT_SEARCH_MODE_KIND[input.type];
+		const coherentRangeWidget =
+			(modeKind === "range") === (input.type === "date-range");
+		if (!coherentRangeWidget) {
+			ctx.addIssue({
+				code: "custom",
+				path: input.mode === undefined ? ["type"] : ["mode"],
+				message:
+					modeKind === "range"
+						? 'Use `type: "date-range"` with range mode. A one-date field cannot collect both bounds.'
+						: "A `date-range` field must use range mode. Choose a single-date field for a one-value match.",
+			});
+		}
+	}
+	if (input.default !== undefined && expressionReadsCaseData(input.default)) {
+		ctx.addIssue({
+			code: "custom",
+			path: ["default"],
+			message:
+				"A search input's starting value is evaluated before any case is selected, so it cannot read case properties or relationships. Use a fixed value, `today()`, or a current-user/session value — or leave `default` out to start the input empty.",
+		});
+	}
+	if (input.type !== "date-range" || input.default === undefined) return;
+	ctx.addIssue({
+		code: "custom",
+		path: ["default"],
+		message:
+			"Leave `default` out for a date-range input. A date range requires both a start and an end, while this slot can express only one value.",
+	});
+}
+
 /**
  * Per-arm `SearchInputDef` schema with `uuid` omitted and the `type` enum
  * narrowed to the SA-authorable widget kinds.
@@ -319,48 +368,46 @@ const saSearchInputType = z
 export const searchInputDefInputSchema = z
 	.discriminatedUnion("kind", [
 		simpleSearchInputArm.omit({ uuid: true }).extend({
+			searchInputUuid: uuidSchema
+				.optional()
+				.describe(
+					"Stable UUID for this new Search input. Supply it when another item in the call references the input; otherwise Nova mints it.",
+				),
 			type: saSearchInputType,
-			default: carrierBlindValueExpressionInputSchema.optional(),
+			default: valueExpressionInputSchema.optional(),
+		}),
+		advancedSearchInputArm.omit({ uuid: true }).extend({
+			searchInputUuid: uuidSchema
+				.optional()
+				.describe(
+					"Stable UUID for this new Search input. Supply it when another item in the call references the input; otherwise Nova mints it.",
+				),
+			type: saSearchInputType,
+			default: valueExpressionInputSchema.optional(),
+			predicate: predicateInputSchema,
+		}),
+	])
+	.superRefine(refineSearchInputBoundary);
+export type SearchInputDefInput = z.infer<typeof searchInputDefInputSchema>;
+
+/** Full replacement body for an existing Search input; identity is addressed
+ * by the enclosing tool and cannot be changed by the body. */
+export const searchInputUpdateInputSchema = z
+	.discriminatedUnion("kind", [
+		simpleSearchInputArm.omit({ uuid: true }).extend({
+			type: saSearchInputType,
+			default: valueExpressionInputSchema.optional(),
 		}),
 		advancedSearchInputArm.omit({ uuid: true }).extend({
 			type: saSearchInputType,
-			default: carrierBlindValueExpressionInputSchema.optional(),
-			predicate: carrierBlindPredicateInputSchema,
+			default: valueExpressionInputSchema.optional(),
+			predicate: predicateInputSchema,
 		}),
 	])
-	.superRefine((input, ctx) => {
-		if (input.kind === "simple") {
-			const modeKind = input.mode?.kind ?? DEFAULT_SEARCH_MODE_KIND[input.type];
-			const coherentRangeWidget =
-				(modeKind === "range") === (input.type === "date-range");
-			if (!coherentRangeWidget) {
-				ctx.addIssue({
-					code: "custom",
-					path: input.mode === undefined ? ["type"] : ["mode"],
-					message:
-						modeKind === "range"
-							? 'Use `type: "date-range"` with range mode. A one-date field cannot collect both bounds.'
-							: "A `date-range` field must use range mode. Choose a single-date field for a one-value match.",
-				});
-			}
-		}
-		if (input.default !== undefined && expressionReadsCaseData(input.default)) {
-			ctx.addIssue({
-				code: "custom",
-				path: ["default"],
-				message:
-					"A search input's starting value is evaluated before any case is selected, so it cannot read case properties or relationships. Use a fixed value, `today()`, or a current-user/session value — or leave `default` out to start the input empty.",
-			});
-		}
-		if (input.type !== "date-range" || input.default === undefined) return;
-		ctx.addIssue({
-			code: "custom",
-			path: ["default"],
-			message:
-				"Leave `default` out for a date-range input. A date range requires both a start and an end, while this slot can express only one value.",
-		});
-	});
-export type SearchInputDefInput = z.infer<typeof searchInputDefInputSchema>;
+	.superRefine(refineSearchInputBoundary);
+export type SearchInputUpdateInput = z.infer<
+	typeof searchInputUpdateInputSchema
+>;
 
 // ── Uuid stamp helpers ──────────────────────────────────────────────
 //
@@ -384,14 +431,18 @@ export type SearchInputDefInput = z.infer<typeof searchInputDefInputSchema>;
  * Used by `addCaseListColumns` (uuid minted via `newUuid`) and
  * `updateCaseListColumn` (uuid carried through from `columnUuid`).
  */
-export function stampColumnUuid(column: ColumnInput, uuid: Uuid): Column {
+export function stampColumnUuid(
+	column: ColumnInput | ColumnUpdateInput,
+	uuid: Uuid,
+): Column {
+	const { columnUuid: _declaredUuid, ...body } = column as ColumnInput;
 	const canonical =
-		column.kind === "calculated"
+		body.kind === "calculated"
 			? {
-					...column,
-					expression: canonicalizeExpressionCaseProperties(column.expression),
+					...body,
+					expression: canonicalizeExpressionCaseProperties(body.expression),
 				}
-			: { ...column, field: canonicalCasePropertyName(column.field) };
+			: { ...body, field: canonicalCasePropertyName(body.field) };
 	return { ...canonical, uuid } as Column;
 }
 
@@ -405,26 +456,28 @@ export function stampColumnUuid(column: ColumnInput, uuid: Uuid): Column {
  * `updateSearchInput` (uuid carried through from `searchInputUuid`).
  */
 export function stampSearchInputUuid(
-	input: SearchInputDefInput,
+	input: SearchInputDefInput | SearchInputUpdateInput,
 	uuid: Uuid,
 ): SearchInputDef {
+	const { searchInputUuid: _declaredUuid, ...body } =
+		input as SearchInputDefInput;
 	const canonicalDefault =
-		input.default === undefined
+		body.default === undefined
 			? {}
 			: {
-					default: canonicalizeExpressionCaseProperties(input.default),
+					default: canonicalizeExpressionCaseProperties(body.default),
 				};
 	const canonical =
-		input.kind === "simple"
+		body.kind === "simple"
 			? {
-					...input,
+					...body,
 					...canonicalDefault,
-					property: canonicalCasePropertyName(input.property),
+					property: canonicalCasePropertyName(body.property),
 				}
 			: {
-					...input,
+					...body,
 					...canonicalDefault,
-					predicate: canonicalizePredicateCaseProperties(input.predicate),
+					predicate: canonicalizePredicateCaseProperties(body.predicate),
 				};
 	return { ...canonical, uuid } as SearchInputDef;
 }
@@ -459,7 +512,7 @@ export function newUuid(): Uuid {
  * SA boundary; tool bodies cast through `asUuid` before threading the
  * value into the branded `Uuid`-typed mutation builders.
  */
-export const uuidInputSchema = z.string().min(1);
+export const uuidInputSchema = uuidSchema;
 
 /**
  * One field's placement instruction for `setCaseListTile`. `cell` is

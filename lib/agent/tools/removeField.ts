@@ -17,12 +17,8 @@
 
 import { z } from "zod";
 import { countFieldsUnder } from "@/lib/doc/fieldWalk";
-import type { BlueprintDoc } from "@/lib/domain";
-import {
-	FIELD_REF_HINT,
-	removeFieldMutations,
-	resolveFieldTarget,
-} from "../blueprintHelpers";
+import { fallbackProseProjection, type BlueprintDoc } from "@/lib/domain";
+import { removeFieldMutations } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import {
 	guardedMutate,
@@ -33,14 +29,12 @@ import type {
 	MutationSuccess,
 	ToolCallSummary,
 } from "./shared/toolCallSummary";
+import {
+	fieldAddressSchema,
+	resolveFieldAddress,
+} from "./shared/entityAddresses";
 
-export const removeFieldInputSchema = z
-	.object({
-		moduleIndex: z.number().describe("0-based module index"),
-		formIndex: z.number().describe("0-based form index"),
-		fieldId: z.string().describe(`Field to remove — ${FIELD_REF_HINT}`),
-	})
-	.strict();
+export const removeFieldInputSchema = fieldAddressSchema;
 
 export type RemoveFieldInput = z.infer<typeof removeFieldInputSchema>;
 
@@ -55,9 +49,8 @@ export const removeFieldTool = {
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<RemoveFieldResult>> {
-		const { moduleIndex, formIndex, fieldId } = input;
 		try {
-			const resolved = resolveFieldTarget(doc, moduleIndex, formIndex, fieldId);
+			const resolved = resolveFieldAddress(doc, input);
 			if (!resolved.ok) {
 				return {
 					kind: "mutate" as const,
@@ -74,14 +67,16 @@ export const removeFieldTool = {
 			// transcript subject (label-less kinds fall back to the id) — mirrors
 			// the friendly subject addField / editField surface.
 			const removedLabel =
-				"label" in resolved.field ? resolved.field.label : "";
+				"label" in resolved.field && resolved.field.label
+					? fallbackProseProjection(resolved.field.label)
+					: "";
 			const beforeCount = countFieldsUnder(doc, formUuid);
 			const mutations = removeFieldMutations(doc, resolved.field.uuid);
 			const commit = await guardedMutate(
 				ctx,
 				doc,
 				mutations,
-				`form:${moduleIndex}-${formIndex}`,
+				`form:${resolved.formUuid}`,
 			);
 			if (!commit.ok) {
 				return {

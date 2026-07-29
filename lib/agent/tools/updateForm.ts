@@ -1,7 +1,3 @@
-import {
-	parseXPathForForm,
-	resolveCloseFieldRef,
-} from "@/lib/doc/expressionText";
 /**
  * SA tool: `updateForm` — patch form-level metadata.
  *
@@ -40,13 +36,10 @@ import {
  */
 
 import { z } from "zod";
+import { findContainingForm } from "@/lib/doc/mutations/helpers";
 import type { BlueprintDoc, PostSubmitDestination } from "@/lib/domain";
-import { USER_FACING_DESTINATIONS } from "@/lib/domain";
-import {
-	resolveFormUuid,
-	resolveModuleUuid,
-	updateFormMutations,
-} from "../blueprintHelpers";
+import { asUuid, USER_FACING_DESTINATIONS } from "@/lib/domain";
+import { updateFormMutations } from "../blueprintHelpers";
 import {
 	closeConditionInputSchema,
 	connectFormPatchSchema,
@@ -59,16 +52,17 @@ import {
 } from "./common";
 import { collectConnectIds, enforceConnectIds } from "./shared/connectIds";
 import { buildConnectConfig } from "./shared/connectInput";
-import { resolveCloseCondition } from "./shared/fieldAssembly";
 import type {
 	MutationSuccess,
 	ToolCallSummary,
 } from "./shared/toolCallSummary";
+import {
+	formAddressSchema,
+	resolveFormAddress,
+} from "./shared/entityAddresses";
 
-export const updateFormInputSchema = z
-	.object({
-		moduleIndex: z.number().describe("0-based module index"),
-		formIndex: z.number().describe("0-based form index"),
+export const updateFormInputSchema = formAddressSchema
+	.extend({
 		name: z
 			.string()
 			.min(1)
@@ -111,32 +105,27 @@ export const updateFormTool = {
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<UpdateFormResult>> {
 		const {
-			moduleIndex,
-			formIndex,
+			moduleUuid: rawModuleUuid,
+			formUuid: rawFormUuid,
 			name,
 			close_condition,
 			post_submit,
 			connect,
 		} = input;
 		try {
-			const formUuid = resolveFormUuid(doc, moduleIndex, formIndex);
-			if (!formUuid) {
+			const address = resolveFormAddress(doc, {
+				moduleUuid: rawModuleUuid,
+				formUuid: rawFormUuid,
+			});
+			if (!address.ok) {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
 					newDoc: doc,
-					result: { error: `Form m${moduleIndex}-f${formIndex} not found` },
+					result: { error: address.error },
 				};
 			}
-			const existing = doc.forms[formUuid];
-			if (!existing) {
-				return {
-					kind: "mutate" as const,
-					mutations: [],
-					newDoc: doc,
-					result: { error: `Form m${moduleIndex}-f${formIndex} not found` },
-				};
-			}
+			const { formUuid, form: existing, module } = address;
 
 			// Build the helper's patch shape. The SA's tool arg uses
 			// `field` directly — no translation needed since the SA speaks
@@ -145,33 +134,41 @@ export const updateFormTool = {
 			const patch: Parameters<typeof updateFormMutations>[2] = {};
 			if (name !== undefined) patch.name = name;
 			if (close_condition === null) patch.closeCondition = null;
-			// The SA names the checked field by id; the stored form is the
-			// field's stable uuid. An id nothing answers to stays verbatim
-			// — the gate rejects the introduction with the validator's
-			// close-condition finding. One resolver shared with the
-			// creation tools (`fieldAssembly.ts::resolveCloseCondition`);
-			// a null/omitted condition resolves to undefined and patches
-			// nothing here (the null-clears arm above already ran).
-			const resolvedClose = resolveCloseCondition(
-				(ref) => resolveCloseFieldRef(doc, formUuid, ref),
-				close_condition,
-			);
-			if (resolvedClose) patch.closeCondition = resolvedClose;
+			if (close_condition != null) {
+				const fieldUuid = asUuid(close_condition.fieldUuid);
+				if (
+					doc.fields[fieldUuid] === undefined ||
+					findContainingForm(doc, fieldUuid) !== formUuid
+				) {
+					return {
+						kind: "mutate" as const,
+						mutations: [],
+						newDoc: doc,
+						result: {
+							error: `Field UUID "${close_condition.fieldUuid}" is not in form "${existing.name}".`,
+						},
+					};
+				}
+				patch.closeCondition = {
+					field: fieldUuid,
+					answer: close_condition.answer,
+					...(close_condition.operator && {
+						operator: close_condition.operator,
+					}),
+				};
+			}
 			if (post_submit === null) patch.postSubmit = null;
 			if (post_submit != null) {
 				patch.postSubmit = post_submit as PostSubmitDestination;
 			}
 			if (connect === null) patch.connect = null;
 			if (connect != null) {
-				// Structural partial-update merge + the text → AST parse
-				// boundary for the connect XPath slots, resolved against
-				// the owning form (`shared/connectInput.ts`). Per
+				// Structural partial-update merge of exact XPath AST slots. Per
 				// sub-config: omitted keeps the existing one, an explicit
 				// null REMOVES it, a stated one replaces it.
 				const merged = buildConnectConfig(
 					connect,
 					existing.connect ?? undefined,
-					(text) => parseXPathForForm(doc, formUuid, text),
 				);
 				if (
 					!merged.learn_module &&
@@ -189,13 +186,9 @@ export const updateFormTool = {
 					// ids, reject explicit-invalid ids (fail the call, write
 					// nothing). `existingIds` excludes this form's own ids so a
 					// re-patch of an unchanged id doesn't read as a self-conflict.
-					const moduleUuid = resolveModuleUuid(doc, moduleIndex);
-					const moduleName = moduleUuid
-						? (doc.modules[moduleUuid]?.name ?? "module")
-						: "module";
 					const enforced = enforceConnectIds(
 						merged,
-						moduleName,
+						module.name,
 						existing.name,
 						collectConnectIds(doc, formUuid),
 					);
@@ -219,7 +212,7 @@ export const updateFormTool = {
 				ctx,
 				doc,
 				mutations,
-				`form:${moduleIndex}-${formIndex}`,
+				`form:${formUuid}`,
 			);
 			if (!commit.ok) {
 				return {
@@ -238,7 +231,7 @@ export const updateFormTool = {
 					mutations,
 					newDoc,
 					result: {
-						error: `Form m${moduleIndex}-f${formIndex} not found after update`,
+						error: `Form ${formUuid} not found after update`,
 					},
 				};
 			}
@@ -263,12 +256,9 @@ export const updateFormTool = {
 				mutations,
 				newDoc,
 				result: {
-					message: `Successfully updated form "${formAfter.name}" (${formAfter.type}, m${moduleIndex}-f${formIndex}). Changed: ${formChanges.join(", ")}.`,
+					message: `Successfully updated form "${formAfter.name}" (${formAfter.type}, UUID ${formUuid}). Changed: ${formChanges.join(", ")}.`,
 					summary: {
-						location: (() => {
-							const mu = resolveModuleUuid(doc, moduleIndex);
-							return mu ? doc.modules[mu]?.name : undefined;
-						})(),
+						location: module.name,
 						subject: formAfter.name,
 					} satisfies ToolCallSummary,
 				},

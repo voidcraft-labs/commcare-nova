@@ -18,7 +18,11 @@ import {
 	DialogTitle,
 } from "@/components/shadcn/dialog";
 import { Skeleton } from "@/components/shadcn/skeleton";
-import type { CaseProperty, CaseType } from "@/lib/domain";
+import {
+	type CaseProperty,
+	type CaseType,
+	fallbackProseProjection,
+} from "@/lib/domain";
 import type { JsonValue } from "@/lib/preview/engine/caseDataBindingTypes";
 import { useCaseData } from "@/lib/preview/hooks/useCaseDataBinding";
 import { useAccessPhase } from "@/lib/session/hooks";
@@ -35,8 +39,12 @@ function displayCaseValue(
 	raw: JsonValue | undefined,
 ): string {
 	if (raw === undefined || raw === null || raw === "") return "";
-	const optionLabel = (value: string): string =>
-		decl?.options?.find((option) => option.value === value)?.label ?? value;
+	const optionLabel = (value: string): string => {
+		const option = decl?.options?.find(
+			(candidate) => candidate.value === value,
+		);
+		return option ? fallbackProseProjection(option.label) : value;
+	};
 	if (Array.isArray(raw))
 		return raw.map((v) => optionLabel(String(v))).join(", ");
 	return optionLabel(String(raw));

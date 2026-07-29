@@ -1,3 +1,4 @@
+import { proseText } from "@/lib/domain/prose";
 import { produce } from "immer";
 import { describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -190,7 +191,7 @@ describe("updateField", () => {
 				kind: "updateField",
 				uuid: Q("a"),
 				targetKind: "text",
-				patch: { label: "Patient Name", required: xp("true") },
+				patch: { label: proseText("Patient Name"), required: xp("true") },
 			});
 		});
 		expect(asField(next.fields[Q("a")])?.label).toBe("Patient Name");
@@ -225,7 +226,7 @@ describe("updateField", () => {
 				// the runtime guard catches the parallel-batch race where a
 				// `convertField` lands between queue and dispatch.
 				targetKind: "text",
-				patch: { label: "oops", default_value: xp("2") },
+				patch: { label: proseText("oops"), default_value: xp("2") },
 			});
 		});
 		expect(warn).toHaveBeenCalled();
@@ -1859,15 +1860,15 @@ describe("renameField case-property cascade", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "age", label: "Age" },
-						{ name: "name", label: "Name" },
+						{ name: "age", label: proseText("Age") },
+						{ name: "name", label: proseText("Name") },
 					],
 				},
 				// Second case type with an `age` property that must NOT be
 				// renamed — different caseType scope.
 				{
 					name: "household",
-					properties: [{ name: "age", label: "Household Age" }],
+					properties: [{ name: "age", label: proseText("Household Age") }],
 				},
 			],
 			modules: {

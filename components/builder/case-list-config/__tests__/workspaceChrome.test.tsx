@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { proseText } from "@/lib/domain/prose";
 import {
 	fireEvent,
 	render,
@@ -89,18 +90,20 @@ const NAME = column("1", "case_name", "Patient name");
 const DOB = column("2", "date_of_birth", "Date of birth");
 const DOB_PROPERTY: CaseProperty = {
 	name: "date_of_birth",
-	label: "Date of birth",
+	label: proseText("Date of birth"),
 	data_type: "date",
 };
 const AGE_PROPERTY: CaseProperty = {
 	name: "age",
-	label: "Age",
+	label: proseText("Age"),
 	data_type: "int",
 };
 const SEARCH_CONDITION_CASE_TYPES: readonly CaseType[] = [
 	{
 		name: "patient",
-		properties: [{ name: "status", label: "Status", data_type: "text" }],
+		properties: [
+			{ name: "status", label: proseText("Status"), data_type: "text" },
+		],
 	},
 ];
 // The Search-button condition resolves before any case is selected, so
@@ -360,7 +363,9 @@ describe("case workspace chrome", () => {
 		session.canEdit = false;
 		const patient: CaseType = {
 			name: "patient",
-			properties: [{ name: "case_name", label: "Patient", data_type: "text" }],
+			properties: [
+				{ name: "case_name", label: proseText("Patient"), data_type: "text" },
+			],
 		};
 		render(
 			<CaseListCanvas
@@ -454,7 +459,9 @@ describe("case workspace chrome", () => {
 		};
 		const patient: CaseType = {
 			name: "patient",
-			properties: [{ name: "case_name", label: "Patient", data_type: "text" }],
+			properties: [
+				{ name: "case_name", label: proseText("Patient"), data_type: "text" },
+			],
 		};
 		render(
 			<CaseListCanvas

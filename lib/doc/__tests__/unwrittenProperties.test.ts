@@ -9,6 +9,7 @@
  * filter: display and data-flow reads count exactly like gates.
  */
 
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
@@ -25,7 +26,7 @@ import {
 const ORDER_CATALOG: CaseType[] = [
 	{
 		name: "medication_order",
-		properties: [{ name: "order_status", label: "Order status" }],
+		properties: [{ name: "order_status", label: proseText("Order status") }],
 	},
 ];
 
@@ -87,7 +88,7 @@ describe("unwrittenProperties — reads that count", () => {
 			caseTypes: [
 				{
 					name: "medication_order",
-					properties: [{ name: "max_dose", label: "Max dose" }],
+					properties: [{ name: "max_dose", label: proseText("Max dose") }],
 				},
 			],
 			modules: [
@@ -322,7 +323,7 @@ describe("unwrittenProperties — when it stays empty", () => {
 			caseTypes: [
 				{
 					name: "medication_order",
-					properties: [{ name: "status", label: "Status" }],
+					properties: [{ name: "status", label: proseText("Status") }],
 				},
 			],
 			modules: [

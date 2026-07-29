@@ -64,7 +64,10 @@ import {
 	fieldKindDeclaresKey,
 	fieldKinds,
 	fieldRegistry,
+	proseTemplateSchema,
 	selectOptionSchema,
+	uuidSchema,
+	xpathExpressionSchema,
 } from "@/lib/domain";
 
 /**
@@ -147,17 +150,21 @@ const FIELD_DOCS = {
 
 const idField = () => z.string().describe(FIELD_DOCS.id);
 
-// `parentId` is optional — null (or omission) inserts at the form's top
-// level. Pass a group/repeat id (including one added earlier in the same
-// batch) to nest under it.
-const parentIdField = () =>
-	z
-		.string()
+const fieldUuidField = () =>
+	uuidSchema
+		.optional()
+		.describe(
+			"Stable field UUID. Required when another item in this call references this field; otherwise omit to let Nova mint it.",
+		);
+
+// Topology is identity-addressed. A same-call parent must be predeclared and
+// appear earlier in the list; null/omission means the form root.
+const parentUuidField = () =>
+	uuidSchema
 		.nullable()
 		.optional()
 		.describe(
-			"Parent group/repeat id (semantic id, not uuid). Pass null to " +
-				"insert at the form's top level.",
+			"Stable UUID of the parent group/repeat. Pass null to insert at the form root. A parent created in this call must declare fieldUuid and appear earlier.",
 		);
 
 // `label` is nullable on the shape; the kind policy (see the builders
@@ -166,7 +173,7 @@ const parentIdField = () =>
 // null/""/absent — `stripEmpty` collapses the "" to absent before
 // assembly.
 const labelField = () =>
-	z.string().nullable().optional().describe(FIELD_DOCS.label);
+	proseTemplateSchema.nullable().optional().describe(FIELD_DOCS.label);
 
 // Optional shape primitives — all NULLABLE, shared by BOTH tool surfaces
 // (the shapes are identical; only the null semantics differ, and those
@@ -179,29 +186,28 @@ const labelField = () =>
 // mode+count/ids_query) into one field each, keeping the item shape flat
 // and easy for the SA to fill.
 const requiredField = () =>
-	z.string().nullable().optional().describe(FIELD_DOCS.required);
+	xpathExpressionSchema.nullable().optional().describe(FIELD_DOCS.required);
 const hintField = () =>
-	z.string().nullable().optional().describe(FIELD_DOCS.hint);
+	proseTemplateSchema.nullable().optional().describe(FIELD_DOCS.hint);
 const helpField = () =>
-	z.string().nullable().optional().describe(FIELD_DOCS.help);
+	proseTemplateSchema.nullable().optional().describe(FIELD_DOCS.help);
 const relevantField = () =>
-	z.string().nullable().optional().describe(FIELD_DOCS.relevant);
+	xpathExpressionSchema.nullable().optional().describe(FIELD_DOCS.relevant);
 const calculateField = () =>
-	z.string().nullable().optional().describe(FIELD_DOCS.calculate);
+	xpathExpressionSchema.nullable().optional().describe(FIELD_DOCS.calculate);
 const defaultValueField = () =>
-	z.string().nullable().optional().describe(FIELD_DOCS.default_value);
-// The SA's option shape omits `media`, `uuid`, and `order`.
+	xpathExpressionSchema
+		.nullable()
+		.optional()
+		.describe(FIELD_DOCS.default_value);
+// The SA's option shape omits media only. Stable option UUIDs are required.
 // `selectOptionSchema` carries an optional per-option `media` reference, but
 // the field-mutation tools expose neither the asset library nor an upload
 // affordance, so the agent can't mint or validate an asset id here —
 // exposing the slot would only let the model write a dangling reference into
-// the doc. Option media is set through the dedicated media tools. `uuid`
-// (the option's stable identity) and `order` (its fractional sort key) are
-// likewise tool/gesture-computed, never authored: backfill mints the uuid
-// from `(field uuid, option index)` and the diff layer computes the key.
+// the doc. Option media is set through the dedicated media tools.
 const saOptionSchema = selectOptionSchema.omit({
 	media: true,
-	uuid: true,
 });
 
 const optionsField = () =>
@@ -215,8 +221,8 @@ const optionsField = () =>
 const validateConfigField = () =>
 	z
 		.object({
-			expr: z.string().describe(FIELD_DOCS.validate),
-			msg: z.string().optional().describe(FIELD_DOCS.validate_msg),
+			expr: xpathExpressionSchema.describe(FIELD_DOCS.validate),
+			msg: proseTemplateSchema.optional().describe(FIELD_DOCS.validate_msg),
 		})
 		.describe(
 			"Validation config. `expr` is the XPath that must hold true; " +
@@ -254,13 +260,13 @@ function repeatConfigDiscriminated() {
 			z
 				.object({
 					mode: z.literal("count_bound"),
-					count: z.string().describe(FIELD_DOCS.repeat_count),
+					count: xpathExpressionSchema.describe(FIELD_DOCS.repeat_count),
 				})
 				.describe("Fixed count from an XPath — provide `count`."),
 			z
 				.object({
 					mode: z.literal("query_bound"),
-					ids_query: z.string().describe(FIELD_DOCS.ids_query),
+					ids_query: xpathExpressionSchema.describe(FIELD_DOCS.ids_query),
 				})
 				.describe("Iterate case-database query results — provide `ids_query`."),
 		])
@@ -269,7 +275,7 @@ function repeatConfigDiscriminated() {
 
 /**
  * Slots whose presence is gated per kind through `fieldKindDeclaresKey`.
- * `id` / `kind` / `parentId` are tool-level (every kind carries them), and
+ * `id` / `kind` / `fieldUuid` / `parentUuid` are tool-level, and
  * `repeat` is gated on `kind === "repeat"` directly — the domain flattens
  * its config into `repeat_mode`/`repeat_count`/`data_source`, so there is
  * no single declared key to ask the registry about.
@@ -317,9 +323,9 @@ function gateRepeatSlot(
 
 /**
  * The `addFields` item shape (also embedded by `createForm` / `createModule`
- * for their `fields` arrays). Each item carries a per-field `parentId` so a
- * batch can place each field precisely (and reference a group added earlier
- * in the same batch). The kind policy enforces per-kind requiredness the
+ * for their `fields` arrays). Each item carries an optional stable `fieldUuid`
+ * plus a `parentUuid`, so same-call construction uses the final identity
+ * vocabulary. The kind policy enforces per-kind requiredness the
  * flat shape can't state: a non-empty `label` on every visible kind, ≥2
  * `options` on the selects (case-bound fields exempt from both floors —
  * their catalog record seeds those slots), a `repeat` config on `repeat` —
@@ -330,7 +336,8 @@ function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
 		.object({
 			kind: makeKindEnum(kinds),
 			id: idField(),
-			parentId: parentIdField(),
+			fieldUuid: fieldUuidField(),
+			parentUuid: parentUuidField(),
 			label: labelField(),
 			hint: hintField(),
 			required: requiredField(),
@@ -366,13 +373,13 @@ function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
 			if (
 				fieldKindDeclaresKey(item.kind, "label") &&
 				!fieldRegistry[item.kind].isContainer &&
-				!item.label &&
+				(item.label == null || item.label.parts.length === 0) &&
 				!caseBound
 			) {
 				ctx.addIssue({
 					code: "custom",
 					path: ["label"],
-					message: `kind "${item.kind}" needs a real \`label\` — the end user reads it. Pass a non-empty string.`,
+					message: `kind "${item.kind}" needs a \`label\` ProseTemplate — the end user reads it.`,
 				});
 			}
 			// Missing options are fine on a case-bound field (the record's

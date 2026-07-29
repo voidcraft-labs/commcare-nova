@@ -1,3 +1,4 @@
+import { proseText } from "@/lib/domain/prose";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -78,9 +79,9 @@ const doc = buildDoc({
 		{
 			name: "patient",
 			properties: [
-				{ name: "case_name", label: "Name" },
-				{ name: "age", label: "Age" },
-				{ name: "total_visits", label: "Total Visits" },
+				{ name: "case_name", label: proseText("Name") },
+				{ name: "age", label: proseText("Age") },
+				{ name: "total_visits", label: proseText("Total Visits") },
 			],
 		},
 	],
@@ -107,7 +108,7 @@ describe("compileCcz", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "status", label: "Status" }],
+					properties: [{ name: "status", label: proseText("Status") }],
 				},
 			],
 		});
@@ -174,7 +175,7 @@ describe("compileCcz", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "case_name", label: "Name" }],
+					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 			],
 		});
@@ -216,7 +217,7 @@ describe("compileCcz", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "case_name", label: "Name" }],
+					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 			],
 		});
@@ -276,7 +277,7 @@ describe("compileCcz", () => {
 					properties: [
 						{
 							name: "last_visit",
-							label: "Last visit",
+							label: proseText("Last visit"),
 							data_type: "date",
 						},
 					],
@@ -347,12 +348,12 @@ describe("compileCcz", () => {
 					properties: [
 						{
 							name: "visit_date",
-							label: "Visit date",
+							label: proseText("Visit date"),
 							data_type: "date",
 						},
 						{
 							name: "last_seen",
-							label: "Last seen",
+							label: proseText("Last seen"),
 							data_type: "datetime",
 						},
 					],
@@ -440,7 +441,7 @@ describe("compileCcz", () => {
 					properties: [
 						{
 							name: "last_seen",
-							label: "Last seen",
+							label: proseText("Last seen"),
 							data_type: "datetime",
 						},
 					],
@@ -678,11 +679,11 @@ describe("compileCcz", () => {
 			caseTypes: [
 				{
 					name: "household",
-					properties: [{ name: "case_name", label: "Name" }],
+					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 				{
 					name: "child",
-					properties: [{ name: "case_name", label: "Child" }],
+					properties: [{ name: "case_name", label: proseText("Child") }],
 				},
 			],
 		});
@@ -782,13 +783,13 @@ describe("compileCcz", () => {
 			caseTypes: [
 				{
 					name: "household",
-					properties: [{ name: "case_name", label: "Name" }],
+					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 				{
 					name: "child",
 					properties: [
-						{ name: "case_name", label: "Name" },
-						{ name: "child_age", label: "Age" },
+						{ name: "case_name", label: proseText("Name") },
+						{ name: "child_age", label: proseText("Age") },
 					],
 				},
 			],
@@ -1173,7 +1174,7 @@ describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 			caseTypes: [
 				{
 					name: "test_case_type",
-					properties: [{ name: "case_name", label: "Name" }],
+					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 			],
 		});
@@ -1291,7 +1292,7 @@ describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 			caseTypes: [
 				{
 					name: "test_case_type",
-					properties: [{ name: "question1", label: "Question" }],
+					properties: [{ name: "question1", label: proseText("Question") }],
 				},
 			],
 		});
@@ -1411,11 +1412,11 @@ describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 			caseTypes: [
 				{
 					name: "household",
-					properties: [{ name: "case_name", label: "Name" }],
+					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 				{
 					name: "child",
-					properties: [{ name: "case_name", label: "Name" }],
+					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 			],
 		});
@@ -1551,7 +1552,7 @@ describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 			caseTypes: [
 				{
 					name: "test_case_type",
-					properties: [{ name: "question1", label: "Question" }],
+					properties: [{ name: "question1", label: proseText("Question") }],
 				},
 			],
 		});
@@ -1643,11 +1644,11 @@ describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 			caseTypes: [
 				{
 					name: "household",
-					properties: [{ name: "case_name", label: "Name" }],
+					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 				{
 					name: "child",
-					properties: [{ name: "case_name", label: "Name" }],
+					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 			],
 		});
@@ -1723,11 +1724,11 @@ describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 			caseTypes: [
 				{
 					name: "parent",
-					properties: [{ name: "case_name", label: "Name" }],
+					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 				{
 					name: "child1",
-					properties: [{ name: "case_name", label: "Name" }],
+					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 			],
 		});
@@ -1797,7 +1798,7 @@ describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 			caseTypes: [
 				{
 					name: "test_case_type",
-					properties: [{ name: "question1", label: "Question" }],
+					properties: [{ name: "question1", label: proseText("Question") }],
 				},
 			],
 		});
@@ -1861,7 +1862,7 @@ describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 			caseTypes: [
 				{
 					name: "test_case_type",
-					properties: [{ name: "question1", label: "Question" }],
+					properties: [{ name: "question1", label: proseText("Question") }],
 				},
 			],
 		});
@@ -2089,7 +2090,7 @@ describe.skipIf(!HAS_CCHQ_SUITE_FIXTURES)("CCHQ suite-fixture parity", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "case_name", label: "Name" }],
+					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 			],
 		});
@@ -2372,8 +2373,8 @@ describe.skipIf(!HAS_CCHQ_SUITE_FIXTURES)("CCHQ case-tile parity", () => {
 				{
 					name: "child",
 					properties: [
-						{ name: "case_name", label: "Name" },
-						{ name: "town", label: "Town" },
+						{ name: "case_name", label: proseText("Name") },
+						{ name: "town", label: proseText("Town") },
 					],
 				},
 			],

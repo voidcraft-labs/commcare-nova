@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { proseText } from "@/lib/domain/prose";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { CaseType } from "@/lib/domain";
@@ -14,7 +15,9 @@ import { PredicateCardEditor } from "../../PredicateCardEditor";
 
 const PATIENT: CaseType = {
 	name: "patient",
-	properties: [{ name: "location", label: "Home", data_type: "geopoint" }],
+	properties: [
+		{ name: "location", label: proseText("Home"), data_type: "geopoint" },
+	],
 };
 
 function renderDistance(

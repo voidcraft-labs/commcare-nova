@@ -24,7 +24,13 @@
 import { useMemo } from "react";
 import { type FieldPath, fpath } from "@/lib/doc/fieldPath";
 import { useBlueprintDocShallow } from "@/lib/doc/hooks/useBlueprintDoc";
-import type { Field, Form, Module, Uuid } from "@/lib/domain";
+import {
+	fallbackProseProjection,
+	type Field,
+	type Form,
+	type Module,
+	type Uuid,
+} from "@/lib/domain";
 import type { MatchIndices } from "@/lib/filterTree";
 
 /**
@@ -166,7 +172,9 @@ export function useSearchFilter(query: string): SearchResult | null {
 						// `group` (empty/absent label = transparent group), so the
 						// `in` narrowing isn't enough — coerce `undefined` to "".
 						const fieldLabel =
-							"label" in field && field.label ? field.label : "";
+							"label" in field && field.label
+								? fallbackProseProjection(field.label)
+								: "";
 						const labelIndices = findMatchIndices(fieldLabel, q);
 						const idIndices = findMatchIndices(field.id, q);
 

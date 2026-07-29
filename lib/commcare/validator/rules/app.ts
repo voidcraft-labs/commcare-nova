@@ -6,7 +6,12 @@
  * detection, child-case-type coverage, form-link cycle detection.
  */
 
-import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import {
+	authoredBlueprintIdentities,
+	type BlueprintAuthoredIdentityKind,
+	type BlueprintDoc,
+	type Uuid,
+} from "@/lib/domain";
 import { type ValidationError, validationError } from "../errors";
 import { RESERVED_CASE_TYPE_NAMES } from "../reservedNamespaces";
 import {
@@ -15,42 +20,22 @@ import {
 } from "./fieldKindMatchesPropertyType";
 import { USER_RULES } from "./users";
 
-type BlueprintEntityKind =
-	| "module"
-	| "form"
-	| "field"
-	| "userProperty"
-	| "userType"
-	| "persona";
-
 /**
- * `blueprint_entities.uuid` is the durable primary key for every normalized
- * entity kind. Two in-memory entities sharing one UUID would collapse to one
- * row on persistence, and identity-backed references could not distinguish
- * them before that point. Reject the whole six-collection namespace here;
- * `decomposeBlueprint` repeats the invariant as a persistence tripwire.
+ * Every authorable Blueprint object shares one identity namespace. Nested
+ * options, columns, Search inputs, and operations are first-class addresses,
+ * so a collision would make the meaning of a UUID depend on which tool or AST
+ * leaf happened to consume it.
  */
 function globallyUniqueEntityUuids(doc: BlueprintDoc): ValidationError[] {
 	const byUuid = new Map<
 		string,
-		Array<{ kind: BlueprintEntityKind; label: string }>
+		Array<{ kind: BlueprintAuthoredIdentityKind; label: string }>
 	>();
-	const add = (
-		kind: BlueprintEntityKind,
-		entities: Readonly<Record<string, { uuid: string }>>,
-	): void => {
-		for (const entity of Object.values(entities)) {
-			const members = byUuid.get(entity.uuid) ?? [];
-			members.push({ kind, label: kind });
-			byUuid.set(entity.uuid, members);
-		}
-	};
-	add("module", doc.modules);
-	add("form", doc.forms);
-	add("field", doc.fields);
-	add("userProperty", doc.userProperties ?? {});
-	add("userType", doc.userTypes ?? {});
-	add("persona", doc.personas ?? {});
+	for (const identity of authoredBlueprintIdentities(doc)) {
+		const members = byUuid.get(identity.uuid) ?? [];
+		members.push({ kind: identity.kind, label: identity.kind });
+		byUuid.set(identity.uuid, members);
+	}
 
 	const errors: ValidationError[] = [];
 	for (const [uuid, members] of byUuid) {
@@ -61,7 +46,7 @@ function globallyUniqueEntityUuids(doc: BlueprintDoc): ValidationError[] {
 				validationError(
 					"BLUEPRINT_ENTITY_UUID_DUPLICATE",
 					"app",
-					`Two app entities share the stable identity "${uuid}" (${kinds}). Give every module, form, field, worker-information property, role, and persona its own identity.`,
+					`Two authored app objects share the stable identity "${uuid}" (${kinds}). Give every module, form, field, select option, case-list column, Search input, case operation, worker-information property, role, and persona its own identity.`,
 					{},
 					{ entityUuid: uuid, entityKind: member.kind },
 				),

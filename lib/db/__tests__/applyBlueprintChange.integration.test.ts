@@ -33,6 +33,7 @@
 // pattern (`beforeEach` runs `runCaseStoreMigrations` — Kysely's
 // `Migrator` in process — against the per-test handle).
 
+import { proseText } from "@/lib/domain/prose";
 import { Kysely, PostgresDialect, type PostgresPool } from "kysely";
 import { v7 as uuidv7 } from "uuid";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -189,7 +190,10 @@ function renameFixtureDocs(): {
 		buildDoc({
 			appName: "Saga Test",
 			caseTypes: [
-				{ name: "patient", properties: [{ name: "age", label: "Age" }] },
+				{
+					name: "patient",
+					properties: [{ name: "age", label: proseText("Age") }],
+				},
 			],
 			modules: [
 				{
@@ -298,8 +302,8 @@ function makeAppDoc(blueprint: PersistableDoc, mutationSeq = 1): AppDoc {
 const PATIENT: CaseType = {
 	name: "patient",
 	properties: [
-		{ name: "name", label: "Name", data_type: "text" },
-		{ name: "age", label: "Age", data_type: "int" },
+		{ name: "name", label: proseText("Name"), data_type: "text" },
+		{ name: "age", label: proseText("Age"), data_type: "int" },
 	],
 };
 
@@ -713,7 +717,9 @@ describe("applyBlueprintChange — compensation on blueprint commit failure", ()
 		// and no orphan row is left behind.
 		const added: CaseType = {
 			name: "patient",
-			properties: [{ name: "name", label: "Name", data_type: "text" }],
+			properties: [
+				{ name: "name", label: proseText("Name"), data_type: "text" },
+			],
 		};
 		const addedBlueprint = makeBlueprint([added]);
 		loadAppMock.mockResolvedValueOnce(makeAppDoc(priorBlueprint));
@@ -760,8 +766,8 @@ describe("applyBlueprintChange — compensation on blueprint commit failure", ()
 		const currentPatient: CaseType = {
 			name: "patient",
 			properties: [
-				{ name: "age", label: "Age", data_type: "text" },
-				{ name: "phone", label: "Phone", data_type: "text" },
+				{ name: "age", label: proseText("Age"), data_type: "text" },
+				{ name: "phone", label: proseText("Phone"), data_type: "text" },
 			],
 		};
 		const currentBlueprint = makeBlueprint([currentPatient]);

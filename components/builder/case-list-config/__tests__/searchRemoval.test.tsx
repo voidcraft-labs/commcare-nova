@@ -1,3 +1,4 @@
+import { proseText } from "@/lib/domain/prose";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
@@ -412,8 +413,12 @@ const CASE_TYPES: CaseType[] = [
 	{
 		name: "client",
 		properties: [
-			{ name: "case_name", label: "Client name", data_type: "text" },
-			{ name: "external_id", label: "External ID", data_type: "text" },
+			{ name: "case_name", label: proseText("Client name"), data_type: "text" },
+			{
+				name: "external_id",
+				label: proseText("External ID"),
+				data_type: "text",
+			},
 		],
 	},
 ];

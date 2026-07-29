@@ -1,5 +1,6 @@
 import {
 	expressionSource,
+	fieldProseTemplate,
 	type Field,
 	type XPathPrintableDoc,
 } from "@/lib/domain";
@@ -7,7 +8,7 @@ import { walkTerms } from "@/lib/domain/predicate";
 import { extractPathRefs } from "../xpath/dependencies";
 import type { FieldTreeNode } from "./fieldTree";
 import { stripIndices } from "./instancePaths";
-import { parseBareHashtags } from "./labelRefs";
+import { proseReferenceExpressions } from "./labelRefs";
 
 type ExpressionType =
 	| "relevant"
@@ -252,9 +253,12 @@ export class TriggerDag {
 		const allDepExprs = expressions.map((e) => e.expr);
 
 		// Scan label and hint for bare hashtag refs (#form/x, #case/x, #user/x)
-		const allLabelRefs = parseBareHashtags(
-			expressionSource(f, "label", this.doc) ?? "",
-		).concat(parseBareHashtags(expressionSource(f, "hint", this.doc) ?? ""));
+		const allLabelRefs = proseReferenceExpressions(
+			fieldProseTemplate(f, "label"),
+			this.doc,
+		).concat(
+			proseReferenceExpressions(fieldProseTemplate(f, "hint"), this.doc),
+		);
 		if (allLabelRefs.length > 0) {
 			expressions.push({ type: "output", expr: "" });
 			for (const ref of allLabelRefs) allDepExprs.push(ref);

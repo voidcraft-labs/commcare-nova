@@ -1,3 +1,4 @@
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
@@ -72,8 +73,8 @@ describe("searchInputModeMatchesPropertyType", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name", data_type: "text" },
-						{ name: "name", label: "Name", data_type: "text" },
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+						{ name: "name", label: proseText("Name"), data_type: "text" },
 					],
 				},
 			],
@@ -135,8 +136,8 @@ describe("searchInputModeMatchesPropertyType", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name", data_type: "text" },
-						{ name: "age", label: "Age", data_type: "int" },
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+						{ name: "age", label: proseText("Age"), data_type: "int" },
 					],
 				},
 			],
@@ -196,8 +197,8 @@ describe("searchInputModeMatchesPropertyType", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name", data_type: "text" },
-						{ name: "age", label: "Age", data_type: "int" },
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+						{ name: "age", label: proseText("Age"), data_type: "int" },
 					],
 				},
 			],
@@ -257,8 +258,8 @@ describe("searchInputModeMatchesPropertyType", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name", data_type: "text" },
-						{ name: "age", label: "Age", data_type: "int" },
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+						{ name: "age", label: proseText("Age"), data_type: "int" },
 					],
 				},
 			],
@@ -320,8 +321,8 @@ describe("searchInputModeMatchesPropertyType", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name", data_type: "text" },
-						{ name: "geo", label: "Geo", data_type: "geopoint" },
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+						{ name: "geo", label: proseText("Geo"), data_type: "geopoint" },
 					],
 				},
 			],
@@ -412,7 +413,9 @@ describe("searchInputModeMatchesPropertyType", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "case_name", label: "Name", data_type: "text" }],
+					properties: [
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+					],
 				},
 			],
 		});
@@ -471,8 +474,8 @@ describe("searchInputModeMatchesPropertyType", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name", data_type: "text" },
-						{ name: "age", label: "Age", data_type: "int" },
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+						{ name: "age", label: proseText("Age"), data_type: "int" },
 					],
 				},
 			],
@@ -532,8 +535,8 @@ describe("searchInputModeMatchesPropertyType", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name", data_type: "text" },
-						{ name: "age", label: "Age", data_type: "int" },
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+						{ name: "age", label: proseText("Age"), data_type: "int" },
 					],
 				},
 			],
@@ -597,8 +600,8 @@ describe("searchInputModeMatchesPropertyType", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name", data_type: "text" },
-						{ name: "dob", label: "DOB", data_type: "date" },
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+						{ name: "dob", label: proseText("DOB"), data_type: "date" },
 					],
 				},
 			],
@@ -658,8 +661,8 @@ describe("searchInputModeMatchesPropertyType", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name", data_type: "text" },
-						{ name: "age", label: "Age", data_type: "int" },
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+						{ name: "age", label: proseText("Age"), data_type: "int" },
 					],
 				},
 			],
@@ -771,7 +774,9 @@ describe("searchInputModeMatchesPropertyType", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "case_name", label: "Name", data_type: "text" }],
+					properties: [
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+					],
 				},
 			],
 		});
@@ -833,7 +838,9 @@ describe("searchInputModeMatchesPropertyType", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "case_name", label: "Name", data_type: "text" }],
+					properties: [
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+					],
 				},
 			],
 		});
@@ -993,12 +1000,16 @@ describe("searchInputModeMatchesPropertyType", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "name", label: "Name", data_type: "text" }],
+					properties: [
+						{ name: "name", label: proseText("Name"), data_type: "text" },
+					],
 				},
 				{
 					name: "visit",
 					parent_type: "patient",
-					properties: [{ name: "case_name", label: "Name", data_type: "text" }],
+					properties: [
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+					],
 				},
 			],
 		});

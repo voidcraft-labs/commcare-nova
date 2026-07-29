@@ -21,6 +21,7 @@ import { listThreadMetas, loadThread } from "@/lib/db/threads";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import type { FieldWithChildren } from "@/lib/doc/fieldWalk";
 import { buildFieldTree, countFieldsUnder } from "@/lib/doc/fieldWalk";
+import { fallbackProseProjection } from "@/lib/domain";
 import { readRunSummary } from "@/lib/log/reader";
 import { analyzeBlueprint, extractLogicFields } from "./lib/blueprint-stats";
 import {
@@ -121,7 +122,10 @@ const showRow = opts.row === true;
 function printFieldTree(tree: FieldWithChildren[], indent = 0): void {
 	const pad = "  ".repeat(indent);
 	for (const f of tree) {
-		const label = "label" in f ? (f.label ?? "(no label)") : "(no label)";
+		const label =
+			"label" in f && f.label
+				? fallbackProseProjection(f.label) || "(no label)"
+				: "(no label)";
 		console.log(
 			`${pad}  - [${f.kind}] ${f.id} — "${truncate(label, 60)}" (${f.uuid.slice(0, 8)})`,
 		);

@@ -13,6 +13,7 @@
 // NOTHING. Both record methods return `{ events, committedDoc }` — the
 // writer's hydrated `nextDoc` — and the SA continues against it.
 
+import { proseText } from "@/lib/domain/prose";
 import type { LanguageModelUsage } from "ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -61,7 +62,7 @@ const TEXT_FIELD_MUTATION: Mutation = {
 		kind: "text",
 		uuid: testUuid("field-uuid"),
 		id: "patient_name",
-		label: "Patient name",
+		label: proseText("Patient name"),
 	},
 };
 
@@ -72,7 +73,7 @@ const SECOND_MUTATION: Mutation = {
 		kind: "text",
 		uuid: testUuid("field-uuid-2"),
 		id: "patient_age",
-		label: "Patient age",
+		label: proseText("Patient age"),
 	},
 };
 

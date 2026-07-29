@@ -1,3 +1,4 @@
+import { proseText } from "@/lib/domain/prose";
 import AdmZip from "adm-zip";
 import { type Document, type Element, isTag } from "domhandler";
 import { findAll, getAttributeValue, getChildren } from "domutils";
@@ -69,8 +70,8 @@ function lookupApp() {
 			{
 				name: "patient",
 				properties: [
-					{ name: "case_name", label: "Name" },
-					{ name: "region", label: "Region" },
+					{ name: "case_name", label: proseText("Name") },
+					{ name: "region", label: proseText("Region") },
 				],
 			},
 		],

@@ -1,3 +1,4 @@
+import { proseText } from "@/lib/domain/prose";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
@@ -87,9 +88,9 @@ describe("case-list validator — cross-rule integration", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name", data_type: "text" },
-						{ name: "age", label: "Age", data_type: "int" },
-						{ name: "name", label: "Name", data_type: "text" },
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+						{ name: "age", label: proseText("Age"), data_type: "int" },
+						{ name: "name", label: proseText("Name"), data_type: "text" },
 					],
 				},
 			],
@@ -157,8 +158,8 @@ describe("case-list validator — cross-rule integration", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name", data_type: "text" },
-						{ name: "weight", label: "Weight" },
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+						{ name: "weight", label: proseText("Weight") },
 					],
 				},
 			],
@@ -234,7 +235,9 @@ describe("case-list validator — cross-rule integration", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "case_name", label: "Name", data_type: "text" }],
+					properties: [
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+					],
 				},
 			],
 		});
@@ -335,7 +338,9 @@ describe("case-list validator — cross-rule integration", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "case_name", label: "Name", data_type: "text" }],
+					properties: [
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+					],
 				},
 			],
 		});

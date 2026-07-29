@@ -1,3 +1,4 @@
+import { proseText } from "@/lib/domain/prose";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * Atomic structural creation — `createForm` / `createModule` land an
@@ -101,8 +102,8 @@ function completeDoc(): BlueprintDoc {
 			{
 				name: "patient",
 				properties: [
-					{ name: "case_name", label: "Name" },
-					{ name: "village", label: "Village" },
+					{ name: "case_name", label: proseText("Name") },
+					{ name: "village", label: proseText("Village") },
 				],
 			},
 			/* Recorded ahead of its module — the generateSchema-first flow:
@@ -111,8 +112,8 @@ function completeDoc(): BlueprintDoc {
 			{
 				name: "household",
 				properties: [
-					{ name: "case_name", label: "Household name" },
-					{ name: "head_of_household", label: "Head of household" },
+					{ name: "case_name", label: proseText("Household name") },
+					{ name: "head_of_household", label: proseText("Head of household") },
 				],
 			},
 		],
@@ -378,8 +379,8 @@ function completeConnectDoc(): BlueprintDoc {
 			{
 				name: "trainee",
 				properties: [
-					{ name: "case_name", label: "Name" },
-					{ name: "village", label: "Village" },
+					{ name: "case_name", label: proseText("Name") },
+					{ name: "village", label: proseText("Village") },
 				],
 			},
 			/* Pre-recorded types for the creations below — the

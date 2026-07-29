@@ -21,6 +21,7 @@
 //      mapping table, non-default threshold + unit) round-trip
 //      through the editor untouched.
 
+import { proseText } from "@/lib/domain/prose";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
@@ -44,17 +45,17 @@ import { ColumnEditor } from "../../../ColumnEditor";
 const PATIENT: CaseType = {
 	name: "patient",
 	properties: [
-		{ name: "name", label: "Name", data_type: "text" },
-		{ name: "phone", label: "Phone", data_type: "text" },
-		{ name: "dob", label: "Date of birth", data_type: "date" },
-		{ name: "last_seen", label: "Last seen", data_type: "datetime" },
+		{ name: "name", label: proseText("Name"), data_type: "text" },
+		{ name: "phone", label: proseText("Phone"), data_type: "text" },
+		{ name: "dob", label: proseText("Date of birth"), data_type: "date" },
+		{ name: "last_seen", label: proseText("Last seen"), data_type: "datetime" },
 		{
 			name: "status",
-			label: "Status",
+			label: proseText("Status"),
 			data_type: "single_select",
 			options: [
-				{ value: "active", label: "Active" },
-				{ value: "inactive", label: "Inactive" },
+				{ value: "active", label: proseText("Active") },
+				{ value: "inactive", label: proseText("Inactive") },
 			],
 		},
 	],
@@ -158,15 +159,15 @@ describe("ColumnEditor — applicability errors", () => {
 			properties: [
 				{
 					name: "enrollment_status",
-					label: "Status",
+					label: proseText("Status"),
 					data_type: "text",
 				},
 				{
 					name: "follow_up_status",
-					label: "Status",
+					label: proseText("Status"),
 					data_type: "text",
 				},
-				{ name: "facility", label: "Facility", data_type: "text" },
+				{ name: "facility", label: proseText("Facility"), data_type: "text" },
 			],
 		};
 		render(
@@ -209,8 +210,8 @@ describe("ColumnEditor — applicability errors", () => {
 		const caseType: CaseType = {
 			name: "patient",
 			properties: [
-				{ name: "clinic_code", label: "Clinic", data_type: "text" },
-				{ name: "clinic-code", label: "Clinic", data_type: "text" },
+				{ name: "clinic_code", label: proseText("Clinic"), data_type: "text" },
+				{ name: "clinic-code", label: proseText("Clinic"), data_type: "text" },
 			],
 		};
 		render(
@@ -246,11 +247,19 @@ describe("ColumnEditor — applicability errors", () => {
 		const caseType: CaseType = {
 			name: "patient",
 			properties: [
-				{ name: "case_name", label: "case_name", data_type: "text" },
-				{ name: "name", label: "name", data_type: "text" },
-				{ name: "external_id", label: "external_id", data_type: "text" },
-				{ name: "external-id", label: "external-id", data_type: "text" },
-				{ name: "status", label: "status", data_type: "text" },
+				{ name: "case_name", label: proseText("case_name"), data_type: "text" },
+				{ name: "name", label: proseText("name"), data_type: "text" },
+				{
+					name: "external_id",
+					label: proseText("external_id"),
+					data_type: "text",
+				},
+				{
+					name: "external-id",
+					label: proseText("external-id"),
+					data_type: "text",
+				},
+				{ name: "status", label: proseText("status"), data_type: "text" },
 			],
 		};
 		render(

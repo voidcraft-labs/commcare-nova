@@ -7,6 +7,7 @@
  * no bundled media bytes).
  */
 
+import { proseText } from "@/lib/domain/prose";
 import AdmZip from "adm-zip";
 import { describe, expect, it } from "vitest";
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
@@ -54,7 +55,10 @@ function mediaDoc() {
 	const doc = buildDoc({
 		appName: "Media app",
 		caseTypes: [
-			{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+			{
+				name: "patient",
+				properties: [{ name: "case_name", label: proseText("Name") }],
+			},
 		],
 		modules: [
 			{

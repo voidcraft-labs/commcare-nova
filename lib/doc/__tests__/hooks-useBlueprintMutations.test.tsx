@@ -24,6 +24,7 @@
  * chains `useOrderedModules → useOrderedForms → useOrderedFields`.
  */
 
+import { proseText } from "@/lib/domain/prose";
 import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { useContext } from "react";
@@ -242,7 +243,9 @@ describe("useBlueprintMutations", () => {
 		});
 
 		act(() => {
-			result.current.mutations.updateField(Q_A, "text", { label: "Renamed" });
+			result.current.mutations.updateField(Q_A, "text", {
+				label: proseText("Renamed"),
+			});
 		});
 
 		// Cast to a loose variant-agnostic shape to read `label` — the domain
@@ -305,7 +308,7 @@ describe("useBlueprintMutations", () => {
 			returned = result.current.mutations.addField(formUuid, {
 				id: "d",
 				kind: "text",
-				label: "D",
+				label: proseText("D"),
 			});
 		});
 
@@ -326,7 +329,7 @@ describe("useBlueprintMutations", () => {
 			result.current.mutations.addField(Q_G, {
 				id: "c2",
 				kind: "text",
-				label: "C2",
+				label: proseText("C2"),
 			});
 		});
 
@@ -343,7 +346,7 @@ describe("useBlueprintMutations", () => {
 			const formUuid = getFormUuid(result.current.store);
 			result.current.mutations.addField(
 				formUuid,
-				{ id: "a2", kind: "text", label: "A2" },
+				{ id: "a2", kind: "text", label: proseText("A2") },
 				{ afterUuid: Q_A },
 			);
 		});
@@ -359,7 +362,7 @@ describe("useBlueprintMutations", () => {
 			const formUuid = getFormUuid(result.current.store);
 			result.current.mutations.addField(
 				formUuid,
-				{ id: "a3", kind: "text", label: "A3" },
+				{ id: "a3", kind: "text", label: proseText("A3") },
 				{ beforeUuid: Q_B },
 			);
 		});
@@ -904,8 +907,12 @@ describe("useBlueprintMutations", () => {
 				{
 					name: "person",
 					properties: [
-						{ name: "dob", label: "Date of Birth", data_type: "text" },
-						{ name: "age", label: "Age", data_type: "int" },
+						{
+							name: "dob",
+							label: proseText("Date of Birth"),
+							data_type: "text",
+						},
+						{ name: "age", label: proseText("Age"), data_type: "int" },
 					],
 				},
 			]);
@@ -935,7 +942,9 @@ describe("useBlueprintMutations", () => {
 			result.current.mutations.setCaseTypes([
 				{
 					name: "person",
-					properties: [{ name: "dob", label: "DOB", data_type: "text" }],
+					properties: [
+						{ name: "dob", label: proseText("DOB"), data_type: "text" },
+					],
 				},
 			]);
 		});
@@ -968,7 +977,9 @@ describe("useBlueprintMutations", () => {
 			result.current.mutations.setCaseTypes([
 				{
 					name: "person",
-					properties: [{ name: "dob", label: "DOB", data_type: "text" }],
+					properties: [
+						{ name: "dob", label: proseText("DOB"), data_type: "text" },
+					],
 				},
 			]);
 		});
@@ -977,7 +988,7 @@ describe("useBlueprintMutations", () => {
 		expect(() => {
 			act(() => {
 				result.current.mutations.updateCaseProperty("person", "nonexistent", {
-					label: "Nope",
+					label: proseText("Nope"),
 				});
 			});
 		}).not.toThrow();
@@ -1037,7 +1048,7 @@ describe("useBlueprintMutations", () => {
 			result.current.mutations.addField(Q_G, {
 				id: "a",
 				kind: "text",
-				label: "duplicate-a",
+				label: proseText("duplicate-a"),
 			});
 		});
 
@@ -1326,7 +1337,7 @@ describe("useBlueprintMutations", () => {
 			act(() => {
 				// Bogus uuids should all silently no-op.
 				result.current.mutations.updateField(testUuid("bogus-uuid"), "text", {
-					label: "x",
+					label: proseText("x"),
 				});
 				result.current.mutations.removeField(testUuid("bogus-uuid"));
 				result.current.mutations.renameField(
@@ -1338,7 +1349,7 @@ describe("useBlueprintMutations", () => {
 				result.current.mutations.addField(testUuid("bogus-parent"), {
 					id: "should_not_exist",
 					kind: "text",
-					label: "Nope",
+					label: proseText("Nope"),
 				});
 				result.current.mutations.updateForm(testUuid("bogus-uuid"), {
 					name: "nope",

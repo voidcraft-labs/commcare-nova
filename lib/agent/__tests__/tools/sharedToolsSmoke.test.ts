@@ -17,6 +17,7 @@
  * and vice versa.
  */
 
+import { proseText } from "@/lib/domain/prose";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { xp } from "@/lib/__tests__/docHelpers";
@@ -77,7 +78,7 @@ function makeFixtureDoc(): BlueprintDoc {
 		caseTypes: [
 			{
 				name: "patient",
-				properties: [{ name: "case_name", label: "Full name" }],
+				properties: [{ name: "case_name", label: proseText("Full name") }],
 			},
 		],
 		modules: { [MOD_A]: mod },
@@ -213,7 +214,7 @@ describe("addFields add-path pipeline", () => {
 					{
 						id,
 						kind: "int",
-						label: "Age",
+						label: proseText("Age"),
 						validate: { expr: escapedValidate },
 					},
 				],
@@ -246,9 +247,9 @@ describe("addFields add-path pipeline", () => {
 				moduleIndex: 0,
 				formIndex: 0,
 				fields: [
-					{ id: "first", kind: "text", label: "First" },
-					{ id: "middle", kind: "text", label: "Middle" },
-					{ id: "last", kind: "text", label: "Last" },
+					{ id: "first", kind: "text", label: proseText("First") },
+					{ id: "middle", kind: "text", label: proseText("Middle") },
+					{ id: "last", kind: "text", label: proseText("Last") },
 				],
 			},
 			seedCtx,
@@ -262,8 +263,8 @@ describe("addFields add-path pipeline", () => {
 				formIndex: 0,
 				beforeFieldId: "middle",
 				fields: [
-					{ id: "ins_a", kind: "text", label: "A" },
-					{ id: "ins_b", kind: "text", label: "B" },
+					{ id: "ins_a", kind: "text", label: proseText("A") },
+					{ id: "ins_b", kind: "text", label: proseText("B") },
 				],
 			},
 			ctx,
@@ -292,8 +293,8 @@ describe("addFields add-path pipeline", () => {
 					moduleIndex: 0,
 					formIndex: 0,
 					fields: [
-						{ id: "vitals", kind: "group", label: "Vitals" },
-						{ id: "history", kind: "group", label: "History" },
+						{ id: "vitals", kind: "group", label: proseText("Vitals") },
+						{ id: "history", kind: "group", label: proseText("History") },
 					],
 				},
 				seedCtx,
@@ -316,12 +317,12 @@ describe("addFields add-path pipeline", () => {
 				parentId: "vitals", // batch default parent
 				fields: [
 					// No own parentId → inherits the batch default ("vitals").
-					{ id: "height", kind: "decimal", label: "Height" },
+					{ id: "height", kind: "decimal", label: proseText("Height") },
 					// Own parentId → overrides the batch default ("history").
 					{
 						id: "weight",
 						kind: "decimal",
-						label: "Weight",
+						label: proseText("Weight"),
 						parentId: "history",
 					},
 				],
@@ -354,7 +355,9 @@ describe("addFields add-path pipeline", () => {
 			{
 				moduleIndex: 0,
 				formIndex: 0,
-				fields: [{ id: "patient_name", kind: "text", label: "Name" }],
+				fields: [
+					{ id: "patient_name", kind: "text", label: proseText("Name") },
+				],
 			},
 			seedCtx,
 			doc,
@@ -366,7 +369,9 @@ describe("addFields add-path pipeline", () => {
 				moduleIndex: 0,
 				formIndex: 0,
 				parentId: "patient_name", // a leaf field — not a valid parent
-				fields: [{ id: "dob", kind: "date", label: "Date of birth" }],
+				fields: [
+					{ id: "dob", kind: "date", label: proseText("Date of birth") },
+				],
 			},
 			ctx,
 			seeded,

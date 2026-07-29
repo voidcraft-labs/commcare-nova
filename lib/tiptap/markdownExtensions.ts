@@ -38,8 +38,17 @@ import {
 } from "@tiptap/extension-table";
 import StarterKit from "@tiptap/starter-kit";
 import { Markdown } from "tiptap-markdown";
+import {
+	canonicalProseTemplate,
+	type ProsePart,
+	type ProseTemplate,
+} from "@/lib/domain";
 import type { ReferenceProvider } from "@/lib/references/provider";
-import { CommcareRef } from "./commcareRefNode";
+import {
+	CommcareRef,
+	decodeProseReferencePart,
+	serializedProseReferencePart,
+} from "./commcareRefNode";
 import { createRefSuggestion } from "./refSuggestion";
 
 /**
@@ -127,4 +136,39 @@ export function getMarkdownContent(editor: {
 	storage: Record<string, any>;
 }): string {
 	return editor.storage.markdown?.getMarkdown?.() ?? "";
+}
+
+/** Markdown carrier used only at the TipTap boundary; references stay typed. */
+export function proseTemplateToMarkdown(template: ProseTemplate): string {
+	return template.parts
+		.map((part) =>
+			part.kind === "text" ? part.text : serializedProseReferencePart(part),
+		)
+		.join("");
+}
+
+const PROSE_REFERENCE_CARRIER_RE =
+	/<span data-nova-prose-ref="([^"]+)"><\/span>/g;
+
+/**
+ * Recover typed atoms emitted by CommcareRef's serializer. Ordinary Markdown,
+ * including hashtag-looking text, remains literal authored text.
+ */
+export function markdownToProseTemplate(markdown: string): ProseTemplate {
+	const parts: ProsePart[] = [];
+	let cursor = 0;
+	for (const match of markdown.matchAll(PROSE_REFERENCE_CARRIER_RE)) {
+		const index = match.index;
+		if (index > cursor) {
+			parts.push({ kind: "text", text: markdown.slice(cursor, index) });
+		}
+		const reference = decodeProseReferencePart(match[1]);
+		if (reference) parts.push(reference);
+		else parts.push({ kind: "text", text: match[0] });
+		cursor = index + match[0].length;
+	}
+	if (cursor < markdown.length) {
+		parts.push({ kind: "text", text: markdown.slice(cursor) });
+	}
+	return canonicalProseTemplate(parts, { trim: true });
 }

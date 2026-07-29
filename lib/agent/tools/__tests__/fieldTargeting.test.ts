@@ -15,6 +15,7 @@
  *     same way, instead of nesting the batch under the first match.
  */
 
+import { proseText } from "@/lib/domain/prose";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { BlueprintDoc } from "@/lib/domain";
@@ -89,7 +90,7 @@ describe("editField targeting", () => {
 				moduleIndex: 0,
 				formIndex: 0,
 				fieldId: "patient_name",
-				updates: { kind: "text", label: "Renamed" },
+				updates: { kind: "text", label: proseText("Renamed") },
 			},
 			ctx,
 			doc,
@@ -110,7 +111,7 @@ describe("editField targeting", () => {
 				moduleIndex: 0,
 				formIndex: 0,
 				fieldId: inHistory.uuid,
-				updates: { kind: "text", label: "History patient" },
+				updates: { kind: "text", label: proseText("History patient") },
 			},
 			ctx,
 			doc,
@@ -170,7 +171,11 @@ describe("editField targeting", () => {
 				moduleIndex: 0,
 				formIndex: 0,
 				fieldId: "note",
-				updates: { kind: "text", id: "order_note", label: "Patched" },
+				updates: {
+					kind: "text",
+					id: "order_note",
+					label: proseText("Patched"),
+				},
 			},
 			ctx,
 			doc,
@@ -192,7 +197,11 @@ describe("editField targeting", () => {
 				moduleIndex: 0,
 				formIndex: 0,
 				fieldId: inOrders.uuid,
-				updates: { kind: "text", id: "patient_name", label: "Same id" },
+				updates: {
+					kind: "text",
+					id: "patient_name",
+					label: proseText("Same id"),
+				},
 			},
 			ctx,
 			doc,
@@ -286,7 +295,9 @@ describe("addFields parent targeting", () => {
 			{
 				moduleIndex: 0,
 				formIndex: 0,
-				fields: [{ kind: "text", id: "new_q", label: "New question" }],
+				fields: [
+					{ kind: "text", id: "new_q", label: proseText("New question") },
+				],
 				parentId: "details",
 			},
 			ctx,
@@ -308,7 +319,7 @@ describe("addFields parent targeting", () => {
 					{
 						kind: "text",
 						id: "new_q",
-						label: "New question",
+						label: proseText("New question"),
 						parentId: "details",
 					},
 				],
@@ -339,21 +350,26 @@ describe("addFields parent targeting", () => {
 				moduleIndex: 0,
 				formIndex: 0,
 				fields: [
-					{ kind: "group", id: "section_a", label: "A" },
-					{ kind: "group", id: "section_b", label: "B" },
+					{ kind: "group", id: "section_a", label: proseText("A") },
+					{ kind: "group", id: "section_b", label: proseText("B") },
 					{
 						kind: "group",
 						id: "details",
-						label: "Details A",
+						label: proseText("Details A"),
 						parentId: "section_a",
 					},
 					{
 						kind: "group",
 						id: "details",
-						label: "Details B",
+						label: proseText("Details B"),
 						parentId: "section_b",
 					},
-					{ kind: "text", id: "note", label: "Note", parentId: "details" },
+					{
+						kind: "text",
+						id: "note",
+						label: proseText("Note"),
+						parentId: "details",
+					},
 				],
 			},
 			ctx,
@@ -402,8 +418,13 @@ describe("addFields parent targeting", () => {
 				moduleIndex: 0,
 				formIndex: 0,
 				fields: [
-					{ kind: "group", id: "details", label: "New details" },
-					{ kind: "text", id: "note", label: "Note", parentId: "details" },
+					{ kind: "group", id: "details", label: proseText("New details") },
+					{
+						kind: "text",
+						id: "note",
+						label: proseText("Note"),
+						parentId: "details",
+					},
 				],
 			},
 			ctx,
@@ -444,8 +465,13 @@ describe("addFields parent targeting", () => {
 				moduleIndex: 0,
 				formIndex: 0,
 				fields: [
-					{ kind: "group", id: "details", label: "New details" },
-					{ kind: "text", id: "note", label: "Note", parentId: "details" },
+					{ kind: "group", id: "details", label: proseText("New details") },
+					{
+						kind: "text",
+						id: "note",
+						label: proseText("Note"),
+						parentId: "details",
+					},
 				],
 			},
 			ctx,
@@ -470,7 +496,9 @@ describe("addFields parent targeting", () => {
 			{
 				moduleIndex: 0,
 				formIndex: 0,
-				fields: [{ kind: "text", id: "new_q", label: "New question" }],
+				fields: [
+					{ kind: "text", id: "new_q", label: proseText("New question") },
+				],
 				parentId: nested.uuid,
 			},
 			ctx,

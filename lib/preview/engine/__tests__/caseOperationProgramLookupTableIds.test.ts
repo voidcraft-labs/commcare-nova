@@ -1,3 +1,4 @@
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
@@ -50,8 +51,12 @@ describe("caseOperationProgramLookupTableIds", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "status", label: "Status", data_type: "text" },
-						{ name: "category", label: "Category", data_type: "text" },
+						{ name: "status", label: proseText("Status"), data_type: "text" },
+						{
+							name: "category",
+							label: proseText("Category"),
+							data_type: "text",
+						},
 					],
 				},
 			],

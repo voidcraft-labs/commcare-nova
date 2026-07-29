@@ -10,6 +10,7 @@
 // reaches the parent's `onChange` / `onValidityChange`, and how
 // nested errors land on the right card.
 
+import { proseText } from "@/lib/domain/prose";
 import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { CaseType } from "@/lib/domain";
@@ -33,21 +34,23 @@ import { ExpressionCardEditor } from "../ExpressionCardEditor";
 
 const HOUSEHOLD: CaseType = {
 	name: "household",
-	properties: [{ name: "region", label: "Region", data_type: "text" }],
+	properties: [
+		{ name: "region", label: proseText("Region"), data_type: "text" },
+	],
 };
 const PATIENT: CaseType = {
 	name: "patient",
 	parent_type: "household",
 	properties: [
-		{ name: "age", label: "Age", data_type: "int" },
-		{ name: "name", label: "Name", data_type: "text" },
-		{ name: "dob", label: "Date of birth", data_type: "date" },
+		{ name: "age", label: proseText("Age"), data_type: "int" },
+		{ name: "name", label: proseText("Name"), data_type: "text" },
+		{ name: "dob", label: proseText("Date of birth"), data_type: "date" },
 	],
 };
 const VISIT: CaseType = {
 	name: "visit",
 	parent_type: "patient",
-	properties: [{ name: "kind", label: "Kind", data_type: "text" }],
+	properties: [{ name: "kind", label: proseText("Kind"), data_type: "text" }],
 };
 const CASE_TYPES = [HOUSEHOLD, PATIENT, VISIT];
 

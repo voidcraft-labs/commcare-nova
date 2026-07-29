@@ -20,6 +20,7 @@
 // preset switching is covered by `CustomDatePatternInput.test.tsx`
 // at the primitive level.
 
+import { proseText } from "@/lib/domain/prose";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -41,10 +42,14 @@ import { ColumnEditor } from "../../../ColumnEditor";
 const PATIENT: CaseType = {
 	name: "patient",
 	properties: [
-		{ name: "name", label: "Name", data_type: "text" },
-		{ name: "phone", label: "Phone", data_type: "text" },
-		{ name: "dob", label: "Date of birth", data_type: "date" },
-		{ name: "last_visit", label: "Last visit", data_type: "datetime" },
+		{ name: "name", label: proseText("Name"), data_type: "text" },
+		{ name: "phone", label: proseText("Phone"), data_type: "text" },
+		{ name: "dob", label: proseText("Date of birth"), data_type: "date" },
+		{
+			name: "last_visit",
+			label: proseText("Last visit"),
+			data_type: "datetime",
+		},
 	],
 };
 

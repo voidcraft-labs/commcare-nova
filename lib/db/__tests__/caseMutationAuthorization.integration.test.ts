@@ -1,5 +1,6 @@
 /** Actor case writes reauthorize against fresh app + membership state. */
 
+import { proseText } from "@/lib/domain/prose";
 import type { Kysely } from "kysely";
 import { describe, expect, it } from "vitest";
 import { CaptureSubmissionRejectedError } from "@/lib/case-store";
@@ -48,7 +49,9 @@ async function seedAuthorizedApp(): Promise<string> {
 			schema: JSON.stringify(
 				caseTypeToJsonSchema({
 					name: CASE_TYPE,
-					properties: [{ name: "name", label: "Name", data_type: "text" }],
+					properties: [
+						{ name: "name", label: proseText("Name"), data_type: "text" },
+					],
 				}),
 			),
 		})

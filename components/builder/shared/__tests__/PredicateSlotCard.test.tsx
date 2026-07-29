@@ -15,6 +15,7 @@
 //     valid: false; clearing the slot flips back to true even with
 //     the stale-shadow path active (slot-presence short-circuit).
 
+import { proseText } from "@/lib/domain/prose";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { CaseType } from "@/lib/domain";
@@ -33,9 +34,9 @@ import { PredicateSlotCard } from "../PredicateSlotCard";
 const PATIENT: CaseType = {
 	name: "patient",
 	properties: [
-		{ name: "name", label: "Name", data_type: "text" },
-		{ name: "age", label: "Age", data_type: "int" },
-		{ name: "status", label: "Status", data_type: "text" },
+		{ name: "name", label: proseText("Name"), data_type: "text" },
+		{ name: "age", label: proseText("Age"), data_type: "int" },
+		{ name: "status", label: proseText("Status"), data_type: "text" },
 	],
 };
 const CASE_TYPES = [PATIENT];

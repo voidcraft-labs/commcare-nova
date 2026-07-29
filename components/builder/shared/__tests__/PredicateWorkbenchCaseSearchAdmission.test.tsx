@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { proseText } from "@/lib/domain/prose";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import type { CaseType } from "@/lib/domain";
@@ -10,8 +11,8 @@ const CASE_TYPES: readonly CaseType[] = [
 	{
 		name: "patient",
 		properties: [
-			{ name: "age", label: "Age", data_type: "int" },
-			{ name: "score", label: "Score", data_type: "int" },
+			{ name: "age", label: proseText("Age"), data_type: "int" },
+			{ name: "score", label: proseText("Score"), data_type: "int" },
 		],
 	},
 ];

@@ -36,6 +36,7 @@ import type {
 } from "kysely";
 import { expressionBuilder } from "kysely";
 import type { CaseType } from "@/lib/domain/blueprint";
+import { proseText } from "@/lib/domain/prose";
 import {
 	COMMCARE_DATE_FORMAT_TOKENS,
 	COMMCARE_DAY_NAMES_LONG,
@@ -417,7 +418,7 @@ function caseTypesForTemporalTypeChecking(
 			.filter(([name]) => !declared.has(name))
 			.map(([name, data_type]) => ({
 				name,
-				label: standardCasePropertyDisplayLabel(name),
+				label: proseText(standardCasePropertyDisplayLabel(name)),
 				data_type,
 			}));
 		return standardProperties.length === 0

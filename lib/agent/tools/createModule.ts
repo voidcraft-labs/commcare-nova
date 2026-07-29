@@ -51,9 +51,14 @@
  */
 
 import { z } from "zod";
-import { orderedModuleUuids } from "@/lib/doc/fieldWalk";
 import type { BlueprintDoc, ConnectConfig } from "@/lib/domain";
-import { asUuid, FORM_TYPES, USER_FACING_DESTINATIONS } from "@/lib/domain";
+import {
+	asUuid,
+	findAuthoredBlueprintIdentity,
+	FORM_TYPES,
+	USER_FACING_DESTINATIONS,
+	uuidSchema,
+} from "@/lib/domain";
 import { addFormMutations, addModuleMutations } from "../blueprintHelpers";
 import {
 	closeConditionInputSchema,
@@ -85,6 +90,11 @@ import type {
 
 const createModuleFormSchema = z
 	.object({
+		formUuid: uuidSchema
+			.optional()
+			.describe(
+				"Stable UUID for this new form. Omit when nothing in the call references it.",
+			),
 		name: z.string().min(1).describe("Form display name"),
 		type: z
 			.enum(FORM_TYPES)
@@ -129,6 +139,11 @@ const createModuleFormSchema = z
 
 export const createModuleInputSchema = z
 	.object({
+		moduleUuid: uuidSchema
+			.optional()
+			.describe(
+				"Stable UUID for the new module. Omit when nothing in the call references it.",
+			),
 		name: z.string().min(1).describe("Module display name"),
 		case_type: z
 			.string()
@@ -173,7 +188,17 @@ export const createModuleInputSchema = z
 export type CreateModuleInput = z.infer<typeof createModuleInputSchema>;
 
 /** Human-readable success string or an error record. */
-export type CreateModuleResult = MutationSuccess | { error: string };
+export type CreateModuleResult =
+	| (MutationSuccess & {
+			moduleUuid: string;
+			forms: Array<{
+				uuid: string;
+				name: string;
+				fields: Array<{ uuid: string; id: string }>;
+			}>;
+			columns: Array<{ uuid: string }>;
+	  })
+	| { error: string };
 
 export const createModuleTool = {
 	description:
@@ -185,6 +210,7 @@ export const createModuleTool = {
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<CreateModuleResult>> {
 		const {
+			moduleUuid: requestedModuleUuid,
 			name,
 			case_type,
 			purpose,
@@ -213,11 +239,26 @@ export const createModuleTool = {
 			// yet because the new module's slot only exists after the
 			// mutations apply. Downstream consumers that need the index read
 			// it from the post-mutation `moduleOrder`.
-			const moduleUuid = asUuid(crypto.randomUUID());
+			const moduleUuid = requestedModuleUuid ?? asUuid(crypto.randomUUID());
+			if (findAuthoredBlueprintIdentity(doc, moduleUuid) !== undefined) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					newDoc: doc,
+					result: {
+						error: `moduleUuid ${moduleUuid} already belongs to an authored entity in this app.`,
+					},
+				};
+			}
 			// Stamp each born column with a uuid. Position is the array they sit
 			// in, so writing them in order is all it takes.
-			const columns = (case_list_columns ?? []).map((c) =>
-				stampColumnUuid(c, newUuid()),
+			const columns = (case_list_columns ?? []).map((column) =>
+				stampColumnUuid(
+					column,
+					column.columnUuid === undefined
+						? newUuid()
+						: asUuid(column.columnUuid),
+				),
 			);
 			const mutations = [
 				...addModuleMutations({
@@ -238,7 +279,50 @@ export const createModuleTool = {
 			];
 
 			let fieldCount = 0;
+			const createdForms: Array<{
+				uuid: string;
+				name: string;
+				fields: Array<{ uuid: string; id: string }>;
+			}> = [];
 			const skipped: Array<{ id: string; reason: string }> = [];
+			const callEntityUuids = new Set([
+				moduleUuid,
+				...columns.map((column) => column.uuid),
+				...(forms ?? [])
+					.map((form) => form.formUuid)
+					.filter(
+						(uuid): uuid is NonNullable<typeof uuid> => uuid !== undefined,
+					),
+			]);
+			if (
+				callEntityUuids.size !==
+				1 +
+					columns.length +
+					(forms ?? []).filter((form) => form.formUuid !== undefined).length
+			) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					newDoc: doc,
+					result: {
+						error:
+							"moduleUuid, formUuid, and column UUID declarations in this call must be unique.",
+					},
+				};
+			}
+			const existingCollision = [...callEntityUuids].find(
+				(uuid) => findAuthoredBlueprintIdentity(doc, uuid) !== undefined,
+			);
+			if (existingCollision !== undefined) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					newDoc: doc,
+					result: {
+						error: `UUID ${existingCollision} already belongs to an authored object in this app.`,
+					},
+				};
+			}
 			// One app-wide id set threads through every form in this call:
 			// `enforceConnectIds` adds each autofilled/explicit-valid id as it
 			// goes, so two id-less blocks across sibling forms can't derive the
@@ -249,7 +333,21 @@ export const createModuleTool = {
 			// appends, so emitting them in order is what orders them — they no
 			// longer need to derive keys off each other.
 			for (const formInput of forms ?? []) {
-				const formUuid = asUuid(crypto.randomUUID());
+				const formUuid = formInput.formUuid ?? asUuid(crypto.randomUUID());
+				if (
+					(callEntityUuids.has(formUuid) && formInput.formUuid === undefined) ||
+					findAuthoredBlueprintIdentity(doc, formUuid) !== undefined
+				) {
+					return {
+						kind: "mutate" as const,
+						mutations: [],
+						newDoc: doc,
+						result: {
+							error: `minted form UUID ${formUuid} collided with another identity in this call.`,
+						},
+					};
+				}
+				callEntityUuids.add(formUuid);
 				// Assembled BEFORE the connect block so the block's XPath
 				// slots can parse against this form's batch-aware resolver.
 				// Catalog defaulting reads `doc.caseTypes` — the records
@@ -258,6 +356,7 @@ export const createModuleTool = {
 					doc,
 					formUuid,
 					items: formInput.fields,
+					occupiedUuids: callEntityUuids,
 				});
 				if (!assembly.ok) {
 					return {
@@ -296,11 +395,7 @@ export const createModuleTool = {
 				let enforcedConnect: ConnectConfig | undefined;
 				if (formInput.connect) {
 					const enforced = enforceConnectIds(
-						buildConnectConfig(
-							formInput.connect,
-							undefined,
-							assembly.parseExpression,
-						),
+						buildConnectConfig(formInput.connect, undefined),
 						name,
 						formInput.name,
 						takenConnectIds,
@@ -317,12 +412,22 @@ export const createModuleTool = {
 					}
 					enforcedConnect = enforced.config;
 				}
-				// Resolved against this form's batch overlay — the condition
-				// names a field landing in the same call.
-				const closeCondition = resolveCloseCondition(
-					assembly.resolveFieldRef,
-					formInput.close_condition,
-				);
+				if (
+					formInput.close_condition &&
+					!assembly.created.some(
+						(field) => field.uuid === formInput.close_condition?.fieldUuid,
+					)
+				) {
+					return {
+						kind: "mutate" as const,
+						mutations: [],
+						newDoc: doc,
+						result: {
+							error: `Module "${name}" wasn't created — close-condition fieldUuid ${formInput.close_condition.fieldUuid} is not a field created in form "${formInput.name}".`,
+						},
+					};
+				}
+				const closeCondition = resolveCloseCondition(formInput.close_condition);
 				mutations.push(
 					...addFormMutations(
 						doc,
@@ -346,6 +451,11 @@ export const createModuleTool = {
 					),
 				);
 				mutations.push(...assembly.mutations);
+				createdForms.push({
+					uuid: formUuid,
+					name: formInput.name,
+					fields: assembly.created,
+				});
 				// Count the fields, not the batch: the assembly prepends the
 				// declaration chokepoint's catalog mutations for undeclared
 				// types.
@@ -366,10 +476,6 @@ export const createModuleTool = {
 			}
 			const newDoc = commit.newDoc;
 
-			// The SA addresses modules by DISPLAY index (`sort-by-(order, uuid)`),
-			// so report the new module's SORTED position — not its `moduleOrder`
-			// array slot, which a born order key need not land last.
-			const newModIndex = orderedModuleUuids(newDoc).indexOf(moduleUuid);
 			const formCount = (forms ?? []).length;
 			const structureNote =
 				formCount > 0
@@ -388,7 +494,10 @@ export const createModuleTool = {
 				mutations,
 				newDoc,
 				result: {
-					message: `Successfully created module "${name}" at index ${newModIndex}${case_type ? ` (case type: ${case_type})` : ""}${structureNote}. App now has ${newDoc.moduleOrder.length} module${newDoc.moduleOrder.length === 1 ? "" : "s"}.${skippedNote}`,
+					message: `Successfully created module "${name}" (UUID ${moduleUuid})${case_type ? ` (case type: ${case_type})` : ""}${structureNote}. App now has ${newDoc.moduleOrder.length} module${newDoc.moduleOrder.length === 1 ? "" : "s"}.${skippedNote}`,
+					moduleUuid,
+					forms: createdForms,
+					columns: columns.map((column) => ({ uuid: column.uuid })),
 					summary: { subject: name } satisfies ToolCallSummary,
 				},
 			};

@@ -15,11 +15,15 @@
 import tablerPhoto from "@iconify-icons/tabler/photo";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
-import { fieldBaseSchema, xpathExpressionSchema } from "./base";
+import {
+	fieldBaseSchema,
+	proseTemplateSchema,
+	xpathExpressionSchema,
+} from "./base";
 
 export const imageFieldSchema = fieldBaseSchema.extend({
 	kind: z.literal("image"),
-	hint: z.string().optional(),
+	hint: proseTemplateSchema.optional(),
 	required: xpathExpressionSchema.optional(),
 	relevant: xpathExpressionSchema.optional(),
 });

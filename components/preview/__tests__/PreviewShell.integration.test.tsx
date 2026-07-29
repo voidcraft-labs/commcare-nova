@@ -17,6 +17,7 @@
 // intents and PreviewShell's Activity boundaries; live data loading
 // is a black box from this surface's perspective.
 
+import { proseText } from "@/lib/domain/prose";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -128,7 +129,9 @@ function renderShell() {
 				caseTypes: [
 					{
 						name: "patient",
-						properties: [{ name: "name", label: "Name", data_type: "text" }],
+						properties: [
+							{ name: "name", label: proseText("Name"), data_type: "text" },
+						],
 					},
 				],
 				modules: {

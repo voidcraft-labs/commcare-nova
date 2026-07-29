@@ -14,6 +14,7 @@
  * `vertical_align`, `font_size`, `show_border`, `show_shading`.
  */
 
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { projectCaseListForHq } from "@/lib/commcare/hqJson/caseList";
@@ -62,8 +63,8 @@ function tiledDoc(
 			{
 				name: "patient",
 				properties: [
-					{ name: "case_name", label: "Name" },
-					{ name: "town", label: "Town" },
+					{ name: "case_name", label: proseText("Name") },
+					{ name: "town", label: proseText("Town") },
 				],
 			},
 		],

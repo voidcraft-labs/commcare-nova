@@ -77,7 +77,12 @@ import {
 } from "@/components/shadcn/select";
 import { Spinner } from "@/components/shadcn/spinner";
 import { useReconcilerContext } from "@/lib/collab/context";
-import type { CaseProperty, CaseType, SearchInputDef } from "@/lib/domain";
+import {
+	type CaseProperty,
+	type CaseType,
+	fallbackProseProjection,
+	type SearchInputDef,
+} from "@/lib/domain";
 import type { Predicate } from "@/lib/domain/predicate";
 import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
 import type { PreviewSearchSessionValues } from "@/lib/preview/engine/identity";
@@ -439,7 +444,13 @@ function resolveWidget(
 			if (property === undefined) return { kind: "text" };
 			const options = property.options ?? [];
 			if (options.length === 0) return { kind: "text" };
-			return { kind: "select", options };
+			return {
+				kind: "select",
+				options: options.map((option) => ({
+					value: option.value,
+					label: fallbackProseProjection(option.label),
+				})),
+			};
 		}
 	}
 }

@@ -7,6 +7,7 @@
 // (variadic value list) so the tests pin the same structural
 // guarantees.
 
+import { proseText } from "@/lib/domain/prose";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it } from "vitest";
@@ -18,8 +19,8 @@ import { ExpressionCardEditor } from "../../../ExpressionCardEditor";
 const PATIENT: CaseType = {
 	name: "patient",
 	properties: [
-		{ name: "primary", label: "Primary", data_type: "text" },
-		{ name: "fallback", label: "Fallback", data_type: "text" },
+		{ name: "primary", label: proseText("Primary"), data_type: "text" },
+		{ name: "fallback", label: proseText("Fallback"), data_type: "text" },
 	],
 };
 

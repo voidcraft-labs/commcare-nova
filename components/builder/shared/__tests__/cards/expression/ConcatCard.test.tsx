@@ -13,6 +13,7 @@
 //   - clause removal contract — refusing the last-row removal so
 //     the schema's non-empty `parts` invariant holds.
 
+import { proseText } from "@/lib/domain/prose";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it } from "vitest";
@@ -24,8 +25,8 @@ import { ExpressionCardEditor } from "../../../ExpressionCardEditor";
 const PATIENT: CaseType = {
 	name: "patient",
 	properties: [
-		{ name: "first", label: "First", data_type: "text" },
-		{ name: "last", label: "Last", data_type: "text" },
+		{ name: "first", label: proseText("First"), data_type: "text" },
+		{ name: "last", label: proseText("Last"), data_type: "text" },
 	],
 };
 

@@ -6,6 +6,7 @@
 // The card's drag surface targets `cases` (one per row); the `on`
 // and `fallback` slots stay structurally fixed.
 
+import { proseText } from "@/lib/domain/prose";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
@@ -31,8 +32,8 @@ import { ExpressionCardEditor } from "../../../ExpressionCardEditor";
 const PATIENT: CaseType = {
 	name: "patient",
 	properties: [
-		{ name: "risk", label: "Risk", data_type: "text" },
-		{ name: "score", label: "Score", data_type: "int" },
+		{ name: "risk", label: proseText("Risk"), data_type: "text" },
+		{ name: "score", label: proseText("Score"), data_type: "int" },
 	],
 };
 
@@ -248,7 +249,9 @@ describe("SwitchCard — `when` literal preserves data_type qualifier", () => {
 				caseTypes={[
 					{
 						name: "patient",
-						properties: [{ name: "risk", label: "Risk", data_type: "date" }],
+						properties: [
+							{ name: "risk", label: proseText("Risk"), data_type: "date" },
+						],
 					},
 				]}
 				currentCaseType="patient"
@@ -283,7 +286,9 @@ describe("SwitchCard — `when` literal preserves data_type qualifier", () => {
 				caseTypes={[
 					{
 						name: "patient",
-						properties: [{ name: "risk", label: "Risk", data_type: "date" }],
+						properties: [
+							{ name: "risk", label: proseText("Risk"), data_type: "date" },
+						],
 					},
 				]}
 				currentCaseType="patient"

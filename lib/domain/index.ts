@@ -4,6 +4,7 @@
 // imports from here or from the kind-specific files under ./fields.
 
 export * from "./blueprint";
+export * from "./authoredIdentities";
 export * from "./builtinIcons";
 export * from "./caseOperationIdentifiers";
 export * from "./caseOperationIdentity";
@@ -26,6 +27,7 @@ export * from "./lookupCarriers";
 export * from "./lookupIds";
 export * from "./modules";
 export * from "./multimedia";
+export * from "./prose";
 export * from "./records";
 export * from "./referenceIndex";
 export * from "./referenceSlots";

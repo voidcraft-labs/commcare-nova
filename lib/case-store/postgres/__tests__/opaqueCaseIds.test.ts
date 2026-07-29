@@ -12,6 +12,7 @@
 // the full chain — including the `opaque_case_ids` widening — so
 // these tests always run against the exact production schema.
 
+import { proseText } from "@/lib/domain/prose";
 import { type Kysely, sql } from "kysely";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { CaseType } from "@/lib/domain";
@@ -52,7 +53,7 @@ function makeStore(projectId: string): PostgresCaseStore {
 
 const PATIENT: CaseType = {
 	name: "patient",
-	properties: [{ name: "name", label: "Name", data_type: "text" }],
+	properties: [{ name: "name", label: proseText("Name"), data_type: "text" }],
 };
 const PATIENT_SCHEMAS: ReadonlyMap<string, CaseType> = new Map([
 	[PATIENT.name, PATIENT],

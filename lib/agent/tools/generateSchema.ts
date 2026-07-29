@@ -113,7 +113,9 @@ export const generateSchemaTool = {
 				ct.relationship === undefined &&
 				ct.properties.every(
 					(p) =>
-						p.label === p.name &&
+						p.label.parts.length === 1 &&
+						p.label.parts[0]?.kind === "text" &&
+						p.label.parts[0].text === p.name &&
 						p.hint === undefined &&
 						p.required === undefined &&
 						p.validation === undefined &&

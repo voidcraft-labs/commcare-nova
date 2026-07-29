@@ -1,3 +1,4 @@
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
@@ -76,14 +77,14 @@ function validateFormFindings(
 		caseTypes: [
 			{
 				name: "household",
-				properties: [{ name: "name", label: "Name" }],
+				properties: [{ name: "name", label: proseText("Name") }],
 			},
 			{
 				name: "patient",
 				parent_type: "household",
 				properties: [
-					{ name: "status", label: "Status" },
-					{ name: "age", label: "Age", data_type: "int" },
+					{ name: "status", label: proseText("Status") },
+					{ name: "age", label: proseText("Age"), data_type: "int" },
 				],
 			},
 		],

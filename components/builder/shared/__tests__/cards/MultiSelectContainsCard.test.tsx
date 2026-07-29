@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { proseText } from "@/lib/domain/prose";
 import {
 	cleanup,
 	fireEvent,
@@ -37,7 +38,7 @@ function caseType(
 		properties: [
 			{
 				name: "tags",
-				label: "Tags",
+				label: proseText("Tags"),
 				data_type: "multi_select",
 				options: [...options],
 			},

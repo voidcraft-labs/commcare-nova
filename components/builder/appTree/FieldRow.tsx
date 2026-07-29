@@ -31,7 +31,13 @@ import { type FieldPath, fpath } from "@/lib/doc/fieldPath";
 import { useField } from "@/lib/doc/hooks/useEntity";
 import { useOrderedFields } from "@/lib/doc/hooks/useOrderedFields";
 import type { SearchResult } from "@/lib/doc/hooks/useSearchFilter";
-import { fieldRegistry, type Uuid } from "@/lib/domain";
+import {
+	fallbackProseProjection,
+	fieldRegistry,
+	proseTemplateIsEmpty,
+	type ProseTemplate,
+	type Uuid,
+} from "@/lib/domain";
 import { textWithChips } from "@/lib/references/LabelContent";
 import { useReferenceProvider } from "@/lib/references/ReferenceContext";
 import { useIsFieldSelected } from "@/lib/routing/hooks";
@@ -97,13 +103,23 @@ export const FieldRow = memo(function FieldRow({
 	// label = transparent group). The `in` narrowing alone leaves `string |
 	// undefined`, so coerce `undefined` to "" — the tree row still renders
 	// for those kinds with the id-only display path below.
-	const fieldLabel = "label" in field && field.label ? field.label : "";
+	const fieldTemplate =
+		"label" in field && !proseTemplateIsEmpty(field.label)
+			? (field.label as ProseTemplate)
+			: undefined;
+	const fieldLabel = fieldTemplate
+		? (provider?.projectTemplate(fieldTemplate, formUuid) ??
+			fallbackProseProjection(fieldTemplate))
+		: "";
 	const showIdMatch = !!(idIndices && fieldLabel);
 	const textIndices = labelIndices ?? (!fieldLabel ? idIndices : undefined);
 	const displayText = fieldLabel || field.id;
-	const chipContent = !textIndices
-		? textWithChips(displayText, provider, formUuid)
-		: null;
+	const chipContent =
+		!textIndices && fieldTemplate
+			? textWithChips(fieldTemplate, provider, formUuid)
+			: !textIndices
+				? field.id
+				: null;
 
 	return (
 		<motion.li

@@ -26,11 +26,14 @@
  */
 
 import { z } from "zod";
-import { asUuid, type BlueprintDoc, type SelectOption } from "@/lib/domain";
-import { FIELD_REF_HINT, resolveFieldTarget } from "../../blueprintHelpers";
+import { type BlueprintDoc, type SelectOption, uuidSchema } from "@/lib/domain";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { type MutatingToolResult, toToolErrorResult } from "../common";
 import type { MutationSuccess } from "../shared/toolCallSummary";
+import {
+	fieldAddressSchema,
+	resolveFieldAddress,
+} from "../shared/entityAddresses";
 import {
 	bundleExpectations,
 	commitMediaBatch,
@@ -39,18 +42,11 @@ import {
 	type ResolvedMediaBatchItem,
 } from "./shared";
 
-const optionMediaAttachmentSchema = z
-	.object({
-		moduleIndex: z.number().describe("0-based module index"),
-		formIndex: z.number().describe("0-based form index"),
-		fieldId: z
-			.string()
-			.describe(`The single_select / multi_select field — ${FIELD_REF_HINT}`),
-		optionValue: z
-			.string()
-			.describe(
-				"The `value` of the option to attach media to (the stored choice key, not the display label).",
-			),
+const optionMediaAttachmentSchema = fieldAddressSchema
+	.extend({
+		optionUuid: uuidSchema.describe(
+			"The stable UUID of the option to attach media to.",
+		),
 		media: mediaBundleInput(
 			"The image/audio/video to attach to this option. Supply any subset " +
 				"of `image`, `audio`, `video` as asset ids (discover them with " +
@@ -97,9 +93,8 @@ export const attachOptionMediaTool = {
 			const resolved: ResolvedMediaBatchItem[] = [];
 			const failures: string[] = [];
 			for (const [i, attachment] of attachments.entries()) {
-				const { moduleIndex, formIndex, fieldId, optionValue, media } =
-					attachment;
-				const found = resolveFieldTarget(doc, moduleIndex, formIndex, fieldId);
+				const { optionUuid, media } = attachment;
+				const found = resolveFieldAddress(doc, attachment);
 				if (!found.ok) {
 					failures.push(
 						`attachments[${i}]: ${found.error}. Run getForm or searchBlueprint to find the right field.`,
@@ -115,11 +110,10 @@ export const attachOptionMediaTool = {
 					continue;
 				}
 
-				const index = field.options.findIndex((o) => o.value === optionValue);
+				const index = field.options.findIndex((o) => o.uuid === optionUuid);
 				if (index < 0) {
-					const values = field.options.map((o) => `"${o.value}"`).join(", ");
 					failures.push(
-						`attachments[${i}]: field "${field.id}" has no option with value "${optionValue}". Its option values are: ${values}.`,
+						`attachments[${i}]: field "${field.id}" has no option with UUID "${optionUuid}".`,
 					);
 					continue;
 				}
@@ -138,10 +132,8 @@ export const attachOptionMediaTool = {
 				// `order`; the uuid falls back to the deterministic backfill key when
 				// a not-yet-hydrated doc lacks one (matching what backfill mints).
 				const targetOption = field.options[index];
-				const optionUuid =
-					targetOption.uuid ?? asUuid(`${field.uuid}-opt-${index}`);
 				const updated = withMedia(
-					{ ...targetOption, uuid: optionUuid },
+					targetOption,
 					setKinds.length > 0 ? media : undefined,
 				);
 				resolved.push({
@@ -155,12 +147,12 @@ export const attachOptionMediaTool = {
 					],
 					expectations: bundleExpectations(
 						media,
-						`option "${optionValue}" of field "${field.id}"`,
+						`option "${optionUuid}" of field "${field.id}"`,
 					),
 					line:
 						setKinds.length > 0
-							? `attached ${setKinds.join(", ")} media on option "${optionValue}" of field "${field.id}"`
-							: `cleared media on option "${optionValue}" of field "${field.id}"`,
+							? `attached ${setKinds.join(", ")} media on option "${optionUuid}" of field "${field.id}"`
+							: `cleared media on option "${optionUuid}" of field "${field.id}"`,
 				});
 			}
 

@@ -36,11 +36,7 @@
 import { z } from "zod";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
-import {
-	carrierBlindPredicateSchema,
-	type Predicate,
-} from "@/lib/domain/predicate";
-import { resolveModuleUuid } from "../../blueprintHelpers";
+import { predicateSchema, type Predicate } from "@/lib/domain/predicate";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import {
 	guardedMutate,
@@ -49,20 +45,14 @@ import {
 } from "../common";
 import { canonicalizePredicateCaseProperties } from "../shared/canonicalCaseProperties";
 import type { ToolCallSummary } from "../shared/toolCallSummary";
-import { moduleNotFoundResult } from "./shared";
+import {
+	moduleAddressSchema,
+	resolveModuleAddress,
+} from "../shared/entityAddresses";
 
-// Predicate builders return the canonical union even when a concrete value
-// contains no dormant arm. Preserve that caller-facing type while the actual
-// Zod node remains structurally carrier-blind for parsing and JSON emission.
-const carrierBlindPredicateInputSchema =
-	carrierBlindPredicateSchema as z.ZodType<Predicate>;
-
-export const setCaseListFilterInputSchema = z
-	.object({
-		moduleIndex: z
-			.number()
-			.describe("0-based module index whose case list filter to set"),
-		filter: carrierBlindPredicateInputSchema
+export const setCaseListFilterInputSchema = moduleAddressSchema
+	.extend({
+		filter: predicateSchema
 			.nullable()
 			.describe(
 				"Replacement Predicate, or null to clear the filter and show every case of the module's type.",
@@ -109,22 +99,18 @@ export const setCaseListFilterTool = {
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<SetCaseListFilterResult>> {
-		const { moduleIndex, filter } = input;
+		const { filter } = input;
 		try {
-			const moduleUuid = resolveModuleUuid(doc, moduleIndex);
-			if (!moduleUuid)
-				return moduleNotFoundResult<SetCaseListFilterSuccess>(
-					doc,
-					moduleIndex,
-					"set the case list filter",
-				);
-			const mod = doc.modules[moduleUuid];
-			if (!mod)
-				return moduleNotFoundResult<SetCaseListFilterSuccess>(
-					doc,
-					moduleIndex,
-					"set the case list filter",
-				);
+			const address = resolveModuleAddress(doc, input);
+			if (!address.ok) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					newDoc: doc,
+					result: { error: address.error },
+				};
+			}
+			const { moduleUuid, module: mod } = address;
 
 			// The filter rides the GRANULAR `setCaseListMeta` kind (not a
 			// wholesale `updateModule{caseListConfig}` that would clobber a
@@ -148,7 +134,7 @@ export const setCaseListFilterTool = {
 				ctx,
 				doc,
 				mutations,
-				`module:${moduleIndex}:filter`,
+				`module:${moduleUuid}:filter`,
 			);
 			if (!commit.ok) {
 				return {
@@ -167,12 +153,12 @@ export const setCaseListFilterTool = {
 				result:
 					filter === null
 						? {
-								message: `Cleared case list filter on module "${mod.name}" (index ${moduleIndex}).`,
+								message: `Cleared case list filter on module "${mod.name}" (${moduleUuid}).`,
 								kind: "cleared",
 								summary: { location: mod.name },
 							}
 						: {
-								message: `Set case list filter (kind: ${filter.kind}) on module "${mod.name}" (index ${moduleIndex}).`,
+								message: `Set case list filter (kind: ${filter.kind}) on module "${mod.name}" (${moduleUuid}).`,
 								kind: filter.kind,
 								summary: { location: mod.name },
 							},

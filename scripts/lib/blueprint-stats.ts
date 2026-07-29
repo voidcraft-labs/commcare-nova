@@ -11,7 +11,11 @@
  * not on the field itself.
  */
 
-import { expressionSource, isContainer } from "../../lib/domain";
+import {
+	expressionSource,
+	fallbackProseProjection,
+	isContainer,
+} from "../../lib/domain";
 import type { BlueprintDoc, Field, Form, Module, Uuid } from "./types";
 
 // ── Result types ────────────────────────────────────────────────────
@@ -509,7 +513,7 @@ function walkForLogic(
 		}
 		if ("hint" in f && f.hint) {
 			has.push("hint");
-			expressions.hint = f.hint;
+			expressions.hint = fallbackProseProjection(f.hint);
 		}
 
 		if (has.length > 0) {

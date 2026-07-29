@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { proseText } from "@/lib/domain/prose";
 import { render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { CaseType } from "@/lib/domain";
@@ -17,8 +18,8 @@ const caseTypes: readonly CaseType[] = [
 	{
 		name: "client",
 		properties: [
-			{ name: "case_name", label: "Client name", data_type: "text" },
-			{ name: "region", label: "Region", data_type: "text" },
+			{ name: "case_name", label: proseText("Client name"), data_type: "text" },
+			{ name: "region", label: proseText("Region"), data_type: "text" },
 		],
 	},
 ];

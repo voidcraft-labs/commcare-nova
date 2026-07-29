@@ -1,3 +1,4 @@
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import type { CaseType } from "../blueprint";
 import {
@@ -86,7 +87,10 @@ describe("toReachableIndex — seeds case_id on every type", () => {
 
 	it("does not overwrite a declared case_id label", () => {
 		const declared: CaseType[] = [
-			{ name: "x", properties: [{ name: "case_id", label: "Custom" }] },
+			{
+				name: "x",
+				properties: [{ name: "case_id", label: proseText("Custom") }],
+			},
 		];
 		const index = toReachableIndex(reachableCaseTypes("x", declared));
 		expect(index.get("x")?.properties.get("case_id")).toEqual({

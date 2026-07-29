@@ -16,6 +16,7 @@
 // relationships, and whole-envelope rollback across ordinary +
 // operation effects.
 
+import { proseText } from "@/lib/domain/prose";
 import { type Kysely, sql } from "kysely";
 import { beforeEach, describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -88,11 +89,11 @@ const SESSION_CASE_ID = "00000000-0000-7000-8000-00000000aaaa";
 const PATIENT: CaseType = {
 	name: "patient",
 	properties: [
-		{ name: "notes", label: "Notes", data_type: "text" },
-		{ name: "copy", label: "Copy", data_type: "text" },
-		{ name: "age", label: "Age", data_type: "int" },
-		{ name: "prior_age", label: "Prior age", data_type: "int" },
-		{ name: "meds", label: "Meds", data_type: "multi_select" },
+		{ name: "notes", label: proseText("Notes"), data_type: "text" },
+		{ name: "copy", label: proseText("Copy"), data_type: "text" },
+		{ name: "age", label: proseText("Age"), data_type: "int" },
+		{ name: "prior_age", label: proseText("Prior age"), data_type: "int" },
+		{ name: "meds", label: proseText("Meds"), data_type: "multi_select" },
 	],
 };
 // A superset of `patient` — every shared property keeps its exact
@@ -102,18 +103,20 @@ const PATIENT_V2: CaseType = {
 	name: "patient_v2",
 	properties: [
 		...PATIENT.properties,
-		{ name: "severity", label: "Severity", data_type: "text" },
+		{ name: "severity", label: proseText("Severity"), data_type: "text" },
 	],
 };
 const VISIT: CaseType = {
 	name: "visit",
-	properties: [{ name: "outcome", label: "Outcome", data_type: "text" }],
+	properties: [
+		{ name: "outcome", label: proseText("Outcome"), data_type: "text" },
+	],
 };
 // Declares only `notes` — a patient row carrying `age` cannot retype
 // here without parking, so the wirePortable runtime check rejects it.
 const NARROW: CaseType = {
 	name: "narrow",
-	properties: [{ name: "notes", label: "Notes", data_type: "text" }],
+	properties: [{ name: "notes", label: proseText("Notes"), data_type: "text" }],
 };
 
 const ALL_TYPES = [PATIENT, PATIENT_V2, VISIT, NARROW];

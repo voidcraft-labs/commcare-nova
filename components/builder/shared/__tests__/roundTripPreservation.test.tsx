@@ -17,6 +17,7 @@
 // slots would silently lose its content the moment a user opens
 // the editor.
 
+import { proseText } from "@/lib/domain/prose";
 import {
 	act,
 	fireEvent,
@@ -68,27 +69,29 @@ import { RelationPathBuilder } from "../primitives/RelationPathBuilder";
 
 const HOUSEHOLD: CaseType = {
 	name: "household",
-	properties: [{ name: "region", label: "Region", data_type: "text" }],
+	properties: [
+		{ name: "region", label: proseText("Region"), data_type: "text" },
+	],
 };
 const PATIENT: CaseType = {
 	name: "patient",
 	parent_type: "household",
 	properties: [
-		{ name: "age", label: "Age", data_type: "int" },
-		{ name: "name", label: "Name", data_type: "text" },
+		{ name: "age", label: proseText("Age"), data_type: "int" },
+		{ name: "name", label: proseText("Name"), data_type: "text" },
 		{
 			name: "tags",
-			label: "Tags",
+			label: proseText("Tags"),
 			data_type: "multi_select",
-			options: [{ value: "vip", label: "VIP" }],
+			options: [{ value: "vip", label: proseText("VIP") }],
 		},
-		{ name: "location", label: "Home", data_type: "geopoint" },
+		{ name: "location", label: proseText("Home"), data_type: "geopoint" },
 	],
 };
 const VISIT: CaseType = {
 	name: "visit",
 	parent_type: "patient",
-	properties: [{ name: "kind", label: "Kind", data_type: "text" }],
+	properties: [{ name: "kind", label: proseText("Kind"), data_type: "text" }],
 };
 const CASE_TYPES = [HOUSEHOLD, PATIENT, VISIT];
 
@@ -1374,7 +1377,9 @@ describe("PropertyRefPicker — `prop.via` round-trip preservation", () => {
 		const labResult: CaseType = {
 			name: "lab_result",
 			parent_type: "patient",
-			properties: [{ name: "kind", label: "Kind", data_type: "text" }],
+			properties: [
+				{ name: "kind", label: proseText("Kind"), data_type: "text" },
+			],
 		};
 		const onChange = vi.fn();
 		render(

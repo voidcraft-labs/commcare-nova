@@ -14,6 +14,7 @@
 // (numeric promotion both directions, select-to-text, null-as-universal,
 // session-user / session-context refs, boolean literals).
 
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import type { CaseType } from "@/lib/domain";
 import {
@@ -85,32 +86,32 @@ import { MATCH_MODES, MULTI_SELECT_QUANTIFIERS } from "../types";
 const PATIENT: CaseType = {
 	name: "patient",
 	properties: [
-		{ name: "name", label: "Name", data_type: "text" },
-		{ name: "age", label: "Age", data_type: "int" },
-		{ name: "weight_kg", label: "Weight", data_type: "decimal" },
-		{ name: "dob", label: "DOB", data_type: "date" },
-		{ name: "last_seen", label: "Last seen", data_type: "datetime" },
+		{ name: "name", label: proseText("Name"), data_type: "text" },
+		{ name: "age", label: proseText("Age"), data_type: "int" },
+		{ name: "weight_kg", label: proseText("Weight"), data_type: "decimal" },
+		{ name: "dob", label: proseText("DOB"), data_type: "date" },
+		{ name: "last_seen", label: proseText("Last seen"), data_type: "datetime" },
 		{
 			name: "appointment_time",
-			label: "Appointment time",
+			label: proseText("Appointment time"),
 			data_type: "time",
 		},
 		{
 			name: "status",
-			label: "Status",
+			label: proseText("Status"),
 			data_type: "single_select",
 			options: [
-				{ value: "open", label: "Open" },
-				{ value: "closed", label: "Closed" },
+				{ value: "open", label: proseText("Open") },
+				{ value: "closed", label: proseText("Closed") },
 			],
 		},
 		{
 			name: "tags",
-			label: "Tags",
+			label: proseText("Tags"),
 			data_type: "multi_select",
 			options: [
-				{ value: "vip", label: "VIP" },
-				{ value: "urgent", label: "Urgent" },
+				{ value: "vip", label: proseText("VIP") },
+				{ value: "urgent", label: proseText("Urgent") },
 			],
 		},
 	],
@@ -1143,8 +1144,8 @@ describe("checkPredicate — between operator rules", () => {
 const HOUSEHOLD: CaseType = {
 	name: "household",
 	properties: [
-		{ name: "region", label: "Region", data_type: "text" },
-		{ name: "size", label: "Size", data_type: "int" },
+		{ name: "region", label: proseText("Region"), data_type: "text" },
+		{ name: "size", label: proseText("Size"), data_type: "int" },
 	],
 };
 
@@ -1156,8 +1157,8 @@ const PATIENT_WITH_PARENT: CaseType = {
 const VISIT: CaseType = {
 	name: "visit",
 	properties: [
-		{ name: "kind", label: "Kind", data_type: "text" },
-		{ name: "completed", label: "Completed", data_type: "text" },
+		{ name: "kind", label: proseText("Kind"), data_type: "text" },
+		{ name: "completed", label: proseText("Completed"), data_type: "text" },
 	],
 	parent_type: "patient",
 };
@@ -1167,7 +1168,9 @@ const VISIT: CaseType = {
 // and the author hasn't disambiguated via `ofCaseType`.
 const LAB_RESULT: CaseType = {
 	name: "lab_result",
-	properties: [{ name: "value", label: "Value", data_type: "decimal" }],
+	properties: [
+		{ name: "value", label: proseText("Value"), data_type: "decimal" },
+	],
 	parent_type: "patient",
 };
 
@@ -1446,7 +1449,9 @@ describe("checkPredicate — exists / missing relation-path resolution", () => {
 		const node: CaseType = {
 			name: "node",
 			parent_type: "node",
-			properties: [{ name: "label", label: "Label", data_type: "text" }],
+			properties: [
+				{ name: "label", label: proseText("Label"), data_type: "text" },
+			],
 		};
 		const p = exists(
 			anyRelationPath("parent"),

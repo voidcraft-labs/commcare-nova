@@ -23,6 +23,7 @@
  * regress and only show up in production logs.
  */
 
+import { proseText } from "@/lib/domain/prose";
 import { produce } from "immer";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -99,7 +100,7 @@ function makeDoc(): BlueprintDoc {
 		caseTypes: [
 			{
 				name: "patient",
-				properties: [{ name: "case_name", label: "Full name" }],
+				properties: [{ name: "case_name", label: proseText("Full name") }],
 			},
 		],
 		modules: { [MOD]: mod },

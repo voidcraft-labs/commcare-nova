@@ -10,6 +10,7 @@
 // emitter — they do NOT rewrite the AST. Tests for that inline
 // behaviour live in `csqlEmitter.test.ts`.
 
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import {
 	ancestorPath,
@@ -102,7 +103,9 @@ describe("normalizeRelationPropertyReads", () => {
 					{
 						name: "patient",
 						parent_type: "household",
-						properties: [{ name: "name", label: "Name", data_type: "text" }],
+						properties: [
+							{ name: "name", label: proseText("Name"), data_type: "text" },
+						],
 					},
 				],
 			},

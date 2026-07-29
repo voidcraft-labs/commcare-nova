@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { proseText } from "@/lib/domain/prose";
 import {
 	cleanup,
 	fireEvent,
@@ -36,13 +37,15 @@ const CASE_TYPES: readonly CaseType[] = [
 		name: "patient",
 		parent_type: "household",
 		properties: [
-			{ name: "name", label: "Patient name", data_type: "text" },
-			{ name: "region", label: "Region", data_type: "text" },
+			{ name: "name", label: proseText("Patient name"), data_type: "text" },
+			{ name: "region", label: proseText("Region"), data_type: "text" },
 		],
 	},
 	{
 		name: "household",
-		properties: [{ name: "region", label: "Region", data_type: "text" }],
+		properties: [
+			{ name: "region", label: proseText("Region"), data_type: "text" },
+		],
 	},
 ];
 

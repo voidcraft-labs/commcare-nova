@@ -1,3 +1,4 @@
+import { proseText } from "@/lib/domain/prose";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import { emptyCaseListConfig } from "@/lib/domain";
 // @vitest-environment happy-dom
@@ -10,32 +11,32 @@ import { seedSearchInputForProperty } from "../seeds";
 
 const CASE_NAME: CaseProperty = {
 	name: "case_name",
-	label: "case_name",
+	label: proseText("case_name"),
 	data_type: "text",
 };
 const LEGACY_NAME: CaseProperty = {
 	name: "name",
-	label: "name",
+	label: proseText("name"),
 	data_type: "text",
 };
 const EXTERNAL_ID: CaseProperty = {
 	name: "external_id",
-	label: "external_id",
+	label: proseText("external_id"),
 	data_type: "text",
 };
 const LEGACY_EXTERNAL_ID: CaseProperty = {
 	name: "external-id",
-	label: "external-id",
+	label: proseText("external-id"),
 	data_type: "text",
 };
 const DATE_OF_BIRTH: CaseProperty = {
 	name: "date_of_birth",
-	label: "Date of birth",
+	label: proseText("Date of birth"),
 	data_type: "date",
 };
 const COMMUNITY: CaseProperty = {
 	name: "community",
-	label: "Community",
+	label: proseText("Community"),
 	data_type: "text",
 };
 
@@ -152,12 +153,12 @@ describe("AddSearchFieldControl", () => {
 				properties={[
 					{
 						name: "intake_status",
-						label: "Program status",
+						label: proseText("Program status"),
 						data_type: "text",
 					},
 					{
 						name: "followup_status",
-						label: "Program status",
+						label: proseText("Program status"),
 						data_type: "text",
 					},
 				]}

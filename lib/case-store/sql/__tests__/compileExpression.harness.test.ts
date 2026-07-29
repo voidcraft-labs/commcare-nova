@@ -38,6 +38,7 @@
 // integrating caller wires the real predicate compiler at the
 // composition boundary.
 
+import { proseText } from "@/lib/domain/prose";
 import { sql } from "kysely";
 import { describe } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -94,20 +95,22 @@ const PATIENT_SCHEMA: CaseType = {
 	name: "patient",
 	parent_type: "household",
 	properties: [
-		{ name: "nickname", label: "Nickname", data_type: "text" },
-		{ name: "age", label: "Age", data_type: "int" },
-		{ name: "registered_at", label: "When", data_type: "datetime" },
+		{ name: "nickname", label: proseText("Nickname"), data_type: "text" },
+		{ name: "age", label: proseText("Age"), data_type: "int" },
+		{ name: "registered_at", label: proseText("When"), data_type: "datetime" },
 	],
 };
 
 const HOUSEHOLD_SCHEMA: CaseType = {
 	name: "household",
-	properties: [{ name: "size", label: "Size", data_type: "int" }],
+	properties: [{ name: "size", label: proseText("Size"), data_type: "int" }],
 };
 
 const GUARDIAN_SCHEMA: CaseType = {
 	name: "guardian",
-	properties: [{ name: "rating", label: "Rating", data_type: "int" }],
+	properties: [
+		{ name: "rating", label: proseText("Rating"), data_type: "int" },
+	],
 };
 
 const SCHEMAS = new Map<string, CaseType>([

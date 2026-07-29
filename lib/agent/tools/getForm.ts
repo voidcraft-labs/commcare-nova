@@ -9,22 +9,16 @@
  */
 
 import { z } from "zod";
-import type { BlueprintDoc } from "@/lib/domain";
-import {
-	type FormSnapshot,
-	formSnapshot,
-	resolveFormUuid,
-} from "../blueprintHelpers";
+import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import { type FormSnapshot, formSnapshot } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
-import { projectedCaseOperations } from "./case-operations/shared";
 import type { ReadToolResult } from "./common";
+import {
+	formAddressSchema,
+	resolveFormAddress,
+} from "./shared/entityAddresses";
 
-export const getFormInputSchema = z
-	.object({
-		moduleIndex: z.number().describe("0-based module index"),
-		formIndex: z.number().describe("0-based form index"),
-	})
-	.strict();
+export const getFormInputSchema = formAddressSchema;
 
 export type GetFormInput = z.infer<typeof getFormInputSchema>;
 
@@ -38,42 +32,38 @@ export type GetFormInput = z.infer<typeof getFormInputSchema>;
 export type GetFormResult =
 	| { error: string }
 	| {
-			moduleIndex: number;
-			formIndex: number;
-			form: Omit<FormSnapshot, "caseOperations"> & {
-				caseOperations?: readonly Record<string, unknown>[];
-			};
+			moduleUuid: Uuid;
+			formUuid: Uuid;
+			form: FormSnapshot;
 	  };
 
 export const getFormTool = {
 	description:
-		"Get a form by module and form index. Returns the full form including all fields (nested by group/repeat containers).",
+		"Get a form by stable module and form UUIDs. Returns the full form including all fields (nested by group/repeat containers).",
 	inputSchema: getFormInputSchema,
 	async execute(
 		input: GetFormInput,
 		_ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<ReadToolResult<GetFormResult>> {
-		const { moduleIndex, formIndex } = input;
-		const notFound: ReadToolResult<GetFormResult> = {
-			kind: "read",
-			data: { error: `Form m${moduleIndex}-f${formIndex} not found` },
-		};
-		const formUuid = resolveFormUuid(doc, moduleIndex, formIndex);
-		if (!formUuid) return notFound;
+		const address = resolveFormAddress(doc, input);
+		if (!address.ok) {
+			return { kind: "read", data: { error: address.error } };
+		}
+		const { moduleUuid, formUuid } = address;
 		const snapshot = formSnapshot(doc, formUuid);
-		if (!snapshot) return notFound;
-		const { caseOperations: _canonicalOperations, ...authorForm } = snapshot;
-		const operations = projectedCaseOperations(doc, formUuid);
+		if (!snapshot) {
+			return {
+				kind: "read",
+				data: { error: `Form UUID "${formUuid}" is not readable.` },
+			};
+		}
 		return {
 			kind: "read",
 			data: {
-				moduleIndex,
-				formIndex,
-				form: {
-					...authorForm,
-					...(operations.length > 0 && { caseOperations: operations }),
-				},
+				moduleUuid,
+				formUuid,
+				form: snapshot,
 			},
 		};
 	},

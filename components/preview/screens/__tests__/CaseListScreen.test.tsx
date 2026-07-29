@@ -28,6 +28,7 @@
 //      `navigate.openForm` with the module's first form — the same
 //      case-select → confirm → form flow the shipped app runs.
 
+import { proseText } from "@/lib/domain/prose";
 import {
 	act,
 	fireEvent,
@@ -1018,7 +1019,7 @@ describe("CaseListScreen — worker-facing column labels", () => {
 			caseProperties: [
 				{
 					name: "client_name",
-					label: "Client's preferred name",
+					label: proseText("Client's preferred name"),
 					data_type: "text",
 				},
 			],
@@ -2446,8 +2447,8 @@ describe("CaseListScreen — detail confirm step", () => {
 		});
 		renderCaseListScreen({
 			caseProperties: [
-				{ name: "name", label: "Name", data_type: "text" },
-				{ name: "phone", label: "Phone", data_type: "text" },
+				{ name: "name", label: proseText("Name"), data_type: "text" },
+				{ name: "phone", label: proseText("Phone"), data_type: "text" },
 			],
 			columns: [
 				plainColumn(COL_NAME_UUID, "name", "Name"),

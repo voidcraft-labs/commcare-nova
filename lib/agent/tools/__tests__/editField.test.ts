@@ -13,6 +13,7 @@
  *      convention).
  */
 
+import { proseText } from "@/lib/domain/prose";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import type { BlueprintDoc, Field, Form, Module } from "@/lib/domain";
@@ -82,7 +83,10 @@ describe("editField — help text", () => {
 				moduleIndex: 0,
 				formIndex: 0,
 				fieldId: "patient_name",
-				updates: { kind: "text", help: "Enter the patient's full legal name." },
+				updates: {
+					kind: "text",
+					help: proseText("Enter the patient's full legal name."),
+				},
 			},
 			ctx,
 			doc,
@@ -102,7 +106,7 @@ describe("editField — help text", () => {
 				moduleIndex: 0,
 				formIndex: 0,
 				fieldId: "patient_name",
-				updates: { kind: "text", label: "Patient name" },
+				updates: { kind: "text", label: proseText("Patient name") },
 			},
 			ctx,
 			doc,
@@ -283,8 +287,8 @@ describe("editField — wholesale options replacement keeps identity", () => {
 				updates: {
 					kind: "single_select",
 					options: [
-						{ label: "Yes, agreed", value: "yes" },
-						{ label: "Maybe", value: "maybe" },
+						{ label: proseText("Yes, agreed"), value: "yes" },
+						{ label: proseText("Maybe"), value: "maybe" },
 					],
 				},
 			},

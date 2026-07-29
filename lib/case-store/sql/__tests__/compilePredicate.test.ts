@@ -40,6 +40,7 @@
 // tuple-with-rest non-empty arms, etc.) are enforced at parse time
 // rather than at compile time.
 
+import { proseText } from "@/lib/domain/prose";
 import {
 	type CompiledQuery,
 	DummyDriver,
@@ -116,21 +117,21 @@ const PATIENT_SCHEMA: CaseType = {
 	name: "patient",
 	parent_type: "household",
 	properties: [
-		{ name: "nickname", label: "Nickname", data_type: "text" },
-		{ name: "age", label: "Age", data_type: "int" },
-		{ name: "bmi", label: "BMI", data_type: "decimal" },
-		{ name: "dob", label: "DOB", data_type: "date" },
-		{ name: "color", label: "Color", data_type: "single_select" },
-		{ name: "tags", label: "Tags", data_type: "multi_select" },
-		{ name: "loc", label: "Location", data_type: "geopoint" },
+		{ name: "nickname", label: proseText("Nickname"), data_type: "text" },
+		{ name: "age", label: proseText("Age"), data_type: "int" },
+		{ name: "bmi", label: proseText("BMI"), data_type: "decimal" },
+		{ name: "dob", label: proseText("DOB"), data_type: "date" },
+		{ name: "color", label: proseText("Color"), data_type: "single_select" },
+		{ name: "tags", label: proseText("Tags"), data_type: "multi_select" },
+		{ name: "loc", label: proseText("Location"), data_type: "geopoint" },
 	],
 };
 
 const HOUSEHOLD_SCHEMA: CaseType = {
 	name: "household",
 	properties: [
-		{ name: "size", label: "Size", data_type: "int" },
-		{ name: "region", label: "Region", data_type: "text" },
+		{ name: "size", label: proseText("Size"), data_type: "int" },
+		{ name: "region", label: proseText("Region"), data_type: "text" },
 	],
 };
 

@@ -6,6 +6,7 @@
  * build fixtures directly in that shape via the `dTree` helper.
  */
 
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import type {
@@ -474,8 +475,12 @@ describe("FormEngine", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name", data_type: "text" },
-						{ name: "wake_time", label: "Wake time", data_type: "time" },
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+						{
+							name: "wake_time",
+							label: proseText("Wake time"),
+							data_type: "time",
+						},
 					],
 				},
 			];
@@ -1587,28 +1592,32 @@ describe("FormEngine", () => {
 		const patientCaseType: CaseType = {
 			name: "patient",
 			properties: [
-				{ name: "case_name", label: "Name", data_type: "text" },
-				{ name: "age", label: "Age", data_type: "int" },
-				{ name: "weight", label: "Weight", data_type: "decimal" },
-				{ name: "tags", label: "Tags", data_type: "multi_select" },
-				{ name: "notes", label: "Notes", data_type: "text" },
+				{ name: "case_name", label: proseText("Name"), data_type: "text" },
+				{ name: "age", label: proseText("Age"), data_type: "int" },
+				{ name: "weight", label: proseText("Weight"), data_type: "decimal" },
+				{ name: "tags", label: proseText("Tags"), data_type: "multi_select" },
+				{ name: "notes", label: proseText("Notes"), data_type: "text" },
 				// The remaining scalar data types. `date`, `geopoint`, and
 				// `single_select` pass through untouched; `time` and
 				// `datetime` cross the storage boundary. Declared on the
 				// canonical `patient` case-type so the per-type coercion
 				// tests below match a real property declaration rather
 				// than tripping the unknown-property fallthrough.
-				{ name: "dob", label: "DOB", data_type: "date" },
-				{ name: "last_seen", label: "Last seen", data_type: "datetime" },
-				{ name: "wake_time", label: "Wake time", data_type: "time" },
+				{ name: "dob", label: proseText("DOB"), data_type: "date" },
+				{
+					name: "last_seen",
+					label: proseText("Last seen"),
+					data_type: "datetime",
+				},
+				{ name: "wake_time", label: proseText("Wake time"), data_type: "time" },
 				{
 					name: "home_location",
-					label: "Home",
+					label: proseText("Home"),
 					data_type: "geopoint",
 				},
 				{
 					name: "priority",
-					label: "Priority",
+					label: proseText("Priority"),
 					data_type: "single_select",
 				},
 			],
@@ -1616,16 +1625,16 @@ describe("FormEngine", () => {
 		const visitCaseType: CaseType = {
 			name: "visit",
 			properties: [
-				{ name: "case_name", label: "Name", data_type: "text" },
-				{ name: "visit_date", label: "Date", data_type: "date" },
-				{ name: "summary", label: "Summary", data_type: "text" },
+				{ name: "case_name", label: proseText("Name"), data_type: "text" },
+				{ name: "visit_date", label: proseText("Date"), data_type: "date" },
+				{ name: "summary", label: proseText("Summary"), data_type: "text" },
 			],
 		};
 		const meditationCaseType: CaseType = {
 			name: "medication",
 			properties: [
-				{ name: "case_name", label: "Name", data_type: "text" },
-				{ name: "dosage_mg", label: "Dosage", data_type: "int" },
+				{ name: "case_name", label: proseText("Name"), data_type: "text" },
+				{ name: "dosage_mg", label: proseText("Dosage"), data_type: "int" },
 			],
 		};
 		const caseTypes = [patientCaseType, visitCaseType, meditationCaseType];

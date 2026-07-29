@@ -8,6 +8,7 @@
 import type { IconifyIcon } from "@iconify/react/offline";
 import type { ComponentType } from "react";
 import type { Field, FieldKind } from "./fields";
+import type { ProseTemplate } from "./prose";
 import type { XPathExpression } from "./xpath";
 
 /** XForm control element emitted by the compiler for a given field kind. */
@@ -148,6 +149,16 @@ export type FieldEditorComponent<
 export type OptionalStringKeys<F extends Field> = {
 	[K in keyof F]-?: string | undefined extends F[K]
 		? F[K] extends string | undefined
+			? K
+			: never
+		: never;
+}[keyof F] &
+	string;
+
+/** Keys whose canonical value is an optional structural prose template. */
+export type OptionalProseTemplateKeys<F extends Field> = {
+	[K in keyof F]-?: ProseTemplate | undefined extends F[K]
+		? F[K] extends ProseTemplate | undefined
 			? K
 			: never
 		: never;

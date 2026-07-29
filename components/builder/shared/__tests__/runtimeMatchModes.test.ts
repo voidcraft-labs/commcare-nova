@@ -9,6 +9,7 @@
 // So both directions are pinned here, against the verb menu's own
 // admission function rather than a restatement of it.
 
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import {
 	subjectOf,
@@ -33,8 +34,8 @@ const CASE_TYPES: readonly CaseType[] = [
 	{
 		name: "patient",
 		properties: [
-			{ name: "nickname", label: "Nickname", data_type: "text" },
-			{ name: "case_name", label: "Name", data_type: "text" },
+			{ name: "nickname", label: proseText("Nickname"), data_type: "text" },
+			{ name: "case_name", label: proseText("Name"), data_type: "text" },
 		],
 	},
 ];

@@ -954,7 +954,10 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 						field,
 						toKind,
 						mintOptions: () =>
-							withOptionUuids([...DEFAULT_SELECT_OPTIONS]) ?? [],
+							DEFAULT_SELECT_OPTIONS.map((option) => ({
+								...option,
+								uuid: asUuid(crypto.randomUUID()),
+							})),
 					});
 					if (!plan.ok) {
 						const message =

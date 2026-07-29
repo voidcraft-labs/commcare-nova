@@ -1,3 +1,4 @@
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
@@ -27,7 +28,7 @@ describe("canonical case-property aliases in case-list validation", () => {
 						properties: [
 							{
 								name: alias,
-								label: `Legacy ${alias}`,
+								label: proseText(`Legacy ${alias}`),
 								data_type: staleType,
 							},
 						],
@@ -49,7 +50,9 @@ describe("canonical case-property aliases in case-list validation", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "name", label: "Old name", data_type: "int" }],
+					properties: [
+						{ name: "name", label: proseText("Old name"), data_type: "int" },
+					],
 				},
 			],
 			modules: [
@@ -110,7 +113,7 @@ describe("canonical case-property aliases in case-list validation", () => {
 					properties: [
 						{
 							name: "external-id",
-							label: "Old external ID",
+							label: proseText("Old external ID"),
 							data_type: "date",
 						},
 					],

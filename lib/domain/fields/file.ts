@@ -22,11 +22,15 @@
 import tablerFileUpload from "@iconify-icons/tabler/file-upload";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
-import { fieldBaseSchema, xpathExpressionSchema } from "./base";
+import {
+	fieldBaseSchema,
+	proseTemplateSchema,
+	xpathExpressionSchema,
+} from "./base";
 
 export const fileFieldSchema = fieldBaseSchema.extend({
 	kind: z.literal("file"),
-	hint: z.string().optional(),
+	hint: proseTemplateSchema.optional(),
 	required: xpathExpressionSchema.optional(),
 	relevant: xpathExpressionSchema.optional(),
 });

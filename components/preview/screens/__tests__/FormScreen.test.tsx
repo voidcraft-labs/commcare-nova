@@ -28,6 +28,7 @@
 //      assertion, then resolves with the success arm so the pending
 //      promise drains before teardown.
 
+import { proseText } from "@/lib/domain/prose";
 import {
 	act,
 	fireEvent,
@@ -283,7 +284,9 @@ function renderFormScreen(opts: {
 				caseTypes: [
 					{
 						name: CASE_TYPE,
-						properties: [{ name: "name", label: "Name", data_type: "text" }],
+						properties: [
+							{ name: "name", label: proseText("Name"), data_type: "text" },
+						],
 					},
 				],
 				modules: {

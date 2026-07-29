@@ -15,7 +15,7 @@ import { useMemo } from "react";
 import type { OperationSentenceContext } from "@/components/builder/case-operations/operationSentence";
 import { useBlueprintDocShallow } from "@/lib/doc/hooks/useBlueprintDoc";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
-import { orderedCaseOperations } from "@/lib/domain";
+import { fallbackProseProjection, orderedCaseOperations } from "@/lib/domain";
 
 /** Stable empty stand-in, so the shallow compare holds across notifications. */
 const NO_FIELDS: BlueprintDoc["fields"] = {};
@@ -49,7 +49,10 @@ export function useOperationSentenceContext(
 		const labelOf = (uuid: Uuid): string | undefined => {
 			const field = fields[uuid];
 			if (field === undefined) return undefined;
-			const label = "label" in field ? (field.label ?? "").trim() : "";
+			const label =
+				"label" in field && field.label
+					? fallbackProseProjection(field.label).trim()
+					: "";
 			return label.length > 0 ? label : field.id;
 		};
 		return {

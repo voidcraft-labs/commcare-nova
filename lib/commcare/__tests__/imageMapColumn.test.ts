@@ -10,6 +10,7 @@
  * inlines `jr://file/commcare/<hash><ext>` literals.
  */
 
+import { proseText } from "@/lib/domain/prose";
 import AdmZip from "adm-zip";
 import { describe, expect, it } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
@@ -55,7 +56,10 @@ function imageMapDoc() {
 	return buildDoc({
 		appName: "Status icons",
 		caseTypes: [
-			{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+			{
+				name: "patient",
+				properties: [{ name: "case_name", label: proseText("Name") }],
+			},
 		],
 		modules: [
 			{

@@ -1,3 +1,4 @@
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
@@ -32,11 +33,15 @@ function fixture(): {
 			{
 				name: "patient",
 				properties: [
-					{ name: "declared_date", label: "Declared date", data_type: "date" },
-					{ name: "operation_only", label: "Operation only" },
-					{ name: "two_operations", label: "Two operations" },
-					{ name: "field_written", label: "Field written" },
-					{ name: "written_elsewhere", label: "Written elsewhere" },
+					{
+						name: "declared_date",
+						label: proseText("Declared date"),
+						data_type: "date",
+					},
+					{ name: "operation_only", label: proseText("Operation only") },
+					{ name: "two_operations", label: proseText("Two operations") },
+					{ name: "field_written", label: proseText("Field written") },
+					{ name: "written_elsewhere", label: proseText("Written elsewhere") },
 				],
 			},
 		],

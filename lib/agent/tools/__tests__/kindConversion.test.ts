@@ -17,6 +17,7 @@
  *     survivable slots and drop the rest.
  */
 
+import { proseText } from "@/lib/domain/prose";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { BlueprintDoc, SelectOption } from "@/lib/domain";
@@ -74,8 +75,8 @@ describe("editField — convert to single_select", () => {
 				updates: {
 					kind: "single_select",
 					options: [
-						{ value: "clinic_a", label: "Clinic A" },
-						{ value: "clinic_b", label: "Clinic B" },
+						{ value: "clinic_a", label: proseText("Clinic A") },
+						{ value: "clinic_b", label: proseText("Clinic B") },
 					],
 				},
 			},
@@ -141,7 +142,7 @@ describe("editField — convert to single_select", () => {
 				fieldId: "facility",
 				updates: {
 					kind: "single_select",
-					options: [{ value: "only", label: "Only" }],
+					options: [{ value: "only", label: proseText("Only") }],
 				},
 			},
 			ctx,
@@ -288,8 +289,12 @@ describe("editField — demotions", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name", data_type: "text" },
-						{ name: "facility", label: "Facility", data_type: "text" },
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+						{
+							name: "facility",
+							label: proseText("Facility"),
+							data_type: "text",
+						},
 					],
 				},
 			],
@@ -329,8 +334,8 @@ describe("editField — demotions", () => {
 				updates: {
 					kind: "single_select",
 					options: [
-						{ value: "clinic_a", label: "Clinic A" },
-						{ value: "clinic_b", label: "Clinic B" },
+						{ value: "clinic_a", label: proseText("Clinic A") },
+						{ value: "clinic_b", label: proseText("Clinic B") },
 					],
 				},
 			},
@@ -361,8 +366,8 @@ describe("editField — demotions", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name" },
-						{ name: "status", label: "Status" },
+						{ name: "case_name", label: proseText("Name") },
+						{ name: "status", label: proseText("Status") },
 					],
 				},
 			],
@@ -414,8 +419,8 @@ describe("editField — demotions", () => {
 				updates: {
 					kind: "single_select",
 					options: [
-						{ value: "open", label: "Open" },
-						{ value: "closed", label: "Closed" },
+						{ value: "open", label: proseText("Open") },
+						{ value: "closed", label: proseText("Closed") },
 					],
 				},
 			},
@@ -454,8 +459,8 @@ describe("editField — demotions", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name" },
-						{ name: "sample_id", label: "Sample" },
+						{ name: "case_name", label: proseText("Name") },
+						{ name: "sample_id", label: proseText("Sample") },
 					],
 				},
 			],
@@ -507,8 +512,8 @@ describe("editField — demotions", () => {
 				updates: {
 					kind: "single_select",
 					options: [
-						{ value: "a", label: "A" },
-						{ value: "b", label: "B" },
+						{ value: "a", label: proseText("A") },
+						{ value: "b", label: proseText("B") },
 					],
 				},
 			},
@@ -528,8 +533,8 @@ describe("editField — demotions", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name" },
-						{ name: "status", label: "Status" },
+						{ name: "case_name", label: proseText("Name") },
+						{ name: "status", label: proseText("Status") },
 					],
 				},
 			],
@@ -584,8 +589,8 @@ describe("editField — demotions", () => {
 				updates: {
 					kind: "single_select",
 					options: [
-						{ value: "open", label: "Open" },
-						{ value: "closed", label: "Closed" },
+						{ value: "open", label: proseText("Open") },
+						{ value: "closed", label: proseText("Closed") },
 					],
 					case_property_on: null,
 				},
@@ -621,14 +626,14 @@ describe("editField — demotions", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name" },
+						{ name: "case_name", label: proseText("Name") },
 						{
 							name: "language",
-							label: "Language",
+							label: proseText("Language"),
 							data_type: "single_select",
 							options: [
-								{ value: "en", label: "English" },
-								{ value: "fr", label: "French" },
+								{ value: "en", label: proseText("English") },
+								{ value: "fr", label: proseText("French") },
 							],
 						},
 					],
@@ -704,8 +709,8 @@ describe("editField — demotions", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name" },
-						{ name: "visit_note", label: "Visit note" },
+						{ name: "case_name", label: proseText("Name") },
+						{ name: "visit_note", label: proseText("Visit note") },
 					],
 				},
 			],

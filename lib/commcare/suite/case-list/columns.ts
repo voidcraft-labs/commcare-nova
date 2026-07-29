@@ -109,6 +109,7 @@ import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
 import {
 	type CaseProperty,
 	type Column,
+	fallbackProseProjection,
 	resolveCommCareDatePattern,
 	TIME_SINCE_UNIT_DAYS,
 	tileCellFor,
@@ -440,7 +441,10 @@ export function plainSelectDisplayXpath(
 		// exactly. Equality keeps the two surfaces identical.
 		return options.reduceRight((elseArm, option) => {
 			const value = quoteLiteral(option.value, "case-list-filter");
-			const label = quoteLiteral(option.label, "case-list-filter");
+			const label = quoteLiteral(
+				fallbackProseProjection(option.label),
+				"case-list-filter",
+			);
 			return `if(${field} = ${value}, ${label}, ${elseArm})`;
 		}, field);
 	}
@@ -453,7 +457,13 @@ export function plainSelectDisplayXpath(
 		(option) => option.value !== "" && !/\s/.test(option.value),
 	);
 	if (tokenOptions.length === 0) return plainDisplayXpath(field);
-	const knownLabels = idMappingDisplayXpath(field, tokenOptions);
+	const knownLabels = idMappingDisplayXpath(
+		field,
+		tokenOptions.map((option) => ({
+			value: option.value,
+			label: fallbackProseProjection(option.label),
+		})),
+	);
 	// Double-space the normalized value so every token owns BOTH of its
 	// flanking spaces. Java regex matching is non-overlapping: with
 	// single-space delimiters, removing ` tok ` consumes the shared space

@@ -10,6 +10,7 @@
 // `onChange` / `onValidityChange`, and how nested errors land on
 // the right card.
 
+import { proseText } from "@/lib/domain/prose";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { CaseType } from "@/lib/domain";
@@ -33,15 +34,17 @@ import { PredicateCardEditor } from "../PredicateCardEditor";
 
 const HOUSEHOLD: CaseType = {
 	name: "household",
-	properties: [{ name: "region", label: "Region", data_type: "text" }],
+	properties: [
+		{ name: "region", label: proseText("Region"), data_type: "text" },
+	],
 };
 const PATIENT: CaseType = {
 	name: "patient",
 	parent_type: "household",
 	properties: [
-		{ name: "age", label: "Age", data_type: "int" },
-		{ name: "status", label: "Status", data_type: "text" },
-		{ name: "last_seen", label: "Last seen", data_type: "datetime" },
+		{ name: "age", label: proseText("Age"), data_type: "int" },
+		{ name: "status", label: proseText("Status"), data_type: "text" },
+		{ name: "last_seen", label: proseText("Last seen"), data_type: "datetime" },
 	],
 };
 const CASE_TYPES = [HOUSEHOLD, PATIENT];

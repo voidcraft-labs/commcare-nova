@@ -48,6 +48,7 @@
 // `seedSchema` helper below makes that one line per test rather
 // than four.
 
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import type {
@@ -163,8 +164,8 @@ const HOUSEHOLD_ID = "30000000-0000-0000-0000-000000000010";
 const CHILD_PATIENT_ID = "30000000-0000-0000-0000-000000000020";
 
 const PATIENT_PROPERTIES: CaseProperty[] = [
-	{ name: "name", label: "Name", data_type: "text" },
-	{ name: "age", label: "Age", data_type: "int" },
+	{ name: "name", label: proseText("Name"), data_type: "text" },
+	{ name: "age", label: proseText("Age"), data_type: "int" },
 ];
 
 /**
@@ -191,7 +192,9 @@ const PATIENT_WITH_PARENT_CASE_TYPE: CaseType = {
 
 const HOUSEHOLD_CASE_TYPE: CaseType = {
 	name: "household",
-	properties: [{ name: "region", label: "Region", data_type: "text" }],
+	properties: [
+		{ name: "region", label: proseText("Region"), data_type: "text" },
+	],
 };
 
 // ---------------------------------------------------------------
@@ -744,7 +747,9 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			const VISIT_CASE_TYPE: CaseType = {
 				name: "visit",
 				parent_type: "household",
-				properties: [{ name: "outcome", label: "Outcome", data_type: "text" }],
+				properties: [
+					{ name: "outcome", label: proseText("Outcome"), data_type: "text" },
+				],
 			};
 			const store = await options.factory(TENANT_A);
 			const blueprint = buildBlueprint([
@@ -968,7 +973,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				name: "patient",
 				properties: [
 					...PATIENT_PROPERTIES,
-					{ name: "phone", label: "Phone", data_type: "text" },
+					{ name: "phone", label: proseText("Phone"), data_type: "text" },
 				],
 			};
 			const extendedBlueprint = buildBlueprint([extendedCaseType]);
@@ -1028,8 +1033,8 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			const renamedCaseType: CaseType = {
 				name: "patient",
 				properties: [
-					{ name: "name", label: "Name", data_type: "text" },
-					{ name: "years", label: "Years", data_type: "int" },
+					{ name: "name", label: proseText("Name"), data_type: "text" },
+					{ name: "years", label: proseText("Years"), data_type: "int" },
 				],
 			};
 			const renamedBlueprint = buildBlueprint([renamedCaseType]);
@@ -1084,8 +1089,8 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			const twoProps: CaseType = {
 				name: "patient",
 				properties: [
-					{ name: "height", label: "Height", data_type: "text" },
-					{ name: "weight", label: "Weight", data_type: "text" },
+					{ name: "height", label: proseText("Height"), data_type: "text" },
+					{ name: "weight", label: proseText("Weight"), data_type: "text" },
 				],
 			};
 			await seedSchema(store, buildBlueprint([twoProps]), "patient");
@@ -1107,8 +1112,8 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			const reused: CaseType = {
 				name: "patient",
 				properties: [
-					{ name: "weight", label: "Height", data_type: "text" },
-					{ name: "weight_kg", label: "Weight", data_type: "text" },
+					{ name: "weight", label: proseText("Height"), data_type: "text" },
+					{ name: "weight_kg", label: proseText("Weight"), data_type: "text" },
 				],
 			};
 			const report = await store.applySchemaChange({
@@ -1146,8 +1151,8 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			const mergedFrom: CaseType = {
 				name: "patient",
 				properties: [
-					{ name: "age", label: "Age", data_type: "text" },
-					{ name: "years", label: "Years", data_type: "int" },
+					{ name: "age", label: proseText("Age"), data_type: "text" },
+					{ name: "years", label: proseText("Years"), data_type: "int" },
 				],
 			};
 			await seedSchema(store, buildBlueprint([mergedFrom]), "patient");
@@ -1190,7 +1195,9 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 
 			const mergedCaseType: CaseType = {
 				name: "patient",
-				properties: [{ name: "years", label: "Years", data_type: "int" }],
+				properties: [
+					{ name: "years", label: proseText("Years"), data_type: "int" },
+				],
 			};
 			const report = await store.applySchemaChange({
 				appId: APP_ID,
@@ -1260,14 +1267,14 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			const before: CaseType = {
 				name: "patient",
 				properties: [
-					{ name: "age", label: "Age", data_type: "text" },
+					{ name: "age", label: proseText("Age"), data_type: "text" },
 					{
 						name: "years",
-						label: "Years",
+						label: proseText("Years"),
 						data_type: "single_select",
 						options: [
-							{ value: "young", label: "Young" },
-							{ value: "old", label: "Old" },
+							{ value: "young", label: proseText("Young") },
+							{ value: "old", label: proseText("Old") },
 						],
 					},
 				],
@@ -1302,11 +1309,11 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				properties: [
 					{
 						name: "years",
-						label: "Years",
+						label: proseText("Years"),
 						data_type: "multi_select",
 						options: [
-							{ value: "young", label: "Young" },
-							{ value: "old", label: "Old" },
+							{ value: "young", label: proseText("Young") },
+							{ value: "old", label: proseText("Old") },
 						],
 					},
 				],
@@ -1346,8 +1353,8 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			const withAge: CaseType = {
 				name: "patient",
 				properties: [
-					{ name: "name", label: "Name", data_type: "text" },
-					{ name: "age", label: "Age", data_type: "text" },
+					{ name: "name", label: proseText("Name"), data_type: "text" },
+					{ name: "age", label: proseText("Age"), data_type: "text" },
 				],
 			};
 			await seedSchema(store, buildBlueprint([withAge]), "patient");
@@ -1366,7 +1373,9 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// legacy stranding shape: no rename migration ran).
 			const withoutAge: CaseType = {
 				name: "patient",
-				properties: [{ name: "name", label: "Name", data_type: "text" }],
+				properties: [
+					{ name: "name", label: proseText("Name"), data_type: "text" },
+				],
 			};
 			await store.applySchemaChange({
 				appId: APP_ID,
@@ -1404,8 +1413,8 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			const initialCaseType: CaseType = {
 				name: "patient",
 				properties: [
-					{ name: "age", label: "Age", data_type: "text" },
-					{ name: "note", label: "Note", data_type: "text" },
+					{ name: "age", label: proseText("Age"), data_type: "text" },
+					{ name: "note", label: proseText("Note"), data_type: "text" },
 				],
 			};
 			const initialBlueprint = buildBlueprint([initialCaseType]);
@@ -1440,8 +1449,8 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			const retypedCaseType: CaseType = {
 				name: "patient",
 				properties: [
-					{ name: "age", label: "Age", data_type: "int" },
-					{ name: "note", label: "Note", data_type: "text" },
+					{ name: "age", label: proseText("Age"), data_type: "int" },
+					{ name: "note", label: proseText("Note"), data_type: "text" },
 				],
 			};
 			const retypedBlueprint = buildBlueprint([retypedCaseType]);
@@ -1548,7 +1557,9 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			const store = await options.factory(TENANT_A);
 			const initialCaseType: CaseType = {
 				name: "patient",
-				properties: [{ name: "visit", label: "Visit", data_type: "text" }],
+				properties: [
+					{ name: "visit", label: proseText("Visit"), data_type: "text" },
+				],
 			};
 			const initialBlueprint = buildBlueprint([initialCaseType]);
 			await seedSchema(store, initialBlueprint, "patient");
@@ -1578,7 +1589,9 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 
 			const datedCaseType: CaseType = {
 				name: "patient",
-				properties: [{ name: "visit", label: "Visit", data_type: "date" }],
+				properties: [
+					{ name: "visit", label: proseText("Visit"), data_type: "date" },
+				],
 			};
 			const report = await store.applySchemaChange({
 				appId: APP_ID,
@@ -1629,8 +1642,12 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			const singleCaseType: CaseType = {
 				name: "patient",
 				properties: [
-					{ name: "language", label: "Language", data_type: "single_select" },
-					{ name: "note", label: "Note", data_type: "text" },
+					{
+						name: "language",
+						label: proseText("Language"),
+						data_type: "single_select",
+					},
+					{ name: "note", label: proseText("Note"), data_type: "text" },
 				],
 			};
 			await seedSchema(store, buildBlueprint([singleCaseType]), "patient");
@@ -1660,8 +1677,12 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			const multiCaseType: CaseType = {
 				name: "patient",
 				properties: [
-					{ name: "language", label: "Language", data_type: "multi_select" },
-					{ name: "note", label: "Note", data_type: "text" },
+					{
+						name: "language",
+						label: proseText("Language"),
+						data_type: "multi_select",
+					},
+					{ name: "note", label: proseText("Note"), data_type: "text" },
 				],
 			};
 			const report = await store.applySchemaChange({
@@ -1710,7 +1731,11 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			const multiCaseType: CaseType = {
 				name: "patient",
 				properties: [
-					{ name: "languages", label: "Languages", data_type: "multi_select" },
+					{
+						name: "languages",
+						label: proseText("Languages"),
+						data_type: "multi_select",
+					},
 				],
 			};
 			await seedSchema(store, buildBlueprint([multiCaseType]), "patient");
@@ -1731,7 +1756,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				properties: [
 					{
 						name: "languages",
-						label: "Languages",
+						label: proseText("Languages"),
 						data_type: "single_select",
 					},
 				],
@@ -1761,7 +1786,11 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			const singleCaseType: CaseType = {
 				name: "patient",
 				properties: [
-					{ name: "language", label: "Language", data_type: "single_select" },
+					{
+						name: "language",
+						label: proseText("Language"),
+						data_type: "single_select",
+					},
 				],
 			};
 			await store.applySchemaChange({
@@ -1784,7 +1813,11 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			const multiCaseType: CaseType = {
 				name: "patient",
 				properties: [
-					{ name: "language", label: "Language", data_type: "multi_select" },
+					{
+						name: "language",
+						label: proseText("Language"),
+						data_type: "multi_select",
+					},
 				],
 			};
 			const report = await store.applySchemaChange({
@@ -1812,7 +1845,11 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			const multiCaseType: CaseType = {
 				name: "patient",
 				properties: [
-					{ name: "visits", label: "Visits", data_type: "multi_select" },
+					{
+						name: "visits",
+						label: proseText("Visits"),
+						data_type: "multi_select",
+					},
 				],
 			};
 			await seedSchema(store, buildBlueprint([multiCaseType]), "patient");
@@ -1846,7 +1883,9 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// ever left stranded under the regenerated schema.
 			const dateCaseType: CaseType = {
 				name: "patient",
-				properties: [{ name: "visits", label: "Visits", data_type: "date" }],
+				properties: [
+					{ name: "visits", label: proseText("Visits"), data_type: "date" },
+				],
 			};
 			const report = await store.applySchemaChange({
 				appId: APP_ID,
@@ -1873,7 +1912,9 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			const store = await options.factory(TENANT_A);
 			const intCaseType: CaseType = {
 				name: "patient",
-				properties: [{ name: "age", label: "Age", data_type: "int" }],
+				properties: [
+					{ name: "age", label: proseText("Age"), data_type: "int" },
+				],
 			};
 			// Phase B of this sync builds the btree expression index on
 			// ((properties->>'age')::integer).
@@ -1896,7 +1937,9 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// array target's GIN afterward.
 			const multiCaseType: CaseType = {
 				name: "patient",
-				properties: [{ name: "age", label: "Age", data_type: "multi_select" }],
+				properties: [
+					{ name: "age", label: proseText("Age"), data_type: "multi_select" },
+				],
 			};
 			const report = await store.applySchemaChange({
 				appId: APP_ID,
@@ -1915,7 +1958,11 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			const datetimeCaseType: CaseType = {
 				name: "patient",
 				properties: [
-					{ name: "seen_at", label: "Seen at", data_type: "datetime" },
+					{
+						name: "seen_at",
+						label: proseText("Seen at"),
+						data_type: "datetime",
+					},
 				],
 			};
 			await seedSchema(store, buildBlueprint([datetimeCaseType]), "patient");
@@ -1937,7 +1984,9 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// change entry, no hint. Detection alone must carry the rows.
 			const dateCaseType: CaseType = {
 				name: "patient",
-				properties: [{ name: "seen_at", label: "Seen at", data_type: "date" }],
+				properties: [
+					{ name: "seen_at", label: proseText("Seen at"), data_type: "date" },
+				],
 			};
 			const report = await store.applySchemaChange({
 				appId: APP_ID,
@@ -1978,7 +2027,11 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			const singleCaseType: CaseType = {
 				name: "patient",
 				properties: [
-					{ name: "language", label: "Language", data_type: "single_select" },
+					{
+						name: "language",
+						label: proseText("Language"),
+						data_type: "single_select",
+					},
 				],
 			};
 			await seedSchema(store, buildBlueprint([singleCaseType]), "patient");
@@ -1999,7 +2052,11 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			const multiCaseType: CaseType = {
 				name: "patient",
 				properties: [
-					{ name: "language", label: "Language", data_type: "multi_select" },
+					{
+						name: "language",
+						label: proseText("Language"),
+						data_type: "multi_select",
+					},
 				],
 			};
 			const report = await store.applySchemaChange({
@@ -2030,11 +2087,11 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				properties: [
 					{
 						name: "color",
-						label: "Color",
+						label: proseText("Color"),
 						data_type: "single_select",
 						options: [
-							{ value: "red", label: "Red" },
-							{ value: "blue", label: "Blue" },
+							{ value: "red", label: proseText("Red") },
+							{ value: "blue", label: proseText("Blue") },
 						],
 					},
 				],
@@ -2070,9 +2127,9 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				properties: [
 					{
 						name: "color",
-						label: "Color",
+						label: proseText("Color"),
 						data_type: "single_select",
-						options: [{ value: "blue", label: "Blue" }],
+						options: [{ value: "blue", label: proseText("Blue") }],
 					},
 				],
 			};
@@ -2114,12 +2171,12 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				properties: [
 					{
 						name: "symptoms",
-						label: "Symptoms",
+						label: proseText("Symptoms"),
 						data_type: "multi_select",
 						options: [
-							{ value: "fever", label: "Fever" },
-							{ value: "cough", label: "Cough" },
-							{ value: "rash", label: "Rash" },
+							{ value: "fever", label: proseText("Fever") },
+							{ value: "cough", label: proseText("Cough") },
+							{ value: "rash", label: proseText("Rash") },
 						],
 					},
 				],
@@ -2141,11 +2198,11 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				properties: [
 					{
 						name: "symptoms",
-						label: "Symptoms",
+						label: proseText("Symptoms"),
 						data_type: "multi_select",
 						options: [
-							{ value: "fever", label: "Fever" },
-							{ value: "cough", label: "Cough" },
+							{ value: "fever", label: proseText("Fever") },
+							{ value: "cough", label: proseText("Cough") },
 						],
 					},
 				],
@@ -2177,9 +2234,9 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			const caseType: CaseType = {
 				name: "patient",
 				properties: [
-					{ name: "age", label: "Age", data_type: "text" },
-					{ name: "score", label: "Score", data_type: "text" },
-					{ name: "note", label: "Note", data_type: "text" },
+					{ name: "age", label: proseText("Age"), data_type: "text" },
+					{ name: "score", label: proseText("Score"), data_type: "text" },
+					{ name: "note", label: proseText("Note"), data_type: "text" },
 				],
 			};
 			const blueprint = buildBlueprint([caseType]);
@@ -2256,9 +2313,9 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				{
 					name: "patient",
 					properties: [
-						{ name: "age", label: "Age", data_type: "text" },
-						{ name: "score", label: "Score", data_type: "int" },
-						{ name: "note", label: "Note", data_type: "text" },
+						{ name: "age", label: proseText("Age"), data_type: "text" },
+						{ name: "score", label: proseText("Score"), data_type: "int" },
+						{ name: "note", label: proseText("Note"), data_type: "text" },
 					],
 				},
 			]);
@@ -2299,7 +2356,9 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			const decimalBlueprint = buildBlueprint([
 				{
 					name: "patient",
-					properties: [{ name: "score", label: "Score", data_type: "decimal" }],
+					properties: [
+						{ name: "score", label: proseText("Score"), data_type: "decimal" },
+					],
 				},
 			]);
 			await seedSchema(store, decimalBlueprint, "patient");
@@ -2327,7 +2386,9 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			const intBlueprint = buildBlueprint([
 				{
 					name: "patient",
-					properties: [{ name: "score", label: "Score", data_type: "int" }],
+					properties: [
+						{ name: "score", label: proseText("Score"), data_type: "int" },
+					],
 				},
 			]);
 			const forward = await store.applySchemaChange({
@@ -2425,11 +2486,15 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			const store = await options.factory(TENANT_A);
 			const textAge: CaseType = {
 				name: "patient",
-				properties: [{ name: "age", label: "Age", data_type: "text" }],
+				properties: [
+					{ name: "age", label: proseText("Age"), data_type: "text" },
+				],
 			};
 			const intAge: CaseType = {
 				name: "patient",
-				properties: [{ name: "age", label: "Age", data_type: "int" }],
+				properties: [
+					{ name: "age", label: proseText("Age"), data_type: "int" },
+				],
 			};
 			await seedSchema(store, buildBlueprint([textAge]), "patient");
 			await store.insert({
@@ -2527,7 +2592,9 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			const store = await options.factory(TENANT_A);
 			const initialCaseType: CaseType = {
 				name: "patient",
-				properties: [{ name: "age", label: "Age", data_type: "text" }],
+				properties: [
+					{ name: "age", label: proseText("Age"), data_type: "text" },
+				],
 			};
 			await seedSchema(store, buildBlueprint([initialCaseType]), "patient");
 			await store.insert({
@@ -2542,7 +2609,9 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			});
 			const retyped: CaseType = {
 				name: "patient",
-				properties: [{ name: "age", label: "Age", data_type: "int" }],
+				properties: [
+					{ name: "age", label: proseText("Age"), data_type: "int" },
+				],
 			};
 			const report = await store.applySchemaChange({
 				appId: APP_ID,
@@ -2609,11 +2678,15 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			const store = await options.factory(TENANT_A);
 			const textAge: CaseType = {
 				name: "patient",
-				properties: [{ name: "age", label: "Age", data_type: "text" }],
+				properties: [
+					{ name: "age", label: proseText("Age"), data_type: "text" },
+				],
 			};
 			const intAge: CaseType = {
 				name: "patient",
-				properties: [{ name: "age", label: "Age", data_type: "int" }],
+				properties: [
+					{ name: "age", label: proseText("Age"), data_type: "int" },
+				],
 			};
 			await seedSchema(store, buildBlueprint([textAge]), "patient");
 			await store.insert({
@@ -2707,11 +2780,15 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			const store = await options.factory(TENANT_A);
 			const textAge: CaseType = {
 				name: "patient",
-				properties: [{ name: "age", label: "Age", data_type: "text" }],
+				properties: [
+					{ name: "age", label: proseText("Age"), data_type: "text" },
+				],
 			};
 			const intAge: CaseType = {
 				name: "patient",
-				properties: [{ name: "age", label: "Age", data_type: "int" }],
+				properties: [
+					{ name: "age", label: proseText("Age"), data_type: "int" },
+				],
 			};
 			await seedSchema(store, buildBlueprint([textAge]), "patient");
 			await store.insert({
@@ -2759,11 +2836,15 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			const store = await options.factory(TENANT_A);
 			const textAge: CaseType = {
 				name: "patient",
-				properties: [{ name: "age", label: "Age", data_type: "text" }],
+				properties: [
+					{ name: "age", label: proseText("Age"), data_type: "text" },
+				],
 			};
 			const intAge: CaseType = {
 				name: "patient",
-				properties: [{ name: "age", label: "Age", data_type: "int" }],
+				properties: [
+					{ name: "age", label: proseText("Age"), data_type: "int" },
+				],
 			};
 			await seedSchema(store, buildBlueprint([textAge]), "patient");
 			await store.insert({
@@ -2841,19 +2922,23 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				properties: [
 					{
 						name: "status",
-						label: "Status",
+						label: proseText("Status"),
 						data_type: "single_select",
-						options: [{ value: "well", label: "Well" }],
+						options: [{ value: "well", label: proseText("Well") }],
 					},
 				],
 			};
 			const intStatus: CaseType = {
 				name: "patient",
-				properties: [{ name: "status", label: "Status", data_type: "int" }],
+				properties: [
+					{ name: "status", label: proseText("Status"), data_type: "int" },
+				],
 			};
 			const textStatus: CaseType = {
 				name: "patient",
-				properties: [{ name: "status", label: "Status", data_type: "text" }],
+				properties: [
+					{ name: "status", label: proseText("Status"), data_type: "text" },
+				],
 			};
 			await seedSchema(store, buildBlueprint([selectStatus]), "patient");
 			await store.insert({
@@ -2915,20 +3000,20 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				properties: [
 					{
 						name: "color",
-						label: "Color",
+						label: proseText("Color"),
 						data_type: "single_select",
 						options: [
-							{ value: "red", label: "Red" },
-							{ value: "blue", label: "Blue" },
+							{ value: "red", label: proseText("Red") },
+							{ value: "blue", label: proseText("Blue") },
 						],
 					},
 					{
 						name: "symptoms",
-						label: "Symptoms",
+						label: proseText("Symptoms"),
 						data_type: "multi_select",
 						options: [
-							{ value: "fever", label: "Fever" },
-							{ value: "chills", label: "Chills" },
+							{ value: "fever", label: proseText("Fever") },
+							{ value: "chills", label: proseText("Chills") },
 						],
 					},
 				],
@@ -2952,15 +3037,15 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				properties: [
 					{
 						name: "color",
-						label: "Color",
+						label: proseText("Color"),
 						data_type: "single_select",
-						options: [{ value: "blue", label: "Blue" }],
+						options: [{ value: "blue", label: proseText("Blue") }],
 					},
 					{
 						name: "symptoms",
-						label: "Symptoms",
+						label: proseText("Symptoms"),
 						data_type: "multi_select",
-						options: [{ value: "fever", label: "Fever" }],
+						options: [{ value: "fever", label: proseText("Fever") }],
 					},
 				],
 			};
@@ -3023,11 +3108,15 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			const store = await options.factory(TENANT_A);
 			const textAge: CaseType = {
 				name: "patient",
-				properties: [{ name: "age", label: "Age", data_type: "text" }],
+				properties: [
+					{ name: "age", label: proseText("Age"), data_type: "text" },
+				],
 			};
 			const intAge: CaseType = {
 				name: "patient",
-				properties: [{ name: "age", label: "Age", data_type: "int" }],
+				properties: [
+					{ name: "age", label: proseText("Age"), data_type: "int" },
+				],
 			};
 			await seedSchema(store, buildBlueprint([textAge]), "patient");
 			await store.insert({
@@ -3091,11 +3180,15 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			const store = await options.factory(TENANT_A);
 			const textAge: CaseType = {
 				name: "patient",
-				properties: [{ name: "age", label: "Age", data_type: "text" }],
+				properties: [
+					{ name: "age", label: proseText("Age"), data_type: "text" },
+				],
 			};
 			const intAge: CaseType = {
 				name: "patient",
-				properties: [{ name: "age", label: "Age", data_type: "int" }],
+				properties: [
+					{ name: "age", label: proseText("Age"), data_type: "int" },
+				],
 			};
 			await seedSchema(store, buildBlueprint([textAge]), "patient");
 			await store.insert({
@@ -3147,11 +3240,15 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			const store = await options.factory(TENANT_A);
 			const textAge: CaseType = {
 				name: "patient",
-				properties: [{ name: "age", label: "Age", data_type: "text" }],
+				properties: [
+					{ name: "age", label: proseText("Age"), data_type: "text" },
+				],
 			};
 			const intAge: CaseType = {
 				name: "patient",
-				properties: [{ name: "age", label: "Age", data_type: "int" }],
+				properties: [
+					{ name: "age", label: proseText("Age"), data_type: "int" },
+				],
 			};
 			const noAge: CaseType = { name: "patient", properties: [] };
 			await seedSchema(store, buildBlueprint([textAge]), "patient");

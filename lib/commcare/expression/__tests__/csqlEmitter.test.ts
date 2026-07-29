@@ -22,6 +22,7 @@
 // operators, the concat-wrap layer lifts each segment to a separate
 // `concat(...)` argument).
 
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 
@@ -66,10 +67,14 @@ const TEMPORAL_CONTEXT: TypeContext = {
 		{
 			name: "p",
 			properties: [
-				{ name: "birth_date", label: "Birth date", data_type: "date" },
+				{
+					name: "birth_date",
+					label: proseText("Birth date"),
+					data_type: "date",
+				},
 				{
 					name: "seen_at",
-					label: "Seen at",
+					label: proseText("Seen at"),
 					data_type: "datetime",
 				},
 			],

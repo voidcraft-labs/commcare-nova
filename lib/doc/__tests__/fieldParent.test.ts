@@ -21,6 +21,7 @@
  * same code path as production callers.
  */
 
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
@@ -627,7 +628,7 @@ describe("after renameField / updateField (structural noop)", () => {
 				kind: "updateField",
 				uuid: FLD_A,
 				targetKind: "text",
-				patch: { label: "Updated Label" },
+				patch: { label: proseText("Updated Label") },
 			},
 		]);
 		assertFieldParentInvariants(result);

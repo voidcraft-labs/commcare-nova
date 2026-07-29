@@ -12,6 +12,7 @@
  * same mutation batch on both surfaces.
  */
 
+import { proseText } from "@/lib/domain/prose";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import type { BlueprintDoc, Form, Module } from "@/lib/domain";
 import {
@@ -56,14 +57,18 @@ export function makeCaseListDoc(): BlueprintDoc {
 			{
 				name: "patient",
 				properties: [
-					{ name: "case_name", label: "Full name" },
-					{ name: "name", label: "Name" },
-					{ name: "phone", label: "Phone" },
-					{ name: "dob", label: "Date of birth", data_type: "date" },
-					{ name: "last_visit", label: "Last visit", data_type: "date" },
-					{ name: "region_code", label: "Region code" },
-					{ name: "region", label: "Region" },
-					{ name: "status", label: "Status" },
+					{ name: "case_name", label: proseText("Full name") },
+					{ name: "name", label: proseText("Name") },
+					{ name: "phone", label: proseText("Phone") },
+					{ name: "dob", label: proseText("Date of birth"), data_type: "date" },
+					{
+						name: "last_visit",
+						label: proseText("Last visit"),
+						data_type: "date",
+					},
+					{ name: "region_code", label: proseText("Region code") },
+					{ name: "region", label: proseText("Region") },
+					{ name: "status", label: proseText("Status") },
 				],
 			},
 		],

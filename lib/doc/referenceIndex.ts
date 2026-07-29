@@ -72,7 +72,6 @@
 import type { Mutation } from "@/lib/doc/types";
 import {
 	type BlueprintDoc,
-	buildHashtagRefRegex,
 	casePropertyDeclKey,
 	casePropertyTargetKey,
 	caseTypeTargetKey,
@@ -87,6 +86,7 @@ import {
 	MODULE_REFERENCE_SLOTS,
 	type Module,
 	ownRecordValue,
+	type ProseTemplate,
 	type ReferenceIndex,
 	readSlotStrings,
 	readSlotValues,
@@ -386,8 +386,8 @@ function extractFieldEdges(
 				}
 				break;
 			case "prose":
-				for (const value of readSlotStrings(field, slot.path)) {
-					extractProseRefs(sink, doc, ctx, value.text, slot.slot);
+				for (const value of readSlotValues(field, slot.path)) {
+					extractProseRefs(sink, value.value as ProseTemplate, slot.slot);
 				}
 				break;
 			case "case-type-ref":
@@ -817,22 +817,35 @@ function extractAstRefs(
 // ── Prose extraction ────────────────────────────────────────────────
 
 /**
- * Edges for one prose string. Only the bare-hashtag substrings the
- * shared matcher locates are reference-bearing — the surrounding text
- * is never parsed as XPath, exactly like the prose rewrite path.
+ * Edges for one canonical prose template. Text parts are always inert,
+ * including hashtag-looking text; only typed parts are references.
  */
 function extractProseRefs(
 	sink: EdgeSink,
-	doc: BlueprintDoc,
-	ctx: CarrierContext,
-	text: string,
+	template: ProseTemplate,
 	slot: string,
 ): void {
-	if (!text?.includes("#")) return;
-	const re = buildHashtagRefRegex("g");
-	for (let match = re.exec(text); match !== null; match = re.exec(text)) {
-		const parts = match[0].slice(1).split("/");
-		hashtagEdges(sink, doc, ctx, slot, parts[0] ?? "", parts.slice(1));
+	if (!template || !Array.isArray(template.parts)) return;
+	for (const part of template.parts) {
+		switch (part.kind) {
+			case "text":
+			case "user-ref":
+				break;
+			case "field-ref":
+				sink.edge(entityTargetKey(part.uuid), slot);
+				break;
+			case "case-ref":
+				sink.edge(caseTypeTargetKey(part.caseType), slot);
+				sink.edge(casePropertyTargetKey(part.caseType, part.property), slot);
+				break;
+			case "user-property-ref":
+				sink.edge(userPropertyTargetKey(part.userPropertyUuid), slot);
+				break;
+			default: {
+				const _exhaustive: never = part;
+				break;
+			}
+		}
 	}
 }
 

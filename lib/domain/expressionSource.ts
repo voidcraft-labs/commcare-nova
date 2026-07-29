@@ -31,6 +31,11 @@
 import type { Field } from "./fields";
 import type { Form } from "./forms";
 import {
+	isProseTemplate,
+	printProseTemplate,
+	type ProseTemplate,
+} from "./prose";
+import {
 	FIELD_REFERENCE_SLOTS,
 	type FieldProseSlotId,
 	type FieldReferenceSlot,
@@ -157,6 +162,9 @@ function projectSlotValue(
 	doc: XPathPrintableDoc,
 ): string | undefined {
 	if (typeof value === "string") return value;
+	if (isProseTemplate(value)) {
+		return printProseTemplate(value, doc);
+	}
 	if (isXPathExpression(value)) {
 		return printXPath(value, xpathPrintContext(doc));
 	}
@@ -199,6 +207,15 @@ export function expressionSourceEntries(
 		if (text !== undefined) entries.push({ indices, text });
 	}
 	return entries;
+}
+
+/** The canonical stored template behind a scalar prose slot. */
+export function fieldProseTemplate(
+	field: Field,
+	slot: Exclude<FieldProseSlotId, "option_label">,
+): ProseTemplate | undefined {
+	const value = readSlotValues(field, FIELD_SLOT_PATHS[slot])[0]?.value;
+	return isProseTemplate(value) ? value : undefined;
 }
 
 /**
@@ -248,6 +265,8 @@ export interface ExpressionRead<
 	 * diagnosis) read this; text-only consumers ignore it.
 	 */
 	readonly expr?: XPathExpression;
+	/** The canonical stored template for a prose slot. */
+	readonly template?: ProseTemplate;
 }
 
 /**
@@ -295,6 +314,7 @@ export function expressionSurfaceReads(
 					text,
 					indices,
 					...(isXPathExpression(value) && { expr: value }),
+					...(isProseTemplate(value) && { template: value }),
 				});
 			}
 		}

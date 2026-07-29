@@ -17,6 +17,7 @@ import { lookupOptionsSourceSchema } from "../lookupCarriers";
 import {
 	inputFieldBaseSchema,
 	mediaSchema,
+	proseTemplateSchema,
 	selectOptionSchema,
 	xpathExpressionSchema,
 } from "./base";
@@ -26,7 +27,7 @@ export const singleSelectFieldSchema = inputFieldBaseSchema.extend({
 	options: z.array(selectOptionSchema).min(2),
 	optionsSource: lookupOptionsSourceSchema.optional(),
 	validate: xpathExpressionSchema.optional(),
-	validate_msg: z.string().optional(),
+	validate_msg: proseTemplateSchema.optional(),
 	validate_msg_media: mediaSchema.optional(),
 	default_value: xpathExpressionSchema.optional(),
 });

@@ -1,3 +1,4 @@
+import { proseText } from "@/lib/domain/prose";
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 // scripts/__tests__/legacyMediaRefs.test.ts
@@ -65,7 +66,10 @@ function mediaDoc(): BlueprintDoc {
 	const doc = buildDoc({
 		appName: "Media App",
 		caseTypes: [
-			{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+			{
+				name: "patient",
+				properties: [{ name: "case_name", label: proseText("Name") }],
+			},
 		],
 		modules: [
 			{

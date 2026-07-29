@@ -18,6 +18,8 @@ import {
 	type Field,
 	type FieldKind,
 	type Form,
+	printProseTemplate,
+	type ProseTemplate,
 	reachableCaseTypes,
 	toReachableIndex,
 	type Uuid,
@@ -51,6 +53,7 @@ export function buildLintContext(
 	// Walk fields under the form root to collect valid paths + form entries.
 	const validPaths = new Set<string>();
 	const formEntries: Array<{
+		uuid: Uuid;
 		path: string;
 		label: string;
 		kind: FieldKind;
@@ -64,10 +67,13 @@ export function buildLintContext(
 			validPaths.add(path);
 			// Field variants differ in label presence — safe fallback to id so
 			// the autocomplete always has something readable to display.
-			const withLabel = field as Field & { label?: string };
+			const withLabel = field as Field & { label?: ProseTemplate };
 			formEntries.push({
+				uuid: field.uuid,
 				path: path.slice("/data/".length),
-				label: withLabel.label ?? field.id,
+				label: withLabel.label
+					? printProseTemplate(withLabel.label, state)
+					: field.id,
 				kind: field.kind,
 			});
 			if (field.kind === "group" || field.kind === "repeat") {

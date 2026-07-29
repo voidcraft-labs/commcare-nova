@@ -13,6 +13,7 @@ import {
 	fieldSchema,
 	getConvertibleTypes,
 	pickFieldKeysForKind,
+	proseText,
 	reconcileFieldForKind,
 } from "@/lib/domain";
 import {
@@ -869,7 +870,7 @@ function ensureCatalogProperty(doc: BlueprintDoc, field: Field): void {
 	const dataType = caseDataTypeForFieldKind(field.kind);
 	ct.properties.push({
 		name: field.id,
-		label: field.id,
+		label: proseText(field.id),
 		...(dataType !== undefined && { data_type: dataType }),
 	});
 }

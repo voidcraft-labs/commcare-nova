@@ -17,6 +17,7 @@
  *   Loading > Completed > Generating > Ready > Idle.
  */
 
+import { proseText } from "@/lib/domain/prose";
 import { assert, describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { docHasData } from "@/lib/doc/predicates";
@@ -163,7 +164,7 @@ const FORM_CONTENT_MUTATIONS: Mutation[] = [
 			uuid: Q_NAME_UUID,
 			id: "patient_name",
 			kind: "text",
-			label: "Patient Name",
+			label: proseText("Patient Name"),
 		},
 	},
 	{
@@ -173,7 +174,7 @@ const FORM_CONTENT_MUTATIONS: Mutation[] = [
 			uuid: Q_AGE_UUID,
 			id: "patient_age",
 			kind: "int",
-			label: "Age",
+			label: proseText("Age"),
 		},
 	},
 ];
@@ -321,7 +322,7 @@ describe("generation lifecycle (end-to-end)", () => {
 					kind: "updateField",
 					uuid: Q_NAME_UUID,
 					targetKind: "text",
-					patch: { label: "Patient Full Name" },
+					patch: { label: proseText("Patient Full Name") },
 				},
 			],
 			"fix:attempt-1",

@@ -37,6 +37,7 @@ import {
 	CASE_LOADING_FORM_TYPES,
 	casePropertyDataTypes,
 	expressionSource,
+	fieldProseTemplate,
 	isCaptureFieldKind,
 	isReadableTemporalValue,
 	orderedCaseOperations,
@@ -83,6 +84,7 @@ import {
 	fieldStatesEqual,
 	type LookupChoice,
 	lookupChoicesEqual,
+	stringRecordsEqual,
 } from "./types";
 
 export type AttachmentPathDisposition = "active" | "dormant" | "removed";
@@ -1888,6 +1890,8 @@ export class FormEngine {
 		let value = current.value;
 		let resolvedLabel = current.resolvedLabel;
 		let resolvedHint = current.resolvedHint;
+		let resolvedHelp = current.resolvedHelp;
+		let resolvedOptionLabels = current.resolvedOptionLabels;
 		let choices = current.choices;
 		let hasValidation = false;
 
@@ -1929,16 +1933,49 @@ export class FormEngine {
 						const resolve = (exprStr: string): string =>
 							xpathToString(evaluate(exprStr, ctx));
 						const rl = resolveLabel(
-							expressionSource(f, "label", this.printDoc),
+							fieldProseTemplate(f, "label"),
+							this.printDoc,
 							resolve,
 						);
 						const rh = resolveLabel(
-							expressionSource(f, "hint", this.printDoc),
+							fieldProseTemplate(f, "hint"),
+							this.printDoc,
 							resolve,
 						);
-						if (rl !== resolvedLabel || rh !== resolvedHint) {
+						const rhelp = resolveLabel(
+							fieldProseTemplate(f, "help"),
+							this.printDoc,
+							resolve,
+						);
+						const roptions =
+							f.kind === "single_select" || f.kind === "multi_select"
+								? Object.fromEntries(
+										f.options.flatMap((option) => {
+											const value = resolveLabel(
+												option.label,
+												this.printDoc,
+												resolve,
+											);
+											return value === undefined
+												? []
+												: [[option.uuid, value] as const];
+										}),
+									)
+								: undefined;
+						const normalizedOptions =
+							roptions && Object.keys(roptions).length > 0
+								? roptions
+								: undefined;
+						if (
+							rl !== resolvedLabel ||
+							rh !== resolvedHint ||
+							rhelp !== resolvedHelp ||
+							!stringRecordsEqual(normalizedOptions, resolvedOptionLabels)
+						) {
 							resolvedLabel = rl;
 							resolvedHint = rh;
+							resolvedHelp = rhelp;
+							resolvedOptionLabels = normalizedOptions;
 							changed = true;
 						}
 					}
@@ -1987,6 +2024,8 @@ export class FormEngine {
 				value,
 				resolvedLabel,
 				resolvedHint,
+				resolvedHelp,
+				resolvedOptionLabels,
 				choices,
 			};
 		}

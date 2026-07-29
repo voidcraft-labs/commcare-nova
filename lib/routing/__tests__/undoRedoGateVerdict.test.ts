@@ -10,6 +10,7 @@
  * no hook render, no DOM.
  */
 
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
@@ -64,7 +65,7 @@ describe("undoRedoGateVerdict", () => {
 				kind: "updateField",
 				uuid: testUuid("q-a"),
 				targetKind: "text",
-				patch: { label: "A" },
+				patch: { label: proseText("A") },
 			},
 		]);
 		expect(verdict.ok).toBe(true);

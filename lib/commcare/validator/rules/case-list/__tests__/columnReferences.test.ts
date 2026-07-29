@@ -1,3 +1,4 @@
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
@@ -271,9 +272,13 @@ describe("columnReferences", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name", data_type: "text" },
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
 						// Declared but no writer + not in the standard set.
-						{ name: "weight", label: "Weight", data_type: "decimal" },
+						{
+							name: "weight",
+							label: proseText("Weight"),
+							data_type: "decimal",
+						},
 					],
 				},
 			],

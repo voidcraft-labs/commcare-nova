@@ -66,6 +66,7 @@
 // cross-layer round-trip (filter narrowing, write-through, reset) once
 // per concern.
 
+import { proseText } from "@/lib/domain/prose";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { Kysely } from "kysely";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -390,8 +391,8 @@ function buildFixtureDoc(): BlueprintDoc {
 			{
 				name: "patient",
 				properties: [
-					{ name: "name", label: "Name", data_type: "text" },
-					{ name: "age", label: "Age", data_type: "int" },
+					{ name: "name", label: proseText("Name"), data_type: "text" },
+					{ name: "age", label: proseText("Age"), data_type: "int" },
 					// `status` is a CommCare standard property reserved
 					// at the scalar-column layer (`RESERVED_SCALAR_COLUMNS`);
 					// the type checker resolves it as `text`-typed without

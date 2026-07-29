@@ -4,6 +4,7 @@
 // tests pin the resolution rules and the honest-unknown contract the
 // column-applicability + gate consumers depend on.
 
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { CasePropertyDataType, PersistableDoc } from "@/lib/domain";
@@ -49,7 +50,10 @@ describe("effectiveCaseTypes — writer derivation", () => {
 	it("derives a declared-but-untyped property's type from its writer field's kind", () => {
 		const doc = docWith({
 			caseTypes: [
-				{ name: "patient", properties: [{ name: "dob", label: "DOB" }] },
+				{
+					name: "patient",
+					properties: [{ name: "dob", label: proseText("DOB") }],
+				},
 			],
 			fields: [
 				f({
@@ -68,7 +72,9 @@ describe("effectiveCaseTypes — writer derivation", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "dob", label: "DOB", data_type: "text" }],
+					properties: [
+						{ name: "dob", label: proseText("DOB"), data_type: "text" },
+					],
 				},
 			],
 			fields: [

@@ -1,3 +1,4 @@
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { type CaseType, fieldKinds, opaqueXPathExpression } from "@/lib/domain";
@@ -16,10 +17,10 @@ import {
 const testCaseType: CaseType = {
 	name: "patient",
 	properties: [
-		{ name: "case_name", label: "Full Name" },
+		{ name: "case_name", label: proseText("Full Name") },
 		{
 			name: "age",
-			label: "Patient Age",
+			label: proseText("Patient Age"),
 			data_type: "int",
 			required: "true()",
 			validation: ". > 0 and . < 150",
@@ -27,18 +28,18 @@ const testCaseType: CaseType = {
 		},
 		{
 			name: "gender",
-			label: "Gender",
+			label: proseText("Gender"),
 			data_type: "single_select",
 			options: [
-				{ value: "male", label: "Male" },
-				{ value: "female", label: "Female" },
+				{ value: "male", label: proseText("Male") },
+				{ value: "female", label: proseText("Female") },
 			],
 		},
 		{
 			name: "phone",
-			label: "Phone Number",
+			label: proseText("Phone Number"),
 			data_type: "text",
-			hint: "Include country code",
+			hint: proseText("Include country code"),
 		},
 	],
 };
@@ -61,8 +62,8 @@ describe("applyDefaults", () => {
 					properties: [
 						{
 							name: "external-id",
-							label: "Enrollment number",
-							hint: "Printed on the card",
+							label: proseText("Enrollment number"),
+							hint: proseText("Printed on the card"),
 						},
 					],
 				},
@@ -79,7 +80,7 @@ describe("applyDefaults", () => {
 			{
 				id: "case_name",
 				kind: "text",
-				label: "Custom Label",
+				label: proseText("Custom Label"),
 				case_property_on: "patient",
 			},
 			[testCaseType],
@@ -147,7 +148,12 @@ describe("applyDefaults", () => {
 		// The single-add path doesn't run `stripEmpty`, so an explicit `""`
 		// must still be treated as unset here for single/batch parity.
 		const result = applyDefaults(
-			{ id: "case_name", kind: "text", label: "", case_property_on: "patient" },
+			{
+				id: "case_name",
+				kind: "text",
+				label: proseText(""),
+				case_property_on: "patient",
+			},
 			[testCaseType],
 		);
 		expect(result.label).toBe("Full Name");
@@ -170,7 +176,7 @@ describe("applyDefaults", () => {
 
 	it("returns field unchanged when no case_property_on", () => {
 		const result = applyDefaults(
-			{ id: "notes", kind: "text", label: "Notes" },
+			{ id: "notes", kind: "text", label: proseText("Notes") },
 			[testCaseType],
 		);
 		expect(result.label).toBe("Notes");
@@ -209,7 +215,7 @@ describe("applyDefaults", () => {
 	it("looks up the correct case type from array by case_property_on", () => {
 		const otherCaseType: CaseType = {
 			name: "household",
-			properties: [{ name: "case_name", label: "Household ID" }],
+			properties: [{ name: "case_name", label: proseText("Household ID") }],
 		};
 		const result = applyDefaults(
 			{ id: "case_name", kind: "text", case_property_on: "household" },

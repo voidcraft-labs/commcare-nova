@@ -30,7 +30,7 @@ import { PeerBadge } from "@/components/builder/PeerBadge";
 import { useCaseOperation } from "@/lib/doc/hooks/useCaseOperationFacts";
 import type { Uuid } from "@/lib/doc/types";
 import type { CaseOperation } from "@/lib/domain";
-import { fieldRegistry } from "@/lib/domain";
+import { fallbackProseProjection, fieldRegistry } from "@/lib/domain";
 import {
 	useLocation,
 	useNavigate,
@@ -57,7 +57,10 @@ export function useActiveInspector(): ActiveInspector | null {
 		// Title = the field's prompt, falling back to its id (the `hidden` kind
 		// carries no label). The header truncates, so a long markdown label shows
 		// raw rather than rendered — short labels are the norm.
-		const label = "label" in field ? field.label?.trim() : undefined;
+		const label =
+			"label" in field && field.label
+				? fallbackProseProjection(field.label).trim()
+				: undefined;
 		return {
 			kicker: fieldRegistry[field.kind].label,
 			title: label || field.id,

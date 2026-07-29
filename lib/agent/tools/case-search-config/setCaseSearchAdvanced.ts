@@ -18,18 +18,18 @@
 
 import { z } from "zod";
 import type { BlueprintDoc, CaseSearchConfig } from "@/lib/domain";
-import {
-	resolveModuleUuid,
-	updateModuleMutations,
-} from "../../blueprintHelpers";
+import { updateModuleMutations } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import {
 	guardedMutate,
 	type MutatingToolResult,
 	toToolErrorResult,
 } from "../common";
-import { moduleNotFoundResult } from "../shared/moduleNotFoundResult";
 import type { ToolCallSummary } from "../shared/toolCallSummary";
+import {
+	moduleAddressSchema,
+	resolveModuleAddress,
+} from "../shared/entityAddresses";
 import {
 	ADVANCED_SLOT_NAMES,
 	type AdvancedSlotName,
@@ -42,14 +42,7 @@ import {
 	snapshotCaseSearchConfig,
 } from "./shared";
 
-export const setCaseSearchAdvancedInputSchema = z
-	.object({
-		moduleIndex: z
-			.number()
-			.describe(
-				"0-based module index whose case-search advanced cluster to set",
-			),
-	})
+export const setCaseSearchAdvancedInputSchema = moduleAddressSchema
 	.extend(setCaseSearchAdvancedBodySchema.shape)
 	.strict();
 
@@ -82,22 +75,17 @@ export const setCaseSearchAdvancedTool = {
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<SetCaseSearchAdvancedResult>> {
-		const { moduleIndex } = input;
 		try {
-			const moduleUuid = resolveModuleUuid(doc, moduleIndex);
-			if (!moduleUuid)
-				return moduleNotFoundResult<SetCaseSearchAdvancedSuccess>(
-					doc,
-					moduleIndex,
-					"set the case-search advanced cluster",
-				);
-			const mod = doc.modules[moduleUuid];
-			if (!mod)
-				return moduleNotFoundResult<SetCaseSearchAdvancedSuccess>(
-					doc,
-					moduleIndex,
-					"set the case-search advanced cluster",
-				);
+			const address = resolveModuleAddress(doc, input);
+			if (!address.ok) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					newDoc: doc,
+					result: { error: address.error },
+				};
+			}
+			const { moduleUuid, module: mod } = address;
 
 			// Preserve the display cluster, layer the advanced patch on
 			// top. Both halves key off the same slot tuples; partition
@@ -128,7 +116,7 @@ export const setCaseSearchAdvancedTool = {
 				ctx,
 				doc,
 				mutations,
-				`module:${moduleIndex}:caseSearch:advanced`,
+				`module:${moduleUuid}:caseSearch:advanced`,
 			);
 			if (!commit.ok) {
 				return {
@@ -151,8 +139,8 @@ export const setCaseSearchAdvancedTool = {
 				result: {
 					message:
 						advancedSlotsSet.length === 0
-							? `Cleared every case-search advanced slot on module "${mod.name}" (index ${moduleIndex}).`
-							: `Set case-search advanced on module "${mod.name}" (index ${moduleIndex}): ${advancedSlotsSet.join(", ")}.`,
+							? `Cleared every case-search advanced slot on module "${mod.name}" (${moduleUuid}).`
+							: `Set case-search advanced on module "${mod.name}" (${moduleUuid}): ${advancedSlotsSet.join(", ")}.`,
 					advancedSlotsSet,
 					summary: { location: mod.name },
 				},

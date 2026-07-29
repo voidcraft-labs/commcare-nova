@@ -33,6 +33,7 @@
 // halves of the contract: no twin carry-over, and the fresh shape
 // the user actually sees after the reset.
 
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import type { CaseType } from "@/lib/domain";
 import {
@@ -54,14 +55,16 @@ import {
 
 const HOUSEHOLD: CaseType = {
 	name: "household",
-	properties: [{ name: "region", label: "Region", data_type: "text" }],
+	properties: [
+		{ name: "region", label: proseText("Region"), data_type: "text" },
+	],
 };
 const PATIENT: CaseType = {
 	name: "patient",
 	parent_type: "household",
 	properties: [
-		{ name: "age", label: "Age", data_type: "int" },
-		{ name: "name", label: "Name", data_type: "text" },
+		{ name: "age", label: proseText("Age"), data_type: "int" },
+		{ name: "name", label: proseText("Name"), data_type: "text" },
 	],
 };
 const CASE_TYPES: readonly CaseType[] = [HOUSEHOLD, PATIENT];

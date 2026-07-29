@@ -1,3 +1,4 @@
+import { proseText } from "@/lib/domain/prose";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { withUserSequences } from "@/lib/__tests__/docHelpers";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
@@ -137,10 +138,10 @@ function richDoc(): BlueprintDoc {
 			{
 				name: "patient",
 				properties: [
-					{ name: "case_name", label: "Name" },
-					{ name: "village", label: "Village" },
-					{ name: "dob", label: "Date of birth" },
-					{ name: "status", label: "Status" },
+					{ name: "case_name", label: proseText("Name") },
+					{ name: "village", label: proseText("Village") },
+					{ name: "dob", label: proseText("Date of birth") },
+					{ name: "status", label: proseText("Status") },
 				],
 			},
 		],
@@ -204,8 +205,8 @@ function _capWriterDoc(): BlueprintDoc {
 			{
 				name: "patient",
 				properties: [
-					{ name: "case_name", label: "Name" },
-					{ name: AT_CAP_ID, label: "At the cap" },
+					{ name: "case_name", label: proseText("Name") },
+					{ name: AT_CAP_ID, label: proseText("At the cap") },
 				],
 			},
 		],
@@ -690,7 +691,7 @@ const GUARD_COVERAGE = {
 				caseTypes: [
 					{
 						name: "patient",
-						properties: [{ name: "case_name", label: "Name" }],
+						properties: [{ name: "case_name", label: proseText("Name") }],
 					},
 				],
 				modules: [

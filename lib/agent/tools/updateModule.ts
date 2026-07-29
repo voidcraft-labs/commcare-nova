@@ -40,8 +40,12 @@ import { z } from "zod";
 import { columnAddMutation } from "@/lib/doc/caseListColumnMutations";
 import { planCaseTypeRetirementOnRetype } from "@/lib/doc/caseTypeRetirement";
 import { caseTypeCatalogMutations } from "@/lib/doc/scaffolds";
-import type { BlueprintDoc } from "@/lib/domain";
-import { resolveModuleUuid, updateModuleMutations } from "../blueprintHelpers";
+import {
+	asUuid,
+	type BlueprintDoc,
+	findAuthoredBlueprintIdentity,
+} from "@/lib/domain";
+import { updateModuleMutations } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import {
 	columnInputSchema,
@@ -57,10 +61,13 @@ import type {
 	MutationSuccess,
 	ToolCallSummary,
 } from "./shared/toolCallSummary";
+import {
+	moduleAddressSchema,
+	resolveModuleAddress,
+} from "./shared/entityAddresses";
 
-export const updateModuleInputSchema = z
-	.object({
-		moduleIndex: z.number().describe("0-based module index"),
+export const updateModuleInputSchema = moduleAddressSchema
+	.extend({
 		name: z
 			.string()
 			.min(1)
@@ -96,7 +103,12 @@ export const updateModuleTool = {
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<UpdateModuleResult>> {
-		const { moduleIndex, name, case_type, case_list_columns } = input;
+		const {
+			moduleUuid: rawModuleUuid,
+			name,
+			case_type,
+			case_list_columns,
+		} = input;
 		try {
 			if (name == null && case_type == null) {
 				return {
@@ -109,28 +121,18 @@ export const updateModuleTool = {
 					},
 				};
 			}
-			const moduleUuid = resolveModuleUuid(doc, moduleIndex);
-			if (!moduleUuid) {
+			const address = resolveModuleAddress(doc, {
+				moduleUuid: rawModuleUuid,
+			});
+			if (!address.ok) {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
 					newDoc: doc,
-					result: { error: `Module ${moduleIndex} not found` },
+					result: { error: address.error },
 				};
 			}
-			// Structural defense: `moduleOrder` and `modules` could in
-			// principle disagree under a partial Immer update, so the
-			// helper trusts a resolved `Module` value and the call site
-			// owns the lookup-and-check.
-			const mod = doc.modules[moduleUuid];
-			if (!mod) {
-				return {
-					kind: "mutate" as const,
-					mutations: [],
-					newDoc: doc,
-					result: { error: `Module ${moduleIndex} not found` },
-				};
-			}
+			const { moduleUuid, module: mod } = address;
 
 			/* Case-type retirement: a case-type change can leave the OLD type's
 			 * record with no owning module. When nothing else references the
@@ -161,8 +163,31 @@ export const updateModuleTool = {
 			const seedColumns =
 				case_list_columns != null &&
 				(mod.caseListConfig?.columns ?? []).length === 0
-					? case_list_columns.map((c) => stampColumnUuid(c, newUuid()))
+					? case_list_columns.map((column) =>
+							stampColumnUuid(
+								column,
+								column.columnUuid === undefined
+									? newUuid()
+									: asUuid(column.columnUuid),
+							),
+						)
 					: undefined;
+			const seedCollision = seedColumns?.find(
+				(column, index, all) =>
+					all.findIndex((candidate) => candidate.uuid === column.uuid) !==
+						index ||
+					findAuthoredBlueprintIdentity(doc, column.uuid) !== undefined,
+			);
+			if (seedCollision !== undefined) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					newDoc: doc,
+					result: {
+						error: `Column UUID ${seedCollision.uuid} is duplicated in this call or already belongs to an authored object.`,
+					},
+				};
+			}
 			/* ONE catalog write covers both retiring the orphaned OLD type and
 			 * declaring a brand-NEW one. A brand-new type MUST be cataloged or
 			 * the seeded `Name` column can't resolve (`CASE_LIST_COLUMN_UNKNOWN_FIELD`)
@@ -190,7 +215,7 @@ export const updateModuleTool = {
 				ctx,
 				doc,
 				mutations,
-				`module:${moduleIndex}`,
+				`module:${moduleUuid}`,
 			);
 			if (!commit.ok) {
 				return {
@@ -211,7 +236,7 @@ export const updateModuleTool = {
 					kind: "mutate" as const,
 					mutations,
 					newDoc,
-					result: { error: `Module ${moduleIndex} not found after update` },
+					result: { error: `Module ${moduleUuid} not found after update` },
 				};
 			}
 			return {
@@ -219,7 +244,7 @@ export const updateModuleTool = {
 				mutations,
 				newDoc,
 				result: {
-					message: `Successfully updated module "${newMod.name}" (index ${moduleIndex})${
+					message: `Successfully updated module "${newMod.name}" (UUID ${moduleUuid})${
 						case_type != null ? ` — case type: ${newMod.caseType}` : ""
 					}.`,
 					summary: { subject: newMod.name } satisfies ToolCallSummary,

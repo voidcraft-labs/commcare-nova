@@ -19,6 +19,7 @@
 // COMPLETENESS states the editor leaves for the author to fill: an empty
 // property name and an empty `match` value. Pure — no React, no DOM.
 
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import {
 	type CaseProperty,
@@ -75,13 +76,17 @@ import {
 
 /** One property per data type — a subject of any type is constructible. */
 function propOf(dt: CasePropertyDataType): CaseProperty {
-	const base: CaseProperty = { name: `p_${dt}`, label: dt, data_type: dt };
+	const base: CaseProperty = {
+		name: `p_${dt}`,
+		label: proseText(dt),
+		data_type: dt,
+	};
 	if (dt === "single_select" || dt === "multi_select") {
 		return {
 			...base,
 			options: [
-				{ value: "a", label: "A" },
-				{ value: "b", label: "B" },
+				{ value: "a", label: proseText("A") },
+				{ value: "b", label: proseText("B") },
 			],
 		};
 	}
@@ -232,19 +237,21 @@ describe("valid by construction — every admitted verb build type-checks", () =
 		const origin: CaseType = {
 			name: "child",
 			parent_type: "parent",
-			properties: [{ name: "rank", label: "Rank", data_type: "int" }],
+			properties: [
+				{ name: "rank", label: proseText("Rank"), data_type: "int" },
+			],
 		};
 		const destination: CaseType = {
 			name: "parent",
 			properties: [
-				{ name: "name", label: "Name", data_type: "text" },
+				{ name: "name", label: proseText("Name"), data_type: "text" },
 				{
 					name: "tags",
-					label: "Tags",
+					label: proseText("Tags"),
 					data_type: "multi_select",
-					options: [{ value: "a", label: "A" }],
+					options: [{ value: "a", label: proseText("A") }],
 				},
-				{ name: "place", label: "Place", data_type: "geopoint" },
+				{ name: "place", label: proseText("Place"), data_type: "geopoint" },
 			],
 		};
 		const editCtx: PredicateEditContext = {

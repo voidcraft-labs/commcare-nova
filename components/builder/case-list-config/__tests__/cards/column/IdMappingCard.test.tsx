@@ -19,6 +19,7 @@
 // Each operation routes through `idMappingColumn(...)` so the
 // emitted Column always parses through `columnSchema`.
 
+import { proseText } from "@/lib/domain/prose";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
@@ -40,11 +41,11 @@ const PATIENT: CaseType = {
 	properties: [
 		{
 			name: "status",
-			label: "Status",
+			label: proseText("Status"),
 			data_type: "single_select",
 			options: [
-				{ value: "active", label: "Active" },
-				{ value: "inactive", label: "Inactive" },
+				{ value: "active", label: proseText("Active") },
+				{ value: "inactive", label: proseText("Inactive") },
 			],
 		},
 	],

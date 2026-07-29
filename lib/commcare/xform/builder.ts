@@ -65,7 +65,6 @@ import {
 	emitCaseListFilter,
 	instanceSourceFor,
 } from "@/lib/commcare/predicate";
-import { BARE_HASHTAG_PATTERN } from "@/lib/commcare/proseHashtags";
 import {
 	UPLOAD_APPEARANCE_BY_CAPTURE_KIND,
 	UPLOAD_MEDIATYPE_BY_CAPTURE_KIND,
@@ -86,6 +85,8 @@ import {
 	type FieldKind,
 	isCaptureFieldKind,
 	type Media,
+	printProseTemplate,
+	type ProseTemplate,
 	type SelectOption,
 	type Uuid,
 	userPropertySlugsByUuid,
@@ -103,8 +104,6 @@ import { isMatchAll, simplifyForEmission } from "@/lib/domain/predicate";
  * unreachable namespace folds back into literal text rather than shipping a
  * broken reference.
  */
-const BARE_HASHTAG_RE = new RegExp(BARE_HASHTAG_PATTERN, "g");
-
 /**
  * Build the ordered itext-value node list for one label / hint string, letting
  * `dom-serializer` (at final assembly) own ALL escaping.
@@ -149,52 +148,30 @@ const BARE_HASHTAG_RE = new RegExp(BARE_HASHTAG_PATTERN, "g");
  * `#`, so the structural XPath parser is the wrong tool for prose scanning here.
  */
 function buildLabelNodes(
-	label: string,
+	template: ProseTemplate,
+	doc: BlueprintDoc,
 	expand: (expr: string) => string,
 	shorthand: (expr: string) => string | undefined,
 ): ChildNode[] {
 	const nodes: ChildNode[] = [];
-	// `BARE_HASHTAG_RE` is a module-level /g regex; reset `lastIndex` so a
-	// prior call's state never leaks into this walk.
-	BARE_HASHTAG_RE.lastIndex = 0;
-	let cursor = 0;
-	let match: RegExpExecArray | null = BARE_HASHTAG_RE.exec(label);
-	while (match !== null) {
-		const original = match[0];
+	for (const part of template.parts) {
+		if (part.kind === "text") {
+			nodes.push(text(decodeXML(part.text)));
+			continue;
+		}
+		const original = printProseTemplate({ parts: [part] }, doc);
 		const expanded = expand(original);
-		// Lower to `<output>` ONLY when the ref actually RESOLVED (expansion
-		// changed the string) — i.e. a `#form/` / `#user/` / reachable-case-type
-		// ref. The broad regex also matches innocent prose tokens (`#N/A`,
-		// `#priority/high`, a child-case-type write target absent from
-		// `caseTypeDepths`); for those `expand` returns the ref verbatim, and a
-		// verbatim `<output value="#N/A">` is broken XPath on the device. Leaving
-		// the cursor unmoved folds the unresolved token back into the surrounding
-		// prose run as literal escaped text — its pre-broadening behavior.
-		// (Flagging an unreachable per-type prose ref at authoring time is a
-		// separate validator job, not this emitter's.)
 		if (expanded !== original) {
-			// Prose before this hashtag → a Text node (decoded so the serializer
-			// escapes exactly once).
-			if (match.index > cursor) {
-				nodes.push(text(decodeXML(label.slice(cursor, match.index))));
-			}
-			// `value` is the expanded XPath; `vellum:value` shadows the ref in the
-			// EDITOR's vocabulary (`#patient/x` → `#case/x`) so HQ's form designer
-			// round-trips it (`Vellum/src/richText.js::extractXPathInfo` prefers
-			// `vellum:value`). A ref with no editor spelling gets no shadow — the
-			// expanded XPath alone round-trips as a plain expression.
 			const outputAttribs: Record<string, string> = { value: expanded };
 			const editorRef = shorthand(original);
 			if (editorRef !== undefined) outputAttribs["vellum:value"] = editorRef;
 			nodes.push(el("output", outputAttribs));
-			cursor = match.index + original.length;
+		} else {
+			// Corrupt/dangling identities are rejected by the validation gate.
+			// Keep the emitter total for diagnostics by rendering their projection
+			// as inert text instead of emitting invalid XPath.
+			nodes.push(text(decodeXML(original)));
 		}
-		match = BARE_HASHTAG_RE.exec(label);
-	}
-	// Trailing prose after the last hashtag (or the whole string when there
-	// were no hashtags at all).
-	if (cursor < label.length) {
-		nodes.push(text(decodeXML(label.slice(cursor))));
 	}
 	return nodes;
 }
@@ -254,11 +231,17 @@ class InstanceTracker {
 		}
 	}
 
-	/** Scan label / hint prose for a `#case/`, `#user/`, or per-case-type
-	 *  hashtag reference (all resolve to a casedb walk). */
-	scanLabel(label: string): void {
-		if (/#(case|user)\//.test(label) || this.referencesCaseType(label)) {
-			this.require("casedb");
+	/** Scan typed prose references for the secondary instances they read. */
+	scanTemplate(template: ProseTemplate): void {
+		for (const part of template.parts) {
+			if (
+				part.kind === "case-ref" ||
+				part.kind === "user-ref" ||
+				part.kind === "user-property-ref"
+			) {
+				this.require("casedb");
+				return;
+			}
 		}
 	}
 
@@ -563,7 +546,7 @@ export function buildXForm(
 	// dangling reference.
 	const addItext = (
 		id: string,
-		label: string | undefined,
+		label: ProseTemplate | undefined,
 		media?: Media,
 		force = false,
 	): void => {
@@ -574,17 +557,22 @@ export function buildXForm(
 		// declaration can never drift from the set of prose that actually gets
 		// lowered: a `#<case_type>/<prop>` in a `validate_msg` or option label
 		// forces the `casedb` `<instance>` exactly as one in a `label` does.
-		if (label) instances.scanLabel(label);
+		if (label) instances.scanTemplate(label);
 		const mediaValues = itextMediaValues(media, opts.assets, "buildXForm");
-		if (!force && !label && mediaValues.length === 0) return;
-		const labelText = label ?? "";
+		if (
+			!force &&
+			(label === undefined || label.parts.length === 0) &&
+			mediaValues.length === 0
+		)
+			return;
+		const labelTemplate = label ?? { parts: [] };
 		itextEntries.push(
 			el("text", { id }, [
-				el("value", {}, buildLabelNodes(labelText, expand, shorthand)),
+				el("value", {}, buildLabelNodes(labelTemplate, doc, expand, shorthand)),
 				el(
 					"value",
 					{ form: "markdown" },
-					buildLabelNodes(labelText, expand, shorthand),
+					buildLabelNodes(labelTemplate, doc, expand, shorthand),
 				),
 				...mediaValues,
 			]),
@@ -734,7 +722,7 @@ export function buildXForm(
  */
 function readOptions(
 	field: Field,
-): Array<{ value: string; label: string; media?: Media }> | undefined {
+): Array<{ value: string; label: ProseTemplate; media?: Media }> | undefined {
 	const value = (field as unknown as Record<string, unknown>).options;
 	if (!Array.isArray(value)) return undefined;
 	// Return options in DISPLAY (`sort-by-(order, uuid)`) order. Sorting HERE,
@@ -773,11 +761,11 @@ function readFieldMedia(field: Field, key: string): Media | undefined {
  * site, not silently here.
  */
 function hasItextContent(
-	text: string | undefined,
+	text: ProseTemplate | undefined,
 	media: Media | undefined,
 	assets: AssetManifest | undefined,
 ): boolean {
-	if (text) return true;
+	if (text && text.parts.length > 0) return true;
 	if (!media || !assets) return false;
 	return !!(media.image || media.audio || media.video);
 }
@@ -840,7 +828,7 @@ function buildFieldParts(
 	insideRepeat: boolean,
 	addItext: (
 		id: string,
-		label: string | undefined,
+		label: ProseTemplate | undefined,
 		media?: Media,
 		force?: boolean,
 	) => void,
@@ -871,13 +859,14 @@ function buildFieldParts(
 
 	const relevant = readFieldString(field, "relevant", doc);
 	const validate = readFieldString(field, "validate", doc);
-	const validateMsg = readFieldString(field, "validate_msg", doc);
 	const calculate = readFieldString(field, "calculate", doc);
 	const defaultValue = readFieldString(field, "default_value", doc);
 	const required = readFieldString(field, "required", doc);
-	const label = readFieldString(field, "label", doc);
-	const hint = readFieldString(field, "hint", doc);
-	const help = readFieldString(field, "help", doc);
+	const carrier = field as unknown as Record<string, unknown>;
+	const label = carrier.label as ProseTemplate | undefined;
+	const hint = carrier.hint as ProseTemplate | undefined;
+	const help = carrier.help as ProseTemplate | undefined;
+	const validateMsg = carrier.validate_msg as ProseTemplate | undefined;
 
 	// Per-message media slots. Each registers `<value form="...">` siblings
 	// on its itext entry (via `addItext`), and `hint`/`help` body refs emit
@@ -1310,7 +1299,7 @@ function buildContainer(
 	fieldUuid: Uuid,
 	nodePath: FormPath,
 	itextKey: string,
-	label: string | undefined,
+	label: ProseTemplate | undefined,
 	labelMedia: Media | undefined,
 	relevant: string | undefined,
 	insideRepeat: boolean,
@@ -1322,7 +1311,7 @@ function buildContainer(
 	bodyElements: Element[],
 	addItext: (
 		id: string,
-		label: string | undefined,
+		label: ProseTemplate | undefined,
 		media?: Media,
 		force?: boolean,
 	) => void,

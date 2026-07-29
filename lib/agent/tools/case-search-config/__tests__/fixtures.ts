@@ -11,6 +11,7 @@
  * same mutation batch on both surfaces.
  */
 
+import { proseText } from "@/lib/domain/prose";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import type { BlueprintDoc, Module } from "@/lib/domain";
@@ -64,8 +65,8 @@ export function makeCaseSearchDoc(): BlueprintDoc {
 			{
 				name: "patient",
 				properties: [
-					{ name: "case_name", label: "Full name" },
-					{ name: "status", label: "Status" },
+					{ name: "case_name", label: proseText("Full name") },
+					{ name: "status", label: proseText("Status") },
 				],
 			},
 		],

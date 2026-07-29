@@ -7,6 +7,7 @@
 // rejected instead of inventing ambiguous pairwise semantics. An empty relation
 // makes every quantified leaf false (including `!=`).
 
+import { proseText } from "@/lib/domain/prose";
 import { describe } from "vitest";
 import type { CaseType } from "@/lib/domain";
 import {
@@ -44,18 +45,20 @@ const EMPTY_HOUSEHOLD_ID = "71000000-0000-0000-0000-000000000005";
 
 const HOUSEHOLD_SCHEMA: CaseType = {
 	name: "household",
-	properties: [{ name: "region", label: "Region", data_type: "text" }],
+	properties: [
+		{ name: "region", label: proseText("Region"), data_type: "text" },
+	],
 };
 
 const PATIENT_SCHEMA: CaseType = {
 	name: "patient",
 	parent_type: "household",
 	properties: [
-		{ name: "nickname", label: "Nickname", data_type: "text" },
-		{ name: "alias", label: "Alias", data_type: "text" },
-		{ name: "age", label: "Age", data_type: "int" },
-		{ name: "tags", label: "Tags", data_type: "multi_select" },
-		{ name: "location", label: "Location", data_type: "geopoint" },
+		{ name: "nickname", label: proseText("Nickname"), data_type: "text" },
+		{ name: "alias", label: proseText("Alias"), data_type: "text" },
+		{ name: "age", label: proseText("Age"), data_type: "int" },
+		{ name: "tags", label: proseText("Tags"), data_type: "multi_select" },
+		{ name: "location", label: proseText("Location"), data_type: "geopoint" },
 	],
 };
 

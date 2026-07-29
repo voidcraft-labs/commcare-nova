@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { proseText } from "@/lib/domain/prose";
 import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
@@ -212,7 +213,7 @@ describe("useOrderedFields", () => {
 					kind: "updateField",
 					uuid: testUuid("q-222-0000-0000-0000-000000000000"),
 					targetKind: "text",
-					patch: { label: "Changed" },
+					patch: { label: proseText("Changed") },
 				},
 			]);
 		});

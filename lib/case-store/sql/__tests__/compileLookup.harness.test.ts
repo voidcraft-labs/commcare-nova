@@ -14,6 +14,7 @@
 // type, present in the harness because one Migrator owns every table.
 // `lookup_rows` rides the typed handle (the compiler's read view).
 
+import { proseText } from "@/lib/domain/prose";
 import { sql } from "kysely";
 import { describe } from "vitest";
 import type { CaseType } from "@/lib/domain";
@@ -52,7 +53,7 @@ const OTHER_COL = "01920000-0000-7000-8000-0000000000d1" as LookupColumnId;
 const PATIENT_SCHEMA: CaseType = {
 	name: "patient",
 	properties: [
-		{ name: "region_code", label: "Region code", data_type: "text" },
+		{ name: "region_code", label: proseText("Region code"), data_type: "text" },
 	],
 };
 

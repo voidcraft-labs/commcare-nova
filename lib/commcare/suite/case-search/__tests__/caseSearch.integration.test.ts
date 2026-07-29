@@ -1,3 +1,4 @@
+import { proseText } from "@/lib/domain/prose";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
@@ -215,9 +216,9 @@ function buildSearchBlueprint(): BlueprintDoc {
 			{
 				name: "patient",
 				properties: [
-					{ name: "case_name", label: "Name", data_type: "text" },
-					{ name: "region", label: "Region", data_type: "text" },
-					{ name: "status", label: "Status", data_type: "text" },
+					{ name: "case_name", label: proseText("Name"), data_type: "text" },
+					{ name: "region", label: proseText("Region"), data_type: "text" },
+					{ name: "status", label: proseText("Status"), data_type: "text" },
 				],
 			},
 		],

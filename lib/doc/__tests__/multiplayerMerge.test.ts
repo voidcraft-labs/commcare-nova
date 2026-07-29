@@ -1,3 +1,4 @@
+import { proseText } from "@/lib/domain/prose";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { backfillOptionUuids } from "@/lib/doc/optionIdentity";
@@ -220,14 +221,14 @@ describe("granular catalog merges", () => {
 			{
 				kind: "addCaseProperty",
 				caseType: "patient",
-				property: { name: "age", label: "Age" },
+				property: { name: "age", label: proseText("Age") },
 			},
 		];
 		const batchB: Mutation[] = [
 			{
 				kind: "addCaseProperty",
 				caseType: "patient",
-				property: { name: "village", label: "Village" },
+				property: { name: "village", label: proseText("Village") },
 			},
 		];
 		const merged = apply(doc, batchA, batchB);
@@ -359,8 +360,8 @@ describe("disjoint collection edits merge", () => {
 					{
 						name: "patient",
 						properties: [
-							{ name: "case_name", label: "Name" },
-							{ name: "age", label: "Age" },
+							{ name: "case_name", label: proseText("Name") },
+							{ name: "age", label: proseText("Age") },
 						],
 					},
 				],
@@ -799,8 +800,8 @@ describe("disjoint collection edits merge", () => {
 					{
 						name: "patient",
 						properties: [
-							{ name: "case_name", label: "Name" },
-							{ name: "external_id", label: "External ID" },
+							{ name: "case_name", label: proseText("Name") },
+							{ name: "external_id", label: proseText("External ID") },
 						],
 					},
 				],
@@ -899,7 +900,7 @@ describe("disjoint collection edits merge", () => {
 				kind: "updateOption",
 				fieldUuid: field.uuid,
 				uuid: optR,
-				option: { uuid: optR, value: "r", label: "Crimson" },
+				option: { uuid: optR, value: "r", label: proseText("Crimson") },
 			},
 		];
 		const batchB: Mutation[] = [
@@ -907,7 +908,7 @@ describe("disjoint collection edits merge", () => {
 				kind: "updateOption",
 				fieldUuid: field.uuid,
 				uuid: optG,
-				option: { uuid: optG, value: "g", label: "Emerald" },
+				option: { uuid: optG, value: "g", label: proseText("Emerald") },
 			},
 		];
 		const merged = apply(doc, batchA, batchB);
@@ -983,7 +984,7 @@ describe("setCaseListMeta on a peer-removed config", () => {
 				caseTypes: [
 					{
 						name: "patient",
-						properties: [{ name: "case_name", label: "Name" }],
+						properties: [{ name: "case_name", label: proseText("Name") }],
 					},
 				],
 				modules: [
@@ -1194,11 +1195,11 @@ describe("diff — case-list presence transition", () => {
 				caseTypes: [
 					{
 						name: "patient",
-						properties: [{ name: "case_name", label: "Name" }],
+						properties: [{ name: "case_name", label: proseText("Name") }],
 					},
 					{
 						name: "visit",
-						properties: [{ name: "case_name", label: "Name" }],
+						properties: [{ name: "case_name", label: proseText("Name") }],
 					},
 				],
 				modules: [
@@ -1340,7 +1341,7 @@ describe("every case_property_on surface declares the type", () => {
 				caseTypes: [
 					{
 						name: "patient",
-						properties: [{ name: "case_name", label: "Name" }],
+						properties: [{ name: "case_name", label: proseText("Name") }],
 					},
 				],
 				modules: [
@@ -1412,7 +1413,10 @@ describe("diff round-trip — granular edits", () => {
 		const prev = backfilled(
 			buildDoc({
 				caseTypes: [
-					{ name: "patient", properties: [{ name: "age", label: "Age" }] },
+					{
+						name: "patient",
+						properties: [{ name: "age", label: proseText("Age") }],
+					},
 				],
 				modules: [
 					{
@@ -1500,7 +1504,7 @@ describe("case-search marker merges", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "case_name", label: "Name" }],
+					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 			],
 			modules: [
@@ -2196,7 +2200,7 @@ describe("Search-input rename merges", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "case_name", label: "Name" }],
+					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 			],
 			modules: [

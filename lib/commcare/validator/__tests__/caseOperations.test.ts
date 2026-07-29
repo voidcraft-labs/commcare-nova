@@ -1,3 +1,4 @@
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
@@ -84,31 +85,35 @@ function fixture(
 			{
 				name: "patient",
 				properties: [
-					{ name: "nickname", label: "Nickname", data_type: "text" },
-					{ name: "score", label: "Score", data_type: "int" },
-					{ name: "weight", label: "Weight", data_type: "decimal" },
-					{ name: "tags", label: "Tags", data_type: "multi_select" },
-					{ name: "mixed", label: "Mixed" },
-					{ name: "not-wire-safe", label: "Not wire safe" },
+					{ name: "nickname", label: proseText("Nickname"), data_type: "text" },
+					{ name: "score", label: proseText("Score"), data_type: "int" },
+					{ name: "weight", label: proseText("Weight"), data_type: "decimal" },
+					{ name: "tags", label: proseText("Tags"), data_type: "multi_select" },
+					{ name: "mixed", label: proseText("Mixed") },
+					{ name: "not-wire-safe", label: proseText("Not wire safe") },
 					...reservedProperties.map((name) => ({ name, label: name })),
 				],
 			},
 			{
 				name: "visit",
-				properties: [{ name: "source_id", label: "Source ID" }],
+				properties: [{ name: "source_id", label: proseText("Source ID") }],
 			},
 			{
 				name: "lead",
-				properties: [{ name: "legacy", label: "Legacy" }],
+				properties: [{ name: "legacy", label: proseText("Legacy") }],
 			},
 			{
 				name: "lead_copy",
-				properties: [{ name: "legacy", label: "Legacy" }],
+				properties: [{ name: "legacy", label: proseText("Legacy") }],
 			},
 			{
 				name: "client",
 				properties: [
-					{ name: "enrolled", label: "Enrolled", required: "true()" },
+					{
+						name: "enrolled",
+						label: proseText("Enrolled"),
+						required: "true()",
+					},
 				],
 			},
 			{ name: "commcare-user", properties: [] },

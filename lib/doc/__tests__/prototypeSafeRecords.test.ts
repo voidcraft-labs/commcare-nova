@@ -1,3 +1,4 @@
+import { proseText } from "@/lib/domain/prose";
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -60,7 +61,7 @@ function textField(uuid: string, id = uuid): Field {
 		uuid: testUuid(uuid),
 		kind: "text",
 		id,
-		label: id,
+		label: proseText(id),
 	};
 }
 

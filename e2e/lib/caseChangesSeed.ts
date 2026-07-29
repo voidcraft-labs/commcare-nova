@@ -23,6 +23,7 @@
  * that: every row fits on one screen and traversal never has to carry anyone.
  */
 
+import { proseText } from "@/lib/domain/prose";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import {
 	asUuid,
@@ -177,7 +178,7 @@ export function buildCaseChangesBlueprint(
 				properties: [
 					{
 						name: "last_note",
-						label: "Last note",
+						label: proseText("Last note"),
 						data_type: "text",
 					},
 					// A write names a declared property or the app is invalid
@@ -200,7 +201,7 @@ export function buildCaseChangesBlueprint(
 				properties: [
 					{
 						name: "source_note",
-						label: "Source note",
+						label: proseText("Source note"),
 						data_type: "text",
 					},
 				],

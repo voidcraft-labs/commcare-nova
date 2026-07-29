@@ -48,6 +48,7 @@
 // optional `via` shape, etc.) are enforced at parse time rather
 // than at compile time.
 
+import { proseText } from "@/lib/domain/prose";
 import {
 	type CompiledQuery,
 	DummyDriver,
@@ -108,17 +109,17 @@ const PATIENT_SCHEMA: CaseType = {
 	name: "patient",
 	parent_type: "household",
 	properties: [
-		{ name: "nickname", label: "Nickname", data_type: "text" },
-		{ name: "age", label: "Age", data_type: "int" },
-		{ name: "bmi", label: "BMI", data_type: "decimal" },
-		{ name: "dob", label: "DOB", data_type: "date" },
-		{ name: "appointment_at", label: "When", data_type: "time" },
-		{ name: "registered_at", label: "When", data_type: "datetime" },
-		{ name: "color", label: "Color", data_type: "single_select" },
-		{ name: "tags", label: "Tags", data_type: "multi_select" },
-		{ name: "loc", label: "Location", data_type: "geopoint" },
+		{ name: "nickname", label: proseText("Nickname"), data_type: "text" },
+		{ name: "age", label: proseText("Age"), data_type: "int" },
+		{ name: "bmi", label: proseText("BMI"), data_type: "decimal" },
+		{ name: "dob", label: proseText("DOB"), data_type: "date" },
+		{ name: "appointment_at", label: proseText("When"), data_type: "time" },
+		{ name: "registered_at", label: proseText("When"), data_type: "datetime" },
+		{ name: "color", label: proseText("Color"), data_type: "single_select" },
+		{ name: "tags", label: proseText("Tags"), data_type: "multi_select" },
+		{ name: "loc", label: proseText("Location"), data_type: "geopoint" },
 		// Property without an explicit data_type — defaults to text.
-		{ name: "untyped", label: "Untyped" },
+		{ name: "untyped", label: proseText("Untyped") },
 	],
 };
 
@@ -127,7 +128,7 @@ const PATIENT_SCHEMA: CaseType = {
 // joined-leaf read picks up the property's declared type.
 const HOUSEHOLD_SCHEMA: CaseType = {
 	name: "household",
-	properties: [{ name: "size", label: "Size", data_type: "int" }],
+	properties: [{ name: "size", label: proseText("Size"), data_type: "int" }],
 };
 
 const CASE_TYPE_SCHEMAS = new Map<string, CaseType>([
@@ -277,7 +278,7 @@ describe("compileTerm — prop (self via) reserved scalar columns", () => {
 			properties: [
 				// Property literally named `status` — the SQL
 				// reads from `c.status`, not from the JSONB document.
-				{ name: "status", label: "Status", data_type: "text" },
+				{ name: "status", label: proseText("Status"), data_type: "text" },
 			],
 		};
 		const ctx = makeCtx({

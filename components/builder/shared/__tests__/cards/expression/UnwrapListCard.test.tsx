@@ -6,6 +6,7 @@
 // text-shaped source is still a normal ValueExpression. The card preserves
 // the outer expression and mounts the real recursive source editor.
 
+import { proseText } from "@/lib/domain/prose";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { CaseType } from "@/lib/domain";
@@ -15,8 +16,12 @@ import { ExpressionCardEditor } from "../../../ExpressionCardEditor";
 const PATIENT: CaseType = {
 	name: "patient",
 	properties: [
-		{ name: "tags_json", label: "Tags JSON", data_type: "text" },
-		{ name: "choices_json", label: "Choices JSON", data_type: "text" },
+		{ name: "tags_json", label: proseText("Tags JSON"), data_type: "text" },
+		{
+			name: "choices_json",
+			label: proseText("Choices JSON"),
+			data_type: "text",
+		},
 	],
 };
 

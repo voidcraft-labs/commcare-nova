@@ -4,6 +4,7 @@
 // worker-facing words, never AST jargon; vacuous predicates summarize
 // to nothing; exotic shapes degrade to honest generic phrases.
 
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import type { CaseType } from "@/lib/domain";
 import {
@@ -114,8 +115,12 @@ describe("summarizeFilter", () => {
 			{
 				name: "patient",
 				properties: [
-					{ name: "case_name", label: "case_name", data_type: "text" },
-					{ name: "name", label: "name", data_type: "text" },
+					{
+						name: "case_name",
+						label: proseText("case_name"),
+						data_type: "text",
+					},
+					{ name: "name", label: proseText("name"), data_type: "text" },
 				],
 			},
 		];
@@ -136,13 +141,19 @@ describe("summarizeFilter", () => {
 			{
 				name: "household",
 				properties: [
-					{ name: "status", label: "Household status", data_type: "text" },
+					{
+						name: "status",
+						label: proseText("Household status"),
+						data_type: "text",
+					},
 				],
 			},
 			{
 				name: "patient",
 				parent_type: "household",
-				properties: [{ name: "dob", label: "Birth date", data_type: "date" }],
+				properties: [
+					{ name: "dob", label: proseText("Birth date"), data_type: "date" },
+				],
 			},
 		];
 		const context = {
@@ -179,20 +190,20 @@ describe("summarizeFilter", () => {
 				properties: [
 					{
 						name: "status",
-						label: "Client status",
+						label: proseText("Client status"),
 						data_type: "single_select",
 						options: [
-							{ value: "active_client", label: "Active" },
-							{ value: "follow_up", label: "Needs follow-up" },
+							{ value: "active_client", label: proseText("Active") },
+							{ value: "follow_up", label: proseText("Needs follow-up") },
 						],
 					},
 					{
 						name: "services",
-						label: "Services",
+						label: proseText("Services"),
 						data_type: "multi_select",
 						options: [
-							{ value: "maternal_care", label: "Maternal care" },
-							{ value: "nutrition", label: "Nutrition" },
+							{ value: "maternal_care", label: proseText("Maternal care") },
+							{ value: "nutrition", label: proseText("Nutrition") },
 						],
 					},
 				],
@@ -236,12 +247,12 @@ describe("summarizeFilter", () => {
 					properties: [
 						{
 							name: "status",
-							label: "Client status",
+							label: proseText("Client status"),
 							data_type: "single_select" as const,
 							options: [
-								{ value: "open_a", label: "Open" },
-								{ value: "open_b", label: "Open" },
-								{ value: "closed", label: "Closed" },
+								{ value: "open_a", label: proseText("Open") },
+								{ value: "open_b", label: proseText("Open") },
+								{ value: "closed", label: proseText("Closed") },
 							],
 						},
 					],
@@ -269,16 +280,20 @@ describe("summarizeFilter", () => {
 				properties: [
 					{
 						name: "status",
-						label: "Household status",
+						label: proseText("Household status"),
 						data_type: "single_select",
-						options: [{ value: "active_household", label: "Active" }],
+						options: [
+							{ value: "active_household", label: proseText("Active") },
+						],
 					},
 				],
 			},
 			{
 				name: "patient",
 				parent_type: "household",
-				properties: [{ name: "note", label: "Case note", data_type: "text" }],
+				properties: [
+					{ name: "note", label: proseText("Case note"), data_type: "text" },
+				],
 			},
 		];
 		const context = { caseTypes, currentCaseType: "patient" };

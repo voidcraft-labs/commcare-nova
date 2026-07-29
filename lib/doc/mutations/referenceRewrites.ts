@@ -26,7 +26,8 @@ import {
 	MODULE_REFERENCE_SLOTS,
 	readSlotValues,
 	renameCasePropertyInXPath,
-	rewriteSlotStrings,
+	renameCasePropertyInProse,
+	type ProseTemplate,
 	type XPathCasePropertyRename,
 } from "@/lib/domain";
 import {
@@ -37,7 +38,6 @@ import {
 	renameSearchInputInExpression,
 	renameSearchInputInPredicate,
 } from "@/lib/domain/predicate";
-import { transformBareHashtags } from "@/lib/preview/engine/labelRefs";
 
 /**
  * What one field-slot rewrite pass carries:
@@ -96,9 +96,15 @@ export function rewriteFieldReferenceSlots(
 				break;
 			}
 			case "prose":
-				changed += rewriteSlotStrings(field, slot.path, (text) =>
-					transformBareHashtags(text, ops.xpath),
-				);
+				if (ops.caseLeafRename === undefined) break;
+				for (const entry of readSlotValues(field, slot.path)) {
+					changed += renameCasePropertyInProse(
+						entry.value as ProseTemplate,
+						ops.caseLeafRename.rename.caseType,
+						ops.caseLeafRename.rename.oldName,
+						ops.caseLeafRename.rename.newName,
+					);
+				}
 				break;
 			case "case-type-ref":
 				// Names a case TYPE (`case_property_on`) — field renames and

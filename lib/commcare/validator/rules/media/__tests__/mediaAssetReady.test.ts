@@ -1,3 +1,4 @@
+import { proseText } from "@/lib/domain/prose";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * Tests for `mediaAssetReady` — every referenced asset is in
@@ -21,7 +22,10 @@ function docWithOptionMedia(assetId: string) {
 	return buildDoc({
 		appName: "T",
 		caseTypes: [
-			{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+			{
+				name: "patient",
+				properties: [{ name: "case_name", label: proseText("Name") }],
+			},
 		],
 		modules: [
 			{

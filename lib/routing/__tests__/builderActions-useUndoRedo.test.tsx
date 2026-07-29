@@ -7,6 +7,7 @@
  * DOM state.
  */
 
+import { proseText } from "@/lib/domain/prose";
 import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -224,7 +225,7 @@ describe("useUndoRedo", () => {
 					kind: "updateField",
 					uuid: testUuid("q-a-0000-0000-0000-000000000000"),
 					targetKind: "text",
-					patch: { label: "Renamed" },
+					patch: { label: proseText("Renamed") },
 				},
 			]);
 		});
@@ -254,7 +255,7 @@ describe("useUndoRedo", () => {
 					kind: "updateField",
 					uuid: testUuid("q-a-0000-0000-0000-000000000000"),
 					targetKind: "text",
-					patch: { label: "Renamed" },
+					patch: { label: proseText("Renamed") },
 				},
 			]);
 		});
@@ -291,7 +292,7 @@ describe("useUndoRedo", () => {
 					kind: "updateField",
 					uuid: testUuid("q-a-0000-0000-0000-000000000000"),
 					targetKind: "text",
-					patch: { label: "Renamed" },
+					patch: { label: proseText("Renamed") },
 				},
 			]);
 		});

@@ -56,6 +56,7 @@ import {
 	fieldReferenceSlotsFor,
 	isXPathExpression,
 	MODULE_REFERENCE_SLOTS,
+	type ProseTemplate,
 	readSlotStrings,
 	readSlotValues,
 	xpathRefParts,
@@ -72,7 +73,6 @@ import {
 	walkPredicateNodes,
 	walkTerms,
 } from "@/lib/domain/predicate";
-import { transformBareHashtags } from "@/lib/preview/engine/labelRefs";
 
 // ── Outcome shape ───────────────────────────────────────────────────────
 
@@ -505,8 +505,8 @@ function collectFieldReferences(
 				break;
 			}
 			case "prose": {
-				for (const entry of readSlotStrings(field, slot.path)) {
-					if (proseNamesCaseType(entry.text, caseType)) {
+				for (const entry of readSlotValues(field, slot.path)) {
+					if (proseNamesCaseType(entry.value as ProseTemplate, caseType)) {
 						out.push({
 							verbose: `field "${field.id}" in ${where} references #${caseType}/… in its "${slot.slot}" text`,
 							concise: `field "${field.id}" in ${where} mentions it in its ${slotLabel(slot.slot)} text`,
@@ -877,16 +877,15 @@ function expressionRefsCaseType(
 	return found;
 }
 
-/** Whether prose text embeds a bare `#<caseType>/…` hashtag — located by
- *  the shared bare-hashtag matcher (prose is not XPath). */
-function proseNamesCaseType(text: string, caseType: string): boolean {
-	let found = false;
-	transformBareHashtags(text, (hashtag) => {
-		const slashIdx = hashtag.indexOf("/");
-		if (slashIdx > 1 && hashtag.slice(1, slashIdx) === caseType) {
-			found = true;
-		}
-		return hashtag;
-	});
-	return found;
+/** Whether a canonical prose template names a case type. Literal text is inert. */
+function proseNamesCaseType(
+	template: ProseTemplate,
+	caseType: string,
+): boolean {
+	return (
+		Array.isArray(template?.parts) &&
+		template.parts.some(
+			(part) => part.kind === "case-ref" && part.caseType === caseType,
+		)
+	);
 }

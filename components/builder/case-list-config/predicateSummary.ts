@@ -16,6 +16,7 @@ import {
 	type CaseProperty,
 	type CaseType,
 	canonicalCasePropertyName,
+	fallbackProseProjection,
 	type UserProperty,
 } from "@/lib/domain";
 import type {
@@ -465,18 +466,21 @@ function choiceLiteralText(
 	const option = property.options?.find(
 		(candidate) => candidate.value === literal.value,
 	);
-	if (option === undefined || option.label === "") {
+	const optionLabel =
+		option === undefined ? "" : fallbackProseProjection(option.label);
+	if (option === undefined || optionLabel === "") {
 		return literalText(literal.value);
 	}
 
 	const duplicateLabel =
 		property.options?.some(
 			(candidate) =>
-				candidate.value !== option.value && candidate.label === option.label,
+				candidate.value !== option.value &&
+				fallbackProseProjection(candidate.label) === optionLabel,
 		) ?? false;
 	return duplicateLabel
-		? `${option.label} (saved as ${option.value})`
-		: option.label;
+		? `${optionLabel} (saved as ${option.value})`
+		: optionLabel;
 }
 
 interface ResolvedPropertyRef {

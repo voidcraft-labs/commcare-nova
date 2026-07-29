@@ -14,6 +14,7 @@
  *     never consults the impact lookup at all.
  */
 
+import { proseText } from "@/lib/domain/prose";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { BlueprintDoc } from "@/lib/domain";
@@ -35,9 +36,9 @@ function makeCaseBoundDoc(): BlueprintDoc {
 			{
 				name: "patient",
 				properties: [
-					{ name: "case_name", label: "Name" },
-					{ name: "score", label: "Score" },
-					{ name: "visit_on", label: "Visited" },
+					{ name: "case_name", label: proseText("Name") },
+					{ name: "score", label: proseText("Score") },
+					{ name: "visit_on", label: proseText("Visited") },
 				],
 			},
 		],

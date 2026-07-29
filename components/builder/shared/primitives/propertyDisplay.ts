@@ -3,6 +3,7 @@ import {
 	authorableCaseProperties,
 	canonicalCasePropertyName,
 	effectiveDataType,
+	fallbackProseProjection,
 	isStandardCaseListProperty,
 	LEGACY_STANDARD_CASE_PROPERTY_ALIASES,
 	standardCasePropertyDisplayLabel,
@@ -10,7 +11,7 @@ import {
 import { humanizeId } from "@/lib/domain/idSlug";
 
 export function propertyDisplayLabel(property: CaseProperty): string {
-	const authored = property.label.trim();
+	const authored = fallbackProseProjection(property.label).trim();
 	const canonicalName = canonicalCasePropertyName(property.name);
 	const generatedNames = [
 		canonicalName,

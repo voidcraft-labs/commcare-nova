@@ -20,6 +20,7 @@
  * validator finding, never just the media subset.
  */
 
+import { proseText } from "@/lib/domain/prose";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
@@ -69,8 +70,8 @@ function validDoc(assetId?: MediaAssetId) {
 			{
 				name: "patient",
 				properties: [
-					{ name: "case_name", label: "Name" },
-					{ name: "village", label: "Village" },
+					{ name: "case_name", label: proseText("Name") },
+					{ name: "village", label: proseText("Village") },
 				],
 			},
 		],
@@ -179,7 +180,10 @@ describe("collectExportBoundaryViolations media arm", () => {
 		const doc = buildDoc({
 			appName: "T",
 			caseTypes: [
-				{ name: "patient", properties: [{ name: "region", label: "Region" }] },
+				{
+					name: "patient",
+					properties: [{ name: "region", label: proseText("Region") }],
+				},
 			],
 			modules: [
 				{
@@ -274,8 +278,8 @@ describe("collectExportBoundaryViolations media arm", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name" },
-						{ name: "village", label: "Village" },
+						{ name: "case_name", label: proseText("Name") },
+						{ name: "village", label: proseText("Village") },
 					],
 				},
 			],

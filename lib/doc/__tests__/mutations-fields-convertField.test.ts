@@ -14,6 +14,7 @@
  * All field uuids are explicit strings to keep assertion code readable.
  */
 
+import { proseText } from "@/lib/domain/prose";
 import { produce } from "immer";
 import { describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -760,8 +761,8 @@ describe("convertField — string-compatible tier", () => {
 				uuid: testUuid("q-1"),
 				toKind: "secret",
 				options: [
-					{ value: "a", label: "A" },
-					{ value: "b", label: "B" },
+					{ value: "a", label: proseText("A") },
+					{ value: "b", label: proseText("B") },
 				],
 			});
 		});

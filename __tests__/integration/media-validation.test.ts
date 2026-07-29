@@ -1,3 +1,4 @@
+import { proseText } from "@/lib/domain/prose";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
@@ -60,8 +61,16 @@ describe("media validation integration", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name", data_type: "text" as const },
-						{ name: "region", label: "Region", data_type: "text" as const },
+						{
+							name: "case_name",
+							label: proseText("Name"),
+							data_type: "text" as const,
+						},
+						{
+							name: "region",
+							label: proseText("Region"),
+							data_type: "text" as const,
+						},
 					],
 				},
 			],
@@ -171,7 +180,11 @@ describe("media validation integration", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name", data_type: "text" as const },
+						{
+							name: "case_name",
+							label: proseText("Name"),
+							data_type: "text" as const,
+						},
 					],
 				},
 			],

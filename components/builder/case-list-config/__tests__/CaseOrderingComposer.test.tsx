@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { proseText } from "@/lib/domain/prose";
 import {
 	act,
 	fireEvent,
@@ -31,9 +32,9 @@ vi.mock("@/lib/session/hooks", () => ({
 const PATIENT: CaseType = {
 	name: "patient",
 	properties: [
-		{ name: "case_name", label: "Patient name", data_type: "text" },
-		{ name: "dob", label: "Date of birth", data_type: "date" },
-		{ name: "age", label: "Age", data_type: "int" },
+		{ name: "case_name", label: proseText("Patient name"), data_type: "text" },
+		{ name: "dob", label: proseText("Date of birth"), data_type: "date" },
+		{ name: "age", label: proseText("Age"), data_type: "int" },
 	],
 };
 
@@ -436,9 +437,17 @@ describe("CaseOrderingComposer", () => {
 		const legacyCaseType: CaseType = {
 			name: "legacy_patient",
 			properties: [
-				{ name: "case_name", label: "case_name", data_type: "text" },
-				{ name: "external_id", label: "external_id", data_type: "text" },
-				{ name: "date_opened", label: "date_opened", data_type: "datetime" },
+				{ name: "case_name", label: proseText("case_name"), data_type: "text" },
+				{
+					name: "external_id",
+					label: proseText("external_id"),
+					data_type: "text",
+				},
+				{
+					name: "date_opened",
+					label: proseText("date_opened"),
+					data_type: "datetime",
+				},
 			],
 		};
 		const legacyColumns = [

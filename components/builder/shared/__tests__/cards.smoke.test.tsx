@@ -9,6 +9,7 @@
 // (drag-drop, recursive scope flip, type-mismatch rendering)
 // lives in dedicated test files.
 
+import { proseText } from "@/lib/domain/prose";
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { CaseType } from "@/lib/domain";
@@ -26,31 +27,31 @@ import { PredicateCardEditor } from "../PredicateCardEditor";
 const PATIENT: CaseType = {
 	name: "patient",
 	properties: [
-		{ name: "name", label: "Name", data_type: "text" },
-		{ name: "age", label: "Age", data_type: "int" },
-		{ name: "weight", label: "Weight", data_type: "decimal" },
-		{ name: "dob", label: "Date of birth", data_type: "date" },
-		{ name: "last_seen", label: "Last seen", data_type: "datetime" },
-		{ name: "wakeup", label: "Wake time", data_type: "time" },
+		{ name: "name", label: proseText("Name"), data_type: "text" },
+		{ name: "age", label: proseText("Age"), data_type: "int" },
+		{ name: "weight", label: proseText("Weight"), data_type: "decimal" },
+		{ name: "dob", label: proseText("Date of birth"), data_type: "date" },
+		{ name: "last_seen", label: proseText("Last seen"), data_type: "datetime" },
+		{ name: "wakeup", label: proseText("Wake time"), data_type: "time" },
 		{
 			name: "status",
-			label: "Status",
+			label: proseText("Status"),
 			data_type: "single_select",
 			options: [
-				{ value: "active", label: "Active" },
-				{ value: "inactive", label: "Inactive" },
+				{ value: "active", label: proseText("Active") },
+				{ value: "inactive", label: proseText("Inactive") },
 			],
 		},
 		{
 			name: "tags",
-			label: "Tags",
+			label: proseText("Tags"),
 			data_type: "multi_select",
 			options: [
-				{ value: "vip", label: "VIP" },
-				{ value: "new", label: "New" },
+				{ value: "vip", label: proseText("VIP") },
+				{ value: "new", label: proseText("New") },
 			],
 		},
-		{ name: "location", label: "Home", data_type: "geopoint" },
+		{ name: "location", label: proseText("Home"), data_type: "geopoint" },
 	],
 };
 

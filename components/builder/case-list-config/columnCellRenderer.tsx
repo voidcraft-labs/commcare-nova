@@ -31,6 +31,7 @@ import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import {
 	type CaseProperty,
 	type Column,
+	fallbackProseProjection,
 	TIME_SINCE_UNIT_DAYS,
 } from "@/lib/domain";
 import {
@@ -257,13 +258,14 @@ function projectImageMappedValue(
 	const selected = selectedTokens(source);
 	if (selected === undefined) return unsupportedStoredValue();
 	const match = mapping.find((entry) => selected.has(entry.value));
+	const option = property?.options?.find(
+		(candidate) => candidate.value === match?.value,
+	);
 	return match === undefined
 		? { kind: "value", text: "" }
 		: {
 				kind: "image",
-				text:
-					property?.options?.find((option) => option.value === match.value)
-						?.label ?? match.value,
+				text: option ? fallbackProseProjection(option.label) : match.value,
 				assetId: match.assetId,
 			};
 }
@@ -298,7 +300,7 @@ function projectStoredScalar(
 	}
 	const raw = String(value);
 	const option = property?.options?.find((entry) => entry.value === raw);
-	if (option !== undefined) return option.label;
+	if (option !== undefined) return fallbackProseProjection(option.label);
 	if (typeof value === "boolean") return value ? "Yes" : "No";
 	return raw;
 }

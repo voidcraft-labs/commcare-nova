@@ -59,7 +59,12 @@ import { useProjectToast } from "@/lib/collab/useProjectToast";
 import { useMaterializableCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useModule } from "@/lib/doc/hooks/useEntity";
 import type { Uuid } from "@/lib/doc/types";
-import type { CaseProperty, CasePropertyDataType } from "@/lib/domain";
+import {
+	type CaseProperty,
+	type CasePropertyDataType,
+	fallbackProseProjection,
+	type ProseTemplate,
+} from "@/lib/domain";
 import { viewerTimeZone } from "@/lib/preview/engine/caseDataBindingClient";
 import type {
 	CasePropertyFailure,
@@ -853,7 +858,7 @@ function ReplacementInput({
 	onDraftChange,
 }: {
 	readonly dataType: CasePropertyDataType;
-	readonly options: ReadonlyArray<{ value: string; label: string }>;
+	readonly options: ReadonlyArray<{ value: string; label: ProseTemplate }>;
 	readonly draft: ReplaceDraft;
 	readonly onDraftChange: (next: ReplaceDraft) => void;
 }) {
@@ -939,7 +944,7 @@ function ReplacementInput({
 					<SelectContent>
 						{options.map((option) => (
 							<SelectItem key={option.value} value={option.value}>
-								{option.label}
+								{fallbackProseProjection(option.label)}
 							</SelectItem>
 						))}
 					</SelectContent>
@@ -973,7 +978,7 @@ function ReplacementInput({
 										})
 									}
 								/>
-								{option.label}
+								{fallbackProseProjection(option.label)}
 							</label>
 						);
 					})}

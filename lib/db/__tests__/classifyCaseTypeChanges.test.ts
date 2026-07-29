@@ -19,6 +19,7 @@
 //      regen and the per-row migration). A departed property with
 //      no surviving writer stays a plain removal.
 
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
@@ -48,8 +49,8 @@ function makeDoc(caseTypes: CaseType[] | null): BlueprintDoc {
 const PATIENT: CaseType = {
 	name: "patient",
 	properties: [
-		{ name: "name", label: "Name", data_type: "text" },
-		{ name: "age", label: "Age", data_type: "int" },
+		{ name: "name", label: proseText("Name"), data_type: "text" },
+		{ name: "age", label: proseText("Age"), data_type: "int" },
 	],
 };
 
@@ -70,8 +71,8 @@ describe("classifyCaseTypeChanges — pure non-case-type mutations", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "name", label: "Name", data_type: "text" },
-						{ name: "age", label: "Age", data_type: "int" },
+						{ name: "name", label: proseText("Name"), data_type: "text" },
+						{ name: "age", label: proseText("Age"), data_type: "int" },
 					],
 				},
 			]),
@@ -92,7 +93,9 @@ describe("classifyCaseTypeChanges — case-type additions", () => {
 	it("emits one entry per added case type when multiple land at once", () => {
 		const visit: CaseType = {
 			name: "visit",
-			properties: [{ name: "date", label: "Date", data_type: "date" }],
+			properties: [
+				{ name: "date", label: proseText("Date"), data_type: "date" },
+			],
 		};
 		const result = classifyCaseTypeChanges({
 			prior: makeDoc(null),
@@ -129,7 +132,7 @@ describe("classifyCaseTypeChanges — property-surface diffs", () => {
 			name: "patient",
 			properties: [
 				...PATIENT.properties,
-				{ name: "phone", label: "Phone", data_type: "text" },
+				{ name: "phone", label: proseText("Phone"), data_type: "text" },
 			],
 		};
 		const result = classifyCaseTypeChanges({
@@ -149,7 +152,9 @@ describe("classifyCaseTypeChanges — property-surface diffs", () => {
 		// this fixture, so no rename is proven.
 		const reduced: CaseType = {
 			name: "patient",
-			properties: [{ name: "name", label: "Name", data_type: "text" }],
+			properties: [
+				{ name: "name", label: proseText("Name"), data_type: "text" },
+			],
 		};
 		const result = classifyCaseTypeChanges({
 			prior: makeDoc([PATIENT]),
@@ -169,8 +174,8 @@ describe("classifyCaseTypeChanges — property-surface diffs", () => {
 		const retyped: CaseType = {
 			name: "patient",
 			properties: [
-				{ name: "name", label: "Name", data_type: "text" },
-				{ name: "age", label: "Age", data_type: "decimal" },
+				{ name: "name", label: proseText("Name"), data_type: "text" },
+				{ name: "age", label: proseText("Age"), data_type: "decimal" },
 			],
 		};
 		const result = classifyCaseTypeChanges({
@@ -186,11 +191,11 @@ describe("classifyCaseTypeChanges — property-surface diffs", () => {
 			properties: [
 				{
 					name: "color",
-					label: "Color",
+					label: proseText("Color"),
 					data_type: "single_select",
 					options: [
-						{ value: "red", label: "Red" },
-						{ value: "blue", label: "Blue" },
+						{ value: "red", label: proseText("Red") },
+						{ value: "blue", label: proseText("Blue") },
 					],
 				},
 			],
@@ -200,9 +205,9 @@ describe("classifyCaseTypeChanges — property-surface diffs", () => {
 			properties: [
 				{
 					name: "color",
-					label: "Color",
+					label: proseText("Color"),
 					data_type: "single_select",
-					options: [{ value: "blue", label: "Blue" }],
+					options: [{ value: "blue", label: proseText("Blue") }],
 				},
 			],
 		};
@@ -399,13 +404,15 @@ describe("classifyCaseTypeChanges — synthesized renames", () => {
 	it("pairs a rename entry with an unrelated case type's sync entry", () => {
 		const visit: CaseType = {
 			name: "visit",
-			properties: [{ name: "date", label: "Date", data_type: "date" }],
+			properties: [
+				{ name: "date", label: proseText("Date"), data_type: "date" },
+			],
 		};
 		const visitV2: CaseType = {
 			name: "visit",
 			properties: [
-				{ name: "date", label: "Date", data_type: "date" },
-				{ name: "outcome", label: "Outcome", data_type: "text" },
+				{ name: "date", label: proseText("Date"), data_type: "date" },
+				{ name: "outcome", label: proseText("Outcome"), data_type: "text" },
 			],
 		};
 		const prior = patientDoc({
@@ -555,8 +562,8 @@ describe("classifyCaseTypeChanges — writer-derived type flips", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name" },
-						{ name: "facility", label: "Facility" },
+						{ name: "case_name", label: proseText("Name") },
+						{ name: "facility", label: proseText("Facility") },
 					],
 				},
 			],

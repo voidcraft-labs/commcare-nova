@@ -1,3 +1,4 @@
+import { proseText } from "@/lib/domain/prose";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
@@ -66,8 +67,8 @@ describe("searchInputSelectWidgetNotSupported", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name", data_type: "text" },
-						{ name: "status", label: "Status", data_type: "text" },
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+						{ name: "status", label: proseText("Status"), data_type: "text" },
 					],
 				},
 			],
@@ -121,7 +122,9 @@ describe("searchInputSelectWidgetNotSupported", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "case_name", label: "Name", data_type: "text" }],
+					properties: [
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+					],
 				},
 			],
 		});
@@ -171,7 +174,9 @@ describe("searchInputSelectWidgetNotSupported", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "case_name", label: "Name", data_type: "text" }],
+					properties: [
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+					],
 				},
 			],
 		});
@@ -236,9 +241,9 @@ describe("searchInputSelectWidgetNotSupported", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name", data_type: "text" },
-						{ name: "status", label: "Status", data_type: "text" },
-						{ name: "region", label: "Region", data_type: "text" },
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+						{ name: "status", label: proseText("Status"), data_type: "text" },
+						{ name: "region", label: proseText("Region"), data_type: "text" },
 					],
 				},
 			],
@@ -277,7 +282,9 @@ describe("searchInputSelectWidgetNotSupported", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "case_name", label: "Name", data_type: "text" }],
+					properties: [
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+					],
 				},
 			],
 		});

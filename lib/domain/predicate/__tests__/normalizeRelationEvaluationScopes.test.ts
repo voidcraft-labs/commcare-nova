@@ -1,3 +1,4 @@
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import type { CaseType } from "@/lib/domain";
 import {
@@ -48,29 +49,33 @@ import { walkTerms } from "../walk";
 const CASE_TYPES: CaseType[] = [
 	{
 		name: "household",
-		properties: [{ name: "region", label: "Region", data_type: "text" }],
+		properties: [
+			{ name: "region", label: proseText("Region"), data_type: "text" },
+		],
 	},
 	{
 		name: "patient",
 		parent_type: "household",
 		properties: [
-			{ name: "name", label: "Name", data_type: "text" },
-			{ name: "nickname", label: "Nickname", data_type: "text" },
-			{ name: "age", label: "Age", data_type: "int" },
-			{ name: "status", label: "Status", data_type: "text" },
-			{ name: "tags", label: "Tags", data_type: "multi_select" },
-			{ name: "location", label: "Location", data_type: "geopoint" },
+			{ name: "name", label: proseText("Name"), data_type: "text" },
+			{ name: "nickname", label: proseText("Nickname"), data_type: "text" },
+			{ name: "age", label: proseText("Age"), data_type: "int" },
+			{ name: "status", label: proseText("Status"), data_type: "text" },
+			{ name: "tags", label: proseText("Tags"), data_type: "multi_select" },
+			{ name: "location", label: proseText("Location"), data_type: "geopoint" },
 		],
 	},
 	{
 		name: "visit",
 		parent_type: "household",
-		properties: [{ name: "name", label: "Name", data_type: "text" }],
+		properties: [{ name: "name", label: proseText("Name"), data_type: "text" }],
 	},
 	{
 		name: "encounter",
 		parent_type: "patient",
-		properties: [{ name: "summary", label: "Summary", data_type: "text" }],
+		properties: [
+			{ name: "summary", label: proseText("Summary"), data_type: "text" },
+		],
 	},
 ];
 
@@ -370,7 +375,9 @@ describe("normalizeRelationEvaluationScopes — relation identity", () => {
 			{
 				name: "node",
 				parent_type: "node",
-				properties: [{ name: "case_name", label: "Name", data_type: "text" }],
+				properties: [
+					{ name: "case_name", label: proseText("Name"), data_type: "text" },
+				],
 			},
 		];
 		const path = anyRelationPath("parent");

@@ -16,6 +16,7 @@
  * and a move that doesn't rename adds nothing.
  */
 
+import { proseText } from "@/lib/domain/prose";
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -91,7 +92,10 @@ const addField = (
 describe("addField catalog sync", () => {
 	it("appends the (case_type, field id) pair with the kind-derived data_type on a declared type", () => {
 		const start = docWithForms([
-			{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+			{
+				name: "patient",
+				properties: [{ name: "case_name", label: proseText("Name") }],
+			},
 		]);
 		const next = apply(
 			start,
@@ -127,7 +131,7 @@ describe("addField catalog sync", () => {
 	it("never clobbers a declared entry's data_type or label", () => {
 		const declared: CaseProperty = {
 			name: "age",
-			label: "Age in years",
+			label: proseText("Age in years"),
 			data_type: "text",
 		};
 		const start = docWithForms([{ name: "patient", properties: [declared] }]);
@@ -218,7 +222,9 @@ describe("updateField catalog sync", () => {
 			docWithForms([
 				{
 					name: "patient",
-					properties: [{ name: "age", label: "age", data_type: "text" }],
+					properties: [
+						{ name: "age", label: proseText("age"), data_type: "text" },
+					],
 				},
 			]),
 			(d) => {
@@ -266,7 +272,7 @@ describe("convertField catalog sync", () => {
 	it("leaves an existing entry untouched on convert — no data_type clobber", () => {
 		const declared: CaseProperty = {
 			name: "age",
-			label: "age",
+			label: proseText("age"),
 			data_type: "int",
 		};
 		const start = produce(
@@ -294,7 +300,9 @@ describe("duplicateField catalog sync", () => {
 			docWithForms([
 				{
 					name: "patient",
-					properties: [{ name: "age", label: "age", data_type: "int" }],
+					properties: [
+						{ name: "age", label: proseText("age"), data_type: "int" },
+					],
 				},
 			]),
 			(d) => {
@@ -327,7 +335,9 @@ describe("moveField catalog sync", () => {
 			docWithForms([
 				{
 					name: "patient",
-					properties: [{ name: "age", label: "age", data_type: "int" }],
+					properties: [
+						{ name: "age", label: proseText("age"), data_type: "int" },
+					],
 				},
 			]),
 			(d) => {
@@ -427,8 +437,8 @@ describe("renameField interplay", () => {
 			{
 				name: "patient",
 				properties: [
-					{ name: "name", label: "Name", data_type: "text" },
-					{ name: "age", label: "age", data_type: "int" },
+					{ name: "name", label: proseText("Name"), data_type: "text" },
+					{ name: "age", label: proseText("age"), data_type: "int" },
 				],
 			},
 		]);

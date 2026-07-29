@@ -18,6 +18,7 @@
 //      up the matching directive when `ctx.sortByUuid` carries one
 //      keyed under the column's uuid.
 
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import {
@@ -106,11 +107,11 @@ describe("emitColumnField — plain", () => {
 			caseProperties: [
 				{
 					name: "priority",
-					label: "Priority",
+					label: proseText("Priority"),
 					data_type: "single_select",
 					options: [
-						{ value: "routine", label: "Routine" },
-						{ value: "urgent", label: "Urgent" },
+						{ value: "routine", label: proseText("Routine") },
+						{ value: "urgent", label: proseText("Urgent") },
 					],
 				},
 			],
@@ -133,11 +134,11 @@ describe("emitColumnField — plain", () => {
 			caseProperties: [
 				{
 					name: "region",
-					label: "Region",
+					label: proseText("Region"),
 					data_type: "single_select",
 					options: [
-						{ value: "north", label: "North" },
-						{ value: "north region", label: "North Region" },
+						{ value: "north", label: proseText("North") },
+						{ value: "north region", label: proseText("North Region") },
 					],
 				},
 			],
@@ -159,11 +160,11 @@ describe("emitColumnField — plain", () => {
 			caseProperties: [
 				{
 					name: "tags",
-					label: "Tags",
+					label: proseText("Tags"),
 					data_type: "multi_select",
 					options: [
-						{ value: "vip", label: "VIP" },
-						{ value: "follow.up", label: "Needs follow-up" },
+						{ value: "vip", label: proseText("VIP") },
+						{ value: "follow.up", label: proseText("Needs follow-up") },
 					],
 				},
 			],

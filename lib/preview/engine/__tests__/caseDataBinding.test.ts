@@ -27,6 +27,7 @@
 // not an error. The case-store layer enforces the filter at the
 // SQL layer; the binding inherits the structural enforcement.
 
+import { proseText } from "@/lib/domain/prose";
 import type { Kysely } from "kysely";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -392,8 +393,8 @@ const VISIT_CASE_ID = "40000000-0000-0000-0000-000000000004";
 const PATIENT_CASE_TYPE: CaseType = {
 	name: "patient",
 	properties: [
-		{ name: "name", label: "Name", data_type: "text" },
-		{ name: "age", label: "Age", data_type: "int" },
+		{ name: "name", label: proseText("Name"), data_type: "text" },
+		{ name: "age", label: proseText("Age"), data_type: "int" },
 	],
 };
 
@@ -406,7 +407,7 @@ const PATIENT_CASE_TYPE: CaseType = {
 const VISIT_CASE_TYPE: CaseType = {
 	name: "visit",
 	parent_type: "patient",
-	properties: [{ name: "notes", label: "Notes", data_type: "text" }],
+	properties: [{ name: "notes", label: proseText("Notes"), data_type: "text" }],
 };
 
 /**
@@ -417,7 +418,7 @@ const VISIT_CASE_TYPE: CaseType = {
  */
 const HOUSEHOLD_CASE_TYPE: CaseType = {
 	name: "household",
-	properties: [{ name: "head_name", label: "Head of household" }],
+	properties: [{ name: "head_name", label: proseText("Head of household") }],
 };
 
 /**
@@ -440,13 +441,13 @@ const HOUSEHOLD_CASE_TYPE: CaseType = {
 const FORMATTED_PROPS_CASE_TYPE: CaseType = {
 	name: "patient",
 	properties: [
-		{ name: "name", label: "Name", data_type: "text" },
-		{ name: "age", label: "Age", data_type: "int" },
-		{ name: "weight", label: "Weight", data_type: "decimal" },
-		{ name: "dob", label: "DOB", data_type: "date" },
-		{ name: "wake_time", label: "Wake time", data_type: "time" },
-		{ name: "last_seen", label: "Last seen", data_type: "datetime" },
-		{ name: "home_location", label: "Home", data_type: "geopoint" },
+		{ name: "name", label: proseText("Name"), data_type: "text" },
+		{ name: "age", label: proseText("Age"), data_type: "int" },
+		{ name: "weight", label: proseText("Weight"), data_type: "decimal" },
+		{ name: "dob", label: proseText("DOB"), data_type: "date" },
+		{ name: "wake_time", label: proseText("Wake time"), data_type: "time" },
+		{ name: "last_seen", label: proseText("Last seen"), data_type: "datetime" },
+		{ name: "home_location", label: proseText("Home"), data_type: "geopoint" },
 	],
 };
 
@@ -1448,15 +1449,15 @@ describe("readCases — running-app search-input composition", () => {
 		const TAGGED_CASE_TYPE: CaseType = {
 			name: "patient",
 			properties: [
-				{ name: "name", label: "Name", data_type: "text" },
+				{ name: "name", label: proseText("Name"), data_type: "text" },
 				{
 					name: "tags",
-					label: "Tags",
+					label: proseText("Tags"),
 					data_type: "multi_select",
 					options: [
-						{ value: "vip", label: "VIP" },
-						{ value: "new", label: "New" },
-						{ value: "review", label: "Review" },
+						{ value: "vip", label: proseText("VIP") },
+						{ value: "new", label: proseText("New") },
+						{ value: "review", label: proseText("Review") },
 					],
 				},
 			],
@@ -3953,7 +3954,11 @@ describe("submitFormAction", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "visit_note", label: "Visit note", data_type: "text" },
+						{
+							name: "visit_note",
+							label: proseText("Visit note"),
+							data_type: "text",
+						},
 					],
 				},
 			],
@@ -5990,7 +5995,7 @@ describe("readFilterPreview", () => {
 			...PATIENT_CASE_TYPE,
 			properties: [
 				...PATIENT_CASE_TYPE.properties,
-				{ name: "dob", label: "Date of birth", data_type: "date" },
+				{ name: "dob", label: proseText("Date of birth"), data_type: "date" },
 			],
 		};
 		const blueprint = buildBlueprint([datePatient]);

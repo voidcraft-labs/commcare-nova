@@ -1,3 +1,4 @@
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
@@ -40,8 +41,8 @@ describe("fieldKindMatchesPropertyType", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name", data_type: "text" },
-						{ name: "label", label: "Label", data_type: "text" },
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+						{ name: "label", label: proseText("Label"), data_type: "text" },
 					],
 				},
 			],
@@ -82,7 +83,9 @@ describe("fieldKindMatchesPropertyType", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "case_name", label: "Name", data_type: "text" }],
+					properties: [
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+					],
 				},
 			],
 		});
@@ -137,9 +140,9 @@ describe("fieldKindMatchesPropertyType", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name", data_type: "text" },
-						{ name: "tag", label: "Tag", data_type: "text" },
-						{ name: "pin", label: "PIN", data_type: "text" },
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+						{ name: "tag", label: proseText("Tag"), data_type: "text" },
+						{ name: "pin", label: proseText("PIN"), data_type: "text" },
 					],
 				},
 			],
@@ -191,8 +194,8 @@ describe("fieldKindMatchesPropertyType", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name", data_type: "text" },
-						{ name: "computed_age", label: "Age", data_type: "int" },
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+						{ name: "computed_age", label: proseText("Age"), data_type: "int" },
 					],
 				},
 			],
@@ -246,8 +249,8 @@ describe("fieldKindMatchesPropertyType", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name" },
-						{ name: "untyped", label: "Untyped" },
+						{ name: "case_name", label: proseText("Name") },
+						{ name: "untyped", label: proseText("Untyped") },
 					],
 				},
 			],
@@ -311,8 +314,8 @@ describe("fieldKindMatchesPropertyType", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name", data_type: "text" },
-						{ name: "weight", label: "Weight" },
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+						{ name: "weight", label: proseText("Weight") },
 					],
 				},
 			],
@@ -368,8 +371,8 @@ describe("fieldKindMatchesPropertyType", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name", data_type: "text" },
-						{ name: "label", label: "Label", data_type: "text" },
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+						{ name: "label", label: proseText("Label"), data_type: "text" },
 					],
 				},
 			],

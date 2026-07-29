@@ -1,3 +1,4 @@
+import { proseText } from "@/lib/domain/prose";
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
@@ -62,7 +63,7 @@ describe("applyMutation: setCaseTypes", () => {
 				caseTypes: [
 					{
 						name: "patient",
-						properties: [{ name: "name", label: "Name" }],
+						properties: [{ name: "name", label: proseText("Name") }],
 					},
 				],
 			});

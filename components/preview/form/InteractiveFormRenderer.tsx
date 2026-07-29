@@ -41,7 +41,7 @@ import { MediaDisplay } from "@/components/builder/media/MediaDisplay";
 import { type FieldPath, fpath } from "@/lib/doc/fieldPath";
 import { useField } from "@/lib/doc/hooks/useEntity";
 import { useOrderedFields } from "@/lib/doc/hooks/useOrderedFields";
-import { asUuid, type Uuid } from "@/lib/domain";
+import { asUuid, fallbackProseProjection, type Uuid } from "@/lib/domain";
 import { useEngineController } from "@/lib/preview/hooks/useEngineController";
 import { useEngineStateAt } from "@/lib/preview/hooks/useEngineState";
 import { LabelContent } from "@/lib/references/LabelContent";
@@ -375,6 +375,7 @@ const InteractiveField = memo(function InteractiveField({
 				<FieldHelp
 					id={helpId}
 					help={"help" in field ? field.help : undefined}
+					resolvedHelp={state.resolvedHelp}
 					helpMedia={"help_media" in field ? field.help_media : undefined}
 					interactive
 				/>
@@ -396,7 +397,10 @@ const InteractiveField = memo(function InteractiveField({
 					]
 						.filter((id): id is string => id !== undefined)
 						.join(" ")}
-					questionLabel={state.resolvedLabel ?? field.label ?? undefined}
+					questionLabel={
+						state.resolvedLabel ??
+						(field.label ? fallbackProseProjection(field.label) : undefined)
+					}
 					onChange={(value) => controller.setValueAt(path, value)}
 					onBlur={() => controller.touchAt(path)}
 					onChangeAt={(targetPath, value) =>

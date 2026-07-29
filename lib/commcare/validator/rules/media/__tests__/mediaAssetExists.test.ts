@@ -1,3 +1,4 @@
+import { proseText } from "@/lib/domain/prose";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 /**
  * Tests for `mediaAssetExists` — every referenced `MediaAssetId` resolves
@@ -22,7 +23,10 @@ describe("mediaAssetExists", () => {
 		const doc = buildDoc({
 			appName: "T",
 			caseTypes: [
-				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 			],
 			modules: [
 				{
@@ -64,7 +68,10 @@ describe("mediaAssetExists", () => {
 		const doc = buildDoc({
 			appName: "T",
 			caseTypes: [
-				{ name: "patient", properties: [{ name: "region", label: "Region" }] },
+				{
+					name: "patient",
+					properties: [{ name: "region", label: proseText("Region") }],
+				},
 			],
 			modules: [
 				{
@@ -131,7 +138,10 @@ describe("mediaAssetExists", () => {
 		const doc = buildDoc({
 			appName: "T",
 			caseTypes: [
-				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 			],
 			modules: [
 				{
@@ -173,7 +183,10 @@ describe("mediaAssetExists", () => {
 		const doc = buildDoc({
 			appName: "T",
 			caseTypes: [
-				{ name: "patient", properties: [{ name: "region", label: "Region" }] },
+				{
+					name: "patient",
+					properties: [{ name: "region", label: proseText("Region") }],
+				},
 			],
 			modules: [
 				{
@@ -229,7 +242,10 @@ describe("mediaAssetExists", () => {
 		const doc = buildDoc({
 			appName: "T",
 			caseTypes: [
-				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 			],
 			modules: [
 				{

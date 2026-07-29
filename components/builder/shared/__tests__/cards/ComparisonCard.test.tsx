@@ -17,6 +17,7 @@
 // the card shell's footer. Mounts through the full `PredicateCardEditor`
 // so the validity index is the real one produced by `checkPredicate`.
 
+import { proseText } from "@/lib/domain/prose";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { CaseType } from "@/lib/domain";
@@ -37,8 +38,8 @@ import { PredicateCardEditor } from "../../PredicateCardEditor";
 const PATIENT: CaseType = {
 	name: "patient",
 	properties: [
-		{ name: "age", label: "Age", data_type: "int" },
-		{ name: "name", label: "Name", data_type: "text" },
+		{ name: "age", label: proseText("Age"), data_type: "int" },
+		{ name: "name", label: proseText("Name"), data_type: "text" },
 	],
 };
 

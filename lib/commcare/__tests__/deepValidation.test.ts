@@ -1,3 +1,4 @@
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
@@ -846,7 +847,12 @@ describe("validateBlueprintDeep", () => {
 					relevant: "/data/case_name != ''",
 				}),
 			],
-			[{ name: "patient", properties: [{ name: "case_name", label: "Name" }] }],
+			[
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
+			],
 		);
 		expect(validateBlueprintDeep(doc)).toEqual([]);
 	});
@@ -911,7 +917,12 @@ describe("validateBlueprintDeep", () => {
 				}),
 				f({ kind: "hidden", id: "val", calculate: "#patient/nonexistent + 1" }),
 			],
-			[{ name: "patient", properties: [{ name: "case_name", label: "Name" }] }],
+			[
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
+			],
 		);
 		expect(
 			validateBlueprintDeep(doc).some(
@@ -932,7 +943,12 @@ describe("validateBlueprintDeep", () => {
 				}),
 				f({ kind: "hidden", id: "val", calculate: "#mother/code + 1" }),
 			],
-			[{ name: "patient", properties: [{ name: "case_name", label: "Name" }] }],
+			[
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
+			],
 		);
 		expect(
 			validateBlueprintDeep(doc).some(
@@ -973,7 +989,10 @@ describe("runValidation with deep validation", () => {
 				},
 			],
 			caseTypes: [
-				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 			],
 		});
 		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);

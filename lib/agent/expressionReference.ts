@@ -12,10 +12,7 @@
  */
 
 import { z } from "zod";
-import {
-	carrierBlindPredicateSchema,
-	carrierBlindValueExpressionSchema,
-} from "@/lib/domain/predicate";
+import { predicateSchema, valueExpressionSchema } from "@/lib/domain/predicate";
 
 type JsonNode = Record<string, unknown>;
 
@@ -107,8 +104,8 @@ function tsType(node: JsonNode | undefined, indent: string): string {
 export function buildExpressionReference(): string {
 	const json = z.toJSONSchema(
 		z.object({
-			p: carrierBlindPredicateSchema,
-			v: carrierBlindValueExpressionSchema,
+			p: predicateSchema,
+			v: valueExpressionSchema,
 		}),
 		{ target: "draft-7", io: "input" },
 	) as JsonNode;
@@ -116,16 +113,11 @@ export function buildExpressionReference(): string {
 	// Stable presentation order: the two grammar roots first, Term next,
 	// then every remaining referenced type in emission order.
 	const order = [
-		"CarrierBlindPredicate",
-		"CarrierBlindValueExpression",
-		"CarrierBlindTerm",
+		"Predicate",
+		"ValueExpression",
+		"Term",
 		...Object.keys(defs).filter(
-			(k) =>
-				![
-					"CarrierBlindPredicate",
-					"CarrierBlindValueExpression",
-					"CarrierBlindTerm",
-				].includes(k),
+			(k) => !["Predicate", "ValueExpression", "Term"].includes(k),
 		),
 	].filter((k) => defs[k]);
 	const blocks = order.map((name) => {

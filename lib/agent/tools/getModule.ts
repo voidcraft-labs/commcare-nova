@@ -42,19 +42,14 @@ import {
 	orderedColumns,
 	parseBuiltinIconSlug,
 } from "@/lib/domain";
-import { resolveModuleUuid } from "../blueprintHelpers";
-import {
-	carrierBlindCaseListConfig,
-	carrierBlindCaseSearchConfig,
-} from "../dormantCarrierReadProjection";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import type { ReadToolResult } from "./common";
+import {
+	moduleAddressSchema,
+	resolveModuleAddress,
+} from "./shared/entityAddresses";
 
-export const getModuleInputSchema = z
-	.object({
-		moduleIndex: z.number().describe("0-based module index"),
-	})
-	.strict();
+export const getModuleInputSchema = moduleAddressSchema;
 
 export type GetModuleInput = z.infer<typeof getModuleInputSchema>;
 
@@ -66,8 +61,6 @@ export type GetModuleInput = z.infer<typeof getModuleInputSchema>;
  * UUIDs pass through unchanged. `audio_label` is an uploaded-media UUID.
  */
 export interface GetModuleFormSummary {
-	formIndex: number;
-	/** Identity. The case-operation tools address this form by it. */
 	uuid: Uuid;
 	name: string;
 	type: FormType;
@@ -89,8 +82,6 @@ export interface GetModuleFormSummary {
 export type GetModuleResult =
 	| { error: string }
 	| {
-			moduleIndex: number;
-			/** Identity. The case-operation tools address this menu by it. */
 			uuid: Uuid;
 			name: string;
 			case_type: string | null;
@@ -106,37 +97,24 @@ export type GetModuleResult =
 
 export const getModuleTool = {
 	description:
-		"Get a module by index: metadata, menu media, case-list definitions plus the independent visible Results and Details uuid orders, case-search config, and a form summary.",
+		"Get a module by stable UUID: metadata, menu media, case-list definitions plus the independent visible Results and Details UUID orders, case-search config, and a form summary.",
 	inputSchema: getModuleInputSchema,
 	async execute(
 		input: GetModuleInput,
 		_ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<ReadToolResult<GetModuleResult>> {
-		const { moduleIndex } = input;
-		const moduleUuid = resolveModuleUuid(doc, moduleIndex);
-		if (!moduleUuid) {
+		const resolved = resolveModuleAddress(doc, input);
+		if (!resolved.ok) {
 			return {
 				kind: "read",
-				data: { error: `Module ${moduleIndex} not found` },
+				data: { error: resolved.error },
 			};
 		}
-		const mod = doc.modules[moduleUuid];
-		if (!mod) {
-			return {
-				kind: "read",
-				data: { error: `Module ${moduleIndex} not found` },
-			};
-		}
+		const { moduleUuid, module: mod } = resolved;
 		const formUuids = orderedFormUuids(doc, moduleUuid);
-		const caseListConfig =
-			mod.caseListConfig === undefined
-				? undefined
-				: carrierBlindCaseListConfig(mod.caseListConfig);
-		const caseSearchConfig =
-			mod.caseSearchConfig === undefined
-				? undefined
-				: carrierBlindCaseSearchConfig(mod.caseSearchConfig);
+		const caseListConfig = mod.caseListConfig;
+		const caseSearchConfig = mod.caseSearchConfig;
 		// Each screen's own sequence — the SA addresses a column by naming the
 		// one it should follow, so a storage-order read would misplace it.
 		const resultsColumns =
@@ -150,11 +128,6 @@ export const getModuleTool = {
 		return {
 			kind: "read",
 			data: {
-				moduleIndex,
-				/* Identity, because the case-operation tools address a menu and
-				 * a form by it and NOTHING else returns it. A positional index
-				 * shifts under a peer's insert and a name-derived slug is a
-				 * fossil of the name at creation, so neither is an address. */
 				uuid: moduleUuid,
 				name: mod.name,
 				case_type: mod.caseType ?? null,
@@ -168,10 +141,9 @@ export const getModuleTool = {
 					.filter((column) => column.visibleInDetail !== false)
 					.map((column) => column.uuid),
 				case_search_config: caseSearchConfig ?? null,
-				forms: formUuids.map((fUuid, i) => {
+				forms: formUuids.map((fUuid) => {
 					const f = doc.forms[fUuid];
 					return {
-						formIndex: i,
 						uuid: fUuid,
 						name: f?.name ?? "",
 						type: f?.type ?? "survey",

@@ -1,4 +1,3 @@
-import { reconciledOptions } from "@/lib/doc/optionIdentity";
 /**
  * SA tool: `editField` — update properties on an existing field.
  *
@@ -47,7 +46,6 @@ import { reconciledOptions } from "@/lib/doc/optionIdentity";
  */
 
 import { z } from "zod";
-import { parseXPathForField } from "@/lib/doc/expressionText";
 import { renameFieldIdVerdict } from "@/lib/doc/identifierVerdicts";
 import { planKindConversion } from "@/lib/doc/kindConversionCascade";
 import { findContainingForm } from "@/lib/doc/mutations/helpers";
@@ -61,16 +59,16 @@ import type {
 	FieldPatchFor,
 	SelectOption,
 	Uuid,
-	XPathExpression,
 } from "@/lib/domain";
-import { convertNeedsOptionSeed, getConvertibleTypes } from "@/lib/domain";
 import {
-	FIELD_REF_HINT,
+	convertNeedsOptionSeed,
+	fallbackProseProjection,
+	getConvertibleTypes,
+} from "@/lib/domain";
+import {
 	renameFieldMutations,
-	resolveFieldTarget,
 	updateFieldMutations,
 } from "../blueprintHelpers";
-import { unescapeXPath } from "../contentProcessing";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import { editFieldUpdatesSchema } from "../toolSchemas";
 import {
@@ -84,12 +82,13 @@ import type {
 	MutationSuccess,
 	ToolCallSummary,
 } from "./shared/toolCallSummary";
+import {
+	fieldAddressSchema,
+	resolveFieldAddress,
+} from "./shared/entityAddresses";
 
-export const editFieldInputSchema = z
-	.object({
-		moduleIndex: z.number().describe("0-based module index"),
-		formIndex: z.number().describe("0-based form index"),
-		fieldId: z.string().describe(`Field to update — ${FIELD_REF_HINT}`),
+export const editFieldInputSchema = fieldAddressSchema
+	.extend({
 		updates: editFieldUpdatesSchema,
 		confirmConversion: z
 			.boolean()
@@ -152,31 +151,13 @@ type EditUpdatesPatch = Omit<
 
 function editPatchToFieldPatch(
 	updates: EditUpdatesPatch,
-	parseExpr: (text: string) => XPathExpression,
-	existingOptions: readonly SelectOption[] | undefined,
 ): FieldPatchFor<FieldKind> {
 	const patch: Record<string, unknown> = {};
-	// Plain scalars: SA passes a new value, `null` to clear, or omits to
-	// leave unchanged. A `null` is preserved as `null` (the reducer deletes
-	// the key on it). The XPath-valued scalars get HTML-entity unescape
-	// on the way through — same treatment `applyDefaults` applies on the add
-	// path, so the same SA payload produces the same stored entity through
-	// both tools — and the AST-stored slots (`relevant`, `calculate`,
-	// `default_value`) additionally parse to their stored expression form.
-	const astScalarKeys = new Set([
-		"relevant",
-		"calculate",
-		"default_value",
-		"required",
-	]);
+	// SA/MCP sends the exact stored structure. A value sets the property,
+	// `null` clears it, and omission leaves it unchanged.
 	const scalarKeys = [
 		"label",
 		"hint",
-		// `help` is plain text (tap-to-expand longer-form guidance), so
-		// it rides the plain-scalar path — no XPath unescape, unlike
-		// `relevant` / `calculate` / `default_value` / `required`. The
-		// media companion `help_media` is set through the dedicated
-		// media tools, never via this text patch.
 		"help",
 		"required",
 		"relevant",
@@ -187,32 +168,17 @@ function editPatchToFieldPatch(
 	for (const key of scalarKeys) {
 		const value = updates[key];
 		if (value === undefined) continue;
-		if (typeof value === "string" && astScalarKeys.has(key)) {
-			patch[key] = parseExpr(unescapeXPath(value));
-		} else {
-			// A string sets the property; `null` clears it (preserved as
-			// `null` so the clear survives serialization).
-			patch[key] = value;
-		}
+		patch[key] = value;
 	}
 	if (updates.options !== undefined) {
-		// The SA's wholesale replacement is uuid/order-less (identity is off its
-		// wire — `saOptionSchema` omits both). Reconcile against the field's
-		// CURRENT options so surviving values keep their uuid and every option
-		// lands keyed: a uuid-less option committed mid-session is INVISIBLE to
-		// the per-uuid option diff (and `options` sits in the generic-patch
-		// skip-set), so a collaborator's next edit to it would silently never
-		// persist until a reload's backfill. A `null` passes through verbatim
-		// (a clear — on a kind that requires options, the commit gate rejects).
-		patch.options =
-			updates.options === null
-				? null
-				: reconciledOptions(updates.options, existingOptions);
+		// Option identity is part of the exact machine-authored shape. A
+		// replacement never guesses continuity from an editable value.
+		patch.options = updates.options;
 	}
 	// Nested `validate: { expr, msg? }` config. SA passes:
 	//   - object → replace; flatten back to schema's `validate` +
 	//     `validate_msg` keys (msg unset → `null`, which clears it).
-	//     `expr` is XPath, so unescape on the way through.
+	//     both values are already canonical stored structures.
 	//   - null → clear both keys (emitted as `null`).
 	//   - undefined (omitted) → leave unchanged.
 	if (updates.validate !== undefined) {
@@ -220,28 +186,20 @@ function editPatchToFieldPatch(
 			patch.validate = null;
 			patch.validate_msg = null;
 		} else {
-			patch.validate = parseExpr(unescapeXPath(updates.validate.expr));
+			patch.validate = updates.validate.expr;
 			patch.validate_msg = updates.validate.msg ?? null;
 		}
 	}
 	// Nested mode-discriminated `repeat` config. The patch always
 	// overwrites all three flat repeat keys when `repeat` is present: the
 	// new mode determines which mode-specific field is valid, and the
-	// unused field gets `null` so the reducer clears it. `count` and
-	// `ids_query` are XPath expressions — empty-string is treated as "not
-	// set" (matching the add path's truthy-check) and unescaped when
-	// present.
+	// unused field gets `null` so the reducer clears it.
 	const repeat = updates.repeat;
 	if (repeat != null) {
 		patch.repeat_mode = repeat.mode;
-		patch.repeat_count =
-			repeat.mode === "count_bound" && repeat.count.length > 0
-				? parseExpr(unescapeXPath(repeat.count))
-				: null;
+		patch.repeat_count = repeat.mode === "count_bound" ? repeat.count : null;
 		patch.data_source =
-			repeat.mode === "query_bound" && repeat.ids_query.length > 0
-				? { ids_query: parseExpr(unescapeXPath(repeat.ids_query)) }
-				: null;
+			repeat.mode === "query_bound" ? { ids_query: repeat.ids_query } : null;
 	}
 	return patch as FieldPatchFor<FieldKind>;
 }
@@ -255,10 +213,9 @@ export const editFieldTool = {
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<EditFieldResult>> {
-		const { moduleIndex, formIndex, fieldId, updates, confirmConversion } =
-			input;
+		const { updates, confirmConversion } = input;
 		try {
-			const resolved = resolveFieldTarget(doc, moduleIndex, formIndex, fieldId);
+			const resolved = resolveFieldAddress(doc, input);
 			if (!resolved.ok) {
 				return {
 					kind: "mutate" as const,
@@ -267,8 +224,6 @@ export const editFieldTool = {
 					result: { error: resolved.error },
 				};
 			}
-			// `fieldId` may have been the field's uuid — every rename
-			// comparison below is against the SEMANTIC id.
 			const currentId = resolved.field.id;
 
 			const { id: newId, kind: newKind, ...fieldUpdates } = updates;
@@ -366,7 +321,7 @@ export const editFieldTool = {
 						};
 					}
 					const seed = seedInput;
-					mintOptions = () => reconciledOptions(seed, undefined);
+					mintOptions = () => seed;
 					// Consumed by the convert — the patch stage must not apply
 					// it a second time against the already-seeded options.
 					delete fieldUpdates.options;
@@ -468,10 +423,8 @@ export const editFieldTool = {
 							.map((sample) => JSON.stringify(sample))
 							.join(", ");
 						const fieldLabel =
-							"label" in resolved.field &&
-							typeof resolved.field.label === "string" &&
-							resolved.field.label.length > 0
-								? resolved.field.label
+							"label" in resolved.field && resolved.field.label
+								? fallbackProseProjection(resolved.field.label) || currentId
 								: currentId;
 						return {
 							kind: "mutate" as const,
@@ -493,8 +446,7 @@ export const editFieldTool = {
 									`Tell the user what would happen; if they agree, repeat this call with confirmConversion: true.`,
 								summary: {
 									location:
-										doc.forms[resolved.formUuid]?.name ??
-										`m${moduleIndex}-f${formIndex}`,
+										doc.forms[resolved.formUuid]?.name ?? resolved.formUuid,
 									subject: fieldLabel,
 									awaitingConsent: true,
 								} satisfies ToolCallSummary,
@@ -506,7 +458,7 @@ export const editFieldTool = {
 				stages.push({
 					mutations: convertMuts,
 					doc: afterConvert,
-					stage: `convert:${moduleIndex}-${formIndex}`,
+					stage: `convert:${resolved.formUuid}`,
 				});
 				workingDoc = afterConvert;
 
@@ -545,7 +497,7 @@ export const editFieldTool = {
 					stages.push({
 						mutations: renameMuts,
 						doc: workingDoc,
-						stage: `rename:${moduleIndex}-${formIndex}`,
+						stage: `rename:${resolved.formUuid}`,
 					});
 				}
 			}
@@ -574,14 +526,7 @@ export const editFieldTool = {
 			// so anything slipping through here that doesn't fit the
 			// (possibly just-converted) kind is logged and no-ops safely.
 			if (Object.keys(fieldUpdates).length > 0) {
-				// Expression text resolves against the doc as the patch will
-				// see it (post-convert/rename stages), scoped to the field's
-				// containing form.
-				const patch = editPatchToFieldPatch(
-					fieldUpdates,
-					(text) => parseXPathForField(workingDoc, fieldUuid, text),
-					(currentField as { options?: SelectOption[] }).options,
-				);
+				const patch = editPatchToFieldPatch(fieldUpdates);
 				if (Object.keys(patch).length > 0) {
 					// Declaration chokepoint: a patch RE-TARGETING `case_property_on`
 					// to a type absent from the catalog declares it FIRST (a stage of
@@ -596,7 +541,7 @@ export const editFieldTool = {
 							stages.push({
 								mutations: declMuts,
 								doc: workingDoc,
-								stage: `edit:${moduleIndex}-${formIndex}`,
+								stage: `edit:${resolved.formUuid}`,
 							});
 						}
 					}
@@ -615,7 +560,7 @@ export const editFieldTool = {
 						stages.push({
 							mutations: updateMuts,
 							doc: workingDoc,
-							stage: `edit:${moduleIndex}-${formIndex}`,
+							stage: `edit:${resolved.formUuid}`,
 						});
 					}
 				}
@@ -652,9 +597,11 @@ export const editFieldTool = {
 			// name directly rather than re-traversing `moduleOrder` →
 			// `formOrder` to get back to the same uuid.
 			const formName =
-				workingDoc.forms[resolved.formUuid]?.name ??
-				`m${moduleIndex}-f${formIndex}`;
-			const label = postField && "label" in postField ? postField.label : "";
+				workingDoc.forms[resolved.formUuid]?.name ?? resolved.formUuid;
+			const label =
+				postField && "label" in postField && postField.label
+					? fallbackProseProjection(postField.label)
+					: "";
 			const kind = postField?.kind ?? "unknown";
 			// Report honestly when the call carried only the `kind` discriminator
 			// and no rename — nothing actually changed, so don't claim a change

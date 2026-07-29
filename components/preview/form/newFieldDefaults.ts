@@ -14,11 +14,20 @@
 // insertion site, which had erased exactly this check.
 
 import {
+	asUuid,
 	DEFAULT_SELECT_OPTIONS,
 	type Field,
 	type FieldKind,
 	HIDDEN_INERT_DEFAULT_VALUE,
+	proseText,
 } from "@/lib/domain";
+
+function defaultSelectOptions() {
+	return DEFAULT_SELECT_OPTIONS.map((option) => ({
+		...option,
+		uuid: asUuid(crypto.randomUUID()),
+	}));
+}
 
 /**
  * Per-kind builder for a new field's default shape. `label` is the suggested
@@ -31,38 +40,42 @@ export const NEW_FIELD_BUILDERS: {
 		label: string,
 	) => Omit<Extract<Field, { kind: K }>, "uuid">;
 } = {
-	text: (id, label) => ({ kind: "text", id, label }),
-	int: (id, label) => ({ kind: "int", id, label }),
-	decimal: (id, label) => ({ kind: "decimal", id, label }),
-	date: (id, label) => ({ kind: "date", id, label }),
-	datetime: (id, label) => ({ kind: "datetime", id, label }),
-	time: (id, label) => ({ kind: "time", id, label }),
-	geopoint: (id, label) => ({ kind: "geopoint", id, label }),
-	barcode: (id, label) => ({ kind: "barcode", id, label }),
-	secret: (id, label) => ({ kind: "secret", id, label }),
+	text: (id, label) => ({ kind: "text", id, label: proseText(label) }),
+	int: (id, label) => ({ kind: "int", id, label: proseText(label) }),
+	decimal: (id, label) => ({ kind: "decimal", id, label: proseText(label) }),
+	date: (id, label) => ({ kind: "date", id, label: proseText(label) }),
+	datetime: (id, label) => ({ kind: "datetime", id, label: proseText(label) }),
+	time: (id, label) => ({ kind: "time", id, label: proseText(label) }),
+	geopoint: (id, label) => ({ kind: "geopoint", id, label: proseText(label) }),
+	barcode: (id, label) => ({ kind: "barcode", id, label: proseText(label) }),
+	secret: (id, label) => ({ kind: "secret", id, label: proseText(label) }),
 	single_select: (id, label) => ({
 		kind: "single_select",
 		id,
-		label,
-		options: [...DEFAULT_SELECT_OPTIONS],
+		label: proseText(label),
+		options: defaultSelectOptions(),
 	}),
 	multi_select: (id, label) => ({
 		kind: "multi_select",
 		id,
-		label,
-		options: [...DEFAULT_SELECT_OPTIONS],
+		label: proseText(label),
+		options: defaultSelectOptions(),
 	}),
-	image: (id, label) => ({ kind: "image", id, label }),
-	audio: (id, label) => ({ kind: "audio", id, label }),
-	video: (id, label) => ({ kind: "video", id, label }),
-	file: (id, label) => ({ kind: "file", id, label }),
-	signature: (id, label) => ({ kind: "signature", id, label }),
-	label: (id, label) => ({ kind: "label", id, label }),
-	group: (id, label) => ({ kind: "group", id, label }),
+	image: (id, label) => ({ kind: "image", id, label: proseText(label) }),
+	audio: (id, label) => ({ kind: "audio", id, label: proseText(label) }),
+	video: (id, label) => ({ kind: "video", id, label: proseText(label) }),
+	file: (id, label) => ({ kind: "file", id, label: proseText(label) }),
+	signature: (id, label) => ({
+		kind: "signature",
+		id,
+		label: proseText(label),
+	}),
+	label: (id, label) => ({ kind: "label", id, label: proseText(label) }),
+	group: (id, label) => ({ kind: "group", id, label: proseText(label) }),
 	repeat: (id, label) => ({
 		kind: "repeat",
 		id,
-		label,
+		label: proseText(label),
 		repeat_mode: "user_controlled",
 	}),
 	// Hidden carries NO label (it's never shown) — passing one would not

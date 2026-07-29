@@ -1,3 +1,4 @@
+import { proseText } from "@/lib/domain/prose";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 // __tests__/integration/case-list-authoring.test.ts
@@ -312,15 +313,21 @@ function buildFixtureDoc(): BlueprintDoc {
 			{
 				name: "patient",
 				properties: [
-					{ name: "name", label: "Name", data_type: "text" },
-					{ name: "age", label: "Age", data_type: "int" },
-					{ name: "region", label: "Region", data_type: "text" },
-					{ name: "last_visit", label: "Last visit", data_type: "date" },
+					{ name: "name", label: proseText("Name"), data_type: "text" },
+					{ name: "age", label: proseText("Age"), data_type: "int" },
+					{ name: "region", label: proseText("Region"), data_type: "text" },
+					{
+						name: "last_visit",
+						label: proseText("Last visit"),
+						data_type: "date",
+					},
 				],
 			},
 			{
 				name: "household",
-				properties: [{ name: "name", label: "Name", data_type: "text" }],
+				properties: [
+					{ name: "name", label: proseText("Name"), data_type: "text" },
+				],
 			},
 		],
 	});
@@ -405,8 +412,8 @@ describe("SA tool path — column atomic ops", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name", data_type: "text" },
-						{ name: "age", label: "Age", data_type: "int" },
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+						{ name: "age", label: proseText("Age"), data_type: "int" },
 					],
 				},
 			],
@@ -631,9 +638,9 @@ describe("wire emission", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name", data_type: "text" },
-						{ name: "age", label: "Age", data_type: "int" },
-						{ name: "region", label: "Region", data_type: "text" },
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+						{ name: "age", label: proseText("Age"), data_type: "int" },
+						{ name: "region", label: proseText("Region"), data_type: "text" },
 					],
 				},
 			],
@@ -794,7 +801,9 @@ describe("SearchInputDef discriminated round-trip", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "name", label: "Name", data_type: "text" }],
+					properties: [
+						{ name: "name", label: proseText("Name"), data_type: "text" },
+					],
 				},
 			],
 		});
@@ -922,7 +931,9 @@ describe("search-input rename — orphan reference surfaces validator error", ()
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "name", label: "Name", data_type: "text" }],
+					properties: [
+						{ name: "name", label: proseText("Name"), data_type: "text" },
+					],
 				},
 			],
 			modules: {
@@ -1105,8 +1116,8 @@ describe("sort-priority collision tie-breaks to display order at every layer", (
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name", data_type: "text" },
-						{ name: "age", label: "Age", data_type: "int" },
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+						{ name: "age", label: proseText("Age"), data_type: "int" },
 					],
 				},
 			],
@@ -1150,8 +1161,8 @@ describe("sort-priority collision tie-breaks to display order at every layer", (
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name", data_type: "text" },
-						{ name: "age", label: "Age", data_type: "int" },
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+						{ name: "age", label: proseText("Age"), data_type: "int" },
 					],
 				},
 			],

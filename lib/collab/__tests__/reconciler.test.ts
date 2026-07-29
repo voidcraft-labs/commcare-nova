@@ -13,6 +13,7 @@
  * exercised purely as a state machine, which is exactly what this file does.
  */
 
+import { proseText } from "@/lib/domain/prose";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import {
@@ -474,7 +475,7 @@ describe("reconciler", () => {
 					kind: "updateField",
 					uuid: F_A,
 					targetKind: "text",
-					patch: { label: "A2" },
+					patch: { label: proseText("A2") },
 				},
 			]);
 			const batchId = h.reconciler.dispatchHumanBatch();
@@ -487,7 +488,7 @@ describe("reconciler", () => {
 						kind: "updateField",
 						uuid: F_B,
 						targetKind: "text",
-						patch: { label: "B2" },
+						patch: { label: proseText("B2") },
 					},
 				]),
 			);
@@ -520,7 +521,7 @@ describe("reconciler", () => {
 					kind: "updateField",
 					uuid: F_A,
 					targetKind: "text",
-					patch: { label: "A-local" },
+					patch: { label: proseText("A-local") },
 				},
 			]);
 			expect(h.docStore.getState().canUndo ? 1 : 0).toBeGreaterThan(0);
@@ -532,7 +533,7 @@ describe("reconciler", () => {
 						kind: "updateField",
 						uuid: F_B,
 						targetKind: "text",
-						patch: { label: "B-peer" },
+						patch: { label: proseText("B-peer") },
 					},
 				]),
 			);
@@ -619,7 +620,7 @@ describe("reconciler", () => {
 					kind: "updateField",
 					uuid: F_A,
 					targetKind: "text",
-					patch: { label: "A-local" },
+					patch: { label: proseText("A-local") },
 				},
 			]);
 			// The MCP frame must take the REMOTE branch: its mutations were never
@@ -635,7 +636,7 @@ describe("reconciler", () => {
 						kind: "updateField",
 						uuid: F_B,
 						targetKind: "text",
-						patch: { label: "B-mcp" },
+						patch: { label: proseText("B-mcp") },
 					},
 				],
 			});
@@ -1009,7 +1010,7 @@ describe("reconciler", () => {
 					kind: "updateField",
 					uuid: F_A,
 					targetKind: "text",
-					patch: { label: "A6" },
+					patch: { label: proseText("A6") },
 				},
 			]);
 			h.reconciler.dispatchHumanBatch();
@@ -1020,7 +1021,7 @@ describe("reconciler", () => {
 					kind: "updateField",
 					uuid: F_B,
 					targetKind: "text",
-					patch: { label: "B8" },
+					patch: { label: proseText("B8") },
 				},
 			]);
 			h.reconciler.dispatchHumanBatch();
@@ -1034,7 +1035,7 @@ describe("reconciler", () => {
 						kind: "updateField",
 						uuid: F_A,
 						targetKind: "text",
-						patch: { label: "A6" },
+						patch: { label: proseText("A6") },
 					},
 				],
 			]);
@@ -1359,7 +1360,7 @@ describe("reconciler", () => {
 					kind: "updateField",
 					uuid: F_A,
 					targetKind: "text",
-					patch: { label: "A1" },
+					patch: { label: proseText("A1") },
 				},
 			]);
 			h.reconciler.dispatchHumanBatch();
@@ -1368,7 +1369,7 @@ describe("reconciler", () => {
 					kind: "updateField",
 					uuid: F_A,
 					targetKind: "text",
-					patch: { label: "A2" },
+					patch: { label: proseText("A2") },
 				},
 			]);
 			h.reconciler.dispatchHumanBatch();
@@ -1749,7 +1750,7 @@ describe("reconciler", () => {
 					kind: "updateField",
 					uuid: F_A,
 					targetKind: "text",
-					patch: { label: "Mine" },
+					patch: { label: proseText("Mine") },
 				},
 			]);
 			h.reconciler.dispatchHumanBatch();
@@ -1763,7 +1764,7 @@ describe("reconciler", () => {
 						kind: "updateField",
 						uuid: F_A,
 						targetKind: "text",
-						patch: { label: "Peer" },
+						patch: { label: proseText("Peer") },
 					},
 				],
 			]);
@@ -2159,7 +2160,7 @@ describe("reconciler", () => {
 					kind: "updateField",
 					uuid: F_A,
 					targetKind: "text",
-					patch: { label: "LA" },
+					patch: { label: proseText("LA") },
 				},
 			]);
 			h.reconciler.dispatchHumanBatch();
@@ -2171,7 +2172,7 @@ describe("reconciler", () => {
 						kind: "updateField",
 						uuid: F_B,
 						targetKind: "text",
-						patch: { label: "PB" },
+						patch: { label: proseText("PB") },
 					},
 				]),
 			);
@@ -2187,7 +2188,7 @@ describe("reconciler", () => {
 						kind: "updateField",
 						uuid: F_A,
 						targetKind: "text",
-						patch: { label: "LA" },
+						patch: { label: proseText("LA") },
 					},
 				]),
 			);
@@ -2212,7 +2213,7 @@ describe("reconciler", () => {
 					kind: "updateField",
 					uuid: F_A,
 					targetKind: "text",
-					patch: { label: "LA" },
+					patch: { label: proseText("LA") },
 				},
 			]);
 			const batchId = h.reconciler.dispatchHumanBatch();
@@ -2224,7 +2225,7 @@ describe("reconciler", () => {
 						kind: "updateField",
 						uuid: F_A,
 						targetKind: "text",
-						patch: { label: "LA" },
+						patch: { label: proseText("LA") },
 					},
 				]),
 			);
@@ -2236,7 +2237,7 @@ describe("reconciler", () => {
 						kind: "updateField",
 						uuid: F_B,
 						targetKind: "text",
-						patch: { label: "PB" },
+						patch: { label: proseText("PB") },
 					},
 				]),
 			);

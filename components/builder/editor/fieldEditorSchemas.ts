@@ -35,6 +35,7 @@ import type {
 	IntField,
 	LabelField,
 	MultiSelectField,
+	ProseTemplate,
 	RepeatField,
 	SecretField,
 	SignatureField,
@@ -70,7 +71,16 @@ function xpathEntry<F extends Field, K extends keyof F & string>(
 		component: XPathEditor,
 		label,
 		addable: true,
-		visible: (field) => !!field[key],
+		visible: (field) => {
+			const value = field[key];
+			return (
+				value !== undefined &&
+				typeof value === "object" &&
+				value !== null &&
+				"parts" in value &&
+				(value as ProseTemplate).parts.length > 0
+			);
+		},
 	};
 }
 
@@ -150,7 +160,8 @@ function hintEntry<F extends Field>(): {
 		component: TextEditor,
 		label: "Hint",
 		addable: true,
-		visible: (field) => !!(field as F & { hint?: string }).hint,
+		visible: (field) =>
+			!!(field as F & { hint?: ProseTemplate }).hint?.parts.length,
 	};
 }
 

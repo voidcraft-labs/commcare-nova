@@ -20,16 +20,7 @@
 
 import { jsonSchema, type Schema } from "ai";
 import { z } from "zod";
-import {
-	carrierBlindPredicateSchema,
-	carrierBlindValueExpressionSchema,
-	predicateSchema,
-	valueExpressionSchema,
-} from "@/lib/domain/predicate";
-import {
-	authorPredicateSchema,
-	authorValueExpressionSchema,
-} from "./tools/case-operations/authorAst";
+import { predicateSchema, valueExpressionSchema } from "@/lib/domain/predicate";
 
 const AST_STUBS = new Map<z.ZodType, Record<string, unknown>>([
 	[
@@ -42,48 +33,12 @@ const AST_STUBS = new Map<z.ZodType, Record<string, unknown>>([
 		},
 	],
 	[
-		carrierBlindPredicateSchema,
-		{
-			type: "object",
-			additionalProperties: true,
-			description:
-				'Predicate AST node (boolean filter). Shape reference: "Filters & expressions" in your instructions.',
-		},
-	],
-	[
-		authorPredicateSchema,
-		{
-			type: "object",
-			additionalProperties: true,
-			description:
-				'Author Predicate AST node. Shape reference: "Filters & expressions" in your instructions; in case-operation tools a field leaf uses path instead of uuid, and id-of uses operationId.',
-		},
-	],
-	[
 		valueExpressionSchema,
 		{
 			type: "object",
 			additionalProperties: true,
 			description:
 				'ValueExpression AST node (typed value). Shape reference: "Filters & expressions" in your instructions.',
-		},
-	],
-	[
-		carrierBlindValueExpressionSchema,
-		{
-			type: "object",
-			additionalProperties: true,
-			description:
-				'ValueExpression AST node (typed value). Shape reference: "Filters & expressions" in your instructions.',
-		},
-	],
-	[
-		authorValueExpressionSchema,
-		{
-			type: "object",
-			additionalProperties: true,
-			description:
-				'Author ValueExpression AST node. Shape reference: "Filters & expressions" in your instructions; in case-operation tools a field leaf uses path instead of uuid, and id-of uses operationId.',
 		},
 	],
 ]);

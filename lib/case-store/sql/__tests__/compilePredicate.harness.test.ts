@@ -31,6 +31,7 @@
 // tokens", not "does Postgres parse and execute it correctly". This
 // file's tests answer the second question.
 
+import { proseText } from "@/lib/domain/prose";
 import { describe } from "vitest";
 import type { CaseType } from "@/lib/domain";
 import {
@@ -98,13 +99,13 @@ const PATIENT_SCHEMA: CaseType = {
 	name: "patient",
 	parent_type: "household",
 	properties: [
-		{ name: "nickname", label: "Nickname", data_type: "text" },
-		{ name: "age", label: "Age", data_type: "int" },
-		{ name: "bmi", label: "BMI", data_type: "decimal" },
-		{ name: "dob", label: "DOB", data_type: "date" },
-		{ name: "last_seen", label: "Last seen", data_type: "datetime" },
-		{ name: "tags", label: "Tags", data_type: "multi_select" },
-		{ name: "loc", label: "Location", data_type: "geopoint" },
+		{ name: "nickname", label: proseText("Nickname"), data_type: "text" },
+		{ name: "age", label: proseText("Age"), data_type: "int" },
+		{ name: "bmi", label: proseText("BMI"), data_type: "decimal" },
+		{ name: "dob", label: proseText("DOB"), data_type: "date" },
+		{ name: "last_seen", label: proseText("Last seen"), data_type: "datetime" },
+		{ name: "tags", label: proseText("Tags"), data_type: "multi_select" },
+		{ name: "loc", label: proseText("Location"), data_type: "geopoint" },
 	],
 };
 
@@ -112,14 +113,16 @@ const HOUSEHOLD_SCHEMA: CaseType = {
 	name: "household",
 	parent_type: "village",
 	properties: [
-		{ name: "size", label: "Size", data_type: "int" },
-		{ name: "region", label: "Region", data_type: "text" },
+		{ name: "size", label: proseText("Size"), data_type: "int" },
+		{ name: "region", label: proseText("Region"), data_type: "text" },
 	],
 };
 
 const VILLAGE_SCHEMA: CaseType = {
 	name: "village",
-	properties: [{ name: "nickname", label: "Village name", data_type: "text" }],
+	properties: [
+		{ name: "nickname", label: proseText("Village name"), data_type: "text" },
+	],
 };
 
 const SCHEMAS = new Map<string, CaseType>([

@@ -15,10 +15,14 @@ import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
 import { type FieldPath, fpath } from "@/lib/doc/fieldPath";
 import {
 	caseRefAcceptMap,
+	BUILT_IN_USER_PROPERTIES,
 	type FieldKind,
 	fieldKinds,
 	fieldRegistry,
 	HASHTAG_SEGMENT_SOURCE,
+	type ProseReferencePart,
+	type ProseTemplate,
+	type Uuid,
 } from "@/lib/domain";
 import { classifyNamespace } from "./config";
 import type { Reference } from "./types";
@@ -48,15 +52,11 @@ export const VALUE_PRODUCING_TYPES: ReadonlySet<FieldKind> = new Set(
 );
 
 /** User properties with human-readable labels — single source of truth. */
-export const USER_PROPERTIES: ReadonlyArray<{ name: string; label: string }> = [
-	{ name: "username", label: "Username" },
-	{ name: "first_name", label: "First Name" },
-	{ name: "last_name", label: "Last Name" },
-	{ name: "phone_number", label: "Phone Number" },
-];
+export const USER_PROPERTIES = BUILT_IN_USER_PROPERTIES.map((property) => ({
+	name: property.slug,
+	label: property.label,
+}));
 
-/** Mutable custom worker identities are offered only by XPath, whose AST stores
- * UUIDs. Prose keeps raw strings and must remain built-ins-only. */
 export type ReferenceSurface = "prose" | "xpath";
 
 /** A namespace is exactly one hashtag segment — same vocabulary as the
@@ -75,7 +75,8 @@ export { fpath };
  *  validator). */
 interface FormCacheEntry {
 	ctx: XPathLintContext;
-	byPath: Map<string, { label: string; kind: FieldKind }>;
+	byPath: Map<string, { uuid: Uuid; label: string; kind: FieldKind }>;
+	byUuid: Map<Uuid, { path: FieldPath; label: string; kind: FieldKind }>;
 	accept: Map<string, Set<string>>;
 }
 
@@ -116,13 +117,13 @@ export class ReferenceProvider {
 		namespace: string,
 		query: string,
 		formUuid?: string,
-		surface: ReferenceSurface = "prose",
+		_surface: ReferenceSurface = "prose",
 	): Reference[] {
 		const lowerQuery = query.toLowerCase();
 
 		if (namespace === "user") {
 			const custom =
-				surface === "xpath" && formUuid !== undefined
+				formUuid !== undefined
 					? (this.getContextForForm(formUuid)?.userProperties ?? [])
 					: [];
 			const customSlugs = new Set(custom.map((property) => property.slug));
@@ -137,6 +138,10 @@ export class ReferenceProvider {
 					path: property.slug,
 					label: `${property.label} (${property.slug})`,
 					raw: `#user/${property.slug}`,
+					part: {
+						kind: "user-property-ref",
+						userPropertyUuid: property.uuid,
+					},
 				}));
 			const builtInResults: Reference[] = USER_PROPERTIES.filter(
 				(p) =>
@@ -148,6 +153,7 @@ export class ReferenceProvider {
 				path: p.name,
 				label: p.label,
 				raw: `#user/${p.name}`,
+				part: { kind: "user-ref", property: p.name },
 			}));
 			return [...customResults, ...builtInResults];
 		}
@@ -168,6 +174,7 @@ export class ReferenceProvider {
 						path: path as FieldPath,
 						label: meta.label,
 						raw: `#form/${path}`,
+						part: { kind: "field-ref", uuid: meta.uuid },
 						icon: fieldRegistry[meta.kind].icon,
 					});
 				}
@@ -190,6 +197,7 @@ export class ReferenceProvider {
 					path: name,
 					label: typeEntry?.properties.get(name)?.label ?? name,
 					raw: `#${namespace}/${name}`,
+					part: { kind: "case-ref", caseType: namespace, property: name },
 				});
 			}
 		}
@@ -228,12 +236,22 @@ export class ReferenceProvider {
 						path: custom.slug,
 						label: `${custom.label} (${custom.slug})`,
 						raw,
+						part: {
+							kind: "user-property-ref",
+							userPropertyUuid: custom.uuid,
+						},
 					};
 				}
 			}
 			const prop = USER_PROPERTIES.find((p) => p.name === parsed.path);
 			if (!prop) return null;
-			return { type: "user", path: parsed.path, label: prop.label, raw };
+			return {
+				type: "user",
+				path: parsed.path,
+				label: prop.label,
+				raw,
+				part: { kind: "user-ref", property: prop.name },
+			};
 		}
 
 		if (!formUuid) return null;
@@ -248,6 +266,7 @@ export class ReferenceProvider {
 				path: parsed.path as FieldPath,
 				raw,
 				label: found.label ?? parsed.path,
+				part: { kind: "field-ref", uuid: found.uuid },
 				icon: fieldRegistry[found.kind].icon,
 			};
 		}
@@ -265,7 +284,84 @@ export class ReferenceProvider {
 			path: parsed.path,
 			label: meta?.label ?? parsed.path,
 			raw,
+			part: {
+				kind: "case-ref",
+				caseType: parsed.caseType,
+				property: parsed.path,
+			},
 		};
+	}
+
+	/** Resolve an already-typed prose part without parsing a display path. */
+	resolvePart(part: ProseReferencePart, formUuid?: string): Reference | null {
+		if (part.kind === "user-ref") {
+			const property = USER_PROPERTIES.find((p) => p.name === part.property);
+			return property
+				? {
+						type: "user",
+						path: property.name,
+						label: property.label,
+						raw: `#user/${property.name}`,
+						part,
+					}
+				: null;
+		}
+		if (!formUuid) return null;
+		const cache = this.ensureCache(formUuid);
+		if (!cache) return null;
+		if (part.kind === "user-property-ref") {
+			const property = cache.ctx.userProperties?.find(
+				(candidate) => candidate.uuid === part.userPropertyUuid,
+			);
+			return property
+				? {
+						type: "user",
+						path: property.slug,
+						label: `${property.label} (${property.slug})`,
+						raw: `#user/${property.slug}`,
+						part,
+					}
+				: null;
+		}
+		if (part.kind === "field-ref") {
+			const field = cache.byUuid.get(part.uuid);
+			return field
+				? {
+						type: "form",
+						path: field.path,
+						label: field.label,
+						raw: `#form/${field.path}`,
+						part,
+						icon: fieldRegistry[field.kind].icon,
+					}
+				: null;
+		}
+		const allowed = cache.accept.get(part.caseType);
+		if (!allowed?.has(part.property)) return null;
+		return {
+			type: "case",
+			caseType: part.caseType,
+			path: part.property,
+			label:
+				cache.ctx.reachableCaseTypes
+					?.get(part.caseType)
+					?.properties.get(part.property)?.label ?? part.property,
+			raw: `#${part.caseType}/${part.property}`,
+			part,
+		};
+	}
+
+	/** Current plain-text projection used by compact/search surfaces. */
+	projectTemplate(template: ProseTemplate, formUuid?: string): string {
+		let result = "";
+		for (const part of template.parts) {
+			if (part.kind === "text") result += part.text;
+			else {
+				const resolved = this.resolvePart(part, formUuid);
+				result += resolved?.raw ?? unresolvedPartProjection(part);
+			}
+		}
+		return result;
 	}
 
 	/**
@@ -315,16 +411,45 @@ export class ReferenceProvider {
 		if (cached) return cached;
 		const ctx = this.getContextForForm(formUuid);
 		if (!ctx) return undefined;
-		const byPath = new Map<string, { label: string; kind: FieldKind }>();
+		const byPath = new Map<
+			string,
+			{ uuid: Uuid; label: string; kind: FieldKind }
+		>();
+		const byUuid = new Map<
+			Uuid,
+			{ path: FieldPath; label: string; kind: FieldKind }
+		>();
 		for (const e of ctx.formEntries) {
-			byPath.set(e.path, { label: e.label, kind: e.kind });
+			byPath.set(e.path, { uuid: e.uuid, label: e.label, kind: e.kind });
+			byUuid.set(e.uuid, {
+				path: e.path as FieldPath,
+				label: e.label,
+				kind: e.kind,
+			});
 		}
 		const accept = ctx.reachableCaseTypes
 			? caseRefAcceptMap(ctx.reachableCaseTypes, ctx.formType)
 			: new Map<string, Set<string>>();
-		const entry: FormCacheEntry = { ctx, byPath, accept };
+		const entry: FormCacheEntry = { ctx, byPath, byUuid, accept };
 		this.caches.set(formUuid, entry);
 		return entry;
+	}
+}
+
+function unresolvedPartProjection(part: ProseReferencePart): string {
+	switch (part.kind) {
+		case "field-ref":
+			return `#form/${part.uuid}`;
+		case "case-ref":
+			return `#${part.caseType}/${part.property}`;
+		case "user-property-ref":
+			return `#user/${part.userPropertyUuid}`;
+		case "user-ref":
+			return `#user/${part.property}`;
+		default: {
+			const _exhaustive: never = part;
+			return _exhaustive;
+		}
 	}
 }
 
@@ -339,7 +464,7 @@ export class ReferenceProvider {
 export interface FieldEntryField {
 	readonly id: string;
 	readonly kind: FieldKind;
-	readonly label?: string;
+	readonly label?: ProseTemplate;
 }
 
 /** Minimal doc projection consumed by `collectFieldEntries`. */
@@ -376,7 +501,7 @@ export function collectFieldEntries(
 		const path = fpath(field.id, parent);
 		entries.push({
 			path,
-			label: field.label ?? path,
+			label: field.label ? compactTemplateLabel(field.label) : path,
 			kind: field.kind,
 		});
 		if (field.kind === "group" || field.kind === "repeat") {
@@ -384,4 +509,28 @@ export function collectFieldEntries(
 		}
 	}
 	return entries;
+}
+
+function compactTemplateLabel(template: ProseTemplate): string {
+	return template.parts
+		.map((part) => {
+			switch (part.kind) {
+				case "text":
+					return part.text;
+				case "field-ref":
+					return `#form/${part.uuid}`;
+				case "case-ref":
+					return `#${part.caseType}/${part.property}`;
+				case "user-property-ref":
+					return `#user/${part.userPropertyUuid}`;
+				case "user-ref":
+					return `#user/${part.property}`;
+				default: {
+					const _exhaustive: never = part;
+					return _exhaustive;
+				}
+			}
+		})
+		.join("")
+		.trim();
 }

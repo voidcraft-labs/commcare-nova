@@ -1,3 +1,4 @@
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
@@ -79,10 +80,10 @@ function docWith({
 			{
 				name: "client",
 				properties: [
-					{ name: "case_name", label: "Name", data_type: "text" },
-					{ name: "age", label: "Age", data_type: "int" },
-					{ name: "score", label: "Score", data_type: "int" },
-					{ name: "tags", label: "Tags", data_type: "multi_select" },
+					{ name: "case_name", label: proseText("Name"), data_type: "text" },
+					{ name: "age", label: proseText("Age"), data_type: "int" },
+					{ name: "score", label: proseText("Score"), data_type: "int" },
+					{ name: "tags", label: proseText("Tags"), data_type: "multi_select" },
 				],
 			},
 		],

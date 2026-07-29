@@ -1,12 +1,12 @@
 /**
  * The SA connect-block input → domain `ConnectConfig` bridge — the
- * text → AST parse boundary for the Connect XPath slots.
+ * exact-shape bridge for the Connect XPath slots.
  *
  * The SA authors the connect block's XPath-valued slots
  * (`assessment.user_score`, `deliver_unit.entity_id` / `entity_name`)
- * as TEXT; the domain stores each as the expression AST
- * (`lib/domain/xpath`). `buildConnectConfig` is where every connect
- * writer crosses that boundary: `updateForm` calls it with the form's
+ * as the canonical stored expression AST (`lib/domain/xpath`).
+ * `buildConnectConfig` is where every connect writer merges that exact
+ * shape: `updateForm` calls it with the form's
  * existing config (a structural partial-update merge), and the
  * creation tools (`createForm` / `createModule`) call it with no
  * existing config against the batch-aware resolver from
@@ -20,7 +20,7 @@
 import type { ConnectConfig, XPathExpression } from "@/lib/domain";
 
 /**
- * The connect-block shape as the SA authors it — XPath slots as text.
+ * The connect-block shape as the SA authors it — XPath slots as canonical AST.
  * A structural superset of both authoring schemas (one shared shape,
  * two refinements: `planningSchemas.ts::connectFormConfigSchema` on the
  * creation tools, `connectFormPatchSchema` on `updateForm`), so each
@@ -35,13 +35,13 @@ export interface ConnectConfigInput {
 	} | null;
 	assessment?: {
 		id?: string | null;
-		user_score: string;
+		user_score: XPathExpression;
 	} | null;
 	deliver_unit?: {
 		id?: string | null;
 		name: string;
-		entity_id?: string | null;
-		entity_name?: string | null;
+		entity_id?: XPathExpression | null;
+		entity_name?: XPathExpression | null;
 	} | null;
 	task?: {
 		id?: string | null;
@@ -51,8 +51,7 @@ export interface ConnectConfigInput {
 }
 
 /**
- * Merge a connect-config input into a full `ConnectConfig`, parsing
- * each XPath-valued slot to its stored expression AST via `parseExpr`.
+ * Merge a connect-config input into a full `ConnectConfig`.
  *
  * The merge speaks the shared input contract (lib/agent/CLAUDE.md) at
  * sub-config scope: an OMITTED sub-config is copied verbatim from
@@ -80,7 +79,6 @@ export interface ConnectConfigInput {
 export function buildConnectConfig(
 	input: ConnectConfigInput,
 	existing: ConnectConfig | undefined,
-	parseExpr: (text: string) => XPathExpression,
 ): ConnectConfig {
 	const out: ConnectConfig = { ...existing };
 	if (input.learn_module === null) delete out.learn_module;
@@ -98,7 +96,7 @@ export function buildConnectConfig(
 		out.assessment = {
 			...existing?.assessment,
 			...(id != null && { id }),
-			user_score: parseExpr(user_score),
+			user_score,
 		};
 	}
 	if (input.deliver_unit === null) delete out.deliver_unit;
@@ -110,9 +108,9 @@ export function buildConnectConfig(
 			...(id != null && { id }),
 		};
 		if (entity_id === null) delete merged.entity_id;
-		if (entity_id != null) merged.entity_id = parseExpr(entity_id);
+		if (entity_id != null) merged.entity_id = entity_id;
 		if (entity_name === null) delete merged.entity_name;
-		if (entity_name != null) merged.entity_name = parseExpr(entity_name);
+		if (entity_name != null) merged.entity_name = entity_name;
 		out.deliver_unit = merged;
 	}
 	if (input.task === null) delete out.task;

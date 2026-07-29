@@ -17,6 +17,7 @@
  * in ONE batch.
  */
 
+import { proseText } from "@/lib/domain/prose";
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -308,14 +309,14 @@ describe("a batch applies twice", () => {
 					uuid: FIELD,
 					kind: "text",
 					id: "notes",
-					label: "Notes",
+					label: proseText("Notes"),
 				},
 			},
 			{
 				kind: "updateField",
 				uuid: FIELD,
 				targetKind: "text",
-				patch: { label: "Visit notes" },
+				patch: { label: proseText("Visit notes") },
 			},
 		]);
 

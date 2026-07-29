@@ -34,6 +34,7 @@
  * moment, so a batch is a sequence of dependent edits, not a static plan.
  */
 
+import { proseText } from "@/lib/domain/prose";
 import * as fc from "fast-check";
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
@@ -96,12 +97,15 @@ function richDoc(): BlueprintDoc {
 			{
 				name: "patient",
 				properties: [
-					{ name: "case_name", label: "Name" },
-					{ name: "age", label: "Age" },
-					{ name: "village", label: "Village" },
+					{ name: "case_name", label: proseText("Name") },
+					{ name: "age", label: proseText("Age") },
+					{ name: "village", label: proseText("Village") },
 				],
 			},
-			{ name: "household", properties: [{ name: "region", label: "Region" }] },
+			{
+				name: "household",
+				properties: [{ name: "region", label: proseText("Region") }],
+			},
 		],
 		modules: [
 			{
@@ -915,8 +919,8 @@ describe("diffDocsToMutations — explicit cases", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name" },
-						{ name: "age", label: "Age" },
+						{ name: "case_name", label: proseText("Name") },
+						{ name: "age", label: proseText("Age") },
 					],
 				},
 			],

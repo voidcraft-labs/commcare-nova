@@ -50,18 +50,21 @@ import {
 	useLiveFormUuidGetter,
 	useReferenceProvider,
 } from "@/lib/references/ReferenceContext";
+import type { ProseTemplate } from "@/lib/domain";
 import { POPOVER_GLASS } from "@/lib/styles";
 import {
 	createInlineEditorExtensions,
 	getMarkdownContent,
+	markdownToProseTemplate,
+	proseTemplateToMarkdown,
 } from "@/lib/tiptap/markdownExtensions";
 import { FIELD_STYLES, type FieldType } from "./fieldStyles";
 
 interface InlineTextEditorProps {
-	/** Current markdown value for this field. */
-	value: string;
+	/** Current structural prose value for this field. */
+	value: ProseTemplate;
 	/** Called with the new markdown value when the editor saves (blur/Cmd+Enter). */
-	onSave: (value: string) => void;
+	onSave: (value: ProseTemplate) => void;
 	/** Called when the user cancels editing (Escape). Reverts to original value. */
 	onCancel: () => void;
 	/** Which text surface this editor replaces — drives styling to match. */
@@ -246,8 +249,8 @@ export function InlineTextEditor({
 		(editor: Editor | null) => {
 			if (savedRef.current || !editor) return;
 			savedRef.current = true;
-			const md = getMarkdownContent(editor);
-			onSave(md.trim());
+			const markdown = getMarkdownContent(editor);
+			onSave(markdownToProseTemplate(markdown));
 		},
 		[onSave],
 	);
@@ -319,7 +322,7 @@ export function InlineTextEditor({
 		 * nodes before the editor view is ever mounted. No post-mount hydration
 		 * dispatch is required — chips are present on first paint, and TipTap's
 		 * `ReactRenderer.flushSync` path is never hit from inside a React effect. */
-		content: value,
+		content: proseTemplateToMarkdown(value),
 		immediatelyRender: false,
 		editorProps: {
 			attributes: {

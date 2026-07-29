@@ -43,6 +43,7 @@
 
 import { z } from "zod";
 import { type Media, mediaSchema } from "../multimedia";
+import { type ProseTemplate, proseTemplateSchema, proseText } from "../prose";
 import { type Uuid, uuidSchema } from "../uuid";
 import { type XPathExpression, xpathExpressionSchema } from "../xpath";
 
@@ -51,7 +52,7 @@ import { type XPathExpression, xpathExpressionSchema } from "../xpath";
 // (and the expression-AST schema next to their `validate` /
 // `default_value`) without each reaching across to the owning modules
 // directly.
-export { mediaSchema, xpathExpressionSchema };
+export { mediaSchema, proseTemplateSchema, xpathExpressionSchema };
 
 /**
  * Minimum shape every field carries: stable uuid + semantic id. Hidden
@@ -82,12 +83,12 @@ export const structuralFieldBase = z
  * shown alongside the label.
  */
 export type FieldBase = StructuralFieldBase & {
-	label: string;
+	label: ProseTemplate;
 	label_media?: Media;
 };
 
 export const fieldBaseSchema = structuralFieldBase.extend({
-	label: z.string(),
+	label: proseTemplateSchema,
 	label_media: mediaSchema.optional(),
 });
 
@@ -105,7 +106,7 @@ export const fieldBaseSchema = structuralFieldBase.extend({
  * allow empty labels go through this base instead.
  */
 export const containerFieldBase = structuralFieldBase.extend({
-	label: z.string().optional(),
+	label: proseTemplateSchema.optional(),
 	label_media: mediaSchema.optional(),
 });
 
@@ -131,9 +132,9 @@ export const containerFieldBase = structuralFieldBase.extend({
  * base but carry no `validate_msg`.
  */
 export type InputFieldBase = FieldBase & {
-	hint?: string;
+	hint?: ProseTemplate;
 	hint_media?: Media;
-	help?: string;
+	help?: ProseTemplate;
 	help_media?: Media;
 	required?: XPathExpression; // an expression, or the "true()" sentinel
 	relevant?: XPathExpression;
@@ -141,9 +142,9 @@ export type InputFieldBase = FieldBase & {
 };
 
 export const inputFieldBaseSchema = fieldBaseSchema.extend({
-	hint: z.string().optional(),
+	hint: proseTemplateSchema.optional(),
 	hint_media: mediaSchema.optional(),
-	help: z.string().optional(),
+	help: proseTemplateSchema.optional(),
 	help_media: mediaSchema.optional(),
 	required: xpathExpressionSchema.optional(),
 	relevant: xpathExpressionSchema.optional(),
@@ -165,18 +166,18 @@ export const inputFieldBaseSchema = fieldBaseSchema.extend({
  */
 export type SelectOption = {
 	value: string;
-	label: string;
+	label: ProseTemplate;
 	media?: Media;
-	uuid?: Uuid;
+	uuid: Uuid;
 	order?: string;
 };
 
 export const selectOptionSchema = z
 	.object({
 		value: z.string(),
-		label: z.string(),
+		label: proseTemplateSchema,
 		media: mediaSchema.optional(),
-		uuid: uuidSchema.optional(),
+		uuid: uuidSchema,
 	})
 	.strict();
 
@@ -192,8 +193,8 @@ export const DEFAULT_SELECT_OPTIONS: readonly Pick<
 	SelectOption,
 	"value" | "label"
 >[] = [
-	{ value: "option_1", label: "Option 1" },
-	{ value: "option_2", label: "Option 2" },
+	{ value: "option_1", label: proseText("Option 1") },
+	{ value: "option_2", label: proseText("Option 2") },
 ];
 
 /**

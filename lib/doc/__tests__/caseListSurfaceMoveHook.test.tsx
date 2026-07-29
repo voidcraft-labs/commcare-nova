@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { proseText } from "@/lib/domain/prose";
 import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { useContext } from "react";
@@ -18,9 +19,9 @@ describe("useBlueprintMutations.moveColumnOnSurface", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name" },
-						{ name: "age", label: "Age", data_type: "int" },
-						{ name: "status", label: "Status" },
+						{ name: "case_name", label: proseText("Name") },
+						{ name: "age", label: proseText("Age"), data_type: "int" },
+						{ name: "status", label: proseText("Status") },
 					],
 				},
 			],
@@ -124,8 +125,8 @@ describe("useBlueprintMutations.moveSearchInputToIndex", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: "Name" },
-						{ name: "external_id", label: "External ID" },
+						{ name: "case_name", label: proseText("Name") },
+						{ name: "external_id", label: proseText("External ID") },
 					],
 				},
 			],

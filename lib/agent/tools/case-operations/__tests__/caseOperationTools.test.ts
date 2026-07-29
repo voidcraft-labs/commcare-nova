@@ -1,3 +1,4 @@
+import { proseText } from "@/lib/domain/prose";
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -62,13 +63,17 @@ function fixture(): {
 			{
 				name: "patient",
 				properties: [
-					{ name: "nickname", label: "Nickname", data_type: "text" },
+					{ name: "nickname", label: proseText("Nickname"), data_type: "text" },
 				],
 			},
 			{
 				name: "visit",
 				properties: [
-					{ name: "source_id", label: "Source ID", data_type: "text" },
+					{
+						name: "source_id",
+						label: proseText("Source ID"),
+						data_type: "text",
+					},
 				],
 			},
 		],
@@ -1037,11 +1042,15 @@ describe("dependency refusals say which constraint refused", () => {
 			caseTypes: [
 				{
 					name: "lead",
-					properties: [{ name: "note", label: "Note", data_type: "text" }],
+					properties: [
+						{ name: "note", label: proseText("Note"), data_type: "text" },
+					],
 				},
 				{
 					name: "lead_copy",
-					properties: [{ name: "note", label: "Note", data_type: "text" }],
+					properties: [
+						{ name: "note", label: proseText("Note"), data_type: "text" },
+					],
 				},
 			],
 			modules: [

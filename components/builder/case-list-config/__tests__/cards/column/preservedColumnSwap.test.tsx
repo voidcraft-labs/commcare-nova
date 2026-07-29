@@ -32,6 +32,7 @@
 // `columnCardSchemas[target].defaultValue(ctx)`, so calling the pure
 // function with the same `ctx` reproduces them exactly.
 
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 
@@ -52,8 +53,8 @@ const TEST_UUID = testUuid("00000000-0000-0000-0000-000000000001");
 const PATIENT: CaseType = {
 	name: "patient",
 	properties: [
-		{ name: "name", label: "Name", data_type: "text" },
-		{ name: "dob", label: "Date of birth", data_type: "date" },
+		{ name: "name", label: proseText("Name"), data_type: "text" },
+		{ name: "dob", label: proseText("Date of birth"), data_type: "date" },
 	],
 };
 

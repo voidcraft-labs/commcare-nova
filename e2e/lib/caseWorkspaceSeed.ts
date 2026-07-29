@@ -8,6 +8,7 @@
  * persistent Postgres volume.
  */
 
+import { proseText } from "@/lib/domain/prose";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { CaseInsert } from "@/lib/case-store";
 import {
@@ -83,30 +84,30 @@ export function buildCaseWorkspaceBlueprint(appId: string): BlueprintDoc {
 			{
 				name: ids.caseType,
 				properties: [
-					{ name: "village", label: "Village", data_type: "text" },
+					{ name: "village", label: proseText("Village"), data_type: "text" },
 					{
 						name: "last_visit",
-						label: "Last visit",
+						label: proseText("Last visit"),
 						data_type: "date",
 					},
 					{
 						name: "care_priority",
-						label: "Care priority",
+						label: proseText("Care priority"),
 						data_type: "text",
 						options: [
-							{ value: "routine", label: "Routine" },
-							{ value: "priority", label: "Priority" },
-							{ value: "urgent", label: "Urgent" },
+							{ value: "routine", label: proseText("Routine") },
+							{ value: "priority", label: proseText("Priority") },
+							{ value: "urgent", label: proseText("Urgent") },
 						],
 					},
 					{
 						name: "phone_number",
-						label: "Phone number",
+						label: proseText("Phone number"),
 						data_type: "text",
 					},
 					{
 						name: "date_of_birth",
-						label: "Date of birth",
+						label: proseText("Date of birth"),
 						data_type: "date",
 					},
 				],

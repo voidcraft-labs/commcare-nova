@@ -13,6 +13,7 @@
  *     hidden non-addable" so empty labelled cards never mount.
  */
 
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import type { TextField } from "@/lib/domain";
 import type { FieldEditorEntry } from "@/lib/domain/kinds";
@@ -29,7 +30,7 @@ const baseField: TextField = {
 	// The uuid is already branded; a hex literal satisfies the shape.
 	uuid: "q-0000-0000-0000-0000-000000000000" as TextField["uuid"],
 	id: "name",
-	label: "Name",
+	label: proseText("Name"),
 };
 
 function entry(

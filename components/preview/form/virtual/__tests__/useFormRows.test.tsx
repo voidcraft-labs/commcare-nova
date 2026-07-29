@@ -11,6 +11,7 @@
  * Fixtures are built in the normalized `BlueprintDoc` shape directly.
  */
 
+import { proseText } from "@/lib/domain/prose";
 import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
@@ -112,7 +113,7 @@ describe("useFormRows", () => {
 						uuid: testUuid("qst-c-0000-0000-0000-000000000003"),
 						id: "c",
 						kind: "text",
-						label: "C",
+						label: proseText("C"),
 					},
 				},
 			]);
@@ -144,12 +145,22 @@ describe("useFormRows", () => {
 				{
 					kind: "addField",
 					parentUuid: FORM_UUID,
-					field: { uuid: groupUuid, id: "sec", kind: "group", label: "Sec" },
+					field: {
+						uuid: groupUuid,
+						id: "sec",
+						kind: "group",
+						label: proseText("Sec"),
+					},
 				},
 				{
 					kind: "addField",
 					parentUuid: groupUuid,
-					field: { uuid: childUuid, id: "z", kind: "text", label: "Z" },
+					field: {
+						uuid: childUuid,
+						id: "z",
+						kind: "text",
+						label: proseText("Z"),
+					},
 				},
 			]);
 		});

@@ -27,6 +27,7 @@
  * instance refs, and its locale ids.
  */
 
+import { proseText } from "@/lib/domain/prose";
 import AdmZip from "adm-zip";
 import { describe, expect, it } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
@@ -69,7 +70,10 @@ function caseListOnlyDoc(caseListIcon?: ModuleIconRef) {
 	return buildDoc({
 		appName: "Browse app",
 		caseTypes: [
-			{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+			{
+				name: "patient",
+				properties: [{ name: "case_name", label: proseText("Name") }],
+			},
 		],
 		modules: [
 			{

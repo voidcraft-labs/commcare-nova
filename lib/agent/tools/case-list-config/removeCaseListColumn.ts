@@ -17,10 +17,7 @@
 
 import { z } from "zod";
 import { asUuid, type BlueprintDoc, type Uuid } from "@/lib/domain";
-import {
-	removeColumnMutation,
-	resolveModuleUuid,
-} from "../../blueprintHelpers";
+import { removeColumnMutation } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import {
 	guardedMutate,
@@ -28,13 +25,14 @@ import {
 	toToolErrorResult,
 } from "../common";
 import type { ToolCallSummary } from "../shared/toolCallSummary";
-import { moduleNotFoundResult, uuidInputSchema } from "./shared";
+import {
+	moduleAddressSchema,
+	resolveModuleAddress,
+} from "../shared/entityAddresses";
+import { uuidInputSchema } from "./shared";
 
-export const removeCaseListColumnInputSchema = z
-	.object({
-		moduleIndex: z
-			.number()
-			.describe("0-based module index whose case list column to remove"),
+export const removeCaseListColumnInputSchema = moduleAddressSchema
+	.extend({
 		columnUuid: uuidInputSchema.describe(
 			"Uuid of the column to remove. Look at getModule's projection or run searchBlueprint to surface the current uuids.",
 		),
@@ -65,23 +63,19 @@ export const removeCaseListColumnTool = {
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<RemoveCaseListColumnResult>> {
-		const { moduleIndex, columnUuid: rawColumnUuid } = input;
+		const { columnUuid: rawColumnUuid } = input;
 		const columnUuid = asUuid(rawColumnUuid);
 		try {
-			const moduleUuid = resolveModuleUuid(doc, moduleIndex);
-			if (!moduleUuid)
-				return moduleNotFoundResult<RemoveCaseListColumnSuccess>(
-					doc,
-					moduleIndex,
-					"remove a case list column",
-				);
-			const mod = doc.modules[moduleUuid];
-			if (!mod)
-				return moduleNotFoundResult<RemoveCaseListColumnSuccess>(
-					doc,
-					moduleIndex,
-					"remove a case list column",
-				);
+			const address = resolveModuleAddress(doc, input);
+			if (!address.ok) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					newDoc: doc,
+					result: { error: address.error },
+				};
+			}
+			const { moduleUuid, module: mod } = address;
 
 			const result = removeColumnMutation(mod, columnUuid);
 			if ("error" in result) {
@@ -97,7 +91,7 @@ export const removeCaseListColumnTool = {
 				ctx,
 				doc,
 				result.mutations,
-				`module:${moduleIndex}:caseList:column:remove`,
+				`module:${moduleUuid}:caseList:column:remove`,
 			);
 			if (!commit.ok) {
 				return {

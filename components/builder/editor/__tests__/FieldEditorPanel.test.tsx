@@ -18,6 +18,7 @@
  * in Playwright.
  */
 
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 
@@ -41,7 +42,7 @@ function textField(extras: Partial<TextField> = {}): TextField {
 		kind: "text",
 		uuid: FIELD_UUID,
 		id: "name",
-		label: "Name",
+		label: proseText("Name"),
 		...extras,
 	};
 }
@@ -51,7 +52,7 @@ function groupField(extras: Partial<GroupField> = {}): GroupField {
 		kind: "group",
 		uuid: FIELD_UUID,
 		id: "household",
-		label: "Household",
+		label: proseText("Household"),
 		...extras,
 	};
 }

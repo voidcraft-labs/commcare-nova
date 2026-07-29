@@ -30,7 +30,12 @@
 
 import { z } from "zod";
 import { CONNECT_ID_FIELD_DESCRIPTION } from "@/lib/commcare/connectSlugs";
-import { canonicalCasePropertyName } from "@/lib/domain";
+import {
+	canonicalCasePropertyName,
+	proseTemplateSchema,
+	uuidSchema,
+	xpathExpressionSchema,
+} from "@/lib/domain";
 
 // ── Reserved case properties (CommCare platform list) ───────────────
 //
@@ -65,7 +70,7 @@ const SELECT_DATA_TYPES: ReadonlySet<string> = new Set([
 const selectOptionDescribed = z
 	.object({
 		value: z.string().min(1).describe("Option value (stored in data)"),
-		label: z.string().min(1).describe("Option label (shown to user)"),
+		label: proseTemplateSchema.describe("Option label shown to the user."),
 	})
 	.strict();
 
@@ -80,12 +85,9 @@ const casePropertyDescribed = z
 					"Must NOT be media/binary (photos, audio, video, signatures). " +
 					'Use descriptive alternatives (e.g. "visit_date" not "date"). For a case or person display name, use the canonical "case_name" field—not "name", "full_name", or another duplicate. Standard metadata such as "external_id", "date_opened", and lifecycle "status" is implicit and should be referenced directly rather than added as custom catalog properties.',
 			),
-		label: z
-			.string()
-			.min(1)
-			.describe(
-				"Human-readable label for this property. Used as the default field label in all forms.",
-			),
+		label: proseTemplateSchema.describe(
+			"Human-readable label for this property. Used as the default field label in all forms.",
+		),
 		data_type: z
 			.enum(CASE_PROPERTY_DATA_TYPES)
 			.nullable()
@@ -93,33 +95,25 @@ const casePropertyDescribed = z
 			.describe(
 				'Data type. Determines the default field kind. null for "text".',
 			),
-		hint: z
-			.string()
-			.min(1)
+		hint: proseTemplateSchema
 			.nullable()
 			.optional()
 			.describe(
 				"Hint text shown below fields collecting this property. null when there is none.",
 			),
-		required: z
-			.string()
-			.min(1)
+		required: xpathExpressionSchema
 			.nullable()
 			.optional()
 			.describe(
-				"\"true()\" if always required. null if optional. String values must be quoted: `'text'`, not `text`.",
+				"Canonical XPath AST for the required condition. null if optional.",
 			),
-		validation: z
-			.string()
-			.min(1)
+		validation: xpathExpressionSchema
 			.nullable()
 			.optional()
 			.describe(
-				"XPath validation expression, e.g. \". > 0 and . < 150\". null when any value is acceptable. String values must be quoted: `'text'`, not `text`.",
+				"Canonical XPath AST for the validation rule. null when any value is acceptable.",
 			),
-		validation_msg: z
-			.string()
-			.min(1)
+		validation_msg: proseTemplateSchema
 			.nullable()
 			.optional()
 			.describe(
@@ -261,7 +255,7 @@ export const caseTypesOutputSchema = z.object({
  */
 export const closeConditionInputSchema = z
 	.object({
-		field: z.string().describe("Field id to check"),
+		fieldUuid: uuidSchema.describe("Stable UUID of the field to check."),
 		answer: z.string().describe("Value that triggers closure"),
 		operator: z
 			.enum(["=", "selected"])
@@ -333,7 +327,7 @@ const connectFormConfigShape = z
 					.nullable()
 					.optional()
 					.describe(CONNECT_ID_FIELD_DESCRIPTION),
-				user_score: z.string().min(1),
+				user_score: xpathExpressionSchema,
 			})
 			.strict()
 			.nullable()
@@ -350,17 +344,13 @@ const connectFormConfigShape = z
 					.optional()
 					.describe(CONNECT_ID_FIELD_DESCRIPTION),
 				name: z.string().min(1),
-				entity_id: z
-					.string()
-					.min(1)
+				entity_id: xpathExpressionSchema
 					.nullable()
 					.optional()
 					.describe(
 						"XPath dedup key grouping submissions into one paid delivery (CompletedWork). Omit for the daily-aggregate default; override per the Connect guidance in your instructions.",
 					),
-				entity_name: z
-					.string()
-					.min(1)
+				entity_name: xpathExpressionSchema
 					.nullable()
 					.optional()
 					.describe(

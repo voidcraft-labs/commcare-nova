@@ -22,6 +22,7 @@
  * Postgres transaction in `commitGuardedBatch.integration.test.ts`.
  */
 
+import { proseText } from "@/lib/domain/prose";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
@@ -119,7 +120,7 @@ function addHouseholdBatch(): Mutation[] {
 		{
 			kind: "addCaseProperty",
 			caseType: "household",
-			property: { name: "case_name", label: "N" },
+			property: { name: "case_name", label: proseText("N") },
 		},
 	];
 }
@@ -161,8 +162,8 @@ function minDoc(appName = "Test"): BlueprintDoc {
 			{
 				name: "patient",
 				properties: [
-					{ name: "case_name", label: "Name" },
-					{ name: "village", label: "Village" },
+					{ name: "case_name", label: proseText("Name") },
+					{ name: "village", label: proseText("Village") },
 				],
 			},
 		],
@@ -602,7 +603,10 @@ describe("applyBlueprintChange — Postgres saga around the guarded commit", () 
 		const prospective = structuredClone(toPersistableDoc(prior));
 		prospective.caseTypes = [
 			...(prospective.caseTypes ?? []),
-			{ name: "household", properties: [{ name: "case_name", label: "N" }] },
+			{
+				name: "household",
+				properties: [{ name: "case_name", label: proseText("N") }],
+			},
 		];
 		loadAppMock.mockResolvedValue({ blueprint: toPersistableDoc(prior) });
 		// The committed doc carries BOTH types — the sweep re-derives its schema.
@@ -660,7 +664,10 @@ describe("applyBlueprintChange — Postgres saga around the guarded commit", () 
 			const prospective = structuredClone(toPersistableDoc(prior));
 			prospective.caseTypes = [
 				...(prospective.caseTypes ?? []),
-				{ name: "household", properties: [{ name: "case_name", label: "N" }] },
+				{
+					name: "household",
+					properties: [{ name: "case_name", label: proseText("N") }],
+				},
 			];
 			loadAppMock.mockResolvedValue({ blueprint: toPersistableDoc(prior) });
 			const committed = structuredClone(prospective) as unknown as BlueprintDoc;
@@ -724,7 +731,10 @@ describe("applyBlueprintChange — Postgres saga around the guarded commit", () 
 		const prospective = structuredClone(toPersistableDoc(prior));
 		prospective.caseTypes = [
 			...(prospective.caseTypes ?? []),
-			{ name: "household", properties: [{ name: "case_name", label: "N" }] },
+			{
+				name: "household",
+				properties: [{ name: "case_name", label: proseText("N") }],
+			},
 		];
 		loadAppMock.mockResolvedValue({ blueprint: toPersistableDoc(prior) });
 		commitGuardedBatchMock.mockResolvedValue({
@@ -850,7 +860,10 @@ describe("applyBlueprintChange — Postgres saga around the guarded commit", () 
 		const prospective = structuredClone(toPersistableDoc(prior));
 		prospective.caseTypes = [
 			...(prospective.caseTypes ?? []),
-			{ name: "household", properties: [{ name: "case_name", label: "N" }] },
+			{
+				name: "household",
+				properties: [{ name: "case_name", label: proseText("N") }],
+			},
 		];
 		loadAppMock.mockResolvedValue({ blueprint: toPersistableDoc(prior) });
 		commitGuardedBatchMock.mockResolvedValue({

@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { proseText } from "@/lib/domain/prose";
 import {
 	fireEvent,
 	render,
@@ -18,12 +19,20 @@ const LONG_PROPERTY_LABEL =
 const PATIENT: CaseType = {
 	name: "patient",
 	properties: [
-		{ name: "patient_dob", label: "Date of birth", data_type: "date" },
-		{ name: "home_phone", label: "Telephone", data_type: "text" },
-		{ name: "enrollment_status", label: "Status", data_type: "text" },
+		{
+			name: "patient_dob",
+			label: proseText("Date of birth"),
+			data_type: "date",
+		},
+		{ name: "home_phone", label: proseText("Telephone"), data_type: "text" },
+		{
+			name: "enrollment_status",
+			label: proseText("Status"),
+			data_type: "text",
+		},
 		{
 			name: "preferred_follow_up_location",
-			label: LONG_PROPERTY_LABEL,
+			label: proseText(LONG_PROPERTY_LABEL),
 			data_type: "text",
 		},
 	],

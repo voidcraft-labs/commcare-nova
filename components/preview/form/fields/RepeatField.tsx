@@ -35,7 +35,10 @@ import { useCallback, useId } from "react";
 import { MediaDisplay } from "@/components/builder/media/MediaDisplay";
 import type { FieldPath } from "@/lib/doc/fieldPath";
 import { useHasFieldsInForm } from "@/lib/doc/hooks/useHasFieldsInForm";
-import type { RepeatField as RepeatFieldEntity } from "@/lib/domain";
+import {
+	fallbackProseProjection,
+	type RepeatField as RepeatFieldEntity,
+} from "@/lib/domain";
 import { useEngineController } from "@/lib/preview/hooks/useEngineController";
 import { useEngineStateAt } from "@/lib/preview/hooks/useEngineState";
 import { LabelContent } from "@/lib/references/LabelContent";
@@ -175,7 +178,9 @@ export function RepeatField({
 		toggleCollapse(field.uuid);
 	}, [toggleCollapse, field.uuid]);
 
-	const addLabel = state.resolvedLabel ?? field.label ?? "entry";
+	const addLabel =
+		state.resolvedLabel ??
+		(field.label ? fallbackProseProjection(field.label) : "entry");
 
 	// Add/Remove affordances are only meaningful for `user_controlled`
 	// repeats. `count_bound` and `query_bound` repeats freeze their

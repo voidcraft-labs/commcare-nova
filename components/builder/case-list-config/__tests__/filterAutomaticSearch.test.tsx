@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { proseText } from "@/lib/domain/prose";
 import {
 	act,
 	fireEvent,
@@ -68,7 +69,9 @@ vi.mock("@/lib/session/hooks", () => ({
 const CASE_TYPES: CaseType[] = [
 	{
 		name: "patient",
-		properties: [{ name: "region", label: "Region", data_type: "text" }],
+		properties: [
+			{ name: "region", label: proseText("Region"), data_type: "text" },
+		],
 	},
 ];
 
@@ -320,7 +323,9 @@ describe("Results Cases available composer", () => {
 			{ ...patient, parent_type: "household" },
 			{
 				name: "household",
-				properties: [{ name: "region", label: "Region", data_type: "text" }],
+				properties: [
+					{ name: "region", label: proseText("Region"), data_type: "text" },
+				],
 			},
 		];
 		const onChange = vi.fn();

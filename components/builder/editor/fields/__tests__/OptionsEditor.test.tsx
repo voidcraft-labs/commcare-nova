@@ -14,6 +14,7 @@
  *     select options.
  */
 
+import { proseText } from "@/lib/domain/prose";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
@@ -37,10 +38,10 @@ const baseField: SingleSelectField = {
 	kind: "single_select",
 	uuid: testUuid("u1-options"),
 	id: "color",
-	label: "Color",
+	label: proseText("Color"),
 	options: [
-		{ value: "red", label: "Red" },
-		{ value: "blue", label: "Blue" },
+		{ value: "red", label: proseText("Red") },
+		{ value: "blue", label: proseText("Blue") },
 	],
 };
 
@@ -183,9 +184,9 @@ describe("OptionsEditor", () => {
 				field={{
 					...baseField,
 					options: [
-						{ value: "red", label: "Red" },
-						{ value: "blue", label: "Blue" },
-						{ value: "green", label: "Green" },
+						{ value: "red", label: proseText("Red") },
+						{ value: "blue", label: proseText("Blue") },
+						{ value: "green", label: proseText("Green") },
 					],
 				}}
 				value={[

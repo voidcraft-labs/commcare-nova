@@ -42,6 +42,7 @@ import {
 	type CaseProperty,
 	type CaseType,
 	effectiveDataType,
+	fallbackProseProjection,
 } from "@/lib/domain";
 import {
 	dateLiteral,
@@ -249,7 +250,12 @@ export function LiteralValueInput({
 				<SelectOptionInput
 					value={value}
 					onChange={onChange}
-					options={property?.options ?? []}
+					options={
+						property?.options?.map((option) => ({
+							value: option.value,
+							label: fallbackProseProjection(option.label),
+						})) ?? []
+					}
 					invalid={invalid}
 					ariaLabel={ariaLabel}
 				/>

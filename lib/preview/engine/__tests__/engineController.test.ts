@@ -8,6 +8,7 @@
  * on load.
  */
 
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { xp } from "@/lib/__tests__/docHelpers";
@@ -339,7 +340,7 @@ describe("EngineController", () => {
 						uuid: newUuid,
 						id: "new_q",
 						kind: "text",
-						label: "New Field",
+						label: proseText("New Field"),
 					},
 				},
 			]);
@@ -542,8 +543,8 @@ describe("EngineController", () => {
 			const patientCaseType: CaseType = {
 				name: "patient",
 				properties: [
-					{ name: "case_name", label: "Name", data_type: "text" },
-					{ name: "note", label: "Note", data_type: "text" },
+					{ name: "case_name", label: proseText("Name"), data_type: "text" },
+					{ name: "note", label: proseText("Note"), data_type: "text" },
 				],
 			};
 			const moduleUuid = testUuid("eeeeeeee-0001-0001-0001-000000000001");
@@ -659,7 +660,7 @@ describe("EngineController", () => {
 						uuid: Q1_UUID,
 						id: "name",
 						kind: "text",
-						label: "Name",
+						label: proseText("Name"),
 					},
 				},
 			]);
@@ -752,7 +753,7 @@ describe("EngineController", () => {
 				uuid: nameUuid,
 				id: "photo",
 				kind: "image",
-				label: "Photo",
+				label: proseText("Photo"),
 			};
 			return doc;
 		}
@@ -1320,7 +1321,12 @@ describe("EngineController", () => {
 				{
 					kind: "addField",
 					parentUuid: repeatUuid,
-					field: { uuid: doseUuid, id: "dose", kind: "text", label: "Dose" },
+					field: {
+						uuid: doseUuid,
+						id: "dose",
+						kind: "text",
+						label: proseText("Dose"),
+					},
 				},
 			]);
 			await new Promise((r) => setTimeout(r, 10));
@@ -1451,7 +1457,9 @@ describe("EngineController", () => {
 		it("per-instance values reach the submission walk", () => {
 			const patientCaseType: CaseType = {
 				name: "patient",
-				properties: [{ name: "case_name", label: "Name", data_type: "text" }],
+				properties: [
+					{ name: "case_name", label: proseText("Name"), data_type: "text" },
+				],
 			};
 			const doc = repeatDoc();
 			const nameField = doc.fields[nameUuid];
@@ -1495,8 +1503,8 @@ describe("EngineController", () => {
 		const patientCaseType: CaseType = {
 			name: "patient",
 			properties: [
-				{ name: "case_name", label: "Name", data_type: "text" },
-				{ name: "age", label: "Age", data_type: "int" },
+				{ name: "case_name", label: proseText("Name"), data_type: "text" },
+				{ name: "age", label: proseText("Age"), data_type: "int" },
 			],
 		};
 

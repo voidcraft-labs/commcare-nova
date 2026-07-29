@@ -21,6 +21,7 @@
 // would silently drop from display while still flipping the parent's
 // save gate.
 
+import { proseText } from "@/lib/domain/prose";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { CaseType } from "@/lib/domain";
@@ -30,8 +31,8 @@ import { PredicateCardEditor } from "../../PredicateCardEditor";
 const PATIENT: CaseType = {
 	name: "patient",
 	properties: [
-		{ name: "name", label: "Name", data_type: "text" },
-		{ name: "status", label: "Status", data_type: "text" },
+		{ name: "name", label: proseText("Name"), data_type: "text" },
+		{ name: "status", label: proseText("Status"), data_type: "text" },
 	],
 };
 

@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { proseText } from "@/lib/domain/prose";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { produce } from "immer";
 import { type ReactNode, StrictMode, useLayoutEffect, useState } from "react";
@@ -35,9 +36,9 @@ const CASE_TYPES: readonly CaseType[] = [
 	{
 		name: "client",
 		properties: [
-			{ name: "case_name", label: "Client name", data_type: "text" },
-			{ name: "dob", label: "Date of birth", data_type: "date" },
-			{ name: "region", label: "Region", data_type: "text" },
+			{ name: "case_name", label: proseText("Client name"), data_type: "text" },
+			{ name: "dob", label: proseText("Date of birth"), data_type: "date" },
+			{ name: "region", label: proseText("Region"), data_type: "text" },
 		],
 	},
 ];

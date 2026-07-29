@@ -14,6 +14,7 @@
  * maintenance cutover cannot silently retarget authored logic.
  */
 
+import { proseText } from "@/lib/domain/prose";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
@@ -59,8 +60,8 @@ function richDoc(): BlueprintDoc {
 			{
 				name: "patient",
 				properties: [
-					{ name: "case_name", label: "Name" },
-					{ name: "age", label: "Age" },
+					{ name: "case_name", label: proseText("Name") },
+					{ name: "age", label: proseText("Age") },
 				],
 			},
 		],

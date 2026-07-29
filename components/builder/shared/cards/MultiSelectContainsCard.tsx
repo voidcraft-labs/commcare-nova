@@ -25,7 +25,11 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
-import { type CaseProperty, canonicalCasePropertyName } from "@/lib/domain";
+import {
+	type CaseProperty,
+	canonicalCasePropertyName,
+	fallbackProseProjection,
+} from "@/lib/domain";
 import {
 	type Literal,
 	literal,
@@ -98,7 +102,11 @@ export function MultiSelectContainsCard({
 		[ct, value.property.property],
 	);
 
-	const allOptions = property?.options ?? [];
+	const allOptions =
+		property?.options?.map((option) => ({
+			value: option.value,
+			label: fallbackProseProjection(option.label),
+		})) ?? [];
 	const selectedValues = new Set<string>(
 		value.values
 			.map((v) => v.value)

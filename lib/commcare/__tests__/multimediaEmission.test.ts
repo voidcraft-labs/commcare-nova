@@ -12,6 +12,7 @@
  * references at all (the validation-loop / asset-free-preview path).
  */
 
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
@@ -63,7 +64,10 @@ function mediaDoc() {
 	return buildDoc({
 		appName: "Media app",
 		caseTypes: [
-			{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+			{
+				name: "patient",
+				properties: [{ name: "case_name", label: proseText("Name") }],
+			},
 		],
 		modules: [
 			{
@@ -149,7 +153,10 @@ describe("XForm itext media emission", () => {
 		const doc = buildDoc({
 			appName: "Media-only validate_msg",
 			caseTypes: [
-				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 			],
 			modules: [
 				{
@@ -198,7 +205,10 @@ describe("XForm itext media emission", () => {
 		const doc = buildDoc({
 			appName: "Media-only optional slots",
 			caseTypes: [
-				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 			],
 			modules: [
 				{

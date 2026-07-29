@@ -19,21 +19,23 @@ import {
 	caseRefAcceptMap,
 	expressionSurfaceReads,
 	type Field,
+	fieldRegistry,
 	type FieldProseSlotId,
 	type FieldXPathSlotId,
 	formExpressionSource,
 	formExpressionValue,
+	type ProseTemplate,
 	reachableCaseTypes,
 	toReachableIndex,
 	type Uuid,
 	type XPathExpression,
+	xpathPrintContext,
 } from "@/lib/domain";
 import {
 	buildFieldTree,
 	type FieldTreeNode,
 } from "@/lib/preview/engine/fieldTree";
 import { TriggerDag } from "@/lib/preview/engine/triggerDag";
-import { BARE_HASHTAG_PATTERN } from "../proseHashtags";
 import {
 	checkCaseHashtag,
 	validateXPath,
@@ -232,6 +234,18 @@ function collectValidPaths(
 	return paths;
 }
 
+function collectTreeFieldUuids(nodes: readonly FieldTreeNode[]): Set<Uuid> {
+	const uuids = new Set<Uuid>();
+	const visit = (entries: readonly FieldTreeNode[]) => {
+		for (const node of entries) {
+			uuids.add(node.field.uuid);
+			if (node.children) visit(node.children);
+		}
+	};
+	visit(nodes);
+	return uuids;
+}
+
 /**
  * Deep validation: walks every form, builds the valid path set + per-case-type
  * accept map per form, validates every XPath expression, and runs cycle
@@ -291,6 +305,7 @@ export function validateBlueprintDeep(
 			};
 
 			const validPaths = collectValidPaths(doc, formUuid);
+			const validFieldUuids = collectTreeFieldUuids(tree);
 
 			// The form's connect config, read directly from the doc (only when
 			// the app is in Connect mode). The validator runs on docs that may
@@ -348,17 +363,18 @@ export function validateBlueprintDeep(
 			// (no wire break), but the author gets no signal. Reuse the SAME
 			// per-form accept map and `checkCaseHashtag` rule the XPath pass
 			// uses, so prose and XPath can never disagree on which refs are
-			// live. Skipped when the form has no reachable case type.
-			if (caseTypeProps) {
-				validateTreeProse(
-					doc,
-					tree,
-					caseTypeProps,
-					isRegistrationForm,
-					loc,
-					errors,
-				);
-			}
+			// live. Field/custom-worker identities are validated even on a
+			// survey form; an empty case map simply admits no case refs.
+			validateTreeProse(
+				doc,
+				tree,
+				validPaths,
+				validFieldUuids,
+				caseTypeProps ?? new Map(),
+				isRegistrationForm,
+				loc,
+				errors,
+			);
 
 			// Connect-block XPath expressions. The expressions themselves
 			// (`user_score`, `entity_id`, `entity_name`) are id-independent, so
@@ -478,27 +494,14 @@ function validateTreeXPath(
 }
 
 /**
- * Match an embedded Nova hashtag ref inside PROSE using the SAME pattern the
- * XForm builder's lowering pass consumes (`BARE_HASHTAG_PATTERN`), so emission
- * and validation can't drift on what counts as a prose hashtag. Own global
- * instance (the shared pattern carries no `/g`); `/g` is safe with `matchAll`
- * (it clones, never mutating `lastIndex`).
- */
-const PROSE_HASHTAG_RE = new RegExp(BARE_HASHTAG_PATTERN, "g");
-
-/**
- * Recursively scan every PROSE surface (label / hint / help / validate_msg +
- * per-option labels) for embedded `#<type>/<prop>` case refs, pushing a TYPED
- * `field-prose` `DeepValidationError` per ref the form can't read. Runs the
- * SAME `checkCaseHashtag` rule against the SAME per-form accept map the XPath
- * pass uses, with the LENIENT `surface: "prose"` policy: a ref is flagged only
- * when its namespace is a reachable case type AND the property is invalid on
- * it. An unreachable / innocent prose token is left alone — exactly as the
- * emitter ships it as literal text (`xform/builder.ts::buildLabelNodes`).
+ * Recursively validate the typed parts in every canonical prose template.
+ * Literal text is inert even when it looks like a hashtag reference.
  */
 function validateTreeProse(
 	doc: BlueprintDoc,
 	nodes: FieldTreeNode[],
+	validPaths: Set<string>,
+	validFieldUuids: Set<Uuid>,
 	caseTypeProps: Map<string, Set<string>>,
 	isRegistrationForm: boolean,
 	loc: DeepLocation,
@@ -507,30 +510,82 @@ function validateTreeProse(
 	const scan = (
 		field: Field,
 		surface: ProseSurface,
-		text: string | undefined,
+		template: ProseTemplate | undefined,
 	): void => {
-		if (!text) return;
-		for (const match of text.matchAll(PROSE_HASHTAG_RE)) {
-			const refText = match[0];
-			const slashIdx = refText.indexOf("/");
-			const ns = refText.slice(1, slashIdx);
-			const rest = refText.slice(slashIdx + 1);
-			const message = checkCaseHashtag(
-				refText,
-				ns,
-				rest,
-				caseTypeProps,
-				isRegistrationForm,
-				"prose",
-			);
-			if (message) {
+		if (!template) return;
+		const print = xpathPrintContext(doc);
+		for (const [partIndex, part] of template.parts.entries()) {
+			let error: XPathError | undefined;
+			switch (part.kind) {
+				case "text":
+					break;
+				case "field-ref": {
+					const path = print.fieldPathSegments(part.uuid);
+					const ref = path ? `/data/${path.join("/")}` : `/data/${part.uuid}`;
+					const target = doc.fields[part.uuid];
+					if (
+						!path ||
+						!validPaths.has(ref) ||
+						!validFieldUuids.has(part.uuid) ||
+						target === undefined ||
+						fieldRegistry[target.kind].isStructural
+					) {
+						error = {
+							code: "INVALID_REF",
+							message: `Unknown form field reference: ${ref}`,
+							position: partIndex,
+							ref,
+							storedRef: "dangling-identity",
+						};
+					}
+					break;
+				}
+				case "case-ref": {
+					const refText = `#${part.caseType}/${part.property}`;
+					const message = checkCaseHashtag(
+						refText,
+						part.caseType,
+						part.property,
+						caseTypeProps,
+						isRegistrationForm,
+						"prose",
+					);
+					if (message) {
+						error = {
+							code: "INVALID_CASE_REF",
+							message,
+							position: partIndex,
+						};
+					}
+					break;
+				}
+				case "user-property-ref":
+					if (doc.userProperties?.[part.userPropertyUuid] === undefined) {
+						error = {
+							code: "INVALID_REF",
+							message: `Unknown worker information reference: ${part.userPropertyUuid}`,
+							position: partIndex,
+							ref: part.userPropertyUuid,
+							storedRef: "dangling-identity",
+						};
+					}
+					break;
+				case "user-ref":
+					// The schema closes this arm over external runtime names.
+					break;
+				default: {
+					const _exhaustive: never = part;
+					break;
+				}
+			}
+			if (error) {
 				errors.push({
 					...loc,
 					kind: "field-prose",
 					fieldUuid: field.uuid,
 					fieldId: field.id,
 					surface,
-					error: { code: "INVALID_CASE_REF", message, position: match.index },
+					error,
 				});
 			}
 		}
@@ -542,13 +597,19 @@ function validateTreeProse(
 		// including the fan-out `option_label` slot, whose per-option
 		// labels lower to itext just like a field label, so an embedded
 		// case ref there must resolve too.
-		for (const { slot, text } of expressionSurfaceReads(field, "prose", doc)) {
-			scan(field, slot, text);
+		for (const { slot, template } of expressionSurfaceReads(
+			field,
+			"prose",
+			doc,
+		)) {
+			scan(field, slot, template);
 		}
 		if (node.children) {
 			validateTreeProse(
 				doc,
 				node.children,
+				validPaths,
+				validFieldUuids,
 				caseTypeProps,
 				isRegistrationForm,
 				loc,

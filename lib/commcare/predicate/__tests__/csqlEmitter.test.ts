@@ -40,6 +40,7 @@
 //      a sibling `<data>` slot's value never reaches the instance —
 //      the inline shape is the only wire-correct option.
 
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 
@@ -885,17 +886,23 @@ describe("emitCsql — exists / missing", () => {
 			caseTypes: [
 				{
 					name: "household",
-					properties: [{ name: "full_name", label: "Name", data_type: "text" }],
+					properties: [
+						{ name: "full_name", label: proseText("Name"), data_type: "text" },
+					],
 				},
 				{
 					name: "patient",
 					parent_type: "household",
-					properties: [{ name: "full_name", label: "Name", data_type: "text" }],
+					properties: [
+						{ name: "full_name", label: proseText("Name"), data_type: "text" },
+					],
 				},
 				{
 					name: "child",
 					parent_type: "patient",
-					properties: [{ name: "full_name", label: "Name", data_type: "text" }],
+					properties: [
+						{ name: "full_name", label: proseText("Name"), data_type: "text" },
+					],
 				},
 			],
 			knownInputs: [],

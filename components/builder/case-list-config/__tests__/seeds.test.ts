@@ -2,6 +2,7 @@
 // must work immediately. Search gets a useful automatic seed; display creation
 // builds from the exact property the author chose in the canvas.
 
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
@@ -37,7 +38,7 @@ function prop(
 	name: string,
 	data_type?: CaseProperty["data_type"],
 ): CaseProperty {
-	return { name, label: name, ...(data_type ? { data_type } : {}) };
+	return { name, label: proseText(name), ...(data_type ? { data_type } : {}) };
 }
 
 function config(overrides: Partial<CaseListConfig> = {}): CaseListConfig {

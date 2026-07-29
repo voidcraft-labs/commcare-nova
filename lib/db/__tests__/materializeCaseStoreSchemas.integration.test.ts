@@ -29,6 +29,7 @@
 // feeds the monotone `synced_seq` gate so a stale lower-seq
 // materialize no-ops against a fresher row.
 
+import { proseText } from "@/lib/domain/prose";
 import type { Kysely } from "kysely";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CaseStore } from "@/lib/case-store";
@@ -154,11 +155,15 @@ describe("materializeCaseStoreSchemas — multi-case-type completion", () => {
 		// the first entry.
 		const patient: CaseType = {
 			name: "patient",
-			properties: [{ name: "name", label: "Name", data_type: "text" }],
+			properties: [
+				{ name: "name", label: proseText("Name"), data_type: "text" },
+			],
 		};
 		const visit: CaseType = {
 			name: "visit",
-			properties: [{ name: "notes", label: "Notes", data_type: "text" }],
+			properties: [
+				{ name: "notes", label: proseText("Notes"), data_type: "text" },
+			],
 		};
 		const blueprint = makeBlueprint([patient, visit]);
 
@@ -254,11 +259,11 @@ describe("materializeCaseStoreSchemas — syncedSeq threading", () => {
 
 		const a: CaseType = {
 			name: "a",
-			properties: [{ name: "x", label: "X", data_type: "text" }],
+			properties: [{ name: "x", label: proseText("X"), data_type: "text" }],
 		};
 		const b: CaseType = {
 			name: "b",
-			properties: [{ name: "y", label: "Y", data_type: "text" }],
+			properties: [{ name: "y", label: proseText("Y"), data_type: "text" }],
 		};
 
 		await materializeCaseStoreSchemas({
@@ -314,7 +319,7 @@ describe("materializeCaseStoreSchemas — syncedSeq threading", () => {
 
 		const a: CaseType = {
 			name: "a",
-			properties: [{ name: "x", label: "X", data_type: "text" }],
+			properties: [{ name: "x", label: proseText("X"), data_type: "text" }],
 		};
 
 		await materializeCaseStoreSchemas({
@@ -379,11 +384,11 @@ describe("materializeCaseStoreSchemas — retry transient, swallow transient, th
 
 		const a: CaseType = {
 			name: "a",
-			properties: [{ name: "x", label: "X", data_type: "text" }],
+			properties: [{ name: "x", label: proseText("X"), data_type: "text" }],
 		};
 		const b: CaseType = {
 			name: "b",
-			properties: [{ name: "y", label: "Y", data_type: "text" }],
+			properties: [{ name: "y", label: proseText("Y"), data_type: "text" }],
 		};
 
 		// Throws — the deterministic fault on `b` propagates (not swallowed).
@@ -446,15 +451,15 @@ describe("materializeCaseStoreSchemas — retry transient, swallow transient, th
 
 		const a: CaseType = {
 			name: "a",
-			properties: [{ name: "x", label: "X", data_type: "text" }],
+			properties: [{ name: "x", label: proseText("X"), data_type: "text" }],
 		};
 		const b: CaseType = {
 			name: "b",
-			properties: [{ name: "y", label: "Y", data_type: "text" }],
+			properties: [{ name: "y", label: proseText("Y"), data_type: "text" }],
 		};
 		const c: CaseType = {
 			name: "c",
-			properties: [{ name: "z", label: "Z", data_type: "text" }],
+			properties: [{ name: "z", label: proseText("Z"), data_type: "text" }],
 		};
 
 		// Resolves — the transient-exhausted throw on `b` is swallowed.
@@ -522,7 +527,7 @@ describe("materializeCaseStoreSchemas — retry transient, swallow transient, th
 
 		const a: CaseType = {
 			name: "a",
-			properties: [{ name: "x", label: "X", data_type: "text" }],
+			properties: [{ name: "x", label: proseText("X"), data_type: "text" }],
 		};
 
 		await expect(
@@ -545,13 +550,15 @@ describe("materializeCaseStoreSchemas — monotone synced_seq gate (integration)
 		// the recorded `synced_seq` and skips the whole call.
 		const patientV1: CaseType = {
 			name: "patient",
-			properties: [{ name: "name", label: "Name", data_type: "text" }],
+			properties: [
+				{ name: "name", label: proseText("Name"), data_type: "text" },
+			],
 		};
 		const patientV2: CaseType = {
 			name: "patient",
 			properties: [
-				{ name: "name", label: "Name", data_type: "text" },
-				{ name: "village", label: "Village", data_type: "text" },
+				{ name: "name", label: proseText("Name"), data_type: "text" },
+				{ name: "village", label: proseText("Village"), data_type: "text" },
 			],
 		};
 
@@ -591,7 +598,9 @@ describe("materializeCaseStoreSchemas — monotone synced_seq gate (integration)
 		// widen the gap it exists to close.
 		const patient: CaseType = {
 			name: "patient",
-			properties: [{ name: "name", label: "Name", data_type: "text" }],
+			properties: [
+				{ name: "name", label: proseText("Name"), data_type: "text" },
+			],
 		};
 
 		// The first save's store fails for `patient` with a TRANSIENT (coded)

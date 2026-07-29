@@ -1,8 +1,9 @@
 "use client";
 
 import { MediaDisplay } from "@/components/builder/media/MediaDisplay";
+import type { ProseTemplate } from "@/lib/domain";
 import type { Media } from "@/lib/domain/multimedia";
-import { PreviewMarkdown } from "@/lib/markdown";
+import { LabelContent } from "@/lib/references/LabelContent";
 
 /**
  * A field's help text + help media. CommCare hides help behind a "?" disclosure
@@ -20,11 +21,13 @@ import { PreviewMarkdown } from "@/lib/markdown";
 export function FieldHelp({
 	id,
 	help,
+	resolvedHelp,
 	helpMedia,
 	interactive,
 }: {
 	id?: string;
-	help: string | undefined;
+	help: ProseTemplate | undefined;
+	resolvedHelp?: string;
 	helpMedia: Media | undefined;
 	interactive: boolean;
 }) {
@@ -32,9 +35,12 @@ export function FieldHelp({
 	return (
 		<div id={id} className="space-y-1.5">
 			{help && (
-				<div className="preview-markdown text-xs text-nova-text-muted">
-					<PreviewMarkdown>{help}</PreviewMarkdown>
-				</div>
+				<LabelContent
+					label={help}
+					resolvedLabel={resolvedHelp}
+					isEditMode={!interactive}
+					className="text-xs text-nova-text-muted"
+				/>
 			)}
 			<MediaDisplay media={helpMedia} interactive={interactive} />
 		</div>

@@ -20,11 +20,13 @@
  */
 
 import { z } from "zod";
-import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import {
-	addSearchInputsMutation,
-	resolveModuleUuid,
-} from "../../blueprintHelpers";
+	asUuid,
+	type BlueprintDoc,
+	findAuthoredBlueprintIdentity,
+	type Uuid,
+} from "@/lib/domain";
+import { addSearchInputsMutation } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import {
 	guardedMutate,
@@ -33,22 +35,22 @@ import {
 } from "../common";
 import type { MutationSuccess } from "../shared/toolCallSummary";
 import {
-	moduleNotFoundResult,
+	moduleAddressSchema,
+	resolveModuleAddress,
+} from "../shared/entityAddresses";
+import {
 	newUuid,
 	searchInputDefInputSchema,
 	stampSearchInputUuid,
 } from "./shared";
 
-export const addSearchInputsInputSchema = z
-	.object({
-		moduleIndex: z
-			.number()
-			.describe("0-based module index whose case list to add search inputs to"),
+export const addSearchInputsInputSchema = moduleAddressSchema
+	.extend({
 		searchInputs: z
 			.array(searchInputDefInputSchema)
 			.min(1)
 			.describe(
-				"The search inputs to append, in order. Each: pick a kind (`simple` for property/mode/via inputs or `advanced` for a free-form predicate) and supply the kind's required fields. Scalar widgets may include an optional `default`; date-range must omit it because one expression cannot seed both ends. The tool mints each input's uuid; do not supply one.",
+				"The Search inputs to append, in order. Supply searchInputUuid when another item in this call references the input; otherwise Nova mints it.",
 			),
 	})
 	.strict();
@@ -75,24 +77,39 @@ export const addSearchInputsTool = {
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<AddSearchInputsResult>> {
-		const { moduleIndex, searchInputs } = input;
+		const { searchInputs } = input;
 		try {
-			const moduleUuid = resolveModuleUuid(doc, moduleIndex);
-			if (!moduleUuid)
-				return moduleNotFoundResult<AddSearchInputsSuccess>(
-					doc,
-					moduleIndex,
-					"add search inputs",
-				);
-			const mod = doc.modules[moduleUuid];
-			if (!mod)
-				return moduleNotFoundResult<AddSearchInputsSuccess>(
-					doc,
-					moduleIndex,
-					"add search inputs",
-				);
+			const address = resolveModuleAddress(doc, input);
+			if (!address.ok) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					newDoc: doc,
+					result: { error: address.error },
+				};
+			}
+			const { moduleUuid, module: mod } = address;
 
-			const uuids = searchInputs.map(() => newUuid());
+			const uuids = searchInputs.map((input) =>
+				input.searchInputUuid === undefined
+					? newUuid()
+					: asUuid(input.searchInputUuid),
+			);
+			const collision = uuids.find(
+				(uuid, index) =>
+					uuids.indexOf(uuid) !== index ||
+					findAuthoredBlueprintIdentity(doc, uuid) !== undefined,
+			);
+			if (collision !== undefined) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					newDoc: doc,
+					result: {
+						error: `Search-input UUID "${collision}" is duplicated in this call or already belongs to an authored object.`,
+					},
+				};
+			}
 			const stamped = searchInputs.map((s, i) =>
 				stampSearchInputUuid(s, uuids[i]),
 			);
@@ -105,7 +122,7 @@ export const addSearchInputsTool = {
 				ctx,
 				doc,
 				result.mutations,
-				`module:${moduleIndex}:caseList:searchInput:add`,
+				`module:${moduleUuid}:caseList:searchInput:add`,
 			);
 			if (!commit.ok) {
 				return {

@@ -28,7 +28,12 @@ import { LabelField } from "@/components/preview/form/fields/LabelField";
 import { TextEditable } from "@/components/preview/form/TextEditable";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useField } from "@/lib/doc/hooks/useEntity";
-import type { FieldPatchFor, Uuid } from "@/lib/domain";
+import {
+	fallbackProseProjection,
+	type FieldPatchFor,
+	type ProseTemplate,
+	type Uuid,
+} from "@/lib/domain";
 import { useEngineController } from "@/lib/preview/hooks/useEngineController";
 import { useEngineState } from "@/lib/preview/hooks/useEngineState";
 import { LabelContent } from "@/lib/references/LabelContent";
@@ -69,12 +74,12 @@ export const FieldRow = memo(function FieldRow({
 	 * the runtime contract holds. */
 	const fieldKind = q?.kind;
 	const saveField = useMemo<
-		((field: string, value: string) => void) | null
+		((field: string, value: ProseTemplate) => void) | null
 	>(() => {
 		if (mode !== "edit" || fieldKind === undefined) return null;
 		return (property, value) => {
 			updateField(uuid, fieldKind, {
-				[property]: value === "" ? undefined : value,
+				[property]: value,
 			} as FieldPatchFor<typeof fieldKind>);
 		};
 	}, [mode, uuid, fieldKind, updateField]);
@@ -94,7 +99,7 @@ export const FieldRow = memo(function FieldRow({
 	// `label` is absent from the `hidden` kind; fall back to id or a
 	// generic placeholder so the drag preview never shows an empty pill.
 	const labelText =
-		q && "label" in q && typeof q.label === "string" ? q.label.trim() : "";
+		q && "label" in q && q.label ? fallbackProseProjection(q.label).trim() : "";
 	const previewLabel = labelText || q?.id || "Field";
 	const renderPreview = useCallback(
 		() => <DragPreviewPill label={previewLabel} />,
@@ -179,6 +184,7 @@ export const FieldRow = memo(function FieldRow({
 				    only, so guard the access. */}
 				<FieldHelp
 					help={"help" in q ? q.help : undefined}
+					resolvedHelp={state.resolvedHelp}
 					helpMedia={"help_media" in q ? q.help_media : undefined}
 					interactive={false}
 				/>

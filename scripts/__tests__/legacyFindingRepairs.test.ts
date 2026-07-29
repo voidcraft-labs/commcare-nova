@@ -25,6 +25,7 @@
 // type-level references to `lib/db` — so no import-boundary stub is
 // needed; only the CLI wrappers read the app-state tables.
 
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import {
@@ -96,8 +97,8 @@ function minDoc(extraFields: Parameters<typeof f>[0][] = []): BlueprintDoc {
 			{
 				name: "patient",
 				properties: [
-					{ name: "case_name", label: "Name" },
-					{ name: "village", label: "Village" },
+					{ name: "case_name", label: proseText("Name") },
+					{ name: "village", label: proseText("Village") },
 				],
 			},
 		],
@@ -442,7 +443,10 @@ describe("close-condition repairs", () => {
 				},
 			],
 			caseTypes: [
-				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 			],
 		});
 		if (closeCondition) {
@@ -856,7 +860,10 @@ describe("toLegacyBlueprintView — reads pre-AST blueprints the migration's way
 				},
 			],
 			caseTypes: [
-				{ name: "patient", properties: [{ name: "case_name", label: "Name" }] },
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
 			],
 		});
 

@@ -4,6 +4,7 @@
  * `eventSchema.parse()` to validate persisted data.
  */
 
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 
@@ -46,7 +47,7 @@ describe("eventSchema", () => {
 					kind: "text",
 					uuid: testUuid("fld-1"),
 					id: "name",
-					label: "Name",
+					label: proseText("Name"),
 				},
 			},
 		};

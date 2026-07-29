@@ -15,6 +15,7 @@
 //      valid AST. The schema's parse pass is the structural
 //      contract.
 
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { type CaseType, type Column, columnSchema } from "@/lib/domain";
 import {
@@ -26,8 +27,8 @@ import {
 const PATIENT: CaseType = {
 	name: "patient",
 	properties: [
-		{ name: "name", label: "Name", data_type: "text" },
-		{ name: "dob", label: "Date of birth", data_type: "date" },
+		{ name: "name", label: proseText("Name"), data_type: "text" },
+		{ name: "dob", label: proseText("Date of birth"), data_type: "date" },
 	],
 };
 
@@ -67,16 +68,20 @@ describe("columnCardSchemas — defaultValue parses through schema", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "name", label: "Patient", data_type: "text" },
+						{ name: "name", label: proseText("Patient"), data_type: "text" },
 						{
 							name: "date-opened",
-							label: "Opened",
+							label: proseText("Opened"),
 							data_type: "datetime",
 						},
-						{ name: "case_name", label: "Case name", data_type: "text" },
+						{
+							name: "case_name",
+							label: proseText("Case name"),
+							data_type: "text",
+						},
 						{
 							name: "date_opened",
-							label: "Date opened",
+							label: proseText("Date opened"),
 							data_type: "datetime",
 						},
 					],

@@ -14,6 +14,7 @@
  *      Add Property pill returns.
  */
 
+import { proseText } from "@/lib/domain/prose";
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -31,7 +32,7 @@ const baseField: TextField = {
 	kind: "text",
 	uuid: FIELD_UUID,
 	id: "name",
-	label: "Name",
+	label: proseText("Name"),
 };
 
 function entry(
@@ -103,7 +104,7 @@ describe("useSectionActivation — pendingSatisfied effect (value lands)", () =>
 
 		// 2. Value lands by some path (LLM, undo, user typing — all flow
 		//    through the same independentlyVisible flip).
-		field = { ...baseField, hint: "typed value" };
+		field = { ...baseField, hint: proseText("typed value") };
 		rerender();
 
 		// 3. The effect runs after the render that exposes

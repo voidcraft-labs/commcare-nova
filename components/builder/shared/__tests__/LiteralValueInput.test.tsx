@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { proseText } from "@/lib/domain/prose";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, type Mock, vi } from "vitest";
 import type { CaseType } from "@/lib/domain";
@@ -18,19 +19,19 @@ const LONG_OPTION_LABEL =
 const PATIENT: CaseType = {
 	name: "patient",
 	properties: [
-		{ name: "age", label: "Age", data_type: "int" },
-		{ name: "weight", label: "Weight", data_type: "decimal" },
-		{ name: "nickname", label: "Nickname", data_type: "text" },
-		{ name: "visit_date", label: "Visit date", data_type: "date" },
-		{ name: "visit_time", label: "Visit time", data_type: "time" },
+		{ name: "age", label: proseText("Age"), data_type: "int" },
+		{ name: "weight", label: proseText("Weight"), data_type: "decimal" },
+		{ name: "nickname", label: proseText("Nickname"), data_type: "text" },
+		{ name: "visit_date", label: proseText("Visit date"), data_type: "date" },
+		{ name: "visit_time", label: proseText("Visit time"), data_type: "time" },
 		{
 			name: "follow_up_plan",
-			label: "Follow-up plan",
+			label: proseText("Follow-up plan"),
 			data_type: "single_select",
 			options: [
 				{
 					value: "weekly_until_complete",
-					label: LONG_OPTION_LABEL,
+					label: proseText(LONG_OPTION_LABEL),
 				},
 			],
 		},

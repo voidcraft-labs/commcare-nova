@@ -11,6 +11,7 @@
 import {
 	type CasePropertyDataType,
 	caseDataTypeForFieldKind,
+	fallbackProseProjection,
 	type Field,
 	type FieldKind,
 	type Uuid,
@@ -30,7 +31,10 @@ export interface FormFieldEntry {
 }
 
 function labelOf(field: Field): string {
-	const label = "label" in field ? (field.label ?? "").trim() : "";
+	const label =
+		"label" in field && field.label
+			? fallbackProseProjection(field.label).trim()
+			: "";
 	return label.length > 0 ? label : field.id;
 }
 

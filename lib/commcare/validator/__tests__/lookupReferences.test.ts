@@ -1,3 +1,4 @@
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
@@ -188,9 +189,9 @@ describe("lookup-aware commit delta", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "plain", label: "Plain" },
-						{ name: "lookup_value", label: "Lookup value" },
-						{ name: "lookup_value_2", label: "Second lookup value" },
+						{ name: "plain", label: proseText("Plain") },
+						{ name: "lookup_value", label: proseText("Lookup value") },
+						{ name: "lookup_value_2", label: proseText("Second lookup value") },
 					],
 				},
 			],

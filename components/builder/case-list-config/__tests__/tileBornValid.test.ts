@@ -6,6 +6,7 @@
 // adjudication `useBlueprintMutations` performs — rather than trusting
 // the planner's own arithmetic.
 
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
@@ -38,9 +39,9 @@ function docWithColumns(columns: readonly Column[]): {
 			{
 				name: "patient",
 				properties: [
-					{ name: "case_name", label: "Name", data_type: "text" },
-					{ name: "village", label: "Village", data_type: "text" },
-					{ name: "age", label: "Age", data_type: "int" },
+					{ name: "case_name", label: proseText("Name"), data_type: "text" },
+					{ name: "village", label: proseText("Village"), data_type: "text" },
+					{ name: "age", label: proseText("Age"), data_type: "int" },
 				],
 			},
 		],

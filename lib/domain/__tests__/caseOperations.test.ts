@@ -1,3 +1,4 @@
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
@@ -112,7 +113,7 @@ describe("case-operation domain vocabulary", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "score", label: "Score" }],
+					properties: [{ name: "score", label: proseText("Score") }],
 				},
 			],
 			modules: [
@@ -153,11 +154,13 @@ describe("case-operation domain vocabulary", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "score", label: "Score" }],
+					properties: [{ name: "score", label: proseText("Score") }],
 				},
 				{
 					name: "visit",
-					properties: [{ name: "patient_score", label: "Patient score" }],
+					properties: [
+						{ name: "patient_score", label: proseText("Patient score") },
+					],
 				},
 			],
 			modules: [
@@ -218,8 +221,8 @@ describe("case-operation domain vocabulary", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "score", label: "Score" },
-						{ name: "score_copy", label: "Score copy" },
+						{ name: "score", label: proseText("Score") },
+						{ name: "score_copy", label: proseText("Score copy") },
 					],
 				},
 			],
@@ -277,8 +280,8 @@ describe("case-operation domain vocabulary", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "left", label: "Left" },
-						{ name: "right", label: "Right" },
+						{ name: "left", label: proseText("Left") },
+						{ name: "right", label: proseText("Right") },
 					],
 				},
 			],
@@ -338,18 +341,21 @@ describe("case retype planning", () => {
 				{
 					name: "lead",
 					properties: [
-						{ name: "shared", label: "Shared", data_type: "text" },
-						{ name: "legacy", label: "Legacy", data_type: "text" },
-						{ name: "case_name", label: "Legacy declared case name" },
+						{ name: "shared", label: proseText("Shared"), data_type: "text" },
+						{ name: "legacy", label: proseText("Legacy"), data_type: "text" },
+						{
+							name: "case_name",
+							label: proseText("Legacy declared case name"),
+						},
 					],
 				},
 				{
 					name: "client",
 					properties: [
-						{ name: "shared", label: "Shared", data_type: "int" },
+						{ name: "shared", label: proseText("Shared"), data_type: "int" },
 						{
 							name: "enrolled",
-							label: "Enrolled",
+							label: proseText("Enrolled"),
 							required: "true()",
 						},
 					],

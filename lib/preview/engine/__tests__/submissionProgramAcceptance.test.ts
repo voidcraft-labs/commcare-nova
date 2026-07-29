@@ -7,6 +7,7 @@
 // repeat expansion; the ordinary action landing LAST with its
 // caseType folded into the rolling proof).
 
+import { proseText } from "@/lib/domain/prose";
 import type { Kysely } from "kysely";
 import { beforeEach, describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -116,9 +117,17 @@ function acceptanceDoc(
 			{
 				name: "patient",
 				properties: [
-					{ name: "status", label: "Status", data_type: "text" },
-					{ name: "op_status", label: "Op status", data_type: "text" },
-					{ name: "visit_note", label: "Visit note", data_type: "text" },
+					{ name: "status", label: proseText("Status"), data_type: "text" },
+					{
+						name: "op_status",
+						label: proseText("Op status"),
+						data_type: "text",
+					},
+					{
+						name: "visit_note",
+						label: proseText("Visit note"),
+						data_type: "text",
+					},
 				],
 			},
 		],

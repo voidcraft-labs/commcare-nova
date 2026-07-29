@@ -8,6 +8,7 @@ import type { CaseProperty, CaseType } from "./blueprint";
 import type { CasePropertyDataType } from "./casePropertyTypes";
 import type { FieldKind } from "./fields";
 import type { FormType } from "./forms";
+import { fallbackProseProjection } from "./prose";
 
 /**
  * The case-property `data_type` a field of the given kind writes.
@@ -199,7 +200,10 @@ export function toReachableIndex(
 	const index: ReachableCaseTypeIndex = new Map();
 	for (const t of reachable) {
 		const properties = new Map(
-			t.properties.map((p) => [p.name, { label: p.label }]),
+			t.properties.map((p) => [
+				p.name,
+				{ label: fallbackProseProjection(p.label) },
+			]),
 		);
 		if (!properties.has("case_id"))
 			properties.set("case_id", { label: "case id" });

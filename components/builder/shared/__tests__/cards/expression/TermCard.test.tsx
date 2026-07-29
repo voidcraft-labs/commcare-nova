@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { proseText } from "@/lib/domain/prose";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
@@ -38,15 +39,17 @@ const PATIENT: CaseType = {
 
 const HOUSEHOLD: CaseType = {
 	name: "household",
-	properties: [{ name: "region", label: "Region", data_type: "text" }],
+	properties: [
+		{ name: "region", label: proseText("Region"), data_type: "text" },
+	],
 };
 
 const PATIENT_WITH_INFORMATION: CaseType = {
 	name: "patient",
 	parent_type: "household",
 	properties: [
-		{ name: "case_name", label: "Case name", data_type: "text" },
-		{ name: "age", label: "Age", data_type: "int" },
+		{ name: "case_name", label: proseText("Case name"), data_type: "text" },
+		{ name: "age", label: proseText("Age"), data_type: "int" },
 	],
 };
 

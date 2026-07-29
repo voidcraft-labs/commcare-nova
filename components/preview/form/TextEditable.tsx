@@ -16,16 +16,17 @@
 
 "use client";
 import { type ReactNode, useCallback, useRef, useState } from "react";
+import type { ProseTemplate } from "@/lib/domain";
 import { useCanEdit, usePreviewing } from "@/lib/session/hooks";
 
 import type { FieldType } from "./fieldStyles";
 import { InlineTextEditor } from "./InlineTextEditor";
 
 interface TextEditableProps {
-	/** Raw markdown value for this field. */
-	value: string;
+	/** Canonical Markdown-plus-reference template for this field. */
+	value: ProseTemplate;
 	/** Called when the editor saves a new value. Undefined = read-only (no text mode editing). */
-	onSave: ((value: string) => void) | undefined;
+	onSave: ((value: ProseTemplate) => void) | undefined;
 	/** Which text surface — drives InlineTextEditor styling. */
 	fieldType: FieldType;
 	/** Static rendering of this field (LabelContent). Shown when not editing. */
@@ -46,10 +47,10 @@ export function TextEditable({
 	const clickPosRef = useRef<{ x: number; y: number } | null>(null);
 
 	const handleSave = useCallback(
-		(newValue: string) => {
+		(newValue: ProseTemplate) => {
 			clickPosRef.current = null;
 			setEditing(false);
-			if (newValue !== value) {
+			if (JSON.stringify(newValue) !== JSON.stringify(value)) {
 				onSave?.(newValue);
 			}
 		},

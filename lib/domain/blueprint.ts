@@ -18,9 +18,11 @@ import { formSchema } from "./forms";
 import { moduleSchema } from "./modules";
 import { mediaAssetIdSchema } from "./multimedia";
 import { ownRecordSchema } from "./records";
+import { proseTemplateSchema } from "./prose";
 import type { ReferenceIndex } from "./referenceIndex";
 import { personaSchema, userPropertySchema, userTypeSchema } from "./users";
 import { type Uuid, uuidSchema } from "./uuid";
+import { xpathExpressionSchema } from "./xpath";
 
 // Re-exports — `casePropertyDataTypes` / `CasePropertyDataType` /
 // `casePropertyDataTypeSchema` live at the leaf
@@ -55,14 +57,16 @@ export type CasePropertyMapping = z.infer<typeof casePropertyMappingSchema>;
 export const casePropertySchema = z
 	.object({
 		name: z.string(),
-		label: z.string(),
+		label: proseTemplateSchema,
 		data_type: casePropertyDataTypeSchema.optional(),
-		hint: z.string().optional(),
-		required: z.string().optional(),
-		validation: z.string().optional(),
-		validation_msg: z.string().optional(),
+		hint: proseTemplateSchema.optional(),
+		required: xpathExpressionSchema.optional(),
+		validation: xpathExpressionSchema.optional(),
+		validation_msg: proseTemplateSchema.optional(),
 		options: z
-			.array(z.object({ value: z.string(), label: z.string() }).strict())
+			.array(
+				z.object({ value: z.string(), label: proseTemplateSchema }).strict(),
+			)
 			.optional(),
 	})
 	.strict();

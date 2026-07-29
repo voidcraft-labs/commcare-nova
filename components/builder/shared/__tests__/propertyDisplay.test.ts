@@ -1,3 +1,4 @@
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import {
 	friendlyPropertyDisambiguator,
@@ -9,19 +10,28 @@ import {
 describe("propertyDisplayLabel", () => {
 	it("uses friendly system labels instead of stored identifiers", () => {
 		expect(
-			propertyDisplayLabel({ name: "external_id", label: "external_id" }),
+			propertyDisplayLabel({
+				name: "external_id",
+				label: proseText("external_id"),
+			}),
 		).toBe("External ID");
-		expect(propertyDisplayLabel({ name: "status", label: "Status" })).toBe(
-			"Case status (open or closed)",
-		);
+		expect(
+			propertyDisplayLabel({ name: "status", label: proseText("Status") }),
+		).toBe("Case status (open or closed)");
 	});
 
 	it("keeps a meaningful authored label", () => {
 		expect(
-			propertyDisplayLabel({ name: "case_name", label: "Patient name" }),
+			propertyDisplayLabel({
+				name: "case_name",
+				label: proseText("Patient name"),
+			}),
 		).toBe("Patient name");
 		expect(
-			propertyDisplayLabel({ name: "current_status", label: "Workflow stage" }),
+			propertyDisplayLabel({
+				name: "current_status",
+				label: proseText("Workflow stage"),
+			}),
 		).toBe("Workflow stage");
 	});
 
@@ -38,10 +48,14 @@ describe("propertyDisplayLabel", () => {
 			propertyDisplayLabelForName("external-id", [
 				{
 					name: "external-id",
-					label: "external-id",
+					label: proseText("external-id"),
 					data_type: "text",
 				},
-				{ name: "external_id", label: "external_id", data_type: "text" },
+				{
+					name: "external_id",
+					label: proseText("external_id"),
+					data_type: "text",
+				},
 			]),
 		).toBe("External ID");
 	});
@@ -51,10 +65,14 @@ describe("propertyDisplayLabel", () => {
 			propertyDisplayLabelForName("external-id", [
 				{
 					name: "external-id",
-					label: "Partner registry number",
+					label: proseText("Partner registry number"),
 					data_type: "text",
 				},
-				{ name: "external_id", label: "external_id", data_type: "text" },
+				{
+					name: "external_id",
+					label: proseText("external_id"),
+					data_type: "text",
+				},
 			]),
 		).toBe("Partner registry number");
 	});

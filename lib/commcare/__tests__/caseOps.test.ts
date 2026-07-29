@@ -1,3 +1,4 @@
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
@@ -54,8 +55,8 @@ function emit(
 			{
 				name: "patient",
 				properties: [
-					{ name: "nickname", label: "Nickname" },
-					{ name: "source_id", label: "Source ID" },
+					{ name: "nickname", label: proseText("Nickname") },
+					{ name: "source_id", label: proseText("Source ID") },
 				],
 			},
 			{ name: "visit", properties: [] },
@@ -444,7 +445,7 @@ describe("case-operation XForm emission", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "nickname", label: "Nickname" }],
+					properties: [{ name: "nickname", label: proseText("Nickname") }],
 				},
 				{ name: "visit", properties: [] },
 			],

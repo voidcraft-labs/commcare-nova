@@ -5,6 +5,7 @@ import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import type {
 	FieldPatchFor,
 	LabelField as LabelFieldEntity,
+	ProseTemplate,
 } from "@/lib/domain";
 import type { FieldState } from "@/lib/preview/engine/types";
 import { LabelContent } from "@/lib/references/LabelContent";
@@ -40,12 +41,12 @@ export function LabelField({
 	 * shape — every key TextEditable can save (`label`) is declared on
 	 * `LabelField`, so the runtime contract holds. */
 	const saveField = useMemo<
-		((field: string, value: string) => void) | null
+		((field: string, value: ProseTemplate) => void) | null
 	>(() => {
 		if (!isEditMode) return null;
 		return (property, value) => {
 			updateField(field.uuid, "label", {
-				[property]: value === "" ? undefined : value,
+				[property]: value,
 			} as FieldPatchFor<"label">);
 		};
 	}, [isEditMode, field.uuid, updateField]);
@@ -56,12 +57,12 @@ export function LabelField({
 			    use, so a display-only label shows its image/audio/video too. */}
 			<MediaDisplay media={field.label_media} interactive={!isEditMode} />
 			<TextEditable
-				value={field.label ?? ""}
+				value={field.label}
 				onSave={saveField ? (v) => saveField("label", v) : undefined}
 				fieldType="label"
 			>
 				<LabelContent
-					label={field.label ?? ""}
+					label={field.label}
 					resolvedLabel={state.resolvedLabel}
 					isEditMode={isEditMode}
 					className={FIELD_STYLES.label}

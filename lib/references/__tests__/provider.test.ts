@@ -1,3 +1,4 @@
+import { proseText } from "@/lib/domain/prose";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
@@ -208,17 +209,19 @@ describe("ReferenceProvider.resolve — per-case-type scoping", () => {
 	const caseTypes: CaseType[] = [
 		{
 			name: "mother",
-			properties: [{ name: "household_code", label: "Household code" }],
+			properties: [
+				{ name: "household_code", label: proseText("Household code") },
+			],
 		},
 		{
 			name: "pregnancy",
 			parent_type: "mother",
-			properties: [{ name: "edd", label: "EDD" }],
+			properties: [{ name: "edd", label: proseText("EDD") }],
 		},
 		{
 			name: "child",
 			parent_type: "mother",
-			properties: [{ name: "vaccine", label: "Vaccine" }],
+			properties: [{ name: "vaccine", label: proseText("Vaccine") }],
 		},
 	];
 

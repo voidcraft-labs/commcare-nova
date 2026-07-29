@@ -1,3 +1,4 @@
+import { proseText } from "@/lib/domain/prose";
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -57,11 +58,11 @@ function fixture(): {
 		caseTypes: [
 			{
 				name: "patient",
-				properties: [{ name: "nickname", label: "Nickname" }],
+				properties: [{ name: "nickname", label: proseText("Nickname") }],
 			},
 			{
 				name: "visit",
-				properties: [{ name: "source_id", label: "Source ID" }],
+				properties: [{ name: "source_id", label: proseText("Source ID") }],
 			},
 		],
 		modules: [
