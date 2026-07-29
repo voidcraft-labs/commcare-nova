@@ -208,10 +208,15 @@ function formatZoneOffset(offsetMinutes: number): string {
  * Resolved in two passes because the two facts are mutually dependent: the
  * offset depends on the instant, and the instant depends on the offset. The
  * first pass reads the offset as if the wall clock were UTC, the second
- * re-reads it at the instant that first offset implies. Every wall clock
- * except the one-hour-a-year that a DST jump makes ambiguous or
- * nonexistent settles after the second pass; those resolve to one of their
- * two legal readings, which is the same latitude the platform takes.
+ * re-reads it at the instant that first offset implies.
+ *
+ * That settles every wall clock except the hour a year a DST jump makes
+ * nonexistent or ambiguous, where any implementation has to choose. This
+ * one chooses the same readings `Temporal`'s default `compatible`
+ * disambiguation does — pinned in the tests, so the day Temporal is
+ * Baseline (Safari is the holdout; adopting it now would mean a polyfill in
+ * a leaf module every client bundle imports) it can replace this function
+ * as a proven no-op.
  */
 export function zoneDesignatorForWallTime(wall: string, zone: string): string {
 	const asIfUtc = Date.parse(`${wall}Z`);

@@ -81,6 +81,37 @@ describe("zoneDesignatorForWallTime", () => {
 		).toBe("+05:30");
 	});
 
+	// The two wall clocks that are not a function of the zone alone: on
+	// spring-forward 02:30 never happens, and on fall-back 01:30 happens
+	// twice. The two-pass resolution has to answer something, and these pin
+	// WHICH something — otherwise the policy is whatever the arithmetic
+	// converges on, and nobody finds out it moved.
+	//
+	// Both answers match `Temporal.PlainDateTime.from(wall)
+	// .toZonedDateTime(zone).offset` under its default `compatible`
+	// disambiguation, verified against the real implementation. Temporal is
+	// ES2026 and the obvious eventual home for this function, but Safari has
+	// not shipped it, so adopting it today would mean a polyfill in a leaf
+	// module every client bundle imports. Pinning the agreement here is what
+	// makes that later swap a provable no-op rather than a behavior change
+	// nobody can characterize.
+	it("resolves a nonexistent wall clock the way the platform does", () => {
+		// 2026-03-08, US spring-forward: 02:00 jumps to 03:00, so 02:30 is
+		// not a real local time. Resolving forward into daylight time is
+		// `compatible`'s answer.
+		expect(
+			zoneDesignatorForWallTime("2026-03-08T02:30:00.000", "America/New_York"),
+		).toBe("-04:00");
+	});
+
+	it("resolves an ambiguous wall clock the way the platform does", () => {
+		// 2026-11-01, US fall-back: 01:30 occurs twice. The EARLIER of the
+		// two — still daylight time — is `compatible`'s answer.
+		expect(
+			zoneDesignatorForWallTime("2026-11-01T01:30:00.000", "America/New_York"),
+		).toBe("-04:00");
+	});
+
 	it("uses Z for a zero offset", () => {
 		expect(zoneDesignatorForWallTime("2026-01-15T10:00:00.000", "UTC")).toBe(
 			"Z",
