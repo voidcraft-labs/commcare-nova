@@ -1522,8 +1522,9 @@ exclusive. Human XPath remains friendly text such as `#form/first_name`; UUIDs
 are its stored identity, not syntax a person types.
 **The file holds** the exact identity/media types, the document-aware AST
 admission rules, same-call construction shape, topology forensics and
-row-digest-pinned repair, post-horizon history replay proof, explicit horizon
-preservation, production scan, and direct maintenance-cutover contract.
+row-digest-pinned repair, immutable fold baselines and post-horizon history
+replay proof, explicit horizon preservation, production scan, and direct
+maintenance-cutover contract.
 
 ---
 

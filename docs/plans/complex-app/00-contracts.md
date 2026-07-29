@@ -50,7 +50,9 @@ mutations follow the fold rules in `lib/doc/CLAUDE.md`: persisted
 mutation history after the active baseline must always replay. When a stored
 shape changes incompatibly, the same release either migrates the replayable
 suffix or atomically establishes an explicit fold horizon whose earlier rows
-remain opaque audit history.
+remain opaque audit history. A horizon expected to support later replay owns an
+immutable, complete persisted baseline keyed to its exact app sequence; a reload
+marker by itself is never treated as reconstructable state.
 
 **Runnable topology is closed.** Every module, form, field, and flat authored
 entity appears exactly once in the membership sequence that owns it. Every
@@ -119,7 +121,10 @@ These decisions are closed unless the project owner explicitly reopens them.
   contracts. They may be edited and emitted, but never substitute for Nova-owned
   identity.
 - Ordering values describe placement only. They never identify the member being
-  moved or edited.
+  moved or edited. A durable insertion names a logical neighbor UUID or semantic
+  key from the collection, never a snapshot-relative numeric index; replay over
+  a peer-edited sequence must preserve that logical relation or reject a missing
+  anchor.
 - Same-call construction has no second handle vocabulary. A new object that
   another item in the call references predeclares its stable UUID. Topology
   parents are declared earlier; expression references resolve against the
