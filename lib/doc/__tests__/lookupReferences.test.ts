@@ -599,16 +599,16 @@ describe("lookup reference extraction", () => {
 
 		const occurrences = extractLookupReferenceOccurrences(doc, registry);
 		expect(occurrences.map((occurrence) => occurrence.carrierUuid)).toEqual([
-			"carrier-a",
-			"carrier-b",
+			testUuid("carrier-b"),
+			testUuid("carrier-a"),
 		]);
-		expect(occurrences[1]).toMatchObject({
+		expect(occurrences[0]).toMatchObject({
 			registrySlot: "future.itemset.value",
 			subpath: "/k:value/i:1",
 			acceptedColumnTypes: ["int", "decimal"],
 		});
 		expect(Object.isFrozen(occurrences)).toBe(true);
-		expect(Object.isFrozen(occurrences[1].acceptedColumnTypes)).toBe(true);
+		expect(Object.isFrozen(occurrences[0].acceptedColumnTypes)).toBe(true);
 	});
 
 	it("rejects duplicate registry slots and a type contract without a column", () => {

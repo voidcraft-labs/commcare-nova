@@ -254,7 +254,7 @@ describe("mergeTranscript", () => {
 			metadata: {
 				attachments: [
 					{
-						assetId: "destination-asset",
+						assetId: "70000000-0000-4000-8000-000000000002",
 						kind: "pdf",
 						filename: "requirements.pdf",
 						mimeType: "application/pdf",
@@ -267,7 +267,7 @@ describe("mergeTranscript", () => {
 			metadata: {
 				attachments: [
 					{
-						assetId: "source-asset",
+						assetId: "70000000-0000-4000-8000-000000000003",
 						kind: "pdf",
 						filename: "requirements.pdf",
 						mimeType: "application/pdf",
@@ -291,7 +291,7 @@ describe("mergeTranscript", () => {
 
 describe("thread attachment admission", () => {
 	it("locks and indexes new attachments and deletion re-walks old thread history", async () => {
-		const assetId = "thread-document";
+		const assetId = "70000000-0000-4000-8000-000000000001";
 		await seedReadyDocument(assetId);
 		await upsertThreadTurn({
 			appId: APP,

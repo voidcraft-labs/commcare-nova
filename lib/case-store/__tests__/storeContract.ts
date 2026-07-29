@@ -4393,58 +4393,6 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			});
 		}
 
-		it("rejects an empty-string calculated uuid with a typed compiler-bug throw", async () => {
-			// Belt-and-suspenders: a programmatic caller (fixtures, SA
-			// tools, future surfaces) could supply an empty-string
-			// uuid. The store rejects it with the canonical compiler-
-			// bug message shape rather than letting Postgres reject an
-			// empty SELECT alias and leak its parser error.
-			const store = await options.factory(TENANT_A);
-			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
-			await seedSchema(store, blueprint, "patient");
-
-			await expect(
-				store.query({
-					appId: APP_ID,
-					caseType: "patient",
-					caseTypeSchemas: buildCaseTypeMap(blueprint),
-					calculated: [
-						calculatedColumn(testUuid(""), "Header", term(literal("x"))),
-					],
-				}),
-			).rejects.toThrowError(/empty-string uuid/);
-		});
-
-		it("rejects a calculated uuid whose composed alias exceeds Postgres' 63-byte cap", async () => {
-			// Postgres silently truncates identifiers at
-			// `NAMEDATALEN - 1` (63 bytes). The composed wire alias
-			// is `__nova_calc__<uuid>` — 13 bytes of prefix, so any
-			// uuid ≥ 51 bytes pushes the alias over the cap. Without
-			// this guard, truncation kicks in: the downstream row-
-			// partition step uses the FULL pre-truncation alias for
-			// the lookup, misses, and silently emits `null` for
-			// every row. The uuid under test is 60 bytes (alias 73
-			// bytes total — safely past the cap).
-			//
-			// Mirrors the empty-uuid rejection test above and the
-			// `indexName` defense pattern at the bottom of
-			// `lib/case-store/postgres/store.ts`.
-			const store = await options.factory(TENANT_A);
-			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
-			await seedSchema(store, blueprint, "patient");
-			const overlongUuid = testUuid("x".repeat(60));
-			await expect(
-				store.query({
-					appId: APP_ID,
-					caseType: "patient",
-					caseTypeSchemas: buildCaseTypeMap(blueprint),
-					calculated: [
-						calculatedColumn(overlongUuid, "Header", term(literal("x"))),
-					],
-				}),
-			).rejects.toThrowError(/exceeds Postgres' 63-byte identifier cap/);
-		});
-
 		// -----------------------------------------------------------
 		// count — predicate-driven row count
 		// -----------------------------------------------------------

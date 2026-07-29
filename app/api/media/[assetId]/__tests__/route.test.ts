@@ -65,10 +65,10 @@ vi.mock("@/lib/storage/media", () => ({
  *  to `["app-x"]`), not a field on the row. */
 function docAsset(over: Partial<MediaAssetRecord> = {}): MediaAssetRecord {
 	return {
-		id: "asset-1",
+		id: "00000000-0000-4000-8000-000000000001",
 		owner: "user-1",
 		project_id: "project-1",
-		gcsObjectKey: "projects/project-1/asset-1.pdf",
+		gcsObjectKey: "projects/project-1/00000000-0000-4000-8000-000000000001.pdf",
 		originalFilename: "spec.pdf",
 		contentHash: "abc",
 		mimeType: "application/pdf",
@@ -80,7 +80,9 @@ function docAsset(over: Partial<MediaAssetRecord> = {}): MediaAssetRecord {
 	} as unknown as MediaAssetRecord;
 }
 
-const ctx = (assetId = "asset-1") => ({ params: Promise.resolve({ assetId }) });
+const ctx = (assetId = "00000000-0000-4000-8000-000000000001") => ({
+	params: Promise.resolve({ assetId }),
+});
 const req = () => ({}) as Parameters<typeof DELETE>[0];
 /** Drain a handler response's body so its underlying promise settles (the
  *  async-leak gate flags an unread `NextResponse.json` body). */
@@ -178,14 +180,14 @@ describe("DELETE media asset", () => {
 		const res = await DELETE(req(), ctx());
 		expect(res.status).toBe(204);
 		expect(deleteMediaAssetForActor).toHaveBeenCalledWith({
-			assetId: "asset-1",
+			assetId: "00000000-0000-4000-8000-000000000001",
 			actorUserId: "user-1",
 			expectedProjectId: "project-1",
 		});
 		// alsoDelete carries the document's real extract-sibling key (computed
 		// from the asset's content hash + the current extractor version).
 		expect(purgeAssetStorage).toHaveBeenCalledWith(
-			expect.objectContaining({ id: "asset-1" }),
+			expect.objectContaining({ id: "00000000-0000-4000-8000-000000000001" }),
 			expect.objectContaining({
 				alsoDeleteForAsset: expect.any(Function),
 				deleteRow: expect.any(Function),

@@ -189,7 +189,7 @@ describe("computeOperationAnswers", () => {
 		});
 		expect(mutation.kind).toBe("survey");
 		if (mutation.kind === "survey") {
-			expect(mutation.formUuid).toBe("test-form-uuid");
+			expect(mutation.formUuid).toBe(testUuid("test-form-uuid"));
 			expect(mutation.operationAnswers?.root).toBeDefined();
 		}
 	});

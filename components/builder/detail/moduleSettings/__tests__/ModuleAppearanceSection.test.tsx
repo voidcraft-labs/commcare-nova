@@ -7,16 +7,16 @@ import type { Uuid } from "@/lib/doc/types";
 const state = vi.hoisted(() => ({
 	commitMany: vi.fn(),
 	module: {
-		uuid: "module-1",
+		uuid: "80000000-0000-4000-8000-000000000001",
 		name: "Clients",
 		caseListOnly: true,
-		icon: "home-icon",
-		audioLabel: "home-audio",
+		icon: "80000000-0000-4000-8000-000000000002",
+		audioLabel: "80000000-0000-4000-8000-000000000003",
 		caseListConfig: {
 			columns: [],
 			searchInputs: [],
-			icon: "case-icon",
-			audioLabel: "case-audio",
+			icon: "80000000-0000-4000-8000-000000000004",
+			audioLabel: "80000000-0000-4000-8000-000000000005",
 		},
 	},
 	setModuleMedia: vi.fn(),
@@ -48,9 +48,9 @@ vi.mock("@/components/builder/media/MediaSlot", () => ({
 			onClick={() =>
 				onChange(
 					ariaLabel === "App home tile icon"
-						? "new-home-icon"
+						? "80000000-0000-4000-8000-000000000006"
 						: ariaLabel === "Case list link icon"
-							? "new-case-icon"
+							? "80000000-0000-4000-8000-000000000007"
 							: undefined,
 				)
 			}
@@ -66,7 +66,11 @@ beforeEach(() => {
 
 describe("ModuleAppearanceSection", () => {
 	it("gives each case-list-only appearance slot one clearly named home", () => {
-		render(<ModuleAppearanceSection moduleUuid={"module-1" as Uuid} />);
+		render(
+			<ModuleAppearanceSection
+				moduleUuid={"80000000-0000-4000-8000-000000000001" as Uuid}
+			/>,
+		);
 
 		expect(
 			screen.getByRole("heading", { level: 3, name: "App home tile" }),
@@ -86,35 +90,52 @@ describe("ModuleAppearanceSection", () => {
 		const caseIcon = screen.getByRole("button", {
 			name: "Case list link icon",
 		});
-		expect(homeIcon.getAttribute("data-value")).toBe("home-icon");
-		expect(caseIcon.getAttribute("data-value")).toBe("case-icon");
+		expect(homeIcon.getAttribute("data-value")).toBe(
+			"80000000-0000-4000-8000-000000000002",
+		);
+		expect(caseIcon.getAttribute("data-value")).toBe(
+			"80000000-0000-4000-8000-000000000004",
+		);
 
 		fireEvent.click(homeIcon);
-		expect(state.setModuleMedia).toHaveBeenCalledWith("module-1", {
-			icon: "new-home-icon",
-			audioLabel: "home-audio",
-		});
+		expect(state.setModuleMedia).toHaveBeenCalledWith(
+			"80000000-0000-4000-8000-000000000001",
+			{
+				icon: "80000000-0000-4000-8000-000000000006",
+				audioLabel: "80000000-0000-4000-8000-000000000003",
+			},
+		);
 
 		fireEvent.click(caseIcon);
 		expect(state.commitMany).toHaveBeenCalledWith([
 			{
 				kind: "setCaseListMeta",
-				uuid: "module-1",
-				patch: { icon: "new-case-icon", audioLabel: "case-audio" },
+				uuid: "80000000-0000-4000-8000-000000000001",
+				patch: {
+					icon: "80000000-0000-4000-8000-000000000007",
+					audioLabel: "80000000-0000-4000-8000-000000000005",
+				},
 			},
 		]);
 	});
 
 	it("clears one slot explicitly while preserving its sibling", () => {
-		render(<ModuleAppearanceSection moduleUuid={"module-1" as Uuid} />);
+		render(
+			<ModuleAppearanceSection
+				moduleUuid={"80000000-0000-4000-8000-000000000001" as Uuid}
+			/>,
+		);
 
 		fireEvent.click(
 			screen.getByRole("button", { name: "App home tile spoken label" }),
 		);
-		expect(state.setModuleMedia).toHaveBeenCalledWith("module-1", {
-			icon: "home-icon",
-			audioLabel: null,
-		});
+		expect(state.setModuleMedia).toHaveBeenCalledWith(
+			"80000000-0000-4000-8000-000000000001",
+			{
+				icon: "80000000-0000-4000-8000-000000000002",
+				audioLabel: null,
+			},
+		);
 
 		fireEvent.click(
 			screen.getByRole("button", { name: "Case list link spoken label" }),
@@ -122,15 +143,22 @@ describe("ModuleAppearanceSection", () => {
 		expect(state.commitMany).toHaveBeenCalledWith([
 			{
 				kind: "setCaseListMeta",
-				uuid: "module-1",
-				patch: { icon: "case-icon", audioLabel: null },
+				uuid: "80000000-0000-4000-8000-000000000001",
+				patch: {
+					icon: "80000000-0000-4000-8000-000000000004",
+					audioLabel: null,
+				},
 			},
 		]);
 	});
 
 	it("does not expose a case-list-link slot when that wire surface is absent", () => {
 		state.module.caseListOnly = false;
-		render(<ModuleAppearanceSection moduleUuid={"module-1" as Uuid} />);
+		render(
+			<ModuleAppearanceSection
+				moduleUuid={"80000000-0000-4000-8000-000000000001" as Uuid}
+			/>,
+		);
 
 		expect(
 			screen.getByRole("heading", { level: 3, name: "App home tile" }),

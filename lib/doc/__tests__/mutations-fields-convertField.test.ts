@@ -84,7 +84,7 @@ describe("convertField — text / secret family", () => {
 		expect(converted.kind).toBe("secret");
 		expect(converted.id).toBe("pin");
 		expect(converted.label).toBe("PIN");
-		expect(converted.uuid).toBe("q-1");
+		expect(converted.uuid).toBe(testUuid("q-1"));
 		expect(converted.hint).toBe("four digits");
 		expect(printSlot(converted.required, next)).toBe("true()");
 		expect(printSlot(converted.validate, next)).toBe("string-length(.) = 4");
@@ -139,7 +139,7 @@ describe("convertField — int / decimal family", () => {
 		const converted = next.fields[testUuid("q-1")] as Record<string, unknown>;
 		expect(converted.kind).toBe("decimal");
 		expect(converted.id).toBe("age");
-		expect(converted.uuid).toBe("q-1");
+		expect(converted.uuid).toBe(testUuid("q-1"));
 		expect(printSlot(converted.validate, next)).toBe(". > 0");
 	});
 
@@ -190,7 +190,7 @@ describe("convertField — temporal family", () => {
 		const converted = next.fields[testUuid("q-1")] as Record<string, unknown>;
 		expect(converted.kind).toBe("time");
 		expect(converted.id).toBe("visit_date");
-		expect(converted.uuid).toBe("q-1");
+		expect(converted.uuid).toBe(testUuid("q-1"));
 	});
 
 	it("datetime → date preserves relevant and case_property_on", () => {
@@ -241,7 +241,7 @@ describe("convertField — selection family", () => {
 		});
 		const converted = next.fields[testUuid("q-1")] as Record<string, unknown>;
 		expect(converted.kind).toBe("multi_select");
-		expect(converted.uuid).toBe("q-1");
+		expect(converted.uuid).toBe(testUuid("q-1"));
 		expect(converted.id).toBe("color");
 		expect(converted.options as Array<{ value: string }>).toHaveLength(2);
 		expect((converted.options as Array<{ value: string }>)[0].value).toBe("r");
@@ -296,7 +296,7 @@ describe("convertField — media family", () => {
 		const converted = next.fields[testUuid("q-1")] as Record<string, unknown>;
 		expect(converted.kind).toBe("audio");
 		expect(converted.id).toBe("photo");
-		expect(converted.uuid).toBe("q-1");
+		expect(converted.uuid).toBe(testUuid("q-1"));
 		expect(converted.hint).toBe("take a clear photo");
 		expect(printSlot(converted.relevant, next)).toBe(
 			"/data/needs_photo = 'yes'",
@@ -372,7 +372,7 @@ describe("convertField — structural family", () => {
 		const converted = next.fields[testUuid("g-1")] as Record<string, unknown>;
 		expect(converted.kind).toBe("repeat");
 		expect(converted.id).toBe("demographics");
-		expect(converted.uuid).toBe("g-1");
+		expect(converted.uuid).toBe(testUuid("g-1"));
 		// Children must remain in fieldOrder under the same parent uuid.
 		expect(next.fieldOrder[testUuid("g-1")]).toEqual([testUuid("c-1")]);
 		expect(next.fields[testUuid("c-1")]).toBeDefined();
@@ -481,7 +481,7 @@ describe("convertField — invariants", () => {
 				toKind: "decimal",
 			});
 		});
-		expect(next.fields[testUuid("q-stable")]?.uuid).toBe("q-stable");
+		expect(next.fields[testUuid("q-stable")]?.uuid).toBe(testUuid("q-stable"));
 	});
 
 	it("no-ops when the target kind is not in the source's convertTargets", () => {
@@ -594,7 +594,7 @@ describe("convertField — string-compatible tier", () => {
 		const converted = next.fields[testUuid("q-1")] as Record<string, unknown>;
 		expect(converted.kind).toBe("barcode");
 		expect(converted.id).toBe("tracking_code");
-		expect(converted.uuid).toBe("q-1");
+		expect(converted.uuid).toBe(testUuid("q-1"));
 		expect(converted.hint).toBe("on the package");
 		expect(printSlot(converted.validate, next)).toBe("string-length(.) = 12");
 		expect(printSlot(converted.default_value, next)).toBe('"unknown"');
@@ -653,7 +653,7 @@ describe("convertField — string-compatible tier", () => {
 		const converted = next.fields[testUuid("q-1")] as Record<string, unknown>;
 		expect(converted.kind).toBe("single_select");
 		expect(converted.id).toBe("facility");
-		expect(converted.uuid).toBe("q-1");
+		expect(converted.uuid).toBe(testUuid("q-1"));
 		expect(converted.hint).toBe("referral target");
 		expect(converted.case_property_on).toBe("patient");
 		// The payload's minted identity survives untouched — the reducer
@@ -705,7 +705,7 @@ describe("convertField — string-compatible tier", () => {
 		const converted = next.fields[testUuid("q-1")] as Record<string, unknown>;
 		expect(converted.kind).toBe("hidden");
 		expect(converted.id).toBe("full_name");
-		expect(converted.uuid).toBe("q-1");
+		expect(converted.uuid).toBe(testUuid("q-1"));
 		expect(converted.case_property_on).toBe("patient");
 		expect(printSlot(converted.relevant, next)).toBe("true()");
 		expect(printSlot(converted.default_value, next)).toBe('"unnamed"');

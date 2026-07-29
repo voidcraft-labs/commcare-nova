@@ -595,26 +595,29 @@ describe("user tool schemas", () => {
 	it("accepts explicit clears but rejects null for required identity and name slots", () => {
 		expect(
 			updateUserTypeInputSchema.safeParse({
-				uuid: "role",
+				uuid: testUuid("role"),
 				description: null,
 				values: null,
 			}).success,
 		).toBe(true);
 		expect(
 			updatePersonaInputSchema.safeParse({
-				uuid: "persona",
+				uuid: testUuid("persona"),
 				userTypeUuid: null,
 				values: null,
 			}).success,
 		).toBe(true);
 		expect(
 			updateUserPropertyInputSchema.safeParse({
-				uuid: "property",
+				uuid: testUuid("property"),
 				label: null,
 			}).success,
 		).toBe(false);
 		expect(
-			updateUserTypeInputSchema.safeParse({ uuid: "role", name: null }).success,
+			updateUserTypeInputSchema.safeParse({
+				uuid: testUuid("role"),
+				name: null,
+			}).success,
 		).toBe(false);
 	});
 

@@ -114,7 +114,7 @@ describe("lookup reference validation", () => {
 		expect(findings.map(errorIdentity)).toHaveLength(2);
 		expect(new Set(findings.map(errorIdentity)).size).toBe(2);
 		expect(findings[0].details).toMatchObject({
-			carrierUuid: "carrier-1",
+			carrierUuid: testUuid("carrier-1"),
 			registrySlot: "future.lookup",
 			tableId: tableId("1"),
 			columnId: columnId("1"),

@@ -287,7 +287,7 @@ describe("Form Builder Agent Integration — mutation-builder helpers", () => {
 			});
 			const doc1 = apply(doc0, muts);
 			expect(doc1.forms[FORM].closeCondition).toEqual({
-				field: "discharge",
+				field: testUuid("discharge"),
 				answer: "yes",
 			});
 		});

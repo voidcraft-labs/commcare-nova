@@ -598,9 +598,7 @@ function lower(doc: BlueprintDoc, op: FuzzOp): Mutation[] {
 					kind: "setFieldMedia",
 					fieldUuid: uuid,
 					slot: "label",
-					media: op.clear
-						? null
-						: { image: testMediaAssetId(`asset-${mintUuid()}`) },
+					media: op.clear ? null : { image: testMediaAssetId(mintUuid()) },
 				},
 			];
 		}
@@ -671,7 +669,7 @@ function lower(doc: BlueprintDoc, op: FuzzOp): Mutation[] {
 				{
 					kind: "setFormMedia",
 					uuid,
-					icon: op.clear ? null : (`asset-${mintUuid()}` as never),
+					icon: op.clear ? null : testMediaAssetId(mintUuid()),
 					audioLabel: null,
 				},
 			];
@@ -724,7 +722,7 @@ function lower(doc: BlueprintDoc, op: FuzzOp): Mutation[] {
 				{
 					kind: "setModuleMedia",
 					uuid,
-					icon: op.clear ? null : (`asset-${mintUuid()}` as never),
+					icon: op.clear ? null : testMediaAssetId(mintUuid()),
 					audioLabel: null,
 				},
 			];
@@ -753,7 +751,7 @@ function lower(doc: BlueprintDoc, op: FuzzOp): Mutation[] {
 			return [
 				{
 					kind: "setAppLogo",
-					logo: op.clear ? null : (`asset-${mintUuid()}` as never),
+					logo: op.clear ? null : testMediaAssetId(mintUuid()),
 				},
 			];
 	}
@@ -1014,7 +1012,9 @@ describe("diffDocsToMutations — explicit cases", () => {
 		const withMedia = produce(prev, (draft) => {
 			const target = Object.values(draft.fields).find((fld) => fld.id === "q1");
 			if (target)
-				(target as Record<string, unknown>).label_media = { image: "a1" };
+				(target as Record<string, unknown>).label_media = {
+					image: testMediaAssetId("a1"),
+				};
 		});
 		// set
 		const setDiff = diffDocsToMutations(prev, withMedia);

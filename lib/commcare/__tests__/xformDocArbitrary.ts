@@ -23,7 +23,7 @@
  * Connect emission — a fraction of generated docs are Connect apps
  * (`connectType` "learn" / "deliver"), each form carrying a valid `connect`
  * block so the emitter's `buildConnectBlocks` path is exercised. The Connect
- * sub-config ids are minted globally-unique inline (the `runValidation`
+ * sub-config wire ids are minted globally-unique inline (the `runValidation`
  * guardrail does NOT run the validate-time autofill, so an id-less block would
  * trip the connect-id rules); the deliver `entity_id` / `entity_name` slots
  * are left unset on purpose so the wire-emit defaults in `builder.ts` run.
@@ -60,6 +60,11 @@ export class IdMinter {
 	uuid(prefix: string): Uuid {
 		this.n += 1;
 		return testUuid(`${prefix}-${this.n.toString(36)}`);
+	}
+
+	wireId(prefix: string): string {
+		this.n += 1;
+		return `${prefix}_${this.n.toString(36)}`;
 	}
 }
 
@@ -787,12 +792,9 @@ const deliverFormArb: fc.Arbitrary<ConnectFormSpec> = subConfigPairArb.map(
 
 /**
  * Build a per-form `ConnectConfig` from a selection, minting each present
- * sub-config a globally-unique id via the shared minter. The minter emits
- * `<prefix>-<base36>`; a hyphen is NOT a legal XML element-name char
- * (`XML_ELEMENT_NAME_REGEX`), and Connect ids become element names, so the
- * raw uuid is unusable here — we re-shape it with an underscore separator
- * (`cm_<n>`) which is legal and stays globally unique (the counter is shared
- * with the field/form/module minting, so no two ids ever collide app-wide).
+ * sub-config a globally-unique mutable wire id via the shared minter.
+ * Connect ids are emitted XML element names, not Nova authoring identity, so
+ * they deliberately use the legal `cm_<n>` spelling rather than UUIDs.
  *
  * `entity_id` / `entity_name` are left unset on the deliver_unit on purpose:
  * that's the state the wire-emit default path in `builder.ts` fills, so
@@ -802,12 +804,7 @@ function buildConnectConfig(
 	minter: IdMinter,
 	spec: ConnectFormSpec,
 ): ConnectConfig {
-	// Re-shape a minted uuid into a legal XML element name: the minter joins
-	// prefix + counter with a hyphen, but a Connect id must match
-	// `XML_ELEMENT_NAME_REGEX` (no hyphens). Swap to an underscore; the counter
-	// keeps it globally unique.
-	const connectId = (prefix: string): string =>
-		minter.uuid(prefix).replace("-", "_");
+	const connectId = (prefix: string): string => minter.wireId(prefix);
 
 	const config: ConnectConfig = {};
 	if (spec.connectType === "learn") {

@@ -188,7 +188,7 @@ function seedDoc(): BlueprintDoc {
 				],
 			},
 			{
-				uuid: "mod00000-0000-4000-8000-00000000000a",
+				uuid: testUuid("households-module"),
 				name: "Households",
 				caseType: "household",
 				caseListConfig: {
@@ -500,9 +500,9 @@ function parseRelevant(doc: BlueprintDoc, parentUuid: Uuid, pick: number) {
 }
 
 let minted = 0;
-function mintUuid(): string {
+function mintUuid(): Uuid {
 	minted++;
-	return `fz000000-0000-4000-8000-${minted.toString().padStart(12, "0")}`;
+	return testUuid(`reference-index-fuzz-${minted}`);
 }
 
 /** Lower one abstract op to concrete mutations against `doc` — or none

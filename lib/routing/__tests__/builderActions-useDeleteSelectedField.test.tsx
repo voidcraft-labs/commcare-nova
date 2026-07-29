@@ -128,9 +128,9 @@ function wrap(store: ReturnType<typeof makeStore>) {
 	};
 }
 
-const Q_A = "q-a-0000-0000-0000-000000000000";
-const Q_B = "q-b-0000-0000-0000-000000000000";
-const Q_C = "q-c-0000-0000-0000-000000000000";
+const Q_A = testUuid("q-a-0000-0000-0000-000000000000");
+const Q_B = testUuid("q-b-0000-0000-0000-000000000000");
+const Q_C = testUuid("q-c-0000-0000-0000-000000000000");
 
 /**
  * Set mockSegments to simulate being on a form screen, optionally with
@@ -143,7 +143,7 @@ function setFormUrl(
 	const state = store.getState();
 	const moduleUuid = state.moduleOrder[0];
 	const formUuid = state.formOrder[moduleUuid][0];
-	mockSegments.current = selectedUuid ? [formUuid, selectedUuid] : [formUuid];
+	mockSegments.current = selectedUuid ? [selectedUuid] : [formUuid];
 	return { moduleUuid, formUuid };
 }
 
@@ -244,7 +244,7 @@ describe("useDeleteSelectedField", () => {
 		 * selection and no-ops entirely (no doc mutation, no URL change).
 		 * The stale URL cleanup is handled by `LocationRecoveryEffect`. */
 		const store = makeStore();
-		setFormUrl(store, "bogus-not-in-form-uuid");
+		setFormUrl(store, testUuid("bogus-not-in-form-uuid"));
 
 		const { result } = renderHook(() => useDeleteSelectedField(), {
 			wrapper: wrap(store),

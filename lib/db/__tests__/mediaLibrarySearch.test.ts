@@ -7,6 +7,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { setupAppStateTestDb } from "./appStateTestDb";
 
 const h = setupAppStateTestDb("media_search_");
@@ -15,7 +16,7 @@ describe("listReadyAssetsForProject search", () => {
 	it("finds an older match that is absent from the first unfiltered page", async () => {
 		const newestAt = Date.parse("2026-07-17T12:00:00.000Z");
 		const rows = Array.from({ length: 51 }, (_, index) => {
-			const id = `asset-${index.toString().padStart(2, "0")}`;
+			const id = testMediaAssetId(`asset-${index.toString().padStart(2, "0")}`);
 			const name =
 				index === 50 ? "Community NEEDLE plan.pdf" : `file-${index}.pdf`;
 			return {
@@ -42,15 +43,19 @@ describe("listReadyAssetsForProject search", () => {
 		const { listReadyAssetsForProject } = await import("../mediaAssets");
 		const firstPage = await listReadyAssetsForProject("project-1");
 		expect(firstPage.assets).toHaveLength(50);
-		expect(firstPage.assets.some((asset) => asset.id === "asset-50")).toBe(
-			false,
-		);
+		expect(
+			firstPage.assets.some(
+				(asset) => asset.id === testMediaAssetId("asset-50"),
+			),
+		).toBe(false);
 		expect(firstPage.nextCursor).not.toBeNull();
 
 		const searched = await listReadyAssetsForProject("project-1", {
 			query: " needle ",
 		});
-		expect(searched.assets.map((asset) => asset.id)).toEqual(["asset-50"]);
+		expect(searched.assets.map((asset) => asset.id)).toEqual([
+			testMediaAssetId("asset-50"),
+		]);
 		expect(searched.nextCursor).toBeNull();
 	});
 });

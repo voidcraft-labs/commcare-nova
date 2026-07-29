@@ -20,6 +20,7 @@
 //      no surviving writer stays a plain removal.
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { BlueprintDoc, CaseType } from "@/lib/domain";
 import { classifyCaseTypeChanges } from "../classifyCaseTypeChanges";
@@ -448,14 +449,14 @@ describe("classifyCaseTypeChanges — synthesized renames", () => {
 							type: "registration",
 							fields: [
 								f({
-									uuid: "field-one",
+									uuid: testUuid("field-one"),
 									id: args.field1Id,
 									kind: "text",
 									label: "One",
 									case_property_on: "patient",
 								}),
 								f({
-									uuid: "field-two",
+									uuid: testUuid("field-two"),
 									id: args.field2Id,
 									kind: "text",
 									label: "Two",
@@ -493,8 +494,8 @@ describe("classifyCaseTypeChanges — synthesized renames", () => {
 				change: {
 					kind: "rename",
 					renames: [
-						{ from: "height", to: "weight" },
 						{ from: "weight", to: "weight_kg" },
+						{ from: "height", to: "weight" },
 					],
 				},
 			},

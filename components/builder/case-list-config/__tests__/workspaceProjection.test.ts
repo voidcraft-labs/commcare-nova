@@ -58,22 +58,28 @@ describe("projectCaseWorkspaceColumns", () => {
 		});
 
 		expect(uuids(projection.ordered)).toEqual([
-			"list-only",
-			"both",
-			"detail-only",
-			"fully-hidden",
+			testUuid("list-only"),
+			testUuid("both"),
+			testUuid("detail-only"),
+			testUuid("fully-hidden"),
 		]);
-		expect(uuids(projection.listVisible)).toEqual(["list-only", "both"]);
+		expect(uuids(projection.listVisible)).toEqual([
+			testUuid("list-only"),
+			testUuid("both"),
+		]);
 		expect(uuids(projection.listHidden)).toEqual([
-			"detail-only",
-			"fully-hidden",
+			testUuid("detail-only"),
+			testUuid("fully-hidden"),
 		]);
-		expect(uuids(projection.detailVisible)).toEqual(["both", "detail-only"]);
+		expect(uuids(projection.detailVisible)).toEqual([
+			testUuid("both"),
+			testUuid("detail-only"),
+		]);
 		expect(uuids(projection.detailHidden)).toEqual([
-			"list-only",
-			"fully-hidden",
+			testUuid("list-only"),
+			testUuid("fully-hidden"),
 		]);
-		expect(uuids(projection.fullyHidden)).toEqual(["fully-hidden"]);
+		expect(uuids(projection.fullyHidden)).toEqual([testUuid("fully-hidden")]);
 
 		// An absent visibility slot is the domain's canonical `true`.
 		expect(projection.listVisible).toContain(both);

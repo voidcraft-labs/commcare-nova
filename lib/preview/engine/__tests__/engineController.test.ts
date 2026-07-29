@@ -1573,7 +1573,7 @@ describe("EngineController", () => {
 			// on the required submission protocol rather than whole-object equality.
 			expect(mutation).toMatchObject({
 				kind: "registration",
-				formUuid: "form-2-uuid",
+				formUuid,
 				primary: {
 					caseType: "patient",
 					caseName: "Alice",

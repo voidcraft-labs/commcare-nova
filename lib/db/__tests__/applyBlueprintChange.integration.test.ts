@@ -36,6 +36,7 @@
 import { Kysely, PostgresDialect, type PostgresPool } from "kysely";
 import { v7 as uuidv7 } from "uuid";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { buildCaseTypeMap } from "@/lib/case-store";
 import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
@@ -200,7 +201,7 @@ function renameFixtureDocs(): {
 							type: "registration",
 							fields: [
 								f({
-									uuid: "field-age",
+									uuid: testUuid("field-age"),
 									id: "age",
 									kind: "text",
 									label: "Age",
@@ -220,7 +221,7 @@ function renameFixtureDocs(): {
 	const prospective = structuredClone(prior);
 	const property = prospective.caseTypes?.[0]?.properties[0];
 	const field = Object.values(prospective.fields).find(
-		(candidate) => candidate.uuid === "field-age",
+		(candidate) => candidate.uuid === testUuid("field-age"),
 	);
 	if (!property || !field) throw new Error("rename fixture is incomplete");
 	property.name = "years";

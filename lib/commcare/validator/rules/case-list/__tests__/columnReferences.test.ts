@@ -91,7 +91,7 @@ describe("columnReferences", () => {
 			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(error) =>
 					error.code === "CASE_LIST_COLUMN_UNKNOWN_FIELD" &&
-					error.details?.columnUuid === "col-sort",
+					error.details?.columnUuid === testUuid("col-sort"),
 			),
 		).toBe(true);
 	});

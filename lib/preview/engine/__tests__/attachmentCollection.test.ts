@@ -276,7 +276,7 @@ describe("the mutation's attachment slots", () => {
 		expect(mutation.attachmentRefs).toEqual([
 			{
 				attachmentName: "att-1.jpg",
-				fieldUuid: "form.photo",
+				fieldUuid: testUuid("form.photo"),
 				instancePath: "/data/photo",
 			},
 		]);

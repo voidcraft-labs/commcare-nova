@@ -50,6 +50,7 @@ const scrollToField = vi.fn();
 const flashUndoHighlight = vi.fn();
 const setFocusHint = vi.fn();
 const activeFieldIdRef = { current: undefined as string | undefined };
+const SELECTED_UUID = testUuid("q-a-0000-0000-0000-000000000000");
 
 vi.mock("@/components/builder/contexts/EditGuardContext", () => ({
 	useConsultEditGuard: () => () => true,
@@ -228,10 +229,7 @@ describe("useUndoRedo", () => {
 			]);
 		});
 
-		const state = store.getState();
-		const moduleUuid = state.moduleOrder[0];
-		const formUuid = state.formOrder[moduleUuid][0];
-		mockSegments.current = [formUuid, "q-a-0000-0000-0000-000000000000"];
+		mockSegments.current = [SELECTED_UUID];
 
 		const qsSpy = vi.spyOn(document, "querySelector").mockReturnValue(null);
 		const { result } = renderHook(() => useUndoRedo(), {
@@ -261,10 +259,7 @@ describe("useUndoRedo", () => {
 			]);
 		});
 
-		const state = store.getState();
-		const moduleUuid = state.moduleOrder[0];
-		const formUuid = state.formOrder[moduleUuid][0];
-		mockSegments.current = [formUuid, "q-a-0000-0000-0000-000000000000"];
+		mockSegments.current = [SELECTED_UUID];
 
 		const fakeEl = document.createElement("div") as HTMLElement;
 		findFieldElement.mockReturnValue(fakeEl);
@@ -274,15 +269,12 @@ describe("useUndoRedo", () => {
 		});
 		act(() => result.current.undo());
 
-		expect(findFieldElement).toHaveBeenCalledWith(
-			"q-a-0000-0000-0000-000000000000",
-			undefined,
-		);
+		expect(findFieldElement).toHaveBeenCalledWith(SELECTED_UUID, undefined);
 		// The scroll targets the canvas field ROW (no override) — the rail
 		// property is in a different scroll container. The flash still lands
 		// on the resolved rail element.
 		expect(scrollToField).toHaveBeenCalledWith(
-			"q-a-0000-0000-0000-000000000000",
+			SELECTED_UUID,
 			undefined,
 			"instant",
 			undefined,
@@ -304,10 +296,7 @@ describe("useUndoRedo", () => {
 			]);
 		});
 
-		const state = store.getState();
-		const moduleUuid = state.moduleOrder[0];
-		const formUuid = state.formOrder[moduleUuid][0];
-		mockSegments.current = [formUuid, "q-a-0000-0000-0000-000000000000"];
+		mockSegments.current = [SELECTED_UUID];
 
 		activeFieldIdRef.current = "label";
 		const fakeEl = document.createElement("div") as HTMLElement;

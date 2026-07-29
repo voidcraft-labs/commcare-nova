@@ -13,6 +13,7 @@
 
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	CASE_PROPERTY_REGEX,
 	CASE_TYPE_REGEX,
@@ -55,14 +56,15 @@ describe("term schema", () => {
 	});
 
 	it("parses a custom session-user property by stable identity", () => {
+		const userPropertyUuid = testUuid("worker-property-region");
 		expect(
 			termSchema.parse({
 				kind: "session-user-property",
-				userPropertyUuid: "worker-property-region",
+				userPropertyUuid,
 			}),
 		).toEqual({
 			kind: "session-user-property",
-			userPropertyUuid: "worker-property-region",
+			userPropertyUuid,
 		});
 	});
 

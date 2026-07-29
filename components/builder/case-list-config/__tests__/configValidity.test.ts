@@ -425,10 +425,9 @@ describe("caseListConfigVerdicts", () => {
 				},
 			],
 		});
-		expect([...v.tileIssues.keys()].sort()).toEqual([
-			testUuid("c1"),
-			testUuid("c2"),
-		]);
+		expect([...v.tileIssues.keys()].sort()).toEqual(
+			[testUuid("c1"), testUuid("c2")].sort(),
+		);
 	});
 
 	it("badges Results, never Details, for a field shown on both screens", () => {

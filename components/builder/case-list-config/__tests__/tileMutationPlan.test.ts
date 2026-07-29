@@ -80,8 +80,8 @@ describe("planTileLayoutEnable", () => {
 
 		expect(placements(plan.mutations)).toEqual(
 			new Map([
-				["name", tileCell(0, 0, 12, 1)],
-				["village", tileCell(0, 1, 12, 1)],
+				[testUuid("name"), tileCell(0, 0, 12, 1)],
+				[testUuid("village"), tileCell(0, 1, 12, 1)],
 			]),
 		);
 		// The layout switch lands last, so the doc is never momentarily a
@@ -110,8 +110,8 @@ describe("planTileLayoutEnable", () => {
 		expect(plan.ok).toBe(true);
 		if (!plan.ok) return;
 		const written = placements(plan.mutations);
-		expect(written.has("name")).toBe(false);
-		expect(written.get("village")).toEqual(tileCell(0, 0, 12, 1));
+		expect(written.has(testUuid("name"))).toBe(false);
+		expect(written.get(testUuid("village"))).toEqual(tileCell(0, 0, 12, 1));
 	});
 
 	it("leaves a hidden default-order field unplaced — it draws nothing", () => {
@@ -129,7 +129,7 @@ describe("planTileLayoutEnable", () => {
 		});
 		expect(plan.ok).toBe(true);
 		if (!plan.ok) return;
-		expect([...placements(plan.mutations).keys()]).toEqual(["name"]);
+		expect([...placements(plan.mutations).keys()]).toEqual([testUuid("name")]);
 	});
 
 	it("leaves a Details-only field alone — the tile does not carry it", () => {
@@ -142,7 +142,7 @@ describe("planTileLayoutEnable", () => {
 		});
 		expect(plan.ok).toBe(true);
 		if (!plan.ok) return;
-		expect([...placements(plan.mutations).keys()]).toEqual(["name"]);
+		expect([...placements(plan.mutations).keys()]).toEqual([testUuid("name")]);
 	});
 
 	it("refuses an empty Results screen with a reason, not an empty grid", () => {
@@ -252,13 +252,13 @@ describe("planTilePreset", () => {
 		expect(placements(plan.mutations)).toEqual(
 			new Map([
 				[
-					"name",
+					testUuid("name"),
 					tileCell(0, 0, 6, 1, {
 						fontSize: "large",
 						horizontalAlign: "center",
 					}),
 				],
-				["village", tileCell(6, 0, 6, 1)],
+				[testUuid("village"), tileCell(6, 0, 6, 1)],
 			]),
 		);
 		expect(layoutWrites(plan.mutations)).toHaveLength(0);
@@ -282,10 +282,10 @@ describe("planTilePreset", () => {
 		});
 		expect(plan.ok).toBe(true);
 		if (!plan.ok) return;
-		expect(placements(plan.mutations).get("first")).toEqual(
+		expect(placements(plan.mutations).get(testUuid("first"))).toEqual(
 			tileCell(0, 0, 6, 1),
 		);
-		expect(placements(plan.mutations).get("second")).toEqual(
+		expect(placements(plan.mutations).get(testUuid("second"))).toEqual(
 			tileCell(6, 0, 6, 1),
 		);
 	});
@@ -319,7 +319,7 @@ describe("planTilePlaceField", () => {
 		});
 		expect(plan.ok).toBe(true);
 		if (!plan.ok) return;
-		expect(placements(plan.mutations).get("village")).toEqual(
+		expect(placements(plan.mutations).get(testUuid("village"))).toEqual(
 			tileCell(0, 1, 12, 1),
 		);
 	});

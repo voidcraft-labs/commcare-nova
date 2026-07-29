@@ -19,35 +19,39 @@ import {
 import { opaqueXPathExpression } from "../xpath";
 
 const NEUTRAL_MEDIA = {
-	image: "media-asset-1",
-	audio: "media-asset-2",
+	image: "00000000-0000-4000-8000-000000000001",
+	audio: "00000000-0000-4000-8000-000000000002",
 };
 
 describe("field schema — media slots", () => {
 	it("text field parses with label_media + hint_media", () => {
 		const parsed = fieldSchema.parse({
 			kind: "text",
-			uuid: "field-uuid-1",
+			uuid: "10000000-0000-4000-8000-000000000001",
 			id: "patient_name",
 			label: "Patient name",
-			label_media: { image: "media-asset-1" },
-			hint_media: { audio: "media-asset-2" },
+			label_media: { image: "00000000-0000-4000-8000-000000000001" },
+			hint_media: { audio: "00000000-0000-4000-8000-000000000002" },
 		});
 		expect(parsed.kind).toBe("text");
 		if (parsed.kind === "text") {
-			expect(parsed.label_media).toEqual({ image: "media-asset-1" });
-			expect(parsed.hint_media).toEqual({ audio: "media-asset-2" });
+			expect(parsed.label_media).toEqual({
+				image: "00000000-0000-4000-8000-000000000001",
+			});
+			expect(parsed.hint_media).toEqual({
+				audio: "00000000-0000-4000-8000-000000000002",
+			});
 		}
 	});
 
 	it("text field parses with the new help text + media slot", () => {
 		const parsed = fieldSchema.parse({
 			kind: "text",
-			uuid: "field-uuid-1",
+			uuid: "10000000-0000-4000-8000-000000000001",
 			id: "patient_name",
 			label: "Patient name",
 			help: "Enter the legal name shown on their ID document.",
-			help_media: { image: "media-asset-1" },
+			help_media: { image: "00000000-0000-4000-8000-000000000001" },
 			required: opaqueXPathExpression("true()"),
 		});
 		expect(parsed.kind).toBe("text");
@@ -55,14 +59,16 @@ describe("field schema — media slots", () => {
 			expect(parsed.help).toBe(
 				"Enter the legal name shown on their ID document.",
 			);
-			expect(parsed.help_media?.image).toBe("media-asset-1");
+			expect(parsed.help_media?.image).toBe(
+				"00000000-0000-4000-8000-000000000001",
+			);
 		}
 	});
 
 	it("text field still parses without ANY media slots (additive change)", () => {
 		const parsed = fieldSchema.parse({
 			kind: "text",
-			uuid: "field-uuid-1",
+			uuid: "10000000-0000-4000-8000-000000000001",
 			id: "name",
 			label: "Name",
 		});
@@ -78,10 +84,10 @@ describe("field schema — media slots", () => {
 	it("group container parses with optional label_media", () => {
 		const parsed = fieldSchema.parse({
 			kind: "group",
-			uuid: "field-uuid-grp",
+			uuid: "10000000-0000-4000-8000-000000000004",
 			id: "screening",
 			label: "Screening section",
-			label_media: { image: "media-asset-1" },
+			label_media: { image: "00000000-0000-4000-8000-000000000001" },
 		});
 		expect(parsed.kind).toBe("group");
 	});
@@ -89,16 +95,18 @@ describe("field schema — media slots", () => {
 	it("validate_msg_media parses alongside existing validate_msg", () => {
 		const parsed = fieldSchema.parse({
 			kind: "int",
-			uuid: "field-uuid-int",
+			uuid: "10000000-0000-4000-8000-000000000005",
 			id: "age",
 			label: "Age",
 			validate: opaqueXPathExpression(". >= 0 and . <= 120"),
 			validate_msg: "Enter a realistic age (0–120).",
-			validate_msg_media: { audio: "media-asset-9" },
+			validate_msg_media: { audio: "00000000-0000-4000-8000-000000000009" },
 		});
 		expect(parsed.kind).toBe("int");
 		if (parsed.kind === "int") {
-			expect(parsed.validate_msg_media?.audio).toBe("media-asset-9");
+			expect(parsed.validate_msg_media?.audio).toBe(
+				"00000000-0000-4000-8000-000000000009",
+			);
 		}
 	});
 });
@@ -106,6 +114,7 @@ describe("field schema — media slots", () => {
 describe("selectOption schema — media slot", () => {
 	it("round-trips an option with attached image+audio", () => {
 		const parsed = selectOptionSchema.parse({
+			uuid: "90000000-0000-4000-8000-000000000001",
 			value: "fever",
 			label: "Fever",
 			media: NEUTRAL_MEDIA,
@@ -116,9 +125,10 @@ describe("selectOption schema — media slot", () => {
 	it("rejects unknown extra keys (strict)", () => {
 		expect(() =>
 			selectOptionSchema.parse({
+				uuid: "90000000-0000-4000-8000-000000000002",
 				value: "fever",
 				label: "Fever",
-				icon: "media-asset-1",
+				icon: "00000000-0000-4000-8000-000000000001",
 			}),
 		).toThrow();
 	});
@@ -127,19 +137,19 @@ describe("selectOption schema — media slot", () => {
 describe("module schema — icon + audioLabel", () => {
 	it("module parses with icon + audioLabel", () => {
 		const parsed = moduleSchema.parse({
-			uuid: "module-uuid",
+			uuid: "20000000-0000-4000-8000-000000000001",
 			id: "patient_registration",
 			name: "Patient registration",
-			icon: "media-asset-1",
-			audioLabel: "media-asset-2",
+			icon: "00000000-0000-4000-8000-000000000001",
+			audioLabel: "00000000-0000-4000-8000-000000000002",
 		});
-		expect(parsed.icon).toBe("media-asset-1");
-		expect(parsed.audioLabel).toBe("media-asset-2");
+		expect(parsed.icon).toBe("00000000-0000-4000-8000-000000000001");
+		expect(parsed.audioLabel).toBe("00000000-0000-4000-8000-000000000002");
 	});
 
 	it("module still parses without icon/audioLabel (additive)", () => {
 		const parsed = moduleSchema.parse({
-			uuid: "module-uuid",
+			uuid: "20000000-0000-4000-8000-000000000001",
 			id: "patient_registration",
 			name: "Patient registration",
 		});
@@ -148,7 +158,7 @@ describe("module schema — icon + audioLabel", () => {
 
 	it("caseListConfig parses with icon + audioLabel", () => {
 		const parsed = moduleSchema.parse({
-			uuid: "module-uuid",
+			uuid: "20000000-0000-4000-8000-000000000001",
 			id: "patient_registration",
 			name: "Patient registration",
 			caseListConfig: {
@@ -156,27 +166,31 @@ describe("module schema — icon + audioLabel", () => {
 				listColumnOrder: [],
 				detailColumnOrder: [],
 				searchInputs: [],
-				icon: "media-asset-3",
-				audioLabel: "media-asset-4",
+				icon: "00000000-0000-4000-8000-000000000003",
+				audioLabel: "00000000-0000-4000-8000-000000000004",
 			},
 		});
-		expect(parsed.caseListConfig?.icon).toBe("media-asset-3");
-		expect(parsed.caseListConfig?.audioLabel).toBe("media-asset-4");
+		expect(parsed.caseListConfig?.icon).toBe(
+			"00000000-0000-4000-8000-000000000003",
+		);
+		expect(parsed.caseListConfig?.audioLabel).toBe(
+			"00000000-0000-4000-8000-000000000004",
+		);
 	});
 });
 
 describe("form schema — icon + audioLabel", () => {
 	it("form parses with icon + audioLabel", () => {
 		const parsed = formSchema.parse({
-			uuid: "form-uuid",
+			uuid: "30000000-0000-4000-8000-000000000001",
 			id: "intake",
 			name: "Intake",
 			type: "registration",
-			icon: "media-asset-1",
-			audioLabel: "media-asset-2",
+			icon: "00000000-0000-4000-8000-000000000001",
+			audioLabel: "00000000-0000-4000-8000-000000000002",
 		});
-		expect(parsed.icon).toBe("media-asset-1");
-		expect(parsed.audioLabel).toBe("media-asset-2");
+		expect(parsed.icon).toBe("00000000-0000-4000-8000-000000000001");
+		expect(parsed.audioLabel).toBe("00000000-0000-4000-8000-000000000002");
 	});
 });
 
@@ -193,9 +207,9 @@ describe("blueprint schema — logo", () => {
 			moduleOrder: [],
 			formOrder: {},
 			fieldOrder: {},
-			logo: "media-asset-logo",
+			logo: "00000000-0000-4000-8000-000000000010",
 		});
-		expect(parsed.logo).toBe("media-asset-logo");
+		expect(parsed.logo).toBe("00000000-0000-4000-8000-000000000010");
 	});
 
 	it("blueprint still parses without a logo (additive)", () => {

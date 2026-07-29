@@ -1651,7 +1651,7 @@ describe("FormEngine", () => {
 				});
 				expect(mutation).toEqual({
 					kind: "registration",
-					formUuid: "test-form-uuid",
+					formUuid: testUuid("test-form-uuid"),
 					entryKey: ENTRY_KEY,
 					attachmentRefs: [],
 					primary: {
@@ -1935,7 +1935,7 @@ describe("FormEngine", () => {
 				});
 				expect(mutation).toEqual({
 					kind: "followup",
-					formUuid: "test-form-uuid",
+					formUuid: testUuid("test-form-uuid"),
 					entryKey: ENTRY_KEY,
 					attachmentRefs: [],
 					caseId: "case-id-123",
@@ -1994,7 +1994,7 @@ describe("FormEngine", () => {
 				});
 				expect(mutation).toEqual({
 					kind: "followup",
-					formUuid: "test-form-uuid",
+					formUuid: testUuid("test-form-uuid"),
 					entryKey: ENTRY_KEY,
 					attachmentRefs: [],
 					caseId: "case-id-1",
@@ -2035,7 +2035,7 @@ describe("FormEngine", () => {
 				});
 				expect(mutation).toEqual({
 					kind: "close",
-					formUuid: "test-form-uuid",
+					formUuid: testUuid("test-form-uuid"),
 					entryKey: ENTRY_KEY,
 					attachmentRefs: [],
 					caseId: "case-id-456",
@@ -2086,7 +2086,7 @@ describe("FormEngine", () => {
 				});
 				expect(mutation).toEqual({
 					kind: "close",
-					formUuid: "test-form-uuid",
+					formUuid: testUuid("test-form-uuid"),
 					entryKey: ENTRY_KEY,
 					attachmentRefs: [],
 					caseId: "case-id-1",
@@ -2108,7 +2108,7 @@ describe("FormEngine", () => {
 				});
 				expect(mutation).toEqual({
 					kind: "survey",
-					formUuid: "test-form-uuid",
+					formUuid: testUuid("test-form-uuid"),
 					entryKey: ENTRY_KEY,
 					attachmentRefs: [],
 				});
@@ -2125,7 +2125,7 @@ describe("FormEngine", () => {
 				});
 				expect(mutation).toEqual({
 					kind: "survey",
-					formUuid: "test-form-uuid",
+					formUuid: testUuid("test-form-uuid"),
 					entryKey: ENTRY_KEY,
 					attachmentRefs: [],
 				});

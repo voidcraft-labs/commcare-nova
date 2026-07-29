@@ -212,10 +212,15 @@ describe("useNavigate", () => {
 		const { result } = renderHook(() => useSelect(), {
 			wrapper: wrap(store),
 		});
-		act(() => result.current(testUuid("q-42")));
+		const selectedUuid = testUuid("q-42");
+		act(() => result.current(selectedUuid));
 		/* Selection serializes as a single field UUID — the parser
 		 * derives the parent form via findFormForField. */
-		expect(replaceStateSpy).toHaveBeenCalledWith(null, "", "/build/app-1/q-42");
+		expect(replaceStateSpy).toHaveBeenCalledWith(
+			null,
+			"",
+			`/build/app-1/${selectedUuid}`,
+		);
 		expect(pushStateSpy).not.toHaveBeenCalled();
 	});
 

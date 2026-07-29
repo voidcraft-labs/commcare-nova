@@ -1008,7 +1008,7 @@ describe("form_links validation", () => {
 		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		const err = errors.find((e) => e.code === "FORM_LINK_TARGET_NOT_FOUND");
 		expect(err).toBeDefined();
-		expect(err?.message).toContain("ghost-module");
+		expect(err?.message).toContain(testUuid("ghost-module"));
 	});
 
 	it("catches non-existent target form", () => {
@@ -1028,7 +1028,7 @@ describe("form_links validation", () => {
 		const errors = runValidation(doc2, LOOKUP_CONTEXT_UNAVAILABLE);
 		const err = errors.find((e) => e.code === "FORM_LINK_TARGET_NOT_FOUND");
 		expect(err).toBeDefined();
-		expect(err?.message).toContain("nonexistent-form");
+		expect(err?.message).toContain(testUuid("nonexistent-form"));
 	});
 
 	it("catches self-referencing link", () => {

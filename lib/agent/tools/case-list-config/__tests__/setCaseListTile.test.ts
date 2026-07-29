@@ -531,7 +531,7 @@ describe("setCaseListTile", () => {
 				moduleIndex: 0,
 				placements: [
 					{
-						columnUuid: "99999999-9999-9999-9999-999999999999",
+						columnUuid: testUuid("unknown-column"),
 						cell: { x: 0, y: 0, width: 6, height: 1 },
 					},
 				],

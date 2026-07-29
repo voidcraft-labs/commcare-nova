@@ -406,13 +406,14 @@ describe("registerUploadAppToHq — media upload ordering", () => {
 	});
 
 	it("surfaces a standalone-logo heads-up as a warning without failing the upload", async () => {
+		const logoId = testMediaAssetId("logoA");
 		// The loaded app's logo image is used nowhere else, so HQ reports it
 		// unmatched by design (logos aren't in its bulk-match set). This is the
 		// real NOVA-1P scenario — surfaced gently, never as a failed attach.
 		vi.mocked(loadAppBlueprint).mockResolvedValueOnce({
 			doc: {
 				...fixtureBlueprint(),
-				logo: testMediaAssetId("logoA"),
+				logo: logoId,
 			},
 			app: fixtureAppDoc(),
 			access: fixtureLoadedApp().access,
@@ -424,7 +425,7 @@ describe("registerUploadAppToHq — media upload ordering", () => {
 			warnings: [],
 		});
 		vi.mocked(resolveMediaManifest).mockResolvedValueOnce(
-			new Map([["logoA", { wirePath: "commcare/logo.png" } as never]]) as never,
+			new Map([[logoId, { wirePath: "commcare/logo.png" } as never]]) as never,
 		);
 		vi.mocked(uploadAppMediaBundle).mockResolvedValueOnce({
 			matched: 0,

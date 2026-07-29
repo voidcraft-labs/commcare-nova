@@ -33,7 +33,7 @@ export function testUuid(label: string): Uuid {
 
 /** Deterministic valid uploaded-media identity for test fixtures. */
 export function testMediaAssetId(label: string): MediaAssetId {
-	return asMediaAssetId(testUuid(`media:${label}`));
+	return asMediaAssetId(testUuid(label));
 }
 
 function fnv1a(value: string, seed: number): number {
