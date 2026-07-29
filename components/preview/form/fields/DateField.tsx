@@ -76,11 +76,18 @@ interface DateFieldProps {
  *     field must not do.
  *   - **Writing**, every commit boundary canonicalizes: a calendar pick
  *     (which closes its own popover, so it IS a commit) and the clock
- *     field's blur. Canonicalization is idempotent on values it can read
- *     and returns anything else untouched, so a focus-and-blur that changed
- *     nothing rewrites nothing, and half-finished text survives to be named
- *     in the engine's shape error rather than being mangled toward a shape
- *     it never had.
+ *     field's blur. Canonicalization is idempotent, so a focus-and-blur
+ *     that changed nothing rewrites nothing — a value that merely predates
+ *     the millisecond rule is repaired to the spelling submission would
+ *     have given it anyway — and half-finished text survives to be named in
+ *     the engine's shape error rather than being mangled toward a shape it
+ *     never had.
+ *
+ *     That commit reads the field's CURRENT text rather than the last value
+ *     this component rendered. They are not the same thing: the final
+ *     keystroke and the blur can land in one batch, and a handler closing
+ *     over its own render would then write back the value the person had
+ *     just replaced.
  *
  * A NEWLY entered datetime takes the offset of the viewer's zone, matching
  * the device stamping its own (`DateTimeData::uncast`, and Web Apps'
@@ -134,8 +141,8 @@ export function DateField({
 				<ClockTimeField
 					value={formatClockTime(stored) ?? stored}
 					onValueChange={onChange}
-					onBlur={() => {
-						onChange(storageTimeValue(parseClockTime(stored) ?? stored));
+					onBlur={(text) => {
+						onChange(storageTimeValue(parseClockTime(text) ?? text));
 						onBlur();
 					}}
 					aria-labelledby={labelledBy}
@@ -222,8 +229,8 @@ export function DateField({
 							next === "" && datePart === "" ? "" : `${datePart}T${next}`,
 						)
 					}
-					onBlur={() => {
-						commit(datePart, timePart);
+					onBlur={(text) => {
+						commit(datePart, text);
 						onBlur();
 					}}
 					aria-label="Time"

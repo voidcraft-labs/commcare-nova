@@ -1409,20 +1409,25 @@ test.describe("authenticated builder", () => {
 			timeout: 20_000,
 		});
 
+		// The row STACK, measured from its own first row rather than from the
+		// viewport. Absolute position is the shell's business and the two
+		// modes legitimately differ there — the sidebar collapses on the flip,
+		// and live mode pins a persistent case tile above the form that edit
+		// mode has no equivalent for, translating every row down by the tile's
+		// height without changing the layout at all. What must not move is the
+		// stack itself: same heights, same spacing. That is also where the
+		// real risk lives, since a 44px picker trigger and a 38px text input
+		// are different controls standing in for the same row.
 		const rowGeometry = async () =>
-			await page.locator("main [data-field-uuid]").evaluateAll((els) =>
-				els.map((el) => {
-					const box = el.getBoundingClientRect();
-					return {
-						uuid: (el as HTMLElement).dataset.fieldUuid ?? "",
-						// X is the shell's business (the structure sidebar
-						// collapses on the flip); Y and height are the row
-						// layout's, and they are what must not move.
-						y: Math.round(box.y),
-						height: Math.round(box.height),
-					};
-				}),
-			);
+			await page.locator("main [data-field-uuid]").evaluateAll((els) => {
+				const boxes = els.map((el) => el.getBoundingClientRect());
+				const top = boxes[0]?.y ?? 0;
+				return els.map((el, i) => ({
+					uuid: (el as HTMLElement).dataset.fieldUuid ?? "",
+					offset: Math.round((boxes[i]?.y ?? 0) - top),
+					height: Math.round(boxes[i]?.height ?? 0),
+				}));
+			});
 
 		const edit = await rowGeometry();
 		expect(edit).toHaveLength(3);
@@ -1431,7 +1436,7 @@ test.describe("authenticated builder", () => {
 		const dateTrigger = page.locator('button[data-slot="date-picker"]');
 		await expect(dateTrigger).toHaveCount(1, { timeout: 20_000 });
 
-		await test.step("both renderers land every row at the same place", async () => {
+		await test.step("both renderers lay the rows out identically", async () => {
 			expect(await rowGeometry()).toEqual(edit);
 		});
 
@@ -1469,23 +1474,40 @@ test.describe("authenticated builder", () => {
 			await expect(clocks.nth(1)).not.toHaveAttribute("aria-invalid", "true");
 		});
 
-		await test.step("clearing one half of a datetime invents nothing", async () => {
-			// Emptying the clock must not answer the question on the person's
-			// behalf with a midnight they never chose — and must not leave
-			// behind a value they cannot clear.
+		await test.step("emptying the clock half answers nothing on the person's behalf", async () => {
+			// The date's own midnight is a value nobody chose, and committing
+			// it back here would make a cleared clock refill itself.
 			await clocks.nth(0).fill("");
 			await clocks.nth(0).blur();
 			await expect(clocks.nth(0)).toHaveValue("");
 			await expect(dateTrigger).not.toHaveText(/Pick a date/);
+			await expect(clocks.nth(0)).not.toHaveAttribute("aria-invalid", "true");
 		});
 
 		await test.step("a clock entered before its date reads back as typed", async () => {
-			// The half-filled join has to survive a round trip through state:
-			// showing back "14:30:00" would be the field rewriting the
-			// person's own "2:30 PM" into a spelling they never used.
+			// Clear the date too, so the clock really is the only half there.
+			// The join has to survive that: showing back "14:30:00" would be
+			// the field rewriting the person's own "2:30 PM" into a spelling
+			// they never used, and quoting the join at them in the error would
+			// put punctuation they never typed on screen.
+			await dateTrigger.click();
+			await page.getByRole("button", { name: "Clear", exact: true }).click();
+			await expect(dateTrigger).toHaveText(/Pick a date/);
+
 			await clocks.nth(0).fill("2:30 PM");
 			await clocks.nth(0).blur();
 			await expect(clocks.nth(0)).toHaveValue("2:30 PM");
+			await expect(
+				page.getByText("Pick a date — this question needs both."),
+			).toBeVisible();
+
+			// And clearing the remaining half empties the answer outright.
+			await clocks.nth(0).fill("");
+			await clocks.nth(0).blur();
+			await expect(clocks.nth(0)).toHaveValue("");
+			await expect(
+				page.getByText("Pick a date — this question needs both."),
+			).toBeHidden();
 		});
 
 		await test.step("a typed clock commits in the locale's own spelling", async () => {
