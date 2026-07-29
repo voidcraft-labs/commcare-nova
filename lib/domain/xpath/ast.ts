@@ -13,11 +13,9 @@
 //
 // Everything between the reference leaves is verbatim source text —
 // operators, literals, function calls, whitespace, quoting — kept
-// byte-exact in `text` runs. That carries the round-trip law the
-// parser/printer pair is fuzz-pinned to: `print(parse(s)) === s`
-// byte-identical for every input string, which is what makes a stored
-// expression provably safe to migrate (parse → AST → print reproduces
-// the original bytes over an unrenamed doc).
+// byte-exact in `text` runs. Reference spellings themselves are canonical
+// projections of identity. In particular, an absolute form path always prints
+// as `/data/<current path>`; separator bytes are not persisted.
 //
 // The parser (`lib/commcare/xpath/expressionAst.ts` — it needs the
 // Lezer grammar) decides which textual shapes become leaves; this
@@ -29,11 +27,9 @@
 //
 //   - `field-ref` — a resolved `#form/<path>` reference. Prints as
 //     `#form/` + the target's current id path from its form root.
-//   - `path-ref` — the same identity in the absolute `/data/<path>`
-//     spelling. `seps` keeps each separator run byte-exact (`/`, `//`,
-//     and any whitespace around them), one entry per path segment
-//     (the first precedes `data`), so unusual spacing survives the
-//     round trip; print re-derives the segment names from the uuid.
+//   - `path-ref` — the same identity in the canonical absolute
+//     `/data/<path>` spelling. Only the target UUID is stored; print
+//     re-derives the complete path from current identity.
 //   - `case-ref` — an explicit per-type reference `#<type>/<prop>`.
 //   - `user-ref` — a built-in or external `#user/<property>` name. The
 //     name is intentionally the identity because it has no doc entity.
@@ -79,7 +75,6 @@ const xpathPathRefPartSchema = z
 	.object({
 		kind: z.literal("path-ref"),
 		uuid: uuidSchema,
-		seps: z.array(z.string()),
 	})
 	.strict();
 

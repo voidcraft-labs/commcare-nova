@@ -112,9 +112,7 @@ export function xpathPrintContext(doc: XPathPrintableDoc): XPathPrintContext {
  * reference leaves resolve through `ctx`:
  *
  *   - `field-ref` → `#form/<current path>`
- *   - `path-ref`  → its stored separator runs interleaved with
- *     `data` + the current path (separators pad with `/` when a move
- *     deepened the path, and surplus entries drop when it flattened)
+ *   - `path-ref`  → canonical absolute `/data/<current path>`
  *   - `user-property-ref` → the target property's current saved name
  *   - `case-ref` / `user-ref` / `raw-ref` → their name spelling
  */
@@ -135,10 +133,7 @@ export function printXPath(
 			}
 			case "path-ref": {
 				const path = ctx.fieldPathSegments(part.uuid) ?? [part.uuid];
-				const segments = ["data", ...path];
-				for (let i = 0; i < segments.length; i++) {
-					out += (part.seps[i] ?? "/") + segments[i];
-				}
+				out += `/data/${path.join("/")}`;
 				break;
 			}
 			case "case-ref":

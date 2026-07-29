@@ -4,11 +4,9 @@
 // stored `XPathExpression` (shape, printer, and walks live in
 // `lib/domain/xpath`). The Lezer grammar locates the reference-shaped
 // spans — hashtag refs and absolute `/data/...` chains — and
-// everything between them is kept as verbatim text runs, so
-// `printXPath(parseXPathExpression(s, ctx), printCtx)` reproduces `s`
-// byte-identically for EVERY input string over an unrenamed doc (the
-// fuzz-pinned law that makes stored-expression migration provably
-// byte-safe).
+// everything between them is kept as verbatim text runs. Identity leaves print
+// canonically; the migration separately rejects a legacy noncanonical absolute
+// path instead of preserving separator bytes in the stored AST.
 //
 // Reference classification mirrors the long-standing extractor/rewriter
 // rules exactly — an identity leaf is minted precisely where a rename
@@ -20,7 +18,7 @@
 //   - `/data/<path>` as a PURE step chain (only `/`-or-`//` separators
 //     and plain name steps — a predicate, axis, or function call
 //     breaks the chain, exactly as it broke segment collection before)
-//     with a full resolution → `path-ref`, separators kept byte-exact.
+//     with a full resolution → canonical `path-ref { uuid }`.
 //   - `#<type>/<prop>` (one segment, explicit namespace) → `case-ref`.
 //     Case properties are name-keyed; the name pair IS the identity,
 //     so no doc lookup gates this.
@@ -225,7 +223,8 @@ function classifyHashtag(
  * runs (whitespace allowed around them) interleaved with the collected
  * name steps, verified by reconstruction so a predicate, axis step,
  * wildcard, or function call anywhere in the chain disqualifies it —
- * and the id path after `data` must FULLY resolve.
+ * and the id path after `data` must FULLY resolve. Separator spellings are
+ * accepted by the human text parser but never stored; printing is canonical.
  */
 function classifyDataPath(
 	node: SyntaxNode,
@@ -239,13 +238,11 @@ function classifyDataPath(
 	// Reconstruction check: every inter-segment run must be a single
 	// `/` or `//` with only whitespace around it, the span must start
 	// at its first separator, and end exactly at the last segment.
-	const seps: string[] = [];
 	let cursor = node.from;
 	for (const segment of collected) {
 		if (segment.from < cursor) return undefined;
 		const sep = source.slice(cursor, segment.from);
 		if (!/^\s*\/{1,2}\s*$/.test(sep)) return undefined;
-		seps.push(sep);
 		cursor = segment.to;
 	}
 	if (cursor !== node.to) return undefined;
@@ -255,7 +252,7 @@ function classifyDataPath(
 	return {
 		from: node.from,
 		to: node.to,
-		part: { kind: "path-ref", uuid: asUuid(uuid), seps },
+		part: { kind: "path-ref", uuid: asUuid(uuid) },
 	};
 }
 
