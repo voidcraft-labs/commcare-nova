@@ -44,6 +44,7 @@ interface DatePickerProps {
 	/** Merged onto the trigger button (width, text size). */
 	className?: string;
 	"aria-label"?: string;
+	"aria-labelledby"?: string;
 	"aria-invalid"?: boolean;
 	"aria-describedby"?: string;
 }
@@ -79,6 +80,7 @@ function DatePicker({
 	clearable = true,
 	className,
 	"aria-label": ariaLabel,
+	"aria-labelledby": ariaLabelledBy,
 	"aria-invalid": ariaInvalid,
 	"aria-describedby": ariaDescribedBy,
 }: DatePickerProps) {
@@ -95,6 +97,7 @@ function DatePicker({
 			<PopoverTrigger
 				id={id}
 				aria-label={ariaLabel}
+				aria-labelledby={ariaLabelledBy}
 				aria-invalid={ariaInvalid}
 				aria-describedby={ariaDescribedBy}
 				disabled={disabled}

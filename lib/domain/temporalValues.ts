@@ -64,8 +64,16 @@
 // Nova stores the spelling that cannot be invalidated by a stricter
 // validator later.
 
-/** Calendar date, the one shape that is identical everywhere. */
-const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
+/** The three kinds of temporal answer, spelled the same way by a field's
+ *  `kind` and a case property's `data_type`. */
+export type TemporalValueKind = "date" | "time" | "datetime";
+
+/**
+ * Calendar date, the one shape that is identical everywhere. Month and day
+ * are range-checked but the calendar is not: `2026-02-30` passes here and
+ * is caught by the schema, which stays the single authority on conformance.
+ */
+const DATE_ONLY_RE = /^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])$/;
 
 /**
  * A time-of-day with optional seconds, fractional seconds, and trailing
@@ -76,16 +84,13 @@ const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
  * `-15` offset: a designator pattern anchored only at the end has no way
  * to know the text before it was never a time. Requiring the whole
  * fragment to parse at once removes the question.
+ *
+ * Every field is range-bound, so an hour like `99:00` is text this grammar
+ * cannot read rather than a clock it happily rewrites into `99:00:00.000Z`
+ * — a shape that looks canonical and that no schema accepts.
  */
 const TIME_OF_DAY_RE =
-	/^(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\.(\d+))?(Z|[+-]\d{2}(?::?\d{2})?)?$/;
-
-/** A trailing zone designator on an already-validated datetime. */
-const ZONE_DESIGNATOR_RE = /(?:Z|[+-]\d{2}(?::?\d{2})?)$/;
-
-/** A calendar date joined to a time-of-day, with no zone designator. */
-const NAIVE_DATETIME_RE =
-	/^(\d{4}-\d{2}-\d{2})T(\d{1,2}:\d{2}(?::\d{2})?(?:\.\d+)?)$/;
+	/^([01]?\d|2[0-3]):([0-5]\d)(?::([0-5]\d))?(?:\.(\d+))?(Z|[+-](?:[01]\d|2[0-3])(?::?[0-5]\d)?)?$/;
 
 /** Midnight, in the wire's own spelling — what a bare date extends to. */
 const WIRE_MIDNIGHT = "00:00:00.000";
@@ -122,8 +127,25 @@ function parseTimeOfDay(
 	const [, hours, minutes, seconds, fraction, designator] = match;
 	return {
 		clock: `${pad(Number(hours), 2)}:${minutes}:${seconds ?? "00"}.${(fraction ?? "").padEnd(3, "0").slice(0, 3)}`,
-		designator: designator ?? "",
+		designator: canonicalDesignator(designator ?? ""),
 	};
+}
+
+/**
+ * A zone designator in the one spelling this module stores, `±HH:MM`.
+ *
+ * ISO 8601 also admits `-05` and `-0530`, and both reach here from imported
+ * data, but RFC 3339 — which is what ajv-formats reads a `format: "time"` /
+ * `"date-time"` against — admits neither. A designator that survived the
+ * grammar is therefore rewritten rather than passed through, so every value
+ * this module returns is one the storage schema accepts.
+ *
+ * `Z` and the absent designator are already canonical and pass straight out.
+ */
+function canonicalDesignator(designator: string): string {
+	if (designator === "" || designator === "Z") return designator;
+	const digits = designator.slice(1).replace(":", "");
+	return `${designator[0]}${digits.slice(0, 2)}:${digits.length > 2 ? digits.slice(2) : "00"}`;
 }
 
 /**
@@ -245,22 +267,65 @@ export function zoneDesignatorForWallTime(wall: string, zone: string): string {
  * unreadable is returned trimmed for the schema to reject.
  */
 export function storageDatetimeValue(text: string, zone: string): string {
+	const parsed = parseDatetime(text);
+	if (parsed === null) return text.trim();
+	return `${parsed.wall}${
+		parsed.designator === ""
+			? zoneDesignatorForWallTime(parsed.wall, zone)
+			: parsed.designator
+	}`;
+}
+
+/** A datetime fragment split into its wall clock and its zone designator,
+ *  or `null` when the text is not a date-and-time at all. A bare calendar
+ *  date reads as its own midnight, zoneless — the caller stamps it. */
+function parseDatetime(
+	text: string,
+): { wall: string; designator: string } | null {
 	const trimmed = text.trim();
 	if (DATE_ONLY_RE.test(trimmed)) {
-		const wall = `${trimmed}T${WIRE_MIDNIGHT}`;
-		return `${wall}${zoneDesignatorForWallTime(wall, zone)}`;
-	}
-	const naive = NAIVE_DATETIME_RE.exec(trimmed);
-	if (naive !== null) {
-		const wall = `${naive[1]}T${wireTimeOfDay(naive[2] as string)}`;
-		return `${wall}${zoneDesignatorForWallTime(wall, zone)}`;
+		return { wall: `${trimmed}T${WIRE_MIDNIGHT}`, designator: "" };
 	}
 	const separator = trimmed.indexOf("T");
-	if (separator !== -1 && ZONE_DESIGNATOR_RE.test(trimmed)) {
-		const datePart = trimmed.slice(0, separator);
-		const timePart = trimmed.slice(separator + 1);
-		const designator = ZONE_DESIGNATOR_RE.exec(timePart)?.[0] ?? "";
-		return `${datePart}T${wireTimeOfDay(timePart)}${designator}`;
+	if (separator === -1) return null;
+	const datePart = trimmed.slice(0, separator);
+	if (!DATE_ONLY_RE.test(datePart)) return null;
+	const time = parseTimeOfDay(trimmed.slice(separator + 1));
+	if (time === null) return null;
+	return { wall: `${datePart}T${time.clock}`, designator: time.designator };
+}
+
+/**
+ * Whether `value` is ALREADY exactly what this module stores for `kind` —
+ * the question a widget asks before rendering a value as human text, and
+ * the one the form engine asks before letting an answer reach submission.
+ *
+ * It is deliberately not `canonicalizer(value) === value`: every
+ * canonicalizer here returns unreadable text untouched, so that comparison
+ * calls `"sometime tuesday"` a stored time. Readability is checked first
+ * and separately, against the same grammar the canonicalizer parses with,
+ * so the two can never disagree about what a value is.
+ *
+ * Shape only. A `2026-02-30` clears every gate here and is rejected by the
+ * storage schema, which stays the authority on conformance.
+ */
+export function isStorageTemporalValue(
+	kind: TemporalValueKind,
+	value: string,
+): boolean {
+	switch (kind) {
+		case "date":
+			return DATE_ONLY_RE.test(value);
+		case "time":
+			return (
+				parseTimeOfDay(value) !== null && storageTimeValue(value) === value
+			);
+		case "datetime":
+			// The zone cannot matter: a value already in storage shape carries
+			// its own designator, and `storageDatetimeValue` never overrides one.
+			return (
+				parseDatetime(value) !== null &&
+				storageDatetimeValue(value, "UTC") === value
+			);
 	}
-	return trimmed;
 }

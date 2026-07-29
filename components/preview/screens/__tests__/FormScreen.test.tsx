@@ -1431,7 +1431,7 @@ describe("FormScreen — validate-fail short-circuit", () => {
 		/* The field owns its visible error; FormScreen contributes only a
 		 * screen-reader announcement for the focus jump. */
 		expect(
-			await screen.findByText(/review the highlighted required question/i),
+			await screen.findByText(/review the highlighted question/i),
 		).toBeDefined();
 		expect(navigateMock.goHome).not.toHaveBeenCalled();
 		expect(onBackMock).not.toHaveBeenCalled();
@@ -1461,9 +1461,7 @@ describe("FormScreen — validate-fail short-circuit", () => {
 		);
 		await waitFor(() => expect(document.activeElement).toBe(file));
 		expect(file.getAttribute("aria-invalid")).toBe("true");
-		expect(
-			screen.getByText(/review the highlighted required question/i),
-		).toBeDefined();
+		expect(screen.getByText(/review the highlighted question/i)).toBeDefined();
 		expect(vi.mocked(submitFormAction)).not.toHaveBeenCalled();
 	});
 

@@ -16,6 +16,7 @@ The Lezer grammar emits TWO distinct `Child` node types (one from the root-step 
 
 - **Default values apply one-time on init, AFTER case-data preload** — so the preloaded case data sets the initial state and defaults only fill unset fields.
 - **Required validation is deferred to submit.** Showing "required" on blur is bad UX because the user may have clicked in and navigated away. The red asterisk communicates requiredness until submission.
+- **A temporal answer's SHAPE is checked, and it rides with authored validation, not with required.** A clock is typed, so it is the one answer a person can half-finish into something that is not a value of its type at all — `"abc"` is a legal string, `"2:3"` is not a time. `temporalShapeError` asks `lib/domain`'s `isStorageTemporalValue` and, on a miss, replaces the field's message with one naming what was entered. Riding with authored validation puts it on blur (the moment the answer stopped being half-typed) and again for every field at submit, so a half-typed clock can neither slip past nor be judged by an XPath rule that has nothing useful to say about it. An empty answer is not ill-shaped — that is `required`'s question. Without this the value reaches the case store and returns as a schema rejection naming a property instead of a question.
 - **`reset()` is a full reinitialization** — rebuild instance, re-preload, reapply defaults, re-cascade. Returns to the exact initial state.
 - **`resetValidation()` clears touched state + errors only** — called when leaving test mode so fields start clean on re-entry.
 

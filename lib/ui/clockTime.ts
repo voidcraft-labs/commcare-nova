@@ -1,8 +1,13 @@
-// Clock-time text → canonical 24-hour value — the pure parser behind
-// `components/shadcn/time-field.tsx`. People type times in the
+// Clock-time text ⇄ canonical 24-hour value — the pure parse/format pair
+// behind `components/shadcn/time-field.tsx`. People type times in the
 // locale's own clock ("2:30 PM"); the wire and the engines store the
 // 24-hour canonical form. Kept React-free so pure state models (the
 // data-review draft normalization) unit-test against it directly.
+
+import {
+	isStorageTemporalValue,
+	wireTimeOfDay,
+} from "@/lib/domain/temporalValues";
 
 /**
  * Parse a typed clock time the way a person writes one — "2:30 PM",
@@ -32,4 +37,37 @@ export function parseClockTime(text: string): string | null {
 	}
 	const pad = (n: number) => String(n).padStart(2, "0");
 	return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
+}
+
+/**
+ * The locale-clock spelling of a STORED time — "2:30 PM" for the
+ * `14:30:00.000Z` a case property holds. The display half of the pair
+ * `parseClockTime` opens, and its inverse: every string this returns
+ * parses back to the same clock, which is what lets a field show a
+ * friendly value and still commit the stored one after a focus and blur
+ * that changed nothing.
+ *
+ * `null` means "show the raw value instead", and it covers two cases that
+ * want exactly that:
+ *
+ *   - Text that is not a stored time at all — the half-typed "2:3" a
+ *     person is still in the middle of. Reformatting mid-keystroke would
+ *     rewrite "2:30" to "2:30 AM" under someone reaching for PM.
+ *   - A stored time this spelling cannot carry back: seconds are shown
+ *     only when they are non-zero, and a fractional second has nowhere to
+ *     go at all, so an imported `14:30:00.500Z` stays verbatim rather than
+ *     being displayed as a value that would commit back a half-second
+ *     short.
+ */
+export function formatClockTime(value: string): string | null {
+	if (!isStorageTemporalValue("time", value)) return null;
+	const [hoursText, minutes, secondsAndMillis] =
+		wireTimeOfDay(value).split(":");
+	const [seconds, millis] = secondsAndMillis.split(".");
+	if (millis !== "000") return null;
+	const hours = Number(hoursText);
+	const meridiem = hours < 12 ? "AM" : "PM";
+	const clockHours = hours % 12 === 0 ? 12 : hours % 12;
+	const withSeconds = seconds === "00" ? "" : `:${seconds}`;
+	return `${clockHours}:${minutes}${withSeconds} ${meridiem}`;
 }

@@ -197,6 +197,129 @@ describe("FormEngine", () => {
 		});
 	});
 
+	describe("temporal shape gate", () => {
+		// A clock is typed, so a temporal answer can be half-finished in a way
+		// no other kind can: "abc" is a legal string, "2:3" is not a time. The
+		// gate is what keeps that from reaching the case store and coming back
+		// as a schema rejection naming a property instead of a question.
+
+		it("rejects a half-typed clock, naming what was entered", () => {
+			const input = dTree([{ id: "wake", kind: "time", label: "Wake time" }]);
+			const engine = new FormEngine(input);
+
+			engine.setValue("/data/wake", "2:3");
+			expect(engine.getState("/data/wake").valid).toBe(false);
+			expect(engine.getState("/data/wake").errorMessage).toBe(
+				"“2:3” isn’t a time yet. Enter a clock time like 2:30 PM.",
+			);
+		});
+
+		it("accepts the shape the case store holds", () => {
+			const input = dTree([
+				{ id: "wake", kind: "time" },
+				{ id: "seen", kind: "datetime" },
+				{ id: "born", kind: "date" },
+			]);
+			const engine = new FormEngine(input);
+
+			engine.setValue("/data/wake", "07:30:00.000Z");
+			engine.setValue("/data/seen", "2026-05-06T12:34:56.000-04:00");
+			engine.setValue("/data/born", "2026-01-15");
+
+			expect(engine.getState("/data/wake").valid).toBe(true);
+			expect(engine.getState("/data/seen").valid).toBe(true);
+			expect(engine.getState("/data/born").valid).toBe(true);
+		});
+
+		it("leaves an empty answer to required", () => {
+			// Empty is not ill-shaped. Whether it is allowed is a different
+			// question with a different message and a different moment.
+			const input = dTree([{ id: "wake", kind: "time", required: "true()" }]);
+			const engine = new FormEngine(input);
+
+			engine.touch("/data/wake");
+			expect(engine.getState("/data/wake").valid).toBe(true);
+			expect(engine.validateAll()).toBe(false);
+			expect(engine.getState("/data/wake").errorMessage).toBe(
+				"This field is required",
+			);
+		});
+
+		it("surfaces on blur, like authored validation rather than required", () => {
+			const input = dTree([{ id: "wake", kind: "time" }]);
+			const engine = new FormEngine(input);
+
+			engine.setValue("/data/wake", "2:3");
+			engine.touch("/data/wake");
+			expect(engine.getState("/data/wake").touched).toBe(true);
+			expect(engine.getState("/data/wake").valid).toBe(false);
+		});
+
+		it("blocks submission", () => {
+			const input = dTree([{ id: "wake", kind: "time" }]);
+			const engine = new FormEngine(input);
+
+			engine.setValue("/data/wake", "half past two");
+			expect(engine.validateAll()).toBe(false);
+		});
+
+		it("answers ahead of an authored rule, which cannot judge a non-time", () => {
+			// `. > '08:00:00.000Z'` over "2:3" is a string comparison whose
+			// result says nothing about why the answer is unusable. The shape
+			// error is the one a person can act on.
+			const input = dTree([
+				{
+					id: "wake",
+					kind: "time",
+					validate: ". > '08:00:00.000Z'",
+					validate_msg: "Must be after 8am",
+				},
+			]);
+			const engine = new FormEngine(input);
+
+			engine.setValue("/data/wake", "2:3");
+			expect(engine.getState("/data/wake").errorMessage).toBe(
+				"“2:3” isn’t a time yet. Enter a clock time like 2:30 PM.",
+			);
+
+			engine.setValue("/data/wake", "07:30:00.000Z");
+			expect(engine.getState("/data/wake").errorMessage).toBe(
+				"Must be after 8am",
+			);
+		});
+
+		it("says nothing about a kind that has no temporal shape", () => {
+			const input = dTree([{ id: "notes", kind: "text" }]);
+			const engine = new FormEngine(input);
+
+			engine.setValue("/data/notes", "2:3");
+			expect(engine.getState("/data/notes").valid).toBe(true);
+		});
+
+		it("accepts a preloaded answer without the author touching it", () => {
+			// Preload writes storage shapes straight into the instance, so a
+			// followup that opens on an existing case must not present every
+			// temporal answer as already wrong.
+			const input = dTree(
+				[
+					{ id: "wake", kind: "time", case_property_on: "patient" },
+					{ id: "seen", kind: "datetime", case_property_on: "patient" },
+				],
+				"followup",
+			);
+			const engine = new FormEngine(
+				input,
+				"patient",
+				caseDataFor("patient", [
+					["wake", "07:30:00.000Z"],
+					["seen", "2026-05-06T12:34:56.000-04:00"],
+				]),
+			);
+
+			expect(engine.validateAll()).toBe(true);
+		});
+	});
+
 	describe("required", () => {
 		it("marks statically required fields", () => {
 			const input = dTree([

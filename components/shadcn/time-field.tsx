@@ -13,6 +13,7 @@ interface TimeFieldProps {
 	onFocus?: () => void;
 	onBlur?: () => void;
 	"aria-label"?: string;
+	"aria-labelledby"?: string;
 	"aria-invalid"?: boolean;
 	"aria-describedby"?: string;
 }
@@ -38,6 +39,7 @@ function TimeField({
 	onFocus,
 	onBlur,
 	"aria-label": ariaLabel,
+	"aria-labelledby": ariaLabelledBy,
 	"aria-invalid": ariaInvalid,
 	"aria-describedby": ariaDescribedBy,
 }: TimeFieldProps) {
@@ -54,6 +56,7 @@ function TimeField({
 			onBlur={onBlur}
 			placeholder="2:30 PM"
 			aria-label={ariaLabel}
+			aria-labelledby={ariaLabelledBy}
 			aria-invalid={ariaInvalid}
 			aria-describedby={ariaDescribedBy}
 			className={cn("min-h-11 w-32", className)}

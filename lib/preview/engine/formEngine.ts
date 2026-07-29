@@ -38,6 +38,7 @@ import {
 	casePropertyDataTypes,
 	expressionSource,
 	isCaptureFieldKind,
+	isStorageTemporalValue,
 	orderedCaseOperations,
 	ownRecordValue,
 	storageDatetimeValue,
@@ -2037,6 +2038,14 @@ export class FormEngine {
 		state: FieldState,
 		updates: EngineStoreState,
 	): void {
+		const shapeError = this.temporalShapeError(path, state.value);
+		if (shapeError !== undefined) {
+			if (state.valid || state.errorMessage !== shapeError) {
+				updates[path] = { ...state, valid: false, errorMessage: shapeError };
+			}
+			return;
+		}
+
 		const expressions = this.dag.getExpressions(path);
 		const validationExpr = expressions.find((e) => e.type === "validation");
 		if (!validationExpr || !state.value) {
@@ -2058,6 +2067,39 @@ export class FormEngine {
 
 		if (valid !== state.valid || errorMessage !== state.errorMessage) {
 			updates[path] = { ...state, valid, errorMessage };
+		}
+	}
+
+	/**
+	 * The message for a temporal answer that is not yet in a shape anything
+	 * downstream can read, or `undefined` when there is nothing wrong.
+	 *
+	 * This exists because a clock is TYPED. Every other answer a person can
+	 * half-finish is still a legal value of its type — "abc" is a string —
+	 * but "2:3" is not a time, and without a gate it travels all the way to
+	 * the case store and comes back as a schema rejection naming a property
+	 * instead of a question. So the shape is checked here, where the field
+	 * that owns it can say so.
+	 *
+	 * It rides with authored validation rather than with required, so it
+	 * surfaces on blur — the moment the answer stopped being half-typed —
+	 * and again for every field at submit. An empty answer is not
+	 * ill-shaped; whether it is allowed is `required`'s question.
+	 */
+	private temporalShapeError(path: string, value: string): string | undefined {
+		if (value === "") return undefined;
+		const kind = this.findField(path)?.kind;
+		if (kind !== "date" && kind !== "time" && kind !== "datetime") {
+			return undefined;
+		}
+		if (isStorageTemporalValue(kind, value)) return undefined;
+		switch (kind) {
+			case "date":
+				return `“${value}” isn’t a date. Pick one from the calendar.`;
+			case "time":
+				return `“${value}” isn’t a time yet. Enter a clock time like 2:30 PM.`;
+			case "datetime":
+				return `“${value}” isn’t a date and time yet. Pick a date and enter a clock time like 2:30 PM.`;
 		}
 	}
 

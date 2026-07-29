@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	isStorageTemporalValue,
 	storageDatetimeValue,
 	storageTimeValue,
 	wireTimeOfDay,
@@ -164,5 +165,103 @@ describe("storageDatetimeValue", () => {
 		expect(storageDatetimeValue("sometime tuesday", "UTC")).toBe(
 			"sometime tuesday",
 		);
+	});
+});
+
+describe("range checking", () => {
+	// A clock the grammar cannot read comes back untouched, which the schema
+	// then rejects by name. The alternative — reading it loosely and padding
+	// it out — produces `99:00:00.000Z`: canonical-LOOKING text that no
+	// validator accepts and no error message can explain.
+	it("refuses an impossible clock rather than padding it into shape", () => {
+		expect(storageTimeValue("99:00")).toBe("99:00");
+		expect(storageTimeValue("14:75")).toBe("14:75");
+		expect(storageTimeValue("14:30:99")).toBe("14:30:99");
+	});
+
+	it("refuses an impossible calendar month or day", () => {
+		expect(storageDatetimeValue("2026-13-01T10:00", "UTC")).toBe(
+			"2026-13-01T10:00",
+		);
+		expect(storageDatetimeValue("2026-01-45T10:00", "UTC")).toBe(
+			"2026-01-45T10:00",
+		);
+	});
+});
+
+describe("zone designator spelling", () => {
+	// ISO 8601 admits `-05` and `-0530`; RFC 3339 — which is what
+	// ajv-formats reads `format: "time"` / `"date-time"` against — admits
+	// neither, and both arrive from imported data.
+	it("rewrites an ISO-only offset spelling to the RFC 3339 one", () => {
+		expect(storageTimeValue("14:30-05")).toBe("14:30:00.000-05:00");
+		expect(storageTimeValue("14:30+0530")).toBe("14:30:00.000+05:30");
+		expect(storageDatetimeValue("2026-01-15T14:30-05", "UTC")).toBe(
+			"2026-01-15T14:30:00.000-05:00",
+		);
+	});
+
+	it("leaves an already-canonical designator alone", () => {
+		expect(storageTimeValue("14:30:00.000Z")).toBe("14:30:00.000Z");
+		expect(storageTimeValue("14:30:00.000-05:00")).toBe("14:30:00.000-05:00");
+	});
+});
+
+describe("isStorageTemporalValue", () => {
+	it("accepts exactly what the canonicalizers produce", () => {
+		// The predicate and the producers have to agree, or the form engine
+		// rejects an answer the case store would have accepted.
+		const zones = ["UTC", "America/New_York", "Asia/Kolkata"];
+		const times = ["14:30", "9:05:07", "00:00:00.000Z", "14:30-05"];
+		for (const zone of zones) {
+			for (const time of times) {
+				expect(isStorageTemporalValue("time", storageTimeValue(time))).toBe(
+					true,
+				);
+				expect(
+					isStorageTemporalValue(
+						"datetime",
+						storageDatetimeValue(`2026-07-04T${time}`, zone),
+					),
+				).toBe(true);
+			}
+			expect(
+				isStorageTemporalValue(
+					"datetime",
+					storageDatetimeValue("2026-01-15", zone),
+				),
+			).toBe(true);
+		}
+	});
+
+	it("rejects text no canonicalizer could read", () => {
+		// The reason this is not `canonicalizer(v) === v`: every
+		// canonicalizer returns unreadable text untouched, so that
+		// comparison calls "sometime tuesday" a stored time.
+		expect(isStorageTemporalValue("time", "sometime tuesday")).toBe(false);
+		expect(isStorageTemporalValue("datetime", "sometime tuesday")).toBe(false);
+		expect(isStorageTemporalValue("date", "sometime tuesday")).toBe(false);
+	});
+
+	it("rejects the half-typed clock a person is still in the middle of", () => {
+		expect(isStorageTemporalValue("time", "2:3")).toBe(false);
+		expect(isStorageTemporalValue("time", "2:30 PM")).toBe(false);
+		expect(isStorageTemporalValue("datetime", "2026-01-15T2:3")).toBe(false);
+	});
+
+	it("rejects a value that is merely close to the stored shape", () => {
+		// Unpadded, un-tagged, or a naive datetime: readable, but not what
+		// is stored, so committing it would leave two spellings of one answer.
+		expect(isStorageTemporalValue("time", "14:30:00.000")).toBe(false);
+		expect(isStorageTemporalValue("time", "14:30")).toBe(false);
+		expect(isStorageTemporalValue("datetime", "2026-01-15T14:30:00.000")).toBe(
+			false,
+		);
+		expect(isStorageTemporalValue("date", "2026-1-5")).toBe(false);
+	});
+
+	it("does not mistake a bare date for a stored datetime", () => {
+		expect(isStorageTemporalValue("datetime", "2026-01-15")).toBe(false);
+		expect(isStorageTemporalValue("date", "2026-01-15")).toBe(true);
 	});
 });
