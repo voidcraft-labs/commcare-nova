@@ -40,6 +40,8 @@ import {
 	isCaptureFieldKind,
 	orderedCaseOperations,
 	ownRecordValue,
+	storageDatetimeValue,
+	storageTimeValue,
 	type XPathPrintableDoc,
 } from "@/lib/domain";
 import {
@@ -1035,7 +1037,17 @@ export class FormEngine {
 		 * there.
 		 */
 		entryKey: string;
+		/**
+		 * The viewer's IANA timezone — the offset a datetime answer is
+		 * stamped with, standing in for the zone the device would stamp.
+		 * Explicit rather than read from `Intl` here so the engine keeps no
+		 * hidden environment dependency and a test pins a zone instead of
+		 * inheriting the machine's. Absent falls back to UTC, matching
+		 * every other viewer-zone consumer.
+		 */
+		viewerTimeZone?: string;
 	}): SubmissionMutation {
+		const zone = args.viewerTimeZone ?? "UTC";
 		/* The operation identity riding every arm: the submitting form's
 		 * uuid (the authored-key scope half and the server-side program
 		 * builder's doc anchor) plus the collected per-scope answers when
@@ -1160,7 +1172,7 @@ export class FormEngine {
 				const property = caseTypeLookup
 					.get(casePropertyOn)
 					?.properties.find((p) => p.name === f.id);
-				const coerced = coerceValueForProperty(raw, property);
+				const coerced = coerceValueForProperty(raw, property, zone);
 
 				if (isPrimary) {
 					primaryProperties[f.id] = coerced;
@@ -2080,6 +2092,11 @@ export class FormEngine {
 				withCP.case_property_on === this.moduleCaseType &&
 				own.has(f.id)
 			) {
+				// Verbatim: the instance holds a temporal value exactly as the
+				// case store holds it, so this path, its `Tracked` twin, and
+				// the `#case/<prop>` resolver in `createEvalContext` cannot
+				// disagree about the same property (see
+				// `lib/domain/temporalValues.ts`).
 				this.instance.set(path, own.get(f.id) ?? "");
 			}
 			if (node.children) {
@@ -2398,10 +2415,18 @@ function isCaseLoadingFormType(formType: string): boolean {
  * property) default to `text` pass-through — preserves the value
  * verbatim rather than dropping it. Empty raw values never reach
  * this function — the walker filters them upstream.
+ *
+ * The two temporal arms are the storage boundary: the engine holds what
+ * the device's instance holds, and the strict row schema wants more than
+ * the wire carries. A time takes the `Z` storage tag; a datetime takes the
+ * viewer's own offset, because that is what the device stamps and what the
+ * viewer-local `format-date` reads back. `lib/domain/temporalValues.ts`
+ * carries the reasoning and the CommCare citations.
  */
 function coerceValueForProperty(
 	raw: string,
 	property: CaseProperty | undefined,
+	zone: string,
 ): JsonValue {
 	const dataType: CasePropertyDataType = property?.data_type ?? "text";
 	switch (dataType) {
@@ -2409,9 +2434,11 @@ function coerceValueForProperty(
 		case "single_select":
 		case "geopoint":
 		case "date":
-		case "time":
-		case "datetime":
 			return raw;
+		case "time":
+			return storageTimeValue(raw);
+		case "datetime":
+			return storageDatetimeValue(raw, zone);
 		case "int": {
 			const parsed = Number.parseInt(raw, 10);
 			return Number.isInteger(parsed) && Number.isFinite(parsed) ? parsed : raw;

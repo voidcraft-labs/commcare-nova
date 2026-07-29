@@ -7,6 +7,7 @@
 // Wire shapes match `lib/domain/predicate/jsonSchema.ts`'s
 // `format: date | time | date-time` arms.
 
+import { storageTimeValue } from "@/lib/domain/temporalValues";
 import type { SeededPrng } from "../prng";
 
 export type DateRangeKind = "dob" | "registration" | "recent-event";
@@ -20,7 +21,8 @@ export interface DateRangeGenerators {
 	pickDate(kind: DateRangeKind): string;
 	/** A YYYY-MM-DDTHH:MM:SS.sssZ ISO datetime in the supplied range. */
 	pickDatetime(kind: DateRangeKind): string;
-	/** A HH:MM:SS ISO time in working-hours range (08:00 - 18:00). */
+	/** A stored-shape `HH:MM:SS.mmmZ` time in working-hours range
+	 *  (08:00 - 18:00). */
 	pickTime(): string;
 }
 
@@ -63,17 +65,19 @@ export function composeDateRangeGenerators(
 	const formatIsoDatetime = (date: Date): string => date.toISOString();
 
 	/**
-	 * Working-hours range 08:00-18:00. The trailing `Z` is required
-	 * — AJV's strict `format: time` follows RFC 3339 §5.6's full-time
-	 * grammar which requires a timezone offset. Without it,
-	 * generated rows fail the case-store's write-side validator.
+	 * Working-hours range 08:00-18:00, handed to `storageTimeValue` for the
+	 * `Z` storage tag rather than spelling one here — a generated row has to
+	 * be indistinguishable from a row a person entered, and this generator
+	 * predating the shared module is exactly how the two would drift.
 	 */
 	const pickWorkingHoursTime = (): string => {
 		const minuteOfDay = Math.floor(prng.pickFloat() * 600) + 480; // 480 minutes = 08:00; +600 = 18:00
 		const hours = Math.floor(minuteOfDay / 60);
 		const minutes = minuteOfDay % 60;
 		const seconds = Math.floor(prng.pickFloat() * 60);
-		return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}Z`;
+		return storageTimeValue(
+			`${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`,
+		);
 	};
 
 	return {

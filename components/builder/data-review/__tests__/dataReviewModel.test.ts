@@ -147,41 +147,60 @@ describe("replacementDraftToValue", () => {
 		});
 	});
 
-	it("stamps the UTC designator the strict temporal schemas require", () => {
+	it("writes a time as the wire's wall clock plus the storage tag", () => {
+		// `TimeData::uncast` writes three fractional digits and no zone; the
+		// `Z` is Nova's storage tag for the strict `format: "time"` schema.
 		expect(replacementDraftToValue("time", "09:30")).toEqual({
 			ok: true,
-			value: "09:30:00Z",
+			value: "09:30:00.000Z",
 		});
+	});
+
+	it("stamps a datetime with the editing viewer's own offset", () => {
+		// Not `Z`: the device stamps the zone the answer was entered in
+		// (`DateTimeData::uncast`), and the viewer-local `format-date` reads
+		// the value back the same way. A value put back here has to land on
+		// the same instant as the identical value entered through a form.
+		expect(
+			replacementDraftToValue(
+				"datetime",
+				"2026-07-20T09:30",
+				"America/New_York",
+			),
+		).toEqual({ ok: true, value: "2026-07-20T09:30:00.000-04:00" });
+	});
+
+	it("reads a datetime as UTC when no viewer zone is supplied", () => {
 		expect(replacementDraftToValue("datetime", "2026-07-20T09:30")).toEqual({
 			ok: true,
-			value: "2026-07-20T09:30:00Z",
+			value: "2026-07-20T09:30:00.000Z",
 		});
 	});
 
 	it("reads clock times the way people write them — 12-hour first, bare 24-hour still accepted", () => {
 		expect(replacementDraftToValue("time", "2:30 PM")).toEqual({
 			ok: true,
-			value: "14:30:00Z",
+			value: "14:30:00.000Z",
 		});
 		expect(replacementDraftToValue("time", "9:05am")).toEqual({
 			ok: true,
-			value: "09:05:00Z",
+			value: "09:05:00.000Z",
 		});
 		expect(replacementDraftToValue("time", "12:00 AM")).toEqual({
 			ok: true,
-			value: "00:00:00Z",
+			value: "00:00:00.000Z",
 		});
 		expect(replacementDraftToValue("time", "12:15 pm")).toEqual({
 			ok: true,
-			value: "12:15:00Z",
+			value: "12:15:00.000Z",
 		});
 		expect(replacementDraftToValue("time", "14:30:05")).toEqual({
 			ok: true,
-			value: "14:30:05Z",
+			value: "14:30:05.000Z",
 		});
 		expect(replacementDraftToValue("datetime", "2026-07-20T2:05 pm")).toEqual({
 			ok: true,
-			value: "2026-07-20T14:05:00Z",
+			value: "2026-07-20T14:05:00.000Z",
 		});
 	});
 

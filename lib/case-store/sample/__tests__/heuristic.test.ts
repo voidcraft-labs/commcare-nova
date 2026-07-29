@@ -347,10 +347,11 @@ describe("HeuristicCaseGenerator", () => {
 			expect(props.registered_on).toMatch(
 				/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/,
 			);
-			// time → HH:MM:SSZ in 08:00-18:00 working-hours range
-			// (the trailing `Z` satisfies AJV's strict
-			// `format: time` validator).
-			expect(props.visit_time).toMatch(/^\d{2}:\d{2}:\d{2}Z$/);
+			// time → the same stored shape a person's answer lands in
+			// (`storageTimeValue`): JavaRosa's `HH:MM:SS.mmm` wall clock
+			// plus the `Z` tag AJV's strict `format: time` requires. A
+			// generated row has to be indistinguishable from an entered one.
+			expect(props.visit_time).toMatch(/^\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
 			const [hourStr] = (props.visit_time as string).split(":");
 			const hour = Number.parseInt(hourStr ?? "0", 10);
 			expect(hour).toBeGreaterThanOrEqual(8);

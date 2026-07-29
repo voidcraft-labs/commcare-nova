@@ -899,6 +899,7 @@ export class EngineController {
 	computeSubmissionMutation(args: {
 		caseId?: string;
 		caseTypes: ReadonlyArray<CaseType>;
+		viewerTimeZone?: string;
 	}): SubmissionMutation {
 		if (!this.engine) {
 			throw new Error(

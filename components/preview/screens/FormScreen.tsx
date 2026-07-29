@@ -819,6 +819,10 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				const mutation = controller.computeSubmissionMutation({
 					caseId: submitted.caseId,
 					caseTypes,
+					/* The zone a datetime answer is stamped with. The device
+					 * stamps its own; in Preview the author's browser stands in
+					 * for it, the same substitution the case-data reads make. */
+					viewerTimeZone: viewerTimeZone(),
 				});
 				if (mutation.formUuid !== submitted.formUuid) return "stale";
 				/* The persona rides the WRITE, not just the reads. Its uuid is the
