@@ -29,12 +29,28 @@ release finishes. Migrations are additive where they can be and immediate where
 they cannot; a migration that has run anywhere is immutable, because it must
 still build a fresh database years later.
 
+**Direct maintenance cutover.** A persisted-shape change that the old and new
+revisions cannot both read is not forced through a rolling compatibility layer.
+Its advisory production scan runs first. The exceptional operator runbook then
+blocks ingress and every independent writer, drains in-flight work, proves the
+database quiescent, and reruns the blocking scan under the migration's locks.
+Only that frozen proof authorizes the one final-shape migration. The exact new
+image then deploys and proves it can read the shape before writers and ingress
+resume. A verified restore point, rollback decision, capacity proof, runbook,
+and post-migration scan ship with the behavior. Failure after the first write
+leaves traffic paused; an old revision never resumes against the new shape.
+This is accepted downtime, not a staged rollout: there are no dual readers,
+dual writes, temporary schemas, aliases, feature flags, version gates, or
+traffic-split controllers.
+
 **Valid by construction.** An invalid app cannot exist. Every mutation batch is
 gated before it commits, identically on the chat SA, the visual builder, and the
 MCP API. There is no save/validate/release cycle and no draft state. New
 mutations follow the compatibility rules in `lib/doc/CLAUDE.md`: persisted
-mutation history must always replay, and when a stored shape changes, the same
-change migrates stored history.
+mutation history after the active baseline must always replay. When a stored
+shape changes incompatibly, the same release either migrates the replayable
+suffix or atomically establishes an explicit fold horizon whose earlier rows
+remain opaque audit history.
 
 **Every wire unit names its fixture.** A unit that emits new wire states the
 CommCare suite fixture under
@@ -72,14 +88,53 @@ These decisions are closed unless the project owner explicitly reopens them.
 
 ### Identity and references
 
-- Lookup tables, columns, rows, user types, personas, organization levels,
-  locations, operations, sections, links, and endpoints use immutable UUIDs for
-  stored identity wherever Nova owns the identity.
-- Human names, lookup tags, column wire names, level codes, location site codes,
-  and endpoint ids are projections or external contracts, never substitutes for
-  internal identity.
-- A rename does not rewrite expression text. Printers and emitters resolve the
-  current external spelling from immutable identity.
+- **Every authorable Nova entity and every cross-object authoring reference is
+  addressed by its immutable UUID on every editor surface.** This includes
+  modules, forms, fields, select options, case-list columns, Search inputs,
+  uploaded media assets, lookup tables, lookup columns and rows,
+  worker-information properties, user types, personas, operations, organization
+  levels, locations, sections, links, and endpoints. SA and MCP tools accept and
+  return the same identity-bearing domain shapes the builder stores; they never
+  introduce a parallel slug, path, tag, wire-name, position, or mutable-id
+  address layer.
+- A Nova UUID is lowercase hyphenated RFC form, version 1–8, with the RFC
+  variant. Uppercase, nil, max, malformed, non-versioned, and non-RFC-variant
+  strings are rejected rather than normalized. Domain-specific UUID identities
+  may further restrict the version, such as UUIDv7 lookup ids.
+- Human names, module/form/field ids, operation ids, Search input names, lookup
+  tags, column wire names, worker-property slugs, level codes, location site
+  codes, and endpoint ids are display projections, semantic values, or external
+  contracts. They may be edited and emitted, but never substitute for Nova-owned
+  identity.
+- Ordering values describe placement only. They never identify the member being
+  moved or edited.
+- Same-call construction has no second handle vocabulary. A new object that
+  another item in the call references predeclares its stable UUID. Topology
+  parents are declared earlier; expression references resolve against the
+  complete final same-call overlay, but identity visibility never relaxes
+  runtime effect order: `id-of` and any value dependent on an operation result
+  must target an earlier producer in the canonical operation sequence.
+  Unreferenced objects may let Nova mint their UUIDs, and every creation result
+  returns those identities structurally.
+- App, Project/auth, case, actor/owner, thread, run, batch, capture-attachment,
+  form-entry, and submission-intent ids are opaque storage or protocol
+  identities, not authorable entity addresses. A schema may require UUID bytes
+  for one of those protocols independently, but that does not make it a target
+  in the authoring identity vocabulary.
+- The sanctioned name-backed references are identities Nova does not own:
+  `(caseType, property)` pairs for the CommCare case-data contract and explicit
+  CommCare/session field names. They are final domain vocabulary, not
+  compatibility aliases for a hidden Nova UUID.
+- A rename or move does not rewrite a stored expression reference. Printers and
+  emitters resolve its current external spelling from immutable identity.
+- The human XPath editor is a text projection over the canonical stored AST.
+  Reference-bearing prose is a structural editor projection: reference parts are
+  inline identity-bearing atoms, while ordinary typed or pasted characters stay
+  text until the author explicitly converts or inserts a reference. Machine
+  editors read and write the canonical AST/template directly; they never send
+  textual field paths or custom-worker slugs for Nova to resolve. A literal
+  hashtag and an object reference therefore remain distinct values through
+  edit, storage, and projection.
 - External-contract names may require confirmation or elevated permission, but a
   rename never silently retargets or deletes a remote resource.
 
@@ -181,32 +236,31 @@ A vocabulary that is a genuinely new collection — not a new slot on a module,
 form, or field — mints **ordinary new mutation discriminators**. There is no
 honest way to ride an existing one: a user type is not a refinement of a form,
 and encoding it as one puts a lie in the durable log, breaks
-`batchTargetsMissing`, and poisons the reference index. Four rules make that
-safe enough to be the standing answer:
+`batchTargetsMissing`, and poisons the reference index. The standing rules are:
 
-- The doc slots are `.optional()` and **omitted when empty**, exactly as `logo`
-  is (`lib/db/blueprintRows.ts::assembleBlueprint`). An app that declares none
-  serializes byte-identically to one authored before the collection existed, so
-  a tab still running pre-collection code never meets a shape its strict schema
-  refuses.
+- Optionality and empty-value omission follow the domain meaning and storage
+  shape, never a pre-deploy reader. Compact empty collections may still be
+  omitted, but no feature earns a second mutation or document dialect from that
+  choice.
 - New `blueprint_entities` kinds get an **explicit branch** in the row
   classifier. Its shape is `if module / else if form / else field`, so a kind
   that falls through is read as a field, fails `blueprintDocSchema`, and stops
   the whole app from loading rather than losing one row.
-- The compatibility matrix
-  (`lib/doc/__tests__/mutationRollingCompatibility.test.ts`) pins what it can
-  prove: the new arms parse under both the rolling and the canonical envelope,
-  a `null` clear survives the JSON hop, and an empty collection round-trips
-  byte-identically. That an old reducer no-ops on a kind it has never seen is
-  not a property of any code here, which is why omission carries the weight.
+- Every editor, route, event, durable row, and reducer uses one canonical
+  `mutationSchema`. There is no carrier-blind/rolling schema, origin projection,
+  pre-deploy fallback body, or duplicated semantic-and-wholesale mutation.
+  Fine-grained patches remain when they are the final merge unit; they do not
+  travel beside a second whole-object payload for an older reducer.
+- An incompatible persisted mutation or document change uses the direct
+  maintenance cutover and an explicit fold horizon. Older rows remain opaque
+  audit history and old clients reload; runtime code does not retain a second
+  parser or reducer to make them live.
 - Collections that are flat carry a **membership array beside the record**, the
   same shape every hierarchical collection uses: the array is the sequence, and
-  the record holds the entities. Both slots are `.optional()` and omitted when
-  empty, so the rule above still holds — an app declaring none serializes
-  byte-identically to one authored before the collection existed. A record and
-  its array cannot silently disagree because the assembler already throws on
-  exactly that mismatch (`lib/db/blueprintRows.ts::assembleBlueprint`), which is
-  the guard `moduleOrder` and `formOrder` have always relied on.
+  record holds the entities. A record and its array cannot silently disagree
+  because the assembler throws on exactly that mismatch
+  (`lib/db/blueprintRows.ts::assembleBlueprint`), which is the guard
+  `moduleOrder` and `formOrder` have always relied on.
 
   Sequence is **never** a value stored on the entity. Nothing in `lib/doc` mints,
   compares, or repairs an ordering key: a position computed on the client is a
@@ -215,14 +269,6 @@ safe enough to be the standing answer:
   and no position exists between two equal ones, which silently strands every
   later insertion between them. Position belongs to the collection, not to the
   member.
-
-The residual exposure is a pre-deploy tab that stays perfectly idle while a
-co-editor on a new client adds one of the new entities to the same app — and at
-deploy time no app has any. It surfaces as "reload to continue", preserves the
-tab's unsaved work, and self-heals on a refresh. Deliberately not traded away:
-relaxing `blueprintDocSchema`'s strictness, or making an unknown mutation kind a
-sequence-advancing no-op, would buy forward-compatibility by letting a stale tab
-diverge silently from server state. Loud and recoverable beats silent and wrong.
 
 ### Exact external-reference governance
 

@@ -1360,7 +1360,7 @@ Request and run timings are three independently authored fields in
 
 ## What remains
 
-Fourteen units, one file each. **Every entry below is a pointer, not a summary of
+Fifteen units, one file each. **Every entry below is a pointer, not a summary of
 record** — the contract, the binding CommCare facts, the wire shapes, and the
 observed outcome live only in the linked file, and each entry names what it is
 withholding so you can tell when you need it. Read that file, and
@@ -1369,23 +1369,24 @@ withholding so you can tell when you need it. Read that file, and
 ### 2 — Project data tables workspace
 
 [`complex-app/02-project-data-workspace.md`](complex-app/02-project-data-workspace.md)
-· depends on nothing · blocks unit 3
+· depends on unit 18 · blocks unit 3
 
 The Project data workspace — schema and row grid, atomic CSV import, revisions,
 conflict handling, permissions — plus the select options-source editor and the
 confirmation UX that lets lookup schema governance leave package-private scope.
-**The file holds** the asymmetric source-mode switch, the one semantic that
-silently ships an inert feature when missed.
+**The file holds** the exclusive `inline`/`lookup` source union and the atomic,
+complete mode replacement that keeps a switch valid by construction.
 
 ### 3 — SA, MCP, and docs for conditions and lookups
 
 [`complex-app/03-sa-mcp-and-docs-for-conditions-lookups.md`](complex-app/03-sa-mcp-and-docs-for-conditions-lookups.md)
-· depends on unit 2 · blocks nothing
+· depends on units 2 and 18 · blocks nothing
 
 Expose the shipped condition and lookup vocabulary through both the
 camelCase chat tools and the snake_case MCP projection, with public docs and one
 integrated end-to-end flow. **The file holds** the two pieces of engineering under
-that packaging: the SA identity bridge and the null-clears contract.
+that packaging: canonical identity reuse, null-clears for genuinely optional
+settings, and whole-arm replacement for required select sources.
 
 ### 4 — Grouped case tiles
 
@@ -1412,7 +1413,7 @@ in-app.
 ### 8 — Organization model and locations store
 
 [`complex-app/08-organization-model-and-locations-store.md`](complex-app/08-organization-model-and-locations-store.md)
-· depends on nothing · blocks units 9, 10, 11, 13
+· depends on unit 18 · blocks units 9, 10, 11, 13
 
 The app-wide custom-field catalog, stable level and site codes, app-scoped
 location rows, archive and reassignment rules, and role-aware owner validation.
@@ -1476,7 +1477,7 @@ files and the baseline UI review in the contracts.
 ### 14 — Exclusive form links and sections
 
 [`complex-app/14-form-links-and-sections.md`](complex-app/14-form-links-and-sections.md)
-· depends on nothing · blocks unit 15
+· depends on unit 18 · blocks unit 15
 
 An exhaustive-`else` link projection with durable link identity in one release,
 then form sections in authored order. **The file holds** the six end-of-form
@@ -1516,6 +1517,19 @@ the related-case query keys and exclusion filter, the three authorable `cc-*`
 profile keys against the reserved emitter-owned ones, and the removed `CaseSearch`
 fields that must never be modeled.
 
+### 18 — Canonical identity and expression foundation
+
+[`complex-app/18-canonical-identity-and-expression-foundation.md`](complex-app/18-canonical-identity-and-expression-foundation.md)
+· depends on nothing · blocks units 2, 3, 8, 14
+
+Make UUID syntax, uploaded-media identity, machine-authored XPath, and
+reference-bearing prose canonical at every storage and editor boundary, collapse
+mutations to one final schema, and make select source modes exclusive.
+**The file holds** the exact identity/media types, the document-aware AST
+admission rules, same-call construction shape, post-horizon history replay
+proof, explicit horizon preservation, production scan, and direct
+maintenance-cutover contract.
+
 ---
 
 ## Dependency order
@@ -1524,35 +1538,38 @@ Each unit's prerequisites, matching the "Depends on" line in its file:
 
 | Unit | Needs |
 | --- | --- |
-| [2 Project data workspace](complex-app/02-project-data-workspace.md) | — |
-| [3 SA, MCP, docs](complex-app/03-sa-mcp-and-docs-for-conditions-lookups.md) | 2 |
+| [2 Project data workspace](complex-app/02-project-data-workspace.md) | 18 |
+| [3 SA, MCP, docs](complex-app/03-sa-mcp-and-docs-for-conditions-lookups.md) | 2, 18 |
 | [4 grouped case tiles](complex-app/04-case-tiles.md) | — |
 | [6 save-to-case and attachment link UX](complex-app/06-attachment-emission-and-link-ux.md) | 11 |
-| [8 organization and locations store](complex-app/08-organization-model-and-locations-store.md) | — |
+| [8 organization and locations store](complex-app/08-organization-model-and-locations-store.md) | 18 |
 | [9 usercase, owner sets, wire](complex-app/09-usercase-owner-sets-and-wire.md) | 8 |
 | [10 automations](complex-app/10-automations-and-setup-guidance.md) | 8 |
 | [11 deployment core and artifact](complex-app/11-deployment-core-and-artifact.md) | 8, 10 |
 | [12 push and provisioning drivers](complex-app/12-push-and-provisioning-drivers.md) | 11 |
 | [13 App setup UI, SA, MCP, docs](complex-app/13-app-setup-ui-sa-mcp-and-docs.md) | 8, 9, 10, 11, 12 |
-| [14 form links and sections](complex-app/14-form-links-and-sections.md) | — |
+| [14 form links and sections](complex-app/14-form-links-and-sections.md) | 18 |
 | [15 nested menus and linked-form reuse](complex-app/15-nested-menus-and-linked-form-reuse.md) | 14 |
 | [16 session endpoints and deep links](complex-app/16-session-endpoints-and-deep-links.md) | 12, 15 |
 | [17 multi-select, related cases, profile](complex-app/17-multi-select-related-cases-and-profile.md) | 12 |
+| [18 canonical identity and expressions](complex-app/18-canonical-identity-and-expression-foundation.md) | — |
 
-Four units have no outstanding prerequisites and can start in any order: 2, 4,
-8, and 14. They are the independent entry points — every other unit descends
-from one of them.
+Two units have no outstanding prerequisites and can start in either order: 4 and
+18. They are the independent entry points — every other unit descends from one
+of them.
 
-The deployment chain (8 → 10 → 11 → 12) is the critical path: it gates units 6,
-13, and 16, so anything needing a real HQ target waits on it. The navigation
-chain (14 → 15) runs independently until unit 16, which needs both.
+The deployment chain (18 → 8 → 10 → 11 → 12) is the critical path: it gates
+units 6, 13, and 16, so anything needing a real HQ target waits on it. The
+navigation chain (18 → 14 → 15) runs independently after the shared foundation
+until unit 16, which needs both.
 
 Units 3, 4, 6, 13, 16, and 17 are leaves — nothing waits on them, so each can land
 whenever its own prerequisites are met. Grouped case tiles (unit 4) are both an
 entry point and a leaf: nothing blocks them and nothing waits on them, which makes
 them the natural filler whenever the deployment chain is blocked on something
 external. Unit 9 sits off the critical path too — only the App setup UI waits on
-it, so it can follow unit 8 without holding up unit 11.
+it, so it can follow unit 8 without holding up unit 11. Unit 18 is the shared
+identity and select-source foundation for units 2, 3, 8, and 14.
 
 ---
 

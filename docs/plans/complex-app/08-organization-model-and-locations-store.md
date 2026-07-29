@@ -2,7 +2,7 @@
 
 **PR:** `Organization levels, the app-scoped locations store, and owner validation`
 
-**Depends on:** nothing outstanding. · **Blocks:** units 9, 10, 11, and 13.
+**Depends on:** unit 18. · **Blocks:** units 9, 10, 11, and 13.
 
 > Read [the binding contracts](00-contracts.md) first — the locations and
 > restore-scope architecture contract there governs the lock discipline, the

@@ -2,7 +2,7 @@
 
 **PR:** `Expose conditions and lookups to the SA and MCP`
 
-**Depends on:** unit 2. · **Blocks:** nothing.
+**Depends on:** units 2 and 18. · **Blocks:** nothing.
 
 > Read [the binding contracts](00-contracts.md) first — the three-surfaces rule
 > and the identity contract there are what this unit implements — and
@@ -22,21 +22,21 @@ preview runs it.
 
 Two pieces of engineering sit under that packaging, and both are easy to miss.
 
-The **identity bridge**: the SA never sees UUIDs — it addresses modules and forms
-by slug id and fields by path — while the identity contract in
-[the binding contracts](00-contracts.md#identity-and-references) stores them by
-immutable UUID. Every typed `Predicate` and `ValueExpression` tool parameter
-therefore needs SA-facing leaf variants, plus a boundary AST walk that rewrites
-them to UUID leaves *before* the checker runs, applied uniformly across display
-conditions, form links, and options-source filters. A leaf that slips through
-unrewritten fails validation with a message about an identity the author never
-typed.
+The **canonical-identity contract**: unit 18 makes every Nova-owned target and
+reference an immutable UUID-bearing domain value on every surface. This unit
+reuses those exact `Predicate`, `ValueExpression`, `XPathExpression`,
+`ProseTemplate`, exclusive options-source, and address schemas. Read tools return
+UUIDs alongside current human-readable projections. No chat or MCP schema
+introduces a field path, module/form slug, operation id, worker-property slug,
+lookup tag, column wire name, or position as a substitute address, and there is
+no boundary AST that translates one into identity.
 
 The **null-clears contract**: a tool that cannot distinguish "leave this alone"
-from "clear this" cannot express removing a display condition or an options
-source, and strict-mode schema normalization makes that distinction non-obvious.
-`lib/agent/CLAUDE.md` holds the rule; it is the same asymmetry unit 2 hits in the
-builder.
+from "clear this" cannot express removing an optional display condition or
+reference-bearing setting, and strict-mode schema normalization makes that
+distinction non-obvious. `lib/agent/CLAUDE.md` holds the rule. A select source is
+different: it is required and discriminated, so the tool replaces the whole
+`inline` or `lookup` arm atomically and never clears it to an invalid absence.
 
 **Observed:** a user can ask for a lookup-backed select in chat and get one, and
-can ask for it to be taken away again.
+can switch it back only by supplying a complete inline option set.

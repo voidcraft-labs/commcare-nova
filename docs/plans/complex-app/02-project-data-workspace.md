@@ -2,7 +2,7 @@
 
 **PR:** `Project data workspace: schema, rows, CSV import, and options sources`
 
-**Depends on:** nothing outstanding. · **Blocks:** unit 3.
+**Depends on:** unit 18. · **Blocks:** unit 3.
 
 > Read [the binding contracts](00-contracts.md) first — the workspace-structure
 > and exact-reference-governance rules there bind this unit — and
@@ -19,14 +19,21 @@ This unit also gives `applyLookupSchemaGovernance` its confirmation UX, which is
 what lets table deletion, column removal, and column retype leave package-private
 scope. Each still requires `delete` plus zero applicable edges.
 
-The one non-obvious semantic is that the source-mode switch is **asymmetric**,
-because `optionsSource` precedence is presence-based at every consumer
-(`lib/commcare/xform/builder.ts` branches on `optionsSource !== undefined`).
-Inline → Table merely sets `optionsSource`, and the inline options stay as the
-origin-compatible fallback. Table → Inline must emit an explicit
-`optionsSource: null` clear; treating the two directions symmetrically ships a
-Table → Inline switch that is observably inert, because the retained source keeps
-winning.
+Select source modes are exclusive and valid by construction. Unit 18 replaces
+the parallel `options[]` plus optional lookup override with one required
+`optionsSource` discriminated union:
+
+- `inline` owns at least two fully identified inline options;
+- `lookup` owns the table, value/label columns, and optional row filter, and
+  carries no dormant inline receiver body.
+
+There is no precedence rule, null clear, or inactive fallback to preserve. A
+mode switch opens the target mode's complete editor and commits one atomic
+replacement only after it is valid: Inline → Table requires a valid table/column
+selection; Table → Inline requires an explicitly authored set of at least two
+inline options. Cancel leaves the existing source untouched. Every emitter,
+Preview evaluator, mutation, reference fingerprint, SA/MCP schema, and read
+projection branches on the same discriminator.
 
 **Observed:** an author creates a lookup table, pastes a CSV over it, points a
 select at one of its columns, and is told plainly which apps a destructive change

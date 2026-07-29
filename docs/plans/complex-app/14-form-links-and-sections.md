@@ -2,9 +2,9 @@
 
 **PRs:**
 1. `Durable form-link identity and exclusive link projection`
-2. `Form sections with fractional order`
+2. `Durable form-section identity and form-owned sequences`
 
-**Depends on:** nothing outstanding. · **Blocks:** unit 15.
+**Depends on:** unit 18. · **Blocks:** unit 15.
 
 > Read [the binding contracts](00-contracts.md) first — the instant-migration and
 > identity rules there are what forbid the legacy array-order bridge below.
@@ -17,13 +17,19 @@ target. An expression that prints to empty XPath is unconditional. One shared
 projector owns these guards for local suite emission and the HQ JSON expander, and
 tests cover both paths.
 
-Links gain durable UUID and order identity in **one** release — no legacy
-array-order bridge. Confirm current production carries no form links immediately
-before the identity change commits; if that is ever nonzero, the same migration
-converts current entities and accepted history together, in one step.
+Links gain durable UUIDs in **one** release, stored in a UUID-keyed form record
+whose form-owned membership array is the sequence — no legacy array-order bridge
+and no order key on a link. Move mutations address the link UUID and its
+predecessor UUID. Confirm current production carries no form links immediately
+before the identity change commits; if that is ever nonzero, the same direct
+cutover converts current entities plus only the active post-horizon mutation
+suffix, proves exact replay, and establishes the migrated snapshot as a fresh
+horizon. Pre-horizon rows remain opaque audit history.
 
-Then add form sections with fractional order and history-compatible mutations.
-Define relevance skipping, Next/Back validation, earliest-invalid Submit routing,
+Then add form sections with the same UUID-keyed record plus form-owned membership
+sequence. Section moves address UUID anchors; neither sections nor links carry a
+fractional/absolute position. Define exact post-horizon mutation replay,
+relevance skipping, Next/Back validation, earliest-invalid Submit routing,
 mutation re-anchoring, preview persistence, and accessibility before UI
 implementation.
 
