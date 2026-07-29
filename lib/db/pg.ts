@@ -105,11 +105,10 @@ export interface BlueprintEntitiesTable {
 	 *  mirrors it. */
 	kind: EntityRowKind;
 	parent_uuid: string | null;
-	/** Index within the parent's membership array at write time — the arrays
-	 *  round-trip byte-identically (display sequence is still derived from the
-	 *  entities' fractional `order` keys, exactly as before; this preserves the
-	 *  array itself, including position-seeded backfill inputs). The flat user
-	 *  collections have no membership array and store a constant 0. */
+	/** Index within the owning membership array at write time. Nested rows use
+	 *  their parent's array; Blueprint-root and flat rows use their root array.
+	 *  The array is the sequence, so every ordered kind — including the three
+	 *  flat user collections — stores a real ordinal. */
 	ordinal: number;
 	// The entity record verbatim (a `Module` / `Form` / `Field` / `UserProperty`
 	// / `UserType` / `Persona`); typed loosely here because every kind shares

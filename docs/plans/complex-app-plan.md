@@ -531,16 +531,17 @@ diff, query, or projection reads it. Thus schema-valid keys such as
 inherited properties masquerading as members. Accepted choices are unique by
 exact value at construction, and duplicate property slugs, user-type names,
 and persona names report every member of the duplicate group in deterministic
-`(order, uuid)` order, independent of insertion order. Flat collections have
-no membership array to break a legacy missing-`order` tie, so two such entries
-sort by UUID rather than object insertion order. The document schema uses the
-shared `ownRecordSchema` rather than Zod's native record parser, which
-intentionally drops `__proto__`; persistence hydration rebuilds every
-normalized record through the same prototype-safe record helpers. All six
-normalized entity kinds — module, form, field, user property, user type, and
-persona — share one global UUID namespace because `blueprint_entities` keys
-them all by `(app_id, uuid)`. The commit validator reports every member of a
-collision, and `decomposeBlueprint` repeats both global uniqueness and
+collection-sequence order, independent of record insertion order. Each flat
+collection has its own membership array (`userPropertyOrder`,
+`userTypeOrder`, or `personaOrder`); that array is the only sequence and is
+walked rather than sorted. The document schema uses the shared
+`ownRecordSchema` rather than Zod's native record parser, which intentionally
+drops `__proto__`; persistence hydration rebuilds every normalized record
+through the same prototype-safe record helpers. All six normalized entity
+kinds — module, form, field, user property, user type, and persona — share one
+global UUID namespace because `blueprint_entities` keys them all by
+`(app_id, uuid)`. The commit validator reports every member of a collision, and
+`decomposeBlueprint` repeats both global uniqueness and
 record-key/embedded-UUID agreement as a persistence tripwire before any rows
 can collapse.
 
@@ -1524,11 +1525,14 @@ fields that must never be modeled.
 
 Make UUID syntax, uploaded-media identity, machine-authored XPath, and
 reference-bearing prose canonical at every storage and editor boundary, collapse
-mutations to one final schema, and make select source modes exclusive.
+mutations to one final schema, close document topology so no authored entity can
+persist outside its runnable membership tree, and make select source modes
+exclusive. Human XPath remains friendly text such as `#form/first_name`; UUIDs
+are its stored identity, not syntax a person types.
 **The file holds** the exact identity/media types, the document-aware AST
-admission rules, same-call construction shape, post-horizon history replay
-proof, explicit horizon preservation, production scan, and direct
-maintenance-cutover contract.
+admission rules, same-call construction shape, topology forensics and
+row-digest-pinned repair, post-horizon history replay proof, explicit horizon
+preservation, production scan, and direct maintenance-cutover contract.
 
 ---
 

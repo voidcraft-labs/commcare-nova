@@ -36,6 +36,17 @@ identities. Record keys equal their entity's embedded UUID. UI selection state
 uses `null` or a discriminated arm rather than an invalid UUID sentinel. The
 narrowing helpers validate and throw; they are not unchecked casts.
 
+The document topology is closed as well as typed. Every module, form, field,
+worker-information property, user type, and persona appears exactly once in its
+owning membership sequence. Every membership entry resolves to the expected
+record kind and valid parent. A parent is required for each owned/nested kind
+and is exactly null for each Blueprint-root or flat kind; an unexpected
+null/non-null parent, missing or wrong-kind parent, cycle, duplicate membership,
+stray order key, or record/sequence disagreement rejects the document at the
+domain/commit boundary. Assembly and decomposition enforce the identical law.
+There is no steady-state orphan sentinel or persisted ghost field outside the
+runnable form tree.
+
 Uploaded library assets use a distinct strict `MediaAssetId`. Built-in menu
 icons use a closed `BuiltinIconRef` generated from the catalog, and `IconRef` is
 their union only on `Module.icon`, `Form.icon`, and
@@ -68,6 +79,13 @@ template, and reopening maps the template back to the same nodes. SA and MCP rea
 and write the exact stored ASTs and templates directly. They have no XPath
 source parser, prose-token parser, field-path resolver, worker-slug resolver,
 HTML unescaper, or parallel author AST.
+
+An author therefore continues to type and read friendly expressions such as
+`#form/first_name`; the editor resolves that projection once and stores the
+field UUID, then prints the current friendly path on every reopen. A person is
+never asked to type, read, or repair `#form/<uuid>`. A dangling identity is
+prevented by reference-aware removal and otherwise shown as an explicit repair
+state, not leaked as UUID-shaped authored XPath.
 
 `path-ref` stores only `{ kind: "path-ref", uuid }`. It does not persist
 depth-dependent separator bytes. Its printer emits the one canonical absolute
@@ -125,6 +143,16 @@ field-specific override owns those. Omission keeps an existing slot,
 update-time `null` clears it, create-time `null` becomes absence, and an empty
 AST/template is an authored empty value rather than a clear.
 
+The timestamped migration freezes the Lezer grammar, generated parser, legacy
+reference classifier, and canonical printer that convert a catalog's existing
+XPath string exactly once. The enclosing catalog case type is its only case
+context. An allowed case reference must resolve unambiguously and the resulting
+AST must print to the same source bytes and reparse identically. Form-field,
+absolute-form, Search-input, syntax-invalid, ambiguous, or printer-drifting
+catalog input blocks the cutover and requires a reviewed clear or canonical
+replacement; the migration never coerces an illegal reference into literal
+text. Regex may not parse or classify a migration XPath.
+
 Select source mode is one required discriminated `optionsSource`, never parallel
 state. `inline` owns at least two `SelectOption` records; `lookup` owns its
 table/column/filter references and no dormant inline body. The migration moves
@@ -133,14 +161,23 @@ existing lookup override into the lookup arm while deleting its receiver-only
 inline fallback. A noncanonical mixed or empty state blocks rather than guessing.
 Subsequent source switches replace the complete arm atomically.
 
-Inline select-option UUIDs are required. The migration preserves every existing
-option UUID and uses the frozen established
-`(field UUID, historical array index)` deterministic algorithm only for a
-missing one. Every inline creation, conversion, diff, media attachment, and
-reconciliation path produces complete option identities; every read-time and
-non-UUID option fallback is then deleted.
+Inline select-option UUIDs are required. The migration preserves every
+already-canonical option UUID. It recognizes exactly the closed historical
+position-derived pseudo-identity `${fieldUuid}-opt-${historicalIndex}` and
+replaces it through a frozen genuine RFC UUIDv5 mapping: a checked-in namespace
+plus that complete legacy string as the name. The mapping is one-shot migration
+projection, not an alias, runtime fallback, or general reminting policy. Missing,
+stale-index, or any other noncanonical option identity blocks. Before writing,
+the migration proves that every source and target is unique and that no target
+collides with any authored identity. Every inline creation, conversion, diff,
+media attachment, and reconciliation path then produces complete random UUID
+identities; every read-time and non-UUID fallback is deleted.
 
-One schema-derived carrier inventory makes the cutover total. It covers
+One frozen schema-derived occurrence manifest makes the cutover total and is
+shared byte-for-byte by the advisory scanner, topology forensics, locked scan,
+rehearsal, and migration. Every occurrence is classified as rewrite-current,
+archive-exact, opaque-pre-horizon, delete-operational, preserve-exact, or DDL;
+an unclassified occurrence is a blocker. It covers
 Blueprint root scalars, `apps.case_types`, `apps.logo`, every entity and nested
 identity, every final `mutationSchema` arm, XPath/template and Predicate
 leaves, `events.event` mutation envelopes and conversation attachments, thread
@@ -151,7 +188,7 @@ columns.
 `form_submission_intents.result.operations[].operationUuid` is an authored
 identity even though the intent and entry ids are opaque. Scanner, migrator,
 runtime reference index, event parser, mutation coverage, and ephemeral-carrier
-cleanup are parity-tested against that inventory. The immutable migration owns
+cleanup are parity-tested against that manifest. The immutable migration owns
 frozen legacy schemas, inventory, parser/printer behavior, reducer inputs, and
 option-identity algorithm; it imports no mutable steady-state conversion logic.
 The final lookup-row schema validates each `values` key as an already-canonical
@@ -208,14 +245,18 @@ app/entity/sequence paths, byte volume, and estimated WAL/lock work only — nev
 app names, labels, prose, values, attachment names, extracts, tool inputs,
 outputs, or chat text. It inventories:
 
-- raw `apps` scalars and entity rows: keys, parents, embedded UUIDs,
-  membership/key equality, collisions, all nested references, option identities,
-  `apps.case_types`, `apps.logo`, lookup UUIDv7 values and edges, and every
+- raw `apps` scalars and entity rows: keys, parents, embedded UUIDs, exact
+  reachability/membership closure, cycles, wrong-kind or missing parents,
+  stray/duplicate sequence entries, key equality, collisions, all nested
+  references, option identities, `apps.case_types`, `apps.logo`, lookup UUIDv7
+  values and edges, and every
   `lookup_rows.values` JSON object key checked against its table's exact
   canonical column UUID;
 - every XPath/template/Predicate carrier in current snapshots and the active
   post-horizon suffix, including the named catalog defaults, hidden references,
-  unresolved/raw parts, and Search-input-name leaves;
+  unresolved/raw parts, Search-input-name leaves, and reference-looking legacy
+  prose strings that require an explicit literal-text or typed-reference
+  disposition rather than inference;
 - every `events.event` row whose envelope contains a mutation or typed
   attachment; existing mutation payloads are counted for archival rather than
   guessed into current identity, and raw tool-call/result receipts are counted
@@ -228,11 +269,66 @@ outputs, or chat text. It inventories:
 - exact row/byte counts, rewrite counts, DDL dependencies, expected WAL growth,
   and the latest fold horizon for each app.
 
-Only missing option UUIDs and unambiguous canonical projections are
-automatically migratable. A mismatched key, collision, noncanonical current
-identity, stale/illegal built-in, ambiguous reference, noncanonical legacy
-absolute path, or post-horizon replay mismatch blocks the cutover; there is no
-lowercasing, remint, alias, slug/path inference, or best-effort repair.
+The topology-repair manifest is closed to the 42 null-parent field rows found
+by the advisory scan, across 11 apps; it is not a reusable repair language or a
+lineage branch. All 42 are independent roots. They contain 27 case-property
+writers for 13 `(caseType, property)` pairs, 21 raw references and ten option
+identities, with zero inbound typed UUID references from reachable rows and no
+lookup or media carrier. The complete consumer audit proves that none is
+reachable by XForm, suite, Preview, or summary. Two of the 13 properties are
+undeclared, orphan-only properties on already-declared case types; before
+deletion the manifest appends exactly those two current effective property
+projections to their catalogs with their current property name and generated
+plain-text label, no manufactured `data_type`, and no other default. It then
+deletes all 42 roots and their nested content in the same transaction. The
+other 11 writer pairs need no catalog edit. The source rows, two projections,
+and result are pinned by full digests, and any locked-scan drift blocks rather
+than replanning or inferring an owner.
+
+That closed repair preserves the complete effective property set and each
+property's metadata, makes `materializableCaseTypes` byte-for-byte identical,
+and preserves the case-store schema/index projection, XForm, suite, Preview,
+summary, case rows, and case values. Full `effectiveCaseTypes` array JSON is
+expected to differ only in the two repaired apps: those two properties move
+from the writer-derived segment after injected standard properties into the
+declared-property segment before them. This one catalog/picker ordering
+normalization is asserted exactly; retaining the ghost-derived position would
+require permanent provenance or compatibility state and is forbidden. The
+reviewed repair writer appends an attributed repair horizon and proves the
+resulting document and reverse indexes; it creates no quarantine table, alias,
+second reader, orphan sentinel, or compatibility shape. Orphan option and raw
+reference counts remain separate from reachable occurrences that the canonical
+transform will rewrite. The authoritative locked scan must report zero
+topology, illegal catalog-expression, and unresolved-reference findings before
+the canonical transform may start.
+
+The expression-repair manifest is closed to the three reachable live defects
+identified by the advisory scan; it is not a reusable repair language. In one
+252-byte field label, five distinct form tokens each have one exact same-form
+full-path target and become typed field-reference parts. A sixth token has no
+exact target or durable lineage evidence; the one same-leaf nested candidate is
+not identity proof. The manifest clears that one token occurrence while
+preserving every other byte and part. The dangling lookup currently evaluates
+to the empty string, so this keeps Preview/device rendering identical for every
+form state while removing the invalid output from wire. The source label,
+occurrence, and replacement AST are pinned by full digests. Separately, two
+case-catalog `validation` slots hold the same 36-byte expression containing a
+single form token. It has no exact target in any owning form, and each reachable
+writer already owns a different field-specific validation. The manifest clears
+exactly those two digest-pinned catalog slots: existing Preview, emitted forms,
+case properties, inferred types, schemas/indexes, rows, and operations remain
+unchanged, while future fields no longer inherit an invalid contextless
+default. It never literalizes an XPath, invents a replacement, or retargets the
+one same-leaf candidate.
+
+Only unambiguous canonical projections explicitly named above are migratable:
+typed reference projection, the exact closed legacy option identity through the
+frozen UUIDv5 mapping, and parser-proven catalog XPath. A missing/stale/other
+option identity, mismatched key, collision, topology failure, noncanonical
+current identity, stale/illegal built-in, ambiguous or unresolved reference,
+noncanonical legacy absolute path, or post-horizon replay mismatch blocks the
+cutover. There is no lowercasing, general remint, alias, slug/path inference, or
+best-effort repair.
 
 The checked-in deployment path is permanent infrastructure, not a
 cutover-only branch or flag. At the start of every deploy it records the
@@ -306,7 +402,29 @@ unattended merge:
    fence held, create a fresh on-demand backup and wait until Cloud SQL reports
    it complete; record its backup id and the database clock. This
    post-quiescence backup is the authoritative restore point, and the fence
-   proves no legitimate write can land after it. Before merge, arm an
+   proves no legitimate write can land after it. If the advisory scan found a
+   topology defect, run the reviewed row-digest-pinned forensic repair manifest
+   now, while the old schema is still the serving contract but every writer is
+   fenced. One all-app repair transaction must prove every exact before digest,
+   append the two orphan-only property projections, delete the 42 exact orphan
+   roots, reconcile every affected reverse index, apply the separately reviewed
+   expression manifest, and append the attributed repair horizon. That
+   expression manifest types the five proven references in the one affected
+   label, clears its one unresolved token occurrence, and clears the two illegal
+   catalog `validation` slots. Before commit, prove the exact
+   effective-property metadata plus expected picker-order normalization,
+   byte-identical `materializableCaseTypes`, case-store schema/index, XForm,
+   suite, Preview, and summary for the topology repair; prove that the catalog
+   clears change no current emitted form, that Preview and evaluated device
+   label text remain equal for every form assignment, and that the only XForm
+   byte difference is the digest-pinned deletion of the one invalid output
+   node. The transaction rolls back as a whole if any proof fails. Neither
+   repair may infer from a path string, and every source/replacement digest must
+   match. Rerun the locked
+   scanner and require zero topology, illegal catalog-expression, or
+   unresolved-reference findings. A failure rolls that repair transaction back;
+   an ambiguous row stops the cutover. The pre-repair backup remains the
+   authoritative rollback point. Before merge, arm an
    operator-local one-shot watcher keyed to the foundation PR number, frozen
    head SHA, reviewed base SHA, and named main trigger. After exact-head squash
    merge, it resolves the PR's resulting merge commit, verifies its parent/base
@@ -320,7 +438,8 @@ unattended merge:
    main trigger builds that exact image, then the migration Job takes
    deterministic all-app locks and one migration-owned transaction and reruns
    the blocking scanner. This scan is authoritative: it records a fresh
-   quiescent digest and aborts only on a current unmigratable finding, live
+   quiescent digest and aborts on any topology/unresolved-reference finding,
+   current unmigratable finding, live
    writer, inventory/schema-version mismatch, or capacity bound violation — not
    on ordinary drift from the earlier advisory snapshot. The transaction
    transforms all current snapshots, archives every existing mutation event
@@ -381,14 +500,18 @@ unattended merge:
    after every check passes. The watcher is disposable operator orchestration,
    never checked-in runtime or deployment machinery.
 
-Rollback before the migration transaction commits, including an earlier
-build/media-policy failure, is transaction rollback plus restoring and verifying
-the recorded pre-fence database ACL, old media-policy and capture-cleanup Job
-images/configuration, and scheduler state. Route 100% to the exact recorded old
-revision, restore and verify its recorded traffic/tag and automatic-scaling
-configuration, and prove the old runtime and cleanup schemas, but keep the NEG
-detached until the source-control closure below. After commit, no down migration
-and no old revision is allowed against the migrated database. Until the explicit
+Rollback before the all-app repair transaction commits, including an earlier
+build/media-policy failure, is transaction rollback plus restoring and
+verifying the recorded pre-fence database ACL, old media-policy and
+capture-cleanup Job images/configuration, and scheduler state. Route 100% to the
+exact recorded old revision, restore and verify its recorded traffic/tag and
+automatic-scaling configuration, and prove the old runtime and cleanup schemas,
+but keep the NEG detached until the source-control closure below. Once the
+repair transaction commits, rollback restores the authoritative backup even if
+the later canonical migration has not started or committed; transaction
+rollback/config restoration alone cannot undo that committed repair. After the
+canonical migration commits, no down migration and no old revision is allowed
+against the migrated database. In either post-repair case and until the explicit
 NEG reattachment cutoff, rollback means returning the service to manual zero,
 terminating runtime sessions, and restoring the completed authoritative backup
 **in place** over the existing `nova-cases` instance, preserving its connection
@@ -445,14 +568,22 @@ of the same transaction but remains JSON, not a pretend SQL identity column.
 Verification freezes the complete contract:
 
 - UUID version/variant/case matrices, strict lookup UUIDv7, record-key equality,
-  context-aware nested refs, strict routes/tools, and throwing narrowers;
+  exact topology closure (orphans, cycles, missing/wrong-kind parents,
+  duplicate/stray memberships), context-aware nested refs, strict routes/tools,
+  and throwing narrowers;
 - XPath/template parser-printer fuzz, canonical depth-changing `path-ref` moves,
   adversarial hidden references, cross-form and wrong-kind refs, same-call UUID
   construction, legal reference-only forward refs, rejected later-producer
-  `id-of`/effect dependencies, Search-input UUID projection, and structural
-  rename/move;
+  `id-of`/effect dependencies, Search-input UUID projection, frozen Lezer
+  catalog-string conversion/refusal, friendly human XPath projection, and
+  structural rename/move;
 - horizon migration fixtures for every root/entity/carrier and mutation family,
-  catalog defaults, option identities, semantic JSONB plus exact canonical
+  catalog defaults, the exact five-reference/one-token-clear prose repair, the
+  exact two-slot catalog-validation clear, canonical-option preservation, exact
+  legacy-option UUIDv5 replacement, missing/stale/other refusal, source/target
+  injectivity and global collision checks, forensic-manifest
+  before-digest/ref/consumer proofs,
+  semantic JSONB plus exact canonical
   `jsonb::text` preservation of each nested archived event payload, strict
   post-cutover mutation events, typed event attachment migration, form-intent
   result operations, canonical `lookup_rows.values` key coverage and
@@ -461,18 +592,32 @@ Verification freezes the complete contract:
   chunk-log deletion, and frozen migration logic;
 - media carrier matrices, slot-specific built-in catalogs, tool projections,
   manifests, budgets, deletion, Project moves, and database FK/index migration;
-- pre/post XForm, suite, Preview, and summary equivalence, plus the existing exact
-  external fixture-byte oracles;
+- pre/post effective-property-set/metadata equality, the exact two-property
+  picker-order normalization, byte-identical `materializableCaseTypes`,
+  case-store schema/index, XForm, suite, Preview, and summary equivalence for
+  the exact two-property materialization and 42-root deletion; for the separate
+  expression repair, equal Preview/evaluated-device text for every assignment,
+  zero current-form change from the catalog clears, and exactly one
+  digest-pinned XForm output-node deletion with no other byte drift; plus the
+  existing exact external fixture-byte oracles;
+- occurrence-manifest totality and scanner/forensics/locked-scan/rehearsal/
+  migrator plan-and-digest parity, including complete content digests rather
+  than count-only coverage;
 - offline schema generation and size budgets, with the paid provider acceptance
   sweep run only after explicit approval; targeted, changed, leak, type, lint,
   build, browser, full-CI, production-probe, and error-log evidence.
 
-Public MCP documentation moves with this break, including
-`content/docs/mcp/tools.mdx`, `case-changes.mdx`,
-`display-conditions.mdx`, public media authoring, and every existing tool example
-that addresses a module, form, field, option, column, Search input, operation, or
-machine-authored expression. Unit 3 later documents only the new condition and
-lookup vocabulary it adds.
+Documentation moves only where reader-visible behavior or a callable contract
+changes. The public MCP reference, including `content/docs/mcp/tools.mdx`, must
+show the exact UUID parameters and typed AST/template payloads an API client
+actually sends. Existing builder/user pages such as `case-changes.mdx` and
+`display-conditions.mdx` change only if an instruction or example becomes stale;
+they continue to teach friendly names and human XPath, never the internal
+storage architecture. Public media documentation changes only for real
+authoring choices such as catalog icon slugs versus uploaded assets. Internal
+contracts and subtree engineering docs own the UUID-backed projection
+explanation. Unit 3 later documents only the new condition and lookup vocabulary
+it adds.
 
 **Observed:** the builder can show friendly current names while every persisted
 and machine-authored reference remains an immutable UUID-backed value; renaming,

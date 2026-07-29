@@ -52,6 +52,18 @@ shape changes incompatibly, the same release either migrates the replayable
 suffix or atomically establishes an explicit fold horizon whose earlier rows
 remain opaque audit history.
 
+**Runnable topology is closed.** Every module, form, field, and flat authored
+entity appears exactly once in the membership sequence that owns it. Every
+membership entry resolves to the expected record kind and valid parent. A
+parent is required for an owned/nested kind and is exactly null for a
+Blueprint-root or flat kind; an unexpected null/non-null parent, missing or
+wrong-kind parent, cycle, duplicate membership, stray sequence key, or
+record/sequence disagreement rejects the document. No authorable entity may
+persist outside the runnable topology. Domain validation, the commit gate,
+assembly, decomposition, reads, and writes enforce this same invariant; an
+unreachable record is corruption to repair, never a tolerated draft or an
+alternate storage dialect.
+
 **Every wire unit names its fixture.** A unit that emits new wire states the
 CommCare suite fixture under
 `commcare-hq/corehq/apps/app_manager/tests/data/suite/` that its implementer and
@@ -128,6 +140,9 @@ These decisions are closed unless the project owner explicitly reopens them.
 - A rename or move does not rewrite a stored expression reference. Printers and
   emitters resolve its current external spelling from immutable identity.
 - The human XPath editor is a text projection over the canonical stored AST.
+  A person continues to type and read `#form/first_name`; the editor resolves it
+  once, stores the target UUID, and later prints the target's current friendly
+  path. It never asks a person to author `#form/<uuid>`.
   Reference-bearing prose is a structural editor projection: reference parts are
   inline identity-bearing atoms, while ordinary typed or pasted characters stay
   text until the author explicitly converts or inserts a reference. Machine
