@@ -296,6 +296,64 @@ describe("FormEngine", () => {
 			expect(engine.getState("/data/notes").valid).toBe(true);
 		});
 
+		it("accepts a stored answer that predates the millisecond rule", () => {
+			// The pre-#376 writer stripped the fraction, so rows carry
+			// `HH:MM:SSZ`. It is RFC 3339, the schema takes it, and the
+			// storage boundary canonicalizes it on the way back out — asking
+			// "already canonical?" here would refuse a submission over an
+			// answer nobody typed and nobody can fix.
+			const input = dTree([
+				{ id: "wake", kind: "time" },
+				{ id: "seen", kind: "datetime" },
+			]);
+			const engine = new FormEngine(input);
+
+			engine.setValue("/data/wake", "08:45:00Z");
+			engine.setValue("/data/seen", "2026-01-15T09:15:00-04:00");
+			expect(engine.validateAll()).toBe(true);
+		});
+
+		it("accepts the bare date a today() default puts in a datetime", () => {
+			// `today()` yields a date with no clock. The storage boundary has
+			// always read that as the date's midnight; the gate must not turn
+			// it into a submission blocker the person cannot clear.
+			const input = dTree([
+				{ id: "seen", kind: "datetime", default_value: "today()" },
+			]);
+			const engine = new FormEngine(input);
+
+			expect(engine.getState("/data/seen").value).toMatch(
+				/^\d{4}-\d{2}-\d{2}$/,
+			);
+			expect(engine.validateAll()).toBe(true);
+		});
+
+		it("names the missing half instead of quoting the join", () => {
+			// A datetime is two controls over one string, so the string can be
+			// incomplete in two ways. Quoting the whole value would put the
+			// join's own punctuation in front of someone who can see perfectly
+			// well that their answer is just missing its date.
+			const input = dTree([{ id: "seen", kind: "datetime" }]);
+			const engine = new FormEngine(input);
+
+			engine.setValue("/data/seen", "T09:15:00.000-04:00");
+			expect(engine.getState("/data/seen").errorMessage).toBe(
+				"Pick a date — this question needs both.",
+			);
+
+			engine.setValue("/data/seen", "2026-01-15T");
+			expect(engine.getState("/data/seen").errorMessage).toBe(
+				"Enter a clock time — this question needs both.",
+			);
+
+			// A clock that isn't a clock gets the same sentence it gets on a
+			// standalone time question, quoting only the clock.
+			engine.setValue("/data/seen", "2026-01-15T2:3");
+			expect(engine.getState("/data/seen").errorMessage).toBe(
+				"“2:3” isn’t a time yet. Enter a clock time like 2:30 PM.",
+			);
+		});
+
 		it("accepts a preloaded answer without the author touching it", () => {
 			// Preload writes storage shapes straight into the instance, so a
 			// followup that opens on an existing case must not present every

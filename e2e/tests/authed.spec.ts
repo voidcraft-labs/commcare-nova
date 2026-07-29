@@ -1460,6 +1460,34 @@ test.describe("authenticated builder", () => {
 			await expect(clocks.nth(1)).toHaveValue(SEEDED_TEMPORAL_DISPLAY.nextDose);
 		});
 
+		await test.step("a stored answer nobody touched does not block Submit", async () => {
+			// The seeded time predates the millisecond padding rule. It is
+			// valid RFC 3339 and the schema takes it, so the shape gate must
+			// let it through — refusing it would strand a person on a form
+			// over an answer they never entered and cannot correct.
+			await expect(clocks.nth(0)).not.toHaveAttribute("aria-invalid", "true");
+			await expect(clocks.nth(1)).not.toHaveAttribute("aria-invalid", "true");
+		});
+
+		await test.step("clearing one half of a datetime invents nothing", async () => {
+			// Emptying the clock must not answer the question on the person's
+			// behalf with a midnight they never chose — and must not leave
+			// behind a value they cannot clear.
+			await clocks.nth(0).fill("");
+			await clocks.nth(0).blur();
+			await expect(clocks.nth(0)).toHaveValue("");
+			await expect(dateTrigger).not.toHaveText(/Pick a date/);
+		});
+
+		await test.step("a clock entered before its date reads back as typed", async () => {
+			// The half-filled join has to survive a round trip through state:
+			// showing back "14:30:00" would be the field rewriting the
+			// person's own "2:30 PM" into a spelling they never used.
+			await clocks.nth(0).fill("2:30 PM");
+			await clocks.nth(0).blur();
+			await expect(clocks.nth(0)).toHaveValue("2:30 PM");
+		});
+
 		await test.step("a typed clock commits in the locale's own spelling", async () => {
 			await clocks.nth(1).fill("7:05 am");
 			await clocks.nth(1).blur();

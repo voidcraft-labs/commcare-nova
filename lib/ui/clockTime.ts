@@ -4,10 +4,7 @@
 // 24-hour canonical form. Kept React-free so pure state models (the
 // data-review draft normalization) unit-test against it directly.
 
-import {
-	isStorageTemporalValue,
-	wireTimeOfDay,
-} from "@/lib/domain/temporalValues";
+import { storedWallClock } from "@/lib/domain/temporalValues";
 
 /**
  * Parse a typed clock time the way a person writes one — "2:30 PM",
@@ -51,18 +48,26 @@ export function parseClockTime(text: string): string | null {
  * want exactly that:
  *
  *   - Text that is not a stored time at all — the half-typed "2:3" a
- *     person is still in the middle of. Reformatting mid-keystroke would
- *     rewrite "2:30" to "2:30 AM" under someone reaching for PM.
+ *     person is still in the middle of, or the "2:30" that is readable but
+ *     zoneless and therefore theirs, not ours. `storedWallClock` draws that
+ *     line on the zone designator, which no typed clock carries and every
+ *     stored one does; reformatting across it would rewrite "2:30" to
+ *     "2:30 AM" under someone reaching for PM.
  *   - A stored time this spelling cannot carry back: seconds are shown
  *     only when they are non-zero, and a fractional second has nowhere to
  *     go at all, so an imported `14:30:00.500Z` stays verbatim rather than
  *     being displayed as a value that would commit back a half-second
  *     short.
+ *
+ * Note that it reads THROUGH padding rather than requiring it: an
+ * `08:45:00Z` written before the millisecond rule projects exactly like the
+ * `08:45:00.000Z` written after it, so a row that predates that rule shows
+ * a person a clock instead of wire text.
  */
 export function formatClockTime(value: string): string | null {
-	if (!isStorageTemporalValue("time", value)) return null;
-	const [hoursText, minutes, secondsAndMillis] =
-		wireTimeOfDay(value).split(":");
+	const wall = storedWallClock(value);
+	if (wall === null) return null;
+	const [hoursText, minutes, secondsAndMillis] = wall.split(":");
 	const [seconds, millis] = secondsAndMillis.split(".");
 	if (millis !== "000") return null;
 	const hours = Number(hoursText);

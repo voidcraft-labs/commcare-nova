@@ -471,13 +471,22 @@ export function caseWorkspaceCaseRows(): readonly CaseInsert[] {
  * (`lib/domain/temporalValues.ts`): a datetime with the offset of the zone
  * it was entered in, a time with the `Z` storage tag on a naive wall clock.
  *
- * The offset is deliberately not the runner's. A form shows the wall clock
- * the answer was entered at rather than converting it, so an assertion on
- * `9:15 AM` holds in every CI timezone — and would fail the moment the
- * field started converting.
+ * Two details are load-bearing rather than arbitrary.
+ *
+ * The datetime's offset is deliberately not the runner's. A form shows the
+ * wall clock the answer was entered at rather than converting it, so an
+ * assertion on `9:15 AM` holds in every CI timezone — and would fail the
+ * moment the field started converting.
+ *
+ * The time deliberately carries NO milliseconds. That is the shape the
+ * writer produced before the padding rule landed, so real rows hold it: it
+ * is valid RFC 3339, the schema takes it, and a surface that confused "not
+ * canonical" with "not valid" would refuse a submission over an answer
+ * nobody typed. Keeping it here means that confusion cannot come back
+ * unnoticed.
  */
 const SEEDED_VISIT_START = "09:15:00.000-04:00";
-const SEEDED_NEXT_DOSE = "08:45:00.000Z";
+const SEEDED_NEXT_DOSE = "08:45:00Z";
 
 /** What those two stored values read as once a person can see them. */
 export const SEEDED_TEMPORAL_DISPLAY = {

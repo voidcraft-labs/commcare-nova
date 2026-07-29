@@ -165,6 +165,25 @@ export function storageTimeValue(fragment: string): string {
 	return `${parsed.clock}${parsed.designator === "" ? "Z" : parsed.designator}`;
 }
 
+/**
+ * The wire's `HH:MM:SS.mmm` with whatever zone the fragment already
+ * carried, and none added — `storageTimeValue` without the `Z` tag, and
+ * `wireTimeOfDay` without the amnesia.
+ *
+ * This is the shape a DATETIME's clock half takes while its date half is
+ * still missing. Neither sibling fits there: the `Z` tag belongs to a
+ * standalone time answer and would later be mistaken for the whole
+ * datetime's real offset, while dropping the designator would throw away
+ * the zone an existing answer was entered in the moment someone cleared
+ * its date.
+ */
+export function paddedTimeOfDay(fragment: string): string {
+	const parsed = parseTimeOfDay(fragment);
+	return parsed === null
+		? fragment.trim()
+		: `${parsed.clock}${parsed.designator}`;
+}
+
 /** Per-zone formatter cache — `Intl.DateTimeFormat` construction is the
  *  expensive part, and these are called once per temporal value written. */
 const zoneFormatters = new Map<string, Intl.DateTimeFormat>();
@@ -296,20 +315,29 @@ function parseDatetime(
 }
 
 /**
- * Whether `value` is ALREADY exactly what this module stores for `kind` —
- * the question a widget asks before rendering a value as human text, and
- * the one the form engine asks before letting an answer reach submission.
+ * Whether the canonicalizers can READ `value` as a `kind` — whether it can
+ * become a stored answer, not whether it already is one.
  *
- * It is deliberately not `canonicalizer(value) === value`: every
- * canonicalizer here returns unreadable text untouched, so that comparison
- * calls `"sometime tuesday"` a stored time. Readability is checked first
- * and separately, against the same grammar the canonicalizer parses with,
- * so the two can never disagree about what a value is.
+ * That distinction is the whole point. "Already canonical" is a much
+ * narrower question, and asking it where this one belongs rejects values
+ * the storage schema accepts: `08:45:00Z` is a perfectly good RFC 3339
+ * time that the pre-millisecond writer left in thousands of rows, and
+ * `2026-01-15` is what a `today()` default puts in a datetime slot. Both
+ * canonicalize correctly at the storage boundary and neither is anything a
+ * person needs to be told about.
+ *
+ * So the form engine asks THIS before letting an answer through, and the
+ * only text it turns away is text no canonicalizer could ever make storable
+ * — the half-typed `2:3` a person is still in the middle of.
+ *
+ * It is also not `canonicalizer(value) === value`, which would be the third
+ * wrong question: every canonicalizer here is total and returns unreadable
+ * text untouched, so that comparison calls `"sometime tuesday"` a time.
  *
  * Shape only. A `2026-02-30` clears every gate here and is rejected by the
  * storage schema, which stays the authority on conformance.
  */
-export function isStorageTemporalValue(
+export function isReadableTemporalValue(
 	kind: TemporalValueKind,
 	value: string,
 ): boolean {
@@ -317,15 +345,39 @@ export function isStorageTemporalValue(
 		case "date":
 			return DATE_ONLY_RE.test(value);
 		case "time":
-			return (
-				parseTimeOfDay(value) !== null && storageTimeValue(value) === value
-			);
+			return parseTimeOfDay(value) !== null;
 		case "datetime":
-			// The zone cannot matter: a value already in storage shape carries
-			// its own designator, and `storageDatetimeValue` never overrides one.
-			return (
-				parseDatetime(value) !== null &&
-				storageDatetimeValue(value, "UTC") === value
-			);
+			return parseDatetime(value) !== null;
 	}
+}
+
+/**
+ * The wall clock a STORED time carries — `HH:MM:SS.mmm` — or `null` when
+ * the text is not one.
+ *
+ * What decides is whether the text bears a machine's fingerprints, and the
+ * question behind that is the one a widget actually has: is this mine to
+ * reformat, or is it the person's own half-finished typing? Two marks
+ * answer it, and hand-typing leaves neither — a zone designator, which
+ * every stored time carries because the schema requires one and which
+ * `lib/ui/clockTime.ts::parseClockTime` does not even accept; or the full
+ * `HH:MM:SS.mmm` padding, which that parser cannot produce. So a field can
+ * project `08:45:00Z` to "8:45 AM" and leave a mid-typed "2:30" exactly as
+ * typed, rather than rewriting it to "2:30 AM" under someone still
+ * reaching for PM.
+ *
+ * The padded-but-zoneless case is not hypothetical: it is precisely a
+ * datetime's clock half, whose zone lives on the whole value rather than
+ * on the clock.
+ *
+ * Padding, not canonicality, is what this reads through in the other
+ * direction too: a value that predates the millisecond rule projects the
+ * same as one that follows it.
+ */
+export function storedWallClock(fragment: string): string | null {
+	const parsed = parseTimeOfDay(fragment);
+	if (parsed === null) return null;
+	const machineWritten =
+		parsed.designator !== "" || fragment.trim() === parsed.clock;
+	return machineWritten ? parsed.clock : null;
 }

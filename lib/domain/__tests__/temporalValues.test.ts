@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
-	isStorageTemporalValue,
+	isReadableTemporalValue,
+	paddedTimeOfDay,
 	storageDatetimeValue,
 	storageTimeValue,
+	storedWallClock,
 	wireTimeOfDay,
 	zoneDesignatorForWallTime,
 } from "../temporalValues";
@@ -207,61 +209,105 @@ describe("zone designator spelling", () => {
 	});
 });
 
-describe("isStorageTemporalValue", () => {
-	it("accepts exactly what the canonicalizers produce", () => {
-		// The predicate and the producers have to agree, or the form engine
+describe("isReadableTemporalValue", () => {
+	it("accepts everything the canonicalizers produce", () => {
+		// The gate and the producers have to agree, or the form engine
 		// rejects an answer the case store would have accepted.
-		const zones = ["UTC", "America/New_York", "Asia/Kolkata"];
-		const times = ["14:30", "9:05:07", "00:00:00.000Z", "14:30-05"];
-		for (const zone of zones) {
-			for (const time of times) {
-				expect(isStorageTemporalValue("time", storageTimeValue(time))).toBe(
+		for (const zone of ["UTC", "America/New_York", "Asia/Kolkata"]) {
+			for (const time of ["14:30", "9:05:07", "00:00:00.000Z", "14:30-05"]) {
+				expect(isReadableTemporalValue("time", storageTimeValue(time))).toBe(
 					true,
 				);
 				expect(
-					isStorageTemporalValue(
+					isReadableTemporalValue(
 						"datetime",
 						storageDatetimeValue(`2026-07-04T${time}`, zone),
 					),
 				).toBe(true);
 			}
-			expect(
-				isStorageTemporalValue(
-					"datetime",
-					storageDatetimeValue("2026-01-15", zone),
-				),
-			).toBe(true);
 		}
 	});
 
-	it("rejects text no canonicalizer could read", () => {
-		// The reason this is not `canonicalizer(v) === v`: every
-		// canonicalizer returns unreadable text untouched, so that
-		// comparison calls "sometime tuesday" a stored time.
-		expect(isStorageTemporalValue("time", "sometime tuesday")).toBe(false);
-		expect(isStorageTemporalValue("datetime", "sometime tuesday")).toBe(false);
-		expect(isStorageTemporalValue("date", "sometime tuesday")).toBe(false);
+	it("accepts a stored value that predates the millisecond rule", () => {
+		// The shape the pre-#376 writer left in rows: RFC 3339, accepted by
+		// the schema, not what this module would write today. Asking
+		// "already canonical?" here would refuse a person's submission over
+		// an answer they never typed and cannot fix.
+		expect(isReadableTemporalValue("time", "08:45:00Z")).toBe(true);
+		expect(
+			isReadableTemporalValue("datetime", "2026-01-15T09:15:00-04:00"),
+		).toBe(true);
 	});
 
-	it("rejects the half-typed clock a person is still in the middle of", () => {
-		expect(isStorageTemporalValue("time", "2:3")).toBe(false);
-		expect(isStorageTemporalValue("time", "2:30 PM")).toBe(false);
-		expect(isStorageTemporalValue("datetime", "2026-01-15T2:3")).toBe(false);
+	it("accepts a bare date in a datetime slot", () => {
+		// What a `today()` default puts there. The storage boundary reads it
+		// as that date's midnight, exactly as it did before any gate existed.
+		expect(isReadableTemporalValue("datetime", "2026-07-28")).toBe(true);
 	});
 
-	it("rejects a value that is merely close to the stored shape", () => {
-		// Unpadded, un-tagged, or a naive datetime: readable, but not what
-		// is stored, so committing it would leave two spellings of one answer.
-		expect(isStorageTemporalValue("time", "14:30:00.000")).toBe(false);
-		expect(isStorageTemporalValue("time", "14:30")).toBe(false);
-		expect(isStorageTemporalValue("datetime", "2026-01-15T14:30:00.000")).toBe(
-			false,
+	it("accepts a naive value the storage boundary will stamp", () => {
+		expect(isReadableTemporalValue("time", "14:30")).toBe(true);
+		expect(isReadableTemporalValue("datetime", "2026-01-15T14:30:00")).toBe(
+			true,
 		);
-		expect(isStorageTemporalValue("date", "2026-1-5")).toBe(false);
 	});
 
-	it("does not mistake a bare date for a stored datetime", () => {
-		expect(isStorageTemporalValue("datetime", "2026-01-15")).toBe(false);
-		expect(isStorageTemporalValue("date", "2026-01-15")).toBe(true);
+	it("turns away only what no canonicalizer could make storable", () => {
+		// The reason this is not `canonicalizer(v) === v`: every
+		// canonicalizer here is total and returns unreadable text untouched,
+		// so that comparison calls "sometime tuesday" a stored time.
+		expect(isReadableTemporalValue("time", "sometime tuesday")).toBe(false);
+		expect(isReadableTemporalValue("datetime", "sometime tuesday")).toBe(false);
+		expect(isReadableTemporalValue("date", "sometime tuesday")).toBe(false);
+		expect(isReadableTemporalValue("time", "2:3")).toBe(false);
+		expect(isReadableTemporalValue("datetime", "2026-01-15T2:3")).toBe(false);
+		expect(isReadableTemporalValue("datetime", "2026-01-15T")).toBe(false);
+		expect(isReadableTemporalValue("date", "2026-1-5")).toBe(false);
+	});
+
+	it("does not read a bare clock as a datetime", () => {
+		expect(isReadableTemporalValue("datetime", "14:30")).toBe(false);
+	});
+});
+
+describe("storedWallClock", () => {
+	it("reads a machine-written clock through its zone designator", () => {
+		expect(storedWallClock("14:30:00.000Z")).toBe("14:30:00.000");
+		expect(storedWallClock("14:30:00.000-05:00")).toBe("14:30:00.000");
+		// Padding is not required — a pre-millisecond row still reads.
+		expect(storedWallClock("08:45:00Z")).toBe("08:45:00.000");
+	});
+
+	it("reads a padded but zoneless clock — a datetime's own half", () => {
+		// A datetime's zone lives on the whole value, so its clock half is
+		// zoneless by construction and still machine-written.
+		expect(storedWallClock("14:30:00.000")).toBe("14:30:00.000");
+	});
+
+	it("refuses text a person could be in the middle of typing", () => {
+		// The whole point: "2:30" is readable, but reformatting it to
+		// "2:30 AM" would fight someone reaching for PM.
+		expect(storedWallClock("2:30")).toBeNull();
+		expect(storedWallClock("14:30")).toBeNull();
+		expect(storedWallClock("14:30:00")).toBeNull();
+		expect(storedWallClock("2:3")).toBeNull();
+		expect(storedWallClock("2:30 PM")).toBeNull();
+		expect(storedWallClock("")).toBeNull();
+	});
+});
+
+describe("paddedTimeOfDay", () => {
+	it("pads without inventing a zone, and keeps one it was given", () => {
+		// The shape a datetime's clock half takes while its date is missing:
+		// a `Z` added here would later be mistaken for the whole answer's
+		// real offset, and dropping the designator would throw away the zone
+		// an existing answer was entered in.
+		expect(paddedTimeOfDay("14:30")).toBe("14:30:00.000");
+		expect(paddedTimeOfDay("09:15:00.000-04:00")).toBe("09:15:00.000-04:00");
+		expect(paddedTimeOfDay("08:45:00Z")).toBe("08:45:00.000Z");
+	});
+
+	it("returns unreadable text untouched", () => {
+		expect(paddedTimeOfDay("2:3")).toBe("2:3");
 	});
 });

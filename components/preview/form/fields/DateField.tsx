@@ -7,6 +7,7 @@ import type {
 	TimeField,
 } from "@/lib/domain";
 import {
+	paddedTimeOfDay,
 	storageDatetimeValue,
 	storageTimeValue,
 } from "@/lib/domain/temporalValues";
@@ -67,10 +68,12 @@ interface DateFieldProps {
  *
  * The two directions:
  *
- *   - **Reading**, the stored value is projected to human text, but ONLY
- *     while it is genuinely in storage shape. Mid-typing text is shown
- *     verbatim — reformatting "2:30" into "2:30 AM" under someone still
- *     reaching for PM is the one thing a live-formatting field must not do.
+ *   - **Reading**, a value that was written by a machine is projected to
+ *     human text and a value the person is typing is left alone, the line
+ *     drawn by `storedWallClock` on marks hand-typing cannot leave.
+ *     Reformatting across it would rewrite "2:30" into "2:30 AM" under
+ *     someone still reaching for PM — the one thing a live-formatting
+ *     field must not do.
  *   - **Writing**, every commit boundary canonicalizes: a calendar pick
  *     (which closes its own popover, so it IS a commit) and the clock
  *     field's blur. Canonicalization is idempotent on values it can read
@@ -79,12 +82,14 @@ interface DateFieldProps {
  *     in the engine's shape error rather than being mangled toward a shape
  *     it never had.
  *
- * A datetime takes the offset of the VIEWER's zone, matching the device
- * stamping its own (`DateTimeData::uncast`, and Web Apps' browser-offset
- * provider). The wall clock is displayed exactly as stored, so an answer
- * carrying some other device's offset reads as the clock that was entered
- * there; editing it re-stamps for the viewer, which is what that same
- * device would do.
+ * A NEWLY entered datetime takes the offset of the viewer's zone, matching
+ * the device stamping its own (`DateTimeData::uncast`, and Web Apps'
+ * browser-offset provider). An answer that already carries an offset keeps
+ * it, and its wall clock is displayed exactly as stored — so an answer
+ * entered on some other device reads as the clock that was entered there,
+ * and moving its date does not quietly relocate it to the author's zone.
+ * The offset belongs to the answer; only a clock the person types here is
+ * this viewer's to stamp.
  */
 export function DateField({
 	field,
@@ -113,6 +118,7 @@ export function DateField({
 						onChange(next);
 						onBlur();
 					}}
+					onBlur={onBlur}
 					aria-labelledby={labelledBy}
 					aria-invalid={showError || undefined}
 					className={`w-full ${PV_TRIGGER}`}
@@ -151,20 +157,39 @@ export function DateField({
 	const datePart = separator === -1 ? stored : stored.slice(0, separator);
 	const timePart = separator === -1 ? "" : stored.slice(separator + 1);
 
+	/**
+	 * Commit the two halves as one answer. Each arm produces a value the
+	 * split above can read back, and none of them invents a half nobody
+	 * entered — the join has to survive being HALF filled in, because that
+	 * is the state a person passes through on the way to filling it.
+	 *
+	 * A bare date is deliberately left bare rather than extended to its own
+	 * midnight here. It is already a readable datetime that the storage
+	 * boundary reads as midnight, so leaving it alone keeps an empty clock
+	 * box honest ("you have not set a time") instead of answering the
+	 * question on the person's behalf with a 12:00 AM they never chose and
+	 * cannot clear — clearing it would just put it straight back.
+	 */
 	const commit = (date: string, time: string): void => {
-		if (date === "" && time.trim() === "") {
+		const clock = parseClockTime(time) ?? time.trim();
+		if (date === "" && clock === "") {
 			onChange("");
 			return;
 		}
-		const clock = parseClockTime(time) ?? time.trim();
-		// A date with no clock is that date's midnight — the reading
-		// `storageDatetimeValue` already gives a bare date.
-		onChange(
-			storageDatetimeValue(
-				clock === "" ? date : `${date}T${clock}`,
-				viewerTimeZone(),
-			),
-		);
+		if (clock === "") {
+			onChange(date);
+			return;
+		}
+		if (date === "") {
+			// No date yet. The clock is padded so it still reads back as a
+			// clock while the person goes to pick the date, and keeps whatever
+			// zone it already had — a `Z` tag added here would later be
+			// mistaken for the whole answer's real offset. The engine's shape
+			// gate is what asks them for the date.
+			onChange(`T${paddedTimeOfDay(clock)}`);
+			return;
+		}
+		onChange(storageDatetimeValue(`${date}T${clock}`, viewerTimeZone()));
 	};
 
 	return (
@@ -182,6 +207,7 @@ export function DateField({
 						commit(next, timePart);
 						onBlur();
 					}}
+					onBlur={onBlur}
 					aria-label="Date"
 					aria-invalid={showError || undefined}
 					className={`min-w-0 flex-1 ${PV_TRIGGER}`}

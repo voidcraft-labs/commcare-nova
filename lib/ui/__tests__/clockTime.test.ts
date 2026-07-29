@@ -64,11 +64,25 @@ describe("formatClockTime", () => {
 		}
 	});
 
+	it("reads a stored time that predates the millisecond rule", () => {
+		// The shape the pre-#376 writer left in rows. Requiring canonical
+		// padding here would show a person wire text instead of a clock.
+		expect(formatClockTime("08:45:00Z")).toBe("8:45 AM");
+	});
+
+	it("reads a datetime's own clock half, which carries no zone", () => {
+		// A datetime's zone lives on the whole value, so the half is padded
+		// and zoneless — still machine-written, still ours to project.
+		expect(formatClockTime("14:30:00.000")).toBe("2:30 PM");
+	});
+
 	it("declines text that is not a stored time, so it is shown verbatim", () => {
 		// Half-typed input above all: reformatting "2:30" into "2:30 AM"
 		// under someone still reaching for PM is the one thing a field that
 		// formats as you type must not do.
 		expect(formatClockTime("2:30")).toBeNull();
+		expect(formatClockTime("14:30")).toBeNull();
+		expect(formatClockTime("14:30:00")).toBeNull();
 		expect(formatClockTime("2:3")).toBeNull();
 		expect(formatClockTime("2:30 PM")).toBeNull();
 		expect(formatClockTime("")).toBeNull();

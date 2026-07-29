@@ -38,7 +38,7 @@ import {
 	casePropertyDataTypes,
 	expressionSource,
 	isCaptureFieldKind,
-	isStorageTemporalValue,
+	isReadableTemporalValue,
 	orderedCaseOperations,
 	ownRecordValue,
 	storageDatetimeValue,
@@ -2085,6 +2085,13 @@ export class FormEngine {
 	 * surfaces on blur — the moment the answer stopped being half-typed —
 	 * and again for every field at submit. An empty answer is not
 	 * ill-shaped; whether it is allowed is `required`'s question.
+	 *
+	 * The bar is READABILITY, never canonicality. Anything the storage
+	 * boundary can canonicalize belongs to the person, not to this gate: a
+	 * pre-millisecond `08:45:00Z` sitting in a case row and a `today()`
+	 * default landing a bare date in a datetime slot are both fine, and
+	 * refusing them would block a submission over an answer nobody typed and
+	 * nobody can fix.
 	 */
 	private temporalShapeError(path: string, value: string): string | undefined {
 		if (value === "") return undefined;
@@ -2092,14 +2099,14 @@ export class FormEngine {
 		if (kind !== "date" && kind !== "time" && kind !== "datetime") {
 			return undefined;
 		}
-		if (isStorageTemporalValue(kind, value)) return undefined;
+		if (isReadableTemporalValue(kind, value)) return undefined;
 		switch (kind) {
 			case "date":
 				return `“${value}” isn’t a date. Pick one from the calendar.`;
 			case "time":
-				return `“${value}” isn’t a time yet. Enter a clock time like 2:30 PM.`;
+				return clockShapeMessage(value);
 			case "datetime":
-				return `“${value}” isn’t a date and time yet. Pick a date and enter a clock time like 2:30 PM.`;
+				return datetimeShapeMessage(value);
 		}
 	}
 
@@ -2465,6 +2472,32 @@ function isCaseLoadingFormType(formType: string): boolean {
  * viewer-local `format-date` reads back. `lib/domain/temporalValues.ts`
  * carries the reasoning and the CommCare citations.
  */
+/** The one sentence a clock that isn't a clock gets, wherever it appears. */
+function clockShapeMessage(clock: string): string {
+	return `“${clock}” isn’t a time yet. Enter a clock time like 2:30 PM.`;
+}
+
+/**
+ * What to tell someone whose date-and-time answer isn't one yet.
+ *
+ * A datetime is edited as two halves and stored as one string, so the
+ * string can be incomplete in two different ways and the person needs to
+ * hear which. Quoting the whole value would put the join's own spelling
+ * (`T09:15:00.000-04:00`) in front of them — internal punctuation they
+ * never typed, about a field they can see is simply missing its date.
+ */
+function datetimeShapeMessage(value: string): string {
+	const separator = value.indexOf("T");
+	const datePart = separator === -1 ? value : value.slice(0, separator);
+	const clock = separator === -1 ? "" : value.slice(separator + 1);
+	if (clock !== "" && !isReadableTemporalValue("time", clock)) {
+		return clockShapeMessage(clock);
+	}
+	if (clock === "") return "Enter a clock time — this question needs both.";
+	if (datePart === "") return "Pick a date — this question needs both.";
+	return `“${value}” isn’t a date and time.`;
+}
+
 function coerceValueForProperty(
 	raw: string,
 	property: CaseProperty | undefined,

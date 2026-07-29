@@ -41,6 +41,10 @@ interface DatePickerProps {
 	disabled?: boolean;
 	/** Show the Clear footer while a date is selected (default true). */
 	clearable?: boolean;
+	/** Fires when focus leaves the trigger — including into the popover, so
+	 *  a caller that treats blur as "the person has engaged with this field"
+	 *  (marking it touched, say) hears about opening the calendar too. */
+	onBlur?: () => void;
 	/** Merged onto the trigger button (width, text size). */
 	className?: string;
 	"aria-label"?: string;
@@ -78,6 +82,7 @@ function DatePicker({
 	placeholder = "Pick a date",
 	disabled,
 	clearable = true,
+	onBlur,
 	className,
 	"aria-label": ariaLabel,
 	"aria-labelledby": ariaLabelledBy,
@@ -100,6 +105,7 @@ function DatePicker({
 				aria-labelledby={ariaLabelledBy}
 				aria-invalid={ariaInvalid}
 				aria-describedby={ariaDescribedBy}
+				onBlur={onBlur}
 				disabled={disabled}
 				render={
 					<Button
