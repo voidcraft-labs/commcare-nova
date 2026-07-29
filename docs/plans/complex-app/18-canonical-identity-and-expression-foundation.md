@@ -234,6 +234,22 @@ identity, stale/illegal built-in, ambiguous reference, noncanonical legacy
 absolute path, or post-horizon replay mismatch blocks the cutover; there is no
 lowercasing, remint, alias, slug/path inference, or best-effort repair.
 
+The checked-in deployment path is permanent infrastructure, not a
+cutover-only branch or flag. At the start of every deploy it records the
+service's exact revision set and scaling mode and accepts only one of two
+prestates: ordinary automatic scaling, or maintenance-owned manual scaling with
+exactly zero instances. `gcloud run deploy` never passes `--scaling=auto`, so it
+preserves that prestate while moving 100% traffic to the candidate. The script
+then proves that the scaling mode did not change, the expected immutable digest
+is Ready and owns 100% traffic, and every old revision owns 0% with no tag.
+Finally it always performs the same separate service-level
+`--scaling=auto` update and proves that the revision set did not change. On an
+ordinary later build the service began automatic, remained automatic, and that
+last update is an idempotent no-op; on this maintenance cutover it began
+manual-zero and only this step resumes instances, after the exact candidate is
+the sole traffic owner. A deployment may not silently translate any other
+scaling state.
+
 Production uses the binding maintenance-cutover procedure, not an ordinary
 unattended merge:
 
@@ -336,14 +352,17 @@ unattended merge:
    public writes have resumed.
 6. The service stays at manual zero while the trigger deploys the same exact
    image without disabling Cloud Run's deployment health check and without
-   passing `--scaling=auto`. Manual scaling ignores revision minimum/maximum
-   settings, so every old revision stays stopped while the deployment health
-   check starts only the candidate and its database-backed `/warmup` probe
-   passes under the real runtime login. After `gcloud run deploy` returns and
-   before scaling changes, assert that the service is still manual zero, the
-   exact new immutable digest is Ready and owns 100% traffic, and every old
-   revision is at 0% with no tag. Prove zero old runtime session or log activity
-   after the post-grant fence. Then issue a separate service-level
+   passing `--scaling=auto`. The permanent deploy script records and requires
+   the maintenance prestate to be manual-zero; the external watcher fails the
+   build if the script instead reports the ordinary automatic prestate. Manual
+   scaling ignores revision minimum/maximum settings, so every old revision
+   stays stopped while the deployment health check starts only the candidate
+   and its database-backed `/warmup` probe passes under the real runtime login.
+   After `gcloud run deploy` returns and before scaling changes, assert that the
+   service is still manual zero, the exact new immutable digest is Ready and
+   owns 100% traffic, and every old revision is at 0% with no tag. Prove zero
+   old runtime session or log activity after the post-grant fence. Then let the
+   same permanent path issue its unconditional service-level
    `--scaling=auto` update, prove that it created no revision, and verify the
    expected automatic minimum/maximum scaling. Because only the exact new
    revision owns traffic, it is the only revision that can start. Prove its
@@ -385,11 +404,25 @@ to old production is not complete while Unit 18 still sits on `main`: revert the
 exact merge, require the named main trigger's source commit to equal that revert
 commit, and verify its old service image, migration ledger behavior, all three
 Job configurations, and restored database together before restoring ingress
-and releasing the freeze. The alternative is to keep ingress closed and fix
-forward from the merged source. Old production never reopens with the strict new
-source silently pending on `main`. PITR is not the restore path because
-PostgreSQL PITR always creates a new Cloud SQL instance. Once the NEG is
-reattached, the only path is fix-forward with the NEG detached, service at
+and releasing the freeze. Before triggering that revert build, arm a fresh
+one-shot rollback watcher keyed to the exact revert commit, named build, and
+recorded old image digest. The NEG remains detached through the restore, old
+schema/ledger/Job proofs, and the revert build's deploy. Reverting Unit 18 also
+restores the prior `cloudbuild.yaml`, whose public-host verification begins
+immediately after deploy and retries for a bounded window. Once the watcher
+observes that exact revert build's deploy step complete, the recorded old digest
+Ready at 100%, the restored database and all three Jobs proven together, and no
+competing source/build/job activity, it reattaches the existing NEG exactly once
+while those public retries are still active. Those probes must then pass inside
+the build; the revert build cannot turn green on internal evidence alone. A
+missed retry window or any failed/mismatched proof fails the build, detaches the
+NEG again if necessary, returns the service to manual zero, terminates runtime
+sessions, and keeps cleanup paused. This is the rollback path's only ingress
+reattachment point. The alternative is to keep ingress closed and fix forward
+from the merged source. Old production never reopens with the strict new source
+silently pending on `main`. PITR is not the restore path because PostgreSQL PITR
+always creates a new Cloud SQL instance. Once the NEG is reattached after the
+forward cutover, the only path is fix-forward with the NEG detached, service at
 manual zero, runtime sessions terminated, and cleanup paused; a partial table
 restore or replay across the horizon is forbidden.
 
