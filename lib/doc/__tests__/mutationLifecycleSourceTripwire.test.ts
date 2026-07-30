@@ -493,9 +493,28 @@ describe("mutation lifecycle source tripwire", () => {
 			"scripts/audit-canonical-identity-foundation.ts",
 			"scripts/repair-canonical-identity-foundation.ts",
 			"scripts/scan-canonical-identity-foundation.ts",
+			// The Kysely migration entrypoint is the directory's one public door;
+			// reaching through it is the whole point of the quarantine.
+			"lib/case-store/migrations/20260728000000_canonical_identity_foundation.ts",
 		]);
+		// Tests OF the frozen authority necessarily import it. They are not
+		// steady-state readers, and naming each one would make this list churn
+		// with every fixture added behind the door.
+		const allowedImporterPrefix = "lib/case-store/migrations/__tests__/";
+		// The quarantine is the DIRECTORY. The sibling
+		// `…_canonical_identity_foundation.ts` is its one public door — the Kysely
+		// migration entrypoint — so importing that file is allowed and importing
+		// anything behind it is not.
+		//
+		// This has to resolve specifiers rather than match text against them. A
+		// substring test for the repo-relative directory path silently passes
+		// every RELATIVE import, which is how the modules physically next to the
+		// frozen tree — the ones most able to reach into it — were the ones the
+		// check could never see.
 		const frozenDirectory =
-			"case-store/migrations/20260728000000_canonical_identity_foundation";
+			"lib/case-store/migrations/20260728000000_canonical_identity_foundation/";
+		const specifier =
+			/(?:\bfrom\s*|^\s*(?:import|export)\s*|\bimport\s*\(\s*|\brequire\s*\(\s*)["']([^"']+)["']/gm;
 		const failures = ["__tests__", "app", "components", "e2e", "lib", "scripts"]
 			.flatMap((root) => allTypeScriptSources(path.join(process.cwd(), root)))
 			.filter(
@@ -505,16 +524,26 @@ describe("mutation lifecycle source tripwire", () => {
 			)
 			.filter((relative) => !isFrozenCanonicalIdentitySource(relative))
 			.filter((relative) => !allowedImporters.has(relative))
+			.filter((relative) => !relative.startsWith(allowedImporterPrefix))
 			.filter((relative) => {
 				const source = readFileSync(path.join(process.cwd(), relative), "utf8");
-				return source
-					.split("\n")
-					.some(
-						(line) =>
-							(/\bfrom\s+["']/.test(line) ||
-								/^\s*(?:import|export)\s+["']/.test(line)) &&
-							line.includes(frozenDirectory),
-					);
+				for (const [, raw] of source.matchAll(specifier)) {
+					let resolved: string;
+					if (raw.startsWith(".")) {
+						resolved = path
+							.normalize(path.join(path.dirname(relative), raw))
+							.replaceAll("\\", "/");
+					} else if (raw.startsWith("@/")) {
+						resolved = raw.slice(2);
+					} else {
+						continue; // a bare package specifier cannot reach the tree
+					}
+					// `frozenDirectory` carries the trailing slash, so the entrypoint
+					// file — which shares the directory's name — does not match while
+					// everything nested behind it does.
+					if (resolved.startsWith(frozenDirectory)) return true;
+				}
+				return false;
 			});
 		expect(failures).toEqual([]);
 		expect(
