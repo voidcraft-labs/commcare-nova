@@ -153,10 +153,12 @@ function previewCaseStoreBindings(
 	inputValues: SearchInputValues = new Map(),
 	viewerTimeZone?: string,
 ): TermBindings {
-	const boundInputs = new Map(inputValues);
-	for (const input of searchInputs) {
-		if (!boundInputs.has(input.name)) boundInputs.set(input.name, "");
-	}
+	const boundInputs = new Map(
+		searchInputs.map((input) => [
+			input.uuid,
+			inputValues.get(input.name) ?? "",
+		]),
+	);
 
 	const sessionContext = new Map<string, string>();
 	for (const [field, value] of Object.entries(session.context)) {
@@ -249,6 +251,7 @@ export async function loadCasesAction(args: {
 				: {
 						caseTypes: [...(args.caseTypes ?? [])],
 						knownInputs: args.caseListConfig.searchInputs.map((input) => ({
+							uuid: input.uuid,
 							name: input.name,
 							data_type: SEARCH_INPUT_RUNTIME_VALUE_TYPES[input.type],
 						})),

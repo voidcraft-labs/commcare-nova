@@ -186,6 +186,14 @@ describe("registerGetApp — happy path", () => {
 		expect(text).toContain("Register Patient");
 		/* Field id should appear in the per-field bullet line. */
 		expect(text).toContain("patient_name");
+		/* Display order remains the line order, never a reusable address. */
+		expect(text).not.toMatch(/\bModule \d+\b|\bForm \d+\b/);
+		expect(text).toContain(
+			'Module "Patients" [uuid 11111111-1111-1111-1111-111111111111]',
+		);
+		expect(text).toContain(
+			'Form "Register Patient" [uuid 22222222-2222-2222-2222-222222222222]',
+		);
 	});
 });
 

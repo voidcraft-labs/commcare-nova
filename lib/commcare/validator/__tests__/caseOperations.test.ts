@@ -136,10 +136,21 @@ function fixture(
 								kind: "multi_select",
 								id: "choices",
 								label: "Choices",
-								options: [
-									{ value: "a", label: "A" },
-									{ value: "b", label: "B" },
-								],
+								optionsSource: {
+									kind: "inline",
+									options: [
+										{
+											uuid: asUuid("e5ef607f-111c-4c02-a690-3d240eb4a40f"),
+											value: "a",
+											label: "A",
+										},
+										{
+											uuid: asUuid("8d32234e-8ce9-4bb7-a48c-cdaddb36167f"),
+											value: "b",
+											label: "B",
+										},
+									],
+								},
 							}),
 							f({
 								uuid: REPEAT_A,

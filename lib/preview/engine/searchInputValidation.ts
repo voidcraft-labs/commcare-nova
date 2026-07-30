@@ -6,7 +6,11 @@ import {
 	type ComposedXPathQuery,
 	composeXPathQueryEmission,
 } from "@/lib/commcare/suite/case-search/xpathQuery";
-import { type CaseListConfig, ownRecordValue } from "@/lib/domain";
+import {
+	type CaseListConfig,
+	ownRecordValue,
+	SEARCH_INPUT_RUNTIME_VALUE_TYPES,
+} from "@/lib/domain";
 import type { TypeContext } from "@/lib/domain/predicate";
 import { toBoolean } from "@/lib/preview/xpath/coerce";
 import { evaluate } from "@/lib/preview/xpath/evaluator";
@@ -63,7 +67,11 @@ export function searchInputRuntimeQuoteErrors(
 ): ReadonlyMap<string, string> {
 	let emission: ComposedXPathQuery | undefined;
 	try {
-		emission = composeXPathQueryEmission(caseListConfig, caseType, typeContext);
+		emission = composeXPathQueryEmission(
+			caseListConfig,
+			caseType,
+			withSearchInputBindings(caseListConfig, typeContext),
+		);
 	} catch {
 		return new Map();
 	}
@@ -110,7 +118,11 @@ export function searchInputRuntimeGlobalError(
 ): string | undefined {
 	let emission: ComposedXPathQuery | undefined;
 	try {
-		emission = composeXPathQueryEmission(caseListConfig, caseType, typeContext);
+		emission = composeXPathQueryEmission(
+			caseListConfig,
+			caseType,
+			withSearchInputBindings(caseListConfig, typeContext),
+		);
 	} catch {
 		return undefined;
 	}
@@ -136,6 +148,27 @@ export function searchInputRuntimeGlobalError(
 		}
 	}
 	return undefined;
+}
+
+/**
+ * Runtime validation owns the complete search-input declarations, so it can
+ * always project immutable references to their current saved names. Do not
+ * rely on a caller to duplicate this identity map: standalone Preview surfaces
+ * and scoped tests legitimately have no module-level validator context.
+ */
+function withSearchInputBindings(
+	caseListConfig: CaseListConfig,
+	typeContext: TypeContext | undefined,
+): TypeContext {
+	return {
+		...(typeContext ?? { caseTypes: [], knownInputs: [] }),
+		knownInputs: caseListConfig.searchInputs.map((input) => ({
+			uuid: input.uuid,
+			name: input.name,
+			label: input.label,
+			data_type: SEARCH_INPUT_RUNTIME_VALUE_TYPES[input.type],
+		})),
+	};
 }
 
 type RuntimeRejection = NonNullable<

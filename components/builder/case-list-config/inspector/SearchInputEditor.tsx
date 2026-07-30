@@ -235,7 +235,7 @@ export function SearchInputEditor({
 	// Every named row is in scope — the edited row included. A custom
 	// condition is keyed to its OWN input via the when-input-present
 	// envelope `seedCustomCondition` produces, so the row must resolve
-	// its own `input(name)`. Matches the validator's full-list
+	// its own stable UUID. Matches the validator's full-list
 	// `moduleTypeContext`; see `searchInputDecls`.
 	const knownInputs = useMemo(() => searchInputDecls(siblings), [siblings]);
 
@@ -1147,7 +1147,7 @@ function expressionHasMeaningfulContent(value: ValueExpression): boolean {
 		case "field":
 			return true;
 		case "input":
-			return value.term.name.length > 0;
+			return value.term.searchInputUuid.length > 0;
 		case "session-context":
 			return true;
 		case "session-user":
@@ -1156,7 +1156,7 @@ function expressionHasMeaningfulContent(value: ValueExpression): boolean {
 			return true;
 		case "table-column":
 			throw new Error(
-				"Lookup table columns are dormant and cannot reach the search-input editor.",
+				"A lookup table column is valid only in an explicit table-row scope and cannot reach a Search-input default.",
 			);
 	}
 }

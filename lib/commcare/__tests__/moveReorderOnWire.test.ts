@@ -13,8 +13,7 @@ import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { HqApplication, HqFormLink } from "@/lib/commcare";
 import { expandDoc } from "@/lib/commcare/expander";
 import { applyMutations } from "@/lib/doc/mutations";
-import { backfillOptionUuids } from "@/lib/doc/optionIdentity";
-import type { BlueprintDoc, FormLink, Uuid } from "@/lib/domain";
+import type { BlueprintDoc, FormLink } from "@/lib/domain";
 import { asUuid, plainColumn } from "@/lib/domain";
 
 /** The first form's XForm attachment, as a string. */
@@ -41,9 +40,7 @@ function firstFormLinkTarget(app: HqApplication): HqFormLink["target"] {
 }
 
 function hydrate(doc: BlueprintDoc): BlueprintDoc {
-	const copy = structuredClone(doc);
-	backfillOptionUuids(copy);
-	return copy;
+	return structuredClone(doc);
 }
 
 describe("a move reflects on the wire", () => {
@@ -103,11 +100,26 @@ describe("a move reflects on the wire", () => {
 										kind: "single_select",
 										id: "color",
 										label: "Color",
-										options: [
-											{ value: "red", label: "Red" },
-											{ value: "green", label: "Green" },
-											{ value: "blue", label: "Blue" },
-										],
+										optionsSource: {
+											kind: "inline",
+											options: [
+												{
+													uuid: asUuid("d985852c-a226-4325-a932-5ed1a05ee207"),
+													value: "red",
+													label: "Red",
+												},
+												{
+													uuid: asUuid("97ad7b16-2ef6-484d-a954-c7381c483025"),
+													value: "green",
+													label: "Green",
+												},
+												{
+													uuid: asUuid("a48372bb-2cf3-4a75-a8ae-c030b8b25d20"),
+													value: "blue",
+													label: "Blue",
+												},
+											],
+										},
 									}),
 								],
 							},
@@ -118,8 +130,14 @@ describe("a move reflects on the wire", () => {
 		);
 		const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
 		const fieldUuid = doc.fieldOrder[formUuid][0];
-		const field = doc.fields[fieldUuid] as { options: { uuid?: Uuid }[] };
-		const blueUuid = field.options[2].uuid as Uuid;
+		const field = doc.fields[fieldUuid];
+		if (
+			(field.kind !== "single_select" && field.kind !== "multi_select") ||
+			field.optionsSource.kind !== "inline"
+		) {
+			throw new Error("expected inline select");
+		}
+		const blueUuid = field.optionsSource.options[2].uuid;
 		// Move "blue" to the FRONT.
 		const next = produce(doc, (d) => {
 			applyMutations(d, [

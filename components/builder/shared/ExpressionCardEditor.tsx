@@ -62,6 +62,10 @@ import {
 import type { CaseDataScope } from "./editorSchemas";
 import type { OperationValueScope } from "./expressionEditorSchemas";
 import type { EditorFormFieldDecl } from "./formFieldPresentation";
+import type {
+	EditorLookupTableDecl,
+	EditorLookupTableScope,
+} from "./lookupTablePresentation";
 import { ROOT_PATH } from "./path";
 import { ExpressionPicker } from "./primitives/ExpressionPicker";
 import type { EditorSearchInputDecl } from "./searchInputPresentation";
@@ -88,6 +92,10 @@ interface ExpressionCardEditorProps {
 	/** Form answers this expression may read — already narrowed by the
 	 *  owning surface to the ones its slot admits. */
 	readonly formFields?: readonly EditorFormFieldDecl[];
+	/** Project data vocabulary and the active row, when this expression is
+	 * authored inside a data-table row rule. */
+	readonly lookupTables?: readonly EditorLookupTableDecl[];
+	readonly tableScope?: EditorLookupTableScope;
 	/** Present only inside a case operation, where the submission's own
 	 *  vocabulary (the acting user, no owner, an earlier create's case) is
 	 *  available. */
@@ -135,6 +143,8 @@ export function ExpressionCardEditor({
 	knownInputs = [],
 	userProperties,
 	formFields,
+	lookupTables,
+	tableScope,
 	operationScope,
 	caseDataScope = "per-case",
 	constraint = ANY_CONSTRAINT,
@@ -152,6 +162,8 @@ export function ExpressionCardEditor({
 				currentCaseType,
 				userProperties,
 				formFields,
+				lookupTables,
+				tableScope,
 				operationScope,
 			}),
 		[
@@ -160,6 +172,8 @@ export function ExpressionCardEditor({
 			currentCaseType,
 			userProperties,
 			formFields,
+			lookupTables,
+			tableScope,
 			operationScope,
 		],
 	);
@@ -203,6 +217,8 @@ export function ExpressionCardEditor({
 			knownInputs={knownInputs}
 			userProperties={userProperties}
 			formFields={formFields}
+			lookupTables={lookupTables}
+			tableScope={tableScope}
 			operationScope={operationScope}
 			caseDataScope={caseDataScope}
 			validityIndex={validityIndex}

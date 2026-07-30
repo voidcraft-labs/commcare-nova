@@ -14,11 +14,22 @@
 // insertion site, which had erased exactly this check.
 
 import {
+	asUuid,
 	DEFAULT_SELECT_OPTIONS,
 	type Field,
 	type FieldKind,
 	HIDDEN_INERT_DEFAULT_VALUE,
 } from "@/lib/domain";
+
+function inlineStarterSource() {
+	return {
+		kind: "inline" as const,
+		options: DEFAULT_SELECT_OPTIONS.map((option) => ({
+			...option,
+			uuid: asUuid(crypto.randomUUID()),
+		})),
+	};
+}
 
 /**
  * Per-kind builder for a new field's default shape. `label` is the suggested
@@ -44,13 +55,13 @@ export const NEW_FIELD_BUILDERS: {
 		kind: "single_select",
 		id,
 		label,
-		options: [...DEFAULT_SELECT_OPTIONS],
+		optionsSource: inlineStarterSource(),
 	}),
 	multi_select: (id, label) => ({
 		kind: "multi_select",
 		id,
 		label,
-		options: [...DEFAULT_SELECT_OPTIONS],
+		optionsSource: inlineStarterSource(),
 	}),
 	image: (id, label) => ({ kind: "image", id, label }),
 	audio: (id, label) => ({ kind: "audio", id, label }),

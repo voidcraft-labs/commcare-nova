@@ -53,13 +53,15 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import type { ToolExecutionContext } from "@/lib/agent/toolExecutionContext";
+import type { SharedToolModule } from "@/lib/agent/sharedToolManifest";
+
+export type { SharedToolModule } from "@/lib/agent/sharedToolManifest";
+
 import type {
 	MutatingToolResult,
 	ReadToolResult,
 } from "@/lib/agent/tools/common";
 import type { AppCapability } from "@/lib/auth/projectRoles";
-import type { BlueprintDoc } from "@/lib/domain";
 import { initMcpCall } from "../context";
 import {
 	type McpToolErrorResult,
@@ -80,31 +82,6 @@ import type { ToolContext } from "../types";
  * callback's return type is a single readable expression.
  */
 type McpToolResult = McpToolSuccessResult | McpToolErrorResult;
-
-/**
- * Structural contract the adapter accepts. Every shared tool module
- * satisfies this — `execute` returns one of the two tagged shapes
- * (`MutatingToolResult` / `ReadToolResult`), collapsed at the union
- * level so the adapter dispatches via a `switch` on the `kind`
- * discriminator. The per-tool generic `R` parameter is erased at the
- * boundary; `projectResult` re-emits the per-tool payload via the
- * discriminator.
- */
-export interface SharedToolModule {
-	/** Human-readable description surfaced to the LLM in MCP tool listing. */
-	readonly description: string;
-	/**
-	 * Full ZodObject input schema — NOT a raw shape. We read `.shape`
-	 * internally to hand the raw shape to `McpServer.tool`, which
-	 * expects `ZodRawShapeCompat` (`Record<string, AnySchema>`).
-	 */
-	readonly inputSchema: z.ZodObject<z.ZodRawShape>;
-	execute(
-		input: unknown,
-		ctx: ToolExecutionContext,
-		doc: BlueprintDoc,
-	): Promise<MutatingToolResult<unknown> | ReadToolResult<unknown>>;
-}
 
 /**
  * Register one shared tool on the MCP server.
@@ -207,6 +184,7 @@ export function registerSharedTool(
 					ctx,
 					appId,
 					loaded.access.projectId,
+					loaded.access.role,
 					runId,
 					extra,
 				);

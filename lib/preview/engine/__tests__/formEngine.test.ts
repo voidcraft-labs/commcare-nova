@@ -12,6 +12,7 @@ import type {
 	FieldKind,
 	Form,
 	FormType,
+	SelectOptionsSource,
 	Uuid,
 } from "@/lib/domain";
 import { asUuid } from "@/lib/domain";
@@ -36,9 +37,8 @@ function caseDataFor(
 /** Convenience type for building field subtrees in test fixtures. The engine
  *  itself works on flat maps — this nested shape is purely for readability at
  *  the call site and is flattened by `dTree()` before construction. */
-interface DField {
+interface DFieldBase {
 	id: string;
-	kind: FieldKind;
 	label?: string;
 	hint?: string;
 	required?: string;
@@ -48,9 +48,19 @@ interface DField {
 	validate?: string;
 	validate_msg?: string;
 	case_property_on?: string;
-	options?: Array<{ value: string; label: string }>;
 	children?: DField[];
 }
+
+type DField = DFieldBase &
+	(
+		| {
+				kind: "single_select" | "multi_select";
+				optionsSource: SelectOptionsSource;
+		  }
+		| {
+				kind: Exclude<FieldKind, "single_select" | "multi_select">;
+		  }
+	);
 
 /**
  * Build a `FormEngineInput` from a nested test-fixture tree.
@@ -129,10 +139,21 @@ describe("FormEngine", () => {
 					id: "has_children",
 					kind: "single_select",
 					label: "Has children?",
-					options: [
-						{ value: "yes", label: "Yes" },
-						{ value: "no", label: "No" },
-					],
+					optionsSource: {
+						kind: "inline",
+						options: [
+							{
+								uuid: asUuid("2acb5292-076f-446c-a8f0-d4423721b6ec"),
+								value: "yes",
+								label: "Yes",
+							},
+							{
+								uuid: asUuid("7fdf91d1-977d-47db-a44d-425e82384181"),
+								value: "no",
+								label: "No",
+							},
+						],
+					},
 				},
 				{
 					id: "num_children",
@@ -1116,10 +1137,21 @@ describe("FormEngine", () => {
 					id: "show",
 					kind: "single_select",
 					label: "Show?",
-					options: [
-						{ value: "yes", label: "Yes" },
-						{ value: "no", label: "No" },
-					],
+					optionsSource: {
+						kind: "inline",
+						options: [
+							{
+								uuid: asUuid("964cd80b-26ee-41a6-a01f-12e598f11190"),
+								value: "yes",
+								label: "Yes",
+							},
+							{
+								uuid: asUuid("50c8cb3d-b868-459b-abb0-8e20536e62c1"),
+								value: "no",
+								label: "No",
+							},
+						],
+					},
 				},
 				{
 					id: "members",
@@ -1253,10 +1285,21 @@ describe("FormEngine", () => {
 					id: "toggle",
 					kind: "single_select",
 					label: "Show?",
-					options: [
-						{ value: "yes", label: "Yes" },
-						{ value: "no", label: "No" },
-					],
+					optionsSource: {
+						kind: "inline",
+						options: [
+							{
+								uuid: asUuid("de943af1-dc40-4c34-a48f-c3d26baf0094"),
+								value: "yes",
+								label: "Yes",
+							},
+							{
+								uuid: asUuid("0ab930a8-8542-40ec-ab37-8f131c52a570"),
+								value: "no",
+								label: "No",
+							},
+						],
+					},
 				},
 				{
 					id: "conditional",
@@ -2200,11 +2243,26 @@ describe("FormEngine", () => {
 						id: "tags",
 						kind: "multi_select",
 						case_property_on: "patient",
-						options: [
-							{ value: "a", label: "A" },
-							{ value: "b", label: "B" },
-							{ value: "c", label: "C" },
-						],
+						optionsSource: {
+							kind: "inline",
+							options: [
+								{
+									uuid: asUuid("757fc08c-11e4-47d0-a712-ff5fc45698a2"),
+									value: "a",
+									label: "A",
+								},
+								{
+									uuid: asUuid("79583e58-9d76-4542-abe3-807df5fdd047"),
+									value: "b",
+									label: "B",
+								},
+								{
+									uuid: asUuid("5c26fd5a-e494-474d-abf7-ebb81d30c651"),
+									value: "c",
+									label: "C",
+								},
+							],
+						},
 					},
 				]);
 				const engine = new FormEngine(input, "patient");
@@ -2390,10 +2448,21 @@ describe("FormEngine", () => {
 						id: "priority",
 						kind: "single_select",
 						case_property_on: "patient",
-						options: [
-							{ value: "low", label: "Low" },
-							{ value: "high", label: "High" },
-						],
+						optionsSource: {
+							kind: "inline",
+							options: [
+								{
+									uuid: asUuid("f995b03b-0352-4d88-ab94-5158d0c5b684"),
+									value: "low",
+									label: "Low",
+								},
+								{
+									uuid: asUuid("2718123f-5cc6-424c-ab70-ee7722b48659"),
+									value: "high",
+									label: "High",
+								},
+							],
+						},
 					},
 				]);
 				const engine = new FormEngine(input, "patient");
@@ -2492,10 +2561,21 @@ describe("FormEngine", () => {
 					{
 						id: "show",
 						kind: "single_select",
-						options: [
-							{ value: "yes", label: "Yes" },
-							{ value: "no", label: "No" },
-						],
+						optionsSource: {
+							kind: "inline",
+							options: [
+								{
+									uuid: asUuid("e7ae00e7-2bc6-4a80-a7b0-4fe2d236fb16"),
+									value: "yes",
+									label: "Yes",
+								},
+								{
+									uuid: asUuid("e7bb419f-eb08-49db-a776-30d8c167401b"),
+									value: "no",
+									label: "No",
+								},
+							],
+						},
 					},
 					{ id: "case_name", kind: "text", case_property_on: "patient" },
 					{

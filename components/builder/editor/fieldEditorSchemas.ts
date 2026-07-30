@@ -14,7 +14,6 @@
 
 import { CasePropertyEditor } from "@/components/builder/editor/fields/CasePropertyEditor";
 import { MediaSlotEditor } from "@/components/builder/editor/fields/MediaSlotEditor";
-import { OptionsEditor } from "@/components/builder/editor/fields/OptionsEditor";
 import { OptionsSourceEditor } from "@/components/builder/editor/fields/OptionsSourceEditor";
 import { RequiredEditor } from "@/components/builder/editor/fields/RequiredEditor";
 import { ALWAYS_REQUIRED_EXPRESSION } from "@/components/builder/editor/fields/requiredState";
@@ -403,7 +402,6 @@ const singleSelectFieldEditorSchema: FieldEditorSchema<SingleSelectField> = {
 			component: OptionsSourceEditor,
 			label: "Where the choices come from",
 		},
-		{ key: "options", component: OptionsEditor, label: "Options" },
 	],
 	logic: [
 		requiredEntry<SingleSelectField>(),
@@ -435,7 +433,6 @@ const multiSelectFieldEditorSchema: FieldEditorSchema<MultiSelectField> = {
 			component: OptionsSourceEditor,
 			label: "Where the choices come from",
 		},
-		{ key: "options", component: OptionsEditor, label: "Options" },
 	],
 	logic: [
 		requiredEntry<MultiSelectField>(),

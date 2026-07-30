@@ -89,11 +89,12 @@ describe("caseListConfigVerdicts", () => {
 	});
 
 	it("checks Results filters against a date field's runtime date value", () => {
+		const searchInputUuid = asUuid("2de51271-7975-4e10-80db-1834901ef38d");
 		const v = verdicts({
-			filter: eq(prop("patient", "dob"), input("visit_date")),
+			filter: eq(prop("patient", "dob"), input(searchInputUuid)),
 			searchInputs: [
 				simpleSearchInputDef(
-					asUuid("date-search"),
+					searchInputUuid,
 					"visit_date",
 					"Visit date",
 					"date",
@@ -282,14 +283,18 @@ describe("caseListConfigVerdicts", () => {
 		// via the when-input-present envelope. The edited row must be in
 		// scope for that to resolve — otherwise the gate flags a condition
 		// the commit gate and wire emitter accept.
+		const searchInputUuid = asUuid("556707de-6346-4bde-8e05-297ee5720141");
 		const v = verdicts({
 			searchInputs: [
 				advancedSearchInputDef(
-					asUuid("s1"),
+					searchInputUuid,
 					"name",
 					"Name",
 					"text",
-					whenInput(input("name"), eq(prop("patient", "name"), input("name"))),
+					whenInput(
+						input(searchInputUuid),
+						eq(prop("patient", "name"), input(searchInputUuid)),
+					),
 				),
 			],
 		});

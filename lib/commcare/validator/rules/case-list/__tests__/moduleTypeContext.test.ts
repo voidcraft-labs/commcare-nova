@@ -85,10 +85,26 @@ describe("moduleTypeContext search-input runtime values", () => {
 		if (moduleUuid === undefined) throw new Error("missing module fixture");
 		expect(moduleTypeContext(doc.modules[moduleUuid], doc).knownInputs).toEqual(
 			[
-				{ name: "simple_date", data_type: "date" },
-				{ name: "advanced_date", data_type: "date" },
-				{ name: "simple_range", data_type: "text" },
-				{ name: "advanced_range", data_type: "text" },
+				{
+					uuid: asUuid("00000000-0000-4000-8000-00000000b001"),
+					name: "simple_date",
+					data_type: "date",
+				},
+				{
+					uuid: asUuid("00000000-0000-4000-8000-00000000b002"),
+					name: "advanced_date",
+					data_type: "date",
+				},
+				{
+					uuid: asUuid("00000000-0000-4000-8000-00000000b003"),
+					name: "simple_range",
+					data_type: "text",
+				},
+				{
+					uuid: asUuid("00000000-0000-4000-8000-00000000b004"),
+					name: "advanced_range",
+					data_type: "text",
+				},
 			],
 		);
 	});

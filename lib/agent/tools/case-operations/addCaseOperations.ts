@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { addCaseOperationMutations } from "@/lib/doc/caseOperationMutations";
-import type { BlueprintDoc } from "@/lib/domain";
+import { asUuid, type BlueprintDoc, type Uuid } from "@/lib/domain";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import {
 	applyToDoc,
@@ -19,7 +19,21 @@ import {
 
 export const addCaseOperationsInputSchema = operationAddressSchema.extend({
 	operations: z
-		.array(caseOperationInputSchema)
+		.array(
+			z
+				.object({
+					operationUuid: z
+						.uuid()
+						.optional()
+						.describe(
+							"Stable uuid for the new operation. Supply it when a later operation in this same call refers to this operation; otherwise Nova mints it.",
+						),
+					operation: caseOperationInputSchema.describe(
+						"Complete operation body. References to existing or earlier same-call operations use their stable uuids.",
+					),
+				})
+				.strict(),
+		)
 		.min(1)
 		// The batch duplicate-id check rides the FIELD, not the object.
 		// `lib/mcp/adapters/sharedToolAdapter.ts` rebuilds the wire schema
@@ -30,19 +44,33 @@ export const addCaseOperationsInputSchema = operationAddressSchema.extend({
 		// travels with the field.
 		.superRefine((operations, ctx) => {
 			const seen = new Set<string>();
-			for (const [index, operation] of operations.entries()) {
-				if (seen.has(operation.id)) {
+			const seenUuids = new Set<string>();
+			for (const [index, item] of operations.entries()) {
+				if (seen.has(item.operation.id)) {
 					ctx.addIssue({
 						code: "custom",
-						path: [index, "id"],
-						message: `"${operation.id}" is repeated in this batch.`,
+						path: [index, "operation", "id"],
+						message: `"${item.operation.id}" is repeated in this batch.`,
 					});
 				}
-				seen.add(operation.id);
+				seen.add(item.operation.id);
+				if (
+					item.operationUuid !== undefined &&
+					seenUuids.has(item.operationUuid)
+				) {
+					ctx.addIssue({
+						code: "custom",
+						path: [index, "operationUuid"],
+						message: `"${item.operationUuid}" is repeated in this batch.`,
+					});
+				}
+				if (item.operationUuid !== undefined) {
+					seenUuids.add(item.operationUuid);
+				}
 			}
 		})
 		.describe(
-			"Complete operations in execution order. A later item may target an earlier create by operationId.",
+			"Operations in execution order. Every cross-operation reference uses a stable uuid; operation ids remain editable wire names.",
 		),
 	index: z
 		.number()
@@ -57,6 +85,7 @@ export type AddCaseOperationsInput = z.infer<
 >;
 
 export interface AddCaseOperationsSuccess extends MutationSuccess {
+	readonly operationUuids: readonly string[];
 	readonly operationIds: readonly string[];
 }
 
@@ -66,7 +95,7 @@ export type AddCaseOperationsResult =
 
 export const addCaseOperationsTool = {
 	description:
-		"Add one or more complete case operations to a form. Operations create, update, or close cases when the form is submitted; later items may target an earlier create by its operation id.",
+		"Add one or more complete case operations to a form. Operations create, update, or close cases when the form is submitted.",
 	inputSchema: addCaseOperationsInputSchema,
 	async execute(
 		input: AddCaseOperationsInput,
@@ -86,7 +115,31 @@ export const addCaseOperationsTool = {
 
 			let working = doc;
 			const mutations = [];
-			for (const [offset, authorOperation] of input.operations.entries()) {
+			const operationUuids = input.operations.map((item) =>
+				asUuid(item.operationUuid ?? crypto.randomUUID()),
+			);
+			const existingOperationUuids = new Set(
+				Object.values(doc.forms).flatMap((form) =>
+					(form.caseOperations ?? []).map((operation) => operation.uuid),
+				),
+			);
+			const duplicateOperationUuid = operationUuids.find(
+				(uuid, index) =>
+					existingOperationUuids.has(uuid) ||
+					operationUuids.indexOf(uuid) !== index,
+			);
+			if (duplicateOperationUuid !== undefined) {
+				return {
+					kind: "mutate",
+					mutations: [],
+					newDoc: doc,
+					result: {
+						error: `Operation uuid "${duplicateOperationUuid}" is already in use.`,
+					},
+				};
+			}
+			for (const [offset, item] of input.operations.entries()) {
+				const authorOperation = item.operation;
 				const formOperations =
 					working.forms[address.formUuid]?.caseOperations ?? [];
 				const idError = operationIdRejection(
@@ -104,9 +157,8 @@ export const addCaseOperationsTool = {
 					};
 				}
 				const operation = resolveCaseOperationInput(
-					working,
-					address.formUuid,
 					authorOperation,
+					operationUuids[offset] as Uuid,
 				);
 				const planned = addCaseOperationMutations(
 					working,
@@ -132,13 +184,14 @@ export const addCaseOperationsTool = {
 					result: { error: commit.error },
 				};
 			}
-			const operationIds = input.operations.map((operation) => operation.id);
+			const operationIds = input.operations.map((item) => item.operation.id);
 			return {
 				kind: "mutate",
 				mutations,
 				newDoc: commit.newDoc,
 				result: {
 					message: `Added ${operationIds.length} case ${operationIds.length === 1 ? "operation" : "operations"} to form "${doc.forms[address.formUuid]?.name ?? input.formUuid}": ${operationIds.join(", ")}.`,
+					operationUuids,
 					operationIds,
 					summary: {
 						location: doc.forms[address.formUuid]?.name ?? input.formUuid,

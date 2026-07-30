@@ -407,8 +407,8 @@ function lowerSearchInput(
 				name,
 				"text",
 				whenInput(
-					input(name),
-					eq(term(prop(caseType, "full_name")), term(input(name))),
+					input(uuid),
+					eq(term(prop(caseType, "full_name")), term(input(uuid))),
 				),
 			);
 		}

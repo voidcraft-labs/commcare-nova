@@ -1,14 +1,10 @@
 /**
- * SA tool: `getField` — fetch a single field by id or uuid, with
+ * SA tool: `getField` — fetch a single field by stable uuid, with
  * children when the field is a container.
  *
  * Pure read — no mutations, no SSE emission. Resolves the field through
- * the positional `(moduleIndex, formIndex, fieldId)` triple so the SA
- * can read a field it knows only by name without threading a path
- * prefix through the call — and through the field's uuid when duplicate
- * ids make the bare id ambiguous (`resolveFieldTarget` refuses those
- * with every match listed). Both the SA chat factory and the MCP
- * adapter call this the same way.
+ * the stable `(moduleUuid, formUuid, fieldUuid)` address. Both the SA chat
+ * factory and the MCP adapter call this the same way.
  *
  * Container-vs-leaf branching lives here: group / repeat fields carry a
  * `children` key populated with the ordered subtree so the SA sees one
@@ -16,24 +12,20 @@
  * call. Leaf fields return the raw domain `Field` verbatim.
  */
 
-import { z } from "zod";
+import type { z } from "zod";
 import { buildFieldTree, type FieldWithChildren } from "@/lib/doc/fieldWalk";
 import { unwrittenPropertiesReadBy } from "@/lib/doc/unwrittenProperties";
-import type { BlueprintDoc, Field } from "@/lib/domain";
+import type { BlueprintDoc, Field, Uuid } from "@/lib/domain";
 import { isContainer } from "@/lib/domain";
-import { FIELD_REF_HINT, resolveFieldTarget } from "../blueprintHelpers";
-import { carrierBlindFieldProjection } from "../dormantCarrierReadProjection";
 import { unwrittenPropertiesReminder } from "../systemReminder";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import type { ReadToolResult } from "./common";
+import {
+	fieldAddressSchema,
+	resolveFieldAddress,
+} from "./shared/entityAddresses";
 
-export const getFieldInputSchema = z
-	.object({
-		moduleIndex: z.number().describe("0-based module index"),
-		formIndex: z.number().describe("0-based form index"),
-		fieldId: z.string().describe(`Field to read — ${FIELD_REF_HINT}`),
-	})
-	.strict();
+export const getFieldInputSchema = fieldAddressSchema;
 
 export type GetFieldInput = z.infer<typeof getFieldInputSchema>;
 
@@ -51,17 +43,16 @@ export type ContainerFieldWithChildren = Field & {
 };
 
 /**
- * Two legal return shapes: `{ error }` when the triple doesn't resolve,
- * or the found-field payload carrying positional context + the field
+ * Two legal return shapes: `{ error }` when the UUID address doesn't resolve,
+ * or the found-field payload carrying that immutable address plus the field
  * itself (flat for leaves, with `children` for containers).
  */
 export type GetFieldResult =
 	| { error: string }
 	| {
-			moduleIndex: number;
-			formIndex: number;
-			fieldId: string;
-			path: string;
+			moduleUuid: Uuid;
+			formUuid: Uuid;
+			fieldUuid: Uuid;
 			field: Field | ContainerFieldWithChildren;
 			/** Agent-only ambient context (see `lib/agent/systemReminder.ts`):
 			 *  present when the returned field (or its subtree) reads a case
@@ -70,38 +61,34 @@ export type GetFieldResult =
 	  };
 
 export const getFieldTool = {
-	description: "Get a single field by id (or uuid) within a form.",
+	description: "Get a single field by stable uuid within its form.",
 	inputSchema: getFieldInputSchema,
 	async execute(
 		input: GetFieldInput,
 		_ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<ReadToolResult<GetFieldResult>> {
-		const { moduleIndex, formIndex, fieldId } = input;
-		const resolved = resolveFieldTarget(doc, moduleIndex, formIndex, fieldId);
+		const resolved = resolveFieldAddress(doc, input);
 		if (!resolved.ok) {
 			return { kind: "read", data: { error: resolved.error } };
 		}
 		// If the resolved field is a container, include its children so
 		// the SA sees the subtree in one call. Leaf fields return a plain
 		// `Field` with no `children` key.
-		const field = carrierBlindFieldProjection(
-			isContainer(resolved.field)
-				? {
-						...resolved.field,
-						children: buildFieldTree(doc, resolved.field.uuid),
-					}
-				: resolved.field,
-		);
-		const reminder = unwrittenReadsReminder(doc, field);
+		const canonicalField = isContainer(resolved.field)
+			? {
+					...resolved.field,
+					children: buildFieldTree(doc, resolved.field.uuid),
+				}
+			: resolved.field;
+		const reminder = unwrittenReadsReminder(doc, canonicalField);
 		return {
 			kind: "read",
 			data: {
-				moduleIndex,
-				formIndex,
-				fieldId,
-				path: resolved.path,
-				field,
+				moduleUuid: resolved.moduleUuid,
+				formUuid: resolved.formUuid,
+				fieldUuid: resolved.fieldUuid,
+				field: canonicalField,
 				...(reminder !== undefined ? { system_reminder: reminder } : {}),
 			},
 		};

@@ -41,6 +41,7 @@ const ENTRIES: readonly FormFieldEntry[] = [
 		kind: "text",
 		dataType: "text",
 		repeat: undefined,
+		repeatAncestors: [],
 	},
 	{
 		uuid: ROOT_HIDDEN,
@@ -49,6 +50,7 @@ const ENTRIES: readonly FormFieldEntry[] = [
 		kind: "hidden",
 		dataType: undefined,
 		repeat: undefined,
+		repeatAncestors: [],
 	},
 	{
 		uuid: ROOT_MULTI,
@@ -57,6 +59,7 @@ const ENTRIES: readonly FormFieldEntry[] = [
 		kind: "multi_select",
 		dataType: "multi_select",
 		repeat: undefined,
+		repeatAncestors: [],
 	},
 	{
 		uuid: BEDS,
@@ -65,6 +68,7 @@ const ENTRIES: readonly FormFieldEntry[] = [
 		kind: "repeat",
 		dataType: undefined,
 		repeat: BEDS,
+		repeatAncestors: [],
 	},
 	{
 		uuid: BED_COUNT,
@@ -73,6 +77,7 @@ const ENTRIES: readonly FormFieldEntry[] = [
 		kind: "int",
 		dataType: "int",
 		repeat: BEDS,
+		repeatAncestors: [BEDS],
 	},
 	{
 		uuid: WARDS,
@@ -81,6 +86,7 @@ const ENTRIES: readonly FormFieldEntry[] = [
 		kind: "repeat",
 		dataType: undefined,
 		repeat: WARDS,
+		repeatAncestors: [],
 	},
 	{
 		uuid: WARD_NAME,
@@ -89,6 +95,7 @@ const ENTRIES: readonly FormFieldEntry[] = [
 		kind: "text",
 		dataType: "text",
 		repeat: WARDS,
+		repeatAncestors: [WARDS],
 	},
 ];
 

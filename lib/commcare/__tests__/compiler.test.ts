@@ -236,20 +236,21 @@ describe("compileCcz", () => {
 	});
 
 	it("emits date-add for an advanced date prompt through HQ JSON and suite CSQL", () => {
+		const baseDateUuid = asUuid("00000000-0000-4000-8000-00000000a002");
 		const config = caseListConfig([
 			{ field: "last_visit", header: "Last visit" },
 		]);
 		config.searchInputs = [
 			advancedSearchInputDef(
-				asUuid("00000000-0000-4000-8000-00000000a002"),
+				baseDateUuid,
 				"base_date",
 				"Starting date",
 				"date",
 				whenInput(
-					input("base_date"),
+					input(baseDateUuid),
 					eq(
 						prop("patient", "last_visit"),
-						dateAdd(term(input("base_date")), "days", term(literal(7))),
+						dateAdd(term(input(baseDateUuid)), "days", term(literal(7))),
 					),
 				),
 			),
@@ -396,21 +397,22 @@ describe("compileCcz", () => {
 	});
 
 	it("honors an explicit datetime coercion around a date prompt", () => {
+		const baseDateUuid = asUuid("00000000-0000-4000-8000-00000000a004");
 		const config = caseListConfig([
 			{ field: "last_seen", header: "Last seen" },
 		]);
 		config.searchInputs = [
 			advancedSearchInputDef(
-				asUuid("00000000-0000-4000-8000-00000000a004"),
+				baseDateUuid,
 				"base_date",
 				"Starting date",
 				"date",
 				whenInput(
-					input("base_date"),
+					input(baseDateUuid),
 					eq(
 						prop("patient", "last_seen"),
 						dateAdd(
-							datetimeCoerce(term(input("base_date"))),
+							datetimeCoerce(term(input(baseDateUuid))),
 							"hours",
 							term(literal(1)),
 						),

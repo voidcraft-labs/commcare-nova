@@ -291,7 +291,7 @@ describe("case-list validator — cross-rule integration", () => {
 							calculatedColumn(
 								asUuid("col-bare-input"),
 								"Old input calculation",
-								term(input("missing_search_input")),
+								term(input(asUuid("afab7dd2-1469-4bb1-8859-ecb091ee01d3"))),
 								dormant,
 							),
 							{

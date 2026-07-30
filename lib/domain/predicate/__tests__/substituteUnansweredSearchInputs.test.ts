@@ -1,3 +1,4 @@
+import { asUuid } from "@/lib/domain";
 // lib/domain/predicate/__tests__/substituteUnansweredSearchInputs.test.ts
 //
 // The unanswered-Search substitution: `when-input-present` envelopes
@@ -39,8 +40,11 @@ describe("substituteUnansweredSearchInputsInPredicate", () => {
 		const always = eq(prop("patient", "is_priority"), literal(true));
 		const filter = and(
 			whenInput(
-				input("name_query"),
-				eq(prop("patient", "full_name"), term(input("name_query"))),
+				input(asUuid("42ab9981-e4f6-4efd-8551-66a8fefaaacf")),
+				eq(
+					prop("patient", "full_name"),
+					term(input(asUuid("42ab9981-e4f6-4efd-8551-66a8fefaaacf"))),
+				),
 			),
 			always,
 		);
@@ -55,8 +59,11 @@ describe("substituteUnansweredSearchInputsInPredicate", () => {
 
 	it("collapses a nested envelope through its enclosing envelope", () => {
 		const filter = whenInput(
-			input("outer"),
-			whenInput(input("inner"), eq(prop("patient", "age"), literal(18))),
+			input(asUuid("60a5a821-680a-4068-8fcc-66b8098bdb88")),
+			whenInput(
+				input(asUuid("0fb61eb8-e5f6-4a3b-8814-4286943422a8")),
+				eq(prop("patient", "age"), literal(18)),
+			),
 		);
 		expect(substituteUnansweredSearchInputsInPredicate(filter)).toEqual(
 			matchAll(),
@@ -64,7 +71,10 @@ describe("substituteUnansweredSearchInputsInPredicate", () => {
 	});
 
 	it("blanks a bare input ref used as a comparison operand", () => {
-		const filter = eq(prop("patient", "region"), term(input("region_query")));
+		const filter = eq(
+			prop("patient", "region"),
+			term(input(asUuid("89d1be2f-959f-4e04-80d5-c75fd093a298"))),
+		);
 		expect(substituteUnansweredSearchInputsInPredicate(filter)).toEqual(
 			eq(prop("patient", "region"), term(literal(""))),
 		);
@@ -84,7 +94,7 @@ describe("substituteUnansweredSearchInputsInExpression", () => {
 
 	it("blanks input refs inside composite expressions", () => {
 		const expression = concat(
-			term(input("excluded_owners")),
+			term(input(asUuid("bd984979-3fb6-4806-8292-0ea8be7258f7"))),
 			term(literal(" ")),
 			term(sessionUser("excluded_owner_ids")),
 		);
@@ -99,7 +109,13 @@ describe("substituteUnansweredSearchInputsInExpression", () => {
 
 	it("collapses an envelope carried by an if-condition", () => {
 		const expression = ifExpr(
-			whenInput(input("q"), eq(prop("patient", "age"), term(input("q")))),
+			whenInput(
+				input(asUuid("f38dea69-87fd-4b8c-8190-516b176c3b33")),
+				eq(
+					prop("patient", "age"),
+					term(input(asUuid("f38dea69-87fd-4b8c-8190-516b176c3b33"))),
+				),
+			),
 			term(literal("a")),
 			term(literal("b")),
 		);

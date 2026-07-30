@@ -395,10 +395,21 @@ describe("expandDoc", () => {
 									kind: "single_select",
 									id: "confirm",
 									label: "Close?",
-									options: [
-										{ value: "yes", label: "Yes" },
-										{ value: "no", label: "No" },
-									],
+									optionsSource: {
+										kind: "inline",
+										options: [
+											{
+												uuid: asUuid("cbc2017b-e0bc-4b9d-aa16-10d69884366f"),
+												value: "yes",
+												label: "Yes",
+											},
+											{
+												uuid: asUuid("fe95a7db-0882-46cb-ab37-5b896c8d7528"),
+												value: "no",
+												label: "No",
+											},
+										],
+									},
 								}),
 							],
 						},
@@ -999,10 +1010,21 @@ describe("select option itext ids — index-keyed (issue #10)", () => {
 									id: "rating",
 									label: "Rating",
 									// Both options carry value "3" — the bug trigger.
-									options: [
-										{ value: "3", label: "Three (low scale)" },
-										{ value: "3", label: "Three (high scale)" },
-									],
+									optionsSource: {
+										kind: "inline",
+										options: [
+											{
+												uuid: asUuid("317725f7-10c0-4d87-a552-74ba108bee41"),
+												value: "3",
+												label: "Three (low scale)",
+											},
+											{
+												uuid: asUuid("cd1afe3a-3b2f-4b69-a243-85e6c7eb7ed3"),
+												value: "3",
+												label: "Three (high scale)",
+											},
+										],
+									},
 								}),
 							],
 						},
@@ -1049,10 +1071,21 @@ describe("select option itext ids — index-keyed (issue #10)", () => {
 									kind: "multi_select",
 									id: "tags",
 									label: "Tags",
-									options: [
-										{ value: "x", label: "First X" },
-										{ value: "x", label: "Second X" },
-									],
+									optionsSource: {
+										kind: "inline",
+										options: [
+											{
+												uuid: asUuid("eb74327e-8ae2-4368-a500-ea2cad47edb0"),
+												value: "x",
+												label: "First X",
+											},
+											{
+												uuid: asUuid("187ff41e-3d8d-4e98-aaab-a643d2712367"),
+												value: "x",
+												label: "Second X",
+											},
+										],
+									},
 								}),
 							],
 						},
@@ -1087,10 +1120,21 @@ describe("select option itext ids — index-keyed (issue #10)", () => {
 									kind: "single_select",
 									id: "confirm",
 									label: "Confirm?",
-									options: [
-										{ value: "yes", label: "Yes" },
-										{ value: "no", label: "No" },
-									],
+									optionsSource: {
+										kind: "inline",
+										options: [
+											{
+												uuid: asUuid("51ca1dbb-e08b-4f60-a49f-41ba5f668d7a"),
+												value: "yes",
+												label: "Yes",
+											},
+											{
+												uuid: asUuid("c45d52dc-2511-4934-a0d2-f7e65de71cc6"),
+												value: "no",
+												label: "No",
+											},
+										],
+									},
 								}),
 							],
 						},
@@ -1166,13 +1210,21 @@ describe("markdown itext for all field kinds", () => {
 									kind: "single_select",
 									id: "status",
 									label: "Current **status**",
-									options: [
-										{
-											value: "active",
-											label: "**Active** — currently enrolled",
-										},
-										{ value: "inactive", label: "_Inactive_" },
-									],
+									optionsSource: {
+										kind: "inline",
+										options: [
+											{
+												uuid: asUuid("40dd614d-526c-4586-a2af-1b69d1a389a9"),
+												value: "active",
+												label: "**Active** — currently enrolled",
+											},
+											{
+												uuid: asUuid("a2e905f9-3034-435e-a867-7ac0b5254527"),
+												value: "inactive",
+												label: "_Inactive_",
+											},
+										],
+									},
 								}),
 							],
 						},
@@ -1386,10 +1438,21 @@ describe("#form/ hashtag expansion", () => {
 									kind: "single_select",
 									id: "consent",
 									label: "Consent?",
-									options: [
-										{ value: "yes", label: "Yes" },
-										{ value: "no", label: "No" },
-									],
+									optionsSource: {
+										kind: "inline",
+										options: [
+											{
+												uuid: asUuid("49dae0db-31d6-41e0-ab1b-4dd18f0772be"),
+												value: "yes",
+												label: "Yes",
+											},
+											{
+												uuid: asUuid("21a25ef4-9ad8-4e8f-ad6d-61356498efd6"),
+												value: "no",
+												label: "No",
+											},
+										],
+									},
 								}),
 								f({
 									kind: "text",
@@ -1602,10 +1665,21 @@ describe("#form/ hashtag expansion", () => {
 									kind: "single_select",
 									id: "has_issue",
 									label: "Issue?",
-									options: [
-										{ value: "yes", label: "Yes" },
-										{ value: "no", label: "No" },
-									],
+									optionsSource: {
+										kind: "inline",
+										options: [
+											{
+												uuid: asUuid("1dd4cd1b-283b-49a2-aa2f-1dc5a4d17782"),
+												value: "yes",
+												label: "Yes",
+											},
+											{
+												uuid: asUuid("56e4904a-9035-4686-a3f3-52eb6835a237"),
+												value: "no",
+												label: "No",
+											},
+										],
+									},
 								}),
 								f({
 									kind: "text",
@@ -1794,10 +1868,21 @@ describe("#form/ hashtag expansion", () => {
 									kind: "single_select",
 									id: "show",
 									label: "Show?",
-									options: [
-										{ value: "yes", label: "Yes" },
-										{ value: "no", label: "No" },
-									],
+									optionsSource: {
+										kind: "inline",
+										options: [
+											{
+												uuid: asUuid("437eb976-272e-4bb9-a44d-f7510090eecc"),
+												value: "yes",
+												label: "Yes",
+											},
+											{
+												uuid: asUuid("c3c7c9c8-460e-4600-ae84-2d788263766f"),
+												value: "no",
+												label: "No",
+											},
+										],
+									},
 								}),
 								f({
 									kind: "group",
@@ -2284,10 +2369,21 @@ describe("conditional required", () => {
 									kind: "single_select",
 									id: "consent",
 									label: "Consent?",
-									options: [
-										{ value: "yes", label: "Yes" },
-										{ value: "no", label: "No" },
-									],
+									optionsSource: {
+										kind: "inline",
+										options: [
+											{
+												uuid: asUuid("0fc0ae25-289d-4b93-af9d-a4c189b1f5cc"),
+												value: "yes",
+												label: "Yes",
+											},
+											{
+												uuid: asUuid("037f8ef2-116a-41af-a208-ae53a405bf3a"),
+												value: "no",
+												label: "No",
+											},
+										],
+									},
 								}),
 								f({
 									kind: "text",
@@ -3597,10 +3693,21 @@ describe("form_links emission", () => {
 									kind: "single_select",
 									id: "outcome",
 									label: "Outcome",
-									options: [
-										{ value: "yes", label: "Yes" },
-										{ value: "no", label: "No" },
-									],
+									optionsSource: {
+										kind: "inline",
+										options: [
+											{
+												uuid: asUuid("eac8d390-60ab-4163-a9a9-5b8a99e32e0e"),
+												value: "yes",
+												label: "Yes",
+											},
+											{
+												uuid: asUuid("183a8b66-21d3-4950-acf7-fd19761c1462"),
+												value: "no",
+												label: "No",
+											},
+										],
+									},
 								}),
 							],
 						},

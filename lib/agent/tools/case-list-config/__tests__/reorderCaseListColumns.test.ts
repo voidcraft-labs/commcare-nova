@@ -66,7 +66,7 @@ describe("reorderCaseListColumns", () => {
 			doc.modules[MOD_A]?.caseListConfig?.detailColumnOrder ?? [];
 
 		const result = await reorderCaseListColumnsTool.execute(
-			{ moduleIndex: 0, surface: "results", columnUuids: [C, A, B] },
+			{ moduleUuid: MOD_A, surface: "results", columnUuids: [C, A, B] },
 			ctx,
 			doc,
 		);
@@ -91,7 +91,7 @@ describe("reorderCaseListColumns", () => {
 		const resultsBefore =
 			doc.modules[MOD_A]?.caseListConfig?.listColumnOrder ?? [];
 		const result = await reorderCaseListColumnsTool.execute(
-			{ moduleIndex: 0, surface: "details", columnUuids: [B, C, A] },
+			{ moduleUuid: MOD_A, surface: "details", columnUuids: [B, C, A] },
 			ctx,
 			doc,
 		);
@@ -104,7 +104,7 @@ describe("reorderCaseListColumns", () => {
 		const { ctx } = makeCaseListFixture();
 		const doc = fixtureWithThreeColumns();
 		const result = await reorderCaseListColumnsTool.execute(
-			{ moduleIndex: 0, surface: "results", columnUuids: [C, A, B] },
+			{ moduleUuid: MOD_A, surface: "results", columnUuids: [C, A, B] },
 			ctx,
 			doc,
 		);
@@ -120,7 +120,7 @@ describe("reorderCaseListColumns", () => {
 		const { ctx } = makeCaseListFixture();
 		const doc = fixtureWithThreeColumns();
 		const result = await reorderCaseListColumnsTool.execute(
-			{ moduleIndex: 0, surface: "results", columnUuids: [A, B] },
+			{ moduleUuid: MOD_A, surface: "results", columnUuids: [A, B] },
 			ctx,
 			doc,
 		);
@@ -137,7 +137,7 @@ describe("reorderCaseListColumns", () => {
 		const { ctx } = makeCaseListFixture();
 		const doc = fixtureWithThreeColumns();
 		const result = await reorderCaseListColumnsTool.execute(
-			{ moduleIndex: 0, surface: "results", columnUuids: [A, A, B] },
+			{ moduleUuid: MOD_A, surface: "results", columnUuids: [A, A, B] },
 			ctx,
 			doc,
 		);
@@ -156,7 +156,7 @@ describe("reorderCaseListColumns", () => {
 		const unknown = asUuid("dddddddd-dddd-dddd-dddd-dddddddddddd");
 		const result = await reorderCaseListColumnsTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				surface: "results",
 				columnUuids: [A, B, unknown],
 			},
@@ -172,11 +172,15 @@ describe("reorderCaseListColumns", () => {
 		expect(result.result.error).toContain(String(unknown));
 	});
 
-	it("returns an Elm-style error on out-of-range moduleIndex", async () => {
+	it("returns an Elm-style error for an unknown module UUID", async () => {
 		const { ctx } = makeCaseListFixture();
 		const doc = fixtureWithThreeColumns();
 		const result = await reorderCaseListColumnsTool.execute(
-			{ moduleIndex: 99, surface: "results", columnUuids: [A, B, C] },
+			{
+				moduleUuid: asUuid("ffffffff-ffff-4fff-8fff-ffffffffffff"),
+				surface: "results",
+				columnUuids: [A, B, C],
+			},
 			ctx,
 			doc,
 		);
@@ -186,6 +190,6 @@ describe("reorderCaseListColumns", () => {
 			throw new Error("expected error result");
 		}
 		expect(result.result.error).toContain("Tried to reorder");
-		expect(result.result.error).toContain("module index 99");
+		expect(result.result.error).toContain("No module with that uuid");
 	});
 });

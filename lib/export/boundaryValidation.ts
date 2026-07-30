@@ -31,7 +31,7 @@ import {
 import { evaluateBoundary } from "@/lib/commcare/validator/gate";
 import type { ProjectAccess } from "@/lib/db/appAccess";
 import { loadAssetsByIds, type MediaAssetRecord } from "@/lib/db/mediaAssets";
-import { collectDormantLookupCarriers } from "@/lib/doc/dormantLookupCarriers";
+import { collectLookupCarriers } from "@/lib/doc/lookupCarrierInventory";
 import {
 	extractLookupReferenceTargets,
 	type LookupReferenceExtractorRegistry,
@@ -208,7 +208,7 @@ function lookupCarrierExportFindings(
 	doc: BlueprintDoc,
 	mode: ExportMode,
 ): ValidationError[] {
-	return collectDormantLookupCarriers(doc).map((carrier) =>
+	return collectLookupCarriers(doc).map((carrier) =>
 		validationError(
 			"LOOKUP_CARRIER_EXPORT_NOT_ACTIVE",
 			carrier.location.scope,

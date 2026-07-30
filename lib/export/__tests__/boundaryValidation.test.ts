@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { loadAssetsByIds } from "@/lib/db/mediaAssets";
 import type { LookupReferenceExtractorRegistry } from "@/lib/doc/lookupReferences";
-import type { LookupOptionsSource, Uuid } from "@/lib/domain";
+import type { LookupOptionsSource } from "@/lib/domain";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
 import {
@@ -90,7 +90,7 @@ const CARRIER_VALUE_COLUMN =
 const CARRIER_LABEL_COLUMN =
 	"018f3e8a-7b2c-7def-8abc-1234567890ae" as LookupColumnId;
 const CARRIER_SOURCE: LookupOptionsSource = {
-	kind: "lookup-table",
+	kind: "lookup",
 	tableId: CARRIER_TABLE,
 	valueColumnId: CARRIER_VALUE_COLUMN,
 	labelColumnId: CARRIER_LABEL_COLUMN,
@@ -137,18 +137,6 @@ function lookupCarrierDoc() {
 								kind: "single_select",
 								id: "status",
 								label: "Status",
-								options: [
-									{
-										uuid: "40000000-0000-4000-8000-000000000000" as Uuid,
-										value: "active",
-										label: "Active",
-									},
-									{
-										uuid: "50000000-0000-4000-8000-000000000000" as Uuid,
-										value: "closed",
-										label: "Closed",
-									},
-								],
 								optionsSource: CARRIER_SOURCE,
 							}),
 						],

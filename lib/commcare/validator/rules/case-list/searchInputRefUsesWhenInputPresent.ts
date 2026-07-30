@@ -1,7 +1,7 @@
 /**
- * Rule: every `input(...)` Term reachable from a wire-emission-bound
+ * Rule: every Search-input Term reachable from a wire-emission-bound
  * predicate or value expression is either rejected outright or enclosed in a
- * `when-input-present` envelope keyed to the same input name — depending on
+ * `when-input-present` envelope keyed to the same stable input UUID — depending on
  * whether the slot's wire-eval context has access to the user's typed
  * search-input values. The assigned-case exclusion is the one value-slot
  * exception: blank means "exclude nobody" there, so a direct Search answer is
@@ -9,7 +9,7 @@
  *
  * **Why the gate is load-bearing.** CCHQ's CSQL runtime resolves an
  * unset search-input ref to the empty string, not to absent / null
- * — so a bare `eq(prop("patient", "status"), input("status"))` emits
+ * — so a bare equality between a property and an input emits
  * to a wire shape that matches "every case whose `status` is absent /
  * cleared / empty" when the user hasn't typed in the input, not
  * "match nothing" or "match everything." The `when-input-present`
@@ -20,7 +20,7 @@
  *
  * The simple-arm `SearchInputDef` derives the envelope automatically
  * at wire-emit (its `(property, mode)` shape becomes
- * `when-input-present(input(name), <derived predicate>)`). Slots
+ * `when-input-present(inputUuid, <derived predicate>)`). Slots
  * that carry author-composed predicates / value expressions need the
  * envelope hand-authored; this rule surfaces the omission at
  * authoring time rather than letting the silent-broken semantics
@@ -29,7 +29,7 @@
  * **Two modes per slot, set by `mode`:**
  *
  *   - `"requires-envelope"` — input refs are valid IFF wrapped in a
- *     `when-input-present` envelope keyed to the matching name. The
+ *     `when-input-present` envelope keyed to the matching UUID. The
  *     slot's wire-eval context binds search inputs at evaluation
  *     time. Covers `caseListConfig.filter` and
  *     `caseListConfig.searchInputs[i].predicate` (advanced arm).
@@ -55,16 +55,16 @@
  * and the ordinary-list nodeset explicitly short-circuits on
  * `normalize-space(value) = ''`. Requiring a predicate envelope around a value
  * branch cannot express that contract and would reject every useful
- * `input(...)` return value.
+ * Search-input return value.
  *
  * **Walker contract.** The rule walks the AST top-down maintaining
- * a set of input names "currently gated by an enclosing
- * `when-input-present`." Entering a `when-input-present(input(X), …)`
- * pushes X onto the set, recurses into the clause, and pops X on
+ * a set of input UUIDs currently gated by an enclosing
+ * `when-input-present`. Entering an envelope for X
+ * pushes X's UUID onto the set, recurses into the clause, and pops it on
  * return. The trigger ref (`when-input-present.input`) itself is NOT
  * flagged in `"requires-envelope"` mode (it IS the gate) — but
  * `"forbids-input-ref"` mode flags every ref regardless of position,
- * including the gate. Any `input(Y)` Term that is unsafe under the
+ * including the gate. Any Search-input Term that is unsafe under the
  * active mode surfaces one error per occurrence.
  *
  * Short-circuits cleanly when `caseListConfig` is absent or carries
@@ -85,7 +85,7 @@ import type {
 import { type ValidationError, validationError } from "../../errors";
 
 interface BareRef {
-	inputName: string;
+	inputUuid: Uuid;
 	path: string;
 }
 
@@ -223,23 +223,27 @@ function buildError(args: {
 }): ValidationError {
 	const { mod, moduleUuid, ref, mode, slot, adviceSlotName } = args;
 	const at = ref.path ? ` (at ${ref.path})` : "";
+	const inputName =
+		mod.caseListConfig?.searchInputs.find(
+			(input) => input.uuid === ref.inputUuid,
+		)?.name ?? ref.inputUuid;
 	const message =
 		mode === "requires-envelope"
-			? `Module "${mod.name}" has a bare \`input("${ref.inputName}")\` reference inside ${slot}${at}. CCHQ's runtime resolves an unset input to the empty string, so the wire would match cases whose property equals "" when the user hasn't typed anything yet — not the "filter only when the input has a value" semantic the authoring shape suggests. Open ${adviceSlotName} and wrap the offending subtree in a \`when-input-present(input("${ref.inputName}"), <subtree>)\` envelope so the runtime short-circuits cleanly on an unset input; alternatively, remove the input reference if the predicate isn't supposed to depend on user input.`
-			: `Module "${mod.name}" references \`input("${ref.inputName}")\` inside ${slot}${at}. This slot can never see a typed search value: a starting-value expression evaluates before the user has typed, so the reference resolves to the empty string — while the search-button display condition and calculated columns evaluate on the ordinary case list, where the search-input data doesn't exist yet and touching it errors the whole screen on a device (no \`when-input-present\` envelope can guard that — the failure happens before the guard runs). Open ${adviceSlotName} and remove the input reference; if you need the slot to react to a search input, you likely want a different slot (e.g. \`caseListConfig.filter\` for filtering, or an advanced-arm search-input predicate for input-driven matching).`;
+			? `Module "${mod.name}" has a bare Search-input reference to "${inputName}" inside ${slot}${at}. CCHQ resolves an unset input to the empty string, so wrap the offending subtree in a matching when-input-present envelope in ${adviceSlotName}, or remove the reference.`
+			: `Module "${mod.name}" references Search input "${inputName}" inside ${slot}${at}. This slot can never see a typed search value. Open ${adviceSlotName} and remove the reference.`;
 	return validationError(
 		"CASE_LIST_BARE_SEARCH_INPUT_REF",
 		"module",
 		message,
 		{ moduleUuid, moduleName: mod.name },
-		{ inputName: ref.inputName, slot, path: ref.path, mode },
+		{ inputName, inputUuid: ref.inputUuid, slot, path: ref.path, mode },
 	);
 }
 
 /**
  * Walk a Predicate AST and surface every input Term that violates
  * the slot's `mode`. In `"requires-envelope"` mode the walker tracks
- * which input names are gated by an enclosing `when-input-present`;
+ * which input UUIDs are gated by an enclosing `when-input-present`;
  * in `"forbids-input-ref"` mode the walker flags every input ref
  * regardless of envelope.
  */
@@ -370,9 +374,9 @@ function visitPredicate(
 			// gating set. In `forbids-input-ref` mode the trigger ref is
 			// still an input reference in a no-input-context slot — flag
 			// it as well, and the gating set does nothing for the clause.
-			const triggerName = predicate.input.name;
+			const triggerUuid = predicate.input.searchInputUuid;
 			if (mode === "forbids-input-ref") {
-				out.push({ inputName: triggerName, path: joinPath(path, "input") });
+				out.push({ inputUuid: triggerUuid, path: joinPath(path, "input") });
 				visitPredicate(
 					predicate.clause,
 					joinPath(path, "clause"),
@@ -382,8 +386,8 @@ function visitPredicate(
 				);
 				return;
 			}
-			const wasAlreadyGated = gated.has(triggerName);
-			gated.add(triggerName);
+			const wasAlreadyGated = gated.has(triggerUuid);
+			gated.add(triggerUuid);
 			visitPredicate(
 				predicate.clause,
 				joinPath(path, "when-input-present.clause"),
@@ -391,7 +395,7 @@ function visitPredicate(
 				mode,
 				out,
 			);
-			if (!wasAlreadyGated) gated.delete(triggerName);
+			if (!wasAlreadyGated) gated.delete(triggerUuid);
 			return;
 		}
 		case "exists":
@@ -543,8 +547,8 @@ function visitInputRef(
 	mode: SlotMode,
 	out: BareRef[],
 ): void {
-	if (mode === "requires-envelope" && gated.has(ref.name)) return;
-	out.push({ inputName: ref.name, path });
+	if (mode === "requires-envelope" && gated.has(ref.searchInputUuid)) return;
+	out.push({ inputUuid: ref.searchInputUuid, path });
 }
 
 function joinPath(parent: string, segment: string): string {

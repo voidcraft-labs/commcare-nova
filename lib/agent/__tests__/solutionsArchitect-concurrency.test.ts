@@ -147,13 +147,13 @@ describe("solutionsArchitect — tool execution serializer", () => {
 		// earlier resolver's `doc = newDoc` write; with the serializer,
 		// the chain forces them to run end-to-end one after the other.
 		const inFlightA = runTool(sa, "addFields", {
-			moduleIndex: 0,
-			formIndex: 0,
+			moduleUuid: MOD,
+			formUuid: FORM,
 			fields: [{ id: "dob", kind: "date", label: "Date of birth" }],
 		});
 		const inFlightB = runTool(sa, "addFields", {
-			moduleIndex: 0,
-			formIndex: 0,
+			moduleUuid: MOD,
+			formUuid: FORM,
 			fields: [{ id: "phone", kind: "text", label: "Phone" }],
 		});
 		await Promise.all([inFlightA, inFlightB]);
@@ -162,8 +162,8 @@ describe("solutionsArchitect — tool execution serializer", () => {
 		// addFields was lost from the closure, this read will be missing
 		// it — the seed field plus only one of the two new fields.
 		const formResult = (await runTool(sa, "getForm", {
-			moduleIndex: 0,
-			formIndex: 0,
+			moduleUuid: MOD,
+			formUuid: FORM,
 		})) as { form: { fields: Array<{ id: string }> } };
 
 		const fieldIds = formResult.form.fields.map((f) => f.id).sort();
@@ -180,13 +180,13 @@ describe("solutionsArchitect — tool execution serializer", () => {
 		const sa = createSolutionsArchitect(ctx, doc, false);
 
 		const inFlightWrite = runTool(sa, "addFields", {
-			moduleIndex: 0,
-			formIndex: 0,
+			moduleUuid: MOD,
+			formUuid: FORM,
 			fields: [{ id: "dob", kind: "date", label: "Date of birth" }],
 		});
 		const inFlightRead = runTool(sa, "getForm", {
-			moduleIndex: 0,
-			formIndex: 0,
+			moduleUuid: MOD,
+			formUuid: FORM,
 		}) as Promise<{ form: { fields: Array<{ id: string }> } }>;
 
 		const [, readResult] = await Promise.all([inFlightWrite, inFlightRead]);

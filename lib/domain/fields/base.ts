@@ -156,27 +156,23 @@ export const inputFieldBaseSchema = fieldBaseSchema.extend({
  * label text — useful for visual-pick UIs ("pick which symptom
  * matches this image" etc.).
  *
- * `uuid` is the option's stable identity for granular per-option mutations
- * (so two members editing different options merge); `order` is its absolute
- * fractional sort key. Both optional because legacy options predate them and
- * are backfilled deterministically at hydration (`uuid` from
- * `(field uuid, option index)`, `order` from array position). Neither
- * reaches CommCare.
+ * `uuid` is the option's required stable identity for granular per-option
+ * mutations (so two members editing different options merge). Array position
+ * is the sequence. Identity never reaches CommCare.
  */
 export type SelectOption = {
+	uuid: Uuid;
 	value: string;
 	label: string;
 	media?: Media;
-	uuid?: Uuid;
-	order?: string;
 };
 
 export const selectOptionSchema = z
 	.object({
+		uuid: uuidSchema,
 		value: z.string(),
 		label: z.string(),
 		media: mediaSchema.optional(),
-		uuid: uuidSchema.optional(),
 	})
 	.strict();
 

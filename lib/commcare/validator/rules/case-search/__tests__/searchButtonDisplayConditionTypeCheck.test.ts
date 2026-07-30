@@ -215,7 +215,10 @@ describe("searchButtonDisplayConditionTypeCheck", () => {
 						],
 					},
 					caseSearchConfig: {
-						searchButtonDisplayCondition: eq(input("ghost"), literal("x")),
+						searchButtonDisplayCondition: eq(
+							input(asUuid("e99863ff-ea7f-4cac-8167-af64e864c162")),
+							literal("x"),
+						),
 					},
 					forms: [
 						{

@@ -34,8 +34,6 @@ import {
 	relationDestinationCaseType,
 	renameCasePropertyInExpression,
 	renameCasePropertyInPredicate,
-	renameSearchInputInExpression,
-	renameSearchInputInPredicate,
 } from "@/lib/domain/predicate";
 import { transformBareHashtags } from "@/lib/preview/engine/labelRefs";
 
@@ -109,7 +107,8 @@ export function rewriteFieldReferenceSlots(
 				if (
 					leafRename !== undefined &&
 					(field.kind === "single_select" || field.kind === "multi_select") &&
-					field.optionsSource?.filter !== undefined
+					field.optionsSource.kind === "lookup" &&
+					field.optionsSource.filter !== undefined
 				) {
 					changed += renameCasePropertyInPredicate(
 						field.optionsSource.filter,
@@ -151,80 +150,6 @@ export interface FormSlotRewriteContext {
 		rename: XPathCasePropertyRename;
 		contextualMatches: boolean;
 	};
-}
-
-/** Defensive rename for module-scoped Search-input names stored in a form
- * display condition. Such a reference is invalid at the navigation gate, but
- * imported/legacy documents remain loadable for repair and must not retain a
- * stale name when the declaration is renamed. */
-export function rewriteFormSearchInputRefs(
-	form: Form,
-	oldName: string,
-	newName: string,
-): number {
-	if (oldName === newName) return 0;
-	let rewritten = 0;
-	for (const slot of FORM_REFERENCE_SLOTS) {
-		switch (slot.slot) {
-			case "form_display_condition":
-				if (form.displayCondition !== undefined) {
-					rewritten += renameSearchInputInPredicate(
-						form.displayCondition,
-						oldName,
-						newName,
-					);
-				}
-				break;
-			case "case_operation_target_expression":
-			case "case_operation_name":
-			case "case_operation_owner":
-			case "case_operation_rename":
-			case "case_operation_write_value":
-			case "case_operation_link_target_expression":
-				for (const entry of readSlotValues(form, slot.path)) {
-					rewritten += renameSearchInputInExpression(
-						entry.value as Parameters<typeof renameSearchInputInExpression>[0],
-						oldName,
-						newName,
-					);
-				}
-				break;
-			case "case_operation_condition":
-			case "case_operation_write_condition":
-				for (const entry of readSlotValues(form, slot.path)) {
-					rewritten += renameSearchInputInPredicate(
-						entry.value as Parameters<typeof renameSearchInputInPredicate>[0],
-						oldName,
-						newName,
-					);
-				}
-				break;
-			case "form_link_condition":
-			case "form_link_datum_xpath":
-			case "assessment_user_score":
-			case "deliver_entity_id":
-			case "deliver_entity_name":
-			case "close_condition_field":
-			case "form_link_target":
-			case "case_operation_case_type":
-			case "case_operation_retype":
-			case "case_operation_target_op":
-			case "case_operation_target_id_from":
-			case "case_operation_repeat":
-			case "case_operation_write_property":
-			case "case_operation_link_target_type":
-			case "case_operation_link_target_op":
-			case "case_operation_link_target_id_from":
-				// XPath/entity/property reference families do not carry Predicate
-				// input terms.
-				break;
-			default: {
-				const _exhaustive: never = slot;
-				break;
-			}
-		}
-	}
-	return rewritten;
 }
 
 /**
@@ -468,105 +393,4 @@ export function rewriteModuleCaseRefs(
 		}
 	}
 	return { columnsRewritten, astRefsRewritten };
-}
-
-/**
- * Structurally rename one module-local Search-input declaration everywhere its
- * runtime name can be referenced. The module registry is the coverage source:
- * every predicate/expression slot is handled, including slots whose current
- * gate rules make an input reference invalid. Rewriting those defensive slots
- * keeps imported/legacy documents and replay total instead of preserving a
- * stale name merely because a newer authoring surface would reject it.
- */
-export function rewriteModuleSearchInputRefs(
-	mod: Module,
-	oldName: string,
-	newName: string,
-): number {
-	if (oldName === newName) return 0;
-	let rewritten = 0;
-	for (const slot of MODULE_REFERENCE_SLOTS) {
-		switch (slot.slot) {
-			case "case_type":
-			case "case_list_column_field":
-			case "search_input_property":
-			case "search_input_via":
-				// Case-type/property declarations and relation walks do not name a
-				// Search input.
-				break;
-			case "module_display_condition":
-				if (mod.displayCondition !== undefined) {
-					rewritten += renameSearchInputInPredicate(
-						mod.displayCondition,
-						oldName,
-						newName,
-					);
-				}
-				break;
-			case "case_list_column_expression":
-				for (const column of mod.caseListConfig?.columns ?? []) {
-					if (column.kind !== "calculated") continue;
-					rewritten += renameSearchInputInExpression(
-						column.expression,
-						oldName,
-						newName,
-					);
-				}
-				break;
-			case "case_list_filter": {
-				const filter = mod.caseListConfig?.filter;
-				if (filter !== undefined) {
-					rewritten += renameSearchInputInPredicate(filter, oldName, newName);
-				}
-				break;
-			}
-			case "search_input_default":
-				for (const input of mod.caseListConfig?.searchInputs ?? []) {
-					if (input.default === undefined) continue;
-					rewritten += renameSearchInputInExpression(
-						input.default,
-						oldName,
-						newName,
-					);
-				}
-				break;
-			case "search_input_predicate":
-				for (const input of mod.caseListConfig?.searchInputs ?? []) {
-					if (input.kind !== "advanced") continue;
-					rewritten += renameSearchInputInPredicate(
-						input.predicate,
-						oldName,
-						newName,
-					);
-				}
-				break;
-			case "search_button_display_condition": {
-				const condition = mod.caseSearchConfig?.searchButtonDisplayCondition;
-				if (condition !== undefined) {
-					rewritten += renameSearchInputInPredicate(
-						condition,
-						oldName,
-						newName,
-					);
-				}
-				break;
-			}
-			case "excluded_owner_ids": {
-				const expression = mod.caseSearchConfig?.excludedOwnerIds;
-				if (expression !== undefined) {
-					rewritten += renameSearchInputInExpression(
-						expression,
-						oldName,
-						newName,
-					);
-				}
-				break;
-			}
-			default: {
-				const _exhaustive: never = slot;
-				break;
-			}
-		}
-	}
-	return rewritten;
 }

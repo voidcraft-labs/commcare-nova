@@ -1,3 +1,4 @@
+import { asUuid } from "@/lib/domain";
 // @vitest-environment happy-dom
 
 import {
@@ -47,7 +48,12 @@ const CASE_TYPES: readonly CaseType[] = [
 ];
 
 const KNOWN_INPUTS = [
-	{ name: "query", label: "Client search", data_type: "text" },
+	{
+		uuid: asUuid("d794ebfb-9f47-450f-8af3-964849456a34"),
+		name: "query",
+		label: "Client search",
+		data_type: "text",
+	},
 ] as const;
 const NORTH = eq(prop("patient", "region"), literal("North"));
 const SOUTH = eq(prop("patient", "region"), literal("South"));
@@ -321,7 +327,9 @@ describe("PredicateWorkbench structural peer addition", () => {
 	});
 
 	it("uses the authored search-field label throughout the focused condition", () => {
-		renderWorkbench(whenInput(input("query"), NORTH));
+		renderWorkbench(
+			whenInput(input(asUuid("d794ebfb-9f47-450f-8af3-964849456a34")), NORTH),
+		);
 		expect(screen.getByText("When Client search is answered")).toBeDefined();
 		expect(
 			screen.getByRole("button", { name: "Search field Client search" }),
@@ -331,7 +339,11 @@ describe("PredicateWorkbench structural peer addition", () => {
 
 	it.each([
 		["Exclude when", () => not(NORTH)],
-		["Search-answer condition", () => whenInput(input("query"), NORTH)],
+		[
+			"Search-answer condition",
+			() =>
+				whenInput(input(asUuid("d794ebfb-9f47-450f-8af3-964849456a34")), NORTH),
+		],
 		["Related case exists", () => exists(VIA)],
 		["Related case is missing", () => missing(VIA)],
 	] as const)(
@@ -420,7 +432,10 @@ describe("PredicateWorkbench structural peer addition", () => {
 	});
 
 	it("keeps complete labels available in the condition trail", () => {
-		const focused = whenInput(input("query"), SOUTH);
+		const focused = whenInput(
+			input(asUuid("d794ebfb-9f47-450f-8af3-964849456a34")),
+			SOUTH,
+		);
 		renderWorkbench(and(NORTH, focused));
 
 		fireEvent.click(ruleFocusTarget(["and", 1]));
@@ -556,7 +571,7 @@ describe("PredicateWorkbench structural peer addition", () => {
 				NORTH,
 				not(
 					whenInput(
-						input("query"),
+						input(asUuid("d794ebfb-9f47-450f-8af3-964849456a34")),
 						exists(VIA, and(householdRegion, not(householdRegion))),
 					),
 				),

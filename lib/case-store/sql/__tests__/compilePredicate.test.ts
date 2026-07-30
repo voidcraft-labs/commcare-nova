@@ -1,3 +1,4 @@
+import { asUuid } from "@/lib/domain";
 // lib/case-store/sql/__tests__/compilePredicate.test.ts
 //
 // Compile-only acceptance tests for the Predicate compiler.
@@ -709,15 +710,18 @@ describe("compilePredicate — exists / missing", () => {
 
 describe("compilePredicate — when-input-present", () => {
 	it("compiles the inner clause when the input is bound", () => {
+		const searchInputUuid = asUuid("3657244b-1bb6-4078-83e7-16dbfeda6cb6");
 		const pred = whenInput(
-			input("region_filter"),
+			input(searchInputUuid),
 			eq(prop("patient", "nickname"), literal("Alice")),
 		);
 		const compiled = compileWith(
 			compilePredicate(
 				pred,
 				makeCtx({
-					bindings: { searchInputs: new Map([["region_filter", "north"]]) },
+					bindings: {
+						searchInputs: new Map([[searchInputUuid, "north"]]),
+					},
 				}),
 			),
 		);
@@ -728,7 +732,7 @@ describe("compilePredicate — when-input-present", () => {
 
 	it("collapses to true when the input is unbound", () => {
 		const pred = whenInput(
-			input("region_filter"),
+			input(asUuid("3657244b-1bb6-4078-83e7-16dbfeda6cb6")),
 			eq(prop("patient", "nickname"), literal("Alice")),
 		);
 		const compiled = compileWith(compilePredicate(pred, makeCtx()));
@@ -774,12 +778,15 @@ describe("compilePredicate — Postgres-strict null semantics", () => {
 		// `session-context` as scalars, so the strict-absent JSONB
 		// semantic doesn't apply — the standard SQL `IS NULL` is the
 		// right shape.
-		const pred = isNull(input("region_filter"));
+		const searchInputUuid = asUuid("3657244b-1bb6-4078-83e7-16dbfeda6cb6");
+		const pred = isNull(input(searchInputUuid));
 		const compiled = compileWith(
 			compilePredicate(
 				pred,
 				makeCtx({
-					bindings: { searchInputs: new Map([["region_filter", "north"]]) },
+					bindings: {
+						searchInputs: new Map([[searchInputUuid, "north"]]),
+					},
 				}),
 			),
 		);

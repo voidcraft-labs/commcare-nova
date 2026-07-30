@@ -28,7 +28,7 @@
  * Both the SA chat factory and the MCP adapter call this through the
  * shared `ToolExecutionContext` interface. Exit branches:
  *
- *   1. Parent module index out of range → `{ error }`, no mutations.
+ *   1. Parent module UUID absent → `{ error }`, no mutations.
  *   2. Identifier guard rejection (any field id illegal / reserved /
  *      over-long / batch-conflicting) → `{ error }` naming EVERY failing
  *      item, nothing persisted.
@@ -36,8 +36,8 @@
  *      mutations.
  *   4. Commit-gate rejection (the batch would introduce a validator
  *      finding) → `{ error }` listing each finding, nothing persisted.
- *   5. Success → human-readable summary with the new form's positional
- *      index + field count, tagged under `module:M` so the event log
+ *   5. Success → human-readable summary with the new form's UUID
+ *      + field count, tagged under its module UUID so the event log
  *      groups this creation with the rest of that module's activity.
  */
 
@@ -50,7 +50,7 @@ import type {
 	PostSubmitDestination,
 } from "@/lib/domain";
 import { asUuid, FORM_TYPES, USER_FACING_DESTINATIONS } from "@/lib/domain";
-import { addFormMutations, resolveModuleUuid } from "../blueprintHelpers";
+import { addFormMutations } from "../blueprintHelpers";
 import {
 	closeConditionInputSchema,
 	connectFormConfigSchema,
@@ -65,6 +65,10 @@ import {
 import { collectConnectIds, enforceConnectIds } from "./shared/connectIds";
 import { buildConnectConfig } from "./shared/connectInput";
 import {
+	moduleAddressSchema,
+	resolveModuleAddress,
+} from "./shared/entityAddresses";
+import {
 	assembleFieldMutations,
 	describeRejectedFieldIds,
 	resolveCloseCondition,
@@ -74,9 +78,8 @@ import type {
 	ToolCallSummary,
 } from "./shared/toolCallSummary";
 
-export const createFormInputSchema = z
-	.object({
-		moduleIndex: z.number().describe("0-based module index"),
+export const createFormInputSchema = moduleAddressSchema
+	.extend({
 		name: z.string().min(1).describe("Form display name"),
 		type: z
 			.enum(FORM_TYPES)
@@ -122,7 +125,9 @@ export const createFormInputSchema = z
 export type CreateFormInput = z.infer<typeof createFormInputSchema>;
 
 /** Human-readable success string or an error record. */
-export type CreateFormResult = MutationSuccess | { error: string };
+export type CreateFormResult =
+	| (MutationSuccess & { uuid: string })
+	| { error: string };
 
 export const createFormTool = {
 	description:
@@ -134,7 +139,7 @@ export const createFormTool = {
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<CreateFormResult>> {
 		const {
-			moduleIndex,
+			moduleUuid: rawModuleUuid,
 			name,
 			type,
 			fields,
@@ -144,15 +149,18 @@ export const createFormTool = {
 			connect,
 		} = input;
 		try {
-			const moduleUuid = resolveModuleUuid(doc, moduleIndex);
-			if (!moduleUuid) {
+			const address = resolveModuleAddress(doc, {
+				moduleUuid: rawModuleUuid,
+			});
+			if (!address.ok) {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
 					newDoc: doc,
-					result: { error: `Module ${moduleIndex} not found` },
+					result: { error: address.error },
 				};
 			}
+			const { moduleUuid } = address;
 
 			// Mint the form's uuid here so the field assembly can target it —
 			// the form only exists once the addForm mutation applies, but the
@@ -249,13 +257,13 @@ export const createFormTool = {
 			// Tag under the parent module — the event log groups this
 			// creation event with the rest of that module's activity so the
 			// lifecycle UI renders "forms added to Patient module" as one
-			// chapter rather than interleaved events per form index.
+			// chapter rather than interleaved per-form events.
 			const mutations = [...formMutations, ...assembly.mutations];
 			const commit = await guardedMutate(
 				ctx,
 				doc,
 				mutations,
-				`module:${moduleIndex}`,
+				`module:${moduleUuid}`,
 			);
 			if (!commit.ok) {
 				return {
@@ -269,12 +277,6 @@ export const createFormTool = {
 
 			const mod = newDoc.modules[moduleUuid];
 			const forms = orderedFormUuids(newDoc, moduleUuid);
-			// The SA addresses forms by DISPLAY index (`sort-by-(order, uuid)`),
-			// so report the new form's SORTED position — not its `formOrder`
-			// array slot, which a born order key need not land last.
-			const newFormIndex = orderedFormUuids(newDoc, moduleUuid).indexOf(
-				formUuid,
-			);
 			// Count the fields, not the batch: the assembly prepends the
 			// declaration chokepoint's catalog mutations for undeclared types.
 			const fieldCount = assembly.mutations.filter(
@@ -291,7 +293,8 @@ export const createFormTool = {
 				mutations,
 				newDoc,
 				result: {
-					message: `Successfully created form "${name}" (${type}) with ${fieldCount} field${fieldCount === 1 ? "" : "s"} in module "${mod?.name ?? moduleIndex}" at index m${moduleIndex}-f${newFormIndex}. Module now has ${forms.length} form${forms.length === 1 ? "" : "s"}.${skippedNote}`,
+					message: `Successfully created form "${name}" (${type}, uuid ${formUuid}) with ${fieldCount} field${fieldCount === 1 ? "" : "s"} in module "${mod?.name ?? moduleUuid}". Module now has ${forms.length} form${forms.length === 1 ? "" : "s"}.${skippedNote}`,
+					uuid: formUuid,
 					summary: {
 						location: mod?.name,
 						subject: name,

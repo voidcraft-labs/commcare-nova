@@ -162,12 +162,13 @@ function canonicalPropertiesForValidation(
  * (`searchInputModeMatchesPropertyType`, `columnReferences`).
  *
  * `knownInputs` is derived from each input's widget type through
- * `SEARCH_INPUT_RUNTIME_VALUE_TYPES`. This models what `input(name)` reads at
- * runtime, independent of authoring arm or target property: date widgets bind
- * dates; text/select/barcode widgets bind text; date-range widgets bind the
- * encoded `__range__<from>__<to>` text scalar. A simple date input targeting a
- * datetime property still reads as date, and an advanced date input is not
- * silently widened to text merely because it has no target property.
+ * `SEARCH_INPUT_RUNTIME_VALUE_TYPES`. This models what a UUID-linked input reads
+ * at runtime under its current wire name, independent of authoring arm or
+ * target property: date widgets bind dates; text/select/barcode widgets bind
+ * text; date-range widgets bind the encoded `__range__<from>__<to>` text
+ * scalar. A simple date input targeting a datetime property still reads as
+ * date, and an advanced date input is not silently widened to text merely
+ * because it has no target property.
  *
  * `currentCaseType` is set to the module's case type so the
  * relational quantifiers (`exists` / `missing`) and the destination-
@@ -188,6 +189,7 @@ export function moduleTypeContext(
 	const { augmentedCaseTypes } = validationContextFor(doc);
 
 	const knownInputs: SearchInputDecl[] = inputs.map((input) => ({
+		uuid: input.uuid,
 		name: input.name,
 		data_type: SEARCH_INPUT_RUNTIME_VALUE_TYPES[input.type],
 	}));

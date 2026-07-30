@@ -38,6 +38,9 @@ import { addFieldsTool } from "../addFields";
 import { createFormTool } from "../createForm";
 import { updateModuleTool } from "../updateModule";
 
+const FIX_MODULE_UUID = asUuid("20000000-0000-4000-8000-000000000001");
+const FIX_FORM_UUID = asUuid("20000000-0000-4000-8000-000000000002");
+
 /** Bare ctx stub — `recordMutations` is the persistence assertion surface. The
  *  guarded writer returns `{ events, committedDoc }`; echo the passed
  *  post-mutation doc as the committed doc so the tool's `newDoc` reflects it. */
@@ -69,6 +72,7 @@ function minDoc(): BlueprintDoc {
 		appName: "Test",
 		modules: [
 			{
+				uuid: FIX_MODULE_UUID,
 				name: "Mod",
 				caseType: "patient",
 				caseListConfig: caseListConfig([
@@ -76,6 +80,7 @@ function minDoc(): BlueprintDoc {
 				]),
 				forms: [
 					{
+						uuid: FIX_FORM_UUID,
 						name: "Reg",
 						type: "registration",
 						fields: [
@@ -116,9 +121,11 @@ function caseTypelessDoc(): BlueprintDoc {
 		appName: "Test",
 		modules: [
 			{
+				uuid: FIX_MODULE_UUID,
 				name: "Surveys",
 				forms: [
 					{
+						uuid: FIX_FORM_UUID,
 						name: "Feedback",
 						type: "survey",
 						fields: [f({ kind: "text", id: "comments", label: "Comments" })],
@@ -149,7 +156,7 @@ describe("NO_CASE_TYPE — rejected at the introducing commit; updateModule is t
 		const { ctx, recordMutations } = makeCtx();
 		const out = await createFormTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: FIX_MODULE_UUID,
 				name: "Register",
 				type: "registration",
 				fields: [{ kind: "text", id: "case_name", label: "Name" } as never],
@@ -163,14 +170,14 @@ describe("NO_CASE_TYPE — rejected at the introducing commit; updateModule is t
 	});
 
 	it("updateModule with neither name nor case_type returns the corrective error, not a fake success", async () => {
-		// The schema deliberately admits a bare { moduleIndex } (so the SA
+		// The schema deliberately admits a bare { moduleUuid } (so the SA
 		// reads a corrective message rather than an opaque parse failure);
 		// the tool body owns the rejection. Without this branch, a no-op
 		// call would report "Successfully updated" for an edit that never
 		// happened.
 		const { ctx, recordMutations } = makeCtx();
 		const out = await updateModuleTool.execute(
-			{ moduleIndex: 0 },
+			{ moduleUuid: FIX_MODULE_UUID },
 			ctx,
 			caseTypelessDoc(),
 		);
@@ -189,7 +196,7 @@ describe("NO_CASE_TYPE — rejected at the introducing commit; updateModule is t
 		 * module has a form), so the columns ride the same call — the
 		 * rejection's findings are satisfiable without a second tool. */
 		const bare = await updateModuleTool.execute(
-			{ moduleIndex: 0, case_type: "respondent" },
+			{ moduleUuid: FIX_MODULE_UUID, case_type: "respondent" },
 			ctx,
 			doc,
 		);
@@ -197,7 +204,7 @@ describe("NO_CASE_TYPE — rejected at the introducing commit; updateModule is t
 
 		const fixed = await updateModuleTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: FIX_MODULE_UUID,
 				case_type: "respondent",
 				case_list_columns: [
 					{ kind: "plain", field: "case_name", header: "Name" } as never,
@@ -210,7 +217,7 @@ describe("NO_CASE_TYPE — rejected at the introducing commit; updateModule is t
 
 		const out = await createFormTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: FIX_MODULE_UUID,
 				name: "Register",
 				type: "registration",
 				fields: [
@@ -243,7 +250,7 @@ describe("NO_CASE_TYPE — rejected at the introducing commit; updateModule is t
 		const { ctx, recordMutations } = makeCtx();
 		const out = await updateModuleTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: FIX_MODULE_UUID,
 				case_type: "household",
 				case_list_columns: [
 					{ kind: "plain", field: "case_name", header: "Name" } as never,
@@ -290,8 +297,8 @@ describe("RESERVED_CASE_PROPERTY — rejected at the introducing commit", () => 
 		const { ctx, recordMutations } = makeCtx();
 		const out = await addFieldsTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
+				moduleUuid: FIX_MODULE_UUID,
+				formUuid: FIX_FORM_UUID,
 				fields: [
 					// `date` is on CommCare's reserved case-property list.
 					{
@@ -418,8 +425,8 @@ describe("SELECT_NO_OPTIONS — selects can't land without options", () => {
 		const { ctx } = makeCtx();
 		const out = await addFieldsTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
+				moduleUuid: FIX_MODULE_UUID,
+				formUuid: FIX_FORM_UUID,
 				fields: [
 					{ kind: "single_select", id: "choice", label: "Choice" } as never,
 				],
@@ -439,7 +446,11 @@ describe("SELECT_NO_OPTIONS — selects can't land without options", () => {
 			"@/components/preview/form/newFieldDefaults"
 		);
 		const fresh = NEW_FIELD_BUILDERS.single_select("choice", "Choice");
-		expect(fresh.options).toHaveLength(2);
+		expect(fresh.optionsSource).toMatchObject({ kind: "inline" });
+		if (fresh.optionsSource.kind !== "inline") {
+			throw new Error("expected inline starter choices");
+		}
+		expect(fresh.optionsSource.options).toHaveLength(2);
 	});
 });
 
@@ -483,10 +494,21 @@ function closeFormDoc(): BlueprintDoc {
 								kind: "single_select",
 								id: "outcome",
 								label: "Outcome",
-								options: [
-									{ value: "done", label: "Done" },
-									{ value: "moved", label: "Moved" },
-								],
+								optionsSource: {
+									kind: "inline",
+									options: [
+										{
+											uuid: asUuid("8f08e271-71df-4281-a6b2-c7bf909bf9ff"),
+											value: "done",
+											label: "Done",
+										},
+										{
+											uuid: asUuid("9e339161-8d91-47b1-a26c-e7f248334987"),
+											value: "moved",
+											label: "Moved",
+										},
+									],
+								},
 							}),
 						],
 					},
@@ -586,8 +608,8 @@ describe("field-id format fixes — rejected at source", () => {
 		const { ctx, recordMutations } = makeCtx();
 		const out = await addFieldsTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
+				moduleUuid: FIX_MODULE_UUID,
+				formUuid: FIX_FORM_UUID,
 				fields: [{ kind: "text", id: "bad id!", label: "Bad" } as never],
 			},
 			ctx,
@@ -604,8 +626,8 @@ describe("field-id format fixes — rejected at source", () => {
 		const { ctx, recordMutations } = makeCtx();
 		const out = await addFieldsTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
+				moduleUuid: FIX_MODULE_UUID,
+				formUuid: FIX_FORM_UUID,
 				fields: [
 					{
 						kind: "text",

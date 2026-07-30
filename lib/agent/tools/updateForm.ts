@@ -1,7 +1,4 @@
-import {
-	parseXPathForForm,
-	resolveCloseFieldRef,
-} from "@/lib/doc/expressionText";
+import { parseXPathForForm } from "@/lib/doc/expressionText";
 /**
  * SA tool: `updateForm` — patch form-level metadata.
  *
@@ -30,7 +27,7 @@ import {
  *
  * Four exit branches:
  *
- *   1. Form index out of range → `{ error }`, no mutations.
+ *   1. Form UUID absent or paired with the wrong module → `{ error }`.
  *   2. An explicit connect id is invalid/duplicate → `{ error }`, no
  *      mutations (nothing written).
  *   3. Form disappeared after the patch (reducer-level rejection) →
@@ -40,17 +37,13 @@ import {
  */
 
 import { z } from "zod";
+import { setFormDisplayConditionMutation } from "@/lib/doc/displayConditionMutations";
+import { findContainingForm } from "@/lib/doc/mutations/helpers";
 import type { BlueprintDoc, PostSubmitDestination } from "@/lib/domain";
-import { USER_FACING_DESTINATIONS } from "@/lib/domain";
-import {
-	resolveFormUuid,
-	resolveModuleUuid,
-	updateFormMutations,
-} from "../blueprintHelpers";
-import {
-	closeConditionInputSchema,
-	connectFormPatchSchema,
-} from "../planningSchemas";
+import { asUuid, USER_FACING_DESTINATIONS, uuidSchema } from "@/lib/domain";
+import { predicateSchema } from "@/lib/domain/predicate";
+import { updateFormMutations } from "../blueprintHelpers";
+import { connectFormPatchSchema } from "../planningSchemas";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import {
 	guardedMutate,
@@ -59,22 +52,37 @@ import {
 } from "./common";
 import { collectConnectIds, enforceConnectIds } from "./shared/connectIds";
 import { buildConnectConfig } from "./shared/connectInput";
-import { resolveCloseCondition } from "./shared/fieldAssembly";
+import {
+	formAddressSchema,
+	resolveFormAddress,
+} from "./shared/entityAddresses";
 import type {
 	MutationSuccess,
 	ToolCallSummary,
 } from "./shared/toolCallSummary";
 
-export const updateFormInputSchema = z
+const updateCloseConditionInputSchema = z
 	.object({
-		moduleIndex: z.number().describe("0-based module index"),
-		formIndex: z.number().describe("0-based form index"),
+		fieldUuid: uuidSchema.describe("Stable uuid of the field to check."),
+		answer: z.string().describe("Value that triggers closure."),
+		operator: z
+			.enum(["=", "selected"])
+			.nullable()
+			.optional()
+			.describe(
+				'"=" for exact match (default — null uses it). "selected" for multi-select fields.',
+			),
+	})
+	.strict();
+
+export const updateFormInputSchema = formAddressSchema
+	.extend({
 		name: z
 			.string()
 			.min(1)
 			.optional()
 			.describe("New form name. Leave it out to keep the current name."),
-		close_condition: closeConditionInputSchema
+		close_condition: updateCloseConditionInputSchema
 			.nullable()
 			.optional()
 			.describe(
@@ -92,6 +100,12 @@ export const updateFormInputSchema = z
 			.optional()
 			.describe(
 				"Connect participation patch: omitted sub-configs keep their current value, null on a sub-config removes just it, a stated one replaces it (learn apps: learn_module/assessment; deliver apps: deliver_unit/task). null for the whole slot removes the block (rejected only on the app's last participating form).",
+			),
+		displayCondition: predicateSchema
+			.nullable()
+			.optional()
+			.describe(
+				"Running-app visibility rule. A Predicate sets it, null removes it, omission keeps it.",
 			),
 	})
 	.strict();
@@ -111,32 +125,28 @@ export const updateFormTool = {
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<UpdateFormResult>> {
 		const {
-			moduleIndex,
-			formIndex,
+			moduleUuid: rawModuleUuid,
+			formUuid: rawFormUuid,
 			name,
 			close_condition,
 			post_submit,
 			connect,
+			displayCondition,
 		} = input;
 		try {
-			const formUuid = resolveFormUuid(doc, moduleIndex, formIndex);
-			if (!formUuid) {
+			const address = resolveFormAddress(doc, {
+				moduleUuid: rawModuleUuid,
+				formUuid: rawFormUuid,
+			});
+			if (!address.ok) {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
 					newDoc: doc,
-					result: { error: `Form m${moduleIndex}-f${formIndex} not found` },
+					result: { error: address.error },
 				};
 			}
-			const existing = doc.forms[formUuid];
-			if (!existing) {
-				return {
-					kind: "mutate" as const,
-					mutations: [],
-					newDoc: doc,
-					result: { error: `Form m${moduleIndex}-f${formIndex} not found` },
-				};
-			}
+			const { formUuid, form: existing, module } = address;
 
 			// Build the helper's patch shape. The SA's tool arg uses
 			// `field` directly — no translation needed since the SA speaks
@@ -145,18 +155,29 @@ export const updateFormTool = {
 			const patch: Parameters<typeof updateFormMutations>[2] = {};
 			if (name !== undefined) patch.name = name;
 			if (close_condition === null) patch.closeCondition = null;
-			// The SA names the checked field by id; the stored form is the
-			// field's stable uuid. An id nothing answers to stays verbatim
-			// — the gate rejects the introduction with the validator's
-			// close-condition finding. One resolver shared with the
-			// creation tools (`fieldAssembly.ts::resolveCloseCondition`);
-			// a null/omitted condition resolves to undefined and patches
-			// nothing here (the null-clears arm above already ran).
-			const resolvedClose = resolveCloseCondition(
-				(ref) => resolveCloseFieldRef(doc, formUuid, ref),
-				close_condition,
-			);
-			if (resolvedClose) patch.closeCondition = resolvedClose;
+			if (close_condition != null) {
+				const fieldUuid = asUuid(close_condition.fieldUuid);
+				if (
+					doc.fields[fieldUuid] === undefined ||
+					findContainingForm(doc, fieldUuid) !== formUuid
+				) {
+					return {
+						kind: "mutate" as const,
+						mutations: [],
+						newDoc: doc,
+						result: {
+							error: `Field uuid "${close_condition.fieldUuid}" is not in form "${existing.name}".`,
+						},
+					};
+				}
+				patch.closeCondition = {
+					field: fieldUuid,
+					answer: close_condition.answer,
+					...(close_condition.operator && {
+						operator: close_condition.operator,
+					}),
+				};
+			}
 			if (post_submit === null) patch.postSubmit = null;
 			if (post_submit != null) {
 				patch.postSubmit = post_submit as PostSubmitDestination;
@@ -189,13 +210,9 @@ export const updateFormTool = {
 					// ids, reject explicit-invalid ids (fail the call, write
 					// nothing). `existingIds` excludes this form's own ids so a
 					// re-patch of an unchanged id doesn't read as a self-conflict.
-					const moduleUuid = resolveModuleUuid(doc, moduleIndex);
-					const moduleName = moduleUuid
-						? (doc.modules[moduleUuid]?.name ?? "module")
-						: "module";
 					const enforced = enforceConnectIds(
 						merged,
-						moduleName,
+						module.name,
 						existing.name,
 						collectConnectIds(doc, formUuid),
 					);
@@ -214,12 +231,26 @@ export const updateFormTool = {
 			// Compute the mutations, apply via Immer, and persist through
 			// the shared context so both surfaces write the same stream +
 			// log + Postgres trio.
-			const mutations = updateFormMutations(doc, formUuid, patch);
+			const resolvedDisplayCondition =
+				displayCondition === null || displayCondition === undefined
+					? undefined
+					: displayCondition;
+			const mutations = [
+				...updateFormMutations(doc, formUuid, patch),
+				...(displayCondition === undefined
+					? []
+					: [
+							setFormDisplayConditionMutation(
+								formUuid,
+								resolvedDisplayCondition,
+							),
+						]),
+			];
 			const commit = await guardedMutate(
 				ctx,
 				doc,
 				mutations,
-				`form:${moduleIndex}-${formIndex}`,
+				`form:${formUuid}`,
 			);
 			if (!commit.ok) {
 				return {
@@ -238,7 +269,7 @@ export const updateFormTool = {
 					mutations,
 					newDoc,
 					result: {
-						error: `Form m${moduleIndex}-f${formIndex} not found after update`,
+						error: `Form ${formUuid} not found after update`,
 					},
 				};
 			}
@@ -258,17 +289,18 @@ export const updateFormTool = {
 				formChanges.push(
 					patch.connect === null ? "connect removed" : "connect updated",
 				);
+			if (displayCondition === null)
+				formChanges.push("display condition removed");
+			if (displayCondition != null)
+				formChanges.push("display condition updated");
 			return {
 				kind: "mutate" as const,
 				mutations,
 				newDoc,
 				result: {
-					message: `Successfully updated form "${formAfter.name}" (${formAfter.type}, m${moduleIndex}-f${formIndex}). Changed: ${formChanges.join(", ")}.`,
+					message: `Successfully updated form "${formAfter.name}" (${formAfter.type}, uuid ${formUuid}). Changed: ${formChanges.join(", ")}.`,
 					summary: {
-						location: (() => {
-							const mu = resolveModuleUuid(doc, moduleIndex);
-							return mu ? doc.modules[mu]?.name : undefined;
-						})(),
+						location: module.name,
 						subject: formAfter.name,
 					} satisfies ToolCallSummary,
 				},

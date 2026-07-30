@@ -108,7 +108,7 @@ describe("predicate builders", () => {
 	it("constructs a within-distance predicate", () => {
 		const p = within(
 			prop("clinic", "location"),
-			input("user_location"),
+			input(asUuid("a11ffd94-962f-4f1b-8ed2-111e0b273e8e")),
 			50,
 			"miles",
 		);
@@ -119,8 +119,11 @@ describe("predicate builders", () => {
 
 	it("constructs when-input-present wrapping an eq", () => {
 		const p = whenInput(
-			input("phone_number"),
-			eq(prop("patient", "phone"), input("phone_number")),
+			input(asUuid("3c41020f-667f-464d-8ade-1014ab1220a2")),
+			eq(
+				prop("patient", "phone"),
+				input(asUuid("3c41020f-667f-464d-8ade-1014ab1220a2")),
+			),
 		);
 		expect(p.kind).toBe("when-input-present");
 		// The body slot is named `clause` (not `then`) — see the JSDoc
@@ -564,7 +567,7 @@ describe("sentinel + range + relational predicate builders", () => {
 		// `PropertyRef` would not compile against these inputs. Both
 		// session arms (open-namespace and closed-enum) flow through the
 		// same `Term` discriminator, so each is covered explicitly.
-		const a = isNull(input("phone"));
+		const a = isNull(input(asUuid("91b65850-ffdb-4800-8e63-2e6aaa1c2248")));
 		const b = isNull(sessionUser("region"));
 		const c = isNull(sessionContext("userid"));
 		const d = isNull(literal("x"));
@@ -596,7 +599,7 @@ describe("sentinel + range + relational predicate builders", () => {
 		// builder. The closed-enum `session-context` arm and the
 		// open-namespace `session-user` arm both flow through the same
 		// discriminated-union path; each is exercised explicitly.
-		const a = isBlank(input("phone"));
+		const a = isBlank(input(asUuid("91b65850-ffdb-4800-8e63-2e6aaa1c2248")));
 		const b = isBlank(sessionUser("region"));
 		const c = isBlank(sessionContext("userid"));
 		const d = isBlank(literal("x"));
@@ -1087,7 +1090,9 @@ describe("toValueExpression — Term → ValueExpression auto-wrap", () => {
 	});
 
 	it("wraps a search-input reference as a term-arm ValueExpression", () => {
-		const wrapped = toValueExpression(input("phone"));
+		const wrapped = toValueExpression(
+			input(asUuid("91b65850-ffdb-4800-8e63-2e6aaa1c2248")),
+		);
 		expect(wrapped.kind).toBe("term");
 		if (wrapped.kind === "term") {
 			expect(wrapped.term.kind).toBe("input");
@@ -1172,7 +1177,7 @@ describe("predicate-operand auto-wrap (eq / isIn / within / isNull / isBlank / b
 		// `input(...)` reference, lifting it into the `term` arm.
 		const p = within(
 			prop("clinic", "location"),
-			input("user_location"),
+			input(asUuid("a11ffd94-962f-4f1b-8ed2-111e0b273e8e")),
 			50,
 			"miles",
 		);
@@ -1193,7 +1198,7 @@ describe("predicate-operand auto-wrap (eq / isIn / within / isNull / isBlank / b
 
 	it("isNull / isBlank accept ValueExpression operands", () => {
 		const a = isNull(prop("patient", "status"));
-		const b = isBlank(input("phone"));
+		const b = isBlank(input(asUuid("91b65850-ffdb-4800-8e63-2e6aaa1c2248")));
 		expect(a.left.kind).toBe("term");
 		expect(b.left.kind).toBe("term");
 		expect(predicateSchema.parse(a)).toEqual(a);

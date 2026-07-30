@@ -1132,7 +1132,10 @@ describe("readCases — running-app search-input composition", () => {
 						{
 							kind: "match",
 							property: prop("patient", "name"),
-							value: { kind: "term", term: input("name_prefix") },
+							value: {
+								kind: "term",
+								term: input(READCASES_ADVANCED_INPUT_UUID),
+							},
 							mode: "starts-with",
 						},
 					),
@@ -1182,8 +1185,8 @@ describe("readCases — running-app search-input composition", () => {
 				),
 			],
 			filter: whenInput(
-				input("name_filter"),
-				eq(prop("patient", "name"), input("name_filter")),
+				input(READCASES_ADVANCED_INPUT_UUID),
+				eq(prop("patient", "name"), input(READCASES_ADVANCED_INPUT_UUID)),
 			),
 		});
 
@@ -5030,11 +5033,12 @@ describe("loadCasesAction", () => {
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
+		const monthInputUuid = asUuid("4772f7c6-2e65-420b-8e13-bc79d793be12");
 		const predicate = whenInput(
-			input("months"),
+			input(monthInputUuid),
 			eq(
 				prop("patient", "due_date"),
-				dateAdd(today(), "months", double(term(input("months")))),
+				dateAdd(today(), "months", double(term(input(monthInputUuid)))),
 			),
 		);
 
@@ -5047,7 +5051,7 @@ describe("loadCasesAction", () => {
 				columns: [],
 				searchInputs: [
 					advancedSearchInputDef(
-						asUuid("month-input"),
+						monthInputUuid,
 						"months",
 						"Months",
 						"text",
@@ -5193,14 +5197,19 @@ describe("loadCasesAction", () => {
 		vi.mocked(withProjectContext).mockResolvedValueOnce(stubStore);
 
 		const rangeInput = simpleSearchInputDef(
-			asUuid("range-action"),
+			asUuid("f2853836-aba4-4323-8de1-32f6939a1a5c"),
 			"visit_dates",
 			"Visit dates",
 			"date-range",
 			"dob",
 		);
 		const excludedOwnerIdsExpression = ifExpr(
-			not(whenInput(input("visit_dates"), matchNone())),
+			not(
+				whenInput(
+					input(asUuid("f2853836-aba4-4323-8de1-32f6939a1a5c")),
+					matchNone(),
+				),
+			),
 			term(literal("range-owner")),
 			term(literal("")),
 		);

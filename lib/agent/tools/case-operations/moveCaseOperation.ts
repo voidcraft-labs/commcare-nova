@@ -4,7 +4,12 @@ import {
 	type CaseOperationMutationPlan,
 	moveCaseOperationMutation,
 } from "@/lib/doc/caseOperationMutations";
-import { type BlueprintDoc, orderedCaseOperations } from "@/lib/domain";
+import {
+	asUuid,
+	type BlueprintDoc,
+	orderedCaseOperations,
+	uuidSchema,
+} from "@/lib/domain";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import {
 	guardedMutate,
@@ -15,12 +20,12 @@ import type { MutationSuccess } from "../shared/toolCallSummary";
 import {
 	dependentOperationNames,
 	operationAddressSchema,
-	operationById,
+	operationByUuid,
 	resolveOperationAddress,
 } from "./shared";
 
 export const moveCaseOperationInputSchema = operationAddressSchema.extend({
-	operationId: z.string().min(1),
+	operationUuid: uuidSchema,
 	index: z.number().int().nonnegative().describe("0-based destination index"),
 });
 
@@ -84,14 +89,18 @@ export const moveCaseOperationTool = {
 					result: { error: address.error },
 				};
 			}
-			const operation = operationById(doc, address.formUuid, input.operationId);
+			const operation = operationByUuid(
+				doc,
+				address.formUuid,
+				asUuid(input.operationUuid),
+			);
 			if (operation === undefined) {
 				return {
 					kind: "mutate",
 					mutations: [],
 					newDoc: doc,
 					result: {
-						error: `Case operation "${input.operationId}" not found in form "${doc.forms[address.formUuid]?.name ?? input.formUuid}".`,
+						error: `Case operation uuid "${input.operationUuid}" not found in form "${doc.forms[address.formUuid]?.name ?? input.formUuid}".`,
 					},
 				};
 			}
@@ -115,7 +124,7 @@ export const moveCaseOperationTool = {
 					newDoc: doc,
 					result: {
 						error: moveRefusal(
-							input.operationId,
+							operation.id,
 							plan,
 							dependentOperationNames(
 								doc,
@@ -146,7 +155,7 @@ export const moveCaseOperationTool = {
 			).findIndex((candidate) => candidate.uuid === operation.uuid);
 			if (committedIndex < 0) {
 				throw new BlueprintCommitRejectedError(
-					`Case operation "${input.operationId}" changed while it was moving. Reload the form and try again.`,
+					`Case operation "${operation.id}" changed while it was moving. Reload the form and try again.`,
 				);
 			}
 			return {
@@ -154,11 +163,11 @@ export const moveCaseOperationTool = {
 				mutations,
 				newDoc: commit.newDoc,
 				result: {
-					message: `Moved case operation "${input.operationId}" to index ${committedIndex}.`,
+					message: `Moved case operation "${operation.id}" to index ${committedIndex}.`,
 					index: committedIndex,
 					summary: {
 						location: doc.forms[address.formUuid]?.name ?? input.formUuid,
-						subject: input.operationId,
+						subject: operation.id,
 					},
 				},
 			};

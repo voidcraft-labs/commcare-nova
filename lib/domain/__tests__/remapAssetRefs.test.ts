@@ -1,3 +1,4 @@
+import { asUuid } from "@/lib/domain";
 /**
  * `remapAssetRefs` is the write counterpart of `walkAssetRefs` — it must touch
  * every media slot the walk reads, or a moved app would keep a stale ref the
@@ -96,14 +97,22 @@ function fixtureDoc() {
 				uuid: "field-select",
 				id: "symptom",
 				label: "Symptom",
-				options: [
-					{
-						value: "fever",
-						label: "Fever",
-						media: { image: "opt-img", audio: "opt-aud" },
-					},
-					{ value: "cough", label: "Cough" },
-				],
+				optionsSource: {
+					kind: "inline",
+					options: [
+						{
+							uuid: asUuid("aa3c7600-aa77-4fea-acf4-782d0ad32361"),
+							value: "fever",
+							label: "Fever",
+							media: { image: "opt-img", audio: "opt-aud" },
+						},
+						{
+							uuid: asUuid("8cbb018b-5f0d-439d-a134-f8c8ea4765d0"),
+							value: "cough",
+							label: "Cough",
+						},
+					],
+				},
 			},
 		},
 	});

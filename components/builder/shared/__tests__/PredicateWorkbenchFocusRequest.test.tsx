@@ -1,3 +1,4 @@
+import { asUuid } from "@/lib/domain";
 // @vitest-environment happy-dom
 
 import { render, screen, waitFor } from "@testing-library/react";
@@ -36,7 +37,10 @@ describe("PredicateWorkbench dependency focus", () => {
 	it("opens and focuses the exact nested expression occurrence", async () => {
 		const value = and(
 			eq(prop("client", "region"), literal("North")),
-			eq(prop("client", "case_name"), input("query")),
+			eq(
+				prop("client", "case_name"),
+				input(asUuid("d794ebfb-9f47-450f-8af3-964849456a34")),
+			),
 		);
 
 		render(
@@ -46,7 +50,12 @@ describe("PredicateWorkbench dependency focus", () => {
 				caseTypes={caseTypes}
 				currentCaseType="client"
 				knownInputs={[
-					{ name: "query", label: "Client name", data_type: "text" },
+					{
+						uuid: asUuid("d794ebfb-9f47-450f-8af3-964849456a34"),
+						name: "query",
+						label: "Client name",
+						data_type: "text",
+					},
 				]}
 				focusRequest={{ token: 1, path: ["and", 1, "right"] }}
 			/>,
@@ -61,7 +70,7 @@ describe("PredicateWorkbench dependency focus", () => {
 
 	it("recovers a trigger path to its owning rule and replays the same path", async () => {
 		const value = whenInput(
-			input("query"),
+			input(asUuid("d794ebfb-9f47-450f-8af3-964849456a34")),
 			eq(prop("client", "region"), literal("North")),
 		);
 		const { rerender } = render(
@@ -71,7 +80,12 @@ describe("PredicateWorkbench dependency focus", () => {
 				caseTypes={caseTypes}
 				currentCaseType="client"
 				knownInputs={[
-					{ name: "query", label: "Client name", data_type: "text" },
+					{
+						uuid: asUuid("d794ebfb-9f47-450f-8af3-964849456a34"),
+						name: "query",
+						label: "Client name",
+						data_type: "text",
+					},
 				]}
 				focusRequest={{
 					token: 1,
@@ -91,7 +105,12 @@ describe("PredicateWorkbench dependency focus", () => {
 				caseTypes={caseTypes}
 				currentCaseType="client"
 				knownInputs={[
-					{ name: "query", label: "Client name", data_type: "text" },
+					{
+						uuid: asUuid("d794ebfb-9f47-450f-8af3-964849456a34"),
+						name: "query",
+						label: "Client name",
+						data_type: "text",
+					},
 				]}
 				focusRequest={{
 					token: 2,

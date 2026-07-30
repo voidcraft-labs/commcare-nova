@@ -395,6 +395,9 @@ export async function POST(req: Request) {
 	 * used to scope chat-attachment resolution (`resolveAttachments`) to the
 	 * Project the documents live in. */
 	let projectId: string | undefined;
+	/** Role captured by the same admission as `projectId`; lookup tools pass
+	 * the exact authorized scope into the Project data boundary. */
+	let projectRole: string | undefined;
 	/* Set when this POST claimed an existing app's run window
 	 * (`claimAndReserveRun` — a build flipped to `generating`, or an edit's
 	 * `run_lock` — with the credit debit in the SAME transaction). There is no
@@ -441,6 +444,7 @@ export async function POST(req: Request) {
 		try {
 			projectId = expectedProjectId;
 			const access = await resolveProjectAccess(userId, projectId, "edit");
+			projectRole = access.role;
 			createdAppAccess = {
 				projectId,
 				role: access.role,
@@ -577,6 +581,7 @@ export async function POST(req: Request) {
 			);
 			loadedApp = snapshot.app;
 			projectId = snapshot.projectId;
+			projectRole = snapshot.role;
 		} catch (err) {
 			if (err instanceof AppAccessError) {
 				return Response.json(
@@ -668,7 +673,7 @@ export async function POST(req: Request) {
 			resumeMustCheckSupersede = true;
 		}
 	}
-	if (projectId === undefined) {
+	if (projectId === undefined || projectRole === undefined) {
 		throw new Error(
 			"[chat] compiler invariant: app admission completed without a Project scope",
 		);
@@ -802,6 +807,7 @@ export async function POST(req: Request) {
 					session: keyResult.session,
 					appId,
 					projectId,
+					projectRole,
 					holderNonce,
 					/* An EDIT run (chargeable claim OR free-continuation resume) holds a
 					 * `run_lock`, so it heartbeats the lease off SA activity. A BUILD holds

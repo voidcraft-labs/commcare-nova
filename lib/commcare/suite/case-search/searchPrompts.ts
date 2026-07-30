@@ -188,6 +188,9 @@ export function buildSearchPrompts(
 ): SearchPromptsEmission {
 	const elements: Element[] = [];
 	const strings: Record<string, string> = {};
+	const searchInputNames = new Map(
+		searchInputs.map((input) => [input.uuid, input.name]),
+	);
 
 	for (const input of searchInputs) {
 		// When `input.label` is empty the locale registers `input.name`
@@ -211,6 +214,7 @@ export function buildSearchPrompts(
 				validationLocaleId,
 				runtimeValidation?.test,
 				relationContext,
+				searchInputNames,
 				lookupNaming,
 			),
 		);
@@ -254,8 +258,9 @@ export function emitSearchPrompts(
  * auto-match against the prompt key, silently dropping results when
  * `name !== property` or when the relation walk doesn't resolve.
  *
- * Advanced-arm inputs always carry the attribute: their prompt must
- * bind the typed value for `input(name)` references, but their authored
+ * Advanced-arm inputs always carry the attribute: their prompt must bind the
+ * typed value for UUID-linked input references under each current wire name,
+ * but their authored
  * predicate owns the comparison. Without `exclude`, CommCare Core also
  * submits the prompt as a normal case-property query parameter and
  * silently ANDs that unintended auto-match with `_xpath_query`.
@@ -322,6 +327,7 @@ function buildPromptElement(
 	validationLocaleId: string | undefined,
 	validationTest: string | undefined,
 	relationContext: RelationEvaluationScopeContext,
+	searchInputNames: ReadonlyMap<SearchInputDef["uuid"], string>,
 	lookupNaming?: LookupWireNaming,
 ): Element {
 	const children = [
@@ -340,6 +346,7 @@ function buildPromptElement(
 			input,
 			suppressAutoMatch,
 			relationContext,
+			searchInputNames,
 			lookupNaming,
 		),
 		children,
@@ -370,6 +377,7 @@ function composePromptAttributes(
 	input: SearchInputDef,
 	suppressAutoMatch: boolean,
 	relationContext: RelationEvaluationScopeContext,
+	searchInputNames: ReadonlyMap<SearchInputDef["uuid"], string>,
 	lookupNaming?: LookupWireNaming,
 ): Record<string, string> {
 	const mapping = PROMPT_ATTRIBUTE_MAPPINGS[input.type];
@@ -392,6 +400,7 @@ function composePromptAttributes(
 		attribs.default = compileDefaultExpression(
 			input.default,
 			relationContext,
+			searchInputNames,
 			lookupNaming,
 		);
 	}
@@ -417,6 +426,7 @@ function composePromptAttributes(
 function compileDefaultExpression(
 	expression: ValueExpression,
 	relationContext: RelationEvaluationScopeContext,
+	searchInputNames: ReadonlyMap<SearchInputDef["uuid"], string>,
 	lookupNaming?: LookupWireNaming,
 ): string {
 	return emitOnDeviceExpression(
@@ -424,6 +434,11 @@ function compileDefaultExpression(
 		undefined,
 		relationContext,
 		undefined,
-		lookupNaming === undefined ? {} : { lookup: { naming: lookupNaming } },
+		{
+			searchInputNames,
+			...(lookupNaming === undefined
+				? {}
+				: { lookup: { naming: lookupNaming } }),
+		},
 	);
 }

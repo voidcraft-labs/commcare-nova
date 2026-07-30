@@ -128,6 +128,12 @@ const PATIENT_ALICE_ID = "30000000-0000-0000-0000-000000000001";
 const PATIENT_BOB_ID = "30000000-0000-0000-0000-000000000002";
 const PATIENT_CAROL_ID = "30000000-0000-0000-0000-000000000003";
 
+function firstModuleUuid(doc: BlueprintDoc) {
+	const moduleUuid = doc.moduleOrder[0];
+	if (!moduleUuid) throw new Error("fixture is missing its first module");
+	return moduleUuid;
+}
+
 // Region id-mapping table — re-used by the well-formed wire fixture.
 const REGION_MAPPING = [
 	idMappingEntry("N", "North"),
@@ -369,7 +375,7 @@ describe("SA tool path — column atomic ops", () => {
 	it("threads uuids through add → update → reorder → remove", async () => {
 		const { ctx } = makeStubToolContext({ appId: APP_ID });
 		// Single case-typed module — every SA tool invocation here
-		// targets `moduleIndex: 0`. The `f` helper auto-stamps field
+		// targets the module's stable UUID. The `f` helper auto-stamps field
 		// uuids; explicit case-list slot is omitted so the first
 		// `addCaseListColumns` initializes it.
 		const startDoc = buildDoc({
@@ -415,7 +421,7 @@ describe("SA tool path — column atomic ops", () => {
 		// 1. Add the first column — capture the uuid the tool mints.
 		const addNameResult = await addCaseListColumnsTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: firstModuleUuid(startDoc),
 				columns: [{ kind: "plain", field: "case_name", header: "Patient" }],
 			},
 			ctx,
@@ -435,7 +441,7 @@ describe("SA tool path — column atomic ops", () => {
 		// 2. Add a second column on the post-add doc.
 		const addAgeResult = await addCaseListColumnsTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: firstModuleUuid(startDoc),
 				columns: [{ kind: "plain", field: "age", header: "Age" }],
 			},
 			ctx,
@@ -452,7 +458,7 @@ describe("SA tool path — column atomic ops", () => {
 		// existing uuid back onto the supplied body).
 		const updateResult = await updateCaseListColumnTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: firstModuleUuid(startDoc),
 				columnUuid: ageUuid,
 				column: {
 					kind: "plain",
@@ -472,7 +478,7 @@ describe("SA tool path — column atomic ops", () => {
 		// 4. Reorder — supply both uuids in age-first order.
 		const reorderResult = await reorderCaseListColumnsTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: firstModuleUuid(startDoc),
 				surface: "results",
 				columnUuids: [ageUuid, nameUuid],
 			},
@@ -494,7 +500,7 @@ describe("SA tool path — column atomic ops", () => {
 		// 5. Remove the original first column — still keyed by uuid
 		// so the address survives the prior reorder.
 		const removeResult = await removeCaseListColumnTool.execute(
-			{ moduleIndex: 0, columnUuid: nameUuid },
+			{ moduleUuid: firstModuleUuid(startDoc), columnUuid: nameUuid },
 			ctx,
 			reorderResult.newDoc,
 		);
@@ -517,7 +523,7 @@ describe("SA tool path — column atomic ops", () => {
 		});
 		const result = await updateCaseListColumnTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: firstModuleUuid(doc),
 				columnUuid: asUuid("ffffffff-ffff-ffff-ffff-ffffffffffff"),
 				column: { kind: "plain", field: "case_name", header: "Patient" },
 			},
@@ -802,7 +808,7 @@ describe("SearchInputDef discriminated round-trip", () => {
 		// Add a simple input — capture the uuid the tool mints.
 		const addResult = await addSearchInputsTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: firstModuleUuid(baseDoc),
 				searchInputs: [
 					{
 						kind: "simple",
@@ -830,7 +836,7 @@ describe("SearchInputDef discriminated round-trip", () => {
 		// default across the call.
 		const toAdvancedResult = await updateSearchInputTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: firstModuleUuid(baseDoc),
 				searchInputUuid: inputUuid,
 				searchInput: {
 					kind: "advanced",
@@ -864,7 +870,7 @@ describe("SearchInputDef discriminated round-trip", () => {
 		// are distinct unions — there is no shared "predicate" slot).
 		const toSimpleResult = await updateSearchInputTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: firstModuleUuid(baseDoc),
 				searchInputUuid: inputUuid,
 				searchInput: {
 					kind: "simple",
@@ -907,7 +913,8 @@ describe("SearchInputDef discriminated round-trip", () => {
 // =================================================================
 
 describe("search-input rename — orphan reference surfaces validator error", () => {
-	it("flags an unresolvable input(name) reference inside the filter as CASE_LIST_FILTER_TYPE_ERROR", () => {
+	it("flags an unresolvable search-input UUID inside the filter as CASE_LIST_FILTER_TYPE_ERROR", () => {
+		const orphanInputUuid = asUuid("c394403b-6738-4f91-87c9-ad0c6c2f693f");
 		const moduleUuid = asUuid("11111111-1111-1111-1111-111111111111");
 		const formUuid = asUuid("22222222-2222-2222-2222-222222222222");
 		// The filter references `input("orphan_input")` — no
@@ -939,9 +946,9 @@ describe("search-input rename — orphan reference surfaces validator error", ()
 								"Name",
 							),
 						],
-						filter: eq(prop("patient", "name"), term(input("orphan_input"))),
+						filter: eq(prop("patient", "name"), term(input(orphanInputUuid))),
 						searchInputs: [
-							// Different name — `orphan_input` is not declared.
+							// A different UUID is declared; the reference above is orphaned.
 							simpleSearchInputDef(
 								asUuid("00000000-0000-4000-8000-bbbb00000001"),
 								"declared_input",
@@ -972,7 +979,7 @@ describe("search-input rename — orphan reference surfaces validator error", ()
 			errors.some(
 				(e) =>
 					e.code === "CASE_LIST_FILTER_TYPE_ERROR" &&
-					e.message.includes("orphan_input"),
+					e.message.includes(orphanInputUuid),
 			),
 		).toBe(true);
 	});
@@ -1159,7 +1166,7 @@ describe("sort-priority collision tie-breaks to display order at every layer", (
 
 		const firstUpdate = await updateCaseListColumnTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: firstModuleUuid(startDoc),
 				columnUuid: colFirstUuid,
 				column: {
 					kind: "plain",
@@ -1176,7 +1183,7 @@ describe("sort-priority collision tie-breaks to display order at every layer", (
 		}
 		const secondUpdate = await updateCaseListColumnTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: firstModuleUuid(startDoc),
 				columnUuid: colSecondUuid,
 				column: {
 					kind: "plain",

@@ -86,6 +86,10 @@ import type {
 	StructuredExtractResult,
 } from "./documentExtraction";
 import { type ClassifiedError, classifyError } from "./errorClassifier";
+import {
+	readToolLookupCatalog,
+	readToolLookupDefinitions,
+} from "./lookupContext";
 import { streamObjectWith } from "./subGeneration";
 import type {
 	ConversionImpactFn,
@@ -145,6 +149,8 @@ interface GenerationContextOptions {
 	appId: string;
 	/** Project captured with the run's authoritative app admission. */
 	projectId: string;
+	/** Fresh Better Auth Project role captured by that same admission. */
+	projectRole?: string;
 	/** Server-minted generation of this exact build/edit claim. */
 	holderNonce: string;
 	/**
@@ -212,6 +218,7 @@ export class GenerationContext implements ToolExecutionContext {
 	 * chat route so every context has a valid persistence target. */
 	readonly appId: string;
 	readonly projectId: string;
+	readonly projectRole: string;
 	private _holderNonce: string;
 	/**
 	 * Per-request tiebreaker for same-millisecond SSE bursts. Resets to 0
@@ -278,10 +285,31 @@ export class GenerationContext implements ToolExecutionContext {
 		this.session = opts.session;
 		this.appId = opts.appId;
 		this.projectId = opts.projectId;
+		this.projectRole = opts.projectRole ?? "viewer";
 		this._holderNonce = opts.holderNonce;
 		this.editLease = opts.editLease;
 		this.conversionImpact = opts.conversionImpact;
 	}
+
+	readonly lookupDefinitions: NonNullable<
+		ToolExecutionContext["lookupDefinitions"]
+	> = (tableIds) =>
+		readToolLookupDefinitions(
+			{
+				projectId: this.projectId,
+				actorId: this.userId,
+				role: this.projectRole,
+			},
+			tableIds,
+		);
+
+	readonly lookupCatalog: NonNullable<ToolExecutionContext["lookupCatalog"]> =
+		() =>
+			readToolLookupCatalog({
+				projectId: this.projectId,
+				actorId: this.userId,
+				role: this.projectRole,
+			});
 
 	/** See {@link ToolExecutionContext.conversionImpact} — injected at
 	 * construction (`GenerationContextOptions.conversionImpact`). */

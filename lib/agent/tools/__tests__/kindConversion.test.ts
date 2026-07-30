@@ -1,3 +1,4 @@
+import { asUuid } from "@/lib/domain";
 /**
  * `editField` kind-conversion behavior — the select/text family.
  *
@@ -19,7 +20,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import type { BlueprintDoc, SelectOption } from "@/lib/domain";
+import type { BlueprintDoc } from "@/lib/domain";
 import { makeStubToolContext } from "../../__tests__/fixtures";
 import { editFieldTool } from "../editField";
 
@@ -54,6 +55,14 @@ function soleField(doc: BlueprintDoc, id: string) {
 	return field;
 }
 
+function fieldAddress(doc: BlueprintDoc, id: string) {
+	const moduleUuid = doc.moduleOrder[0];
+	const formUuid = doc.formOrder[moduleUuid]?.[0];
+	if (!moduleUuid || !formUuid)
+		throw new Error("fixture address is incomplete");
+	return { moduleUuid, formUuid, fieldUuid: soleField(doc, id).uuid };
+}
+
 beforeEach(() => {
 	vi.clearAllMocks();
 });
@@ -68,15 +77,24 @@ describe("editField — convert to single_select", () => {
 		const { ctx } = makeStubToolContext();
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "facility",
+				...fieldAddress(doc, "facility"),
 				updates: {
 					kind: "single_select",
-					options: [
-						{ value: "clinic_a", label: "Clinic A" },
-						{ value: "clinic_b", label: "Clinic B" },
-					],
+					optionsSource: {
+						kind: "inline",
+						options: [
+							{
+								uuid: asUuid("df595a12-fece-4e2a-ab96-f18e1c646771"),
+								value: "clinic_a",
+								label: "Clinic A",
+							},
+							{
+								uuid: asUuid("452a0b84-3e5b-4c85-aadd-00ac99335af4"),
+								value: "clinic_b",
+								label: "Clinic B",
+							},
+						],
+					},
 				},
 			},
 			ctx,
@@ -86,11 +104,17 @@ describe("editField — convert to single_select", () => {
 
 		const after = result.newDoc.fields[soleField(doc, "facility").uuid];
 		expect(after?.kind).toBe("single_select");
-		const options = (after as { options?: SelectOption[] }).options ?? [];
+		if (
+			after?.kind !== "single_select" ||
+			after.optionsSource.kind !== "inline"
+		) {
+			throw new Error("expected converted inline select");
+		}
+		const options = after.optionsSource.options;
 		expect(options.map((o) => o.value)).toEqual(["clinic_a", "clinic_b"]);
 		// Identity minted at the batch-building layer — every landed option
-		// carries a uuid + order key, so the per-uuid option diff and a
-		// peer's granular option edits address them immediately.
+		// carries a UUID, so the per-UUID option diff and a peer's granular
+		// option edits address them immediately.
 		for (const opt of options) {
 			expect(opt.uuid).toBeTruthy();
 		}
@@ -102,12 +126,13 @@ describe("editField — convert to single_select", () => {
 		);
 		expect(convertMuts).toHaveLength(1);
 		expect(
-			convertMuts[0] && "options" in convertMuts[0]
-				? convertMuts[0].options?.length
+			convertMuts[0]?.kind === "convertField" &&
+				convertMuts[0].optionsSource?.kind === "inline"
+				? convertMuts[0].optionsSource.options.length
 				: 0,
 		).toBe(2);
 		const optionPatches = result.mutations.filter(
-			(m) => m.kind === "updateField" && "options" in m.patch,
+			(m) => m.kind === "updateField" && "optionsSource" in m.patch,
 		);
 		expect(optionPatches).toHaveLength(0);
 	});
@@ -117,9 +142,7 @@ describe("editField — convert to single_select", () => {
 		const { ctx, recordMutationStages } = makeStubToolContext();
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "facility",
+				...fieldAddress(doc, "facility"),
 				updates: { kind: "single_select" },
 			},
 			ctx,
@@ -136,12 +159,19 @@ describe("editField — convert to single_select", () => {
 		const { ctx, recordMutationStages } = makeStubToolContext();
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "facility",
+				...fieldAddress(doc, "facility"),
 				updates: {
 					kind: "single_select",
-					options: [{ value: "only", label: "Only" }],
+					optionsSource: {
+						kind: "inline",
+						options: [
+							{
+								uuid: asUuid("f265dfcb-c254-4c7b-a08a-1665ca1a76ee"),
+								value: "only",
+								label: "Only",
+							},
+						],
+					},
 				},
 			},
 			ctx,
@@ -164,9 +194,7 @@ describe("editField — convert to hidden", () => {
 		const { ctx } = makeStubToolContext();
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "full_name",
+				...fieldAddress(doc, "full_name"),
 				updates: { kind: "hidden", calculate: 'concat("a", " ", "b")' },
 			},
 			ctx,
@@ -185,9 +213,7 @@ describe("editField — convert to hidden", () => {
 		const { ctx, recordMutationStages } = makeStubToolContext();
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "full_name",
+				...fieldAddress(doc, "full_name"),
 				updates: { kind: "hidden" },
 			},
 			ctx,
@@ -210,9 +236,7 @@ describe("editField — convert to hidden", () => {
 		const { ctx } = makeStubToolContext();
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "visit_stage",
+				...fieldAddress(doc, "visit_stage"),
 				updates: { kind: "hidden" },
 			},
 			ctx,
@@ -236,9 +260,7 @@ describe("editField — demotions", () => {
 		const { ctx } = makeStubToolContext();
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "sample_id",
+				...fieldAddress(doc, "sample_id"),
 				updates: { kind: "text" },
 			},
 			ctx,
@@ -255,17 +277,26 @@ describe("editField — demotions", () => {
 			id: "status",
 			kind: "single_select",
 			label: "Status",
-			options: [
-				{ value: "open", label: "Open" },
-				{ value: "closed", label: "Closed" },
-			],
+			optionsSource: {
+				kind: "inline",
+				options: [
+					{
+						uuid: asUuid("33f92b48-35c9-4825-aa79-508fda325b40"),
+						value: "open",
+						label: "Open",
+					},
+					{
+						uuid: asUuid("9bd11472-ab4f-408a-a73a-9729c0b568df"),
+						value: "closed",
+						label: "Closed",
+					},
+				],
+			},
 		});
 		const { ctx } = makeStubToolContext();
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "status",
+				...fieldAddress(doc, "status"),
 				updates: { kind: "text" },
 			},
 			ctx,
@@ -274,7 +305,9 @@ describe("editField — demotions", () => {
 		if ("error" in result.result) throw new Error(result.result.error);
 		const after = result.newDoc.fields[soleField(doc, "status").uuid];
 		expect(after?.kind).toBe("text");
-		expect((after as { options?: unknown }).options).toBeUndefined();
+		expect(
+			(after as { optionsSource?: unknown }).optionsSource,
+		).toBeUndefined();
 		expect((after as { label?: string }).label).toBe("Status");
 	});
 
@@ -323,15 +356,24 @@ describe("editField — demotions", () => {
 		const { ctx } = makeStubToolContext();
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "facility",
+				...fieldAddress(doc, "facility"),
 				updates: {
 					kind: "single_select",
-					options: [
-						{ value: "clinic_a", label: "Clinic A" },
-						{ value: "clinic_b", label: "Clinic B" },
-					],
+					optionsSource: {
+						kind: "inline",
+						options: [
+							{
+								uuid: asUuid("c9e482d1-7669-4119-a1fa-c62731b6b8ae"),
+								value: "clinic_a",
+								label: "Clinic A",
+							},
+							{
+								uuid: asUuid("61a61bd7-abd1-4f8e-a244-29121d2f733d"),
+								value: "clinic_b",
+								label: "Clinic B",
+							},
+						],
+					},
 				},
 			},
 			ctx,
@@ -408,15 +450,24 @@ describe("editField — demotions", () => {
 		const { ctx } = makeStubToolContext();
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "status",
+				...fieldAddress(doc, "status"),
 				updates: {
 					kind: "single_select",
-					options: [
-						{ value: "open", label: "Open" },
-						{ value: "closed", label: "Closed" },
-					],
+					optionsSource: {
+						kind: "inline",
+						options: [
+							{
+								uuid: asUuid("1b1dde13-e2c3-44ba-ac37-595d6d6f5b5c"),
+								value: "open",
+								label: "Open",
+							},
+							{
+								uuid: asUuid("afb3b35a-41e9-4f75-a723-f03a0bdcc812"),
+								value: "closed",
+								label: "Closed",
+							},
+						],
+					},
 				},
 			},
 			ctx,
@@ -433,8 +484,10 @@ describe("editField — demotions", () => {
 		expect(converted).toHaveLength(2);
 		const optionUuids = new Set<string>();
 		for (const fld of converted) {
-			expect(fld.kind).toBe("single_select");
-			const options = (fld as { options?: SelectOption[] }).options ?? [];
+			if (fld.kind !== "single_select" || fld.optionsSource.kind !== "inline") {
+				throw new Error("expected converted inline select");
+			}
+			const options = fld.optionsSource.options;
 			expect(options.map((o) => o.value)).toEqual(["open", "closed"]);
 			for (const o of options) {
 				expect(o.uuid).toBeTruthy();
@@ -501,15 +554,24 @@ describe("editField — demotions", () => {
 		const { ctx, recordMutationStages } = makeStubToolContext();
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "sample_id",
+				...fieldAddress(doc, "sample_id"),
 				updates: {
 					kind: "single_select",
-					options: [
-						{ value: "a", label: "A" },
-						{ value: "b", label: "B" },
-					],
+					optionsSource: {
+						kind: "inline",
+						options: [
+							{
+								uuid: asUuid("26e24b77-e281-465a-a337-8939c4b699bc"),
+								value: "a",
+								label: "A",
+							},
+							{
+								uuid: asUuid("deb500d3-cbf7-49c6-a40f-f81a4321c225"),
+								value: "b",
+								label: "B",
+							},
+						],
+					},
 				},
 			},
 			ctx,
@@ -578,15 +640,24 @@ describe("editField — demotions", () => {
 		const { ctx } = makeStubToolContext();
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "status",
+				...fieldAddress(doc, "status"),
 				updates: {
 					kind: "single_select",
-					options: [
-						{ value: "open", label: "Open" },
-						{ value: "closed", label: "Closed" },
-					],
+					optionsSource: {
+						kind: "inline",
+						options: [
+							{
+								uuid: asUuid("7f7a4f66-d9f3-46eb-a124-1971d349dc56"),
+								value: "open",
+								label: "Open",
+							},
+							{
+								uuid: asUuid("18f63958-baed-42ba-ab69-81ce21def9e9"),
+								value: "closed",
+								label: "Closed",
+							},
+						],
+					},
 					case_property_on: null,
 				},
 			},
@@ -654,10 +725,21 @@ describe("editField — demotions", () => {
 									kind: "single_select",
 									label: "Language",
 									case_property_on: "patient",
-									options: [
-										{ value: "en", label: "English" },
-										{ value: "fr", label: "French" },
-									],
+									optionsSource: {
+										kind: "inline",
+										options: [
+											{
+												uuid: asUuid("ef623cf3-4e2e-4f80-a3c2-0797c9147ff3"),
+												value: "en",
+												label: "English",
+											},
+											{
+												uuid: asUuid("d7cd20ce-b6b6-47c5-ac22-5b99a04dccf3"),
+												value: "fr",
+												label: "French",
+											},
+										],
+									},
 								}),
 							],
 						},
@@ -668,9 +750,7 @@ describe("editField — demotions", () => {
 		const { ctx, recordMutationStages } = makeStubToolContext();
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "language",
+				...fieldAddress(doc, "language"),
 				updates: { kind: "multi_select" },
 			},
 			ctx,
@@ -739,9 +819,7 @@ describe("editField — demotions", () => {
 		const { ctx } = makeStubToolContext();
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "visit_note",
+				...fieldAddress(doc, "visit_note"),
 				updates: { kind: "hidden", calculate: "today()" },
 			},
 			ctx,
@@ -761,22 +839,31 @@ describe("editField — demotions", () => {
 		expect(result.result.message).not.toContain("matches hidden");
 	});
 
-	it("single ↔ multi conversions keep the existing verbatim-options path (no seed consumed)", async () => {
+	it("single ↔ multi conversions keep the existing source verbatim", async () => {
 		const doc = makeDoc({
 			id: "symptoms",
 			kind: "single_select",
 			label: "Symptoms",
-			options: [
-				{ value: "fever", label: "Fever" },
-				{ value: "cough", label: "Cough" },
-			],
+			optionsSource: {
+				kind: "inline",
+				options: [
+					{
+						uuid: asUuid("4fc16d7b-0f84-478e-ad92-641e0cb7f6c1"),
+						value: "fever",
+						label: "Fever",
+					},
+					{
+						uuid: asUuid("91e79875-3cfb-45cf-a137-505e5d036f7f"),
+						value: "cough",
+						label: "Cough",
+					},
+				],
+			},
 		});
 		const { ctx } = makeStubToolContext();
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "symptoms",
+				...fieldAddress(doc, "symptoms"),
 				updates: { kind: "multi_select" },
 			},
 			ctx,
@@ -787,12 +874,19 @@ describe("editField — demotions", () => {
 		expect(after?.kind).toBe("multi_select");
 		const convertMut = result.mutations.find((m) => m.kind === "convertField");
 		expect(
-			convertMut && "options" in convertMut ? convertMut.options : undefined,
+			convertMut?.kind === "convertField"
+				? convertMut.optionsSource
+				: undefined,
 		).toBeUndefined();
-		expect(
-			((after as { options?: SelectOption[] }).options ?? []).map(
-				(o) => o.value,
-			),
-		).toEqual(["fever", "cough"]);
+		if (
+			after?.kind !== "multi_select" ||
+			after.optionsSource.kind !== "inline"
+		) {
+			throw new Error("expected converted inline multi-select");
+		}
+		expect(after.optionsSource.options.map((option) => option.value)).toEqual([
+			"fever",
+			"cough",
+		]);
 	});
 });

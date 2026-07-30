@@ -102,7 +102,7 @@ export function evaluatePreviewSearchPredicate(
 	const bound = bindSearchInputValuesInPredicate(
 		predicate,
 		expressionValues,
-		new Set(searchInputs.map((input) => input.name)),
+		new Set(searchInputs.map((input) => input.uuid)),
 		searchInputs,
 	);
 	const folded =

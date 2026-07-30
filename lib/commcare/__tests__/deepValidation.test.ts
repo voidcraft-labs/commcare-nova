@@ -623,12 +623,8 @@ function lookupSelectForDag(
 		kind: "single_select",
 		id,
 		label: id.toUpperCase(),
-		options: [
-			{ value: "yes", label: "Yes" },
-			{ value: "no", label: "No" },
-		],
 		optionsSource: {
-			kind: "lookup-table",
+			kind: "lookup",
 			tableId: DAG_LOOKUP_TABLE,
 			valueColumnId: DAG_LOOKUP_COLUMN,
 			labelColumnId: DAG_LOOKUP_COLUMN,
@@ -1460,10 +1456,25 @@ describe("runValidation — bare-id reference suggestion (group-path DX)", () =>
 											kind: "single_select",
 											id: "consent",
 											label: "Consent given?",
-											options: [
-												{ value: "yes", label: "Yes" },
-												{ value: "no", label: "No" },
-											],
+											optionsSource: {
+												kind: "inline",
+												options: [
+													{
+														uuid: asUuid(
+															"43e54172-cb33-4cc3-a16f-98faa999bd4a",
+														),
+														value: "yes",
+														label: "Yes",
+													},
+													{
+														uuid: asUuid(
+															"ff9a9041-85f7-41ba-ab03-dd68dd4c49f7",
+														),
+														value: "no",
+														label: "No",
+													},
+												],
+											},
 										}),
 									],
 								}),

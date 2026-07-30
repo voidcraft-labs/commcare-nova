@@ -2826,7 +2826,13 @@ describe("case workspace chrome", () => {
 				onChange={onChange}
 				caseTypes={SEARCH_CONDITION_CASE_TYPES}
 				currentCaseType="patient"
-				knownInputs={[{ name: "query", data_type: "text" }]}
+				knownInputs={[
+					{
+						uuid: asUuid("d794ebfb-9f47-450f-8af3-964849456a34"),
+						name: "query",
+						data_type: "text",
+					},
+				]}
 				onEditDisplayCondition={onEditDisplayCondition}
 			/>,
 		);
@@ -2852,7 +2858,13 @@ describe("case workspace chrome", () => {
 				onChange={onChange}
 				caseTypes={SEARCH_CONDITION_CASE_TYPES}
 				currentCaseType="patient"
-				knownInputs={[{ name: "query", data_type: "text" }]}
+				knownInputs={[
+					{
+						uuid: asUuid("d794ebfb-9f47-450f-8af3-964849456a34"),
+						name: "query",
+						data_type: "text",
+					},
+				]}
 				hasVisibleSearchScreen={false}
 				onEditDisplayCondition={onEditDisplayCondition}
 			/>,

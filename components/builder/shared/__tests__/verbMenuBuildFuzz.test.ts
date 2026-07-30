@@ -1,3 +1,4 @@
+import { asUuid } from "@/lib/domain";
 // components/builder/shared/__tests__/verbMenuBuildFuzz.test.ts
 //
 // The valid-by-construction GLUE invariant: the EDITOR's own build
@@ -102,7 +103,13 @@ const CT: CaseType = {
 };
 const CASE_TYPES = [PARENT, CT];
 // One known input so `when-input-present` is admitted + resolves.
-const KNOWN_INPUTS = [{ name: "q", data_type: "text" as const }];
+const KNOWN_INPUTS = [
+	{
+		uuid: asUuid("f38dea69-87fd-4b8c-8190-516b176c3b33"),
+		name: "q",
+		data_type: "text" as const,
+	},
+];
 
 const EDIT_CTX: PredicateEditContext = {
 	caseTypes: CASE_TYPES,
@@ -167,7 +174,7 @@ const CURRENTS: Predicate[] = [
 	or(eq(P("text"), literal("x")), eq(P("int"), literal(5))),
 	not(eq(P("text"), literal("x"))),
 	exists(ancestorPath(relationStep("parent"))),
-	whenInput(input("q"), matchAll()),
+	whenInput(input(asUuid("f38dea69-87fd-4b8c-8190-516b176c3b33")), matchAll()),
 	matchAll(),
 	matchNone(),
 ];

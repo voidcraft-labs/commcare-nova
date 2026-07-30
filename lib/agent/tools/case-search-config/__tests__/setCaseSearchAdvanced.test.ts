@@ -16,6 +16,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+	asUuid,
 	type BlueprintDoc,
 	caseSearchConfigSchema,
 	emptyCaseListConfig,
@@ -46,7 +47,7 @@ describe("setCaseSearchAdvanced", () => {
 		const { doc, ctx } = makeCaseSearchFixture();
 		const result = await setCaseSearchAdvancedTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				excludedOwnerIds: term(prop("patient", "name")),
 			},
 			ctx,
@@ -66,7 +67,7 @@ describe("setCaseSearchAdvanced", () => {
 
 		const result = await setCaseSearchAdvancedTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				excludedOwnerIds: excluded,
 			},
 			ctx,
@@ -92,7 +93,7 @@ describe("setCaseSearchAdvanced", () => {
 		const { doc, ctx } = makeCaseSearchFixture();
 		const result = await setCaseSearchAdvancedTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				excludedOwnerIds: term({ kind: "literal", value: "owner-a" }),
 			},
 			ctx,
@@ -128,7 +129,7 @@ describe("setCaseSearchAdvanced", () => {
 
 		const result = await setCaseSearchAdvancedTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				excludedOwnerIds: null,
 			},
 			ctx,
@@ -170,7 +171,7 @@ describe("setCaseSearchAdvanced", () => {
 
 		const result = await setCaseSearchAdvancedTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				excludedOwnerIds: term({ kind: "literal", value: "owner-x" }),
 			},
 			ctx,
@@ -186,11 +187,11 @@ describe("setCaseSearchAdvanced", () => {
 		expect(config?.excludedOwnerIds).toBeDefined();
 	});
 
-	it("returns an Elm-style error on out-of-range moduleIndex", async () => {
+	it("returns an Elm-style error for an unknown module UUID", async () => {
 		const { doc, ctx } = makeCaseSearchFixture();
 		const result = await setCaseSearchAdvancedTool.execute(
 			{
-				moduleIndex: 99,
+				moduleUuid: asUuid("ffffffff-ffff-4fff-8fff-ffffffffffff"),
 				excludedOwnerIds: null,
 			},
 			ctx,
@@ -204,8 +205,7 @@ describe("setCaseSearchAdvanced", () => {
 		expect(result.result.error).toContain(
 			"Tried to set the case-search advanced cluster",
 		);
-		expect(result.result.error).toContain("module index 99");
-		expect(result.result.error).toContain("Found no module");
+		expect(result.result.error).toContain("No module with that uuid");
 	});
 
 	it("initializes the caseSearchConfig when the module has none", async () => {
@@ -220,7 +220,7 @@ describe("setCaseSearchAdvanced", () => {
 
 		const result = await setCaseSearchAdvancedTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				excludedOwnerIds: term({ kind: "literal", value: "owner-a" }),
 			},
 			ctx,
@@ -248,7 +248,7 @@ describe("setCaseSearchAdvanced", () => {
 		};
 		const result = await setCaseSearchAdvancedTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				excludedOwnerIds: term({ kind: "literal", value: "owner-a" }),
 			},
 			ctx,
@@ -275,7 +275,7 @@ describe("setCaseSearchAdvanced", () => {
 			},
 		};
 		const result = await setCaseSearchAdvancedTool.execute(
-			{ moduleIndex: 0, excludedOwnerIds: null },
+			{ moduleUuid: MOD_A, excludedOwnerIds: null },
 			ctx,
 			ownerOnlyDoc,
 		);
@@ -295,7 +295,7 @@ describe("setCaseSearchAdvanced", () => {
 		const { doc, ctx: chatCtx } = makeCaseSearchFixture();
 		const { ctx: mcpCtx } = makeCaseSearchMcpFixture();
 		const input = {
-			moduleIndex: 0,
+			moduleUuid: MOD_A,
 			excludedOwnerIds: term({ kind: "literal", value: "owner-x" }),
 		};
 

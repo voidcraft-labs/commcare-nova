@@ -105,7 +105,7 @@ describe("addFields — identifier guard (chat surface)", () => {
 		const { ctx } = makeStubToolContext();
 		const recordSpy = vi.spyOn(ctx, "recordMutations");
 		const result = await addFieldsTool.execute(
-			{ moduleIndex: 0, formIndex: 0, fields: [textItem("age")] },
+			{ moduleUuid: MOD, formUuid: FORM, fields: [textItem("age")] },
 			ctx,
 			makeDoc(),
 		);
@@ -121,8 +121,8 @@ describe("addFields — identifier guard (chat surface)", () => {
 		const { ctx } = makeStubToolContext();
 		const result = await addFieldsTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
+				moduleUuid: MOD,
+				formUuid: FORM,
 				fields: [textItem("age"), textItem("bad name"), textItem("__nova_x")],
 			},
 			ctx,
@@ -140,8 +140,8 @@ describe("addFields — identifier guard (chat surface)", () => {
 		const recordSpy = vi.spyOn(ctx, "recordMutations");
 		const result = await addFieldsTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
+				moduleUuid: MOD,
+				formUuid: FORM,
 				fields: [textItem("dup"), textItem("dup")],
 			},
 			ctx,
@@ -157,9 +157,10 @@ describe("addFields — identifier guard (chat surface)", () => {
 		const { ctx } = makeStubToolContext();
 		const result = await addFieldsTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fields: [textItem("note", "grp")],
+				moduleUuid: MOD,
+				formUuid: FORM,
+				parentUuid: GRP,
+				fields: [textItem("note")],
 			},
 			ctx,
 			makeDoc(),
@@ -173,9 +174,10 @@ describe("addFields — identifier guard (chat surface)", () => {
 		const recordSpy = vi.spyOn(ctx, "recordMutations");
 		const result = await addFieldsTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fields: [textItem("age", "grp")],
+				moduleUuid: MOD,
+				formUuid: FORM,
+				parentUuid: GRP,
+				fields: [textItem("age")],
 			},
 			ctx,
 			makeDoc(),
@@ -191,8 +193,8 @@ describe("addFields — identifier guard (chat surface)", () => {
 		const recordSpy = vi.spyOn(ctx, "recordMutations");
 		const result = await addFieldsTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
+				moduleUuid: MOD,
+				formUuid: FORM,
 				fields: [textItem("weight"), textItem("height")],
 			},
 			ctx,
@@ -213,7 +215,7 @@ describe("addFields — identifier guard (MCP surface, same tool body)", () => {
 		const { ctx } = makeMcpTestContext();
 		const recordSpy = vi.spyOn(ctx, "recordMutations");
 		const result = await addFieldsTool.execute(
-			{ moduleIndex: 0, formIndex: 0, fields: [textItem("age")] },
+			{ moduleUuid: MOD, formUuid: FORM, fields: [textItem("age")] },
 			ctx,
 			makeDoc(),
 		);

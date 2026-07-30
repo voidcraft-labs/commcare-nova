@@ -108,15 +108,27 @@ describe("applyDefaults", () => {
 		});
 	});
 
-	it("fills in options for select properties", () => {
+	it("fills in an inline source for select properties", () => {
 		const result = applyDefaults(
 			{ id: "gender", kind: "single_select", case_property_on: "patient" },
 			[testCaseType],
 		);
-		expect(result.options).toEqual([
+		expect(result.optionsSource?.kind).toBe("inline");
+		if (result.optionsSource?.kind !== "inline") {
+			throw new Error("expected inline defaults");
+		}
+		expect(
+			result.optionsSource.options.map(({ value, label }) => ({
+				value,
+				label,
+			})),
+		).toEqual([
 			{ value: "male", label: "Male" },
 			{ value: "female", label: "Female" },
 		]);
+		expect(
+			result.optionsSource.options.every((option) => option.uuid.length > 0),
+		).toBe(true);
 	});
 
 	// Kind-aware seeding: a catalog default is applied only when the resolved
@@ -130,7 +142,7 @@ describe("applyDefaults", () => {
 			{ id: "gender", kind: "hidden", case_property_on: "patient" },
 			[testCaseType],
 		);
-		expect(result.options).toBeUndefined();
+		expect(result.optionsSource).toBeUndefined();
 		expect(result.label).toBeUndefined();
 		expect(result.kind).toBe("hidden");
 	});
@@ -254,7 +266,7 @@ describe("applyDefaults", () => {
 
 // A valid SA-authoring payload per kind — the kind the per-kind tool union
 // would accept. `hidden` carries a value but no label; containers take an
-// optional label; selects need ≥2 options; repeat needs a mode.
+// optional label; selects need a complete inline source; repeat needs a mode.
 function validFlatPayload(kind: string): FlatField {
 	const p: Record<string, unknown> = { id: `f_${kind}`, kind };
 	if (kind === "hidden") p.calculate = "today()";
@@ -264,10 +276,21 @@ function validFlatPayload(kind: string): FlatField {
 	} else if (kind === "group") p.label = "Section";
 	else p.label = "Label";
 	if (kind === "single_select" || kind === "multi_select") {
-		p.options = [
-			{ value: "a", label: "A" },
-			{ value: "b", label: "B" },
-		];
+		p.optionsSource = {
+			kind: "inline",
+			options: [
+				{
+					uuid: asUuid("10000000-0000-4000-8000-000000000001"),
+					value: "a",
+					label: "A",
+				},
+				{
+					uuid: asUuid("10000000-0000-4000-8000-000000000002"),
+					value: "b",
+					label: "B",
+				},
+			],
+		};
 	}
 	return p as FlatField;
 }
@@ -343,7 +366,16 @@ describe("flatFieldToField — totality + failure reasons", () => {
 				id: "s",
 				kind: "single_select",
 				label: "S",
-				options: [{ value: "a", label: "A" }],
+				optionsSource: {
+					kind: "inline",
+					options: [
+						{
+							uuid: asUuid("34339475-b4e7-4516-a3e7-dd1e04eedf8d"),
+							value: "a",
+							label: "A",
+						},
+					],
+				},
 			} as FlatField,
 			TEST_UUID,
 			opaqueXPathExpression,

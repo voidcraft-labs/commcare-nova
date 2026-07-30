@@ -433,12 +433,8 @@ function* yieldBundleSlots(
 }
 
 /**
- * Per-option media walk for select-shaped fields. Discriminator-
- * narrowed on `field.kind` so `field.options` reads off the two select
- * arms with their declared `SelectOption[]` type — a future schema
- * change that ships an `options` slot of a different shape on a new
- * arm fails to compile here, rather than getting laundered through a
- * structural cast.
+ * Per-option media walk for inline select sources. Lookup sources contain no
+ * dormant inline body.
  */
 function* walkFieldOptionMedia(
 	field: Field,
@@ -446,7 +442,8 @@ function* walkFieldOptionMedia(
 	ctx: FormWalkContext,
 ): Generator<AssetRef> {
 	if (field.kind !== "single_select" && field.kind !== "multi_select") return;
-	for (const option of field.options) {
+	if (field.optionsSource.kind !== "inline") return;
+	for (const option of field.optionsSource.options) {
 		const media = option.media;
 		if (!media) continue;
 		for (const slotKind of MEDIA_BUNDLE_KEYS) {
@@ -598,8 +595,13 @@ function remapFieldMedia(field: Field, remap: (id: string) => string): void {
 	if ("validate_msg_media" in field) {
 		remapMediaBundle(field.validate_msg_media, remap);
 	}
-	if (field.kind === "single_select" || field.kind === "multi_select") {
-		for (const option of field.options) remapMediaBundle(option.media, remap);
+	if (
+		(field.kind === "single_select" || field.kind === "multi_select") &&
+		field.optionsSource.kind === "inline"
+	) {
+		for (const option of field.optionsSource.options) {
+			remapMediaBundle(option.media, remap);
+		}
 	}
 }
 

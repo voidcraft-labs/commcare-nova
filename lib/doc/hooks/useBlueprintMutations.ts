@@ -61,7 +61,6 @@ import {
 } from "@/lib/doc/lookupReferences";
 import { modulePatchMutations } from "@/lib/doc/modulePatchMutations";
 import { notifyRejectedCommit } from "@/lib/doc/mutations/notify";
-import { withOptionUuids } from "@/lib/doc/optionIdentity";
 import {
 	BlueprintDocContext,
 	BlueprintEditableContext,
@@ -99,7 +98,6 @@ import {
 import {
 	type AssetId,
 	asUuid,
-	type CarrierBlindField,
 	type CaseProperty,
 	type CaseType,
 	type CommitOutcome,
@@ -115,7 +113,6 @@ import {
 	type Module,
 	ownRecordValue,
 	type Persona,
-	type SelectOption,
 	type UserProperty,
 	type UserType,
 } from "@/lib/domain";
@@ -244,10 +241,7 @@ export interface BlueprintMutations {
 	 */
 	addField: <K extends FieldKind>(
 		parentUuid: Uuid,
-		field: { kind: K } & Omit<
-			Extract<CarrierBlindField, { kind: K }>,
-			"uuid" | "kind"
-		> & {
+		field: { kind: K } & Omit<Extract<Field, { kind: K }>, "uuid" | "kind"> & {
 				uuid?: string;
 			},
 		opts?: {
@@ -709,14 +703,6 @@ export function useBlueprintMutations(
 							? maybeUuid
 							: crypto.randomUUID(),
 					);
-					// A born select field's options each need a stable uuid + order
-					// key too — the per-uuid option diff skips a keyless/uuid-less
-					// option, so a picker-created select (whose starter options
-					// carry neither) would lose them. Same minting the SA assembly
-					// uses.
-					const bornOptions = withOptionUuids(
-						(field as { options?: SelectOption[] }).options,
-					);
 					// Field is a discriminated union; the narrowed generic input is a
 					// specific variant's Omit — we stamp the uuid and cast via
 					// `unknown` because the distributive Omit shape doesn't round-trip
@@ -727,7 +713,6 @@ export function useBlueprintMutations(
 					const entity = {
 						...field,
 						uuid,
-						...(bornOptions && { options: bornOptions }),
 					} as unknown as Field;
 
 					// Declaration chokepoint: a field writing to a type absent from
@@ -960,8 +945,13 @@ export function useBlueprintMutations(
 						doc,
 						field,
 						toKind,
-						mintOptions: () =>
-							withOptionUuids([...DEFAULT_SELECT_OPTIONS]) ?? [],
+						mintOptionsSource: () => ({
+							kind: "inline",
+							options: DEFAULT_SELECT_OPTIONS.map((option) => ({
+								...option,
+								uuid: asUuid(crypto.randomUUID()),
+							})),
+						}),
 					});
 					if (!plan.ok) {
 						const message =

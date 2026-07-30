@@ -344,7 +344,7 @@ export const FIELD_REFERENCE_SLOTS = [
 	{
 		entity: "field",
 		slot: "option_label",
-		path: "options[].label",
+		path: "optionsSource.options[].label",
 		kind: "prose",
 		appliesTo: SELECT_KINDS,
 	},

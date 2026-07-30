@@ -24,9 +24,10 @@ import type { BlueprintDocStoreApi } from "@/lib/doc/store";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	asUuid,
-	type LookupOptionsSource,
 	lookupOptionsSourceSchema,
 	type PersistableDoc,
+	type SelectOptionsSource,
+	selectOptionsSourceSchema,
 } from "@/lib/domain";
 import type { MutationEvent } from "@/lib/log/types";
 import type { BuilderSessionStoreApi } from "@/lib/session/store";
@@ -55,28 +56,32 @@ const LOOKUP_FIELD = asUuid("30000000-0000-4000-8000-000000000000");
 const LOOKUP_OPTION_A = asUuid("40000000-0000-4000-8000-000000000000");
 const LOOKUP_OPTION_B = asUuid("50000000-0000-4000-8000-000000000000");
 const LOOKUP_SOURCE_A = lookupOptionsSourceSchema.parse({
-	kind: "lookup-table",
+	kind: "lookup",
 	tableId: "018f3e8a-7b2c-7def-8abc-1234567890ab",
 	valueColumnId: "018f3e8a-7b2c-7def-8abc-1234567890ad",
 	labelColumnId: "018f3e8a-7b2c-7def-8abc-1234567890ae",
 });
 const LOOKUP_SOURCE_B = lookupOptionsSourceSchema.parse({
-	kind: "lookup-table",
+	kind: "lookup",
 	tableId: "018f3e8a-7b2c-7def-8abc-1234567890ac",
 	valueColumnId: "018f3e8a-7b2c-7def-8abc-1234567890af",
 	labelColumnId: "018f3e8a-7b2c-7def-8abc-1234567890b0",
 });
+const INLINE_SOURCE = selectOptionsSourceSchema.parse({
+	kind: "inline",
+	options: [
+		{ uuid: LOOKUP_OPTION_A, value: "active", label: "Active" },
+		{ uuid: LOOKUP_OPTION_B, value: "closed", label: "Closed" },
+	],
+});
 
-function lookupSourceMutation(
-	optionsSource: LookupOptionsSource | null,
-): Mutation {
+function lookupSourceMutation(optionsSource: SelectOptionsSource) {
 	return {
 		kind: "updateField",
 		uuid: LOOKUP_FIELD,
 		targetKind: "single_select",
-		patch: {},
-		optionsSource,
-	};
+		patch: { optionsSource },
+	} satisfies Mutation;
 }
 
 function lookupReceiverDoc(): PersistableDoc {
@@ -106,18 +111,21 @@ function lookupReceiverDoc(): PersistableDoc {
 				id: "status",
 				kind: "single_select",
 				label: "Status",
-				options: [
-					{
-						uuid: LOOKUP_OPTION_A,
-						value: "active",
-						label: "Active",
-					},
-					{
-						uuid: LOOKUP_OPTION_B,
-						value: "closed",
-						label: "Closed",
-					},
-				],
+				optionsSource: {
+					kind: "inline",
+					options: [
+						{
+							uuid: LOOKUP_OPTION_A,
+							value: "active",
+							label: "Active",
+						},
+						{
+							uuid: LOOKUP_OPTION_B,
+							value: "closed",
+							label: "Closed",
+						},
+					],
+				},
 			},
 		},
 		moduleOrder: [LOOKUP_MODULE],
@@ -296,22 +304,19 @@ describe("applyStreamEvent — data-mutations", () => {
 		);
 	});
 
-	it("replays lookup-source set, replace, and explicit-null clear from raw generation SSE payloads", () => {
+	it("replays complete lookup and inline source replacements from raw generation SSE payloads", () => {
 		hydrateDoc(docStore, lookupReceiverDoc());
 		const setSource = lookupSourceMutation(LOOKUP_SOURCE_A);
 		const replaceSource = lookupSourceMutation(LOOKUP_SOURCE_B);
-		const clearSource = lookupSourceMutation(null);
+		const inlineSource = lookupSourceMutation(INLINE_SOURCE);
 
-		expect(owns(clearSource, "optionsSource")).toBe(true);
-		expect(clearSource).toHaveProperty("optionsSource", null);
-
-		const payloads = [setSource, replaceSource, clearSource].map(
+		const payloads = [setSource, replaceSource, inlineSource].map(
 			rawLookupPayload,
 		);
 		for (const [index, expectedSource] of [
 			LOOKUP_SOURCE_A,
 			LOOKUP_SOURCE_B,
-			null,
+			INLINE_SOURCE,
 		].entries()) {
 			const payload = payloads[index];
 			if (!payload) throw new Error(`missing raw lookup payload ${index}`);
@@ -327,15 +332,22 @@ describe("applyStreamEvent — data-mutations", () => {
 				throw new Error(`malformed raw lookup payload ${index}`);
 			}
 
-			/* Both copies in the SSE payload survive JSON whole. The origin-shape
-			 * nested patch stays empty/carrier-blind; only the current receiver
-			 * consumes the top-level semantic extension. */
-			expect(owns(rawMutation, "optionsSource")).toBe(true);
-			expect(rawMutation.optionsSource).toEqual(expectedSource);
-			expect(rawMutation.patch).toEqual({});
-			expect(rawMutation.patch).not.toHaveProperty("optionsSource");
-			expect(owns(rawEvent.mutation, "optionsSource")).toBe(true);
-			expect(rawEvent.mutation.optionsSource).toEqual(expectedSource);
+			/* Both copies in the SSE payload preserve the canonical complete
+			 * source arm. */
+			expect(
+				owns(rawMutation.patch as Record<string, unknown>, "optionsSource"),
+			).toBe(true);
+			expect(rawMutation).toHaveProperty("patch.optionsSource", expectedSource);
+			expect(
+				owns(
+					rawEvent.mutation.patch as Record<string, unknown>,
+					"optionsSource",
+				),
+			).toBe(true);
+			expect(rawEvent.mutation).toHaveProperty(
+				"patch.optionsSource",
+				expectedSource,
+			);
 
 			applyStreamEvent(
 				"data-mutations",
@@ -350,35 +362,46 @@ describe("applyStreamEvent — data-mutations", () => {
 			if (field?.kind !== "single_select") {
 				throw new Error("lookup receiver field is missing");
 			}
-			expect(field.optionsSource).toEqual(expectedSource ?? undefined);
-			expect(
-				field.options.map(({ value, label }) => ({ value, label })),
-			).toEqual([
-				{ value: "active", label: "Active" },
-				{ value: "closed", label: "Closed" },
-			]);
+			expect(field.optionsSource).toEqual(expectedSource);
 		}
 
-		const rawClear = payloads[2]?.mutations as
+		const rawInline = payloads[2]?.mutations as
 			| Record<string, unknown>[]
 			| undefined;
-		const rawClearEvent = payloads[2]?.events as
+		const rawInlineEvent = payloads[2]?.events as
 			| Array<{ mutation?: Record<string, unknown> }>
 			| undefined;
-		expect(owns(rawClear?.[0] ?? {}, "optionsSource")).toBe(true);
-		expect(rawClear?.[0]?.optionsSource).toBeNull();
-		expect(owns(rawClearEvent?.[0]?.mutation ?? {}, "optionsSource")).toBe(
-			true,
+		expect(
+			owns(
+				(rawInline?.[0]?.patch as Record<string, unknown>) ?? {},
+				"optionsSource",
+			),
+		).toBe(true);
+		expect(rawInline?.[0]).toHaveProperty("patch.optionsSource", INLINE_SOURCE);
+		expect(
+			owns(
+				(rawInlineEvent?.[0]?.mutation?.patch as Record<string, unknown>) ?? {},
+				"optionsSource",
+			),
+		).toBe(true);
+		expect(rawInlineEvent?.[0]?.mutation).toHaveProperty(
+			"patch.optionsSource",
+			INLINE_SOURCE,
 		);
-		expect(rawClearEvent?.[0]?.mutation?.optionsSource).toBeNull();
 
-		const bufferedClear = sessionStore.getState().events.at(-1);
-		expect(bufferedClear?.kind).toBe("mutation");
-		if (bufferedClear?.kind !== "mutation") {
-			throw new Error("clear MutationEvent was not buffered");
+		const bufferedInline = sessionStore.getState().events.at(-1);
+		expect(bufferedInline?.kind).toBe("mutation");
+		if (bufferedInline?.kind !== "mutation") {
+			throw new Error("inline replacement MutationEvent was not buffered");
 		}
-		expect(owns(bufferedClear.mutation, "optionsSource")).toBe(true);
-		expect(bufferedClear.mutation).toHaveProperty("optionsSource", null);
+		if (bufferedInline.mutation.kind !== "updateField") {
+			throw new Error("inline replacement is not an updateField");
+		}
+		expect(owns(bufferedInline.mutation.patch, "optionsSource")).toBe(true);
+		expect(bufferedInline.mutation).toHaveProperty(
+			"patch.optionsSource",
+			INLINE_SOURCE,
+		);
 		expect(sessionStore.getState().events).toHaveLength(3);
 	});
 

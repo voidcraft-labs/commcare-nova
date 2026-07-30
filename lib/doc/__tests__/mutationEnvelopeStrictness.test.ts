@@ -69,14 +69,17 @@ const validSelectField = {
 	id: "status",
 	kind: "single_select",
 	label: "Status",
-	options: [
-		{ uuid: OPTION_A, value: "active", label: "Active" },
-		{ uuid: OPTION_B, value: "closed", label: "Closed" },
-	],
+	optionsSource: {
+		kind: "inline",
+		options: [
+			{ uuid: OPTION_A, value: "active", label: "Active" },
+			{ uuid: OPTION_B, value: "closed", label: "Closed" },
+		],
+	},
 } as const;
 
 const optionsSource = {
-	kind: "lookup-table",
+	kind: "lookup",
 	tableId: TABLE,
 	valueColumnId: VALUE_COLUMN,
 	labelColumnId: LABEL_COLUMN,
@@ -170,55 +173,20 @@ describe("mutation envelope strictness", () => {
 		},
 	);
 
-	it("rejects optionsSource smuggled inside content the union would otherwise strip", () => {
-		const payload = {
-			kind: "setAppName",
-			name: "Patients",
-			futureExtension: {
-				optionsSource,
-			},
-		};
-		expect(rollingUnion.parse(payload)).toEqual({
-			kind: "setAppName",
-			name: "Patients",
-		});
-
-		for (const schema of [mutationSchema, canonicalMutationSchema]) {
-			const parsed = schema.safeParse(payload);
-			expect(parsed.success).toBe(false);
-			if (parsed.success) continue;
-			expect(parsed.error.issues).toContainEqual(
-				expect.objectContaining({
-					code: "custom",
-					path: ["futureExtension", "optionsSource"],
-				}),
-			);
-		}
-	});
-
 	it.each([
 		{
 			kind: "addField",
 			parentUuid: FORM,
-			field: validSelectField,
-			optionsSource,
+			field: { ...validSelectField, optionsSource },
 		},
 		{
 			kind: "updateField",
 			uuid: FIELD,
 			targetKind: "single_select",
-			patch: {},
-			optionsSource,
-		},
-		{
-			kind: "updateField",
-			uuid: FIELD,
-			targetKind: "single_select",
-			patch: {},
-			optionsSource: null,
+			patch: { optionsSource },
 		},
 	] as const)(
-		"round-trips legitimate top-level $kind optionsSource intent",
+		"round-trips legitimate nested $kind optionsSource intent",
 		(payload) => {
 			for (const schema of [mutationSchema, canonicalMutationSchema]) {
 				const wire = JSON.parse(JSON.stringify(payload));

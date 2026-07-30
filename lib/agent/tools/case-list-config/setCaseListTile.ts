@@ -58,7 +58,6 @@ import {
 	type Column,
 	type Uuid,
 } from "@/lib/domain";
-import { resolveModuleUuid } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import {
 	guardedMutate,
@@ -70,13 +69,14 @@ import {
 	caseTileLayoutInputSchema,
 	moduleNotFoundResult,
 	tilePlacementInputSchema,
+	uuidInputSchema,
 } from "./shared";
 
 export const setCaseListTileInputSchema = z
 	.object({
-		moduleIndex: z
-			.number()
-			.describe("0-based module index whose case list to lay out"),
+		moduleUuid: uuidInputSchema.describe(
+			"Stable uuid of the module whose case list is laid out",
+		),
 		tile: caseTileLayoutInputSchema
 			.nullable()
 			.optional()
@@ -126,27 +126,21 @@ export const setCaseListTileTool = {
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<SetCaseListTileResult>> {
-		const { moduleIndex, tile, placements } = input;
+		const { moduleUuid: rawModuleUuid, tile, placements } = input;
+		const moduleUuid = asUuid(rawModuleUuid);
 		try {
-			const moduleUuid = resolveModuleUuid(doc, moduleIndex);
-			if (!moduleUuid)
-				return moduleNotFoundResult<SetCaseListTileSuccess>(
-					doc,
-					moduleIndex,
-					"lay out the case list as a tile",
-				);
 			const mod = doc.modules[moduleUuid];
 			if (!mod)
 				return moduleNotFoundResult<SetCaseListTileSuccess>(
 					doc,
-					moduleIndex,
+					rawModuleUuid,
 					"lay out the case list as a tile",
 				);
 
 			if (tile === undefined && placements === undefined) {
 				return errorResult(
 					doc,
-					`Tried to lay out the case list on module "${mod.name}" (index ${moduleIndex}). The call named neither \`tile\` nor \`placements\`, so there was nothing to change. Pass \`tile\` to turn the tile layout on or off, \`placements\` to place fields on the grid, or both together.`,
+					`Tried to lay out the case list on module "${mod.name}". The call named neither \`tile\` nor \`placements\`, so there was nothing to change. Pass \`tile\` to turn the tile layout on or off, \`placements\` to place fields on the grid, or both together.`,
 				);
 			}
 
@@ -154,7 +148,7 @@ export const setCaseListTileTool = {
 			if (!config) {
 				return errorResult(
 					doc,
-					`Tried to lay out the case list on module "${mod.name}" (index ${moduleIndex}). That module has no case list, so there is nothing to lay out. Give the module a case list first — a module that shows cases is created with one — or lay out a module that already has one.`,
+					`Tried to lay out the case list on module "${mod.name}". That module has no case list, so there is nothing to lay out. Give the module a case list first — a module that shows cases is created with one — or lay out a module that already has one.`,
 				);
 			}
 
@@ -203,7 +197,7 @@ export const setCaseListTileTool = {
 				ctx,
 				doc,
 				mutations,
-				`module:${moduleIndex}:caseList:tile`,
+				`module:${moduleUuid}:caseList:tile`,
 			);
 			if (!commit.ok) {
 				return errorResult(doc, commit.error);
@@ -233,7 +227,6 @@ export const setCaseListTileTool = {
 				result: {
 					message: describeOutcome({
 						moduleName: mod.name,
-						moduleIndex,
 						tile,
 						nextLayout: committedConfig.tile,
 						placementCount: named.size,
@@ -277,13 +270,12 @@ function errorResult(
  */
 function describeOutcome(facts: {
 	moduleName: string;
-	moduleIndex: number;
 	tile: CaseTileLayout | null | undefined;
 	nextLayout: CaseTileLayout | undefined;
 	placementCount: number;
 	unplacedColumnUuids: readonly Uuid[];
 }): string {
-	const where = `module "${facts.moduleName}" (index ${facts.moduleIndex})`;
+	const where = `module "${facts.moduleName}"`;
 	const parts: string[] = [];
 	if (facts.tile === null) {
 		parts.push(

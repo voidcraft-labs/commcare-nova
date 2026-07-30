@@ -11,41 +11,42 @@
  */
 
 import type { Predicate, ValueExpression } from "@/lib/domain/predicate";
+import type { Uuid } from "@/lib/domain/uuid";
 import { isNativeCsqlValueExpression } from "../expression/csqlEmitter";
 import { normalizeCsqlPredicate } from "./csqlRepresentability";
 
 type OperandPosition = "comparison-operand" | "value";
 
 /**
- * Collect prompt names whose raw runtime value is quoted into the emitted CSQL
+ * Collect prompt identities whose raw runtime value is quoted into emitted CSQL
  * query. Reversible comparison normalization runs first so a subcase-count
  * authored on the RHS is treated as the native LHS anchor the emitter creates.
  */
-export function collectRuntimeCsqlStringInputNames(
+export function collectRuntimeCsqlStringInputUuids(
 	predicate: Predicate | undefined,
-): ReadonlySet<string> {
-	const names = new Set<string>();
+): ReadonlySet<Uuid> {
+	const inputUuids = new Set<Uuid>();
 	if (predicate !== undefined) {
 		collectPredicateRuntimeStringInputs(
 			normalizeCsqlPredicate(predicate),
-			names,
+			inputUuids,
 		);
 	}
-	return names;
+	return inputUuids;
 }
 
 /** Prompt bytes that can survive into one on-device-computed string result. */
-export function collectRuntimeCsqlStringExpressionInputNames(
+export function collectRuntimeCsqlStringExpressionInputUuids(
 	expression: ValueExpression,
-): ReadonlySet<string> {
-	const names = new Set<string>();
-	collectOnDeviceOutputTaint(expression, names);
-	return names;
+): ReadonlySet<Uuid> {
+	const inputUuids = new Set<Uuid>();
+	collectOnDeviceOutputTaint(expression, inputUuids);
+	return inputUuids;
 }
 
 function collectPredicateRuntimeStringInputs(
 	predicate: Predicate,
-	names: Set<string>,
+	inputUuids: Set<Uuid>,
 ): void {
 	switch (predicate.kind) {
 		case "match-all":
@@ -61,9 +62,13 @@ function collectPredicateRuntimeStringInputs(
 			collectServerOperandRuntimeStringInputs(
 				predicate.left,
 				"comparison-operand",
-				names,
+				inputUuids,
 			);
-			collectServerOperandRuntimeStringInputs(predicate.right, "value", names);
+			collectServerOperandRuntimeStringInputs(
+				predicate.right,
+				"value",
+				inputUuids,
+			);
 			return;
 		case "in":
 		case "is-null":
@@ -71,54 +76,62 @@ function collectPredicateRuntimeStringInputs(
 			collectServerOperandRuntimeStringInputs(
 				predicate.left,
 				"comparison-operand",
-				names,
+				inputUuids,
 			);
 			return;
 		case "between":
 			collectServerOperandRuntimeStringInputs(
 				predicate.left,
 				"comparison-operand",
-				names,
+				inputUuids,
 			);
 			if (predicate.lower !== undefined) {
 				collectServerOperandRuntimeStringInputs(
 					predicate.lower,
 					"value",
-					names,
+					inputUuids,
 				);
 			}
 			if (predicate.upper !== undefined) {
 				collectServerOperandRuntimeStringInputs(
 					predicate.upper,
 					"value",
-					names,
+					inputUuids,
 				);
 			}
 			return;
 		case "match":
-			collectServerOperandRuntimeStringInputs(predicate.value, "value", names);
+			collectServerOperandRuntimeStringInputs(
+				predicate.value,
+				"value",
+				inputUuids,
+			);
 			return;
 		case "within-distance":
-			collectServerOperandRuntimeStringInputs(predicate.center, "value", names);
+			collectServerOperandRuntimeStringInputs(
+				predicate.center,
+				"value",
+				inputUuids,
+			);
 			return;
 		case "and":
 		case "or":
 			for (const clause of predicate.clauses) {
-				collectPredicateRuntimeStringInputs(clause, names);
+				collectPredicateRuntimeStringInputs(clause, inputUuids);
 			}
 			return;
 		case "not":
-			collectPredicateRuntimeStringInputs(predicate.clause, names);
+			collectPredicateRuntimeStringInputs(predicate.clause, inputUuids);
 			return;
 		case "when-input-present":
 			// The trigger contributes only `count(input)` to the wrapper. Its
 			// bytes decide whether the clause runs but never enter CSQL.
-			collectPredicateRuntimeStringInputs(predicate.clause, names);
+			collectPredicateRuntimeStringInputs(predicate.clause, inputUuids);
 			return;
 		case "exists":
 		case "missing":
 			if (predicate.where !== undefined) {
-				collectPredicateRuntimeStringInputs(predicate.where, names);
+				collectPredicateRuntimeStringInputs(predicate.where, inputUuids);
 			}
 			return;
 		default: {
@@ -133,7 +146,7 @@ function collectPredicateRuntimeStringInputs(
 function collectServerOperandRuntimeStringInputs(
 	expression: ValueExpression,
 	position: OperandPosition,
-	names: Set<string>,
+	inputUuids: Set<Uuid>,
 ): void {
 	if (expression.kind === "count") {
 		if (
@@ -141,7 +154,7 @@ function collectServerOperandRuntimeStringInputs(
 			expression.via.kind === "subcase" &&
 			expression.where !== undefined
 		) {
-			collectPredicateRuntimeStringInputs(expression.where, names);
+			collectPredicateRuntimeStringInputs(expression.where, inputUuids);
 		}
 		// Every non-native count becomes an on-device number. Input bytes
 		// may influence that number without appearing in its quoted output.
@@ -149,13 +162,15 @@ function collectServerOperandRuntimeStringInputs(
 	}
 
 	if (!isNativeCsqlValueExpression(expression)) {
-		collectOnDeviceOutputTaint(expression, names);
+		collectOnDeviceOutputTaint(expression, inputUuids);
 		return;
 	}
 
 	switch (expression.kind) {
 		case "term":
-			if (expression.term.kind === "input") names.add(expression.term.name);
+			if (expression.term.kind === "input") {
+				inputUuids.add(expression.term.searchInputUuid);
+			}
 			return;
 		case "today":
 		case "now":
@@ -167,14 +182,22 @@ function collectServerOperandRuntimeStringInputs(
 		case "datetime-coerce":
 		case "double":
 		case "unwrap-list":
-			collectServerOperandRuntimeStringInputs(expression.value, "value", names);
+			collectServerOperandRuntimeStringInputs(
+				expression.value,
+				"value",
+				inputUuids,
+			);
 			return;
 		case "date-add":
-			collectServerOperandRuntimeStringInputs(expression.date, "value", names);
+			collectServerOperandRuntimeStringInputs(
+				expression.date,
+				"value",
+				inputUuids,
+			);
 			collectServerOperandRuntimeStringInputs(
 				expression.quantity,
 				"value",
-				names,
+				inputUuids,
 			);
 			return;
 		case "arith":
@@ -199,34 +222,36 @@ function collectServerOperandRuntimeStringInputs(
 /** Follow only on-device outputs that can preserve entered quote bytes. */
 function collectOnDeviceOutputTaint(
 	expression: ValueExpression,
-	names: Set<string>,
+	inputUuids: Set<Uuid>,
 ): void {
 	switch (expression.kind) {
 		case "term":
-			if (expression.term.kind === "input") names.add(expression.term.name);
+			if (expression.term.kind === "input") {
+				inputUuids.add(expression.term.searchInputUuid);
+			}
 			return;
 		case "concat":
 			for (const part of expression.parts) {
-				collectOnDeviceOutputTaint(part, names);
+				collectOnDeviceOutputTaint(part, inputUuids);
 			}
 			return;
 		case "coalesce":
 			for (const value of expression.values) {
-				collectOnDeviceOutputTaint(value, names);
+				collectOnDeviceOutputTaint(value, inputUuids);
 			}
 			return;
 		case "if":
-			collectOnDeviceOutputTaint(expression.then, names);
-			collectOnDeviceOutputTaint(expression.else, names);
+			collectOnDeviceOutputTaint(expression.then, inputUuids);
+			collectOnDeviceOutputTaint(expression.else, inputUuids);
 			return;
 		case "switch":
 			for (const entry of expression.cases) {
-				collectOnDeviceOutputTaint(entry.then, names);
+				collectOnDeviceOutputTaint(entry.then, inputUuids);
 			}
-			collectOnDeviceOutputTaint(expression.fallback, names);
+			collectOnDeviceOutputTaint(expression.fallback, inputUuids);
 			return;
 		case "unwrap-list":
-			collectOnDeviceOutputTaint(expression.value, names);
+			collectOnDeviceOutputTaint(expression.value, inputUuids);
 			return;
 		case "today":
 		case "now":

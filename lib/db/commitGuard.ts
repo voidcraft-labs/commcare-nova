@@ -115,9 +115,8 @@ export function batchTargetsMissing(
 	// column / search-input / option the batch edits, moves, or removes must
 	// still exist — a concurrent DELETE of the same item makes the reducer
 	// silently no-op instead of surfacing the conflict, the exact invisible
-	// data loss this guard closes. Option uuids are already present: the fresh
-	// doc was hydrated (backfilled) before this runs. Column / search-input
-	// uuids are schema-required.
+	// data loss this guard closes. Option, column, and Search-input UUIDs are
+	// schema-required.
 	const columns = new Set<string>();
 	const searchInputs = new Set<string>();
 	// Modules whose `caseListConfig` is present. `setCaseListMeta` EDITS an
@@ -135,11 +134,31 @@ export function batchTargetsMissing(
 		for (const col of config.columns) columns.add(col.uuid);
 		for (const input of config.searchInputs) searchInputs.add(input.uuid);
 	}
-	const options = new Set<string>();
+	const inlineOptionFields = new Set<string>();
+	const optionOwners = new Map<string, string>();
+	const clearInlineOptions = (fieldUuid: string) => {
+		inlineOptionFields.delete(fieldUuid);
+		for (const [optionUuid, owner] of optionOwners) {
+			if (owner === fieldUuid) optionOwners.delete(optionUuid);
+		}
+	};
+	const seedOptionsSource = (
+		fieldUuid: string,
+		source: Extract<
+			BlueprintDoc["fields"][string],
+			{ kind: "single_select" | "multi_select" }
+		>["optionsSource"],
+	) => {
+		clearInlineOptions(fieldUuid);
+		if (source.kind !== "inline") return;
+		inlineOptionFields.add(fieldUuid);
+		for (const option of source.options) {
+			optionOwners.set(option.uuid, fieldUuid);
+		}
+	};
 	for (const field of Object.values(doc.fields)) {
-		if (!("options" in field) || !Array.isArray(field.options)) continue;
-		for (const opt of field.options) {
-			if (opt.uuid !== undefined) options.add(opt.uuid);
+		if (field.kind === "single_select" || field.kind === "multi_select") {
+			seedOptionsSource(field.uuid, field.optionsSource);
 		}
 	}
 	// The three flat user collections, tracked at the same item granularity:
@@ -342,18 +361,37 @@ export function batchTargetsMissing(
 			case "addField":
 				if (!container(m.parentUuid)) return true;
 				fields.add(m.field.uuid);
+				if (
+					m.field.kind === "single_select" ||
+					m.field.kind === "multi_select"
+				) {
+					seedOptionsSource(m.field.uuid, m.field.optionsSource);
+				}
 				break;
 			case "removeField":
 				if (!fields.has(m.uuid)) return true;
 				fields.delete(m.uuid);
+				clearInlineOptions(m.uuid);
 				break;
 			case "moveField":
 				if (!fields.has(m.uuid) || !container(m.toParentUuid)) return true;
 				break;
 			case "renameField":
+				if (!fields.has(m.uuid)) return true;
+				break;
 			case "updateField":
+				if (!fields.has(m.uuid)) return true;
+				if ("optionsSource" in m.patch && m.patch.optionsSource !== undefined) {
+					seedOptionsSource(m.uuid, m.patch.optionsSource);
+				}
+				break;
 			case "convertField":
 				if (!fields.has(m.uuid)) return true;
+				if (m.toKind !== "single_select" && m.toKind !== "multi_select") {
+					clearInlineOptions(m.uuid);
+				} else if (m.optionsSource !== undefined) {
+					seedOptionsSource(m.uuid, m.optionsSource);
+				}
 				break;
 			case "setFieldMedia":
 				if (!fields.has(m.fieldUuid)) return true;
@@ -428,16 +466,22 @@ export function batchTargetsMissing(
 				break;
 			// ── Granular select options (field-owned) ──────────────────
 			case "addOption":
-				if (!fields.has(m.fieldUuid)) return true;
-				if (m.option.uuid !== undefined) options.add(m.option.uuid);
+				if (
+					!fields.has(m.fieldUuid) ||
+					!inlineOptionFields.has(m.fieldUuid) ||
+					optionOwners.has(m.option.uuid)
+				) {
+					return true;
+				}
+				optionOwners.set(m.option.uuid, m.fieldUuid);
 				break;
 			case "removeOption":
-				if (!options.has(m.uuid)) return true;
-				options.delete(m.uuid);
+				if (optionOwners.get(m.uuid) !== m.fieldUuid) return true;
+				optionOwners.delete(m.uuid);
 				break;
 			case "updateOption":
 			case "moveOption":
-				if (!options.has(m.uuid)) return true;
+				if (optionOwners.get(m.uuid) !== m.fieldUuid) return true;
 				break;
 			// ── User properties, user types, personas ──────────────────
 			case "addUserProperty":

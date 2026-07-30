@@ -264,6 +264,10 @@ describe("registerGetAgentPrompt — edit mode happy path", () => {
 		 * than a spurious empty-doc fallback). */
 		expect(text).toContain("Vaccine Tracker");
 		expect(text).toContain("Patients");
+		expect(text).not.toMatch(/\bModule \d+\b|\bForm \d+\b/);
+		expect(text).toContain(
+			'Module "Patients" [uuid 11111111-1111-1111-1111-111111111111]',
+		);
 
 		/* Renderer received `(interactive, doc)` — confirms the
 		 * handler did the threading rather than dropping the doc. */

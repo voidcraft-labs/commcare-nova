@@ -70,9 +70,10 @@ import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	asUuid,
-	type LookupOptionsSource,
 	lookupOptionsSourceSchema,
 	type PersistableDoc,
+	type SelectOptionsSource,
+	selectOptionsSourceSchema,
 } from "@/lib/domain";
 
 // ── Auth mocks (no Better Auth / membership tables for the relay) ──────────
@@ -161,16 +162,23 @@ const LOOKUP_FIELD = asUuid("30000000-0000-4000-8000-000000000000");
 const LOOKUP_OPTION_A = asUuid("40000000-0000-4000-8000-000000000000");
 const LOOKUP_OPTION_B = asUuid("50000000-0000-4000-8000-000000000000");
 const LOOKUP_SOURCE_A = lookupOptionsSourceSchema.parse({
-	kind: "lookup-table",
+	kind: "lookup",
 	tableId: "018f3e8a-7b2c-7def-8abc-1234567890ab",
 	valueColumnId: "018f3e8a-7b2c-7def-8abc-1234567890ad",
 	labelColumnId: "018f3e8a-7b2c-7def-8abc-1234567890ae",
 });
 const LOOKUP_SOURCE_B = lookupOptionsSourceSchema.parse({
-	kind: "lookup-table",
+	kind: "lookup",
 	tableId: "018f3e8a-7b2c-7def-8abc-1234567890ac",
 	valueColumnId: "018f3e8a-7b2c-7def-8abc-1234567890af",
 	labelColumnId: "018f3e8a-7b2c-7def-8abc-1234567890b0",
+});
+const INLINE_SOURCE = selectOptionsSourceSchema.parse({
+	kind: "inline",
+	options: [
+		{ uuid: LOOKUP_OPTION_A, value: "active", label: "Active" },
+		{ uuid: LOOKUP_OPTION_B, value: "closed", label: "Closed" },
+	],
 });
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -241,16 +249,13 @@ async function writeEntry(
 	});
 }
 
-function lookupSourceMutation(
-	optionsSource: LookupOptionsSource | null,
-): Mutation {
+function lookupSourceMutation(optionsSource: SelectOptionsSource) {
 	return {
 		kind: "updateField",
 		uuid: LOOKUP_FIELD,
 		targetKind: "single_select",
-		patch: {},
-		optionsSource,
-	};
+		patch: { optionsSource },
+	} satisfies Mutation;
 }
 
 function lookupReceiverDoc(appId: string): PersistableDoc {
@@ -280,18 +285,21 @@ function lookupReceiverDoc(appId: string): PersistableDoc {
 				id: "status",
 				kind: "single_select",
 				label: "Status",
-				options: [
-					{
-						uuid: LOOKUP_OPTION_A,
-						value: "active",
-						label: "Active",
-					},
-					{
-						uuid: LOOKUP_OPTION_B,
-						value: "closed",
-						label: "Closed",
-					},
-				],
+				optionsSource: {
+					kind: "inline",
+					options: [
+						{
+							uuid: LOOKUP_OPTION_A,
+							value: "active",
+							label: "Active",
+						},
+						{
+							uuid: LOOKUP_OPTION_B,
+							value: "closed",
+							label: "Closed",
+						},
+					],
+				},
 			},
 		},
 		moduleOrder: [LOOKUP_MODULE],
@@ -532,38 +540,37 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 		expect((first.data as { seq: number }).seq).toBe(1);
 	});
 
-	it("replays lookup-source set, replace, and explicit-null clear through Postgres and raw HTTP SSE", async () => {
+	it("replays complete lookup and inline source replacements through Postgres and raw HTTP SSE", async () => {
 		const appId = await seedApp(3);
 		const setSource = lookupSourceMutation(LOOKUP_SOURCE_A);
 		const replaceSource = lookupSourceMutation(LOOKUP_SOURCE_B);
-		const clearSource = lookupSourceMutation(null);
-
-		/* The clear starts as an own, top-level null. `undefined` would disappear
-		 * at the first JSON.stringify and silently turn the clear into a no-op. */
-		expect(owns(clearSource, "optionsSource")).toBe(true);
-		expect(clearSource).toHaveProperty("optionsSource", null);
+		const inlineSource = lookupSourceMutation(INLINE_SOURCE);
 
 		await writeEntry(appId, 1, { mutations: [setSource] });
 		await writeEntry(appId, 2, { mutations: [replaceSource] });
-		await writeEntry(appId, 3, { mutations: [clearSource] });
+		await writeEntry(appId, 3, { mutations: [inlineSource] });
 
 		/* Hop 1: the accepted_mutations jsonb value has survived the writer-side
 		 * JSON.stringify plus Postgres' jsonb decode with the explicit null
 		 * intact and still at the rolling-compatible top level. */
-		const persistedClearRow = await appDb
+		const persistedInlineRow = await appDb
 			.selectFrom("accepted_mutations")
 			.select("mutations")
 			.where("app_id", "=", appId)
 			.where("seq", "=", 3)
 			.executeTakeFirstOrThrow();
-		const persistedClear = (
-			persistedClearRow.mutations as unknown as Record<string, unknown>[]
+		const persistedInline = (
+			persistedInlineRow.mutations as unknown as Record<string, unknown>[]
 		)[0];
-		if (!persistedClear) throw new Error("persisted clear mutation is missing");
-		expect(owns(persistedClear, "optionsSource")).toBe(true);
-		expect(persistedClear.optionsSource).toBeNull();
-		expect(persistedClear.patch).toEqual({});
-		expect(persistedClear.patch).not.toHaveProperty("optionsSource");
+		if (!persistedInline)
+			throw new Error("persisted inline replacement is missing");
+		expect(
+			owns(persistedInline.patch as Record<string, unknown>, "optionsSource"),
+		).toBe(true);
+		expect(persistedInline).toHaveProperty(
+			"patch.optionsSource",
+			INLINE_SOURCE,
+		);
 
 		const { frames } = await collectUntil(appId, {
 			since: 0,
@@ -601,7 +608,7 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 			for (const [index, expectedSource] of [
 				LOOKUP_SOURCE_A,
 				LOOKUP_SOURCE_B,
-				null,
+				INLINE_SOURCE,
 			].entries()) {
 				const rawFrame = mutationFrames[index]?.data as
 					| MutationFrame
@@ -614,34 +621,39 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 					throw new Error(`missing mutation payload ${index + 1}`);
 
 				/* Hop 2: the route's JSON.stringify and the raw SSE parser's
-				 * JSON.parse preserve the semantic extension. The strict nested
-				 * fallback remains carrier-blind for an origin receiver. */
-				expect(owns(rawMutation, "optionsSource")).toBe(true);
-				expect(rawMutation.optionsSource).toEqual(expectedSource);
-				expect(rawMutation.patch).toEqual({});
-				expect(rawMutation.patch).not.toHaveProperty("optionsSource");
+				 * JSON.parse preserve the canonical nested source. */
+				expect(
+					owns(rawMutation.patch as Record<string, unknown>, "optionsSource"),
+				).toBe(true);
+				expect(rawMutation).toHaveProperty(
+					"patch.optionsSource",
+					expectedSource,
+				);
 
 				reconciler.onFrame(rawFrame);
 				const field = docStore.getState().fields[LOOKUP_FIELD];
 				if (field?.kind !== "single_select") {
 					throw new Error("lookup receiver field is missing");
 				}
-				expect(field.optionsSource).toEqual(expectedSource ?? undefined);
-				expect(
-					field.options.map(({ value, label }) => ({ value, label })),
-				).toEqual([
-					{ value: "active", label: "Active" },
-					{ value: "closed", label: "Closed" },
-				]);
+				expect(field.optionsSource).toEqual(expectedSource);
 			}
 
-			const rawClear = mutationFrames[2]?.data as MutationFrame | undefined;
-			const rawClearMutation = rawClear?.mutations[0] as
+			const rawInline = mutationFrames[2]?.data as MutationFrame | undefined;
+			const rawInlineMutation = rawInline?.mutations[0] as
 				| Record<string, unknown>
 				| undefined;
-			if (!rawClearMutation) throw new Error("raw clear mutation is missing");
-			expect(owns(rawClearMutation, "optionsSource")).toBe(true);
-			expect(rawClearMutation.optionsSource).toBeNull();
+			if (!rawInlineMutation)
+				throw new Error("raw inline replacement is missing");
+			expect(
+				owns(
+					rawInlineMutation.patch as Record<string, unknown>,
+					"optionsSource",
+				),
+			).toBe(true);
+			expect(rawInlineMutation).toHaveProperty(
+				"patch.optionsSource",
+				INLINE_SOURCE,
+			);
 			expect(reconciler.getSnapshot().baseSeq).toBe(3);
 		} finally {
 			reconciler.dispose();

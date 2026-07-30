@@ -33,8 +33,16 @@ function docWith(fields: ReturnType<typeof f>[]) {
 }
 
 async function getField(doc: ReturnType<typeof buildDoc>, fieldId: string) {
+	const moduleUuid = doc.moduleOrder[0];
+	const formUuid = doc.formOrder[moduleUuid]?.[0];
+	const fieldUuid = Object.values(doc.fields).find(
+		(field) => field.id === fieldId,
+	)?.uuid;
+	if (!moduleUuid || !formUuid || !fieldUuid) {
+		throw new Error(`fixture address for "${fieldId}" is incomplete`);
+	}
 	const outcome = await getFieldTool.execute(
-		{ moduleIndex: 0, formIndex: 0, fieldId },
+		{ moduleUuid, formUuid, fieldUuid },
 		CTX,
 		doc,
 	);

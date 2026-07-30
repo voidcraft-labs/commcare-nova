@@ -12,17 +12,13 @@
  */
 
 import { z } from "zod";
-import {
-	carrierBlindPredicateSchema,
-	carrierBlindValueExpressionSchema,
-} from "@/lib/domain/predicate";
+import { predicateSchema, valueExpressionSchema } from "@/lib/domain/predicate";
 
 type JsonNode = Record<string, unknown>;
 
 const DISPLAY_TYPE_NAMES: Readonly<Record<string, string>> = {
-	CarrierBlindPredicate: "Predicate",
-	CarrierBlindValueExpression: "ValueExpression",
-	CarrierBlindTerm: "Term",
+	__schema0: "Predicate",
+	__schema1: "ValueExpression",
 };
 
 function commentLines(text: unknown): string[] {
@@ -101,14 +97,14 @@ function tsType(node: JsonNode | undefined, indent: string): string {
 
 /**
  * The full grammar as named TypeScript types (`type Predicate = …`,
- * `type ValueExpression = …`, `type Term = …`, plus the leaf types they
- * reference), one authoritative statement for the prompt.
+ * `type ValueExpression = …`, plus the leaf types they reference), one
+ * authoritative statement for the prompt.
  */
 export function buildExpressionReference(): string {
 	const json = z.toJSONSchema(
 		z.object({
-			p: carrierBlindPredicateSchema,
-			v: carrierBlindValueExpressionSchema,
+			p: predicateSchema,
+			v: valueExpressionSchema,
 		}),
 		{ target: "draft-7", io: "input" },
 	) as JsonNode;
@@ -116,17 +112,9 @@ export function buildExpressionReference(): string {
 	// Stable presentation order: the two grammar roots first, Term next,
 	// then every remaining referenced type in emission order.
 	const order = [
-		"CarrierBlindPredicate",
-		"CarrierBlindValueExpression",
-		"CarrierBlindTerm",
-		...Object.keys(defs).filter(
-			(k) =>
-				![
-					"CarrierBlindPredicate",
-					"CarrierBlindValueExpression",
-					"CarrierBlindTerm",
-				].includes(k),
-		),
+		"__schema0",
+		"__schema1",
+		...Object.keys(defs).filter((k) => !["__schema0", "__schema1"].includes(k)),
 	].filter((k) => defs[k]);
 	const blocks = order.map((name) => {
 		const def = defs[name] as JsonNode;

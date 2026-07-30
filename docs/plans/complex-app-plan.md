@@ -445,27 +445,24 @@ unauthorable, which is what keeps every other surface's round-trip-only behavior
 exactly as it was (`operationScopeFailsClosed.test.ts` pins it).
 
 The same vocabulary is authorable through the Solutions Architect and MCP.
-`getCaseOperations`/`get_case_operations` projects the ordered sequence with
-operation ids and form-field paths; batch add plus singular update, move, and
-remove use those same author identities and cross to immutable UUID leaves
-before checking. Batch add resolves earlier creates within its working overlay
-and commits the complete sequence atomically. Full-shape updates emit only
-identity-keyed scalar, write-property, link-identifier, and order mutations, so
-unrelated concurrent edits compose. Builder full-shape edits additionally
-rebase only the slots changed from their render snapshot onto the
-invocation-time operation; peer-deleted targets and same-key write/link adds
-fail before local state changes. Each non-order granular event carries the
-deployed full-operation `caseOperationChange.update.value` as the
-immediate-parent fallback and its current intent in top-level
-`caseOperationPatch`; an ordinary move uses the deployed carrier-blind
-`caseOperationChange.move` as its exact fallback. Current reducers apply only
-the intent, immediate-parent reducers apply the equivalent fallback, and
-immediate-parent events still replay with their established semantics. Schema
-integrity binds both views to one UUID and value. The authoritative commit guard
-tracks operation UUIDs, requested move ranks, and write-property/link-identifier
-sets through the batch, rejecting peer-deleted targets, shifted destinations,
-and same-key peer adds instead of allowing a total reducer no-op to report
-success.
+`getCaseOperations`/`get_case_operations` returns the ordered sequence with each
+operation's immutable UUID, its editable wire id, and the complete canonical
+Predicate / ValueExpression AST. Singular update, move, and remove address the
+operation by UUID; field answers use field UUIDs and operation references use
+`opUuid`. Batch add lets the caller predeclare a new operation UUID when a later
+item in that same call must reference it, otherwise Nova mints it, and commits
+the complete sequence atomically. No tool-side slug/path/id projection or
+rewrite layer exists.
+
+Full-shape updates emit only identity-keyed scalar, write-property,
+link-identifier, and order mutations, so unrelated concurrent edits compose.
+Builder full-shape edits additionally rebase only the slots changed from their
+render snapshot onto the invocation-time operation; peer-deleted targets and
+same-key write/link adds fail before local state changes. The authoritative
+commit guard tracks operation UUIDs, destination sequence positions, and
+write-property/link-identifier sets through the batch, rejecting peer-deleted
+targets, shifted destinations, and same-key peer adds instead of allowing a
+total reducer no-op to report success.
 
 The operation id, write property, and link identifier vocabularies share their
 validator-owned grammar with the builder and tool schemas: ASCII letters,
@@ -477,19 +474,11 @@ replay/import backstop. Case types separately admit hyphens, so chooser-created
 operation ids normalize each hyphen to an underscore for every create, update,
 and close seed before the first commit.
 
-Lookup-backed predicates and expressions already persisted on a case operation
-remain preserved. The builder keeps the operation visible and movable but
-renders both the rail and recursive canvas persistently read-only, with the
-reason, until lookup authoring owns those slots. The carrier inventory is the
-single exhaustive oracle. `getCaseOperations` and `getForm` preserve the full
-ordered operation sequence: each carrier-bearing operation keeps its author id,
-action, and case type plus
-`unavailable: { kind: "lookup-table-logic", reason }`, while every lookup AST
-detail is withheld. The id remains addressable by `moveCaseOperation`, so the
-operation can move without a partial read ever posing as an editable shape.
-Builder edits refuse before dispatching local state, full-shape SA/MCP updates
-and removals refuse, and moves stay persistable because their deployed fallback
-carries only UUID plus order.
+Lookup-backed predicates and expressions use that same complete AST on the
+builder, SA, and MCP surfaces. The carrier inventory remains the exhaustive
+export-boundary oracle, but is not an authoring restriction: reads return the
+lookup UUID leaves and all three editors may update them without hiding or
+partially projecting the operation.
 
 `content/docs/case-changes.mdx` is the user-facing guide.
 
@@ -510,24 +499,52 @@ reject only null/empty, and `case_id` is deliberately absent from
 
 ### Lookup carriers, table expressions, and itemsets
 
-Selects take a lookup `optionsSource`, and expressions take `table-lookup` value
-terms and `table-column` comparison terms
+Selects own one required discriminated `optionsSource`: either `inline`, which
+owns at least two fully UUID-identified options, or `lookup`, which owns the
+table UUID, value-column UUID, label-column UUID, and optional row filter.
+Expressions take `table-lookup` value terms and `table-column` comparison terms
 (`lib/commcare/validator/rules/lookupOptionsSource.ts`, `lib/doc/lookupReferences.ts`).
 The builder binds one in the select's own editor (`OptionsSourceEditor`).
 
-**That switch is asymmetric, and the asymmetry is its correctness.**
-`optionsSource` precedence is presence-based at every consumer —
-`lib/commcare/xform/builder.ts` branches on `optionsSource !== undefined`, as does
-the preview's choice evaluation. Inline → Table merely SETS the source, and the
-inline options stay as the origin-compatible fallback a pre-S05 receiver reads
-and a duplicate reverts to. Table → Inline must CLEAR it, or the retained source
-keeps winning while the editor claims the field is back on its typed-in list.
-The clear is an explicit `null`, for the same reason a display condition's is:
-the reducer deletes on either spelling, but the SSE frame and the persisted jsonb
-are both `JSON.stringify`, which drops an `undefined`-valued key.
-`lib/doc/lookupOptionsSourceMutations.ts` makes the mutation object correct on its
-own so a durable emitter inherits the spelling, and its test asserts the clear
-survives a real round trip rather than only applying in memory.
+Source switching is a complete atomic replacement. The editor stages the target
+source, opens that source's editor, and commits only a complete valid
+replacement; cancelling leaves the current source untouched. No inactive inline
+list or lookup source survives a switch, and there is no precedence, clear, or
+fallback state. Field duplication remints every inline option UUID while lookup
+table and column UUIDs remain references to the same Project resources.
+
+`LookupOptionsSource.filter` is authored in a first-class table-row evaluation
+scope. The shared predicate editor receives the rows-free table catalog, the
+active table UUID, and exactly the form answers the carrier rule admits. Its
+table-column source lists only columns from the active table. Form-answer
+sources name fields by UUID and include only answers earlier than the select in
+effective `(order, uuid)` DFS from the form root or the current/enclosing repeat;
+later answers and child/sibling-repeat answers are withheld. Case properties,
+relations, and Search answers are not available in a lookup row. The mounting
+surface composes that admission oracle with every caller oracle, and
+`lib/commcare/validator/rules/lookupOptionsSource.ts` independently enforces the
+same boundary at commit.
+
+Preview evaluates the filter against every lookup row and recomputes the choice
+set when an earlier referenced answer changes. A single-select value no longer
+offered is cleared; a multi-select keeps only tokens still offered, and
+dependent calculations cascade in the same engine pass. The XForm emitter
+prints the same rule in the itemset nodeset with `current()` contextualized to
+the active repeat. Tests pin root-form, same-repeat, and session-user spellings
+and run the XForm oracle.
+
+The Solutions Architect and MCP share the canonical identity-bearing domain
+schemas for every display condition, case-list/search rule, case-operation
+expression, table lookup, and options source. `getLookupTables` /
+`get_lookup_tables` returns table and column UUIDs alongside readable names,
+tags, labels, wire names, and data types; only the UUIDs are addresses.
+`setFieldOptionsSource` / `set_field_options_source` names the field by
+`moduleUuid`, `formUuid`, and `fieldUuid`, takes the complete canonical source,
+and atomically replaces it. All UUID-backed Predicate /
+ValueExpression leaves pass through unchanged. Mutable field paths, operation
+ids, Search names, worker slugs, lookup tags, column wire names, and positional
+module/form addresses reject at the strict schema boundary rather than being
+resolved into identity.
 
 The local `.ccz` emits the preservable lookup wire. The binding facts:
 
@@ -1511,32 +1528,11 @@ Request and run timings are three independently authored fields in
 
 ## What remains
 
-Fourteen units, one file each. **Every entry below is a pointer, not a summary of
+Twelve units, one file each. **Every entry below is a pointer, not a summary of
 record** — the contract, the binding CommCare facts, the wire shapes, and the
 observed outcome live only in the linked file, and each entry names what it is
 withholding so you can tell when you need it. Read that file, and
 [`00-contracts.md`](complex-app/00-contracts.md), before you plan or implement.
-
-### 2 — Project data tables workspace
-
-[`complex-app/02-project-data-workspace.md`](complex-app/02-project-data-workspace.md)
-· depends on nothing · blocks unit 3
-
-The Project data workspace — schema and row grid, atomic CSV import, revisions,
-conflict handling, permissions — plus the select options-source editor and the
-confirmation UX that lets lookup schema governance leave package-private scope.
-**The file holds** the asymmetric source-mode switch, the one semantic that
-silently ships an inert feature when missed.
-
-### 3 — SA, MCP, and docs for conditions and lookups
-
-[`complex-app/03-sa-mcp-and-docs-for-conditions-lookups.md`](complex-app/03-sa-mcp-and-docs-for-conditions-lookups.md)
-· depends on unit 2 · blocks nothing
-
-Expose the shipped condition and lookup vocabulary through both the
-camelCase chat tools and the snake_case MCP projection, with public docs and one
-integrated end-to-end flow. **The file holds** the two pieces of engineering under
-that packaging: the SA identity bridge and the null-clears contract.
 
 ### 4 — Grouped case tiles
 
@@ -1675,8 +1671,6 @@ Each unit's prerequisites, matching the "Depends on" line in its file:
 
 | Unit | Needs |
 | --- | --- |
-| [2 Project data workspace](complex-app/02-project-data-workspace.md) | — |
-| [3 SA, MCP, docs](complex-app/03-sa-mcp-and-docs-for-conditions-lookups.md) | 2 |
 | [4 grouped case tiles](complex-app/04-case-tiles.md) | — |
 | [6 save-to-case and attachment link UX](complex-app/06-attachment-emission-and-link-ux.md) | 11 |
 | [8 organization and locations store](complex-app/08-organization-model-and-locations-store.md) | — |
@@ -1690,7 +1684,7 @@ Each unit's prerequisites, matching the "Depends on" line in its file:
 | [16 session endpoints and deep links](complex-app/16-session-endpoints-and-deep-links.md) | 12, 15 |
 | [17 multi-select, related cases, profile](complex-app/17-multi-select-related-cases-and-profile.md) | 12 |
 
-Four units have no outstanding prerequisites and can start in any order: 2, 4,
+Three units have no outstanding prerequisites and can start in any order: 4,
 8, and 14. They are the independent entry points — every other unit descends
 from one of them.
 
@@ -1698,7 +1692,7 @@ The deployment chain (8 → 10 → 11 → 12) is the critical path: it gates uni
 13, and 16, so anything needing a real HQ target waits on it. The navigation
 chain (14 → 15) runs independently until unit 16, which needs both.
 
-Units 3, 4, 6, 13, 16, and 17 are leaves — nothing waits on them, so each can land
+Units 4, 6, 13, 16, and 17 are leaves — nothing waits on them, so each can land
 whenever its own prerequisites are met. Grouped case tiles (unit 4) are both an
 entry point and a leaf: nothing blocks them and nothing waits on them, which makes
 them the natural filler whenever the deployment chain is blocked on something

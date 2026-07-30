@@ -51,7 +51,6 @@ import {
 } from "@/lib/doc/fieldWalk";
 import { applyMutations } from "@/lib/doc/mutations";
 import { findContainingForm } from "@/lib/doc/mutations/helpers";
-import { backfillOptionUuids } from "@/lib/doc/optionIdentity";
 import { type Mutation, mutationSchema } from "@/lib/doc/types";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { eq, literal, prop } from "@/lib/domain/predicate";
@@ -842,12 +841,7 @@ describe("diffDocsToMutations — diff(prev, next) replayed on prev ≡ next", (
 				fc.array(opArb, { minLength: 0, maxLength: 16 }),
 				(seedPick, batchA, batchB) => {
 					iterations++;
-					// Backfill the seed ONCE so every initial entity is keyed (the
-					// hydration boundary does this in production); the fuzz's adds +
-					// order-key moves then keep prev/next consistently keyed.
-					const seed = produce(SEEDS[seedPick](), (draft) => {
-						backfillOptionUuids(draft);
-					});
+					const seed = SEEDS[seedPick]();
 					const prev = applyOps(seed, batchA);
 					const next = applyOps(prev, batchB);
 					assertRoundTrip(prev, next);

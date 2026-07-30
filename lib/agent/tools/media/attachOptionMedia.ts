@@ -5,14 +5,13 @@
  * Each select option carries its own optional `media` bundle (image +
  * audio + video) so a visual-pick UI can show a picture or play audio
  * beside each choice. Every attachment in the batch locates a field,
- * finds the option by its `value` (the stored choice key, not the display
- * label), and replaces that option's `media` bundle; an empty bundle
+ * finds the inline option by immutable UUID, and replaces that option's
+ * `media` bundle; an empty bundle
  * (`{}`) clears it. A whole picture-choice field — or several fields —
  * authors in one call; one attachment is a length-1 `attachments` array.
  *
- * Only `single_select` / `multi_select` fields carry options; any other
- * kind fails with an Elm-shape error. A `value` that isn't among the
- * field's options likewise fails, naming the values that exist.
+ * Only an inline `single_select` / `multi_select` source carries authored
+ * option media. Other field kinds and lookup sources fail before mutation.
  *
  * The batch is all-or-nothing (`commitMediaBatch`): every attachment must
  * resolve and every set slot must pass the at-source asset verdict
@@ -26,10 +25,13 @@
  */
 
 import { z } from "zod";
-import { asUuid, type BlueprintDoc, type SelectOption } from "@/lib/domain";
-import { FIELD_REF_HINT, resolveFieldTarget } from "../../blueprintHelpers";
+import { type BlueprintDoc, type SelectOption, uuidSchema } from "@/lib/domain";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { type MutatingToolResult, toToolErrorResult } from "../common";
+import {
+	fieldAddressSchema,
+	resolveFieldAddress,
+} from "../shared/entityAddresses";
 import type { MutationSuccess } from "../shared/toolCallSummary";
 import {
 	brandMediaBundle,
@@ -40,18 +42,11 @@ import {
 	type ResolvedMediaBatchItem,
 } from "./shared";
 
-const optionMediaAttachmentSchema = z
-	.object({
-		moduleIndex: z.number().describe("0-based module index"),
-		formIndex: z.number().describe("0-based form index"),
-		fieldId: z
-			.string()
-			.describe(`The single_select / multi_select field — ${FIELD_REF_HINT}`),
-		optionValue: z
-			.string()
-			.describe(
-				"The `value` of the option to attach media to (the stored choice key, not the display label).",
-			),
+const optionMediaAttachmentSchema = fieldAddressSchema
+	.extend({
+		optionUuid: uuidSchema.describe(
+			"The stable uuid of the option to attach media to.",
+		),
 		media: mediaBundleInput(
 			"The image/audio/video to attach to this option. Supply any subset " +
 				"of `image`, `audio`, `video` as asset ids (discover them with " +
@@ -98,9 +93,8 @@ export const attachOptionMediaTool = {
 			const resolved: ResolvedMediaBatchItem[] = [];
 			const failures: string[] = [];
 			for (const [i, attachment] of attachments.entries()) {
-				const { moduleIndex, formIndex, fieldId, optionValue, media } =
-					attachment;
-				const found = resolveFieldTarget(doc, moduleIndex, formIndex, fieldId);
+				const { optionUuid, media } = attachment;
+				const found = resolveFieldAddress(doc, attachment);
 				if (!found.ok) {
 					failures.push(
 						`attachments[${i}]: ${found.error}. Run getForm or searchBlueprint to find the right field.`,
@@ -115,12 +109,19 @@ export const attachOptionMediaTool = {
 					);
 					continue;
 				}
-
-				const index = field.options.findIndex((o) => o.value === optionValue);
-				if (index < 0) {
-					const values = field.options.map((o) => `"${o.value}"`).join(", ");
+				if (field.optionsSource.kind !== "inline") {
 					failures.push(
-						`attachments[${i}]: field "${field.id}" has no option with value "${optionValue}". Its option values are: ${values}.`,
+						`attachments[${i}]: field "${field.id}" gets its choices from a Project data table, so it has no inline option to attach media to. Switch the field to inline choices first.`,
+					);
+					continue;
+				}
+
+				const index = field.optionsSource.options.findIndex(
+					(option) => option.uuid === optionUuid,
+				);
+				if (index < 0) {
+					failures.push(
+						`attachments[${i}]: field "${field.id}" has no option with uuid "${optionUuid}". Re-read the field for current option uuids.`,
 					);
 					continue;
 				}
@@ -136,14 +137,12 @@ export const attachOptionMediaTool = {
 
 				// Swap the one option's media via a granular `updateOption` keyed by
 				// the option's uuid, so a concurrent edit to a DIFFERENT option of the
-				// same field merges. The reducer preserves the option's current
-				// `order`; the uuid falls back to the deterministic backfill key when
-				// a not-yet-hydrated doc lacks one (matching what backfill mints).
-				const targetOption = field.options[index];
-				const optionUuid =
-					targetOption.uuid ?? asUuid(`${field.uuid}-opt-${index}`);
+				// same field merges. The reducer preserves the option's canonical
+				// identity while replacing only the requested media bundle.
+				const targetOption = field.optionsSource.options[index];
+				const stableOptionUuid = targetOption.uuid;
 				const updated = withMedia(
-					{ ...targetOption, uuid: optionUuid },
+					targetOption,
 					setKinds.length > 0 ? branded : undefined,
 				);
 				resolved.push({
@@ -151,18 +150,18 @@ export const attachOptionMediaTool = {
 						{
 							kind: "updateOption",
 							fieldUuid: field.uuid,
-							uuid: optionUuid,
+							uuid: stableOptionUuid,
 							option: updated,
 						},
 					],
 					expectations: bundleExpectations(
 						branded,
-						`option "${optionValue}" of field "${field.id}"`,
+						`option "${targetOption.value}" of field "${field.id}"`,
 					),
 					line:
 						setKinds.length > 0
-							? `attached ${setKinds.join(", ")} media on option "${optionValue}" of field "${field.id}"`
-							: `cleared media on option "${optionValue}" of field "${field.id}"`,
+							? `attached ${setKinds.join(", ")} media on option "${targetOption.value}" of field "${field.id}"`
+							: `cleared media on option "${targetOption.value}" of field "${field.id}"`,
 				});
 			}
 

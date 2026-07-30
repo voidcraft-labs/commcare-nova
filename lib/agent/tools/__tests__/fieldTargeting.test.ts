@@ -1,28 +1,27 @@
 /**
- * Field-addressing behavior across the field tools — uuid targeting and
- * the ambiguity refusal (`resolveFieldTarget`).
+ * Field-addressing behavior across the field tools — UUID targeting.
  *
  * Sibling-uniqueness is per parent level, so one form can legally hold
- * two fields with the same bare id in different groups — a bare id is
- * not a unique handle. These tests pin the addressing contract:
+ * two fields with the same bare id in different groups — which is why
+ * semantic ids are display/wire projections, not tool addresses:
  *
- *   - a duplicated bare id is REFUSED with every match's path + uuid;
+ *   - name/path-based address shapes are rejected by the strict schemas;
  *   - a uuid addresses the exact field, wherever it nests;
  *   - `editField`'s post-rename re-read is by uuid, so a rename whose
  *     new id has a twin elsewhere in the form patches the RENAMED
  *     field, never the depth-first twin;
- *   - `addFields`' parent slots refuse an ambiguous container ref the
- *     same way, instead of nesting the batch under the first match.
+ *   - existing parents use UUIDs while per-item `parentId` is reserved for
+ *     a container created earlier in the same call.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { BlueprintDoc } from "@/lib/domain";
 import { makeStubToolContext } from "../../__tests__/fixtures";
-import { addFieldsTool } from "../addFields";
-import { editFieldTool } from "../editField";
-import { getFieldTool } from "../getField";
-import { removeFieldTool } from "../removeField";
+import { addFieldsInputSchema, addFieldsTool } from "../addFields";
+import { editFieldInputSchema, editFieldTool } from "../editField";
+import { getFieldInputSchema, getFieldTool } from "../getField";
+import { removeFieldInputSchema, removeFieldTool } from "../removeField";
 
 vi.mock("@/lib/db/apps", () => ({
 	completeApp: vi.fn(() => Promise.resolve()),
@@ -76,29 +75,28 @@ function fieldByLabel(doc: BlueprintDoc, label: string) {
 	return field;
 }
 
+function formAddress(doc: BlueprintDoc) {
+	const moduleUuid = doc.moduleOrder[0];
+	const formUuid = doc.formOrder[moduleUuid]?.[0];
+	if (!moduleUuid || !formUuid)
+		throw new Error("fixture address is incomplete");
+	return { moduleUuid, formUuid };
+}
+
 beforeEach(() => {
 	vi.clearAllMocks();
 });
 
 describe("editField targeting", () => {
-	it("refuses a duplicated bare id and persists nothing", async () => {
+	it("rejects a semantic-id address at the strict schema boundary", () => {
 		const doc = makeDoc();
-		const { ctx, recordMutationStages } = makeStubToolContext();
-		const result = await editFieldTool.execute(
-			{
-				moduleIndex: 0,
-				formIndex: 0,
+		expect(
+			editFieldInputSchema.safeParse({
+				...formAddress(doc),
 				fieldId: "patient_name",
 				updates: { kind: "text", label: "Renamed" },
-			},
-			ctx,
-			doc,
-		);
-		if (!("error" in result.result)) throw new Error("expected error");
-		expect(result.result.error).toContain("ambiguous");
-		expect(result.result.error).toContain('"orders/patient_name"');
-		expect(result.result.error).toContain('"history/patient_name"');
-		expect(recordMutationStages).not.toHaveBeenCalled();
+			}).success,
+		).toBe(false);
 	});
 
 	it("patches exactly the uuid-addressed duplicate, not the DFS-first one", async () => {
@@ -107,9 +105,8 @@ describe("editField targeting", () => {
 		const inHistory = fieldByLabel(doc, "In history");
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: inHistory.uuid,
+				...formAddress(doc),
+				fieldUuid: inHistory.uuid,
 				updates: { kind: "text", label: "History patient" },
 			},
 			ctx,
@@ -167,9 +164,8 @@ describe("editField targeting", () => {
 		const original = fieldByLabel(doc, "Original");
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "note",
+				...formAddress(doc),
+				fieldUuid: original.uuid,
 				updates: { kind: "text", id: "order_note", label: "Patched" },
 			},
 			ctx,
@@ -189,9 +185,8 @@ describe("editField targeting", () => {
 		const inOrders = fieldByLabel(doc, "In orders");
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: inOrders.uuid,
+				...formAddress(doc),
+				fieldUuid: inOrders.uuid,
 				updates: { kind: "text", id: "patient_name", label: "Same id" },
 			},
 			ctx,
@@ -206,17 +201,14 @@ describe("editField targeting", () => {
 });
 
 describe("removeField targeting", () => {
-	it("refuses a duplicated bare id", async () => {
+	it("rejects a semantic-id address at the strict schema boundary", () => {
 		const doc = makeDoc();
-		const { ctx, recordMutations } = makeStubToolContext();
-		const result = await removeFieldTool.execute(
-			{ moduleIndex: 0, formIndex: 0, fieldId: "patient_name" },
-			ctx,
-			doc,
-		);
-		if (!("error" in result.result)) throw new Error("expected error");
-		expect(result.result.error).toContain("ambiguous");
-		expect(recordMutations).not.toHaveBeenCalled();
+		expect(
+			removeFieldInputSchema.safeParse({
+				...formAddress(doc),
+				fieldId: "patient_name",
+			}).success,
+		).toBe(false);
 	});
 
 	it("removes exactly the uuid-addressed duplicate and reports its semantic id", async () => {
@@ -224,7 +216,7 @@ describe("removeField targeting", () => {
 		const { ctx } = makeStubToolContext();
 		const inHistory = fieldByLabel(doc, "In history");
 		const result = await removeFieldTool.execute(
-			{ moduleIndex: 0, formIndex: 0, fieldId: inHistory.uuid },
+			{ ...formAddress(doc), fieldUuid: inHistory.uuid },
 			ctx,
 			doc,
 		);
@@ -279,31 +271,23 @@ describe("addFields parent targeting", () => {
 		return doc;
 	}
 
-	it("refuses an ambiguous batch parentId instead of nesting under the first match", async () => {
+	it("rejects a top-level semantic parentId at the strict schema boundary", () => {
 		const doc = twoDetailsDoc();
-		const { ctx, recordMutations } = makeStubToolContext();
-		const result = await addFieldsTool.execute(
-			{
-				moduleIndex: 0,
-				formIndex: 0,
+		expect(
+			addFieldsInputSchema.safeParse({
+				...formAddress(doc),
 				fields: [{ kind: "text", id: "new_q", label: "New question" }],
 				parentId: "details",
-			},
-			ctx,
-			doc,
-		);
-		if (!("error" in result.result)) throw new Error("expected error");
-		expect(result.result.error).toContain("ambiguous");
-		expect(recordMutations).not.toHaveBeenCalled();
+			}).success,
+		).toBe(false);
 	});
 
-	it("refuses an ambiguous per-field parentId the same way", async () => {
+	it("rejects a per-field parentId that points outside this call", async () => {
 		const doc = twoDetailsDoc();
 		const { ctx, recordMutations } = makeStubToolContext();
 		const result = await addFieldsTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
+				...formAddress(doc),
 				fields: [
 					{
 						kind: "text",
@@ -317,7 +301,7 @@ describe("addFields parent targeting", () => {
 			doc,
 		);
 		if (!("error" in result.result)) throw new Error("expected error");
-		expect(result.result.error).toContain("ambiguous");
+		expect(result.result.error).toContain("construction-local handle");
 		expect(recordMutations).not.toHaveBeenCalled();
 	});
 
@@ -336,8 +320,7 @@ describe("addFields parent targeting", () => {
 		const { ctx, recordMutations } = makeStubToolContext();
 		const result = await addFieldsTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
+				...formAddress(doc),
 				fields: [
 					{ kind: "group", id: "section_a", label: "A" },
 					{ kind: "group", id: "section_b", label: "B" },
@@ -364,10 +347,7 @@ describe("addFields parent targeting", () => {
 		expect(recordMutations).not.toHaveBeenCalled();
 	});
 
-	it("refuses a parentId where a minted container shadows an existing container", async () => {
-		// The existing `details` container is NESTED (inside `wrapper`), so
-		// the new top-level `details` group passes the per-level sibling
-		// verdict — the ref then has two viable referents and must refuse.
+	it("resolves parentId only to the same-call container even when an existing id matches", async () => {
 		const doc = buildDoc({
 			modules: [
 				{
@@ -399,8 +379,7 @@ describe("addFields parent targeting", () => {
 		const { ctx, recordMutations } = makeStubToolContext();
 		const result = await addFieldsTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
+				...formAddress(doc),
 				fields: [
 					{ kind: "group", id: "details", label: "New details" },
 					{ kind: "text", id: "note", label: "Note", parentId: "details" },
@@ -409,9 +388,17 @@ describe("addFields parent targeting", () => {
 			ctx,
 			doc,
 		);
-		if (!("error" in result.result)) throw new Error("expected error");
-		expect(result.result.error).toContain("share that id");
-		expect(recordMutations).not.toHaveBeenCalled();
+		if ("error" in result.result) throw new Error(result.result.error);
+		expect(recordMutations).toHaveBeenCalled();
+		const newDetails = Object.values(result.newDoc.fields).find(
+			(field) => "label" in field && field.label === "New details",
+		);
+		const note = Object.values(result.newDoc.fields).find(
+			(field) => field.id === "note",
+		);
+		expect(
+			newDetails && note ? result.newDoc.fieldParent[note.uuid] : null,
+		).toBe(newDetails?.uuid);
 	});
 
 	it("nests under a minted container whose id matches only an existing LEAF", async () => {
@@ -441,8 +428,7 @@ describe("addFields parent targeting", () => {
 		const { ctx } = makeStubToolContext();
 		const result = await addFieldsTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
+				...formAddress(doc),
 				fields: [
 					{ kind: "group", id: "details", label: "New details" },
 					{ kind: "text", id: "note", label: "Note", parentId: "details" },
@@ -468,10 +454,9 @@ describe("addFields parent targeting", () => {
 		const nested = fieldByLabel(doc, "Nested details");
 		const result = await addFieldsTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
+				...formAddress(doc),
 				fields: [{ kind: "text", id: "new_q", label: "New question" }],
-				parentId: nested.uuid,
+				parentUuid: nested.uuid,
 			},
 			ctx,
 			doc,
@@ -486,29 +471,29 @@ describe("addFields parent targeting", () => {
 });
 
 describe("getField targeting", () => {
-	it("refuses a duplicated bare id", async () => {
+	it("rejects a semantic-id address at the strict schema boundary", () => {
 		const doc = makeDoc();
-		const { ctx } = makeStubToolContext();
-		const result = await getFieldTool.execute(
-			{ moduleIndex: 0, formIndex: 0, fieldId: "patient_name" },
-			ctx,
-			doc,
-		);
-		if (!("error" in result.data)) throw new Error("expected error");
-		expect(result.data.error).toContain("ambiguous");
+		expect(
+			getFieldInputSchema.safeParse({
+				...formAddress(doc),
+				fieldId: "patient_name",
+			}).success,
+		).toBe(false);
 	});
 
-	it("reads the uuid-addressed duplicate with its nested path", async () => {
+	it("reads the uuid-addressed duplicate without projecting a reusable path", async () => {
 		const doc = makeDoc();
 		const { ctx } = makeStubToolContext();
 		const inHistory = fieldByLabel(doc, "In history");
 		const result = await getFieldTool.execute(
-			{ moduleIndex: 0, formIndex: 0, fieldId: inHistory.uuid },
+			{ ...formAddress(doc), fieldUuid: inHistory.uuid },
 			ctx,
 			doc,
 		);
 		if ("error" in result.data) throw new Error(result.data.error);
-		expect(result.data.path).toBe("history/patient_name");
 		expect(result.data.field.uuid).toBe(inHistory.uuid);
+		expect(result.data).toEqual(
+			expect.not.objectContaining({ path: expect.anything() }),
+		);
 	});
 });

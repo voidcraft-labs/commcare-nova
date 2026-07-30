@@ -45,7 +45,7 @@ function independentlyArrangedFixture() {
 describe("case-list read projections", () => {
 	it("getModule exposes the exact independent visible screen sequences", async () => {
 		const { doc, ctx } = independentlyArrangedFixture();
-		const result = await getModuleTool.execute({ moduleIndex: 0 }, ctx, doc);
+		const result = await getModuleTool.execute({ moduleUuid: MOD_A }, ctx, doc);
 		if ("error" in result.data) throw new Error(result.data.error);
 
 		expect(result.data.results_column_order).toEqual([B, A]);
@@ -100,7 +100,7 @@ describe("case-list read projections", () => {
 		};
 
 		const result = await getModuleTool.execute(
-			{ moduleIndex: 0 },
+			{ moduleUuid: MOD_A },
 			fixture.ctx,
 			fixture.doc,
 		);

@@ -237,20 +237,38 @@ describe("renameField rewrites help/validate_msg/option-label prose (live bug)",
 				[Q("age")]: field_(Q("age"), "age", { kind: "int" }),
 				[Q("sel")]: field_(Q("sel"), "bracket", {
 					kind: "single_select",
-					options: [
-						{ value: "age", label: "Exactly #form/age" },
-						{ value: "other", label: "Something else" },
-					],
+					optionsSource: {
+						kind: "inline",
+						options: [
+							{
+								uuid: asUuid("4c257b22-86a3-4c74-a34e-81d1df20fd4d"),
+								value: "age",
+								label: "Exactly #form/age",
+							},
+							{
+								uuid: asUuid("69ebbda8-bf17-490b-a473-ab193f9f3b8f"),
+								value: "other",
+								label: "Something else",
+							},
+						],
+					},
 				}),
 			},
 			fieldOrder: { [F("1")]: [Q("age"), Q("sel")] },
 		};
 		const { next } = rename(start, Q("age"), "years");
-		const options = asField(next.fields[Q("sel")])?.options;
-		expect(options?.[0]?.label).toBe("Exactly #form/years");
+		const select = next.fields[Q("sel")];
+		if (
+			select?.kind !== "single_select" ||
+			select.optionsSource.kind !== "inline"
+		) {
+			throw new Error("Expected inline single-select fixture");
+		}
+		const options = select.optionsSource.options;
+		expect(options[0]?.label).toBe("Exactly #form/years");
 		// `options[].value` is a data literal, never a reference.
-		expect(options?.[0]?.value).toBe("age");
-		expect(options?.[1]?.label).toBe("Something else");
+		expect(options[0]?.value).toBe("age");
+		expect(options[1]?.label).toBe("Something else");
 	});
 });
 

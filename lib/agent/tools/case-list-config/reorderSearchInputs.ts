@@ -18,10 +18,7 @@
 
 import { z } from "zod";
 import { asUuid, type BlueprintDoc, type Uuid } from "@/lib/domain";
-import {
-	reorderSearchInputsMutation,
-	resolveModuleUuid,
-} from "../../blueprintHelpers";
+import { reorderSearchInputsMutation } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import {
 	guardedMutate,
@@ -33,11 +30,9 @@ import { moduleNotFoundResult, uuidInputSchema } from "./shared";
 
 export const reorderSearchInputsInputSchema = z
 	.object({
-		moduleIndex: z
-			.number()
-			.describe(
-				"0-based module index whose case list search inputs to reorder",
-			),
+		moduleUuid: uuidInputSchema.describe(
+			"Stable uuid of the module whose search inputs are reordered",
+		),
 		searchInputUuids: z
 			.array(uuidInputSchema)
 			.describe(
@@ -69,21 +64,16 @@ export const reorderSearchInputsTool = {
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<ReorderSearchInputsResult>> {
-		const { moduleIndex, searchInputUuids: rawSearchInputUuids } = input;
+		const { moduleUuid: rawModuleUuid, searchInputUuids: rawSearchInputUuids } =
+			input;
+		const moduleUuid = asUuid(rawModuleUuid);
 		const searchInputUuids = rawSearchInputUuids.map(asUuid);
 		try {
-			const moduleUuid = resolveModuleUuid(doc, moduleIndex);
-			if (!moduleUuid)
-				return moduleNotFoundResult<ReorderSearchInputsSuccess>(
-					doc,
-					moduleIndex,
-					"reorder search inputs",
-				);
 			const mod = doc.modules[moduleUuid];
 			if (!mod)
 				return moduleNotFoundResult<ReorderSearchInputsSuccess>(
 					doc,
-					moduleIndex,
+					rawModuleUuid,
 					"reorder search inputs",
 				);
 
@@ -101,7 +91,7 @@ export const reorderSearchInputsTool = {
 				ctx,
 				doc,
 				result.mutations,
-				`module:${moduleIndex}:caseList:searchInput:reorder`,
+				`module:${moduleUuid}:caseList:searchInput:reorder`,
 			);
 			if (!commit.ok) {
 				return {

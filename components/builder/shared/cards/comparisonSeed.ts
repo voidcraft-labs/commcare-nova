@@ -5,6 +5,7 @@
 import { canonicalCasePropertyName, isOrdered } from "@/lib/domain";
 import {
 	type ComparisonKind,
+	compatibleTypesFor,
 	eq,
 	gt,
 	gte,
@@ -15,13 +16,15 @@ import {
 	type Predicate,
 	prop,
 	sessionContext,
+	tableColumn,
 } from "@/lib/domain/predicate";
 import {
 	caseDataInScope,
 	globalPlaceholderTruth,
 	type PredicateEditContext,
+	tableRowInScope,
 } from "../editorSchemas";
-import { seedLiteralForProperty } from "./reseed";
+import { reseedLiteralForConstraint, seedLiteralForProperty } from "./reseed";
 
 type ComparisonArm<K extends ComparisonKind> = Extract<
 	Predicate,
@@ -55,6 +58,25 @@ export function comparisonDefault<K extends ComparisonKind>(
 		left: Parameters<typeof eq>[0],
 		right: Parameters<typeof eq>[1],
 	) => ComparisonArm<K>;
+	if (tableRowInScope(ctx)) {
+		const column = ctx.tableScope?.columns.find((candidate) =>
+			ORDERED_KINDS.has(kind)
+				? isOrdered({ data_type: candidate.dataType })
+				: true,
+		);
+		if (ctx.tableScope === undefined || column === undefined) {
+			throw new Error(
+				"A lookup-row comparison requires an admitted table column.",
+			);
+		}
+		return builder(
+			tableColumn(ctx.tableScope.tableId, column.id),
+			reseedLiteralForConstraint(
+				literal(""),
+				compatibleTypesFor(column.dataType),
+			),
+		);
+	}
 	if (!caseDataInScope(ctx)) {
 		return builder(sessionContext("username"), literal(""));
 	}
@@ -91,6 +113,7 @@ export function wrapSiblingDefault(
 	combinator: "and" | "or",
 	ctx: PredicateEditContext,
 ): Predicate {
+	if (tableRowInScope(ctx)) return comparisonDefault("eq", ctx);
 	if (!caseDataInScope(ctx)) return globalPlaceholder(combinator === "and");
 	return comparisonDefault("eq", ctx);
 }
@@ -105,6 +128,7 @@ export function wrapSiblingDefault(
 export function firstComparisonDefault(
 	ctx: PredicateEditContext,
 ): ComparisonArm<"eq"> | ComparisonArm<"neq"> {
+	if (tableRowInScope(ctx)) return comparisonDefault("eq", ctx);
 	return caseDataInScope(ctx)
 		? comparisonDefault("eq", ctx)
 		: globalPlaceholder(globalPlaceholderTruth(ctx));

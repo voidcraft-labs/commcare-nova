@@ -164,7 +164,7 @@ describe("predicate schema", () => {
 		const result = predicateSchema.parse({
 			kind: "within-distance",
 			property: { kind: "prop", caseType: "clinic", property: "location" },
-			center: asValueExpr({ kind: "input", name: "user_location" }),
+			center: asValueExpr({ kind: "input", searchInputUuid: "user_location" }),
 			distance: 50,
 			unit: "miles",
 		});
@@ -214,7 +214,7 @@ describe("predicate schema", () => {
 	it("parses a when-input-present(...) wrapping a comparison", () => {
 		const result = predicateSchema.parse({
 			kind: "when-input-present",
-			input: { kind: "input", name: "phone" },
+			input: { kind: "input", searchInputUuid: "phone" },
 			clause: {
 				kind: "eq",
 				left: asValueExpr({
@@ -222,7 +222,7 @@ describe("predicate schema", () => {
 					caseType: "patient",
 					property: "phone",
 				}),
-				right: asValueExpr({ kind: "input", name: "phone" }),
+				right: asValueExpr({ kind: "input", searchInputUuid: "phone" }),
 			},
 		});
 		expect(result.kind).toBe("when-input-present");
@@ -311,7 +311,10 @@ describe("predicate schema", () => {
 			predicateSchema.parse({
 				kind: "within-distance",
 				property: { kind: "prop", caseType: "clinic", property: "location" },
-				center: asValueExpr({ kind: "input", name: "user_location" }),
+				center: asValueExpr({
+					kind: "input",
+					searchInputUuid: "user_location",
+				}),
 				distance: -10,
 				unit: "miles",
 			}),
@@ -323,7 +326,10 @@ describe("predicate schema", () => {
 			predicateSchema.parse({
 				kind: "within-distance",
 				property: { kind: "prop", caseType: "clinic", property: "location" },
-				center: asValueExpr({ kind: "input", name: "user_location" }),
+				center: asValueExpr({
+					kind: "input",
+					searchInputUuid: "user_location",
+				}),
 				distance: 0,
 				unit: "miles",
 			}),
@@ -341,7 +347,10 @@ describe("predicate schema", () => {
 						caseType: "clinic",
 						property: "location",
 					},
-					center: asValueExpr({ kind: "input", name: "user_location" }),
+					center: asValueExpr({
+						kind: "input",
+						searchInputUuid: "user_location",
+					}),
 					distance: Number.MAX_VALUE,
 					unit,
 				}),
@@ -361,7 +370,10 @@ describe("predicate schema", () => {
 				kind: "within-distance",
 				// literal value where a prop reference is required
 				property: { kind: "literal", value: "40.7,-74.0" },
-				center: asValueExpr({ kind: "input", name: "user_location" }),
+				center: asValueExpr({
+					kind: "input",
+					searchInputUuid: "user_location",
+				}),
 				distance: 50,
 				unit: "miles",
 			}),
@@ -373,7 +385,10 @@ describe("predicate schema", () => {
 			predicateSchema.parse({
 				kind: "within-distance",
 				property: { kind: "prop", caseType: "clinic", property: "location" },
-				center: asValueExpr({ kind: "input", name: "user_location" }),
+				center: asValueExpr({
+					kind: "input",
+					searchInputUuid: "user_location",
+				}),
 				distance: 50,
 				unit: "meters",
 			}),
@@ -384,7 +399,7 @@ describe("predicate schema", () => {
 		expect(() =>
 			predicateSchema.parse({
 				kind: "match",
-				property: { kind: "input", name: "name_query" },
+				property: { kind: "input", searchInputUuid: "name_query" },
 				value: "alice",
 				mode: "fuzzy",
 			}),
@@ -424,7 +439,7 @@ describe("predicate schema", () => {
 		expect(() =>
 			predicateSchema.parse({
 				kind: "when-input-present",
-				input: { kind: "input", name: "phone" },
+				input: { kind: "input", searchInputUuid: "phone" },
 			}),
 		).toThrow();
 	});
@@ -733,7 +748,7 @@ describe("predicate schema", () => {
 		expect(() =>
 			predicateSchema.parse({
 				kind: "multi-select-contains",
-				property: { kind: "input", name: "tag_filter" },
+				property: { kind: "input", searchInputUuid: "tag_filter" },
 				values: [{ kind: "literal", value: "vip" }],
 				quantifier: "any",
 			}),
@@ -803,7 +818,7 @@ describe("predicate schema", () => {
 							kind: "not",
 							clause: {
 								kind: "when-input-present",
-								input: { kind: "input", name: "x" },
+								input: { kind: "input", searchInputUuid: "x" },
 								clause: {
 									kind: "exists",
 									via: { kind: "subcase", identifier: "parent" },
@@ -966,14 +981,10 @@ describe("predicate schema", () => {
 		).toThrow();
 	});
 
-	it("rejects input whose name has a hyphen (XML element-name vocabulary)", () => {
-		// `name` on a search input maps to an XML attribute value at
-		// the wire layer, but downstream code paths derive structural
-		// identifiers from the input name and rely on the
-		// no-hyphen XML element-name shape (mirroring
-		// `XML_ELEMENT_NAME_REGEX` in `lib/commcare/constants.ts`).
-		// `caseType` and `property` admit hyphens; this test is the
-		// asymmetry pin between the two vocabularies.
+	it("rejects the legacy mutable-name Search-input reference", () => {
+		// Search input names remain emitted wire values, but the AST stores
+		// immutable identity. A name-backed leaf must fail instead of silently
+		// becoming a second reference vocabulary.
 		expect(() =>
 			predicateSchema.parse({
 				kind: "eq",
@@ -982,7 +993,7 @@ describe("predicate schema", () => {
 					caseType: "patient",
 					property: "name",
 				}),
-				right: asValueExpr({ kind: "input", name: "name-with-hyphen" }),
+				right: asValueExpr({ kind: "input", name: "name_query" }),
 			}),
 		).toThrow();
 	});
@@ -1431,7 +1442,7 @@ describe("is-null predicate", () => {
 	it("parses is-null with a search-input reference", () => {
 		const result = predicateSchema.parse({
 			kind: "is-null",
-			left: asValueExpr({ kind: "input", name: "phone" }),
+			left: asValueExpr({ kind: "input", searchInputUuid: "phone" }),
 		});
 		expect(result.kind).toBe("is-null");
 	});
@@ -1516,7 +1527,7 @@ describe("is-blank predicate", () => {
 	it("parses is-blank with a search-input reference", () => {
 		const result = predicateSchema.parse({
 			kind: "is-blank",
-			left: asValueExpr({ kind: "input", name: "phone" }),
+			left: asValueExpr({ kind: "input", searchInputUuid: "phone" }),
 		});
 		expect(result.kind).toBe("is-blank");
 	});
@@ -1669,8 +1680,8 @@ describe("between predicate", () => {
 				caseType: "patient",
 				property: "age",
 			}),
-			lower: asValueExpr({ kind: "input", name: "min_age" }),
-			upper: asValueExpr({ kind: "input", name: "max_age" }),
+			lower: asValueExpr({ kind: "input", searchInputUuid: "min_age" }),
+			upper: asValueExpr({ kind: "input", searchInputUuid: "max_age" }),
 			lowerInclusive: true,
 			upperInclusive: true,
 		});

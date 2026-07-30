@@ -184,15 +184,12 @@ const FIELD_MEDIA_KEYS = FIELD_MEDIA_SLOTS.map(
 const MENU_MEDIA_KEY_SET = new Set<string>(["icon", "audioLabel"]);
 
 // The field generic patch skips the media slots (their own kinds), the `order`
-// sort key (a `moveField` carries it), and `options` (diffed per-uuid into the
-// granular option kinds).
+// sort key (a `moveField` carries it), and `optionsSource` (mode/lookup edits
+// replace the required union atomically; inline-list edits use granular option
+// kinds).
 const FIELD_PATCH_SKIP = new Set<string>([
 	...FIELD_MEDIA_KEYS,
 	"order",
-	"options",
-	// Lookup source intent uses the top-level rolling-compatible
-	// addField/updateField extension; the nested fallback remains the strict
-	// inline-options shape understood by pre-S05 receivers.
 	"optionsSource",
 ]);
 
@@ -588,11 +585,17 @@ export function diffDocsToMutations(
 				kind: "convertField",
 				uuid,
 				toKind: nField.kind,
+				...((nField.kind === "single_select" ||
+					nField.kind === "multi_select") &&
+					pField.kind !== "single_select" &&
+					pField.kind !== "multi_select" && {
+						optionsSource: cloneEntity(nField.optionsSource),
+					}),
 			});
 		}
 
 		// Generic property patch — every non-media, non-uuid, non-kind,
-		// non-`order`, non-`options` key, INCLUDING `id`. On a kind change the
+		// non-`order`, non-`optionsSource` key, INCLUDING `id`. On a kind change the
 		// patch must cover EVERY differing key the new kind declares (the convert
 		// carried the old field's values, not next's), so build it against
 		// `next`'s value for every key present there plus a clear for any key the
@@ -608,33 +611,21 @@ export function diffDocsToMutations(
 		if (fieldTree.crossParentMoved.has(uuid) && !("id" in patch)) {
 			patch.id = nField.id;
 		}
-		const previousOptionsSource =
-			"optionsSource" in pField ? pField.optionsSource : undefined;
-		const nextOptionsSource =
-			"optionsSource" in nField ? nField.optionsSource : undefined;
-		const optionsSourceChanged =
-			(nField.kind === "single_select" || nField.kind === "multi_select") &&
-			!deepEqual(previousOptionsSource, nextOptionsSource);
-		if (Object.keys(patch).length > 0 || optionsSourceChanged) {
+		if (Object.keys(patch).length > 0) {
 			updates.push({
 				kind: "updateField",
 				uuid,
 				targetKind: nField.kind,
 				patch,
-				...(optionsSourceChanged && {
-					optionsSource: nextOptionsSource ?? null,
-				}),
 			} as Mutation);
 		}
 
 		// Field message media — one `setFieldMedia` per changed slot.
 		media.push(...diffFieldMedia(p, n, uuid));
 
-		// Select options — diffed per-uuid into the granular option kinds (a
-		// content change excludes `order`/`uuid`; an `order` shift emits a
-		// `moveOption`). A field added this batch carries its options inline on
-		// `addField`, so the option diff runs for COMMON fields only.
-		collections.push(...diffOptions(pField, nField, uuid));
+		// Select source changes: a mode switch or lookup edit is one complete
+		// required-union replacement; two inline sources compose per option UUID.
+		collections.push(...diffOptionsSource(pField, nField, uuid));
 	}
 
 	// (5) Module order — `moduleOrder` IS the sequence, so the reorder is
@@ -1011,17 +1002,11 @@ function reconcileFieldTree(
 			const field = cloneEntity(
 				ownRecordValue(next.fields, uuid) as Field,
 			) as Field;
-			const optionsSource =
-				"optionsSource" in field ? field.optionsSource : undefined;
-			if ("optionsSource" in field) {
-				delete (field as unknown as Record<string, unknown>).optionsSource;
-			}
 			adds.push({
 				kind: "addField",
 				parentUuid,
 				field,
 				after: at === 0 ? null : sequence[at - 1],
-				...(optionsSource !== undefined && { optionsSource }),
 			} as Mutation);
 		}
 	}
@@ -1515,20 +1500,38 @@ function diffCaseSearchConfig(
 /** Diff a select field's options by uuid into the granular option kinds. A
  *  field added this batch carries its options inline, so this runs for common
  *  fields only. */
-function diffOptions(
+function diffOptionsSource(
 	prevField: Field,
 	nextField: Field,
 	fieldUuid: Uuid,
 ): Mutation[] {
-	const prevOpts = optionsOf(prevField);
-	const nextOpts = optionsOf(nextField);
+	if (
+		(prevField.kind !== "single_select" && prevField.kind !== "multi_select") ||
+		(nextField.kind !== "single_select" && nextField.kind !== "multi_select")
+	) {
+		return [];
+	}
+	const prevSource = prevField.optionsSource;
+	const nextSource = nextField.optionsSource;
+	if (deepEqual(prevSource, nextSource)) return [];
+	if (prevSource.kind !== "inline" || nextSource.kind !== "inline") {
+		return [
+			{
+				kind: "updateField",
+				uuid: fieldUuid,
+				targetKind: nextField.kind,
+				patch: { optionsSource: cloneEntity(nextSource) },
+			} as Mutation,
+		];
+	}
+	const prevOpts = prevSource.options;
+	const nextOpts = nextSource.options;
 	if (prevOpts.length === 0 && nextOpts.length === 0) return [];
 	const out: Mutation[] = [];
 	const prevByUuid = new Map<string, SelectOption>();
-	for (const o of prevOpts) if (o.uuid) prevByUuid.set(o.uuid, o);
+	for (const option of prevOpts) prevByUuid.set(option.uuid, option);
 	const nextUuids = new Set<string>();
 	for (const opt of nextOpts) {
-		if (!opt.uuid) continue; // unbackfilled (shouldn't happen post-hydration)
 		nextUuids.add(opt.uuid);
 		const p = prevByUuid.get(opt.uuid);
 		if (!p) {
@@ -1537,7 +1540,7 @@ function diffOptions(
 				fieldUuid,
 				option: cloneEntity(opt),
 				after: predecessorIn(
-					nextOpts.flatMap((o) => (o.uuid ? [o.uuid] : [])),
+					nextOpts.map((option) => option.uuid),
 					opt.uuid,
 				),
 			});
@@ -1552,16 +1555,14 @@ function diffOptions(
 			});
 		}
 	}
-	// The `options` array IS the sequence. Only uuid-bearing options can be
-	// addressed by a move; a legacy option with no uuid predates option identity
-	// and rides whatever whole-field write carries it. Moves run against the
-	// sequence the adds above have already landed in.
+	// The inline options array is the sequence. Moves run against the sequence
+	// the adds above have already landed in.
 	for (const move of sequenceMovesTo(
 		arrivalsProjected(
-			prevOpts.flatMap((o) => (o.uuid ? [o.uuid] : [])),
-			nextOpts.flatMap((o) => (o.uuid ? [o.uuid] : [])),
+			prevOpts.map((option) => option.uuid),
+			nextOpts.map((option) => option.uuid),
 		),
-		nextOpts.flatMap((o) => (o.uuid ? [o.uuid] : [])),
+		nextOpts.map((option) => option.uuid),
 	)) {
 		out.push({
 			kind: "moveOption",
@@ -1571,17 +1572,11 @@ function diffOptions(
 		});
 	}
 	for (const o of prevOpts) {
-		if (o.uuid && !nextUuids.has(o.uuid)) {
+		if (!nextUuids.has(o.uuid)) {
 			out.push({ kind: "removeOption", fieldUuid, uuid: o.uuid });
 		}
 	}
 	return out;
-}
-
-function optionsOf(field: Field): readonly SelectOption[] {
-	return "options" in field && Array.isArray(field.options)
-		? (field.options as SelectOption[])
-		: [];
 }
 
 /**

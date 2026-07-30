@@ -1,3 +1,4 @@
+import { asUuid } from "@/lib/domain";
 // Behavioral tests for the SA tool schema generator.
 //
 // The generator is the single source of truth for the `addFields` and
@@ -96,7 +97,16 @@ describe("toolSchemaGenerator", () => {
 				id: "blood_type",
 				kind: "single_select",
 				case_property_on: "patient",
-				options: [{ value: "a", label: "A" }],
+				optionsSource: {
+					kind: "inline",
+					options: [
+						{
+							uuid: asUuid("c55c2026-d990-4512-a29a-78db47f95b76"),
+							value: "a",
+							label: "A",
+						},
+					],
+				},
 			}).success,
 		).toBe(false);
 	});

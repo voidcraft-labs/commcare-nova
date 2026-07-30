@@ -322,7 +322,10 @@ describe("case-search integration — validator surface", () => {
 					...doc.modules[MOD_UUID],
 					caseSearchConfig: {
 						...doc.modules[MOD_UUID].caseSearchConfig,
-						searchButtonDisplayCondition: eq(input("ghost"), literal("x")),
+						searchButtonDisplayCondition: eq(
+							input(asUuid("e99863ff-ea7f-4cac-8167-af64e864c162")),
+							literal("x"),
+						),
 					},
 				},
 			},
@@ -383,11 +386,13 @@ describe("case-search integration — SA tool round-trip", () => {
 		// `GenerationContext`; the cross-surface MCP parity is pinned in
 		// each tool's own file.
 		const { doc, ctx } = makeCaseSearchFixture();
+		const moduleUuid = doc.moduleOrder[0];
+		if (!moduleUuid) throw new Error("fixture is missing its module");
 
 		// Step 1 — set the display cluster.
 		const r1 = await setCaseSearchDisplayTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid,
 				searchScreenTitle: "Find a patient",
 				searchScreenSubtitle: null,
 				searchButtonLabel: "Search",
@@ -409,7 +414,7 @@ describe("case-search integration — SA tool round-trip", () => {
 		const excluded = term(literal("owner-x"));
 		const r2 = await setCaseSearchAdvancedTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid,
 				excludedOwnerIds: excluded,
 			},
 			ctx,
@@ -422,7 +427,6 @@ describe("case-search integration — SA tool round-trip", () => {
 		expect(r2.result.advancedSlotsSet).toEqual(["excludedOwnerIds"]);
 
 		// Final state — both clusters present.
-		const moduleUuid = r2.newDoc.moduleOrder[0];
 		const config = r2.newDoc.modules[moduleUuid]?.caseSearchConfig;
 		expect(config?.searchScreenTitle).toBe("Find a patient");
 		expect(config?.searchButtonLabel).toBe("Search");
@@ -433,7 +437,7 @@ describe("case-search integration — SA tool round-trip", () => {
 		expect(caseSearchConfigSchema.safeParse(config).success).toBe(true);
 	});
 
-	it("returns an Elm-style error for an out-of-range moduleIndex", async () => {
+	it("returns an Elm-style error for an unknown module UUID", async () => {
 		// One representative not-found arm proves the shared
 		// `moduleNotFoundResult` wiring routes through the integration
 		// path. Per-tool coverage of this arm lives in each tool's own
@@ -441,7 +445,7 @@ describe("case-search integration — SA tool round-trip", () => {
 		const { doc, ctx } = makeCaseSearchFixture();
 		const result = await setCaseSearchDisplayTool.execute(
 			{
-				moduleIndex: 99,
+				moduleUuid: asUuid("ffffffff-ffff-4fff-8fff-ffffffffffff"),
 				searchScreenTitle: null,
 				searchScreenSubtitle: null,
 				searchButtonLabel: null,
@@ -453,8 +457,7 @@ describe("case-search integration — SA tool round-trip", () => {
 		if (!("error" in result.result)) {
 			throw new Error("expected error result");
 		}
-		expect(result.result.error).toContain("module index 99");
-		expect(result.result.error).toContain("Found no module");
+		expect(result.result.error).toContain("No module with that uuid");
 	});
 });
 
@@ -1007,8 +1010,8 @@ describe("case-search integration — expandDoc HQ JSON projection", () => {
 					caseListConfig: {
 						...module.caseListConfig,
 						filter: whenInput(
-							input("status_search"),
-							eq(prop("patient", "region"), input("status_search")),
+							input(SI_STATUS_UUID),
+							eq(prop("patient", "region"), input(SI_STATUS_UUID)),
 						),
 					},
 				},

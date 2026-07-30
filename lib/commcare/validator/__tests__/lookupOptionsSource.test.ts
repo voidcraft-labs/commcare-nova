@@ -96,7 +96,7 @@ function optionsSource(
 	labelColumnId: LookupColumnId = TEXT_A,
 ) {
 	return {
-		kind: "lookup-table" as const,
+		kind: "lookup" as const,
 		tableId,
 		valueColumnId,
 		labelColumnId,
@@ -116,18 +116,6 @@ function select(
 		kind: "single_select",
 		id,
 		label: id,
-		options: [
-			{
-				uuid: asUuid("21000000-0000-7000-8000-000000000001"),
-				value: "a",
-				label: "A",
-			},
-			{
-				uuid: asUuid("21000000-0000-7000-8000-000000000002"),
-				value: "b",
-				label: "B",
-			},
-		],
 		optionsSource: optionsSource(filter),
 	});
 }
@@ -278,10 +266,21 @@ describe("lookup-backed select filter semantics", () => {
 			kind: "multi_select",
 			id: "many_choices",
 			label: "Many choices",
-			options: [
-				{ value: "a", label: "A" },
-				{ value: "b", label: "B" },
-			],
+			optionsSource: {
+				kind: "inline",
+				options: [
+					{
+						uuid: asUuid("bdb8c003-0c34-4bce-a1ac-f8a20b4546d9"),
+						value: "a",
+						label: "A",
+					},
+					{
+						uuid: asUuid("0686fed7-6c07-4609-a550-8233d7ff9fed"),
+						value: "b",
+						label: "B",
+					},
+				],
+			},
 		});
 		const compatible = surveyDoc([
 			multiSelect,
@@ -436,7 +435,10 @@ describe("lookup-backed select filter semantics", () => {
 					"choice",
 					and(
 						eq(prop("patient", "region"), literal("North")),
-						eq(input("region_query"), literal("North")),
+						eq(
+							input(asUuid("89d1be2f-959f-4e04-80d5-c75fd093a298")),
+							literal("North"),
+						),
 					),
 				),
 			],

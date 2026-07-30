@@ -11,6 +11,7 @@ import {
 	type StackOperation,
 	toHqWorkflow,
 } from "@/lib/commcare/session";
+import { asUuid } from "@/lib/domain";
 import {
 	concat as concatExpr,
 	eq,
@@ -399,7 +400,10 @@ describe("deriveEntryDefinition", () => {
 		// referenced it.
 		const filter = eq(
 			prop("patient", "city"),
-			term({ kind: "input", name: "city_q" }),
+			term({
+				kind: "input",
+				searchInputUuid: asUuid("00000000-0000-4000-8000-0000000000c1"),
+			}),
 		);
 		const entry = deriveEntryDefinition(
 			"http://openrosa.org/formdesigner/abc",
@@ -534,7 +538,10 @@ describe("deriveEntryDefinition", () => {
 
 	it("accumulates search-input:results when the search-button display condition references a search input", () => {
 		const displayCondition = eq(
-			term({ kind: "input", name: "city_q" }),
+			term({
+				kind: "input",
+				searchInputUuid: asUuid("00000000-0000-4000-8000-0000000000c1"),
+			}),
 			literal("active"),
 		);
 		const entry = deriveEntryDefinition(

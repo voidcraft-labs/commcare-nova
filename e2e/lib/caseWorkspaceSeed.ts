@@ -352,10 +352,21 @@ export function buildCaseWorkspaceBlueprint(appId: string): BlueprintDoc {
 								kind: "single_select",
 								id: "referred_to",
 								label: "Referred to",
-								options: [
-									{ value: "clinic", label: "Clinic" },
-									{ value: "hospital", label: "Hospital" },
-								],
+								optionsSource: {
+									kind: "inline",
+									options: [
+										{
+											uuid: asUuid("c3becee8-294f-4477-a8aa-868f0634bb6f"),
+											value: "clinic",
+											label: "Clinic",
+										},
+										{
+											uuid: asUuid("91de4f27-6304-4442-a5af-b171071d9051"),
+											value: "hospital",
+											label: "Hospital",
+										},
+									],
+								},
 							}),
 							// The two answers whose stored shape a native browser
 							// input cannot render: a datetime carries a zone

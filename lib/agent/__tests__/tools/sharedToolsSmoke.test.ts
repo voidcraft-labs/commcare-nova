@@ -53,7 +53,7 @@ const FORM_A = asUuid("33333333-3333-3333-3333-333333333333");
 /**
  * Minimal `BlueprintDoc` with one case-carrying module and one
  * registration form. Enough state for `addFieldsTool` to resolve its
- * positional `(moduleIndex, formIndex)` lookup against; no existing
+ * stable `(moduleUuid, formUuid)` address against; no existing
  * fields so the insert lands at index 0 deterministically.
  */
 function makeFixtureDoc(): BlueprintDoc {
@@ -123,8 +123,8 @@ function makeDocWithFullConnect(): BlueprintDoc {
  *  `kind` is narrowed to the literal `"date"` so the input type-checks
  *  against the tool's per-kind union — the schema rejects bare strings. */
 const ADD_FIELDS_INPUT = {
-	moduleIndex: 0,
-	formIndex: 0,
+	moduleUuid: MOD_A,
+	formUuid: FORM_A,
 	fields: [
 		{
 			id: "dob",
@@ -206,8 +206,8 @@ describe("addFields add-path pipeline", () => {
 		const batchCtx = makeStubToolContext().ctx;
 		const { mutations: batchMuts } = await addFieldsTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
+				moduleUuid: MOD_A,
+				formUuid: FORM_A,
 				fields: [
 					{
 						id,
@@ -233,8 +233,8 @@ describe("addFields add-path pipeline", () => {
 		expect(storedValidate).toBe(expectedValidate);
 	});
 
-	it("inserts the batch's top-level fields at a `beforeFieldId` anchor", async () => {
-		/* The positional anchor folded in from the removed single `addField`
+	it("inserts the batch's top-level fields at a `beforeFieldUuid` anchor", async () => {
+		/* The stable-identity anchor folded in from the removed single `addField`
 		 * tool: the batch's top-level fields land as a contiguous block at
 		 * the anchor's index. Seed three fields, then insert two before the
 		 * middle one and assert the resulting order. */
@@ -242,8 +242,8 @@ describe("addFields add-path pipeline", () => {
 		const seedCtx = makeStubToolContext().ctx;
 		const { newDoc: seeded } = await addFieldsTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
+				moduleUuid: MOD_A,
+				formUuid: FORM_A,
 				fields: [
 					{ id: "first", kind: "text", label: "First" },
 					{ id: "middle", kind: "text", label: "Middle" },
@@ -255,11 +255,15 @@ describe("addFields add-path pipeline", () => {
 		);
 
 		const ctx = makeStubToolContext().ctx;
+		const middleUuid = Object.values(seeded.fields).find(
+			(field) => field.id === "middle",
+		)?.uuid;
+		if (!middleUuid) throw new Error("middle field was not added");
 		const { newDoc: final } = await addFieldsTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				beforeFieldId: "middle",
+				moduleUuid: MOD_A,
+				formUuid: FORM_A,
+				beforeFieldUuid: middleUuid,
 				fields: [
 					{ id: "ins_a", kind: "text", label: "A" },
 					{ id: "ins_b", kind: "text", label: "B" },
@@ -276,11 +280,10 @@ describe("addFields add-path pipeline", () => {
 		expect(order).toEqual(["first", "ins_a", "ins_b", "middle", "last"]);
 	});
 
-	it("applies a batch-level parentId, with a field's own parentId overriding it", async () => {
-		// A5: `addFields` accepts a top-level `parentId` (the batch default
-		// parent), mirroring single `addField`'s top-level `parentId`, so the
-		// SA's natural usage nests the batch instead of hard-erroring on an
-		// unrecognized key. A field's OWN parentId still wins.
+	it("applies an existing parentUuid while a same-call parentId overrides it", async () => {
+		// Existing cross-call references use UUIDs. The per-item parentId is a
+		// construction-local handle and can only point at a container minted
+		// earlier in this same call.
 		const doc = makeFixtureDoc();
 
 		// Seed two groups to nest under.
@@ -288,17 +291,14 @@ describe("addFields add-path pipeline", () => {
 		const { newDoc: docWithGroups, mutations: groupMuts } =
 			await addFieldsTool.execute(
 				{
-					moduleIndex: 0,
-					formIndex: 0,
-					fields: [
-						{ id: "vitals", kind: "group", label: "Vitals" },
-						{ id: "history", kind: "group", label: "History" },
-					],
+					moduleUuid: MOD_A,
+					formUuid: FORM_A,
+					fields: [{ id: "vitals", kind: "group", label: "Vitals" }],
 				},
 				seedCtx,
 				doc,
 			);
-		const groupUuid = (id: string): string => {
+		const groupUuid = (id: string) => {
 			const m = groupMuts.find(
 				(mut): mut is Extract<Mutation, { kind: "addField" }> =>
 					mut.kind === "addField" && mut.field.id === id,
@@ -310,13 +310,14 @@ describe("addFields add-path pipeline", () => {
 		const ctx = makeStubToolContext().ctx;
 		const { mutations } = await addFieldsTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				parentId: "vitals", // batch default parent
+				moduleUuid: MOD_A,
+				formUuid: FORM_A,
+				parentUuid: groupUuid("vitals"),
 				fields: [
-					// No own parentId → inherits the batch default ("vitals").
+					// No construction-local handle: inherits existing "vitals".
 					{ id: "height", kind: "decimal", label: "Height" },
-					// Own parentId → overrides the batch default ("history").
+					{ id: "history", kind: "group", label: "History" },
+					// Same-call handle overrides the existing batch parent.
 					{
 						id: "weight",
 						kind: "decimal",
@@ -334,25 +335,25 @@ describe("addFields add-path pipeline", () => {
 				(m): m is Extract<Mutation, { kind: "addField" }> =>
 					m.kind === "addField" && m.field.id === id,
 			)?.parentUuid;
+		const addedUuid = (id: string): string | undefined =>
+			mutations.find(
+				(m): m is Extract<Mutation, { kind: "addField" }> =>
+					m.kind === "addField" && m.field.id === id,
+			)?.field.uuid;
 
 		expect(addedUnder("height")).toBe(groupUuid("vitals"));
-		expect(addedUnder("weight")).toBe(groupUuid("history"));
+		expect(addedUnder("weight")).toBe(addedUuid("history"));
 	});
 
-	it("a parentId naming a leaf (non-container) field falls through to form-level", async () => {
-		// Regression guard for the isContainer check folded in from the
-		// deleted single `addField`. `findFieldByBareId` matches any field by
-		// id, so without the guard a parentId naming a leaf (`patient_name`,
-		// the seed text field) would nest the new field under it — the reducer
-		// admits any present field as a parent, and the emitter (which only
-		// recurses into containers) would then silently drop the field. The
-		// guard must land it at the form root instead.
+	it("rejects a parentUuid naming a leaf field", async () => {
+		// An existing reference is exact identity and never silently falls back
+		// to form level. A leaf cannot receive children.
 		const doc = makeFixtureDoc();
 		const seedCtx = makeStubToolContext().ctx;
 		const { newDoc: seeded } = await addFieldsTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
+				moduleUuid: MOD_A,
+				formUuid: FORM_A,
 				fields: [{ id: "patient_name", kind: "text", label: "Name" }],
 			},
 			seedCtx,
@@ -360,22 +361,27 @@ describe("addFields add-path pipeline", () => {
 		);
 
 		const ctx = makeStubToolContext().ctx;
-		const { mutations } = await addFieldsTool.execute(
+		const patientNameUuid = Object.values(seeded.fields).find(
+			(field) => field.id === "patient_name",
+		)?.uuid;
+		if (!patientNameUuid) throw new Error("patient_name field was not added");
+		const result = await addFieldsTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				parentId: "patient_name", // a leaf field — not a valid parent
+				moduleUuid: MOD_A,
+				formUuid: FORM_A,
+				parentUuid: patientNameUuid,
 				fields: [{ id: "dob", kind: "date", label: "Date of birth" }],
 			},
 			ctx,
 			seeded,
 		);
 
-		const dobParent = mutations.find(
-			(m): m is Extract<Mutation, { kind: "addField" }> =>
-				m.kind === "addField" && m.field.id === "dob",
-		)?.parentUuid;
-		expect(dobParent).toBe(seeded.formOrder[MOD_A][0]); // the form, not patient_name
+		expect(result.mutations).toEqual([]);
+		expect(result.result).toEqual(
+			expect.objectContaining({
+				error: expect.stringContaining("not a group or repeat"),
+			}),
+		);
 	});
 });
 
@@ -393,8 +399,8 @@ describe("updateFormTool partial connect-config updates", () => {
 
 		const result = await updateFormTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
+				moduleUuid: MOD_A,
+				formUuid: FORM_A,
 				connect: {
 					// Touch only `assessment` — `learn_module` must survive.
 					assessment: { user_score: "#form/new_score" },
@@ -440,8 +446,8 @@ describe("updateFormTool partial connect-config updates", () => {
 
 		const result = await updateFormTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
+				moduleUuid: MOD_A,
+				formUuid: FORM_A,
 				connect: {
 					learn_module: {
 						name: "Patient Module v2",
@@ -495,8 +501,8 @@ describe("updateFormTool connect-id validity", () => {
 
 		const result = await updateFormTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
+				moduleUuid: MOD_A,
+				formUuid: FORM_A,
 				connect: {
 					learn_module: {
 						id: "bad id",
@@ -520,8 +526,8 @@ describe("updateFormTool connect-id validity", () => {
 		const { ctx } = makeStubToolContext();
 		const result = await updateFormTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
+				moduleUuid: MOD_A,
+				formUuid: FORM_A,
 				connect: {
 					assessment: { id: "a".repeat(60), user_score: "100" },
 				},
@@ -542,8 +548,8 @@ describe("updateFormTool connect-id validity", () => {
 		const { ctx } = makeStubToolContext();
 		const result = await updateFormTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
+				moduleUuid: MOD_A,
+				formUuid: FORM_A,
 				// learn_module already has id "patient_module" on this form.
 				connect: { assessment: { id: "patient_module", user_score: "100" } },
 			},
@@ -565,8 +571,8 @@ describe("updateFormTool connect-id validity", () => {
 		const { ctx } = makeStubToolContext();
 		const result = await updateFormTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
+				moduleUuid: MOD_A,
+				formUuid: FORM_A,
 				connect: { deliver_unit: { name: "Vendor visit" } },
 			},
 			ctx,
@@ -610,8 +616,8 @@ describe("updateFormTool deliver_unit", () => {
 
 		const result = await updateFormTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
+				moduleUuid: MOD_A,
+				formUuid: FORM_A,
 				connect: {
 					deliver_unit: { name: "Vendor visit" },
 				},
@@ -657,8 +663,8 @@ describe("updateFormTool deliver_unit", () => {
 
 		const result = await updateFormTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
+				moduleUuid: MOD_A,
+				formUuid: FORM_A,
 				connect: {
 					deliver_unit: { name: "Vendor visit (updated)" },
 				},
@@ -695,8 +701,8 @@ describe("updateFormTool deliver_unit", () => {
 
 		const result = await updateFormTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
+				moduleUuid: MOD_A,
+				formUuid: FORM_A,
 				connect: {
 					deliver_unit: {
 						name: "Beneficiary visit",
@@ -734,8 +740,8 @@ describe("updateFormTool deliver_unit", () => {
 
 		const result = await updateFormTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
+				moduleUuid: MOD_A,
+				formUuid: FORM_A,
 				connect: {
 					deliver_unit: {
 						name: "Site visit",

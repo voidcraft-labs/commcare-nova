@@ -86,6 +86,18 @@ function minDoc(): BlueprintDoc {
 	});
 }
 
+function villageAddress(doc: BlueprintDoc) {
+	const moduleUuid = doc.moduleOrder[0];
+	const formUuid = doc.formOrder[moduleUuid]?.[0];
+	const fieldUuid = Object.values(doc.fields).find(
+		(field) => field.id === "village",
+	)?.uuid;
+	if (!moduleUuid || !formUuid || !fieldUuid) {
+		throw new Error("village fixture address is incomplete");
+	}
+	return { moduleUuid, formUuid, fieldUuid };
+}
+
 function makeMcpCtx() {
 	const logWriter = {
 		logEvent: vi.fn(),
@@ -124,9 +136,7 @@ describe("editField through McpContext — one transactional save per edit", () 
 
 		const out = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "village",
+				...villageAddress(doc),
 				updates: {
 					kind: "text",
 					id: "village_name",
@@ -156,7 +166,9 @@ describe("editField through McpContext — one transactional save per edit", () 
 		const stages = logEvent.mock.calls.map(
 			(c) => (c[0] as { stage?: string }).stage,
 		);
-		expect(new Set(stages)).toEqual(new Set(["rename:0-0", "edit:0-0"]));
+		expect(new Set(stages)).toEqual(
+			new Set(["rename:frm-0003", "edit:frm-0003"]),
+		);
 	});
 
 	it("a contention rejection PROPAGATES out of the tool with ZERO persisted prefix", async () => {
@@ -179,9 +191,7 @@ describe("editField through McpContext — one transactional save per edit", () 
 		await expect(
 			editFieldTool.execute(
 				{
-					moduleIndex: 0,
-					formIndex: 0,
-					fieldId: "village",
+					...villageAddress(doc),
 					updates: {
 						kind: "text",
 						id: "village_name",

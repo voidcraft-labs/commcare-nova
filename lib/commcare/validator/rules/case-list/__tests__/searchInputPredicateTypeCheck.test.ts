@@ -127,10 +127,11 @@ describe("searchInputPredicateTypeCheck", () => {
 
 	it("admits cross-input references via `knownInputs` resolution", () => {
 		// An advanced predicate referencing another declared input
-		// (`when-input-present(input("other"), ...)`) must resolve
+		// must resolve through that input's stable identity
 		// because `moduleTypeContext` populates `knownInputs` from
 		// the full `searchInputs` list. Pin the cross-input case
 		// so the rule's `knownInputs` wiring stays load-bearing.
+		const nameSearchUuid = asUuid("b3dba847-fcda-4409-84cb-64e94fca14cc");
 		const doc = buildDoc({
 			appName: "Test",
 			modules: [
@@ -143,7 +144,7 @@ describe("searchInputPredicateTypeCheck", () => {
 						detailColumnOrder: [asUuid("col-name")],
 						searchInputs: [
 							simpleSearchInputDef(
-								asUuid("si-name"),
+								nameSearchUuid,
 								"name_search",
 								"Name",
 								"text",
@@ -154,7 +155,10 @@ describe("searchInputPredicateTypeCheck", () => {
 								"adv_search",
 								"Advanced",
 								"text",
-								eq(prop("patient", "case_name"), input("name_search")),
+								eq(
+									prop("patient", "case_name"),
+									input(asUuid("b3dba847-fcda-4409-84cb-64e94fca14cc")),
+								),
 							),
 						],
 					},

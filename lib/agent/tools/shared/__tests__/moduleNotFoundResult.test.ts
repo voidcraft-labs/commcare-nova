@@ -1,7 +1,7 @@
 /**
  * Behavioral pin for `moduleNotFoundResult` — the typed Elm-style error
  * helper consumed by every SA tool family that addresses a module by
- * positional index.
+ * stable UUID.
  *
  * The helper has one job — return a `MutatingToolResult` whose mutation
  * list is empty, whose doc is the input verbatim, and whose result
@@ -48,7 +48,7 @@ describe("moduleNotFoundResult", () => {
 		const doc = makeDoc();
 		const result = moduleNotFoundResult<never>(
 			doc,
-			7,
+			"ffffffff-ffff-4fff-8fff-ffffffffffff",
 			"set the case-search advanced cluster",
 		);
 
@@ -59,22 +59,24 @@ describe("moduleNotFoundResult", () => {
 
 	it("produces an Elm-style three-component error message", () => {
 		// Voice contract — the error must carry: (1) what was tried + the
-		// concrete failure, (2) the index that missed, (3) the recovery
+		// concrete failure, (2) the UUID that missed, (3) the recovery
 		// hint pointing at `getModule`'s projection. Pinned here so a
 		// future tweak to the helper's wording stays consistent across
 		// every consuming family.
 		const result = moduleNotFoundResult<never>(
 			makeDoc(),
-			42,
+			"ffffffff-ffff-4fff-8fff-ffffffffffff",
 			"set the case-search display cluster",
 		);
 
 		expect(result.result.error).toContain(
 			"Tried to set the case-search display cluster",
 		);
-		expect(result.result.error).toContain("module index 42");
-		expect(result.result.error).toContain("Found no module at that index");
-		expect(result.result.error).toContain("`getModule`'s projection");
+		expect(result.result.error).toContain(
+			'module uuid "ffffffff-ffff-4fff-8fff-ffffffffffff"',
+		);
+		expect(result.result.error).toContain("No module with that uuid");
+		expect(result.result.error).toContain("`getModule` or `searchBlueprint`");
 	});
 
 	it("preserves the supplied `actionPhrase` verbatim", () => {
@@ -83,12 +85,12 @@ describe("moduleNotFoundResult", () => {
 		// hard-code at the helper's call site.
 		const r1 = moduleNotFoundResult<never>(
 			makeDoc(),
-			0,
+			"ffffffff-ffff-4fff-8fff-ffffffffffff",
 			"add a case list column",
 		);
 		const r2 = moduleNotFoundResult<never>(
 			makeDoc(),
-			0,
+			"ffffffff-ffff-4fff-8fff-ffffffffffff",
 			"set the case list filter",
 		);
 

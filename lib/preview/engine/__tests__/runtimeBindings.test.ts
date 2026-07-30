@@ -38,7 +38,7 @@ import { compilePredicate, type Database } from "@/lib/case-store/sql";
 import { composeXPathQueryEmission } from "@/lib/commcare/suite/case-search/xpathQuery";
 import {
 	APPLICABLE_SEARCH_MODES,
-	advancedSearchInputDef,
+	advancedSearchInputDef as advancedSearchInputDefProduction,
 	asUuid,
 	type CaseListConfig,
 	type CaseType,
@@ -48,8 +48,10 @@ import {
 	multiSelectContainsMode,
 	phoneticMode,
 	rangeMode,
+	SEARCH_INPUT_RUNTIME_VALUE_TYPES,
+	type SearchInputDef,
 	type SearchInputType,
-	simpleSearchInputDef,
+	simpleSearchInputDef as simpleSearchInputDefProduction,
 	startsWithMode,
 } from "@/lib/domain";
 import {
@@ -112,6 +114,76 @@ import {
 	searchInputValuesToWire,
 	withSearchInputExpressionValues,
 } from "../runtimeBindings";
+
+const SEARCH_INPUT_UUID_BY_NAME = new Map([
+	["visit_day", asUuid("d471bd84-37f8-4afb-8780-6401e28612aa")],
+	["visit_dates", asUuid("f2853836-aba4-4323-8de1-32f6939a1a5c")],
+	["name_search", asUuid("b3dba847-fcda-4409-84cb-64e94fca14cc")],
+	["q", asUuid("f38dea69-87fd-4b8c-8190-516b176c3b33")],
+	["region", asUuid("b7a79f7f-ddcc-48fe-84de-9c738e70a8dc")],
+	["min_age", asUuid("446ee3ba-b1e9-4117-8f0e-c6f3b554e062")],
+	["alias", asUuid("8667d29f-9503-4ff0-8510-ea6f6cd3baa1")],
+	["status_filter", asUuid("a34ddfc1-08c6-4897-87f5-b3cc3468d3d0")],
+	["suffix", asUuid("8c765dd7-63a6-4d65-8259-554bd48b227e")],
+	["raw_date", asUuid("d8e61fc4-0585-496b-8188-051eb88e8ecf")],
+	["user_location", asUuid("a11ffd94-962f-4f1b-8ed2-111e0b273e8e")],
+	["max_age", asUuid("8a5bbd04-e111-4b16-8711-419974670292")],
+	["age", asUuid("a7941b43-b7aa-4dc2-87a5-414b0a0b507d")],
+	["base", asUuid("fe5aac72-6719-4464-8127-8e06031f28a6")],
+	["offset", asUuid("f522ff35-209f-4cd2-8b6c-9fe1ac99876d")],
+	["raw", asUuid("af8f5840-46f0-4ef5-87f6-3af440a0a19b")],
+]);
+
+/**
+ * Stable identities for fixture declarations. The registry is test data only:
+ * production never derives identity from a name, and every reference below
+ * still joins to the declaration by the UUID stored here.
+ */
+function fixtureSearchInputUuid(
+	fallback: SearchInputDef["uuid"],
+	name: string,
+): SearchInputDef["uuid"] {
+	return SEARCH_INPUT_UUID_BY_NAME.get(name) ?? fallback;
+}
+
+function simpleSearchInputDef(
+	...args: Parameters<typeof simpleSearchInputDefProduction>
+): ReturnType<typeof simpleSearchInputDefProduction> {
+	return simpleSearchInputDefProduction(
+		fixtureSearchInputUuid(args[0], args[1]),
+		args[1],
+		args[2],
+		args[3],
+		args[4],
+		args[5],
+	);
+}
+
+function advancedSearchInputDef(
+	...args: Parameters<typeof advancedSearchInputDefProduction>
+): ReturnType<typeof advancedSearchInputDefProduction> {
+	return advancedSearchInputDefProduction(
+		fixtureSearchInputUuid(args[0], args[1]),
+		args[1],
+		args[2],
+		args[3],
+		args[4],
+		args[5],
+	);
+}
+
+function searchInputTypeContext(searchInputs: readonly SearchInputDef[]) {
+	return {
+		caseTypes: [],
+		currentCaseType: PATIENT,
+		knownInputs: searchInputs.map((input) => ({
+			uuid: input.uuid,
+			name: input.name,
+			label: input.label,
+			data_type: SEARCH_INPUT_RUNTIME_VALUE_TYPES[input.type],
+		})),
+	};
+}
 
 describe("searchInputValues wire bridge", () => {
 	// The bag is a `Map` in the client and must cross the Server Action
@@ -211,11 +283,18 @@ const CASE_TYPE_SCHEMAS = new Map<string, CaseType>([
 ]);
 
 describe("bindSearchInputValuesInPredicate", () => {
-	const wrappedFilter = whenInput(
-		input("region"),
-		eq(prop(PATIENT, "region"), input("region")),
+	const regionInput = simpleSearchInputDef(
+		asUuid("region"),
+		"region",
+		"Region",
+		"text",
+		"region",
 	);
-	const knownNames = new Set(["region"]);
+	const wrappedFilter = whenInput(
+		input(regionInput.uuid),
+		eq(prop(PATIENT, "region"), input(regionInput.uuid)),
+	);
+	const knownUuids = new Set([regionInput.uuid]);
 
 	it("unwraps a matching gate and binds the answer verbatim", () => {
 		// CommCare stores and interpolates the typed answer byte-for-byte
@@ -226,14 +305,17 @@ describe("bindSearchInputValuesInPredicate", () => {
 			bindSearchInputValuesInPredicate(
 				wrappedFilter,
 				new Map([["region", "  north  "]]),
-				knownNames,
+				knownUuids,
+				[regionInput],
 			),
 		).toEqual(eq(prop(PATIENT, "region"), literal("  north  ")));
 	});
 
 	it("neutralizes a matching gate when its declared input is absent", () => {
 		expect(
-			bindSearchInputValuesInPredicate(wrappedFilter, new Map(), knownNames),
+			bindSearchInputValuesInPredicate(wrappedFilter, new Map(), knownUuids, [
+				regionInput,
+			]),
 		).toEqual(matchAll());
 	});
 });
@@ -1068,14 +1150,20 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 	it.each([
 		{
 			label: "date result",
-			left: dateAdd(term(input("visit_day")), "days", term(literal(1))),
+			left: dateAdd(
+				term(input(asUuid("d471bd84-37f8-4afb-8780-6401e28612aa"))),
+				"days",
+				term(literal(1)),
+			),
 			right: term(dateLiteral("2026-07-18")),
 			expectsTimestamp: false,
 		},
 		{
 			label: "explicit datetime result",
 			left: dateAdd(
-				datetimeCoerce(term(input("visit_day"))),
+				datetimeCoerce(
+					term(input(asUuid("d471bd84-37f8-4afb-8780-6401e28612aa"))),
+				),
 				"days",
 				term(literal(1)),
 			),
@@ -1164,7 +1252,11 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 		expect(composeRuntimeFilter([advanced], new Map(), PATIENT)).toEqual(
 			eq(prop(PATIENT, "status"), literal("active")),
 		);
-		const wire = composeXPathQueryEmission(config, PATIENT)?.wrapper;
+		const wire = composeXPathQueryEmission(
+			config,
+			PATIENT,
+			searchInputTypeContext(config.searchInputs),
+		)?.wrapper;
 		expect(wire).toContain("status = 'active'");
 		expect(wire).not.toContain("unused_prompt");
 	});
@@ -1175,7 +1267,13 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 			"unused_prompt",
 			"Optional prompt",
 			"text",
-			whenInput(input("region"), eq(prop(PATIENT, "name"), input("region"))),
+			whenInput(
+				input(asUuid("b7a79f7f-ddcc-48fe-84de-9c738e70a8dc")),
+				eq(
+					prop(PATIENT, "name"),
+					input(asUuid("b7a79f7f-ddcc-48fe-84de-9c738e70a8dc")),
+				),
+			),
 		);
 		const region = simpleSearchInputDef(
 			asUuid("region"),
@@ -1201,7 +1299,11 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 				eq(prop(PATIENT, "region"), literal("north")),
 			),
 		);
-		const wire = composeXPathQueryEmission(config, PATIENT)?.wrapper;
+		const wire = composeXPathQueryEmission(
+			config,
+			PATIENT,
+			searchInputTypeContext(config.searchInputs),
+		)?.wrapper;
 		expect(wire).toContain("@name='region'");
 		expect(wire).not.toContain("unused_prompt");
 	});
@@ -1213,8 +1315,11 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 			"Visit dates",
 			"date-range",
 			whenInput(
-				input("visit_dates"),
-				eq(prop(PATIENT, "range_token"), input("visit_dates")),
+				input(asUuid("f2853836-aba4-4323-8de1-32f6939a1a5c")),
+				eq(
+					prop(PATIENT, "range_token"),
+					input(asUuid("f2853836-aba4-4323-8de1-32f6939a1a5c")),
+				),
 			),
 		);
 		const result = composeRuntimeFilter(
@@ -1242,7 +1347,10 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 			"name_search",
 			"Name search",
 			"text",
-			eq(prop(PATIENT, "name"), input("name_search")),
+			eq(
+				prop(PATIENT, "name"),
+				input(asUuid("b3dba847-fcda-4409-84cb-64e94fca14cc")),
+			),
 		);
 		const result = composeRuntimeFilter(
 			[advanced],
@@ -1261,7 +1369,11 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 			"q",
 			"Query",
 			"text",
-			match(prop(PATIENT, "name"), input("q"), "fuzzy"),
+			match(
+				prop(PATIENT, "name"),
+				input(asUuid("f38dea69-87fd-4b8c-8190-516b176c3b33")),
+				"fuzzy",
+			),
 		);
 		const result = composeRuntimeFilter(
 			[advanced],
@@ -1282,8 +1394,14 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 			and(
 				eq(prop(PATIENT, "status"), literal("open")),
 				or(
-					eq(prop(PATIENT, "name"), input("q")),
-					eq(prop(PATIENT, "alias"), input("q")),
+					eq(
+						prop(PATIENT, "name"),
+						input(asUuid("f38dea69-87fd-4b8c-8190-516b176c3b33")),
+					),
+					eq(
+						prop(PATIENT, "alias"),
+						input(asUuid("f38dea69-87fd-4b8c-8190-516b176c3b33")),
+					),
 				),
 			),
 		);
@@ -1315,7 +1433,11 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 			// left-side of a comparison. Substitution must reach
 			// through arith into the term arm.
 			eq(
-				arith("+", term(prop(PATIENT, "age")), term(input("min_age"))),
+				arith(
+					"+",
+					term(prop(PATIENT, "age")),
+					term(input(asUuid("446ee3ba-b1e9-4117-8f0e-c6f3b554e062"))),
+				),
 				literal(0),
 			),
 		);
@@ -1345,7 +1467,10 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 			"text",
 			eq(
 				ifExpr(
-					eq(prop(PATIENT, "name"), input("q")),
+					eq(
+						prop(PATIENT, "name"),
+						input(asUuid("f38dea69-87fd-4b8c-8190-516b176c3b33")),
+					),
 					term(literal("yes")),
 					term(literal("no")),
 				),
@@ -1379,8 +1504,13 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 			eq(
 				switchExpr(
 					term(prop(PATIENT, "tier")),
-					[switchCase(literal("vip"), term(input("alias")))],
-					term(input("alias")),
+					[
+						switchCase(
+							literal("vip"),
+							term(input(asUuid("8667d29f-9503-4ff0-8510-ea6f6cd3baa1"))),
+						),
+					],
+					term(input(asUuid("8667d29f-9503-4ff0-8510-ea6f6cd3baa1"))),
 				),
 				literal("alice"),
 			),
@@ -1412,7 +1542,10 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 			"text",
 			exists(
 				subcasePath("parent", "household"),
-				eq(prop("household", "owner"), input("status_filter")),
+				eq(
+					prop("household", "owner"),
+					input(asUuid("a34ddfc1-08c6-4897-87f5-b3cc3468d3d0")),
+				),
 			),
 		);
 		const result = composeRuntimeFilter(
@@ -1435,7 +1568,12 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 			"q",
 			"Query",
 			"text",
-			not(eq(prop(PATIENT, "name"), input("q"))),
+			not(
+				eq(
+					prop(PATIENT, "name"),
+					input(asUuid("f38dea69-87fd-4b8c-8190-516b176c3b33")),
+				),
+			),
 		);
 		const result = composeRuntimeFilter(
 			[advanced],
@@ -1454,7 +1592,13 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 			"q",
 			"Query",
 			"text",
-			whenInput(input("q"), eq(prop(PATIENT, "name"), input("q"))),
+			whenInput(
+				input(asUuid("f38dea69-87fd-4b8c-8190-516b176c3b33")),
+				eq(
+					prop(PATIENT, "name"),
+					input(asUuid("f38dea69-87fd-4b8c-8190-516b176c3b33")),
+				),
+			),
 		);
 		const result = composeRuntimeFilter(
 			[advanced],
@@ -1472,12 +1616,18 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 			"Query",
 			"text",
 			whenInput(
-				input("q"),
+				input(asUuid("f38dea69-87fd-4b8c-8190-516b176c3b33")),
 				and(
-					eq(prop(PATIENT, "name"), input("q")),
+					eq(
+						prop(PATIENT, "name"),
+						input(asUuid("f38dea69-87fd-4b8c-8190-516b176c3b33")),
+					),
 					whenInput(
-						input("region"),
-						eq(prop(PATIENT, "region"), input("region")),
+						input(asUuid("b7a79f7f-ddcc-48fe-84de-9c738e70a8dc")),
+						eq(
+							prop(PATIENT, "region"),
+							input(asUuid("b7a79f7f-ddcc-48fe-84de-9c738e70a8dc")),
+						),
 					),
 				),
 			),
@@ -1529,8 +1679,14 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 			"Query",
 			"text",
 			and(
-				eq(prop(PATIENT, "name"), input("q")),
-				eq(prop(PATIENT, "region"), input("region")),
+				eq(
+					prop(PATIENT, "name"),
+					input(asUuid("f38dea69-87fd-4b8c-8190-516b176c3b33")),
+				),
+				eq(
+					prop(PATIENT, "region"),
+					input(asUuid("b7a79f7f-ddcc-48fe-84de-9c738e70a8dc")),
+				),
 			),
 		);
 		const result = composeRuntimeFilter(
@@ -1541,7 +1697,10 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 		expect(result).toEqual(
 			and(
 				eq(prop(PATIENT, "name"), literal("alice")),
-				eq(prop(PATIENT, "region"), input("region")),
+				eq(
+					prop(PATIENT, "region"),
+					input(asUuid("b7a79f7f-ddcc-48fe-84de-9c738e70a8dc")),
+				),
 			),
 		);
 	});
@@ -1552,7 +1711,10 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 			"q",
 			"Query",
 			"text",
-			eq(prop(PATIENT, "name"), input("q")),
+			eq(
+				prop(PATIENT, "name"),
+				input(asUuid("f38dea69-87fd-4b8c-8190-516b176c3b33")),
+			),
 		);
 		expect(
 			composeRuntimeFilter([advanced], new Map(Object.entries({})), PATIENT),
@@ -1579,7 +1741,13 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 			"q",
 			"Query",
 			"text",
-			whenInput(input("region"), eq(prop(PATIENT, "name"), input("region"))),
+			whenInput(
+				input(asUuid("b7a79f7f-ddcc-48fe-84de-9c738e70a8dc")),
+				eq(
+					prop(PATIENT, "name"),
+					input(asUuid("b7a79f7f-ddcc-48fe-84de-9c738e70a8dc")),
+				),
+			),
 		);
 		const region = simpleSearchInputDef(
 			asUuid("region"),
@@ -1614,7 +1782,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 			"q",
 			"Query",
 			"text",
-			isBlank(input("q")),
+			isBlank(input(asUuid("f38dea69-87fd-4b8c-8190-516b176c3b33"))),
 		);
 		const result = composeRuntimeFilter(
 			[advanced],
@@ -1634,7 +1802,10 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 			"Suffix",
 			"text",
 			eq(
-				concat(term(prop(PATIENT, "name")), term(input("suffix"))),
+				concat(
+					term(prop(PATIENT, "name")),
+					term(input(asUuid("8c765dd7-63a6-4d65-8259-554bd48b227e"))),
+				),
 				literal("alice-vip"),
 			),
 		);
@@ -1660,7 +1831,10 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 			"Query",
 			"text",
 			eq(
-				coalesce(term(input("q")), term(prop(PATIENT, "default_name"))),
+				coalesce(
+					term(input(asUuid("f38dea69-87fd-4b8c-8190-516b176c3b33"))),
+					term(prop(PATIENT, "default_name")),
+				),
 				literal("alice"),
 			),
 		);
@@ -1685,7 +1859,13 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 			"raw_date",
 			"Raw date",
 			"text",
-			eq(formatDate(term(input("raw_date")), "iso"), literal("2025-01-01")),
+			eq(
+				formatDate(
+					term(input(asUuid("d8e61fc4-0585-496b-8188-051eb88e8ecf"))),
+					"iso",
+				),
+				literal("2025-01-01"),
+			),
 		);
 		const result = composeRuntimeFilter(
 			[advanced],
@@ -1706,7 +1886,12 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 			"user_location",
 			"User location",
 			"text",
-			within(prop("clinic", "location"), input("user_location"), 50, "miles"),
+			within(
+				prop("clinic", "location"),
+				input(asUuid("a11ffd94-962f-4f1b-8ed2-111e0b273e8e")),
+				50,
+				"miles",
+			),
 		);
 		const result = composeRuntimeFilter(
 			[advanced],
@@ -1734,7 +1919,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 			"Query",
 			"text",
 			isIn(
-				term(input("q")),
+				term(input(asUuid("f38dea69-87fd-4b8c-8190-516b176c3b33"))),
 				literal("alice"),
 				literal("bob"),
 				literal("carol"),
@@ -1765,7 +1950,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 			"text",
 			between(prop(PATIENT, "age"), {
 				lower: literal(0),
-				upper: term(input("max_age")),
+				upper: term(input(asUuid("8a5bbd04-e111-4b16-8711-419974670292"))),
 			}),
 		);
 		const result = composeRuntimeFilter(
@@ -1793,7 +1978,7 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 			"age",
 			"Age",
 			"text",
-			between(input("age"), {
+			between(input(asUuid("a7941b43-b7aa-4dc2-87a5-414b0a0b507d")), {
 				lower: literal(0),
 				upper: literal(100),
 			}),
@@ -1823,7 +2008,10 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 			"Min age",
 			"text",
 			and(
-				gt(prop(PATIENT, "age"), term(input("min_age"))),
+				gt(
+					prop(PATIENT, "age"),
+					term(input(asUuid("446ee3ba-b1e9-4117-8f0e-c6f3b554e062"))),
+				),
 				eq(prop(PATIENT, "status"), literal("open")),
 			),
 		);
@@ -1855,7 +2043,11 @@ describe("composeRuntimeFilter — mixed-arm composition", () => {
 			"q",
 			"Query",
 			"text",
-			match(prop(PATIENT, "name"), input("q"), "fuzzy"),
+			match(
+				prop(PATIENT, "name"),
+				input(asUuid("f38dea69-87fd-4b8c-8190-516b176c3b33")),
+				"fuzzy",
+			),
 		);
 		const result = composeRuntimeFilter(
 			[simple, advanced],
@@ -1902,7 +2094,10 @@ describe("composeRuntimeFilter — mixed-arm composition", () => {
 			"q",
 			"Query",
 			"text",
-			eq(prop(PATIENT, "name"), input("q")),
+			eq(
+				prop(PATIENT, "name"),
+				input(asUuid("f38dea69-87fd-4b8c-8190-516b176c3b33")),
+			),
 		);
 		const result = composeRuntimeFilter(
 			[simple, advanced],
@@ -1983,7 +2178,10 @@ describe("composeRuntimeFilter — round-trip + builder reuse", () => {
 				"Query",
 				"text",
 				and(
-					eq(prop(PATIENT, "alias"), input("q")),
+					eq(
+						prop(PATIENT, "alias"),
+						input(asUuid("f38dea69-87fd-4b8c-8190-516b176c3b33")),
+					),
 					not(eq(prop(PATIENT, "alias"), literal("admin"))),
 				),
 			),
@@ -2080,7 +2278,7 @@ describe("composeRuntimeFilter — advanced arm rewriter, Predicate-side arm cov
 			"q",
 			"Query",
 			"text",
-			isNull(input("q")),
+			isNull(input(asUuid("f38dea69-87fd-4b8c-8190-516b176c3b33"))),
 		);
 		const result = composeRuntimeFilter(
 			[advanced],
@@ -2101,7 +2299,10 @@ describe("composeRuntimeFilter — advanced arm rewriter, Predicate-side arm cov
 			"text",
 			missing(
 				subcasePath("parent", "household"),
-				eq(prop("household", "owner"), input("q")),
+				eq(
+					prop("household", "owner"),
+					input(asUuid("f38dea69-87fd-4b8c-8190-516b176c3b33")),
+				),
 			),
 		);
 		const result = composeRuntimeFilter(
@@ -2134,7 +2335,13 @@ describe("composeRuntimeFilter — advanced arm rewriter, Predicate-side arm cov
 			"q",
 			"Query",
 			"text",
-			and(matchAll(), eq(prop(PATIENT, "name"), input("q"))),
+			and(
+				matchAll(),
+				eq(
+					prop(PATIENT, "name"),
+					input(asUuid("f38dea69-87fd-4b8c-8190-516b176c3b33")),
+				),
+			),
 		);
 		const result = composeRuntimeFilter(
 			[advanced],
@@ -2158,7 +2365,13 @@ describe("composeRuntimeFilter — advanced arm rewriter, Predicate-side arm cov
 			"q",
 			"Query",
 			"text",
-			or(matchNone(), eq(prop(PATIENT, "name"), input("q"))),
+			or(
+				matchNone(),
+				eq(
+					prop(PATIENT, "name"),
+					input(asUuid("f38dea69-87fd-4b8c-8190-516b176c3b33")),
+				),
+			),
 		);
 		const result = composeRuntimeFilter(
 			[advanced],
@@ -2184,7 +2397,11 @@ describe("composeRuntimeFilter — advanced arm rewriter, ValueExpression-side a
 			"Base date",
 			"date",
 			eq(
-				dateAdd(term(input("base")), "days", term(input("offset"))),
+				dateAdd(
+					term(input(asUuid("fe5aac72-6719-4464-8127-8e06031f28a6"))),
+					"days",
+					term(input(asUuid("f522ff35-209f-4cd2-8b6c-9fe1ac99876d"))),
+				),
 				literal("2025-01-15"),
 			),
 		);
@@ -2199,7 +2416,11 @@ describe("composeRuntimeFilter — advanced arm rewriter, ValueExpression-side a
 		// the rewriter only substitutes for the target input's name.
 		expect(result).toEqual(
 			eq(
-				dateAdd(term(dateLiteral("2025-01-01")), "days", term(input("offset"))),
+				dateAdd(
+					term(dateLiteral("2025-01-01")),
+					"days",
+					term(input(asUuid("f522ff35-209f-4cd2-8b6c-9fe1ac99876d"))),
+				),
 				literal("2025-01-15"),
 			),
 		);
@@ -2216,7 +2437,11 @@ describe("composeRuntimeFilter — advanced arm rewriter, ValueExpression-side a
 			"Offset",
 			"text",
 			eq(
-				dateAdd(term(prop(PATIENT, "dob")), "days", term(input("offset"))),
+				dateAdd(
+					term(prop(PATIENT, "dob")),
+					"days",
+					term(input(asUuid("f522ff35-209f-4cd2-8b6c-9fe1ac99876d"))),
+				),
 				literal("2025-01-15"),
 			),
 		);
@@ -2239,7 +2464,10 @@ describe("composeRuntimeFilter — advanced arm rewriter, ValueExpression-side a
 			"raw",
 			"Raw date",
 			"text",
-			eq(dateCoerce(term(input("raw"))), literal("2025-01-01")),
+			eq(
+				dateCoerce(term(input(asUuid("af8f5840-46f0-4ef5-87f6-3af440a0a19b")))),
+				literal("2025-01-01"),
+			),
 		);
 		const result = composeRuntimeFilter(
 			[advanced],
@@ -2257,7 +2485,12 @@ describe("composeRuntimeFilter — advanced arm rewriter, ValueExpression-side a
 			"raw",
 			"Raw datetime",
 			"text",
-			eq(datetimeCoerce(term(input("raw"))), literal("2025-01-01T00:00:00")),
+			eq(
+				datetimeCoerce(
+					term(input(asUuid("af8f5840-46f0-4ef5-87f6-3af440a0a19b"))),
+				),
+				literal("2025-01-01T00:00:00"),
+			),
 		);
 		const result = composeRuntimeFilter(
 			[advanced],
@@ -2278,7 +2511,10 @@ describe("composeRuntimeFilter — advanced arm rewriter, ValueExpression-side a
 			"q",
 			"Query",
 			"text",
-			eq(double(term(input("q"))), literal(42)),
+			eq(
+				double(term(input(asUuid("f38dea69-87fd-4b8c-8190-516b176c3b33")))),
+				literal(42),
+			),
 		);
 		const result = composeRuntimeFilter(
 			[advanced],
@@ -2298,7 +2534,10 @@ describe("composeRuntimeFilter — advanced arm rewriter, ValueExpression-side a
 			"q",
 			"Query",
 			"text",
-			eq(unwrapList(term(input("q"))), literal("tag")),
+			eq(
+				unwrapList(term(input(asUuid("f38dea69-87fd-4b8c-8190-516b176c3b33")))),
+				literal("tag"),
+			),
 		);
 		const result = composeRuntimeFilter(
 			[advanced],
@@ -2319,7 +2558,7 @@ describe("composeRuntimeFilter — advanced arm rewriter, ValueExpression-side a
 			"q",
 			"Query",
 			"text",
-			eq(today(), term(input("q"))),
+			eq(today(), term(input(asUuid("f38dea69-87fd-4b8c-8190-516b176c3b33")))),
 		);
 		const result = composeRuntimeFilter(
 			[advanced],
@@ -2338,7 +2577,7 @@ describe("composeRuntimeFilter — advanced arm rewriter, ValueExpression-side a
 			"q",
 			"Query",
 			"text",
-			eq(now(), term(input("q"))),
+			eq(now(), term(input(asUuid("f38dea69-87fd-4b8c-8190-516b176c3b33")))),
 		);
 		const result = composeRuntimeFilter(
 			[advanced],

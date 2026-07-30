@@ -1,3 +1,4 @@
+import { asUuid } from "@/lib/domain";
 // lib/case-store/sql/__tests__/compilePredicate.harness.test.ts
 //
 // Execute-against-real-Postgres tests for the Predicate compiler.
@@ -1294,6 +1295,7 @@ describe("compilePredicate — round-trip — match", () => {
 	test("fuzzy with a search-input ref drives the match value at runtime", async ({
 		db,
 	}) => {
+		const searchInputUuid = asUuid("b3dba847-fcda-4409-84cb-64e94fca14cc");
 		// The widened `match.value: ValueExpression` (per the schema
 		// at types.ts § matchSchema) lets a search-input ref drive
 		// the match value at runtime. The search-input modes
@@ -1326,7 +1328,7 @@ describe("compilePredicate — round-trip — match", () => {
 		// level fuzzy clause; "Zelda" shares neither prefix nor token.
 		const pred = match(
 			prop("patient", "nickname"),
-			term(input("name_search")),
+			term(input(searchInputUuid)),
 			"fuzzy",
 		);
 		const rows = await executeAgainstPredicate(
@@ -1334,7 +1336,9 @@ describe("compilePredicate — round-trip — match", () => {
 			compilePredicate(
 				pred,
 				makeCtx(db, {
-					bindings: { searchInputs: new Map([["name_search", "Alise"]]) },
+					bindings: {
+						searchInputs: new Map([[searchInputUuid, "Alise"]]),
+					},
 				}),
 			),
 		);
@@ -2167,6 +2171,7 @@ describe("compilePredicate — round-trip — exists / missing", () => {
 
 describe("compilePredicate — round-trip — when-input-present", () => {
 	test("compiles inner clause when input is bound", async ({ db }) => {
+		const searchInputUuid = asUuid("72c9975d-4abf-4e9d-87ff-51b870368066");
 		await db
 			.insertInto("cases")
 			.values([
@@ -2187,7 +2192,7 @@ describe("compilePredicate — round-trip — when-input-present", () => {
 			])
 			.execute();
 		const pred = whenInput(
-			input("name_filter"),
+			input(searchInputUuid),
 			eq(prop("patient", "nickname"), literal("Alice")),
 		);
 		const rows = await executeAgainstPredicate(
@@ -2195,7 +2200,9 @@ describe("compilePredicate — round-trip — when-input-present", () => {
 			compilePredicate(
 				pred,
 				makeCtx(db, {
-					bindings: { searchInputs: new Map([["name_filter", "Alice"]]) },
+					bindings: {
+						searchInputs: new Map([[searchInputUuid, "Alice"]]),
+					},
 				}),
 			),
 		);
@@ -2224,7 +2231,7 @@ describe("compilePredicate — round-trip — when-input-present", () => {
 			])
 			.execute();
 		const pred = whenInput(
-			input("name_filter"),
+			input(asUuid("72c9975d-4abf-4e9d-87ff-51b870368066")),
 			eq(prop("patient", "nickname"), literal("Alice")),
 		);
 		const rows = await executeAgainstPredicate(

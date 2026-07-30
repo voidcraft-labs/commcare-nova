@@ -634,10 +634,10 @@ describe("mutationSchema round-trip", () => {
 		});
 	});
 
-	describe("Search-input rename compatibility", () => {
+	describe("Search-input UUID identity", () => {
 		const inputUuid = asUuid("77777777-7777-4777-8777-777777777777");
 
-		it("carries the desired name outside the origin-compatible row", () => {
+		it("stores the desired name directly while preserving the row UUID", () => {
 			expectRoundTrip({
 				kind: "updateSearchInput",
 				moduleUuid,
@@ -645,16 +645,15 @@ describe("mutationSchema round-trip", () => {
 				searchInput: {
 					uuid: inputUuid,
 					kind: "simple",
-					name: "old_name",
+					name: "new_name",
 					label: "Name",
 					type: "text",
 					property: "case_name",
 				},
-				renamedTo: "new_name",
 			});
 		});
 
-		it("rejects a rename extension identical to its fallback", () => {
+		it("rejects the retired name-rewrite extension", () => {
 			expect(
 				mutationSchema.safeParse({
 					kind: "updateSearchInput",
@@ -668,7 +667,7 @@ describe("mutationSchema round-trip", () => {
 						type: "text",
 						property: "case_name",
 					},
-					renamedTo: "same_name",
+					renamedTo: "another_name",
 				}).success,
 			).toBe(false);
 		});

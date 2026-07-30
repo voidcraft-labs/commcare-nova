@@ -6,26 +6,27 @@
  * `optionsSource` precedence is presence-based at every consumer, so:
  *
  *   - choosing a table SETS the source and leaves the typed-in options exactly
- *     where they are — they are the fallback an older receiver reads, and they
- *     are what the field goes back to;
+ *     where they are, so switching back restores the author's prior choices;
  *   - choosing typed-in options CLEARS the source. Anything less and the
  *     retained table keeps winning while the editor claims otherwise.
  *
  * `lib/doc/lookupOptionsSourceMutations.ts` records why the clear is spelled
  * `null` rather than `undefined`.
  *
- * A saved row FILTER is shown, explained, and clearable, but not editable
- * here. Editing one means offering the lookup-row expression vocabulary — a
- * table's own columns and an earlier answer in this form — which is a scope
- * the shared expression editor gains separately. Rendering a saved filter
- * read-only keeps it honest in the meantime: an author can see that the
- * choices are narrowed, and by what.
+ * A row filter mounts the shared predicate editor in its explicit table-row
+ * scope. The active definition supplies only this table's columns; the form
+ * projection supplies only earlier answers in root/current/enclosing repeat
+ * scope. The commit gate derives the same admission from the same canonical
+ * form walk and rechecks it against the exact lookup revision.
  */
 "use client";
 
 import { Icon } from "@iconify/react/offline";
 import tablerFilter from "@iconify-icons/tabler/filter";
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
+import { firstComparisonDefault } from "@/components/builder/shared/cards/comparisonSeed";
+import type { EditorFormFieldDecl } from "@/components/builder/shared/formFieldPresentation";
+import { PredicateWorkbench } from "@/components/builder/shared/PredicateWorkbench";
 import { Button } from "@/components/shadcn/button";
 import { Label } from "@/components/shadcn/label";
 import {
@@ -35,12 +36,17 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/shadcn/select";
+import { lookupFilterEligibleFormFields } from "@/lib/doc/formFieldEntries";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
+import { useCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
+import { useFormFieldEntries } from "@/lib/doc/hooks/useFormFieldEntries";
+import { useUserProperties } from "@/lib/doc/hooks/useUserCollections";
 import type { Field, FieldPatchFor } from "@/lib/domain";
 import type { FieldEditorComponentProps } from "@/lib/domain/kinds";
 import type { LookupOptionsSource } from "@/lib/domain/lookupCarriers";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
-import { useNavigate } from "@/lib/routing/hooks";
+import type { Predicate } from "@/lib/domain/predicate";
+import { useNavigate, useSelectedFormContext } from "@/lib/routing/hooks";
 import { useCanEdit } from "@/lib/session/hooks";
 import { useProjectLookupDefinitions } from "./useProjectLookupDefinitions";
 
@@ -61,6 +67,11 @@ export function OptionsSourceEditor<F extends Field>({
 	const labelColumnId = useId();
 	const canEdit = useCanEdit();
 	const navigate = useNavigate();
+	const formContext = useSelectedFormContext();
+	const formUuid = formContext?.form.uuid;
+	const fieldEntries = useFormFieldEntries(formUuid ?? field.uuid);
+	const caseTypes = useCaseTypes();
+	const userProperties = useUserProperties();
 	const source =
 		"optionsSource" in field
 			? (field.optionsSource as LookupOptionsSource | undefined)
@@ -81,6 +92,40 @@ export function OptionsSourceEditor<F extends Field>({
 	const [commitFailure, setCommitFailure] = useState<readonly string[]>([]);
 	const table =
 		source === undefined ? undefined : tables.byId.get(source.tableId);
+	const formFields = useMemo<readonly EditorFormFieldDecl[]>(
+		() =>
+			formUuid === undefined
+				? []
+				: lookupFilterEligibleFormFields(fieldEntries, field.uuid).map(
+						(entry) => ({
+							uuid: entry.uuid,
+							id: entry.id,
+							label: entry.label,
+							dataType: entry.dataType,
+						}),
+					),
+		[field.uuid, fieldEntries, formUuid],
+	);
+	const tableVocabulary = useMemo(
+		() =>
+			table === undefined
+				? []
+				: [
+						{
+							id: table.id,
+							name: table.name,
+							columns: table.columns,
+						},
+					],
+		[table],
+	);
+	const tableScope = useMemo(
+		() =>
+			table === undefined
+				? undefined
+				: { tableId: table.id, columns: table.columns },
+		[table],
+	);
 
 	const commit = useCallback(
 		(next: LookupOptionsSource | undefined) => {
@@ -107,6 +152,14 @@ export function OptionsSourceEditor<F extends Field>({
 	const consideredName = considering
 		? tables.byId.get(considering)?.name
 		: undefined;
+	const changeFilter = useCallback(
+		(next: Predicate | undefined) => {
+			if (source === undefined) return;
+			const { filter: _previous, ...identity } = source;
+			commit(next === undefined ? identity : { ...identity, filter: next });
+		},
+		[commit, source],
+	);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the focused column identity and context-bound `commit` are the complete inputs; re-running on `tables` identity alone would re-commit.
 	useEffect(() => {
 		if (considering === null) return;
@@ -116,7 +169,7 @@ export function OptionsSourceEditor<F extends Field>({
 		 * not a thing the wire can emit, so the first column stands in for both
 		 * until the author says otherwise. */
 		commit({
-			kind: "lookup-table",
+			kind: "lookup",
 			tableId: considering,
 			valueColumnId: first.id,
 			labelColumnId: first.id,
@@ -289,38 +342,77 @@ export function OptionsSourceEditor<F extends Field>({
 						</Select>
 					</div>
 
-					{source.filter !== undefined && (
-						<div className="space-y-2 rounded-lg border border-nova-border bg-nova-elevated p-3">
-							<p className="flex items-start gap-2 text-[13px] font-medium text-nova-text">
-								<Icon
-									icon={tablerFilter}
-									width="16"
-									height="16"
-									className="mt-0.5 shrink-0 text-nova-text-muted"
-									aria-hidden="true"
-								/>
-								Only some rows are offered
-							</p>
-							<p className="text-[13px] leading-relaxed text-nova-text-secondary">
-								A rule on this question narrows which rows of “{table.name}”
-								people can choose from. You can remove the rule here; changing
-								it isn’t available yet.
-							</p>
-							{canEdit && (
-								<Button
-									type="button"
-									variant="ghost"
-									className="min-h-11"
-									onClick={() => {
-										const { filter: _dropped, ...rest } = source;
-										commit(rest);
-									}}
-								>
-									Offer every row
-								</Button>
-							)}
-						</div>
-					)}
+					<div className="space-y-3 rounded-lg border border-nova-border bg-nova-elevated p-3">
+						<p className="flex items-start gap-2 text-[13px] font-medium text-nova-text">
+							<Icon
+								icon={tablerFilter}
+								width="16"
+								height="16"
+								className="mt-0.5 shrink-0 text-nova-text-muted"
+								aria-hidden="true"
+							/>
+							Rows people can choose
+						</p>
+						{source.filter === undefined ? (
+							<>
+								<p className="text-[13px] leading-relaxed text-nova-text-secondary">
+									Every row of “{table.name}” is offered. Add a rule to match
+									this table’s columns against an earlier answer, fixed value,
+									or current-user information.
+								</p>
+								{canEdit ? (
+									<Button
+										type="button"
+										variant="outline"
+										className="min-h-11 w-full border-dashed"
+										onClick={() => {
+											if (tableScope === undefined) return;
+											changeFilter(
+												firstComparisonDefault({
+													caseTypes,
+													currentCaseType: "",
+													knownInputs: [],
+													userProperties,
+													formFields,
+													lookupTables: tableVocabulary,
+													tableScope,
+													caseDataScope: "table-row",
+												}),
+											);
+										}}
+									>
+										Add row rule
+									</Button>
+								) : null}
+							</>
+						) : (
+							<>
+								<p className="text-[13px] leading-relaxed text-nova-text-secondary">
+									Only rows matching this rule are offered. An earlier answer
+									can filter later questions; answers from later, child, or
+									sibling repeat questions are unavailable.
+								</p>
+								<fieldset disabled={!canEdit} className="contents">
+									<PredicateWorkbench
+										value={source.filter}
+										onChange={changeFilter}
+										onRemoveRoot={() => changeFilter(undefined)}
+										removeRootLabel="Offer every row"
+										rootLabel="Row rule"
+										caseTypes={caseTypes}
+										currentCaseType=""
+										knownInputs={[]}
+										userProperties={userProperties}
+										formFields={formFields}
+										lookupTables={tableVocabulary}
+										tableScope={tableScope}
+										caseDataScope="table-row"
+										evaluationTarget="on-device"
+									/>
+								</fieldset>
+							</>
+						)}
+					</div>
 
 					<Button
 						type="button"

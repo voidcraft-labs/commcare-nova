@@ -1,3 +1,4 @@
+import { asUuid } from "@/lib/domain";
 // @vitest-environment happy-dom
 //
 // components/builder/shared/__tests__/cards/ComparisonCard.test.tsx
@@ -101,8 +102,16 @@ describe("ComparisonCard — exhaustive subject authoring", () => {
 		caseTypes: [PATIENT],
 		currentCaseType: "patient",
 		knownInputs: [
-			{ name: "name_search", data_type: "text" as const },
-			{ name: "minimum_age", data_type: "int" as const },
+			{
+				uuid: asUuid("b3dba847-fcda-4409-84cb-64e94fca14cc"),
+				name: "name_search",
+				data_type: "text" as const,
+			},
+			{
+				uuid: asUuid("be272c54-4980-4e32-8944-26c03cae7b07"),
+				name: "minimum_age",
+				data_type: "int" as const,
+			},
 		],
 	};
 
@@ -180,7 +189,10 @@ describe("ComparisonCard — exhaustive subject authoring", () => {
 		const next = onChange.mock.calls[0]?.[0] as Predicate;
 		expect(next.kind).toBe("eq");
 		if (next.kind !== "eq") throw new Error("Expected an equality predicate");
-		expect(next.left).toEqual({ kind: "term", term: input("name_search") });
+		expect(next.left).toEqual({
+			kind: "term",
+			term: input(asUuid("b3dba847-fcda-4409-84cb-64e94fca14cc")),
+		});
 		expect(checkPredicate(next, ctx).ok).toBe(true);
 	});
 

@@ -5,12 +5,12 @@
  * which properties exist — see `toolSchemaGenerator.ts`). This tool runs
  * each through the three-step pipeline in `contentProcessing.ts` —
  * `stripEmpty` → `applyDefaults` → `flatFieldToField` — mints uuids,
- * resolves semantic parent ids (including parents added earlier in the
+ * resolves construction-local parent handles (including parents added earlier in the
  * same batch), and emits one mutation batch tagged `form:M-F`.
  *
  * Appends to existing fields by default (the SA relies on that contract
  * when it splits a large add across multiple calls); an optional
- * `beforeFieldId` / `afterFieldId` anchor instead inserts the batch's
+ * `beforeFieldUuid` / `afterFieldUuid` anchor instead inserts the batch's
  * top-level fields as a contiguous block at that position (fields nested
  * under their own `parentId` are unaffected). This is the only field-add
  * tool — one field is just a length-1 `fields` array.
@@ -19,7 +19,7 @@
  * shared `ToolExecutionContext` interface. Five legal exit branches
  * all land on the `MutatingToolResult` shape:
  *
- *   1. Index resolution miss (module / form) → `{ error }`, no
+ *   1. UUID address miss (module / form) → `{ error }`, no
  *      mutations.
  *   2. Identifier guard rejection (any field id illegal / reserved /
  *      over-long / sibling-conflicting per the shared verdicts in
@@ -36,8 +36,7 @@
 import { z } from "zod";
 import { countFieldsUnder } from "@/lib/doc/fieldWalk";
 import type { Mutation } from "@/lib/doc/types";
-import type { BlueprintDoc } from "@/lib/domain";
-import { resolveFormContext } from "../blueprintHelpers";
+import { asUuid, type BlueprintDoc, uuidSchema } from "@/lib/domain";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import { addFieldsItemSchema } from "../toolSchemas";
 import {
@@ -45,6 +44,10 @@ import {
 	type MutatingToolResult,
 	toToolErrorResult,
 } from "./common";
+import {
+	formAddressSchema,
+	resolveFormAddress,
+} from "./shared/entityAddresses";
 import {
 	assembleFieldMutations,
 	describeRejectedFieldIds,
@@ -54,36 +57,29 @@ import type {
 	ToolCallSummary,
 } from "./shared/toolCallSummary";
 
-export const addFieldsInputSchema = z
-	.object({
-		moduleIndex: z.number().describe("0-based module index"),
-		formIndex: z.number().describe("0-based form index"),
+export const addFieldsInputSchema = formAddressSchema
+	.extend({
 		fields: z.array(addFieldsItemSchema),
-		// Default parent for the whole batch: the id of a group/repeat to
-		// nest every field under. A field's OWN `parentId` overrides this.
-		parentId: z
-			.string()
+		parentUuid: uuidSchema
 			.optional()
 			.describe(
-				"Default parent for the batch: id of a group/repeat to nest every field under. A field's own parentId overrides this. Omit to add at the form's top level.",
+				"Stable uuid of an existing group/repeat to receive the batch. A field item's parentId is only a construction-local handle for a container created earlier in this same call.",
 			),
 		// Optional insertion anchor for the batch's top-level block. The
 		// fields that land in the batch's insertion parent (the form root, or
-		// the batch `parentId`) are inserted as a contiguous block at the
+		// the batch `parentUuid`) are inserted as a contiguous block at the
 		// anchor; fields carrying their own `parentId` nest under it and are
 		// unaffected. Omit both to append at the end (the common case during
 		// a build).
-		afterFieldId: z
-			.string()
+		afterFieldUuid: uuidSchema
 			.optional()
 			.describe(
-				"Insert the batch's top-level fields after this existing field id. Omit to append at the end.",
+				"Insert the batch's top-level fields after this existing sibling uuid. Omit to append at the end.",
 			),
-		beforeFieldId: z
-			.string()
+		beforeFieldUuid: uuidSchema
 			.optional()
 			.describe(
-				"Insert the batch's top-level fields before this existing field id. Takes precedence over afterFieldId.",
+				"Insert the batch's top-level fields before this existing sibling uuid. Takes precedence over afterFieldUuid.",
 			),
 	})
 	.strict();
@@ -100,7 +96,7 @@ export type AddFieldsResult = MutationSuccess | { error: string };
 
 export const addFieldsTool = {
 	description:
-		"Add fields to an existing form (a single field is a length-1 array). Appends by default; beforeFieldId/afterFieldId position the batch. parentId (top-level or per field) nests under a group/repeat — including one added earlier in the same batch.",
+		"Add fields to an existing form by UUID (a single field is a length-1 array). Appends by default; beforeFieldUuid/afterFieldUuid position the batch. parentUuid names an existing container; an item parentId may only name a container created earlier in this same call.",
 	inputSchema: addFieldsInputSchema,
 	async execute(
 		input: AddFieldsInput,
@@ -108,30 +104,26 @@ export const addFieldsTool = {
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<AddFieldsResult>> {
 		const {
-			moduleIndex,
-			formIndex,
+			moduleUuid,
+			formUuid,
 			fields,
-			parentId: batchParentId,
-			afterFieldId,
-			beforeFieldId,
+			parentUuid,
+			afterFieldUuid,
+			beforeFieldUuid,
 		} = input;
 		try {
-			// Shared positional resolver — fails closed with a single error
-			// message when either index is out of range. Tool-specific
-			// wording stays at the call site so the SA sees "Form m0-f2 not
-			// found" rather than the helper's generic "form not found".
-			const resolved = resolveFormContext(doc, moduleIndex, formIndex);
-			if (!resolved) {
+			const resolved = resolveFormAddress(doc, { moduleUuid, formUuid });
+			if (!resolved.ok) {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
 					newDoc: doc,
 					result: {
-						error: `Form m${moduleIndex}-f${formIndex} not found`,
+						error: resolved.error,
 					},
 				};
 			}
-			const { formUuid, form } = resolved;
+			const { form } = resolved;
 
 			// The shared assembly pipeline: sentinel strip → defaults → uuid
 			// mint → domain Field → identifier verdict, with in-batch
@@ -142,10 +134,16 @@ export const addFieldsTool = {
 				doc,
 				formUuid,
 				items: fields,
-				...(batchParentId !== undefined && { batchParentId }),
+				...(parentUuid !== undefined && {
+					batchParentUuid: asUuid(parentUuid),
+				}),
 				anchor: {
-					...(beforeFieldId !== undefined && { beforeFieldId }),
-					...(afterFieldId !== undefined && { afterFieldId }),
+					...(beforeFieldUuid !== undefined && {
+						beforeFieldUuid: asUuid(beforeFieldUuid),
+					}),
+					...(afterFieldUuid !== undefined && {
+						afterFieldUuid: asUuid(afterFieldUuid),
+					}),
 				},
 			});
 
@@ -177,7 +175,7 @@ export const addFieldsTool = {
 				ctx,
 				doc,
 				mutations,
-				`form:${moduleIndex}-${formIndex}`,
+				`form:${formUuid}`,
 			);
 			if (!commit.ok) {
 				return {

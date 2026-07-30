@@ -218,11 +218,11 @@ export function prop(
 
 /**
  * Constructs a reference to a value the user typed into a search
- * input. Resolved at compile time (XPath / SQL) by mapping `name` to
- * the search input's runtime binding.
+ * input. Resolved at compile time (XPath / SQL) by mapping its stable
+ * UUID to the input's current saved name and runtime binding.
  */
-export function input(name: string): SearchInputRef {
-	return { kind: "input", name };
+export function input(searchInputUuid: Uuid): SearchInputRef {
+	return { kind: "input", searchInputUuid };
 }
 
 /**
@@ -740,8 +740,8 @@ export function within(
  * so existing `match(prop, "alice", "fuzzy")` calls keep working.
  * Term / ValueExpression operands flow through the same operand-
  * widening pattern the other Predicate value slots use; the value
- * being a `term(input("name_search"))` lets the match value flow at
- * runtime from a search-input binding — the load-bearing pattern
+ * being a Search-input term lets the match value flow at runtime from the
+ * UUID-linked input's current-name binding — the load-bearing pattern
  * for case-search-driven approximate matching.
  */
 export function match(

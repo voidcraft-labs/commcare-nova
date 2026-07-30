@@ -14,7 +14,6 @@ import {
 } from "./caseOperationOrder";
 import { mutationCommitVerdict } from "./commitVerdicts";
 import { deepEqual } from "./deepEqual";
-import { caseOperationContainsDormantLookupCarrier } from "./dormantLookupCarriers";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "./lookupReferences";
 import { caseOperationCatalogMutations } from "./scaffolds";
 import type { Mutation } from "./types";
@@ -71,10 +70,10 @@ function operationMutation(
 }
 
 /**
- * An ordinary move has an exact carrier-blind spelling in the established
+ * An ordinary move has an exact minimal UUID-and-anchor spelling in the established
  * grammar, so use it as the rolling fallback instead of embedding the whole
  * operation in a replacement. This is what lets a lookup-carrier-bearing
- * operation move without putting its dormant AST inside `mutationSchema`.
+ * operation move without replacing its complete AST.
  *
  * `after` is the whole placement — the operation this one now follows, or
  * `null` for first. An anchor cannot be shifted by a peer's insert, so there is
@@ -396,24 +395,6 @@ export type CaseOperationEditVerdict =
 	| { readonly ok: true }
 	| { readonly ok: false; readonly reason: string };
 
-export const CASE_OPERATION_DORMANT_LOOKUP_EDIT_REASON =
-	"This case change uses lookup-table logic that Nova preserves but cannot safely edit from this surface.";
-
-/** Whether a canonical operation can be authored by the currently shared
- * builder/SA/MCP vocabulary. Moving is intentionally outside this verdict:
- * an identity-keyed move never needs to project or replace the operation's
- * hidden AST. */
-export function caseOperationAuthoringVerdict(
-	operation: CaseOperation,
-): CaseOperationEditVerdict {
-	return caseOperationContainsDormantLookupCarrier(operation)
-		? {
-				ok: false,
-				reason: CASE_OPERATION_DORMANT_LOOKUP_EDIT_REASON,
-			}
-		: { ok: true };
-}
-
 const CASE_OPERATION_STALE_EDIT_REASON =
 	"This case change changed while you were editing it. Review the latest version and try again.";
 
@@ -562,10 +543,8 @@ function rebaseCaseOperationEdit(
  * Plan a full-shape edit against the current doc while retaining the
  * render/tool snapshot that defines the caller's actual intent.
  *
- * Lookup-carrier-bearing operations are read-only until that vocabulary is
- * authorable on all three editors. This refusal occurs before construction of
- * a rolling mutation, so a carrier-blind read can never clear hidden behavior
- * and the builder can never enter the permanent-400 autosave state.
+ * The caller supplies its render/tool snapshot so unrelated concurrent edits
+ * can be retained while the requested full-shape edit is rebased.
  */
 export function planCaseOperationUpdate(
 	doc: BlueprintDoc,
@@ -586,15 +565,6 @@ export function planCaseOperationUpdate(
 	const normalizedDesired: CaseOperation = { ...desired };
 	if (deepEqual(intentBase, normalizedDesired)) {
 		return { ok: true, mutations: [] };
-	}
-	if (
-		!caseOperationAuthoringVerdict(current).ok ||
-		!caseOperationAuthoringVerdict(intentBase).ok
-	) {
-		return {
-			ok: false,
-			reason: CASE_OPERATION_DORMANT_LOOKUP_EDIT_REASON,
-		};
 	}
 	const rebased = rebaseCaseOperationEdit(
 		intentBase,

@@ -694,14 +694,23 @@ describe("rewriteSlotStrings", () => {
 	it("rewrites nested object paths and array fan-out paths in place", () => {
 		const entity = {
 			data_source: { ids_query: "query" },
-			options: [{ label: "a" }, { label: "b" }, { label: "" }],
+			optionsSource: {
+				kind: "inline",
+				options: [{ label: "a" }, { label: "b" }, { label: "" }],
+			},
 			links: [{ datums: [{ xpath: "x" }, { xpath: "y" }] }],
 		};
 		expect(rewriteSlotStrings(entity, "data_source.ids_query", upper)).toBe(1);
 		expect(entity.data_source.ids_query).toBe("QUERY");
 		// Empty strings are skipped — two of three options rewrite.
-		expect(rewriteSlotStrings(entity, "options[].label", upper)).toBe(2);
-		expect(entity.options.map((o) => o.label)).toEqual(["A", "B", ""]);
+		expect(
+			rewriteSlotStrings(entity, "optionsSource.options[].label", upper),
+		).toBe(2);
+		expect(entity.optionsSource.options.map((o) => o.label)).toEqual([
+			"A",
+			"B",
+			"",
+		]);
 		expect(rewriteSlotStrings(entity, "links[].datums[].xpath", upper)).toBe(2);
 	});
 

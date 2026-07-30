@@ -40,8 +40,8 @@ function locationInput(uuid: typeof FIRST, name: string, property: string) {
 		name,
 		"text",
 		whenInput(
-			input(name),
-			within(prop("patient", property), input(name), 10, "kilometers"),
+			input(uuid),
+			within(prop("patient", property), input(uuid), 10, "kilometers"),
 		),
 	);
 }
@@ -57,8 +57,8 @@ describe("searchInputRuntimeQuoteErrors", () => {
 					"Query",
 					"text",
 					whenInput(
-						input("query"),
-						eq(prop("patient", "case_name"), input("query")),
+						input(FIRST),
+						eq(prop("patient", "case_name"), input(FIRST)),
 					),
 				),
 			],
@@ -98,8 +98,8 @@ describe("searchInputRuntimeQuoteErrors", () => {
 					"Query",
 					"text",
 					whenInput(
-						input("query"),
-						eq(prop("patient", "case_name"), input("query")),
+						input(FIRST),
+						eq(prop("patient", "case_name"), input(FIRST)),
 					),
 				),
 			],
@@ -126,12 +126,12 @@ describe("searchInputRuntimeQuoteErrors", () => {
 
 	it("rejects a computed output that combines individually safe answers", () => {
 		const combined = whenInput(
-			input("first"),
+			input(FIRST),
 			whenInput(
-				input("second"),
+				input(SECOND),
 				eq(
 					prop("patient", "label"),
-					concat(term(input("first")), term(input("second"))),
+					concat(term(input(FIRST)), term(input(SECOND))),
 				),
 			),
 		);
@@ -174,10 +174,10 @@ describe("searchInputRuntimeQuoteErrors", () => {
 					"Query",
 					"text",
 					whenInput(
-						input("query"),
+						input(FIRST),
 						eq(
 							prop("patient", "label"),
-							concat(term(input("query")), term(sessionUser("nickname"))),
+							concat(term(input(FIRST)), term(sessionUser("nickname"))),
 						),
 					),
 				),
@@ -199,10 +199,10 @@ describe("searchInputRuntimeQuoteErrors", () => {
 
 	it("rejects fractional calendar quantities but keeps blank prompts optional", () => {
 		const predicate = whenInput(
-			input("months"),
+			input(FIRST),
 			eq(
 				prop("patient", "due_date"),
-				dateAdd(today(), "months", double(term(input("months")))),
+				dateAdd(today(), "months", double(term(input(FIRST)))),
 			),
 		);
 		const config: CaseListConfig = resolveCaseListConfig({
@@ -231,8 +231,8 @@ describe("searchInputRuntimeQuoteErrors", () => {
 
 	it("rejects negative or fractional prompted child-count bounds", () => {
 		const predicate = whenInput(
-			input("minimum"),
-			gt(count(subcasePath("child")), double(term(input("minimum")))),
+			input(FIRST),
+			gt(count(subcasePath("child")), double(term(input(FIRST)))),
 		);
 		const config: CaseListConfig = resolveCaseListConfig({
 			columns: [],
@@ -335,15 +335,15 @@ describe("searchInputRuntimeQuoteErrors", () => {
 
 	it("does not let an inactive numeric branch blame an unrelated location", () => {
 		const numeric = whenInput(
-			input("enable_months"),
+			input(FIRST),
 			eq(
 				prop("patient", "due_date"),
-				dateAdd(today(), "months", double(term(input("months")))),
+				dateAdd(today(), "months", double(term(input(SECOND)))),
 			),
 		);
 		const location = whenInput(
-			input("nearby"),
-			within(prop("patient", "location"), input("nearby"), 10, "kilometers"),
+			input(THIRD),
+			within(prop("patient", "location"), input(THIRD), 10, "kilometers"),
 		);
 		const config: CaseListConfig = resolveCaseListConfig({
 			columns: [],

@@ -246,8 +246,8 @@ export function predicateFocusDescription(
 		case "not":
 			return "Excludes cases when the condition inside matches";
 		case "when-input-present":
-			return value.input.name
-				? `Applies after ${searchInputDisplayLabel(value.input.name, knownInputs)} has an answer`
+			return value.input.searchInputUuid
+				? `Applies after ${searchInputDisplayLabel(value.input.searchInputUuid, knownInputs)} has an answer`
 				: "Applies after the chosen search field has an answer";
 		case "exists":
 			return value.where === undefined

@@ -14,7 +14,6 @@ import {
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { applyMutations } from "@/lib/doc/mutations";
-import { rewriteFormSearchInputRefs } from "@/lib/doc/mutations/referenceRewrites";
 import {
 	buildReferenceIndex,
 	declarersOf,
@@ -31,11 +30,9 @@ import {
 	orderedCaseOperations,
 } from "@/lib/domain";
 import {
-	eq,
 	exists,
 	formField,
 	idOf,
-	input,
 	literal,
 	prop,
 	subcasePath,
@@ -899,23 +896,6 @@ describe("case-operation persistence and reference participation", () => {
 				),
 			).success,
 		).toBe(false);
-	});
-
-	it("renames defensive Search-input references carried by case operations", () => {
-		const { doc, formUuid } = fixture();
-		const form = doc.forms[formUuid] as Form;
-		form.caseOperations = [
-			createOperation({
-				name: term(input("old_name")),
-				condition: eq(input("old_name"), literal("enabled")),
-			}),
-		];
-
-		expect(rewriteFormSearchInputRefs(form, "old_name", "new_name")).toBe(2);
-		expect(form.caseOperations[0].name).toEqual(term(input("new_name")));
-		expect(form.caseOperations[0].condition).toEqual(
-			eq(input("new_name"), literal("enabled")),
-		);
 	});
 
 	it("uses an old-receiver-safe updateForm extension while the writer gate is closed", () => {

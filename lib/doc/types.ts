@@ -15,47 +15,30 @@ import { z } from "zod";
 import {
 	assetIdSchema,
 	CONNECT_TYPES,
-	carrierBlindFieldPatchSchemaByKind,
-	carrierBlindFieldSchema,
-	caseListConfigSchema,
 	caseOperationSchema,
 	casePropertySchema,
 	caseSearchConfigSchema,
-	caseTargetSchema,
 	caseTileLayoutSchema,
 	caseTypeSchema,
 	columnSchema,
 	columnSortSchema,
 	fieldKinds,
+	fieldPatchSchemaByKind,
+	fieldSchema,
 	formSchema,
-	lookupOptionsSourceSchema,
 	mediaSchema,
 	moduleSchema,
 	personaSchema,
 	searchInputDefSchema,
 	selectOptionSchema,
+	selectOptionsSourceSchema,
 	tileCellSchema,
 	userPropertySchema,
 	userTypeSchema,
 	uuidSchema,
 } from "@/lib/domain";
-import {
-	carrierBlindPredicateSchema,
-	carrierBlindValueExpressionSchema,
-	type Predicate,
-	predicateSchema,
-	searchInputRefSchema,
-	type ValueExpression,
-} from "@/lib/domain/predicate";
+import { predicateSchema } from "@/lib/domain/predicate";
 import { deepEqual } from "./deepEqual";
-
-// Runtime-narrow, statically canonical projections. Mutation call sites keep
-// their long-standing Predicate / ValueExpression types; the wire parser and
-// generated grammar use the carrier-blind schema instances underneath.
-const rollingPredicateSchema =
-	carrierBlindPredicateSchema as unknown as z.ZodType<Predicate>;
-const rollingValueExpressionSchema =
-	carrierBlindValueExpressionSchema as unknown as z.ZodType<ValueExpression>;
 
 /**
  * The four field message slots a `Media` bundle attaches to. The
@@ -75,10 +58,8 @@ export const FIELD_MEDIA_SLOTS = [
 //
 // Every way the doc store can change. Each reducer in `./mutations/*` is
 // an exhaustive switch over a subset of these kinds. One shared schema
-// factory produces the carrier-blind rolling/external `mutationSchema` and
-// the full-vocabulary `canonicalMutationSchema` used for durable replay.
-// The TypeScript `Mutation` type derives from the canonical projection, and
-// the rolling output is compile-time asserted assignable to it.
+// factory produces the one canonical mutation schema used for both live
+// writes and durable replay.
 //
 // The update-*/patch variants for modules and forms use
 // `.omit({ uuid: true }).partial()` on the underlying entity schema to
@@ -135,101 +116,6 @@ function clearablePartialPatch<
 		[K in Exclude<keyof S, "uuid">]: z.ZodOptional<z.ZodNullable<S[K]>>;
 	}>;
 }
-
-/**
- * Origin-compatible projections for every canonical domain subtree embedded
- * in an established mutation discriminator.
- *
- * Canonical BlueprintDoc schemas intentionally accept dormant lookup ASTs so
- * a current receiver can hydrate and replay them. Mutation fallbacks have a
- * different compatibility obligation: an open pre-S05 receiver must parse
- * them. Rebuild the affected recursive slots with the carrier-blind AST
- * family rather than applying a shallow refinement at `mutationSchema`.
- *
- * The `as typeof canonicalSchema` casts preserve the existing public
- * `Mutation` TypeScript API. Runtime schemas are strictly narrower, and their
- * generated JSON grammars expose only the narrower recursive family. This
- * mirrors the established rolling-field projection: compatibility is a wire
- * boundary without redefining the canonical persisted domain type.
- */
-const carrierBlindColumnSchema = z.discriminatedUnion(
-	"kind",
-	columnSchema.options.map((arm) => {
-		const kind = (arm.shape.kind as z.ZodLiteral).value;
-		return kind === "calculated"
-			? arm.extend({ expression: rollingValueExpressionSchema })
-			: arm;
-	}) as unknown as typeof columnSchema.options,
-) as unknown as typeof columnSchema;
-
-const carrierBlindSearchInputDefSchema = z.discriminatedUnion(
-	"kind",
-	searchInputDefSchema.options.map((arm) => {
-		const common = {
-			default: rollingValueExpressionSchema.optional(),
-		};
-		const kind = (arm.shape.kind as z.ZodLiteral).value;
-		return kind === "advanced"
-			? arm.extend({
-					...common,
-					predicate: rollingPredicateSchema,
-				})
-			: arm.extend(common);
-	}) as unknown as typeof searchInputDefSchema.options,
-) as unknown as typeof searchInputDefSchema;
-
-const carrierBlindCaseListConfigSchema = caseListConfigSchema.extend({
-	columns: z.array(carrierBlindColumnSchema),
-	filter: rollingPredicateSchema.optional(),
-	searchInputs: z.array(carrierBlindSearchInputDefSchema),
-});
-
-const carrierBlindCaseSearchConfigSchema = caseSearchConfigSchema.extend({
-	excludedOwnerIds: rollingValueExpressionSchema.optional(),
-	searchButtonDisplayCondition: rollingPredicateSchema.optional(),
-});
-
-const carrierBlindCaseTargetSchema = z.discriminatedUnion(
-	"kind",
-	caseTargetSchema.options.map((arm) => {
-		const kind = (arm.shape.kind as z.ZodLiteral).value;
-		return kind === "expression"
-			? arm.extend({ expr: rollingValueExpressionSchema })
-			: arm;
-	}) as unknown as typeof caseTargetSchema.options,
-) as unknown as typeof caseTargetSchema;
-
-const carrierBlindCaseOperationWriteSchema = caseOperationSchema.shape.writes
-	.unwrap()
-	.element.extend({
-		value: rollingValueExpressionSchema,
-		condition: rollingPredicateSchema.optional(),
-	});
-const carrierBlindCaseOperationLinkSchema = caseOperationSchema.shape.links
-	.unwrap()
-	.element.extend({
-		target: carrierBlindCaseTargetSchema.nullable(),
-	});
-const carrierBlindCaseOperationSchema = caseOperationSchema.extend({
-	target: carrierBlindCaseTargetSchema,
-	condition: rollingPredicateSchema.optional(),
-	name: rollingValueExpressionSchema.optional(),
-	owner: rollingValueExpressionSchema.optional(),
-	rename: rollingValueExpressionSchema.optional(),
-	writes: z.array(carrierBlindCaseOperationWriteSchema).optional(),
-	links: z.array(carrierBlindCaseOperationLinkSchema).optional(),
-}) as unknown as typeof caseOperationSchema;
-
-const carrierBlindModuleSchema = moduleSchema.extend({
-	displayCondition: rollingPredicateSchema.optional(),
-	caseListConfig: carrierBlindCaseListConfigSchema.optional(),
-	caseSearchConfig: carrierBlindCaseSearchConfigSchema.optional(),
-}) as unknown as typeof moduleSchema;
-
-const carrierBlindFormSchema = formSchema.extend({
-	displayCondition: rollingPredicateSchema.optional(),
-	caseOperations: z.array(carrierBlindCaseOperationSchema).optional(),
-}) as unknown as typeof formSchema;
 
 function caseOperationChangeSchemaFor(
 	operationValueSchema: typeof caseOperationSchema,
@@ -399,27 +285,8 @@ function caseSearchConfigPatchSchemaFor(
 		.strict();
 }
 
-const carrierBlindModuleUpdatePatchSchema = clearablePartialPatch(
-	carrierBlindModuleSchema,
-);
-const carrierBlindFormUpdatePatchSchema = clearablePartialPatch(
-	carrierBlindFormSchema,
-).omit({
-	caseOperations: true,
-});
-const carrierBlindCaseOperationChangeSchema = caseOperationChangeSchemaFor(
-	carrierBlindCaseOperationSchema,
-);
-const carrierBlindCaseOperationPatchSchema = caseOperationPatchSchemaFor(
-	carrierBlindCaseOperationSchema,
-);
-const carrierBlindCaseSearchConfigPatchSchema = caseSearchConfigPatchSchemaFor(
-	carrierBlindCaseSearchConfigSchema,
-);
-
 // User properties, user types, and personas hold no Predicate or
-// ValueExpression, so their patches are identical under both envelopes —
-// there is no carrier-blind projection to build. Every clearable slot is
+// ValueExpression. Every clearable slot is
 // null-as-delete-safe: an absent `order` sorts last by uuid, an absent
 // `required` is not required, an absent `choices` is free text, an absent
 // `description` is none, an absent `userTypeUuid` is no role, and an
@@ -471,10 +338,7 @@ type UpdateFieldArm = {
 		kind: z.ZodLiteral<"updateField">;
 		uuid: typeof uuidSchema;
 		targetKind: z.ZodLiteral<K>;
-		patch: z.ZodDefault<(typeof carrierBlindFieldPatchSchemaByKind)[K]>;
-		optionsSource: z.ZodOptional<
-			z.ZodNullable<typeof lookupOptionsSourceSchema>
-		>;
+		patch: z.ZodDefault<(typeof fieldPatchSchemaByKind)[K]>;
 	}>;
 }[(typeof fieldKinds)[number]];
 
@@ -504,25 +368,11 @@ const updateFieldArms = fieldKinds.map(
 				// union of every kind's patch schema, which isn't directly
 				// `.default()`-callable; the outer `as UpdateFieldArm` restores the
 				// precise per-kind type.
-				patch: (
-					carrierBlindFieldPatchSchemaByKind[targetKind] as z.ZodTypeAny
-				).default(() => ({})),
-				optionsSource: lookupOptionsSourceSchema.nullable().optional(),
+				patch: (fieldPatchSchemaByKind[targetKind] as z.ZodTypeAny).default(
+					() => ({}),
+				),
 			})
-			.superRefine((mutation, ctx) => {
-				if (
-					mutation.optionsSource !== undefined &&
-					targetKind !== "single_select" &&
-					targetKind !== "multi_select"
-				) {
-					ctx.addIssue({
-						code: "custom",
-						path: ["optionsSource"],
-						message:
-							"Only single-select and multi-select fields can use lookup-backed options.",
-					});
-				}
-			}) as unknown as UpdateFieldArm,
+			.strict() as unknown as UpdateFieldArm,
 ) as [UpdateFieldArm, ...UpdateFieldArm[]];
 
 const canonicalMutationFamily = {
@@ -540,60 +390,6 @@ const canonicalMutationFamily = {
 } as const;
 
 type MutationSchemaFamily = typeof canonicalMutationFamily;
-
-const carrierBlindMutationFamily = {
-	module: carrierBlindModuleSchema,
-	moduleUpdatePatch: carrierBlindModuleUpdatePatchSchema,
-	caseSearchConfig: carrierBlindCaseSearchConfigSchema,
-	caseSearchConfigPatch: carrierBlindCaseSearchConfigPatchSchema,
-	form: carrierBlindFormSchema,
-	formUpdatePatch: carrierBlindFormUpdatePatchSchema,
-	caseOperationChange: carrierBlindCaseOperationChangeSchema,
-	caseOperationPatch: carrierBlindCaseOperationPatchSchema,
-	column: carrierBlindColumnSchema,
-	searchInput: carrierBlindSearchInputDefSchema,
-	predicate: rollingPredicateSchema,
-} as const satisfies MutationSchemaFamily;
-
-function reportMisplacedOptionsSource(
-	value: unknown,
-	ctx: z.RefinementCtx,
-): void {
-	const rootKind =
-		typeof value === "object" &&
-		value !== null &&
-		!Array.isArray(value) &&
-		"kind" in value
-			? value.kind
-			: undefined;
-	const rootAllowsOptionsSource =
-		rootKind === "addField" || rootKind === "updateField";
-	const visited = new WeakSet<object>();
-
-	function visit(node: unknown, path: PropertyKey[]): void {
-		if (typeof node !== "object" || node === null) return;
-		if (visited.has(node)) return;
-		visited.add(node);
-
-		for (const [key, child] of Object.entries(node)) {
-			const childPath = [...path, key];
-			if (
-				key === "optionsSource" &&
-				!(path.length === 0 && rootAllowsOptionsSource)
-			) {
-				ctx.addIssue({
-					code: "custom",
-					path: childPath,
-					message:
-						"Lookup optionsSource is reserved for the top level of addField and updateField mutations.",
-				});
-			}
-			visit(child, childPath);
-		}
-	}
-
-	visit(value, []);
-}
 
 /**
  * Reports a case-operation update that also tries to set the operation's
@@ -657,7 +453,6 @@ function prevalidateRawMutationInput<Schema extends z.ZodType>(
 ): z.ZodType<z.output<Schema>, z.input<Schema>> {
 	const guarded = z.preprocess<z.input<Schema>, Schema, z.input<Schema>>(
 		(value, ctx) => {
-			reportMisplacedOptionsSource(value, ctx);
 			reportImmutableCaseOperationIdentity(value, ctx);
 			return value;
 		},
@@ -1375,30 +1170,13 @@ function createMutationSchema({
 			.object({
 				kind: z.literal("addField"),
 				parentUuid: uuidSchema,
-				// The nested field is the pre-S05 receiver fallback and therefore
-				// remains strict and carrier-blind. Current source intent travels in
-				// the optional top-level extension below.
-				field: carrierBlindFieldSchema,
+				field: fieldSchema,
 				/** The sibling this field follows under `parentUuid`, or `null` for
 				 *  first. Absent appends — the common case, and distinct from `null`
 				 *  so "add at the top" stays expressible. */
 				after: uuidSchema.nullable().optional(),
-				optionsSource: lookupOptionsSourceSchema.optional(),
 			})
-			.superRefine((mutation, ctx) => {
-				if (
-					mutation.optionsSource !== undefined &&
-					mutation.field.kind !== "single_select" &&
-					mutation.field.kind !== "multi_select"
-				) {
-					ctx.addIssue({
-						code: "custom",
-						path: ["optionsSource"],
-						message:
-							"Only single-select and multi-select fields can use lookup-backed options.",
-					});
-				}
-			}),
+			.strict(),
 		z.object({ kind: z.literal("removeField"), uuid: uuidSchema }),
 		// A same-parent reorder splices the field to a new position in its
 		// parent's membership array; a cross-parent move splices it into the
@@ -1427,14 +1205,10 @@ function createMutationSchema({
 			kind: z.literal("convertField"),
 			uuid: uuidSchema,
 			toKind: z.enum(fieldKinds),
-			// Born options for a conversion INTO a select kind from a kind with
-			// no options slot (text → single_select) — the select schemas
-			// require `.min(2)` options the source can't carry, so the
-			// reducer's reconcile would otherwise always fail. Minted (uuid +
-			// order) at the batch-building layer so the reducer stays
-			// deterministic for replay and peers. Ignored when the target kind
-			// has no options slot.
-			options: z.array(selectOptionSchema).optional(),
+			// Complete born source for a conversion into a select kind from a
+			// kind with no source. Inline option identities are minted at the
+			// batch-building layer so reducer replay stays deterministic.
+			optionsSource: selectOptionsSourceSchema.optional(),
 		}),
 		// App-level
 		z.object({ kind: z.literal("setAppName"), name: z.string() }),
@@ -1729,25 +1503,9 @@ function createMutationSchema({
 				kind: z.literal("updateSearchInput"),
 				moduleUuid: uuidSchema,
 				uuid: uuidSchema,
-				// Origin-compatible full-row fallback. A rename retains the previous
-				// declaration name here; current receivers apply the desired name below
-				// and structurally rewrite module-wide input refs against fresh state.
 				searchInput: mutationSearchInputSchema,
-				renamedTo: searchInputRefSchema.shape.name.optional(),
 			})
-			.superRefine((mutation, ctx) => {
-				if (
-					mutation.renamedTo !== undefined &&
-					mutation.renamedTo === mutation.searchInput.name
-				) {
-					ctx.addIssue({
-						code: "custom",
-						path: ["renamedTo"],
-						message:
-							"A Search-input rename extension must differ from its origin-compatible fallback name.",
-					});
-				}
-			}),
+			.strict(),
 		z.object({
 			kind: z.literal("removeSearchInput"),
 			moduleUuid: uuidSchema,
@@ -1866,29 +1624,12 @@ function createMutationSchema({
 	});
 }
 
-/**
- * Rolling/external mutation envelope.
- *
- * Established fallback subtrees intentionally omit dormant S05 lookup
- * carriers so a payload remains parseable by a pre-S05 receiver. New lookup
- * option intent travels only in the top-level addField/updateField extension.
- */
-export const mutationSchema = createMutationSchema(carrierBlindMutationFamily);
-
-/**
- * Canonical replay envelope.
- *
- * Durable events may already contain canonical lookup carriers in established
- * Predicate / ValueExpression slots. Replays and log reads must preserve
- * those values even though new rolling writes keep their fallback projection
- * carrier-blind.
- */
-export const canonicalMutationSchema = createMutationSchema(
-	canonicalMutationFamily,
-);
+/** One final-shape envelope for live writes and durable replay. */
+export const mutationSchema = createMutationSchema(canonicalMutationFamily);
+export const canonicalMutationSchema = mutationSchema;
 
 export type Mutation = z.infer<typeof canonicalMutationSchema>;
-export type RollingMutation = z.infer<typeof mutationSchema>;
+export type RollingMutation = Mutation;
 
 type Assert<T extends true> = T;
 export type RollingMutationIsCanonical = Assert<

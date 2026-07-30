@@ -84,9 +84,9 @@ describe("editField — help text", () => {
 		const { doc, ctx } = { doc: makeDoc(), ...makeStubToolContext() };
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "patient_name",
+				moduleUuid: MOD,
+				formUuid: FORM,
+				fieldUuid: FIELD,
 				updates: { kind: "text", help: "Enter the patient's full legal name." },
 			},
 			ctx,
@@ -104,9 +104,9 @@ describe("editField — help text", () => {
 		};
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "patient_name",
+				moduleUuid: MOD,
+				formUuid: FORM,
+				fieldUuid: FIELD,
 				updates: { kind: "text", label: "Patient name" },
 			},
 			ctx,
@@ -123,9 +123,9 @@ describe("editField — help text", () => {
 		};
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "patient_name",
+				moduleUuid: MOD,
+				formUuid: FORM,
+				fieldUuid: FIELD,
 				updates: { kind: "text", help: null },
 			},
 			ctx,
@@ -159,9 +159,9 @@ describe("editField — rename identifier guard", () => {
 		const recordSpy = vi.spyOn(ctx, "recordMutationStages");
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "patient_name",
+				moduleUuid: MOD,
+				formUuid: FORM,
+				fieldUuid: FIELD,
 				updates: { kind: "text", id: "age" },
 			},
 			ctx,
@@ -180,9 +180,9 @@ describe("editField — rename identifier guard", () => {
 		const { ctx } = makeStubToolContext();
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "patient_name",
+				moduleUuid: MOD,
+				formUuid: FORM,
+				fieldUuid: FIELD,
 				updates: { kind: "text", id: "patient name" },
 			},
 			ctx,
@@ -198,9 +198,9 @@ describe("editField — rename identifier guard", () => {
 		const { ctx } = makeStubToolContext();
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "patient_name",
+				moduleUuid: MOD,
+				formUuid: FORM,
+				fieldUuid: FIELD,
 				updates: { kind: "text", id: "__nova_count_x" },
 			},
 			ctx,
@@ -215,9 +215,9 @@ describe("editField — rename identifier guard", () => {
 		const recordSpy = vi.spyOn(ctx, "recordMutationStages");
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "patient_name",
+				moduleUuid: MOD,
+				formUuid: FORM,
+				fieldUuid: FIELD,
 				updates: { kind: "text", id: "full_name" },
 			},
 			ctx,
@@ -234,9 +234,9 @@ describe("editField — rename identifier guard", () => {
 		const recordSpy = vi.spyOn(ctx, "recordMutationStages");
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "patient_name",
+				moduleUuid: MOD,
+				formUuid: FORM,
+				fieldUuid: FIELD,
 				updates: { kind: "text", id: "age" },
 			},
 			ctx,
@@ -262,10 +262,13 @@ function makeSelectDoc(): BlueprintDoc {
 		id: "consent",
 		kind: "single_select",
 		label: "Consent",
-		options: [
-			{ label: "Yes", value: "yes", uuid: OPT_YES, order: "a1" },
-			{ label: "No", value: "no", uuid: OPT_NO, order: "a2" },
-		],
+		optionsSource: {
+			kind: "inline",
+			options: [
+				{ label: "Yes", value: "yes", uuid: OPT_YES },
+				{ label: "No", value: "no", uuid: OPT_NO },
+			],
+		},
 	} as unknown as Field;
 	return {
 		...doc,
@@ -275,22 +278,33 @@ function makeSelectDoc(): BlueprintDoc {
 	};
 }
 
-describe("editField — wholesale options replacement keeps identity", () => {
-	it("carries surviving values' uuids forward and identifies every option", async () => {
+describe("editField — complete source replacement", () => {
+	it("stores the caller's canonical inline option identities", async () => {
 		const { ctx } = makeStubToolContext();
 		// The SA replaces the whole list (its wire carries NO uuid/order):
 		// "yes" survives with a new label, "no" is dropped, "maybe" is new.
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "consent",
+				moduleUuid: MOD,
+				formUuid: FORM,
+				fieldUuid: SEL,
 				updates: {
 					kind: "single_select",
-					options: [
-						{ label: "Yes, agreed", value: "yes" },
-						{ label: "Maybe", value: "maybe" },
-					],
+					optionsSource: {
+						kind: "inline",
+						options: [
+							{
+								uuid: asUuid("fcd279e7-8af6-42b3-a71f-4196027fb027"),
+								label: "Yes, agreed",
+								value: "yes",
+							},
+							{
+								uuid: asUuid("22ffbb56-a59a-4c53-a545-a9ec853792f0"),
+								label: "Maybe",
+								value: "maybe",
+							},
+						],
+					},
 				},
 			},
 			ctx,
@@ -298,29 +312,19 @@ describe("editField — wholesale options replacement keeps identity", () => {
 		);
 
 		expect(result.kind).toBe("mutate");
-		const options = (
-			result.newDoc.fields[SEL] as unknown as {
-				options: Array<{
-					label: string;
-					value: string;
-					uuid?: string;
-					order?: string;
-				}>;
-			}
-		).options;
-		expect(options).toHaveLength(2);
-		// The surviving value keeps its identity — a peer's concurrent granular
-		// edit addressed at OPT_YES stays valid, and this tab's own next builder
-		// edit to it is visible to the per-uuid option diff.
-		expect(options[0]).toMatchObject({ label: "Yes, agreed", value: "yes" });
-		expect(options[0]?.uuid).toBe(OPT_YES);
-		// The new option minted a fresh uuid (a uuid-less option committed
-		// mid-session is invisible to the per-uuid diff until a reload's
-		// backfill — the silent-loss class).
-		expect(options[1]?.uuid).toBeDefined();
-		expect(options[1]?.uuid).not.toBe(OPT_NO);
-		for (const opt of options) {
-			expect(opt.uuid).toBeDefined();
+		const field = result.newDoc.fields[SEL];
+		if (
+			field?.kind !== "single_select" ||
+			field.optionsSource.kind !== "inline"
+		) {
+			throw new Error("expected inline select");
 		}
+		const options = field.optionsSource.options;
+		expect(options).toHaveLength(2);
+		expect(options[0]).toMatchObject({ label: "Yes, agreed", value: "yes" });
+		expect(options.map((option) => option.uuid)).toEqual([
+			asUuid("fcd279e7-8af6-42b3-a71f-4196027fb027"),
+			asUuid("22ffbb56-a59a-4c53-a545-a9ec853792f0"),
+		]);
 	});
 });

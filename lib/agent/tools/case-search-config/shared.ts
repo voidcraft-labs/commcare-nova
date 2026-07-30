@@ -39,21 +39,18 @@ import {
 	normalizeOwnerOnlyCaseSearchConfig,
 } from "@/lib/domain";
 import {
-	carrierBlindPredicateSchema,
-	carrierBlindValueExpressionSchema,
 	expressionReadsCaseData,
 	type Predicate,
 	predicateReadsCaseData,
+	predicateSchema,
 	type ValueExpression,
+	valueExpressionSchema,
 } from "@/lib/domain/predicate";
 
-// Builders expose canonical AST union types. These aliases keep existing tool
-// callers source-compatible while retaining the carrier-blind Zod nodes at
-// runtime and in generated MCP/chat schemas.
-const carrierBlindPredicateInputSchema =
-	carrierBlindPredicateSchema as z.ZodType<Predicate>;
-const carrierBlindValueExpressionInputSchema =
-	carrierBlindValueExpressionSchema as z.ZodType<ValueExpression>;
+// Keep the canonical recursive AST unions visible at the tool boundary.
+const predicateInputSchema = predicateSchema as z.ZodType<Predicate>;
+const valueExpressionInputSchema =
+	valueExpressionSchema as z.ZodType<ValueExpression>;
 
 // ── Cluster slot tuples — source of truth ───────────────────────────
 
@@ -202,8 +199,8 @@ export function slotsSetByInput<K extends keyof CaseSearchConfig>(
 
 // ── Input schemas — advanced cluster ────────────────────────────────
 
-const globallyResolvedOwnerExpressionSchema =
-	carrierBlindValueExpressionInputSchema.superRefine((expression, ctx) => {
+export const globallyResolvedOwnerExpressionSchema =
+	valueExpressionInputSchema.superRefine((expression, ctx) => {
 		if (!expressionReadsCaseData(expression)) return;
 		ctx.addIssue({
 			code: "custom",
@@ -221,18 +218,19 @@ const globallyResolvedOwnerExpressionSchema =
  * rejects the shape with the honest alternatives instead of letting
  * the gate (or the runtime) break the news.
  */
-const globallyResolvedDisplayConditionSchema =
-	carrierBlindPredicateInputSchema.superRefine((condition, ctx) => {
+const globallyResolvedDisplayConditionSchema = predicateInputSchema.superRefine(
+	(condition, ctx) => {
 		if (!predicateReadsCaseData(condition)) return;
 		ctx.addIssue({
 			code: "custom",
 			message:
 				"The search-button display condition is evaluated before a case is selected, so it cannot read case properties or relationships. Compose it from fixed values and current-user/session values; to filter which cases appear, use the case list filter or a search input instead.",
 		});
-	});
+	},
+);
 
 /**
- * SA boundary shape for `setCaseSearchAdvanced`. `moduleIndex` is
+ * SA boundary shape for `setCaseSearchAdvanced`. `moduleUuid` is
  * omitted from this body schema so `setCaseSearchAdvanced` can wrap
  * it back in its full tool input schema.
  */

@@ -1,3 +1,4 @@
+import { asUuid } from "@/lib/domain";
 /**
  * Media emission through `expandDoc` → `buildXForm` and the HQ shells.
  *
@@ -88,10 +89,22 @@ function mediaDoc() {
 								kind: "single_select",
 								id: "triage_color",
 								label: "Triage color",
-								options: [
-									{ value: "red", label: "Red", media: { image: "opt-img" } },
-									{ value: "green", label: "Green" },
-								],
+								optionsSource: {
+									kind: "inline",
+									options: [
+										{
+											uuid: asUuid("f6fe3b33-ed06-432b-abb5-659c72f3bd35"),
+											value: "red",
+											label: "Red",
+											media: { image: "opt-img" },
+										},
+										{
+											uuid: asUuid("9ed60cff-0d5c-4dc0-aaa5-9fba2616391c"),
+											value: "green",
+											label: "Green",
+										},
+									],
+								},
 							}),
 						],
 					},

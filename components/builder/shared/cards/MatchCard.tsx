@@ -92,7 +92,7 @@ export function matchDefault(
  */
 function matchSeedValue(ctx: PredicateEditContext): ValueExpression {
 	const searchInput = ctx.knownInputs[0];
-	if (searchInput !== undefined) return term(input(searchInput.name));
+	if (searchInput !== undefined) return term(input(searchInput.uuid));
 	const answer = ctx.formFields?.[0];
 	if (answer !== undefined) return term(formField(answer.uuid));
 	return term(sessionContext("username"));

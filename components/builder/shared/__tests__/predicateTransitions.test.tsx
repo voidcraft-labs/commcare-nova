@@ -1,3 +1,4 @@
+import { asUuid } from "@/lib/domain";
 // @vitest-environment happy-dom
 
 import {
@@ -69,8 +70,16 @@ const EDIT_CTX: PredicateEditContext = {
 	caseTypes: CASE_TYPES,
 	currentCaseType: "patient",
 	knownInputs: [
-		{ name: "query", data_type: "text" },
-		{ name: "location_query", data_type: "geopoint" },
+		{
+			uuid: asUuid("d794ebfb-9f47-450f-8af3-964849456a34"),
+			name: "query",
+			data_type: "text",
+		},
+		{
+			uuid: asUuid("9a407814-f043-491d-895d-14418e04af56"),
+			name: "location_query",
+			data_type: "geopoint",
+		},
 	],
 	caseDataScope: "per-case",
 };
@@ -219,7 +228,7 @@ describe("predicate transition planning", () => {
 	});
 
 	it("keeps a nearby center but warns that its distance settings cannot map", () => {
-		const center = term(input("location_query"));
+		const center = term(input(asUuid("9a407814-f043-491d-895d-14418e04af56")));
 		const current = within(
 			prop("patient", "location"),
 			center,
@@ -267,7 +276,10 @@ describe("predicate transition planning", () => {
 
 	it("preserves a wrapper's child but confirms before removing its search-answer gate", () => {
 		const clause = eq(prop("patient", "name"), literal("Alice"));
-		const current = whenInput(input("query"), clause);
+		const current = whenInput(
+			input(asUuid("d794ebfb-9f47-450f-8af3-964849456a34")),
+			clause,
+		);
 		const next = buildPredicateKindReplacement(current, "eq", EDIT_CTX);
 
 		expect(next).toBe(clause);

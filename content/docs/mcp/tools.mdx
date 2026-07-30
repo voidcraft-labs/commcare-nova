@@ -11,6 +11,30 @@ These are the tools the Nova MCP server exposes. You don't call them directly �
 
 It's a long result — a whole system prompt. Some agent frameworks cap how much of a tool result they pass through and quietly hand your agent a truncated copy, which reads as a normal short prompt and produces apps that are valid but conventionally off. So the text always ends with the line `NOVA-PROMPT-END`. Have your agent check for it and stop if it's missing, rather than building on a fragment.
 
+## Stable identity in tool calls
+
+Read before you edit. Every Nova-owned object is addressed by the immutable UUID
+returned by a read tool: `moduleUuid`, `formUuid`, `fieldUuid`,
+`operationUuid`, and the UUID-valued `id` on Project data tables and columns.
+Names, field ids and paths, operation ids, Search field names, lookup tags, and
+column export names are readable or emitted values. They can change and are
+never object addresses.
+
+Predicate and ValueExpression inputs follow the same rule:
+
+- a form answer uses `{ "kind": "field", "uuid": "..." }`;
+- a Search answer uses `{ "kind": "input", "searchInputUuid": "..." }`;
+- a custom worker property uses
+  `{ "kind": "session-user-property", "userPropertyUuid": "..." }`;
+- a lookup row column uses
+  `{ "kind": "table-column", "tableId": "...", "columnId": "..." }`; and
+- an earlier case operation uses its stable `opUuid`.
+
+The deliberate name-backed exceptions are case properties, identified by
+`caseType` plus `property`, and CommCare/session fields Nova does not own. A new
+field item's `parentUuid` can name a container whose `fieldUuid` was declared
+earlier in that same call. It cannot address an undeclared object.
+
 ## Browsing apps
 
 | Tool | What it does |
@@ -84,9 +108,9 @@ complete replacement: include every value that should remain. Omitting
 | Tool | What it does |
 |---|---|
 | `create_module` | Add a new module together with its forms (each with fields) and its case-list columns, in one call. Its case type must already be recorded on the app (`generate_schema`). A module lands complete or not at all. Refine the case list afterward via the case-list tools below. |
-| `update_module` | Rename a module and/or set its case type (with starter case-list columns when the module has none) — set the case type before adding registration, follow-up, or close forms to a module created without one. |
-| `remove_module` | Delete a module. |
-| `get_module` | Show details for one module, including the structured case-list config and each menu tile's current icon and audio label. |
+| `update_module` | Rename a module and/or set its case type, addressed by `moduleUuid` (with starter case-list columns when the module has none) — set the case type before adding registration, follow-up, or close forms to a module created without one. |
+| `remove_module` | Delete a module by `moduleUuid`. |
+| `get_module` | Show details for one module by `moduleUuid`, including the structured case-list config, stable nested UUIDs, and each menu tile's current icon and audio label. |
 
 ## Working on the case list
 
@@ -119,33 +143,59 @@ CommCare has four form types: `registration` creates a new case, `followup` upda
 
 | Tool | What it does |
 |---|---|
-| `create_form` | Add a new form to a module together with its fields, in one call. |
-| `update_form` | Rename, change CommCare Connect config, set close condition or post-submit destination. |
-| `remove_form` | Delete a form. |
-| `get_form` | Show details for one form. |
+| `create_form` | Add a new form to a module addressed by `moduleUuid`, together with its fields in one call. |
+| `update_form` | Rename, change CommCare Connect config, set close condition or post-submit destination, addressed by `moduleUuid` and `formUuid`. |
+| `remove_form` | Delete a form by `moduleUuid` and `formUuid`. |
+| `get_form` | Show one form and its fields by `moduleUuid` and `formUuid`. |
+
+## Working with Project data in expressions
+
+Call `get_lookup_tables` before writing a lookup-backed field or expression. It
+returns rows-free table and column metadata; every table `id` and column `id` is
+its immutable UUID. Names, tags, labels, and export names are included so the
+agent can explain its choice, not so it can address the resource.
+
+`set_field_options_source` replaces one single- or multiple-choice field's
+complete source. A lookup source names the table, saved-value column, and
+display column by UUID. An inline source carries at least two options, each with
+its own UUID, value, and label. Switching source kinds is a complete
+replacement; the previous source is not retained.
+
+An optional row filter may compare columns from that same table with fixed
+values, worker/session values, and eligible earlier answers from the form. It
+cannot read case data, Search answers, later form answers, or answers inside a
+child or sibling repeating section.
+
+| Tool | What it does |
+|---|---|
+| `get_lookup_tables` | List this app Project's data tables and columns, including their stable UUIDs and current readable/export metadata. |
+| `set_field_options_source` | Replace a choice field's complete inline or lookup source, including an optional lookup row filter, addressed by `moduleUuid`, `formUuid`, and `fieldUuid`. |
 
 ## Changing cases on submission
 
 Most forms save their answers onto their primary case through their fields. Case operations cover additional ordered effects: create another case, update or close a known case, connect cases, rename or retype one, assign an owner, or repeat an effect for every row in a repeating section.
 
-Each of these tools names the form it acts on by `moduleUuid` and `formUuid`, both of which `get_module` and `search_blueprint` return. Everything inside an operation is author vocabulary: the operation's own id, and field paths such as `visits/outcome`. A later operation in one add call can target an earlier create from that call by its operation id; the whole list is checked and saved atomically.
+Each tool names the form by `moduleUuid` and `formUuid`, and names an existing
+operation by `operationUuid`. Inside the operation, form-answer terms use field
+UUIDs and references to earlier operations use `opUuid`. The operation's `id`
+remains an editable wire name, not an address.
 
 Operation ids and link identifiers contain letters, numbers, and underscores
 and start with a letter or underscore. Write-property names use the same
-characters and start with a letter. An operation that already contains
-lookup-table logic is preserved in its exact list position and remains movable
-by id. Its read shape keeps `id`, `action`, and `caseType`, adds
-`unavailable.kind: "lookup-table-logic"` plus an explanation, and withholds the
-lookup AST. A full-shape update is refused rather than dropping logic the author
-projection cannot represent.
+characters and start with a letter.
+
+When a later item in one `add_case_operations` call needs to reference an
+earlier item from that call, provide that new item an `operationUuid` up front
+and use it as the later item's `opUuid`. If no same-call reference needs it,
+Nova can mint the UUID. The whole list is checked and saved atomically.
 
 | Tool | What it does |
 |---|---|
-| `get_case_operations` | List every operation in execution order, using operation ids and field paths; a lookup-bearing operation remains in place with explicit unavailable metadata. |
-| `add_case_operations` | Add one or more complete create, update, or close operations. Later items may target an earlier create in the same call. |
-| `update_case_operation` | Edit one operation's complete author shape by id. Only changed identity-keyed slots are written, so unrelated concurrent edits compose. |
-| `move_case_operation` | Move an operation to a new execution index. Refuses dependency-breaking, non-portable, or peer-shifted placement and reports the committed index. |
-| `remove_case_operation` | Remove an operation by id. Refuses while another operation still depends on it and names the dependents. |
+| `get_case_operations` | List every operation in execution order with its stable UUID, editable wire id, and complete canonical Predicate/ValueExpression shapes. |
+| `add_case_operations` | Add one or more complete create, update, or close operations. Later items may target a predeclared UUID from an earlier item in the same call. |
+| `update_case_operation` | Edit one operation's complete shape by `operationUuid`. Only changed identity-keyed slots are written, so unrelated concurrent edits compose. |
+| `move_case_operation` | Move an operation addressed by `operationUuid` to a new execution index. Refuses dependency-breaking or non-portable placement and reports the committed index. |
+| `remove_case_operation` | Remove an operation by `operationUuid`. Refuses while another operation still depends on it and names the dependents. |
 
 ## Working on fields (questions)
 
@@ -153,11 +203,11 @@ A field is a single question on a form: text input, dropdown, date, number, repe
 
 | Tool | What it does |
 |---|---|
-| `add_fields` | Insert one or more fields in one call. Use `beforeFieldId` / `afterFieldId` to control position; omit both to append. |
+| `add_fields` | Insert one or more fields in a UUID-addressed form. Use `beforeFieldUuid` / `afterFieldUuid` to control position and `parentUuid` for an existing or earlier-declared group/repeat; omit them to append. |
 | `edit_field` | Change a field's properties: label, validation, visibility, choices, case wiring. Also converts a field's kind in place where the data is compatible — e.g. text to dropdown (pass the choices in the same call), text to hidden (pass the calculate), text to barcode — keeping the field's identity and references, and for these string-compatible conversions the collected case data stays valid as-is. Converting a case-bound field is property-wide: the one call also converts the property's other writers in other forms and updates its declared type, so every form stays in agreement. Switching between single- and multi-select changes the shape of stored values and does not migrate existing case data. |
-| `move_field` | Reposition an existing field — same `beforeFieldId` / `afterFieldId` / `parentId` anchors as `add_fields` — keeping its identity and every reference to it. |
-| `remove_field` | Delete a field. |
-| `get_field` | Show one field's properties. |
+| `move_field` | Reposition a field addressed by `fieldUuid`, using `beforeFieldUuid` / `afterFieldUuid` or an existing `parentUuid`, while keeping every reference to it. |
+| `remove_field` | Delete a field by `moduleUuid`, `formUuid`, and `fieldUuid`. |
+| `get_field` | Show one field by `moduleUuid`, `formUuid`, and `fieldUuid`. |
 | `search_blueprint` | Search across the whole app for a field id, case property, label, case type, XPath fragment, or module/form name. Returns at most 50 matches — when there are more, the result says how many and your agent should search something more specific. |
 
 ## Working with media

@@ -1,5 +1,6 @@
 import type { Predicate, ValueExpression } from "@/lib/domain/predicate/types";
 import { walkPredicateNodes, walkTerms } from "@/lib/domain/predicate/walk";
+import type { Uuid } from "@/lib/domain/uuid";
 
 // Geopoint text normalization shared by on-device distance evaluation and the
 // runtime CSQL query builder. Stored case properties and search centers both
@@ -69,17 +70,17 @@ export function validOnDeviceGeopointCenter(
 }
 
 /** Search inputs whose bytes contribute to a runtime geopoint center. */
-export function collectRuntimeGeopointInputNames(
+export function collectRuntimeGeopointInputUuids(
 	predicate: Predicate,
-): ReadonlySet<string> {
-	const names = new Set<string>();
+): ReadonlySet<Uuid> {
+	const inputUuids = new Set<Uuid>();
 	walkPredicateNodes(predicate, (node) => {
 		if (node.kind !== "within-distance") return;
-		for (const name of collectGeopointCenterInputNames(node.center)) {
-			names.add(name);
+		for (const inputUuid of collectGeopointCenterInputUuids(node.center)) {
+			inputUuids.add(inputUuid);
 		}
 	});
-	return names;
+	return inputUuids;
 }
 
 /**
@@ -88,15 +89,17 @@ export function collectRuntimeGeopointInputNames(
  * output is used but do not themselves become location text, so they are not
  * blamed with a location-format error.
  */
-export function collectGeopointCenterInputNames(
+export function collectGeopointCenterInputUuids(
 	expression: ValueExpression,
-): ReadonlySet<string> {
-	const names = new Set<string>();
+): ReadonlySet<Uuid> {
+	const inputUuids = new Set<Uuid>();
 
 	const visit = (value: ValueExpression): void => {
 		switch (value.kind) {
 			case "term":
-				if (value.term.kind === "input") names.add(value.term.name);
+				if (value.term.kind === "input") {
+					inputUuids.add(value.term.searchInputUuid);
+				}
 				return;
 			case "today":
 			case "now":
@@ -142,18 +145,20 @@ export function collectGeopointCenterInputNames(
 				// geopoint. Still collect input refs from the row-selection
 				// predicate because changing one can select a different result.
 				walkTerms(value.where, (term) => {
-					if (term.kind === "input") names.add(term.name);
+					if (term.kind === "input") {
+						inputUuids.add(term.searchInputUuid);
+					}
 				});
 				return;
 			default: {
 				const _exhaustive: never = value;
 				throw new Error(
-					`collectGeopointCenterInputNames: unhandled expression ${String(_exhaustive)}`,
+					`collectGeopointCenterInputUuids: unhandled expression ${String(_exhaustive)}`,
 				);
 			}
 		}
 	};
 
 	visit(expression);
-	return names;
+	return inputUuids;
 }

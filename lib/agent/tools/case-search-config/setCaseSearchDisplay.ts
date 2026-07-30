@@ -15,11 +15,13 @@
  */
 
 import { z } from "zod";
-import type { BlueprintDoc, CaseSearchConfig } from "@/lib/domain";
 import {
-	resolveModuleUuid,
-	updateModuleMutations,
-} from "../../blueprintHelpers";
+	asUuid,
+	type BlueprintDoc,
+	type CaseSearchConfig,
+	uuidSchema,
+} from "@/lib/domain";
+import { updateModuleMutations } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import {
 	guardedMutate,
@@ -42,11 +44,9 @@ import {
 
 export const setCaseSearchDisplayInputSchema = z
 	.object({
-		moduleIndex: z
-			.number()
-			.describe(
-				"0-based module index whose case-search display cluster to set",
-			),
+		moduleUuid: uuidSchema.describe(
+			"Stable uuid of the module whose case-search display cluster is set",
+		),
 	})
 	.extend(setCaseSearchDisplayBodySchema.shape)
 	.strict();
@@ -80,20 +80,14 @@ export const setCaseSearchDisplayTool = {
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<SetCaseSearchDisplayResult>> {
-		const { moduleIndex } = input;
+		const { moduleUuid: rawModuleUuid } = input;
+		const moduleUuid = asUuid(rawModuleUuid);
 		try {
-			const moduleUuid = resolveModuleUuid(doc, moduleIndex);
-			if (!moduleUuid)
-				return moduleNotFoundResult<SetCaseSearchDisplaySuccess>(
-					doc,
-					moduleIndex,
-					"set the case-search display cluster",
-				);
 			const mod = doc.modules[moduleUuid];
 			if (!mod)
 				return moduleNotFoundResult<SetCaseSearchDisplaySuccess>(
 					doc,
-					moduleIndex,
+					rawModuleUuid,
 					"set the case-search display cluster",
 				);
 
@@ -125,7 +119,7 @@ export const setCaseSearchDisplayTool = {
 				ctx,
 				doc,
 				mutations,
-				`module:${moduleIndex}:caseSearch:display`,
+				`module:${moduleUuid}:caseSearch:display`,
 			);
 			if (!commit.ok) {
 				return {
@@ -148,8 +142,8 @@ export const setCaseSearchDisplayTool = {
 				result: {
 					message:
 						displaySlotsSet.length === 0
-							? `Cleared every case-search display slot on module "${mod.name}" (index ${moduleIndex}).`
-							: `Set case-search display on module "${mod.name}" (index ${moduleIndex}): ${displaySlotsSet.join(", ")}.`,
+							? `Cleared every case-search display slot on module "${mod.name}".`
+							: `Set case-search display on module "${mod.name}": ${displaySlotsSet.join(", ")}.`,
 					displaySlotsSet,
 					summary: { location: mod.name },
 				},

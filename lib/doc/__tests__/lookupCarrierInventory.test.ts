@@ -1,10 +1,10 @@
 // Structural inventory of lookup-carrier authoring slots.
 //
-// `collectDormantLookupCarriers` is what decides whether a document can be
-// exported at all: `lib/export/boundaryValidation.ts::lookupCarrierExportFindings`
+// `collectLookupCarriers` is what decides which HQ-targeted exports must be
+// refused: `lib/export/boundaryValidation.ts::lookupCarrierExportFindings`
 // turns each carrier it returns into a `LOOKUP_CARRIER_EXPORT_NOT_ACTIVE`
 // finding, so a carrier the collector misses becomes an app that exports a
-// lookup reference the wire cannot yet carry. The properties pinned here are
+// lookup reference whose HQ resource is not yet provisioned. The properties pinned here are
 // the ones that decide inclusion: which slots count, what a carrier's identity
 // is, and that an unreachable entity is still inventoried.
 
@@ -12,9 +12,14 @@ import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import {
 	canonicalLookupCarrierFingerprint,
-	collectDormantLookupCarriers,
-} from "@/lib/doc/dormantLookupCarriers";
-import type { BlueprintDoc, LookupOptionsSource, Uuid } from "@/lib/domain";
+	collectLookupCarriers,
+} from "@/lib/doc/lookupCarrierInventory";
+import type {
+	BlueprintDoc,
+	LookupOptionsSource,
+	SelectOptionsSource,
+	Uuid,
+} from "@/lib/domain";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import { literal, matchAll, tableLookup, term } from "@/lib/domain/predicate";
 
@@ -47,7 +52,7 @@ function source(
 	tableId: LookupTableId = TABLE_A,
 ): LookupOptionsSource {
 	return {
-		kind: "lookup-table",
+		kind: "lookup",
 		tableId,
 		valueColumnId: VALUE_COLUMN,
 		labelColumnId: LABEL_COLUMN,
@@ -69,7 +74,12 @@ function source(
 	};
 }
 
-function selectDoc(optionsSource?: LookupOptionsSource): BlueprintDoc {
+function selectDoc(
+	optionsSource: SelectOptionsSource = {
+		kind: "inline",
+		options: inlineOptions(),
+	},
+): BlueprintDoc {
 	return buildDoc({
 		appName: "Lookup carrier inventory",
 		modules: [
@@ -84,8 +94,7 @@ function selectDoc(optionsSource?: LookupOptionsSource): BlueprintDoc {
 								kind: "single_select",
 								id: "status",
 								label: "Status",
-								options: inlineOptions(),
-								...(optionsSource !== undefined && { optionsSource }),
+								optionsSource,
 							}),
 							f({ kind: "text", id: "notes", label: "Notes" }),
 						],
@@ -106,15 +115,15 @@ function statusField(doc: BlueprintDoc) {
 	return field;
 }
 
-describe("dormant lookup carrier inventory", () => {
+describe("lookup carrier inventory", () => {
 	it("finds nothing in a document whose selects are inline-only", () => {
-		expect(collectDormantLookupCarriers(selectDoc())).toEqual([]);
+		expect(collectLookupCarriers(selectDoc())).toEqual([]);
 	});
 
 	it("reports a select's lookup source with the location an export finding needs", () => {
 		const doc = selectDoc(source());
 		const field = statusField(doc);
-		const carriers = collectDormantLookupCarriers(doc);
+		const carriers = collectLookupCarriers(doc);
 
 		expect(carriers).toHaveLength(1);
 		expect(carriers[0]).toMatchObject({
@@ -123,17 +132,6 @@ describe("dormant lookup carrier inventory", () => {
 			slot: "lookup_options_source",
 			location: { scope: "field", fieldUuid: field.uuid, fieldId: "status" },
 		});
-	});
-
-	it("keeps inline fallback options outside the carrier fingerprint", () => {
-		// Inline options are the origin-compatible fallback, so editing only the
-		// fallback beside a lookup source must not read as touching the carrier.
-		const before = collectDormantLookupCarriers(selectDoc(source()))[0];
-		const doc = selectDoc(source());
-		statusField(doc).options = inlineOptions("replacement");
-		const after = collectDormantLookupCarriers(doc)[0];
-
-		expect(after.fingerprint).toBe(before.fingerprint);
 	});
 
 	it("fingerprints a lookup-bearing AST slot root, not only its stable leaf ids", () => {
@@ -146,8 +144,8 @@ describe("dormant lookup carrier inventory", () => {
 		const nextDoc = structuredClone(prevDoc);
 		nextDoc.modules[moduleUuid].displayCondition = source("no").filter;
 
-		const [before] = collectDormantLookupCarriers(prevDoc);
-		const [after] = collectDormantLookupCarriers(nextDoc);
+		const [before] = collectLookupCarriers(prevDoc);
+		const [after] = collectLookupCarriers(nextDoc);
 		expect(after).toMatchObject({
 			ownerUuid: before.ownerUuid,
 			ownerKind: "module",
@@ -183,10 +181,10 @@ describe("dormant lookup carrier inventory", () => {
 		if (nextWrites === undefined) throw new Error("expected operation writes");
 		nextWrites.reverse();
 
-		const before = collectDormantLookupCarriers(doc).find(
+		const before = collectLookupCarriers(doc).find(
 			(carrier) => carrier.slot === "case_operation_write_value",
 		);
-		const after = collectDormantLookupCarriers(reordered).find(
+		const after = collectLookupCarriers(reordered).find(
 			(carrier) => carrier.slot === "case_operation_write_value",
 		);
 		expect(before).toBeDefined();
@@ -204,7 +202,7 @@ describe("dormant lookup carrier inventory", () => {
 			if (index !== -1) children.splice(index, 1);
 		}
 
-		expect(collectDormantLookupCarriers(doc)).toHaveLength(1);
+		expect(collectLookupCarriers(doc)).toHaveLength(1);
 	});
 });
 

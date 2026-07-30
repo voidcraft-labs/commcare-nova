@@ -1,3 +1,4 @@
+import { asUuid } from "@/lib/domain";
 // @vitest-environment happy-dom
 
 import { fireEvent, render, screen } from "@testing-library/react";
@@ -32,7 +33,13 @@ const CASE_TYPES: readonly CaseType[] = [
 		properties: [{ name: "region", label: "Region", data_type: "text" }],
 	},
 ];
-const KNOWN_INPUTS = [{ name: "query", data_type: "text" }] as const;
+const KNOWN_INPUTS = [
+	{
+		uuid: asUuid("d794ebfb-9f47-450f-8af3-964849456a34"),
+		name: "query",
+		data_type: "text",
+	},
+] as const;
 const VIA = ancestorPath(relationStep("parent", "household"));
 const PATIENT_FIRST = eq(prop("patient", "status"), literal(""));
 const HOUSEHOLD_FIRST = eq(prop("household", "region"), literal(""));
@@ -55,7 +62,12 @@ describe("friendly first-condition seeds", () => {
 				knownInputs: KNOWN_INPUTS,
 				caseDataScope: "per-case",
 			}),
-		).toEqual(whenInput(input("query"), PATIENT_FIRST));
+		).toEqual(
+			whenInput(
+				input(asUuid("d794ebfb-9f47-450f-8af3-964849456a34")),
+				PATIENT_FIRST,
+			),
+		);
 	});
 
 	it("starts a Count filter in the related case scope", () => {
@@ -192,7 +204,10 @@ describe("friendly first-condition seeds", () => {
 		const whenChange = vi.fn();
 		render(
 			<PredicateCardEditor
-				value={whenInput(input("query"), matchAll())}
+				value={whenInput(
+					input(asUuid("d794ebfb-9f47-450f-8af3-964849456a34")),
+					matchAll(),
+				)}
 				onChange={whenChange}
 				caseTypes={CASE_TYPES}
 				currentCaseType="patient"

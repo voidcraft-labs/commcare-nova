@@ -13,7 +13,6 @@ import { describe, expect, it } from "vitest";
 import { buildDoc, f, xpIn } from "@/lib/__tests__/docHelpers";
 import {
 	addFieldMutations,
-	findFieldByBareId,
 	updateFormMutations,
 } from "@/lib/agent/blueprintHelpers";
 import { deriveCaseConfig } from "@/lib/commcare/deriveCaseConfig";
@@ -155,10 +154,21 @@ describe("Form Builder Agent Integration — mutation-builder helpers", () => {
 				id: "gender",
 				label: "Gender",
 				kind: "single_select",
-				options: [
-					{ value: "male", label: "Male" },
-					{ value: "female", label: "Female" },
-				],
+				optionsSource: {
+					kind: "inline",
+					options: [
+						{
+							uuid: asUuid("353c4988-6d11-403f-afa4-f4a364f2c2a7"),
+							value: "male",
+							label: "Male",
+						},
+						{
+							uuid: asUuid("e864b9b7-c39a-4c67-a0c6-c06534fab7f9"),
+							value: "female",
+							label: "Female",
+						},
+					],
+				},
 				case_property_on: "gender",
 			} as Field;
 			const doc1 = apply(
@@ -195,11 +205,11 @@ describe("Form Builder Agent Integration — mutation-builder helpers", () => {
 				addFieldMutations(doc, { parentUuid: FORM, field: hidden }),
 			);
 
-			const found = findFieldByBareId(doc, FORM, "age_group");
+			const found = doc.fields[hidden.uuid];
 			expect(found).toBeDefined();
-			expect(found?.field.kind).toBe("hidden");
+			expect(found?.kind).toBe("hidden");
 			expect(
-				found ? expressionSource(found.field, "calculate", doc) : undefined,
+				found ? expressionSource(found, "calculate", doc) : undefined,
 			).toBe("if(/data/age < 18, 'child', 'adult')");
 		});
 

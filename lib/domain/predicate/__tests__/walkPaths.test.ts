@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { asUuid } from "@/lib/domain";
 import {
 	concat,
 	count,
@@ -20,30 +21,38 @@ describe("Search-input reference paths", () => {
 			prop("client", "case_name"),
 			ifExpr(
 				whenInput(
-					input("needle"),
-					eq(prop("client", "external_id"), input("needle")),
+					input(asUuid("a30315bc-3b75-4e23-82d5-f4602032d5d0")),
+					eq(
+						prop("client", "external_id"),
+						input(asUuid("a30315bc-3b75-4e23-82d5-f4602032d5d0")),
+					),
 				),
-				term(input("needle")),
+				term(input(asUuid("a30315bc-3b75-4e23-82d5-f4602032d5d0"))),
 				term(literal("fallback")),
 			),
 		);
-		const found: Array<{ name: string; path: readonly (string | number)[] }> =
-			[];
+		const found: Array<{
+			searchInputUuid: string;
+			path: readonly (string | number)[];
+		}> = [];
 
 		walkInputRefsWithPaths(predicate, (ref, path) => {
-			found.push({ name: ref.name, path });
+			found.push({ searchInputUuid: ref.searchInputUuid, path });
 		});
 
 		expect(found).toEqual([
 			{
-				name: "needle",
+				searchInputUuid: "a30315bc-3b75-4e23-82d5-f4602032d5d0",
 				path: ["right", "if", "cond", "when-input-present", "input"],
 			},
 			{
-				name: "needle",
+				searchInputUuid: "a30315bc-3b75-4e23-82d5-f4602032d5d0",
 				path: ["right", "if", "cond", "when-input-present", "clause", "right"],
 			},
-			{ name: "needle", path: ["right", "if", "then"] },
+			{
+				searchInputUuid: "a30315bc-3b75-4e23-82d5-f4602032d5d0",
+				path: ["right", "if", "then"],
+			},
 		]);
 	});
 
@@ -52,19 +61,24 @@ describe("Search-input reference paths", () => {
 			selfPath(),
 			eq(
 				prop("client", "case_name"),
-				concat(term(literal("prefix")), term(input("needle"))),
+				concat(
+					term(literal("prefix")),
+					term(input(asUuid("a30315bc-3b75-4e23-82d5-f4602032d5d0"))),
+				),
 			),
 		);
-		const found: Array<{ name: string; path: readonly (string | number)[] }> =
-			[];
+		const found: Array<{
+			searchInputUuid: string;
+			path: readonly (string | number)[];
+		}> = [];
 
 		walkExpressionInputRefsWithPaths(expression, (ref, path) => {
-			found.push({ name: ref.name, path });
+			found.push({ searchInputUuid: ref.searchInputUuid, path });
 		});
 
 		expect(found).toEqual([
 			{
-				name: "needle",
+				searchInputUuid: "a30315bc-3b75-4e23-82d5-f4602032d5d0",
 				path: ["count", "where", "right", "parts", 1],
 			},
 		]);

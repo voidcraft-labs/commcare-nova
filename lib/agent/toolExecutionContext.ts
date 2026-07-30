@@ -22,11 +22,13 @@
 import type { ConversionImpact } from "@/lib/case-store";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, CasePropertyDataType } from "@/lib/domain";
+import type { LookupTableId } from "@/lib/domain/lookupIds";
 import type {
 	ConversationEvent,
 	ConversationPayload,
 	MutationEvent,
 } from "@/lib/log/types";
+import type { LookupDefinitionsSnapshot } from "@/lib/lookup/types";
 import type { MediaAttachExpectation } from "@/lib/media/attachVerdicts";
 
 /**
@@ -67,6 +69,20 @@ export interface ToolExecutionContext {
 
 	/** Per-run grouping id. Stamped on every event envelope. */
 	readonly runId: string;
+
+	/**
+	 * Exact rows-free Project data definitions. Production chat and MCP
+	 * contexts bind this to the freshly authorized Project scope; synthetic
+	 * carrier-free tests may omit it. Mutating helpers request the union of
+	 * lookup identities present before and after a batch so additions, edits,
+	 * and clears all receive the same external validation context.
+	 */
+	readonly lookupDefinitions?: (
+		tableIds: readonly LookupTableId[],
+	) => Promise<LookupDefinitionsSnapshot>;
+
+	/** Complete rows-free Project data catalog for author-facing read tools. */
+	readonly lookupCatalog?: () => Promise<LookupDefinitionsSnapshot>;
 
 	/**
 	 * Exact chat-run capability for authoritative non-blueprint side effects.

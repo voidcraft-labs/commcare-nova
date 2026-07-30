@@ -1,6 +1,5 @@
 import { withUserSequences } from "@/lib/__tests__/docHelpers";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { backfillOptionUuids } from "@/lib/doc/optionIdentity";
 /**
  * Guard coverage per mutation kind — the second half of the proof that
  * licenses deleting the validate-fix loop (beside the construction fuzz):
@@ -892,10 +891,21 @@ const GUARD_COVERAGE = {
 										kind: "single_select",
 										id: "color",
 										label: "Color",
-										options: [
-											{ value: "r", label: "Red" },
-											{ value: "g", label: "Green" },
-										],
+										optionsSource: {
+											kind: "inline",
+											options: [
+												{
+													uuid: asUuid("22e59e3e-4102-4733-aaba-826f18d2ff65"),
+													value: "r",
+													label: "Red",
+												},
+												{
+													uuid: asUuid("5e8bfede-6410-4df4-aa4e-e1ccc059914d"),
+													value: "g",
+													label: "Green",
+												},
+											],
+										},
 									}),
 								],
 							},
@@ -903,9 +913,14 @@ const GUARD_COVERAGE = {
 					},
 				],
 			});
-			backfillOptionUuids(doc);
 			const field = byId(doc, "color");
-			const options = (field as { options: Array<{ uuid: string }> }).options;
+			if (
+				(field.kind !== "single_select" && field.kind !== "multi_select") ||
+				field.optionsSource.kind !== "inline"
+			) {
+				throw new Error("expected inline select");
+			}
+			const options = field.optionsSource.options;
 			return {
 				doc,
 				batch: [

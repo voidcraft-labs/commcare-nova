@@ -150,10 +150,21 @@ describe("planKindConversion — generalized escort", () => {
 									kind: "multi_select",
 									label: "Symptoms",
 									case_property_on: "patient",
-									options: [
-										{ value: "fever", label: "Fever" },
-										{ value: "cough", label: "Cough" },
-									],
+									optionsSource: {
+										kind: "inline",
+										options: [
+											{
+												uuid: asUuid("f12c5da9-ae49-4148-a1a0-51c1862f1a87"),
+												value: "fever",
+												label: "Fever",
+											},
+											{
+												uuid: asUuid("dc7cd85f-ae72-4da1-a577-a80946c52e41"),
+												value: "cough",
+												label: "Cough",
+											},
+										],
+									},
 								}),
 							],
 						},
@@ -166,10 +177,21 @@ describe("planKindConversion — generalized escort", () => {
 									kind: "multi_select",
 									label: "Symptoms",
 									case_property_on: "patient",
-									options: [
-										{ value: "fever", label: "Fever" },
-										{ value: "cough", label: "Cough" },
-									],
+									optionsSource: {
+										kind: "inline",
+										options: [
+											{
+												uuid: asUuid("95954e84-82df-45f0-ad55-6344b766645d"),
+												value: "fever",
+												label: "Fever",
+											},
+											{
+												uuid: asUuid("8b6efa95-fc35-43a7-af6b-551f5f30db84"),
+												value: "cough",
+												label: "Cough",
+											},
+										],
+									},
 								}),
 							],
 						},

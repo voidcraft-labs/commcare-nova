@@ -170,10 +170,21 @@ function fixture(formType: "followup" | "registration"): {
 								kind: "multi_select",
 								id: "choices",
 								label: "Choices",
-								options: [
-									{ value: "a", label: "A" },
-									{ value: "b", label: "B" },
-								],
+								optionsSource: {
+									kind: "inline",
+									options: [
+										{
+											uuid: asUuid("4712663f-caf3-4229-a27f-f97105cb5436"),
+											value: "a",
+											label: "A",
+										},
+										{
+											uuid: asUuid("ecf3f64e-6dd6-480d-aa48-a43c97fc3d83"),
+											value: "b",
+											label: "B",
+										},
+									],
+								},
 							}),
 						],
 					},

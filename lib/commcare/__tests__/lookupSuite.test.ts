@@ -26,6 +26,14 @@ const VALUE = "018f3e8a-7b2c-7def-8abc-0000000000b1" as LookupColumnId;
 const LABEL = "018f3e8a-7b2c-7def-8abc-0000000000b2" as LookupColumnId;
 const NAME = "018f3e8a-7b2c-7def-8abc-0000000000b3" as LookupColumnId;
 
+/** Named CommCare item-list oracle captured as literal fixture bytes.
+ *
+ * This is intentionally not assembled with Nova's fixture builder: the test
+ * must compare the compiler to an independent accepted wire shape, not compare
+ * one generated value with another generated value. */
+const COMMCARE_REGIONS_ITEM_LIST_FIXTURE_BYTES =
+	'<fixture id="item-list:regions"><regions_list><regions><value>north</value><label>North</label><name>Northland</name></regions><regions><value>south</value><label>South</label><name>Southland</name></regions></regions_list></fixture>';
+
 const naming = lookupWireNaming([
 	{
 		id: REGIONS,
@@ -115,9 +123,8 @@ function lookupApp() {
 								kind: "single_select",
 								id: "region_select",
 								label: "Region",
-								options: [{ value: "manual", label: "Manual" }],
 								optionsSource: {
-									kind: "lookup-table",
+									kind: "lookup",
 									tableId: REGIONS,
 									valueColumnId: VALUE,
 									labelColumnId: LABEL,
@@ -153,7 +160,10 @@ function parse(xml: string): Document {
 describe("compileCcz — lookup wire embedding", () => {
 	it("embeds the fixture after the menus with the exact serialized body", () => {
 		const suiteXml = compile().readAsText("suite.xml");
-		expect(suiteXml).toContain(fixtures.fixtures[0].xml);
+		expect(fixtures.fixtures[0].xml).toBe(
+			COMMCARE_REGIONS_ITEM_LIST_FIXTURE_BYTES,
+		);
+		expect(suiteXml).toContain(COMMCARE_REGIONS_ITEM_LIST_FIXTURE_BYTES);
 
 		const suite = findAll(
 			(el) => el.name === "suite",

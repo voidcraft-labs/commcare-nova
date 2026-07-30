@@ -69,14 +69,22 @@ function lookupData(): PreviewLookupData {
 	});
 }
 
-interface DField {
+interface DFieldBase {
 	id: string;
-	kind: FieldKind;
 	label?: string;
 	calculate?: string;
-	optionsSource?: LookupOptionsSource;
-	options?: Array<{ value: string; label: string }>;
 }
+
+type DField = DFieldBase &
+	(
+		| {
+				kind: "single_select" | "multi_select";
+				optionsSource: LookupOptionsSource;
+		  }
+		| {
+				kind: Exclude<FieldKind, "single_select" | "multi_select">;
+		  }
+	);
 
 function dTree(
 	fields: DField[],
@@ -115,7 +123,7 @@ function clinicSelect(
 		kind,
 		label: "Clinic",
 		optionsSource: {
-			kind: "lookup-table",
+			kind: "lookup",
 			tableId: TABLE,
 			valueColumnId: COL_CODE,
 			labelColumnId: COL_NAME,
@@ -126,11 +134,6 @@ function clinicSelect(
 				),
 			}),
 		},
-		// The inline rolling-receiver fallback options the schema requires.
-		options: [
-			{ value: "a1", label: "Arua" },
-			{ value: "b2", label: "Bario" },
-		],
 	};
 }
 
@@ -276,8 +279,14 @@ describe("lookup-backed choices in the engine", () => {
 		 * controller heal), never the validation-bypass throw, which fires
 		 * only from evaluateLookupChoices under a covering snapshot. */
 		const orphanSelect = clinicSelect("single_select", false);
+		if (
+			orphanSelect.kind !== "single_select" &&
+			orphanSelect.kind !== "multi_select"
+		) {
+			throw new Error("Expected select fixture");
+		}
 		orphanSelect.optionsSource = {
-			...(orphanSelect.optionsSource as LookupOptionsSource),
+			...orphanSelect.optionsSource,
 			tableId: "018f0000-0000-7000-8000-00000000dead" as LookupTableId,
 		};
 		const engine = new FormEngine(

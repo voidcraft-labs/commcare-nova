@@ -1,3 +1,4 @@
+import { asUuid } from "@/lib/domain";
 // @vitest-environment happy-dom
 
 import {
@@ -41,7 +42,12 @@ function ControlledWorkbench({ initial }: { readonly initial: Predicate }) {
 				caseTypes={CASE_TYPES}
 				currentCaseType="patient"
 				knownInputs={[
-					{ name: "query", label: "Client search", data_type: "text" },
+					{
+						uuid: asUuid("d794ebfb-9f47-450f-8af3-964849456a34"),
+						name: "query",
+						label: "Client search",
+						data_type: "text",
+					},
 				]}
 			/>
 		</>
@@ -119,7 +125,14 @@ describe("PredicateWorkbench special-condition authoring", () => {
 	);
 
 	it("authors a special condition inside a recursive wrapper", async () => {
-		render(<ControlledWorkbench initial={whenInput(input("query"), NORTH)} />);
+		render(
+			<ControlledWorkbench
+				initial={whenInput(
+					input(asUuid("d794ebfb-9f47-450f-8af3-964849456a34")),
+					NORTH,
+				)}
+			/>,
+		);
 		const originalTrigger = screen.getByRole("button", {
 			name: "Condition is",
 		});

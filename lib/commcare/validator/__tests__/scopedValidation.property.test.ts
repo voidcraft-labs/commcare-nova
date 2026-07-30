@@ -269,12 +269,8 @@ describe("scoped validation ≡ full validation filtered to scope", () => {
 									kind: "single_select",
 									id: "choice",
 									label: "Choice",
-									options: [
-										{ value: "yes", label: "Yes" },
-										{ value: "no", label: "No" },
-									],
 									optionsSource: {
-										kind: "lookup-table",
+										kind: "lookup",
 										tableId: lookupTable,
 										valueColumnId: lookupColumn,
 										labelColumnId: lookupColumn,

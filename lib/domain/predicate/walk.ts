@@ -42,6 +42,7 @@
  * (no I/O); the caller closes over its own accumulator.
  */
 
+import type { Uuid } from "../uuid";
 import type {
 	Predicate,
 	PropertyRef,
@@ -212,11 +213,11 @@ export function walkInputRefs(
 /** Whether a predicate reads the named Search input anywhere in its AST. */
 export function predicateReferencesSearchInput(
 	predicate: Predicate,
-	name: string,
+	searchInputUuid: Uuid,
 ): boolean {
 	let found = false;
 	walkInputRefs(predicate, (ref) => {
-		if (ref.name === name) found = true;
+		if (ref.searchInputUuid === searchInputUuid) found = true;
 	});
 	return found;
 }
@@ -224,43 +225,15 @@ export function predicateReferencesSearchInput(
 /** Expression-rooted counterpart to `predicateReferencesSearchInput`. */
 export function expressionReferencesSearchInput(
 	expression: ValueExpression,
-	name: string,
+	searchInputUuid: Uuid,
 ): boolean {
 	let found = false;
 	walkExpressionTerms(expression, (term) => {
-		if (term.kind === "input" && term.name === name) found = true;
+		if (term.kind === "input" && term.searchInputUuid === searchInputUuid) {
+			found = true;
+		}
 	});
 	return found;
-}
-
-/** Structurally rename every matching Search-input leaf in a predicate. */
-export function renameSearchInputInPredicate(
-	predicate: Predicate,
-	oldName: string,
-	newName: string,
-): number {
-	let changed = 0;
-	walkInputRefs(predicate, (ref) => {
-		if (ref.name !== oldName) return;
-		ref.name = newName;
-		changed++;
-	});
-	return changed;
-}
-
-/** Structurally rename every matching Search-input leaf in an expression. */
-export function renameSearchInputInExpression(
-	expression: ValueExpression,
-	oldName: string,
-	newName: string,
-): number {
-	let changed = 0;
-	walkExpressionTerms(expression, (term) => {
-		if (term.kind !== "input" || term.name !== oldName) return;
-		term.name = newName;
-		changed++;
-	});
-	return changed;
 }
 
 /**
@@ -345,7 +318,7 @@ function collapseWhenInputPresent(predicate: Predicate): void {
 function blankInputTerm(term: Term): void {
 	if (term.kind !== "input") return;
 	const node = term as unknown as Record<string, unknown>;
-	delete node.name;
+	delete node.searchInputUuid;
 	node.kind = "literal";
 	node.value = "";
 }

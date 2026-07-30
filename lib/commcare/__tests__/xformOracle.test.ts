@@ -4,6 +4,7 @@ import { expandDoc } from "@/lib/commcare/expander";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { validateXForm } from "@/lib/commcare/validator/xformOracle";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { asUuid } from "@/lib/domain";
 
 // ── XForm XML Validator ────────────────────────────────────────────
 
@@ -646,19 +647,41 @@ describe("expanded XForm validation", () => {
 									kind: "single_select",
 									id: "color",
 									label: "Color",
-									options: [
-										{ value: "red", label: "Red" },
-										{ value: "blue", label: "Blue" },
-									],
+									optionsSource: {
+										kind: "inline",
+										options: [
+											{
+												uuid: asUuid("0cd988f8-0289-4cee-a800-620c6275b676"),
+												value: "red",
+												label: "Red",
+											},
+											{
+												uuid: asUuid("9276ec2a-8b7c-4b45-a71e-3d53ec09e834"),
+												value: "blue",
+												label: "Blue",
+											},
+										],
+									},
 								}),
 								f({
 									kind: "multi_select",
 									id: "tags",
 									label: "Tags",
-									options: [
-										{ value: "a", label: "A" },
-										{ value: "b", label: "B" },
-									],
+									optionsSource: {
+										kind: "inline",
+										options: [
+											{
+												uuid: asUuid("16544537-021b-44ca-a8c2-279e9b1eeb51"),
+												value: "a",
+												label: "A",
+											},
+											{
+												uuid: asUuid("aa56c916-f52e-46b4-a7c7-291361338e4d"),
+												value: "b",
+												label: "B",
+											},
+										],
+									},
 								}),
 							],
 						},

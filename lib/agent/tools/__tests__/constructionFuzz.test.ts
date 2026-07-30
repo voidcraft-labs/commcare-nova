@@ -52,7 +52,7 @@ import {
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { buildReferenceIndex } from "@/lib/doc/referenceIndex";
 import type { BlueprintDoc, CaseListConfig, Uuid } from "@/lib/domain";
-import { blueprintDocSchema } from "@/lib/domain";
+import { asUuid, blueprintDocSchema } from "@/lib/domain";
 import { eq, literal, prop } from "@/lib/domain/predicate";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { addFieldsTool } from "../addFields";
@@ -494,20 +494,34 @@ const opArb = fc.oneof(
 
 type FuzzOp = typeof opArb extends fc.Arbitrary<infer T> ? T : never;
 
-/** Resolve a field id within a form by pick index (deterministic). */
-function pickFieldId(
+function moduleUuidAt(
+	doc: BlueprintDoc,
+	moduleIndex: number,
+): Uuid | undefined {
+	return doc.moduleOrder[moduleIndex];
+}
+
+function formUuidAt(
+	doc: BlueprintDoc,
+	moduleIndex: number,
+	formIndex: number,
+): Uuid | undefined {
+	const moduleUuid = moduleUuidAt(doc, moduleIndex);
+	return moduleUuid === undefined
+		? undefined
+		: doc.formOrder[moduleUuid]?.[formIndex];
+}
+
+/** Resolve a field uuid within a form by pick index (deterministic). */
+function pickFieldUuid(
 	doc: BlueprintDoc,
 	moduleIndex: number,
 	formIndex: number,
 	pick: number,
-): string | undefined {
-	const moduleUuid = doc.moduleOrder[moduleIndex];
-	const formUuid = moduleUuid
-		? doc.formOrder[moduleUuid]?.[formIndex]
-		: undefined;
+): Uuid | undefined {
+	const formUuid = formUuidAt(doc, moduleIndex, formIndex);
 	const order = formUuid ? (doc.fieldOrder[formUuid] ?? []) : [];
-	const uuid = order[pick % Math.max(order.length, 1)];
-	return uuid ? doc.fields[uuid]?.id : undefined;
+	return order[pick % Math.max(order.length, 1)];
 }
 
 /** The shape of one generated field item this file's steering reads. */
@@ -565,10 +579,7 @@ function formTypeAt(
 	moduleIndex: number,
 	formIndex: number,
 ): string | undefined {
-	const moduleUuid = doc.moduleOrder[moduleIndex];
-	const formUuid = moduleUuid
-		? doc.formOrder[moduleUuid]?.[formIndex]
-		: undefined;
+	const formUuid = formUuidAt(doc, moduleIndex, formIndex);
 	return formUuid ? doc.forms[formUuid]?.type : undefined;
 }
 
@@ -750,7 +761,11 @@ async function applyOp(
 			/* Same steering for a registration form: it must open its case
 			 * with the registration unit bound to the module's type — when
 			 * the target module has one. */
-			const moduleType = doc.modules[doc.moduleOrder[op.moduleIndex]]?.caseType;
+			const moduleUuid = moduleUuidAt(doc, op.moduleIndex);
+			const moduleType =
+				moduleUuid === undefined
+					? undefined
+					: doc.modules[moduleUuid]?.caseType;
 			const generated = resolveOwnCaseBindings(op.fields, moduleType);
 			const fields =
 				op.formType === "registration" && moduleType
@@ -764,7 +779,7 @@ async function applyOp(
 			return runParsed(
 				createFormTool,
 				{
-					moduleIndex: op.moduleIndex,
+					moduleUuid,
 					name: op.name,
 					type: op.formType,
 					fields,
@@ -780,8 +795,8 @@ async function applyOp(
 			return runParsed(
 				addFieldsTool,
 				{
-					moduleIndex: op.moduleIndex,
-					formIndex: op.formIndex,
+					moduleUuid: moduleUuidAt(doc, op.moduleIndex),
+					formUuid: formUuidAt(doc, op.moduleIndex, op.formIndex),
 					fields: resolveOwnCaseBindings(
 						op.fields,
 						doc.modules[doc.moduleOrder[op.moduleIndex]]?.caseType,
@@ -791,14 +806,14 @@ async function applyOp(
 				doc,
 			);
 		case "editField": {
-			const fieldId = pickFieldId(
+			const fieldUuid = pickFieldUuid(
 				doc,
 				op.moduleIndex,
 				op.formIndex,
 				op.fieldPick,
 			);
-			if (!fieldId) return doc;
-			const target = Object.values(doc.fields).find((fl) => fl.id === fieldId);
+			if (!fieldUuid) return doc;
+			const target = doc.fields[fieldUuid];
 			// The kind the patch is validated against — the conversion
 			// target when the op carries one (the tool refuses targets
 			// outside the source's `convertTargets`; a refusal is a
@@ -807,9 +822,9 @@ async function applyOp(
 			return runParsed(
 				editFieldTool,
 				{
-					moduleIndex: op.moduleIndex,
-					formIndex: op.formIndex,
-					fieldId,
+					moduleUuid: moduleUuidAt(doc, op.moduleIndex),
+					formUuid: formUuidAt(doc, op.moduleIndex, op.formIndex),
+					fieldUuid,
 					updates: {
 						kind: effectiveKind,
 						// A select conversion must bring its options; a hidden
@@ -840,33 +855,33 @@ async function applyOp(
 			 * exercises the non-container refusal, and a group picked into
 			 * its own anchor exercises the own-subtree guard. All legitimate
 			 * outcomes; the invariant judges the doc. */
-			const fieldId = pickFieldId(
+			const fieldUuid = pickFieldUuid(
 				doc,
 				op.moduleIndex,
 				op.formIndex,
 				op.fieldPick,
 			);
-			if (!fieldId) return doc;
-			const anchorId = pickFieldId(
+			if (!fieldUuid) return doc;
+			const anchorUuid = pickFieldUuid(
 				doc,
 				op.moduleIndex,
 				op.formIndex,
 				op.anchorPick,
 			);
 			const placement =
-				op.side === "top" || anchorId === undefined
-					? { parentId: null }
+				op.side === "top" || anchorUuid === undefined
+					? { parentUuid: null }
 					: op.side === "into"
-						? { parentId: anchorId }
+						? { parentUuid: anchorUuid }
 						: op.side === "before"
-							? { beforeFieldId: anchorId }
-							: { afterFieldId: anchorId };
+							? { beforeFieldUuid: anchorUuid }
+							: { afterFieldUuid: anchorUuid };
 			return runParsed(
 				moveFieldTool,
 				{
-					moduleIndex: op.moduleIndex,
-					formIndex: op.formIndex,
-					fieldId,
+					moduleUuid: moduleUuidAt(doc, op.moduleIndex),
+					formUuid: formUuidAt(doc, op.moduleIndex, op.formIndex),
+					fieldUuid,
 					...placement,
 				},
 				ctx,
@@ -888,17 +903,17 @@ async function applyOp(
 				const close = findCloseForm(doc);
 				if (close) ({ moduleIndex, formIndex } = close);
 			}
-			const field =
+			const fieldUuid =
 				op.closeField === "ghost"
-					? "ghost"
-					: (pickFieldId(doc, moduleIndex, formIndex, op.fieldPick) ??
-						op.closeField);
+					? asUuid("ghost")
+					: (pickFieldUuid(doc, moduleIndex, formIndex, op.fieldPick) ??
+						asUuid(op.closeField));
 			return runParsed(
 				updateFormTool,
 				{
-					moduleIndex,
-					formIndex,
-					close_condition: { field, answer: op.closeAnswer },
+					moduleUuid: moduleUuidAt(doc, moduleIndex),
+					formUuid: formUuidAt(doc, moduleIndex, formIndex),
+					close_condition: { fieldUuid, answer: op.closeAnswer },
 				},
 				ctx,
 				doc,
@@ -912,7 +927,7 @@ async function applyOp(
 			return runParsed(
 				updateModuleTool,
 				{
-					moduleIndex: op.moduleIndex,
+					moduleUuid: moduleUuidAt(doc, op.moduleIndex),
 					...(caseType && { case_type: caseType }),
 				},
 				ctx,
@@ -920,19 +935,19 @@ async function applyOp(
 			);
 		}
 		case "removeField": {
-			const fieldId = pickFieldId(
+			const fieldUuid = pickFieldUuid(
 				doc,
 				op.moduleIndex,
 				op.formIndex,
 				op.fieldPick,
 			);
-			if (!fieldId) return doc;
+			if (!fieldUuid) return doc;
 			return runParsed(
 				removeFieldTool,
 				{
-					moduleIndex: op.moduleIndex,
-					formIndex: op.formIndex,
-					fieldId,
+					moduleUuid: moduleUuidAt(doc, op.moduleIndex),
+					formUuid: formUuidAt(doc, op.moduleIndex, op.formIndex),
+					fieldUuid,
 				},
 				ctx,
 				doc,
@@ -941,7 +956,10 @@ async function applyOp(
 		case "removeForm":
 			return runParsed(
 				removeFormTool,
-				{ moduleIndex: op.moduleIndex, formIndex: op.formIndex },
+				{
+					moduleUuid: moduleUuidAt(doc, op.moduleIndex),
+					formUuid: formUuidAt(doc, op.moduleIndex, op.formIndex),
+				},
 				ctx,
 				doc,
 			);
@@ -952,7 +970,7 @@ async function applyOp(
 			 * occurrences asserted by the retirement-arm tallies. */
 			return runParsed(
 				removeModuleTool,
-				{ moduleIndex: op.moduleIndex },
+				{ moduleUuid: moduleUuidAt(doc, op.moduleIndex) },
 				ctx,
 				doc,
 			);
@@ -960,7 +978,7 @@ async function applyOp(
 			return runParsed(
 				addCaseListColumnsTool,
 				{
-					moduleIndex: op.moduleIndex,
+					moduleUuid: moduleUuidAt(doc, op.moduleIndex),
 					columns: [{ kind: "plain", field: op.field, header: op.header }],
 				},
 				ctx,
@@ -972,7 +990,7 @@ async function applyOp(
 			return runParsed(
 				updateCaseListColumnTool,
 				{
-					moduleIndex: op.moduleIndex,
+					moduleUuid: moduleUuidAt(doc, op.moduleIndex),
 					columnUuid,
 					column: { kind: "plain", field: op.field, header: op.header },
 				},
@@ -985,7 +1003,7 @@ async function applyOp(
 			if (!columnUuid) return doc;
 			return runParsed(
 				removeCaseListColumnTool,
-				{ moduleIndex: op.moduleIndex, columnUuid },
+				{ moduleUuid: moduleUuidAt(doc, op.moduleIndex), columnUuid },
 				ctx,
 				doc,
 			);
@@ -1005,7 +1023,7 @@ async function applyOp(
 			return runParsed(
 				reorderCaseListColumnsTool,
 				{
-					moduleIndex: op.moduleIndex,
+					moduleUuid: moduleUuidAt(doc, op.moduleIndex),
 					surface: op.surface,
 					columnUuids: columns.map((c) => c.uuid).reverse(),
 				},
@@ -1023,7 +1041,7 @@ async function applyOp(
 			return runParsed(
 				setCaseListFilterTool,
 				{
-					moduleIndex: op.moduleIndex,
+					moduleUuid: moduleUuidAt(doc, op.moduleIndex),
 					filter: op.clear
 						? null
 						: eq(prop(ownType, op.property), literal("x")),
@@ -1036,7 +1054,7 @@ async function applyOp(
 			return runParsed(
 				addSearchInputsTool,
 				{
-					moduleIndex: op.moduleIndex,
+					moduleUuid: moduleUuidAt(doc, op.moduleIndex),
 					searchInputs: [
 						{
 							kind: "simple",
@@ -1060,7 +1078,7 @@ async function applyOp(
 			return runParsed(
 				updateSearchInputTool,
 				{
-					moduleIndex: op.moduleIndex,
+					moduleUuid: moduleUuidAt(doc, op.moduleIndex),
 					searchInputUuid,
 					searchInput: {
 						kind: "simple",
@@ -1083,7 +1101,10 @@ async function applyOp(
 			if (!searchInputUuid) return doc;
 			return runParsed(
 				removeSearchInputTool,
-				{ moduleIndex: op.moduleIndex, searchInputUuid },
+				{
+					moduleUuid: moduleUuidAt(doc, op.moduleIndex),
+					searchInputUuid,
+				},
 				ctx,
 				doc,
 			);
@@ -1094,7 +1115,7 @@ async function applyOp(
 			return runParsed(
 				reorderSearchInputsTool,
 				{
-					moduleIndex: op.moduleIndex,
+					moduleUuid: moduleUuidAt(doc, op.moduleIndex),
 					searchInputUuids: inputs.map((i) => i.uuid).reverse(),
 				},
 				ctx,
@@ -1177,8 +1198,13 @@ function assertIndexParity(doc: BlueprintDoc, context: string): void {
 function assertEveryOptionIdentified(doc: BlueprintDoc, context: string): void {
 	const missing: string[] = [];
 	for (const field of Object.values(doc.fields)) {
-		if (!("options" in field) || !Array.isArray(field.options)) continue;
-		field.options.forEach((option, index) => {
+		if (
+			(field.kind !== "single_select" && field.kind !== "multi_select") ||
+			field.optionsSource.kind !== "inline"
+		) {
+			continue;
+		}
+		field.optionsSource.options.forEach((option, index) => {
 			if (option.uuid === undefined) {
 				missing.push(`option #${index} on field "${field.id}"`);
 			}
@@ -1292,7 +1318,7 @@ async function growStandardPrelude(
 	doc = await runParsed(
 		addCaseListColumnsTool,
 		{
-			moduleIndex: 0,
+			moduleUuid: doc.moduleOrder[0],
 			columns: [{ kind: "plain", field: "village", header: "Village" }],
 		},
 		ctx,
@@ -1301,7 +1327,7 @@ async function growStandardPrelude(
 	doc = await runParsed(
 		addSearchInputsTool,
 		{
-			moduleIndex: 0,
+			moduleUuid: doc.moduleOrder[0],
 			searchInputs: [
 				{
 					kind: "simple",
@@ -1422,7 +1448,7 @@ async function growConnectPrelude(
 	doc = await runParsed(
 		createFormTool,
 		{
-			moduleIndex: 0,
+			moduleUuid: doc.moduleOrder[0],
 			name: "Reference sheet",
 			type: "survey",
 			fields: [{ kind: "text", id: "tips", label: "Tips" }],
@@ -1463,7 +1489,7 @@ async function growConnectPrelude(
 	doc = await runParsed(
 		addCaseListColumnsTool,
 		{
-			moduleIndex: 0,
+			moduleUuid: doc.moduleOrder[0],
 			columns: [{ kind: "plain", field: "village", header: "Village" }],
 		},
 		ctx,
@@ -1472,7 +1498,7 @@ async function growConnectPrelude(
 	doc = await runParsed(
 		addSearchInputsTool,
 		{
-			moduleIndex: 0,
+			moduleUuid: doc.moduleOrder[0],
 			searchInputs: [
 				{
 					kind: "simple",

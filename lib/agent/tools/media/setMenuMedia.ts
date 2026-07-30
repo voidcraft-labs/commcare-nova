@@ -41,13 +41,17 @@ import {
 	MODULE_ICON_SLUGS,
 } from "@/lib/domain";
 import {
-	resolveFormUuid,
-	resolveModuleUuid,
 	setFormMediaMutations,
 	setModuleMediaMutations,
 } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { type MutatingToolResult, toToolErrorResult } from "../common";
+import {
+	formAddressSchema,
+	moduleAddressSchema,
+	resolveFormAddress,
+	resolveModuleAddress,
+} from "../shared/entityAddresses";
 import type { MutationSuccess } from "../shared/toolCallSummary";
 import {
 	brandAssetSlot,
@@ -59,10 +63,9 @@ import {
 	slotExpectation,
 } from "./shared";
 
-const moduleMenuItemSchema = z
-	.object({
+const moduleMenuItemSchema = moduleAddressSchema
+	.extend({
 		target: z.literal("module").describe("A module's home-screen tile"),
-		moduleIndex: z.number().describe("0-based module index"),
 		icon: nullableIconSlot(
 			MODULE_ICON_SLUGS,
 			"The image on the module's home-screen tile. Pass a built-in icon slug " +
@@ -77,11 +80,9 @@ const moduleMenuItemSchema = z
 	})
 	.strict();
 
-const formMenuItemSchema = z
-	.object({
+const formMenuItemSchema = formAddressSchema
+	.extend({
 		target: z.literal("form").describe("A form's menu tile"),
-		moduleIndex: z.number().describe("0-based module index"),
-		formIndex: z.number().describe("0-based form index within the module"),
 		icon: nullableIconSlot(
 			FORM_ICON_SLUGS,
 			"The image on the form's menu tile. Pass a built-in icon slug (one of " +
@@ -161,32 +162,24 @@ export const setMenuMediaTool = {
 			};
 			for (const [i, item] of items.entries()) {
 				if (item.target === "module") {
-					const moduleUuid = resolveModuleUuid(doc, item.moduleIndex);
-					const mod = moduleUuid ? doc.modules[moduleUuid] : undefined;
-					if (!mod) {
-						failures.push(
-							`items[${i}]: found no module at index ${item.moduleIndex}. Look at getModule's projection for valid indices.`,
-						);
+					const target = resolveModuleAddress(doc, item);
+					if (!target.ok) {
+						failures.push(`items[${i}]: ${target.error}`);
 						continue;
 					}
+					const { module: mod } = target;
 					resolved.push(
 						resolveTile(item, `module "${mod.name}"`, (icon, audioLabel) =>
 							setModuleMediaMutations(mod.uuid, icon, audioLabel),
 						),
 					);
 				} else {
-					const formUuid = resolveFormUuid(
-						doc,
-						item.moduleIndex,
-						item.formIndex,
-					);
-					const form = formUuid ? doc.forms[formUuid] : undefined;
-					if (!form) {
-						failures.push(
-							`items[${i}]: found no form at m${item.moduleIndex}-f${item.formIndex}. Run getModule to see the module's forms and their indices.`,
-						);
+					const target = resolveFormAddress(doc, item);
+					if (!target.ok) {
+						failures.push(`items[${i}]: ${target.error}`);
 						continue;
 					}
+					const { form } = target;
 					resolved.push(
 						resolveTile(item, `form "${form.name}"`, (icon, audioLabel) =>
 							setFormMediaMutations(form.uuid, icon, audioLabel),

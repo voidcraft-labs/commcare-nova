@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CaseType } from "@/lib/domain";
+import { asUuid } from "@/lib/domain";
 import {
 	ancestorPath,
 	and,
@@ -496,12 +497,15 @@ describe("normalizeRelationEvaluationScopes — independent boundaries", () => {
 
 	it("keeps logical wrappers while normalizing their leaves", () => {
 		const authored = not(
-			whenInput(input("name"), eq(relatedPatient("name"), literal("Alice"))),
+			whenInput(
+				input(asUuid("556707de-6346-4bde-8e05-297ee5720141")),
+				eq(relatedPatient("name"), literal("Alice")),
+			),
 		);
 		expect(normalizeRelationEvaluationScopes(authored, CONTEXT)).toEqual(
 			not(
 				whenInput(
-					input("name"),
+					input(asUuid("556707de-6346-4bde-8e05-297ee5720141")),
 					exists(PATIENTS, eq(prop("patient", "name"), literal("Alice"))),
 				),
 			),
@@ -564,7 +568,7 @@ describe("normalizeRelationEvaluationScopes — fail-closed shapes", () => {
 				term(relatedPatient("name")),
 				today(),
 				now(),
-				term(input("suffix")),
+				term(input(asUuid("8c765dd7-63a6-4d65-8259-554bd48b227e"))),
 			),
 			literal("Alice"),
 		);

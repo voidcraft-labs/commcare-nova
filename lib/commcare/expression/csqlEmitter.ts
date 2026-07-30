@@ -75,7 +75,7 @@ import {
 	classifyCalendarDateAddQuantity,
 	invalidWholeNumberXPath,
 } from "../predicate/runtimeCsqlNumericSafety";
-import { collectRuntimeCsqlStringExpressionInputNames } from "../predicate/runtimeCsqlQuoteSafety";
+import { collectRuntimeCsqlStringExpressionInputUuids } from "../predicate/runtimeCsqlQuoteSafety";
 import { quoteLiteral } from "../predicate/stringQuoting";
 import {
 	emitTermSegment,
@@ -246,9 +246,14 @@ function emitCsqlFunctionArgumentSegments(
 		return emitCsqlExpressionSegments(expr, typeContext, runtimeQuoteStyle);
 	}
 	return quoteRuntimeCsqlValue(
-		emitOnDeviceExpression(expr, undefined, typeContext ?? {}),
+		emitOnDeviceExpression(expr, undefined, typeContext ?? {}, undefined, {
+			searchInputNames: currentSearchInputNames(typeContext),
+		}),
 		runtimeQuoteStyle,
-		[...collectRuntimeCsqlStringExpressionInputNames(expr)],
+		resolveSearchInputNames(
+			collectRuntimeCsqlStringExpressionInputUuids(expr),
+			typeContext,
+		),
 	);
 }
 
@@ -332,6 +337,11 @@ function emitDateAddQuantitySegments(
 	const classification = classifyCalendarDateAddQuantity(expr.quantity);
 	if (classification.kind === "static-valid") return segments;
 	if (classification.kind === "runtime-input") {
+		const inputName = resolveSearchInputNames(
+			[classification.inputUuid],
+			typeContext,
+		)[0] as string;
+		const inputXPath = `instance('search-input:results')/input/field[@name='${inputName}']`;
 		return [
 			...segments,
 			{
@@ -339,9 +349,9 @@ function emitDateAddQuantitySegments(
 				// Guard carrier only. Its empty value leaves the CSQL function call
 				// unchanged while the outer wrapper fail-closes fractional input.
 				xpath: "''",
-				rejectWhen: invalidWholeNumberXPath(classification.inputXPath),
+				rejectWhen: invalidWholeNumberXPath(inputXPath),
 				rejectionKind: "whole-number",
-				rejectionInputNames: [classification.inputName],
+				rejectionInputNames: [inputName],
 			},
 		];
 	}
@@ -349,6 +359,35 @@ function emitDateAddQuantitySegments(
 	throw new Error(
 		"csqlExpressionEmitter: calendar-relative date-add quantities must be a fixed whole number or one Number-converted search input. CCHQ rejects fractional months/years, and emitting an unconstrained runtime calculation would make Preview and the exported search disagree. The CSQL representability validator should have rejected this expression before compilation.",
 	);
+}
+
+function currentSearchInputNames(
+	typeContext?: TypeContext,
+): ReadonlyMap<
+	NonNullable<TypeContext["knownInputs"]>[number]["uuid"],
+	string
+> {
+	return new Map(
+		(typeContext?.knownInputs ?? []).map((input) => [input.uuid, input.name]),
+	);
+}
+
+function resolveSearchInputNames(
+	inputUuids: Iterable<NonNullable<TypeContext["knownInputs"]>[number]["uuid"]>,
+	typeContext?: TypeContext,
+): string[] {
+	const names = currentSearchInputNames(typeContext);
+	return [...inputUuids]
+		.map((inputUuid) => {
+			const name = names.get(inputUuid);
+			if (name === undefined) {
+				throw new Error(
+					`csqlExpressionEmitter: search input '${inputUuid}' has no current saved-name binding.`,
+				);
+			}
+			return name;
+		})
+		.sort();
 }
 
 /**

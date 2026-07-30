@@ -17,11 +17,13 @@
  */
 
 import { z } from "zod";
-import type { BlueprintDoc, CaseSearchConfig } from "@/lib/domain";
 import {
-	resolveModuleUuid,
-	updateModuleMutations,
-} from "../../blueprintHelpers";
+	asUuid,
+	type BlueprintDoc,
+	type CaseSearchConfig,
+	uuidSchema,
+} from "@/lib/domain";
+import { updateModuleMutations } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import {
 	guardedMutate,
@@ -44,11 +46,9 @@ import {
 
 export const setCaseSearchAdvancedInputSchema = z
 	.object({
-		moduleIndex: z
-			.number()
-			.describe(
-				"0-based module index whose case-search advanced cluster to set",
-			),
+		moduleUuid: uuidSchema.describe(
+			"Stable uuid of the module whose case-search advanced cluster is set",
+		),
 	})
 	.extend(setCaseSearchAdvancedBodySchema.shape)
 	.strict();
@@ -82,20 +82,14 @@ export const setCaseSearchAdvancedTool = {
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<SetCaseSearchAdvancedResult>> {
-		const { moduleIndex } = input;
+		const { moduleUuid: rawModuleUuid } = input;
+		const moduleUuid = asUuid(rawModuleUuid);
 		try {
-			const moduleUuid = resolveModuleUuid(doc, moduleIndex);
-			if (!moduleUuid)
-				return moduleNotFoundResult<SetCaseSearchAdvancedSuccess>(
-					doc,
-					moduleIndex,
-					"set the case-search advanced cluster",
-				);
 			const mod = doc.modules[moduleUuid];
 			if (!mod)
 				return moduleNotFoundResult<SetCaseSearchAdvancedSuccess>(
 					doc,
-					moduleIndex,
+					rawModuleUuid,
 					"set the case-search advanced cluster",
 				);
 
@@ -128,7 +122,7 @@ export const setCaseSearchAdvancedTool = {
 				ctx,
 				doc,
 				mutations,
-				`module:${moduleIndex}:caseSearch:advanced`,
+				`module:${moduleUuid}:caseSearch:advanced`,
 			);
 			if (!commit.ok) {
 				return {
@@ -151,8 +145,8 @@ export const setCaseSearchAdvancedTool = {
 				result: {
 					message:
 						advancedSlotsSet.length === 0
-							? `Cleared every case-search advanced slot on module "${mod.name}" (index ${moduleIndex}).`
-							: `Set case-search advanced on module "${mod.name}" (index ${moduleIndex}): ${advancedSlotsSet.join(", ")}.`,
+							? `Cleared every case-search advanced slot on module "${mod.name}".`
+							: `Set case-search advanced on module "${mod.name}": ${advancedSlotsSet.join(", ")}.`,
 					advancedSlotsSet,
 					summary: { location: mod.name },
 				},

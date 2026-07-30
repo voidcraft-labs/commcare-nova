@@ -72,6 +72,7 @@ type SearchInputRuntimeValueType =
 	(typeof SEARCH_INPUT_RUNTIME_VALUE_TYPES)[SearchInputDef["type"]];
 
 interface RuntimeInputBinding {
+	readonly uuid: SearchInputDef["uuid"];
 	readonly name: string;
 	readonly runtimeValueType?: SearchInputRuntimeValueType;
 }
@@ -135,12 +136,12 @@ export function withSearchInputExpressionValues(
 }
 
 /**
- * Bind every `input(name)` leaf in a ValueExpression to the current running
- * search value. The preview XPath evaluator is scalar and intentionally does
- * not model the search-input XML nodeset, so substitution happens while the
- * expression is still a typed AST. Missing inputs become the empty string —
- * the same value CommCare's virtual search-input instance exposes for an
- * unanswered prompt.
+ * Bind every UUID-linked Search-input leaf in a ValueExpression to the current
+ * running value under that definition's current name. The preview XPath
+ * evaluator is scalar and intentionally does not model the search-input XML
+ * nodeset, so substitution happens while the expression is still a typed AST.
+ * Missing inputs become the empty string — the same value CommCare's virtual
+ * search-input instance exposes for an unanswered prompt.
  */
 export function bindSearchInputValuesInExpression(
 	expression: ValueExpression,
@@ -148,17 +149,23 @@ export function bindSearchInputValuesInExpression(
 	searchInputs: readonly SearchInputDef[] = [],
 ): ValueExpression {
 	const runtimeValueTypes = searchInputRuntimeValueTypes(searchInputs);
-	const names = new Set<string>();
+	const uuids = new Set<SearchInputDef["uuid"]>();
 	walkExpressionTerms(expression, (term) => {
-		if (term.kind === "input") names.add(term.name);
+		if (term.kind === "input") uuids.add(term.searchInputUuid);
 	});
 
 	let bound = expression;
-	for (const name of names) {
+	for (const uuid of uuids) {
+		const definition = searchInputs.find((input) => input.uuid === uuid);
+		if (definition === undefined) continue;
 		bound = substituteInputInExpression(
 			bound,
-			{ name, runtimeValueType: runtimeValueTypes.get(name) },
-			inputValues.get(name) ?? "",
+			{
+				uuid,
+				name: definition.name,
+				runtimeValueType: runtimeValueTypes.get(uuid),
+			},
+			inputValues.get(definition.name) ?? "",
 			true,
 		);
 	}
@@ -186,22 +193,30 @@ export function bindSearchInputValuesInExpression(
 export function bindSearchInputValuesInPredicate(
 	predicate: Predicate,
 	inputValues: SearchInputValues,
-	knownInputNames: ReadonlySet<string>,
+	knownInputUuids: ReadonlySet<string>,
 	searchInputs: readonly SearchInputDef[] = [],
 ): Predicate {
 	const runtimeValueTypes = searchInputRuntimeValueTypes(searchInputs);
-	const referencedNames = new Set<string>();
+	const referencedUuids = new Set<SearchInputDef["uuid"]>();
 	walkTerms(predicate, (term) => {
-		if (term.kind === "input") referencedNames.add(term.name);
+		if (term.kind === "input") {
+			referencedUuids.add(term.searchInputUuid);
+		}
 	});
 
 	let bound = predicate;
-	for (const name of referencedNames) {
-		if (!knownInputNames.has(name)) continue;
+	for (const uuid of referencedUuids) {
+		if (!knownInputUuids.has(uuid)) continue;
+		const definition = searchInputs.find((input) => input.uuid === uuid);
+		if (definition === undefined) continue;
 		bound = substituteInputInPredicate(
 			bound,
-			{ name, runtimeValueType: runtimeValueTypes.get(name) },
-			inputValues.get(name) ?? "",
+			{
+				uuid,
+				name: definition.name,
+				runtimeValueType: runtimeValueTypes.get(uuid),
+			},
+			inputValues.get(definition.name) ?? "",
 			true,
 		);
 	}
@@ -234,14 +249,14 @@ export function composeRuntimeFilter(
 		searchInputs,
 		inputValues,
 	);
-	const knownInputNames = new Set(searchInputs.map((input) => input.name));
+	const knownInputUuids = new Set(searchInputs.map((input) => input.uuid));
 	const clauses: Predicate[] = [];
 	for (const input of searchInputs) {
 		const clause = clauseForInput(
 			input,
 			expressionValues,
 			caseType,
-			knownInputNames,
+			knownInputUuids,
 			searchInputs,
 			caseTypeSchemas,
 		);
@@ -256,7 +271,7 @@ function clauseForInput(
 	input: SearchInputDef,
 	inputValues: SearchInputValues,
 	caseType: string,
-	knownInputNames: ReadonlySet<string>,
+	knownInputUuids: ReadonlySet<string>,
 	searchInputs: readonly SearchInputDef[],
 	caseTypeSchemas?: ReadonlyMap<string, CaseType>,
 ): Predicate | undefined {
@@ -272,7 +287,7 @@ function clauseForInput(
 			return buildAdvancedArmClause(
 				input,
 				inputValues,
-				knownInputNames,
+				knownInputUuids,
 				searchInputs,
 			);
 		default: {
@@ -462,20 +477,21 @@ function defaultModeFor(type: SearchInputType): SearchInputMode {
 function buildAdvancedArmClause(
 	input: Extract<SearchInputDef, { kind: "advanced" }>,
 	inputValues: SearchInputValues,
-	knownInputNames: ReadonlySet<string>,
+	knownInputUuids: ReadonlySet<string>,
 	searchInputs: readonly SearchInputDef[],
 ): Predicate {
 	return bindSearchInputValuesInPredicate(
 		input.predicate,
 		inputValues,
-		knownInputNames,
+		knownInputUuids,
 		searchInputs,
 	);
 }
 
 /**
- * Resolve the semantic scalar a prompt contributes when an `input(name)` leaf
- * is replaced with its submitted value. The widget is the authority: a date
+ * Resolve the semantic scalar a prompt contributes when its UUID-linked input
+ * leaf is replaced with the submitted value under the current saved name. The
+ * widget is the authority: a date
  * prompt still binds a date when its simple arm targets a datetime property,
  * while a date-range prompt binds CCHQ's encoded range string. Keeping this
  * projection beside substitution prevents the SQL compiler from having to
@@ -483,10 +499,10 @@ function buildAdvancedArmClause(
  */
 function searchInputRuntimeValueTypes(
 	searchInputs: readonly SearchInputDef[],
-): ReadonlyMap<string, SearchInputRuntimeValueType> {
+): ReadonlyMap<SearchInputDef["uuid"], SearchInputRuntimeValueType> {
 	return new Map(
 		searchInputs.map((input) => [
-			input.name,
+			input.uuid,
 			SEARCH_INPUT_RUNTIME_VALUE_TYPES[input.type],
 		]),
 	);
@@ -511,7 +527,7 @@ function substitutionHooks(
 ): AstMapHooks {
 	const hooks: AstMapHooks = {
 		mapTerm: (node) => {
-			if (node.kind !== "input" || node.name !== target.name) {
+			if (node.kind !== "input" || node.searchInputUuid !== target.uuid) {
 				return undefined;
 			}
 			const replacement =
@@ -525,7 +541,7 @@ function substitutionHooks(
 			if (
 				!resolvePresence ||
 				predicate.kind !== "when-input-present" ||
-				predicate.input.name !== target.name
+				predicate.input.searchInputUuid !== target.uuid
 			) {
 				// A gate for another input stays structural during this pass. The
 				// binding pass for that declared name resolves it from its own

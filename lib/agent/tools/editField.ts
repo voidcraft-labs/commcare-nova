@@ -1,4 +1,3 @@
-import { reconciledOptions } from "@/lib/doc/optionIdentity";
 /**
  * SA tool: `editField` — update properties on an existing field.
  *
@@ -21,15 +20,14 @@ import { reconciledOptions } from "@/lib/doc/optionIdentity";
  *
  * Seven exit branches:
  *
- *   1. Field not resolved at the given triple (missing, or a duplicated
- *      bare id `resolveFieldTarget` refuses as ambiguous — the uuid is
- *      the unambiguous handle) → `{ error }`, no mutations.
+ *   1. The module/form/field UUID address is missing or inconsistent →
+ *      `{ error }`, no mutations.
  *   2. Rename rejected by the shared identifier verdict (XML-illegal /
  *      reserved / over-long / sibling-conflicting new id, checked
  *      before ANY stage builds) → `{ error }`, nothing persisted.
  *   3. Illegal kind conversion (target not in the source kind's
  *      `convertTargets`), or a conversion into a select kind without
- *      the `options` the destination schema requires (they must ride
+ *      the complete `optionsSource` the destination schema requires (it must ride
  *      the same call — the seed travels on the `convertField` mutation
  *      itself) → `{ error }`, no mutations.
  *   4. A failable conversion (`plan.dataLossRisk`) whose counted
@@ -59,15 +57,17 @@ import type {
 	Field,
 	FieldKind,
 	FieldPatchFor,
-	SelectOption,
 	Uuid,
 	XPathExpression,
 } from "@/lib/domain";
-import { convertNeedsOptionSeed, getConvertibleTypes } from "@/lib/domain";
 import {
-	FIELD_REF_HINT,
+	asUuid,
+	convertNeedsOptionsSourceSeed,
+	getConvertibleTypes,
+	selectOptionsSourceSchema,
+} from "@/lib/domain";
+import {
 	renameFieldMutations,
-	resolveFieldTarget,
 	updateFieldMutations,
 } from "../blueprintHelpers";
 import { unescapeXPath } from "../contentProcessing";
@@ -80,16 +80,17 @@ import {
 	type StagedMutationBatch,
 	toToolErrorResult,
 } from "./common";
+import {
+	fieldAddressSchema,
+	resolveFieldAddress,
+} from "./shared/entityAddresses";
 import type {
 	MutationSuccess,
 	ToolCallSummary,
 } from "./shared/toolCallSummary";
 
-export const editFieldInputSchema = z
-	.object({
-		moduleIndex: z.number().describe("0-based module index"),
-		formIndex: z.number().describe("0-based form index"),
-		fieldId: z.string().describe(`Field to update — ${FIELD_REF_HINT}`),
+export const editFieldInputSchema = fieldAddressSchema
+	.extend({
 		updates: editFieldUpdatesSchema,
 		confirmConversion: z
 			.boolean()
@@ -153,7 +154,6 @@ type EditUpdatesPatch = Omit<
 function editPatchToFieldPatch(
 	updates: EditUpdatesPatch,
 	parseExpr: (text: string) => XPathExpression,
-	existingOptions: readonly SelectOption[] | undefined,
 ): FieldPatchFor<FieldKind> {
 	const patch: Record<string, unknown> = {};
 	// Plain scalars: SA passes a new value, `null` to clear, or omits to
@@ -195,19 +195,8 @@ function editPatchToFieldPatch(
 			patch[key] = value;
 		}
 	}
-	if (updates.options !== undefined) {
-		// The SA's wholesale replacement is uuid/order-less (identity is off its
-		// wire — `saOptionSchema` omits both). Reconcile against the field's
-		// CURRENT options so surviving values keep their uuid and every option
-		// lands keyed: a uuid-less option committed mid-session is INVISIBLE to
-		// the per-uuid option diff (and `options` sits in the generic-patch
-		// skip-set), so a collaborator's next edit to it would silently never
-		// persist until a reload's backfill. A `null` passes through verbatim
-		// (a clear — on a kind that requires options, the commit gate rejects).
-		patch.options =
-			updates.options === null
-				? null
-				: reconciledOptions(updates.options, existingOptions);
+	if (updates.optionsSource !== undefined) {
+		patch.optionsSource = updates.optionsSource;
 	}
 	// Nested `validate: { expr, msg? }` config. SA passes:
 	//   - object → replace; flatten back to schema's `validate` +
@@ -255,10 +244,9 @@ export const editFieldTool = {
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<EditFieldResult>> {
-		const { moduleIndex, formIndex, fieldId, updates, confirmConversion } =
-			input;
+		const { updates, confirmConversion } = input;
 		try {
-			const resolved = resolveFieldTarget(doc, moduleIndex, formIndex, fieldId);
+			const resolved = resolveFieldAddress(doc, input);
 			if (!resolved.ok) {
 				return {
 					kind: "mutate" as const,
@@ -267,8 +255,6 @@ export const editFieldTool = {
 					result: { error: resolved.error },
 				};
 			}
-			// `fieldId` may have been the field's uuid — every rename
-			// comparison below is against the SEMANTIC id.
 			const currentId = resolved.field.id;
 
 			const { id: newId, kind: newKind, ...fieldUpdates } = updates;
@@ -341,35 +327,75 @@ export const editFieldTool = {
 				}
 
 				// Converting INTO a select kind from a kind that carries no
-				// options (text → single_select): the destination schema
-				// requires `.min(2)` options, and the only way they can exist
+				// choice source (text → single_select): the destination schema
+				// requires one complete source, and the only way it can exist
 				// on the converted field is riding the convertField mutation
-				// itself — a post-convert `updateField { options }` can't
+				// itself — a post-convert `updateField { optionsSource }` can't
 				// help, because the convert would already have no-opped. So
-				// the call's `options` are CONSUMED into the convert (minted
-				// here, at the batch-building layer) and dropped from the
-				// later scalar-patch stage. Kinds that already carry options
-				// (single ↔ multi) keep the existing behavior: options
-				// transfer verbatim in the reducer, and a same-call `options`
-				// patch reconciles uuid identity in the patch stage.
-				let mintOptions: (() => SelectOption[]) | undefined;
-				if (convertNeedsOptionSeed(resolved.field, newKind)) {
-					const seedInput = fieldUpdates.options;
-					if (!seedInput || seedInput.length < 2) {
+				// the call's source is CONSUMED into the convert and dropped
+				// from the later scalar-patch stage. Select ↔ select keeps the
+				// existing arm unless the same call replaces it.
+				let mintOptionsSource:
+					| (() => NonNullable<typeof fieldUpdates.optionsSource>)
+					| undefined;
+				if (convertNeedsOptionsSourceSeed(resolved.field, newKind)) {
+					const seedCandidate = fieldUpdates.optionsSource;
+					if (seedCandidate === undefined) {
 						return {
 							kind: "mutate" as const,
 							mutations: [],
 							newDoc: doc,
 							result: {
-								error: `Converting "${currentId}" from ${fromKind} to ${newKind} needs the option list in the same call — pass \`options\` with at least 2 entries alongside kind="${newKind}".`,
+								error: `Converting "${currentId}" from ${fromKind} to ${newKind} needs the complete choice source in the same call — pass \`optionsSource\` alongside kind="${newKind}".`,
 							},
 						};
 					}
-					const seed = seedInput;
-					mintOptions = () => reconciledOptions(seed, undefined);
+					if (
+						seedCandidate.kind === "inline" &&
+						seedCandidate.options.length < 2
+					) {
+						return {
+							kind: "mutate" as const,
+							mutations: [],
+							newDoc: doc,
+							result: {
+								error: `Converting "${currentId}" from ${fromKind} to ${newKind} needs at least 2 inline choices.`,
+							},
+						};
+					}
+					const parsedSource =
+						selectOptionsSourceSchema.safeParse(seedCandidate);
+					if (!parsedSource.success) {
+						const reason =
+							parsedSource.error.issues[0]?.message ??
+							"the source is incomplete";
+						return {
+							kind: "mutate" as const,
+							mutations: [],
+							newDoc: doc,
+							result: {
+								error: `Converting "${currentId}" from ${fromKind} to ${newKind} needs a valid complete choice source: ${reason}.`,
+							},
+						};
+					}
+					const seedInput = parsedSource.data;
+					let sourceSeedCount = 0;
+					mintOptionsSource = () => {
+						sourceSeedCount += 1;
+						if (sourceSeedCount === 1 || seedInput.kind === "lookup") {
+							return seedInput;
+						}
+						return {
+							kind: "inline",
+							options: seedInput.options.map((option) => ({
+								...option,
+								uuid: asUuid(crypto.randomUUID()),
+							})),
+						};
+					};
 					// Consumed by the convert — the patch stage must not apply
-					// it a second time against the already-seeded options.
-					delete fieldUpdates.options;
+					// it a second time against the already-seeded source.
+					delete fieldUpdates.optionsSource;
 				}
 
 				// The property-centric plan: a case-bound string-scalar
@@ -391,7 +417,7 @@ export const editFieldTool = {
 					doc: workingDoc,
 					field: planField,
 					toKind: newKind,
-					...(mintOptions && { mintOptions }),
+					...(mintOptionsSource && { mintOptionsSource }),
 				});
 				if (!plan.ok) {
 					const blockerMessage =
@@ -493,8 +519,7 @@ export const editFieldTool = {
 									`Tell the user what would happen; if they agree, repeat this call with confirmConversion: true.`,
 								summary: {
 									location:
-										doc.forms[resolved.formUuid]?.name ??
-										`m${moduleIndex}-f${formIndex}`,
+										doc.forms[resolved.formUuid]?.name ?? resolved.formUuid,
 									subject: fieldLabel,
 									awaitingConsent: true,
 								} satisfies ToolCallSummary,
@@ -506,7 +531,7 @@ export const editFieldTool = {
 				stages.push({
 					mutations: convertMuts,
 					doc: afterConvert,
-					stage: `convert:${moduleIndex}-${formIndex}`,
+					stage: `convert:${resolved.formUuid}`,
 				});
 				workingDoc = afterConvert;
 
@@ -545,7 +570,7 @@ export const editFieldTool = {
 					stages.push({
 						mutations: renameMuts,
 						doc: workingDoc,
-						stage: `rename:${moduleIndex}-${formIndex}`,
+						stage: `rename:${resolved.formUuid}`,
 					});
 				}
 			}
@@ -577,10 +602,8 @@ export const editFieldTool = {
 				// Expression text resolves against the doc as the patch will
 				// see it (post-convert/rename stages), scoped to the field's
 				// containing form.
-				const patch = editPatchToFieldPatch(
-					fieldUpdates,
-					(text) => parseXPathForField(workingDoc, fieldUuid, text),
-					(currentField as { options?: SelectOption[] }).options,
+				const patch = editPatchToFieldPatch(fieldUpdates, (text) =>
+					parseXPathForField(workingDoc, fieldUuid, text),
 				);
 				if (Object.keys(patch).length > 0) {
 					// Declaration chokepoint: a patch RE-TARGETING `case_property_on`
@@ -596,7 +619,7 @@ export const editFieldTool = {
 							stages.push({
 								mutations: declMuts,
 								doc: workingDoc,
-								stage: `edit:${moduleIndex}-${formIndex}`,
+								stage: `edit:${resolved.formUuid}`,
 							});
 						}
 					}
@@ -615,7 +638,7 @@ export const editFieldTool = {
 						stages.push({
 							mutations: updateMuts,
 							doc: workingDoc,
-							stage: `edit:${moduleIndex}-${formIndex}`,
+							stage: `edit:${resolved.formUuid}`,
 						});
 					}
 				}
@@ -652,8 +675,7 @@ export const editFieldTool = {
 			// name directly rather than re-traversing `moduleOrder` →
 			// `formOrder` to get back to the same uuid.
 			const formName =
-				workingDoc.forms[resolved.formUuid]?.name ??
-				`m${moduleIndex}-f${formIndex}`;
+				workingDoc.forms[resolved.formUuid]?.name ?? resolved.formUuid;
 			const label = postField && "label" in postField ? postField.label : "";
 			const kind = postField?.kind ?? "unknown";
 			// Report honestly when the call carried only the `kind` discriminator

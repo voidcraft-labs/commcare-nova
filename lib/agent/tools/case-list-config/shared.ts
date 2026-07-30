@@ -52,13 +52,14 @@ import {
 	TILE_GRID_ROWS,
 	tileCellSchema,
 	type Uuid,
+	uuidSchema,
 } from "@/lib/domain";
 import {
-	carrierBlindPredicateSchema,
-	carrierBlindValueExpressionSchema,
 	expressionReadsCaseData,
 	type Predicate,
+	predicateSchema,
 	type ValueExpression,
+	valueExpressionSchema,
 } from "@/lib/domain/predicate";
 import {
 	canonicalizeExpressionCaseProperties,
@@ -72,19 +73,15 @@ import {
 export { moduleNotFoundResult } from "../shared/moduleNotFoundResult";
 
 /**
- * Runtime-narrow, statically canonical views of the authoring schemas.
+ * Statically canonical views of the authoring schemas.
  *
- * Predicate builders deliberately return the canonical persisted unions:
- * TypeScript cannot prove that a particular builder call omitted a dormant
- * recursive arm even when its concrete value did. Tool callers and tests have
- * always composed those builders directly. Keep that ergonomic input type
- * while the underlying Zod nodes remain structurally carrier-blind at parse
- * and JSON-schema emission time.
+ * The SA, MCP, builder, and document all speak the same UUID-backed AST. These
+ * aliases retain the recursive union types while the Zod nodes remain the
+ * authoritative runtime and JSON-schema boundary.
  */
-const carrierBlindPredicateInputSchema =
-	carrierBlindPredicateSchema as z.ZodType<Predicate>;
-const carrierBlindValueExpressionInputSchema =
-	carrierBlindValueExpressionSchema as z.ZodType<ValueExpression>;
+const predicateInputSchema = predicateSchema as z.ZodType<Predicate>;
+const valueExpressionInputSchema =
+	valueExpressionSchema as z.ZodType<ValueExpression>;
 
 // ── Tool input schemas — column + search-input shapes without uuid ──
 //
@@ -138,7 +135,7 @@ const imageMapColumnInputArm = imageMapColumnArm.omit(columnToolOwnedSlots);
 const intervalColumnInputArm = intervalColumnArm.omit(columnToolOwnedSlots);
 const calculatedColumnInputArm = calculatedColumnArm
 	.omit(columnToolOwnedSlots)
-	.extend({ expression: carrierBlindValueExpressionInputSchema });
+	.extend({ expression: valueExpressionInputSchema });
 
 /**
  * A definition absent from both worker-facing screens has no job unless
@@ -320,12 +317,12 @@ export const searchInputDefInputSchema = z
 	.discriminatedUnion("kind", [
 		simpleSearchInputArm.omit({ uuid: true }).extend({
 			type: saSearchInputType,
-			default: carrierBlindValueExpressionInputSchema.optional(),
+			default: valueExpressionInputSchema.optional(),
 		}),
 		advancedSearchInputArm.omit({ uuid: true }).extend({
 			type: saSearchInputType,
-			default: carrierBlindValueExpressionInputSchema.optional(),
-			predicate: carrierBlindPredicateInputSchema,
+			default: valueExpressionInputSchema.optional(),
+			predicate: predicateInputSchema,
 		}),
 	])
 	.superRefine((input, ctx) => {
@@ -459,7 +456,7 @@ export function newUuid(): Uuid {
  * SA boundary; tool bodies cast through `asUuid` before threading the
  * value into the branded `Uuid`-typed mutation builders.
  */
-export const uuidInputSchema = z.string().min(1);
+export const uuidInputSchema = uuidSchema;
 
 /**
  * One field's placement instruction for `setCaseListTile`. `cell` is

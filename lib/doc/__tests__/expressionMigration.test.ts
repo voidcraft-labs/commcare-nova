@@ -196,10 +196,21 @@ function richDoc(): BlueprintDoc {
 								kind: "single_select",
 								id: "outcome",
 								label: "Outcome",
-								options: [
-									{ value: "deceased", label: "Deceased" },
-									{ value: "moved", label: "Moved" },
-								],
+								optionsSource: {
+									kind: "inline",
+									options: [
+										{
+											uuid: asUuid("28738d05-651c-46b9-a752-eb06e69e0bf0"),
+											value: "deceased",
+											label: "Deceased",
+										},
+										{
+											uuid: asUuid("71a44bdb-b964-4c14-a15f-0abfdbe7608a"),
+											value: "moved",
+											label: "Moved",
+										},
+									],
+								},
 							}),
 						],
 					},

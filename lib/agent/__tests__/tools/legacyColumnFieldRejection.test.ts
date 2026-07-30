@@ -25,15 +25,20 @@ import { describe, expect, it } from "vitest";
 import { createModuleInputSchema } from "../../tools/createModule";
 import { updateModuleInputSchema } from "../../tools/updateModule";
 
+const MODULE_UUID = "11111111-1111-4111-8111-111111111111";
+
 describe("updateModule legacy column field rejection", () => {
 	it("input schema parses a name-only payload cleanly", () => {
 		const result = updateModuleInputSchema.safeParse({
-			moduleIndex: 0,
+			moduleUuid: MODULE_UUID,
 			name: "Renamed",
 		});
 		expect(result.success).toBe(true);
 		if (result.success) {
-			expect(result.data).toEqual({ moduleIndex: 0, name: "Renamed" });
+			expect(result.data).toEqual({
+				moduleUuid: MODULE_UUID,
+				name: "Renamed",
+			});
 		}
 	});
 
@@ -43,7 +48,7 @@ describe("updateModule legacy column field rejection", () => {
 		// silently. The behavioral guard is now at the parse boundary —
 		// the tool body never sees the legacy shape.
 		const result = updateModuleInputSchema.safeParse({
-			moduleIndex: 0,
+			moduleUuid: MODULE_UUID,
 			name: "Renamed",
 			case_list_columns: [{ field: "case_name", header: "Name" }],
 		});
@@ -52,25 +57,27 @@ describe("updateModule legacy column field rejection", () => {
 
 	it("input schema rejects legacy case_detail_columns at parse time", () => {
 		const result = updateModuleInputSchema.safeParse({
-			moduleIndex: 0,
+			moduleUuid: MODULE_UUID,
 			name: "Renamed",
 			case_detail_columns: [{ field: "case_name", header: "Name" }],
 		});
 		expect(result.success).toBe(false);
 	});
 
-	it("input schema parses a payload with neither name nor case_type (the tool body rejects it)", () => {
+	it("input schema parses a UUID-only payload (the tool body rejects it)", () => {
 		// `name` and `case_type` are each optional — the schema accepts a
-		// bare moduleIndex and the tool body returns the "nothing to
+		// bare stable address and the tool body returns the "nothing to
 		// update" error, so the SA gets a corrective message rather than a
 		// parse failure it can't read.
-		const result = updateModuleInputSchema.safeParse({ moduleIndex: 0 });
+		const result = updateModuleInputSchema.safeParse({
+			moduleUuid: MODULE_UUID,
+		});
 		expect(result.success).toBe(true);
 	});
 
 	it("input schema parses a case_type-only payload (the NO_CASE_TYPE repair path)", () => {
 		const result = updateModuleInputSchema.safeParse({
-			moduleIndex: 0,
+			moduleUuid: MODULE_UUID,
 			case_type: "patient",
 		});
 		expect(result.success).toBe(true);

@@ -955,15 +955,16 @@ describe("compileExpression — round-trip — date-add arm", () => {
 		test(`date-add accepts an integral decimal runtime binding for ${interval}`, async ({
 			db,
 		}) => {
+			const quantityInputUuid = asUuid("5bab836e-482c-4091-80b7-d7614349d99e");
 			const expr = compileExpression(
 				dateAdd(
 					datetimeCoerce(term(literal("2024-01-31T12:30:00Z"))),
 					interval,
-					double(term(input("calendar_quantity"))),
+					double(term(input(quantityInputUuid))),
 				),
 				makeCtx(db, {
 					bindings: {
-						searchInputs: new Map([["calendar_quantity", "1.0"]]),
+						searchInputs: new Map([[quantityInputUuid, "1.0"]]),
 					},
 				}),
 			);
@@ -983,15 +984,16 @@ describe("compileExpression — round-trip — date-add arm", () => {
 		test(`date-add rejects a non-integral decimal runtime binding for ${interval}`, async ({
 			db,
 		}) => {
+			const quantityInputUuid = asUuid("5bab836e-482c-4091-80b7-d7614349d99e");
 			const expr = compileExpression(
 				dateAdd(
 					datetimeCoerce(term(literal("2024-01-31T12:30:00Z"))),
 					interval,
-					double(term(input("calendar_quantity"))),
+					double(term(input(quantityInputUuid))),
 				),
 				makeCtx(db, {
 					bindings: {
-						searchInputs: new Map([["calendar_quantity", "1.5"]]),
+						searchInputs: new Map([[quantityInputUuid, "1.5"]]),
 					},
 				}),
 			);

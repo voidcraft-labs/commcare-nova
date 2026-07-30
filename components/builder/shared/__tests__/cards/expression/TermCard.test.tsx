@@ -53,6 +53,8 @@ const PATIENT_WITH_INFORMATION: CaseType = {
 const TRANSITION_CASE_TYPES = [HOUSEHOLD, PATIENT_WITH_INFORMATION] as const;
 const LOOKUP_TABLE = "018f3e8a-7b2c-7def-8abc-1234567890ab" as LookupTableId;
 const LOOKUP_COLUMN = "018f3e8a-7b2c-7def-8abc-1234567890ac" as LookupColumnId;
+const LOOKUP_LABEL_COLUMN =
+	"018f3e8a-7b2c-7def-8abc-1234567890ad" as LookupColumnId;
 const WORKER_PROPERTY_UUID = asUuid("worker-property-region");
 const WORKER_PROPERTY: UserProperty = {
 	uuid: WORKER_PROPERTY_UUID,
@@ -100,8 +102,18 @@ function renderStatefulTerm(value: ValueExpression) {
 				caseTypes={TRANSITION_CASE_TYPES}
 				currentCaseType="patient"
 				knownInputs={[
-					{ name: "client_name", label: "Client name", data_type: "text" },
-					{ name: "minimum_age", label: "Minimum age", data_type: "int" },
+					{
+						uuid: asUuid("2214a815-64a0-4d91-85fa-1b3066ae65c9"),
+						name: "client_name",
+						label: "Client name",
+						data_type: "text",
+					},
+					{
+						uuid: asUuid("be272c54-4980-4e32-8944-26c03cae7b07"),
+						name: "minimum_age",
+						label: "Minimum age",
+						data_type: "int",
+					},
 				]}
 			/>
 		);
@@ -110,9 +122,23 @@ function renderStatefulTerm(value: ValueExpression) {
 	return onChange;
 }
 
-describe("TermCard dormant lookup carrier boundary", () => {
-	it("renders a preserved table-column term without exposing authoring controls", () => {
+describe("TermCard data-table row scope", () => {
+	it("edits the active table's columns by their author labels", async () => {
 		const onChange = vi.fn();
+		const columns = [
+			{
+				id: LOOKUP_COLUMN,
+				wireName: "code",
+				label: "Region code",
+				dataType: "text" as const,
+			},
+			{
+				id: LOOKUP_LABEL_COLUMN,
+				wireName: "label",
+				label: "Region label",
+				dataType: "text" as const,
+			},
+		];
 
 		render(
 			<ExpressionCardEditor
@@ -120,21 +146,24 @@ describe("TermCard dormant lookup carrier boundary", () => {
 				onChange={onChange}
 				caseTypes={[PATIENT]}
 				currentCaseType="patient"
+				lookupTables={[{ id: LOOKUP_TABLE, name: "Regions", columns }]}
+				tableScope={{ tableId: LOOKUP_TABLE, columns }}
+				caseDataScope="table-row"
 			/>,
 		);
 
-		const fallback = screen.getByRole("note", {
-			name: "Saved lookup table value",
+		const trigger = screen.getByRole("button", {
+			name: "Data table column: Region code",
 		});
-		expect(fallback.textContent).toContain("Lookup table value");
-		expect(fallback.textContent).toContain("Read only in this editor");
-		expect(screen.queryByRole("button")).toBeNull();
-		expect(screen.queryByRole("textbox")).toBeNull();
-		expect(screen.queryByRole("combobox")).toBeNull();
+		fireEvent.click(trigger);
+		fireEvent.click(
+			await screen.findByRole("menuitem", { name: /Region label/ }),
+		);
+		await settleBaseUiTransitions();
 
-		fireEvent.click(fallback);
-		fireEvent.keyDown(fallback, { key: "Enter", code: "Enter" });
-		expect(onChange).not.toHaveBeenCalled();
+		expect(onChange).toHaveBeenLastCalledWith(
+			term(tableColumn(LOOKUP_TABLE, LOOKUP_LABEL_COLUMN)),
+		);
 	});
 });
 
@@ -266,7 +295,7 @@ describe("TermCard source transitions", () => {
 	it("keeps a missing saved search answer readable when no search fields remain", async () => {
 		render(
 			<ExpressionCardEditor
-				value={term(input("retired_status"))}
+				value={term(input(asUuid("c533d6a4-0c9a-4151-8504-79192efbe69e")))}
 				onChange={vi.fn()}
 				caseTypes={[PATIENT]}
 				currentCaseType="patient"
@@ -280,16 +309,16 @@ describe("TermCard source transitions", () => {
 			}),
 		).toBeDefined();
 		const savedAnswer = screen.getByRole("button", {
-			name: "Search answer: Retired status, no longer available",
+			name: "Search answer: Search field, no longer available",
 		});
-		expect(savedAnswer.textContent).toContain("Retired status");
+		expect(savedAnswer.textContent).toContain("Search field");
 		expect(savedAnswer.textContent).toContain("No longer available");
 		expect(screen.queryByText("retired_status")).toBeNull();
 
 		fireEvent.click(savedAnswer);
 
 		expect(
-			await screen.findByText("Retired status is no longer available"),
+			await screen.findByText("Search field is no longer available"),
 		).toBeDefined();
 		expect(
 			screen.getByText(
@@ -302,12 +331,13 @@ describe("TermCard source transitions", () => {
 		const onChange = vi.fn();
 		render(
 			<ExpressionCardEditor
-				value={term(input("retired_status"))}
+				value={term(input(asUuid("c533d6a4-0c9a-4151-8504-79192efbe69e")))}
 				onChange={onChange}
 				caseTypes={[PATIENT]}
 				currentCaseType="patient"
 				knownInputs={[
 					{
+						uuid: asUuid("6c9c4fba-c968-4ff0-8491-bf0e10af4bc2"),
 						name: "active_status",
 						label: "Active status",
 						data_type: "text",
@@ -318,12 +348,12 @@ describe("TermCard source transitions", () => {
 
 		fireEvent.click(
 			screen.getByRole("button", {
-				name: "Search answer: Retired status, no longer available",
+				name: "Search answer: Search field, no longer available",
 			}),
 		);
 
 		expect(
-			await screen.findByText("Retired status is no longer available"),
+			await screen.findByText("Search field is no longer available"),
 		).toBeDefined();
 		expect(
 			screen.getByText(
@@ -334,7 +364,9 @@ describe("TermCard source transitions", () => {
 			screen.getByRole("menuitem", { name: "Active status Text" }),
 		);
 
-		expect(onChange).toHaveBeenCalledWith(term(input("active_status")));
+		expect(onChange).toHaveBeenCalledWith(
+			term(input(asUuid("6c9c4fba-c968-4ff0-8491-bf0e10af4bc2"))),
+		);
 	});
 
 	it("cancels exactly, restores focus, and keeps a related-property draft", async () => {
@@ -390,7 +422,7 @@ describe("TermCard source transitions", () => {
 	});
 
 	it("keeps the chosen search answer while trying another source", async () => {
-		const saved = term(input("client_name"));
+		const saved = term(input(asUuid("2214a815-64a0-4d91-85fa-1b3066ae65c9")));
 		const onChange = renderStatefulTerm(saved);
 		expect(
 			screen.getByRole("button", { name: "Search answer: Client name" }),

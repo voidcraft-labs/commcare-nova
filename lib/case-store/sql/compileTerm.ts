@@ -98,7 +98,7 @@ type RuntimeBindingValue = TermBindingValue | FormFieldBindingValue;
  * must thread runtime values before calling the term compiler.
  */
 export interface TermBindings {
-	/** Search-input values keyed by input name. */
+	/** Search-input values keyed by stable input UUID. */
 	searchInputs?: ReadonlyMap<string, TermBindingValue>;
 
 	/**
@@ -223,9 +223,9 @@ export function compileTerm(
 			return compileLiteral(term);
 		case "input":
 			return compileBoundRef(
-				term.name,
+				term.searchInputUuid,
 				ctx.bindings.searchInputs,
-				`search input '${term.name}'`,
+				`search input '${term.searchInputUuid}'`,
 			);
 		case "session-user":
 			return compileBoundRef(

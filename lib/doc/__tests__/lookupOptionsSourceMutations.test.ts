@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
-import { setFieldOptionsSourceMutation } from "@/lib/doc/lookupOptionsSourceMutations";
+import { replaceFieldOptionsSourceMutation } from "@/lib/doc/lookupOptionsSourceMutations";
 import {
 	LOOKUP_CONTEXT_UNAVAILABLE,
 	type LookupValidationContext,
@@ -17,7 +17,7 @@ import type { LookupRevision } from "@/lib/lookup/types";
 const fieldUuid = asUuid("44444444-4444-4444-4444-444444444444");
 
 const source: LookupOptionsSource = {
-	kind: "lookup-table",
+	kind: "lookup",
 	tableId: lookupTableIdSchema.parse("01912d68-783e-7000-8000-00000000a001"),
 	valueColumnId: lookupColumnIdSchema.parse(
 		"01912d68-783e-7000-8000-00000000c001",
@@ -25,6 +25,21 @@ const source: LookupOptionsSource = {
 	labelColumnId: lookupColumnIdSchema.parse(
 		"01912d68-783e-7000-8000-00000000c002",
 	),
+};
+const inlineSource = {
+	kind: "inline" as const,
+	options: [
+		{
+			uuid: asUuid("26a5c50b-3832-4669-a929-d155e8b5af0d"),
+			value: "clinic",
+			label: "Clinic",
+		},
+		{
+			uuid: asUuid("4fe7a686-ee21-4dc5-a12f-f0c288dcacc4"),
+			value: "hospital",
+			label: "Hospital",
+		},
+	],
 };
 
 function inlineSelectDoc() {
@@ -43,10 +58,7 @@ function inlineSelectDoc() {
 								kind: "single_select",
 								id: "facility",
 								label: "Facility",
-								options: [
-									{ value: "clinic", label: "Clinic" },
-									{ value: "hospital", label: "Hospital" },
-								],
+								optionsSource: inlineSource,
 							}),
 						],
 					},
@@ -84,9 +96,9 @@ const availableContext: LookupValidationContext = {
 	],
 };
 
-describe("setFieldOptionsSourceMutation", () => {
-	it("sets the source without touching the inline options", () => {
-		const mutation = setFieldOptionsSourceMutation(
+describe("replaceFieldOptionsSourceMutation", () => {
+	it("replaces the complete source with a lookup arm", () => {
+		const mutation = replaceFieldOptionsSourceMutation(
 			fieldUuid,
 			"single_select",
 			source,
@@ -95,44 +107,25 @@ describe("setFieldOptionsSourceMutation", () => {
 			kind: "updateField",
 			uuid: fieldUuid,
 			targetKind: "single_select",
-			patch: {},
-			optionsSource: source,
+			patch: { optionsSource: source },
 		});
 	});
 
-	it("clears with an explicit null, never an omitted key", () => {
-		const mutation = setFieldOptionsSourceMutation(
+	it("replaces lookup choices with a complete inline arm", () => {
+		const mutation = replaceFieldOptionsSourceMutation(
 			fieldUuid,
 			"multi_select",
-			undefined,
-		);
-		expect(mutation).toMatchObject({ optionsSource: null });
-	});
-
-	/**
-	 * The load-bearing test. `undefined` and `null` are indistinguishable to the
-	 * reducer, so an in-memory assertion passes while the feature is silently
-	 * broken in the running app: the SSE frame and the persisted jsonb are both
-	 * `JSON.stringify`, which drops an `undefined`-valued key entirely. A clear
-	 * that does not survive this round trip applies locally, reaches no
-	 * receiver, and is overwritten by the next auto-save.
-	 */
-	it("carries the clear through a JSON round trip", () => {
-		const mutation = setFieldOptionsSourceMutation(
-			fieldUuid,
-			"single_select",
-			undefined,
+			inlineSource,
 		);
 		const wire = JSON.parse(JSON.stringify(mutation)) as Record<
 			string,
 			unknown
 		>;
-		expect("optionsSource" in wire).toBe(true);
-		expect(wire.optionsSource).toBeNull();
+		expect(wire).toHaveProperty("patch.optionsSource", inlineSource);
 	});
 
 	it("carries a set source through the same round trip", () => {
-		const mutation = setFieldOptionsSourceMutation(
+		const mutation = replaceFieldOptionsSourceMutation(
 			fieldUuid,
 			"single_select",
 			source,
@@ -141,15 +134,14 @@ describe("setFieldOptionsSourceMutation", () => {
 		expect(wire).toEqual(mutation);
 	});
 
-	it("produces mutations the rolling external envelope accepts", () => {
-		// Both directions must parse as ordinary `updateField` events: the
-		// discriminator is not new, so an open pre-deploy tab and an old server
-		// already recognize them.
-		for (const next of [source, undefined]) {
+	it("produces mutations the canonical external envelope accepts", () => {
+		// Both directions are ordinary canonical `updateField` events with the
+		// complete nested field patch shape.
+		for (const next of [source, inlineSource]) {
 			const parsed = mutationSchema.safeParse(
 				JSON.parse(
 					JSON.stringify(
-						setFieldOptionsSourceMutation(fieldUuid, "single_select", next),
+						replaceFieldOptionsSourceMutation(fieldUuid, "single_select", next),
 					),
 				),
 			);
@@ -159,7 +151,7 @@ describe("setFieldOptionsSourceMutation", () => {
 
 	it("requires the loaded table definition before the client gate can bind it", () => {
 		const doc = inlineSelectDoc();
-		const mutation = setFieldOptionsSourceMutation(
+		const mutation = replaceFieldOptionsSourceMutation(
 			fieldUuid,
 			"single_select",
 			source,

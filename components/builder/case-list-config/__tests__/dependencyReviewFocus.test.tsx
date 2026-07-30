@@ -1,3 +1,4 @@
+import { asUuid } from "@/lib/domain";
 // @vitest-environment happy-dom
 
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -19,7 +20,7 @@ const caseTypes: readonly CaseType[] = [
 
 describe("Search-field dependency review focus", () => {
 	it("reopens Assigned cases and focuses its labeled select", async () => {
-		const value = term(input("query"));
+		const value = term(input(asUuid("d794ebfb-9f47-450f-8af3-964849456a34")));
 		const { rerender } = render(
 			<AssignedCasesSetting value={value} onChange={vi.fn()} canEdit />,
 		);
@@ -50,13 +51,21 @@ describe("Search-field dependency review focus", () => {
 		render(
 			<SearchConditionCanvas
 				context={{ kind: "input", label: "Region" }}
-				value={eq(prop("client", "region"), input("query"))}
+				value={eq(
+					prop("client", "region"),
+					input(asUuid("d794ebfb-9f47-450f-8af3-964849456a34")),
+				)}
 				onChange={vi.fn()}
 				onBack={vi.fn()}
 				caseTypes={caseTypes}
 				currentCaseType="client"
 				knownInputs={[
-					{ name: "query", label: "Client name", data_type: "text" },
+					{
+						uuid: asUuid("d794ebfb-9f47-450f-8af3-964849456a34"),
+						name: "query",
+						label: "Client name",
+						data_type: "text",
+					},
 				]}
 				dependencyReview={{
 					token: 1,

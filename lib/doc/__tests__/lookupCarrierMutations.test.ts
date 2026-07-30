@@ -1,6 +1,5 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
-import { z } from "zod";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import { duplicateFieldMutations } from "@/lib/doc/duplicateFieldMutations";
 import { applyMutations } from "@/lib/doc/mutations";
@@ -11,6 +10,7 @@ import {
 	type BlueprintDoc,
 	fieldSchema,
 	type LookupOptionsSource,
+	type SelectOptionsSource,
 } from "@/lib/domain";
 
 const MODULE = asUuid("10000000-0000-4000-8000-000000000000");
@@ -23,7 +23,7 @@ const VALUE_COLUMN = "018f3e8a-7b2c-7def-8abc-1234567890ad";
 const LABEL_COLUMN = "018f3e8a-7b2c-7def-8abc-1234567890ae";
 
 const SOURCE_A = {
-	kind: "lookup-table",
+	kind: "lookup",
 	tableId: TABLE_A,
 	valueColumnId: VALUE_COLUMN,
 	labelColumnId: LABEL_COLUMN,
@@ -44,26 +44,29 @@ const SOURCE_B = {
 		},
 	},
 } as LookupOptionsSource;
+const INLINE_SOURCE = {
+	kind: "inline",
+	options: [
+		{
+			uuid: asUuid("40000000-0000-4000-8000-000000000000"),
+			value: "active",
+			label: "Active",
+		},
+		{
+			uuid: asUuid("50000000-0000-4000-8000-000000000000"),
+			value: "closed",
+			label: "Closed",
+		},
+	],
+} satisfies SelectOptionsSource;
 
-function selectField(optionsSource?: LookupOptionsSource) {
+function selectField(optionsSource: SelectOptionsSource = INLINE_SOURCE) {
 	return {
 		uuid: FIELD,
 		id: "status",
 		kind: "single_select" as const,
 		label: "Status",
-		options: [
-			{
-				uuid: asUuid("40000000-0000-4000-8000-000000000000"),
-				value: "active",
-				label: "Active",
-			},
-			{
-				uuid: asUuid("50000000-0000-4000-8000-000000000000"),
-				value: "closed",
-				label: "Closed",
-			},
-		],
-		...(optionsSource !== undefined && { optionsSource }),
+		optionsSource,
 	};
 }
 
@@ -119,107 +122,47 @@ function replay(
 	});
 }
 
-const legacySelectFieldSchema = z
-	.object({
-		uuid: z.string(),
-		id: z.string(),
-		kind: z.literal("single_select"),
-		label: z.string(),
-		order: z.string().optional(),
-		options: z.array(
-			z
-				.object({
-					uuid: z.string().optional(),
-					order: z.string().optional(),
-					value: z.string(),
-					label: z.string(),
-				})
-				.strict(),
-		),
-	})
-	.strict();
-
-const legacyMutationSchema = z.discriminatedUnion("kind", [
-	z.object({
-		kind: z.literal("addField"),
-		parentUuid: z.string(),
-		field: legacySelectFieldSchema,
-	}),
-	z.object({
-		kind: z.literal("updateField"),
-		uuid: z.string(),
-		targetKind: z.literal("single_select"),
-		patch: z
-			.object({
-				label: z.string().nullable().optional(),
-				options: z.array(z.unknown()).nullable().optional(),
-			})
-			.default({}),
-	}),
-]);
-
-describe("dormant lookup options carriers", () => {
-	it("persists a source while retaining required inline fallback options", () => {
+describe("lookup options source mutations", () => {
+	it("persists exactly one complete lookup source", () => {
 		const parsed = fieldSchema.parse(selectField(SOURCE_A));
 		expect(parsed.kind).toBe("single_select");
 		if (parsed.kind !== "single_select") {
 			throw new Error("fixture: expected a single-select field");
 		}
-		expect(parsed.options).toHaveLength(2);
 		expect(parsed.optionsSource).toEqual(SOURCE_A);
 	});
 
-	it("carries addField source intent outside the strict nested fallback", () => {
+	it("carries addField source intent in the canonical field shape", () => {
 		const mutation = roundTrip({
 			kind: "addField",
 			parentUuid: FORM,
-			field: selectField(),
-			optionsSource: SOURCE_A,
+			field: selectField(SOURCE_A),
 		});
-		expect("optionsSource" in mutation.field).toBe(false);
+		expect(
+			"optionsSource" in mutation.field
+				? mutation.field.optionsSource
+				: undefined,
+		).toEqual(SOURCE_A);
 		expect(replay(emptyDoc(), [mutation]).fields[FIELD]).toEqual(
 			selectField(SOURCE_A),
 		);
-
-		const legacy = legacyMutationSchema.parse(
-			JSON.parse(JSON.stringify(mutation)),
-		);
-		expect(legacy.kind).toBe("addField");
-		if (legacy.kind === "addField") {
-			expect("optionsSource" in legacy.field).toBe(false);
-			expect(legacy.field.options).toEqual(selectField().options);
-		}
 	});
 
 	it.each([
-		["set", undefined, SOURCE_A],
+		["set", INLINE_SOURCE, SOURCE_A],
 		["replace", SOURCE_A, SOURCE_B],
-		["clear", SOURCE_A, undefined],
+		["switch inline", SOURCE_A, INLINE_SOURCE],
 	] as const)(
-		"round-trips and replays an updateField %s without changing inline options",
+		"round-trips and replays an updateField %s as one complete replacement",
 		(_label, previous, next) => {
 			const mutation = roundTrip({
 				kind: "updateField",
 				uuid: FIELD,
 				targetKind: "single_select",
-				patch: {},
-				optionsSource: next ?? null,
+				patch: { optionsSource: next },
 			});
 			const result = replay(baseDoc(selectField(previous)), [mutation]);
 			expect(result.fields[FIELD]).toEqual(selectField(next));
-			expect(
-				(result.fields[FIELD] as ReturnType<typeof selectField>).options,
-			).toEqual(selectField().options);
-
-			const legacy = legacyMutationSchema.parse(
-				JSON.parse(JSON.stringify(mutation)),
-			);
-			expect(legacy).toEqual({
-				kind: "updateField",
-				uuid: FIELD,
-				targetKind: "single_select",
-				patch: {},
-			});
 		},
 	);
 
@@ -235,14 +178,14 @@ describe("dormant lookup options carriers", () => {
 		).toBe(false);
 	});
 
-	it("rejects carrier intent nested inside the legacy fallback shapes", () => {
+	it("accepts carrier intent in canonical nested field shapes", () => {
 		expect(
 			mutationSchema.safeParse({
 				kind: "addField",
 				parentUuid: FORM,
 				field: selectField(SOURCE_A),
 			}).success,
-		).toBe(false);
+		).toBe(true);
 		expect(
 			mutationSchema.safeParse({
 				kind: "updateField",
@@ -250,10 +193,10 @@ describe("dormant lookup options carriers", () => {
 				targetKind: "single_select",
 				patch: { optionsSource: SOURCE_A },
 			}).success,
-		).toBe(false);
+		).toBe(true);
 	});
 
-	it("duplicates a receiver-preserved select as an inline-only fallback", () => {
+	it("duplicates a lookup-backed select with its complete source", () => {
 		const doc = baseDoc(selectField(SOURCE_A));
 		const plan = duplicateFieldMutations(doc, FIELD);
 		expect(plan).toBeDefined();
@@ -262,17 +205,18 @@ describe("dormant lookup options carriers", () => {
 		expect(result.fieldOrder[FORM]?.[1]).toBe(plan.cloneUuid);
 		const duplicate = result.fields[plan.cloneUuid];
 		expect(duplicate?.kind).toBe("single_select");
-		expect(duplicate && "optionsSource" in duplicate).toBe(false);
 		expect(
-			duplicate && "options" in duplicate ? duplicate.options : undefined,
-		).toEqual(selectField().options);
+			duplicate && "optionsSource" in duplicate
+				? duplicate.optionsSource
+				: undefined,
+		).toEqual(SOURCE_A);
 	});
 
 	it.each([
 		["add", emptyDoc(), baseDoc(selectField(SOURCE_A))],
 		["set", baseDoc(), baseDoc(selectField(SOURCE_A))],
 		["replace", baseDoc(selectField(SOURCE_A)), baseDoc(selectField(SOURCE_B))],
-		["clear", baseDoc(selectField(SOURCE_A)), baseDoc()],
+		["switch inline", baseDoc(selectField(SOURCE_A)), baseDoc()],
 	] as const)("diffs and exactly replays %s", (_label, before, after) => {
 		const mutations = diffDocsToMutations(before, after);
 		const carrierMutation = mutations.find(
@@ -281,14 +225,20 @@ describe("dormant lookup options carriers", () => {
 		);
 		expect(carrierMutation).toBeDefined();
 		if (carrierMutation?.kind === "addField") {
-			expect("optionsSource" in carrierMutation.field).toBe(false);
-			expect(carrierMutation.optionsSource).toEqual(SOURCE_A);
+			expect(
+				"optionsSource" in carrierMutation.field
+					? carrierMutation.field.optionsSource
+					: undefined,
+			).toEqual(SOURCE_A);
 		} else if (carrierMutation?.kind === "updateField") {
-			expect("optionsSource" in carrierMutation.patch).toBe(false);
-			expect(carrierMutation.optionsSource).toEqual(
-				"optionsSource" in after.fields[FIELD]
+			expect(carrierMutation.targetKind).toBe("single_select");
+			if (carrierMutation.targetKind !== "single_select") {
+				throw new Error("fixture: expected a single-select update");
+			}
+			expect(carrierMutation.patch.optionsSource).toEqual(
+				after.fields[FIELD].kind === "single_select"
 					? after.fields[FIELD].optionsSource
-					: null,
+					: undefined,
 			);
 		}
 		expect(replay(before, mutations)).toEqual(after);

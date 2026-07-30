@@ -19,11 +19,14 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { applyOverWire } from "@/lib/doc/__tests__/wireRoundTrip";
-import type { Media } from "@/lib/domain";
+import { asUuid, type Media, type Uuid } from "@/lib/domain";
 import { attachFieldMediaTool } from "../attachFieldMedia";
 import type { FieldMediaSlot } from "../shared";
 import {
 	errorOf,
+	FORM_A,
+	HIDDEN_FIELD,
+	MOD_A,
 	makeMediaFixture,
 	makeMediaMcpFixture,
 	resetTestAssets,
@@ -53,10 +56,10 @@ beforeEach(() => {
 
 /** One attachment on the fixture's m0-f0. */
 const attachment = (
-	fieldId: string,
+	fieldUuid: Uuid,
 	slot: FieldMediaSlot,
 	media: Partial<Media>,
-) => ({ moduleIndex: 0, formIndex: 0, fieldId, slot, media });
+) => ({ moduleUuid: MOD_A, formUuid: FORM_A, fieldUuid, slot, media });
 
 /** Wrap attachments in the batch input shape. */
 const input = (...attachments: ReturnType<typeof attachment>[]) => ({
@@ -74,7 +77,7 @@ describe("attachFieldMedia", () => {
 	it("sets the image on a field's label slot", async () => {
 		const { doc, ctx } = makeMediaFixture();
 		const result = await attachFieldMediaTool.execute(
-			input(attachment("patient_name", "label", { image: "asset-img-1" })),
+			input(attachment(TEXT_FIELD, "label", { image: "asset-img-1" })),
 			ctx,
 			doc,
 		);
@@ -90,7 +93,7 @@ describe("attachFieldMedia", () => {
 		const { doc, ctx } = makeMediaFixture();
 		const result = await attachFieldMediaTool.execute(
 			input(
-				attachment("patient_name", "hint", {
+				attachment(TEXT_FIELD, "hint", {
 					image: "asset-img-1",
 					audio: "asset-aud-1",
 				}),
@@ -108,8 +111,8 @@ describe("attachFieldMedia", () => {
 		const { doc, ctx } = makeMediaFixture();
 		const result = await attachFieldMediaTool.execute(
 			input(
-				attachment("patient_name", "label", { image: "asset-img-1" }),
-				attachment("symptom", "label", { audio: "asset-aud-1" }),
+				attachment(TEXT_FIELD, "label", { image: "asset-img-1" }),
+				attachment(SELECT_FIELD, "label", { audio: "asset-aud-1" }),
 			),
 			ctx,
 			doc,
@@ -130,13 +133,13 @@ describe("attachFieldMedia", () => {
 		const { doc: baseDoc, ctx } = makeMediaFixture();
 		// Seed an existing label_media so the clear has something to remove.
 		const seeded = await attachFieldMediaTool.execute(
-			input(attachment("patient_name", "label", { image: "asset-img-1" })),
+			input(attachment(TEXT_FIELD, "label", { image: "asset-img-1" })),
 			ctx,
 			baseDoc,
 		);
 
 		const cleared = await attachFieldMediaTool.execute(
-			input(attachment("patient_name", "label", {})),
+			input(attachment(TEXT_FIELD, "label", {})),
 			ctx,
 			seeded.newDoc,
 		);
@@ -158,12 +161,12 @@ describe("attachFieldMedia", () => {
 		// it clears over the wire too.
 		const { doc: baseDoc, ctx } = makeMediaFixture();
 		const seeded = await attachFieldMediaTool.execute(
-			input(attachment("patient_name", "label", { image: "asset-img-1" })),
+			input(attachment(TEXT_FIELD, "label", { image: "asset-img-1" })),
 			ctx,
 			baseDoc,
 		);
 		const clear = await attachFieldMediaTool.execute(
-			input(attachment("patient_name", "label", {})),
+			input(attachment(TEXT_FIELD, "label", {})),
 			ctx,
 			seeded.newDoc,
 		);
@@ -179,9 +182,7 @@ describe("attachFieldMedia", () => {
 		const { doc, ctx } = makeMediaFixture();
 		// A hidden field carries no validate_msg media slot.
 		const result = await attachFieldMediaTool.execute(
-			input(
-				attachment("computed_score", "validate_msg", { image: "asset-img-1" }),
-			),
+			input(attachment(HIDDEN_FIELD, "validate_msg", { image: "asset-img-1" })),
 			ctx,
 			doc,
 		);
@@ -192,25 +193,28 @@ describe("attachFieldMedia", () => {
 		expect(error).toContain("validate_msg");
 	});
 
-	it("returns an Elm-style error when the field id is unknown", async () => {
+	it("returns an Elm-style error when the field UUID is unknown", async () => {
 		const { doc, ctx } = makeMediaFixture();
+		const missing = asUuid("ffffffff-ffff-4fff-8fff-ffffffffffff");
 		const result = await attachFieldMediaTool.execute(
-			input(attachment("nope", "label", { image: "asset-img-1" })),
+			input(attachment(missing, "label", { image: "asset-img-1" })),
 			ctx,
 			doc,
 		);
 		expect(result.mutations).toEqual([]);
 		const error = errorOf(result);
 		expect(error).toContain("nothing was attached");
-		expect(error).toContain('"nope"');
+		expect(error).toContain(String(missing));
 	});
 
 	it("writes nothing when one attachment of a batch doesn't resolve", async () => {
 		const { doc, ctx } = makeMediaFixture();
 		const result = await attachFieldMediaTool.execute(
 			input(
-				attachment("patient_name", "label", { image: "asset-img-1" }),
-				attachment("nope", "label", { image: "asset-img-1" }),
+				attachment(TEXT_FIELD, "label", { image: "asset-img-1" }),
+				attachment(asUuid("ffffffff-ffff-4fff-8fff-ffffffffffff"), "label", {
+					image: "asset-img-1",
+				}),
 			),
 			ctx,
 			doc,
@@ -222,13 +226,13 @@ describe("attachFieldMedia", () => {
 		).toBeUndefined();
 		const error = errorOf(result);
 		expect(error).toContain("attachments[1]");
-		expect(error).toContain('"nope"');
+		expect(error).toContain("ffffffff-ffff-4fff-8fff-ffffffffffff");
 	});
 
 	it("refuses an asset id that isn't in the caller's library", async () => {
 		const { doc, ctx } = makeMediaFixture();
 		const result = await attachFieldMediaTool.execute(
-			input(attachment("patient_name", "label", { image: "asset-nope" })),
+			input(attachment(TEXT_FIELD, "label", { image: "asset-nope" })),
 			ctx,
 			doc,
 		);
@@ -247,7 +251,7 @@ describe("attachFieldMedia", () => {
 		seedTestAsset("asset-foreign", "image", { project_id: "project-2" });
 		const { doc, ctx } = makeMediaFixture();
 		const result = await attachFieldMediaTool.execute(
-			input(attachment("patient_name", "label", { image: "asset-foreign" })),
+			input(attachment(TEXT_FIELD, "label", { image: "asset-foreign" })),
 			ctx,
 			doc,
 		);
@@ -260,7 +264,7 @@ describe("attachFieldMedia", () => {
 		seedTestAsset("asset-pending", "image", { status: "pending" });
 		const { doc, ctx } = makeMediaFixture();
 		const result = await attachFieldMediaTool.execute(
-			input(attachment("patient_name", "hint", { image: "asset-pending" })),
+			input(attachment(TEXT_FIELD, "hint", { image: "asset-pending" })),
 			ctx,
 			doc,
 		);
@@ -272,7 +276,7 @@ describe("attachFieldMedia", () => {
 		const { doc, ctx } = makeMediaFixture();
 		// An audio asset placed in the bundle's IMAGE slot.
 		const result = await attachFieldMediaTool.execute(
-			input(attachment("patient_name", "label", { image: "asset-aud-1" })),
+			input(attachment(TEXT_FIELD, "label", { image: "asset-aud-1" })),
 			ctx,
 			doc,
 		);
@@ -286,8 +290,8 @@ describe("attachFieldMedia", () => {
 		const { doc, ctx } = makeMediaFixture();
 		const result = await attachFieldMediaTool.execute(
 			input(
-				attachment("patient_name", "label", { image: "asset-img-1" }),
-				attachment("symptom", "label", { image: "asset-nope" }),
+				attachment(TEXT_FIELD, "label", { image: "asset-img-1" }),
+				attachment(SELECT_FIELD, "label", { image: "asset-nope" }),
 			),
 			ctx,
 			doc,
@@ -302,7 +306,7 @@ describe("attachFieldMedia", () => {
 	it("clears without touching the asset table (no verdict on a clear)", async () => {
 		const { doc: baseDoc, ctx } = makeMediaFixture();
 		const seeded = await attachFieldMediaTool.execute(
-			input(attachment("patient_name", "label", { image: "asset-img-1" })),
+			input(attachment(TEXT_FIELD, "label", { image: "asset-img-1" })),
 			ctx,
 			baseDoc,
 		);
@@ -311,7 +315,7 @@ describe("attachFieldMedia", () => {
 		resetTestAssets();
 		seedTestAsset("asset-img-1", "image", { project_id: "project-2" });
 		const cleared = await attachFieldMediaTool.execute(
-			input(attachment("patient_name", "label", {})),
+			input(attachment(TEXT_FIELD, "label", {})),
 			ctx,
 			seeded.newDoc,
 		);
@@ -322,7 +326,7 @@ describe("attachFieldMedia", () => {
 		const { doc, ctx: chatCtx } = makeMediaFixture();
 		const { ctx: mcpCtx } = makeMediaMcpFixture();
 		const batch = input(
-			attachment("patient_name", "label", { image: "asset-img-1" }),
+			attachment(TEXT_FIELD, "label", { image: "asset-img-1" }),
 		);
 		const r1 = await attachFieldMediaTool.execute(batch, chatCtx, doc);
 		const r2 = await attachFieldMediaTool.execute(batch, mcpCtx, doc);

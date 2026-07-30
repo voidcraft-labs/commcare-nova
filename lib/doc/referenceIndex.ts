@@ -404,7 +404,8 @@ function extractFieldEdges(
 			case "lookup-carrier":
 				if (
 					(field.kind === "single_select" || field.kind === "multi_select") &&
-					field.optionsSource?.filter !== undefined
+					field.optionsSource.kind === "lookup" &&
+					field.optionsSource.filter !== undefined
 				) {
 					predicateEdges(sink, slot.slot, field.optionsSource.filter);
 				}

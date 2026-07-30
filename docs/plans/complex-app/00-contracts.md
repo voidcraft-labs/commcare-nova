@@ -72,12 +72,30 @@ These decisions are closed unless the project owner explicitly reopens them.
 
 ### Identity and references
 
-- Lookup tables, columns, rows, user types, personas, organization levels,
-  locations, operations, sections, links, and endpoints use immutable UUIDs for
-  stored identity wherever Nova owns the identity.
-- Human names, lookup tags, column wire names, level codes, location site codes,
-  and endpoint ids are projections or external contracts, never substitutes for
-  internal identity.
+- **Every Nova-owned object is addressed and referenced by its immutable UUID
+  on every editor surface.** This includes modules, forms, fields, case-list
+  columns, Search inputs, media assets, lookup tables, lookup columns and rows,
+  worker-information properties, user types, personas, operations, organization
+  levels, locations, sections, links, and endpoints. SA and MCP tools accept and
+  return the same identity-bearing domain shapes the builder stores; they never
+  introduce a parallel slug, path, tag, wire-name, position, or mutable-id
+  address layer.
+- Human names, module/form/field ids, operation ids, Search input names, lookup
+  tags, column wire names, worker-property slugs, level codes, location site
+  codes, and endpoint ids are display projections, semantic values, or external
+  contracts. They may be edited and emitted, but never substitute for Nova-owned
+  identity.
+- Ordering values describe placement only. They never identify the member being
+  moved or edited.
+- Same-call construction-local handles are allowed only where the referenced
+  object does not exist before the call. They are scoped to that one call and
+  can never address an existing object. A caller may instead predeclare the
+  stable UUID of a newly created object when later items in the same call need
+  to reference it.
+- The sanctioned name-backed references are identities Nova does not own:
+  `(caseType, property)` pairs for the CommCare case-data contract and explicit
+  CommCare/session field names. They are final domain vocabulary, not
+  compatibility aliases for a hidden Nova UUID.
 - A rename does not rewrite expression text. Printers and emitters resolve the
   current external spelling from immutable identity.
 - External-contract names may require confirmation or elevated permission, but a

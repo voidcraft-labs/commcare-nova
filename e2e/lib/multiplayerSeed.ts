@@ -194,10 +194,21 @@ function buildSeedBlueprint(appId: string): BlueprintDoc {
 								kind: "single_select",
 								id: "status",
 								label: MP_SEED.fieldThreeLabel,
-								options: [
-									{ value: "new", label: "New" },
-									{ value: "active", label: "Active" },
-								],
+								optionsSource: {
+									kind: "inline",
+									options: [
+										{
+											uuid: asUuid("2530b79e-48c7-4a28-a6c2-357477be6e2c"),
+											value: "new",
+											label: "New",
+										},
+										{
+											uuid: asUuid("d78246dd-340e-4613-abcc-87fad10cd1e5"),
+											value: "active",
+											label: "Active",
+										},
+									],
+								},
 							}),
 						],
 					},

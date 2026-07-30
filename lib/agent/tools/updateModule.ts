@@ -29,7 +29,7 @@
  *
  * Three exit branches:
  *
- *   1. Module index out of range → `{ error }`, no mutations.
+ *   1. Module UUID absent → `{ error }`, no mutations.
  *   2. Module disappeared between resolution and patch (shouldn't
  *      happen under normal flow) → `{ error }`.
  *   3. Success → human-readable summary listing the changed keys,
@@ -39,9 +39,11 @@
 import { z } from "zod";
 import { columnAddMutation } from "@/lib/doc/caseListColumnMutations";
 import { planCaseTypeRetirementOnRetype } from "@/lib/doc/caseTypeRetirement";
+import { setModuleDisplayConditionMutation } from "@/lib/doc/displayConditionMutations";
 import { caseTypeCatalogMutations } from "@/lib/doc/scaffolds";
 import type { BlueprintDoc } from "@/lib/domain";
-import { resolveModuleUuid, updateModuleMutations } from "../blueprintHelpers";
+import { predicateSchema } from "@/lib/domain/predicate";
+import { updateModuleMutations } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import {
 	columnInputSchema,
@@ -53,14 +55,17 @@ import {
 	type MutatingToolResult,
 	toToolErrorResult,
 } from "./common";
+import {
+	moduleAddressSchema,
+	resolveModuleAddress,
+} from "./shared/entityAddresses";
 import type {
 	MutationSuccess,
 	ToolCallSummary,
 } from "./shared/toolCallSummary";
 
-export const updateModuleInputSchema = z
-	.object({
-		moduleIndex: z.number().describe("0-based module index"),
+export const updateModuleInputSchema = moduleAddressSchema
+	.extend({
 		name: z
 			.string()
 			.min(1)
@@ -79,6 +84,12 @@ export const updateModuleInputSchema = z
 			.describe(
 				"Case-list columns, in display order — required alongside case_type when the module has forms but no columns yet (a case-managing module's list must render rows). Ignored when the module already has columns; refine those via the case-list-config tools.",
 			),
+		displayCondition: predicateSchema
+			.nullable()
+			.optional()
+			.describe(
+				"Running-app visibility rule. A Predicate sets it, null removes it, omission keeps it.",
+			),
 	})
 	.strict();
 
@@ -96,9 +107,15 @@ export const updateModuleTool = {
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<UpdateModuleResult>> {
-		const { moduleIndex, name, case_type, case_list_columns } = input;
+		const {
+			moduleUuid: rawModuleUuid,
+			name,
+			case_type,
+			case_list_columns,
+			displayCondition,
+		} = input;
 		try {
-			if (name == null && case_type == null) {
+			if (name == null && case_type == null && displayCondition === undefined) {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
@@ -109,28 +126,18 @@ export const updateModuleTool = {
 					},
 				};
 			}
-			const moduleUuid = resolveModuleUuid(doc, moduleIndex);
-			if (!moduleUuid) {
+			const address = resolveModuleAddress(doc, {
+				moduleUuid: rawModuleUuid,
+			});
+			if (!address.ok) {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
 					newDoc: doc,
-					result: { error: `Module ${moduleIndex} not found` },
+					result: { error: address.error },
 				};
 			}
-			// Structural defense: `moduleOrder` and `modules` could in
-			// principle disagree under a partial Immer update, so the
-			// helper trusts a resolved `Module` value and the call site
-			// owns the lookup-and-check.
-			const mod = doc.modules[moduleUuid];
-			if (!mod) {
-				return {
-					kind: "mutate" as const,
-					mutations: [],
-					newDoc: doc,
-					result: { error: `Module ${moduleIndex} not found` },
-				};
-			}
+			const { moduleUuid, module: mod } = address;
 
 			/* Case-type retirement: a case-type change can leave the OLD type's
 			 * record with no owning module. When nothing else references the
@@ -163,6 +170,10 @@ export const updateModuleTool = {
 				(mod.caseListConfig?.columns ?? []).length === 0
 					? case_list_columns.map((c) => stampColumnUuid(c, newUuid()))
 					: undefined;
+			const resolvedDisplayCondition =
+				displayCondition === null || displayCondition === undefined
+					? undefined
+					: displayCondition;
 			/* ONE catalog write covers both retiring the orphaned OLD type and
 			 * declaring a brand-NEW one. A brand-new type MUST be cataloged or
 			 * the seeded `Name` column can't resolve (`CASE_LIST_COLUMN_UNKNOWN_FIELD`)
@@ -185,12 +196,20 @@ export const updateModuleTool = {
 						afterInDetail: index === 0 ? null : all[index - 1].uuid,
 					}),
 				),
+				...(displayCondition === undefined
+					? []
+					: [
+							setModuleDisplayConditionMutation(
+								moduleUuid,
+								resolvedDisplayCondition,
+							),
+						]),
 			];
 			const commit = await guardedMutate(
 				ctx,
 				doc,
 				mutations,
-				`module:${moduleIndex}`,
+				`module:${moduleUuid}`,
 			);
 			if (!commit.ok) {
 				return {
@@ -211,7 +230,7 @@ export const updateModuleTool = {
 					kind: "mutate" as const,
 					mutations,
 					newDoc,
-					result: { error: `Module ${moduleIndex} not found after update` },
+					result: { error: `Module ${moduleUuid} not found after update` },
 				};
 			}
 			return {
@@ -219,9 +238,9 @@ export const updateModuleTool = {
 				mutations,
 				newDoc,
 				result: {
-					message: `Successfully updated module "${newMod.name}" (index ${moduleIndex})${
+					message: `Successfully updated module "${newMod.name}" (${moduleUuid})${
 						case_type != null ? ` — case type: ${newMod.caseType}` : ""
-					}.`,
+					}${displayCondition === null ? " — display condition removed" : displayCondition === undefined ? "" : " — display condition updated"}.`,
 					summary: { subject: newMod.name } satisfies ToolCallSummary,
 				},
 			};

@@ -32,8 +32,8 @@ import {
 } from "@/lib/doc/expressionText";
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import { fieldIdVerdict } from "@/lib/doc/identifierVerdicts";
+import { findContainingForm } from "@/lib/doc/mutations/helpers";
 import { spliceAfter } from "@/lib/doc/mutations/sequence";
-import { withOptionUuids } from "@/lib/doc/optionIdentity";
 import { declareCaseTypeMutations } from "@/lib/doc/scaffolds";
 import type { Mutation } from "@/lib/doc/types";
 import type {
@@ -51,9 +51,7 @@ import {
 	fieldPathResolver,
 	isContainer,
 	opaqueXPathExpression,
-	type SelectOption,
 } from "@/lib/domain";
-import { resolveFieldInForm } from "../../blueprintHelpers";
 import {
 	applyDefaults,
 	type FlatField,
@@ -70,12 +68,13 @@ export interface FieldAssemblyArgs {
 	formUuid: Uuid;
 	/** The SA's flat field items, in order. */
 	items: readonly FlatField[];
-	/** Default parent for the batch (a group/repeat's bare id). A field's
-	 *  own `parentId` overrides it. */
-	batchParentId?: string;
+	/** Existing default parent for the batch. Per-item `parentId` values are
+	 *  construction-local handles and override it only when they name a
+	 *  container created earlier in this same call. */
+	batchParentUuid?: Uuid;
 	/** Insertion anchor for the batch's top-level block — only meaningful
 	 *  against an EXISTING form (a new form has nothing to anchor to). */
-	anchor?: { beforeFieldId?: string; afterFieldId?: string };
+	anchor?: { beforeFieldUuid?: Uuid; afterFieldUuid?: Uuid };
 }
 
 export type FieldAssemblyResult =
@@ -141,7 +140,7 @@ export function resolveCloseCondition(
 export function assembleFieldMutations(
 	args: FieldAssemblyArgs,
 ): FieldAssemblyResult {
-	const { doc, formUuid, items, batchParentId, anchor } = args;
+	const { doc, formUuid, items, batchParentUuid, anchor } = args;
 
 	// Resolve the batch's insertion parent — the form root, or the
 	// batch-level `parentId` when it names an existing container (mirrors
@@ -152,38 +151,66 @@ export function assembleFieldMutations(
 	// in batch order. A field carrying its OWN parentId nests under that
 	// parent and never consumes an anchor slot.
 	let batchInsertParent: Uuid = formUuid;
-	if (batchParentId) {
-		const existing = resolveFieldInForm(doc, formUuid, batchParentId);
-		// An AMBIGUOUS parent ref (or a uuid living in another form) fails
-		// the whole call — silently nesting the batch under the depth-first
-		// duplicate is the wrong-target class the field tools refuse, and a
-		// parent slot must refuse it identically. A missing parent keeps the
-		// legacy fall-through to form level, as does a leaf: only a
-		// container can be a parent — nesting under a leaf would make every
-		// batch field invisible to the emitter.
-		if (!existing.ok && existing.reason !== "not_found") {
+	if (batchParentUuid) {
+		const parent = doc.fields[batchParentUuid];
+		if (
+			parent === undefined ||
+			findContainingForm(doc, batchParentUuid) !== formUuid
+		) {
 			return {
 				ok: false,
-				rejected: [{ id: batchParentId, reason: existing.error }],
+				rejected: [
+					{
+						id: batchParentUuid,
+						reason: `parentUuid "${batchParentUuid}" is not in the addressed form.`,
+					},
+				],
 			};
 		}
-		if (existing.ok && isContainer(existing.field)) {
-			batchInsertParent = existing.field.uuid;
+		if (!isContainer(parent)) {
+			return {
+				ok: false,
+				rejected: [
+					{
+						id: batchParentUuid,
+						reason: `parentUuid "${batchParentUuid}" names "${parent.id}", which is not a group or repeat.`,
+					},
+				],
+			};
 		}
+		batchInsertParent = batchParentUuid;
 	}
 	let topLevelNextIndex: number | undefined;
-	if (anchor?.beforeFieldId || anchor?.afterFieldId) {
+	if (anchor?.beforeFieldUuid || anchor?.afterFieldUuid) {
 		const order = orderedFieldUuids(doc, batchInsertParent);
-		if (anchor.beforeFieldId) {
-			const i = order.findIndex(
-				(u) => doc.fields[u]?.id === anchor.beforeFieldId,
-			);
-			if (i !== -1) topLevelNextIndex = i;
-		} else if (anchor.afterFieldId) {
-			const i = order.findIndex(
-				(u) => doc.fields[u]?.id === anchor.afterFieldId,
-			);
-			if (i !== -1) topLevelNextIndex = i + 1;
+		if (anchor.beforeFieldUuid) {
+			const i = order.indexOf(anchor.beforeFieldUuid);
+			if (i === -1) {
+				return {
+					ok: false,
+					rejected: [
+						{
+							id: anchor.beforeFieldUuid,
+							reason: `beforeFieldUuid "${anchor.beforeFieldUuid}" is not a child of the selected insertion parent.`,
+						},
+					],
+				};
+			}
+			topLevelNextIndex = i;
+		} else if (anchor.afterFieldUuid) {
+			const i = order.indexOf(anchor.afterFieldUuid);
+			if (i === -1) {
+				return {
+					ok: false,
+					rejected: [
+						{
+							id: anchor.afterFieldUuid,
+							reason: `afterFieldUuid "${anchor.afterFieldUuid}" is not a child of the selected insertion parent.`,
+						},
+					],
+				};
+			}
+			topLevelNextIndex = i + 1;
 		}
 	}
 	// The anchor's start slot in the parent's DISPLAY order, captured BEFORE
@@ -223,17 +250,12 @@ export function assembleFieldMutations(
 		// set one, fall back to the batch-level `parentId`; if neither is
 		// set, the field lands at the form's top level.
 		let parentUuid: Uuid = formUuid;
-		const parentId = processed.parentId ?? batchParentId;
+		const parentId = processed.parentId;
 		if (parentId && typeof parentId === "string") {
 			const minted = mintedByBareId.get(parentId);
 			if (minted) {
-				// A same-call parent ref must have exactly ONE viable
-				// referent. Two same-id containers minted in this batch, or
-				// a minted container shadowing an EXISTING container with
-				// the same id, are both silent-wrong-parent hazards — refuse
-				// them like every other ambiguous field ref. An existing
-				// LEAF with the id doesn't refuse: a leaf can't be a parent,
-				// so the minted container is the only viable referent.
+				// A same-call parent ref must have exactly one viable
+				// construction-local referent.
 				if (dupMintedIds.has(parentId)) {
 					rejected.push({
 						id: raw.id,
@@ -241,41 +263,16 @@ export function assembleFieldMutations(
 					});
 					continue;
 				}
-				const shadowed = resolveFieldInForm(doc, formUuid, parentId);
-				if (
-					(shadowed.ok && isContainer(shadowed.field)) ||
-					(!shadowed.ok && shadowed.reason === "ambiguous")
-				) {
-					rejected.push({
-						id: raw.id,
-						reason: `parentId "${parentId}": a container added in this call and an existing field in the form share that id — rename the container this call adds, or pass the existing container's uuid.`,
-					});
-					continue;
-				}
 				parentUuid = minted;
 			} else {
-				const existing = resolveFieldInForm(doc, formUuid, parentId);
-				// An ambiguous parent ref (or a foreign-form uuid) rejects
-				// this item — same refusal contract as the batch-level
-				// parent above, reported per item so one corrected re-issue
-				// suffices.
-				if (!existing.ok && existing.reason !== "not_found") {
-					rejected.push({
-						id: raw.id,
-						reason: `parentId "${parentId}": ${existing.error}`,
-					});
-					continue;
-				}
-				if (existing.ok && isContainer(existing.field)) {
-					parentUuid = existing.field.uuid;
-				}
-				// A non-existent parentId, or one naming a non-container
-				// (a leaf field), falls through to form-level insert.
-				// Never nest under a leaf: the reducer would create a
-				// child order under it and the emitter — which only
-				// recurses into containers — would silently drop the
-				// field.
+				rejected.push({
+					id: raw.id,
+					reason: `parentId "${parentId}" is a construction-local handle, but this call did not create exactly one earlier group or repeat with that id. Use parentUuid for an existing container.`,
+				});
+				continue;
 			}
+		} else if (batchParentUuid !== undefined) {
+			parentUuid = batchParentUuid;
 		}
 
 		const fieldUuid = asUuid(crypto.randomUUID());
@@ -337,7 +334,7 @@ export function assembleFieldMutations(
 	const resolveUserProperty = resolvableUserPropertySlug(overlay);
 	resolveBatchExpressions(resolve, resolveUserProperty, landed);
 	// Place every born field. An ANCHORED batch (a top-level block placed at
-	// `beforeFieldId` / `afterFieldId`) lands AT the anchor rather than at the
+	// `beforeFieldUuid` / `afterFieldUuid`) lands AT the anchor rather than at the
 	// end, so its first field follows the anchor's predecessor and each
 	// subsequent one follows its own predecessor in the batch. Every other field
 	// appends under its parent, and a chain of `after` through the batch is what
@@ -363,14 +360,6 @@ export function assembleFieldMutations(
 		const after = lastPlacedByParent.get(mut.parentUuid);
 		if (after !== undefined) mut.after = after;
 		lastPlacedByParent.set(mut.parentUuid, mut.field.uuid as Uuid);
-		// A select field's born options need identity so a later edit can address
-		// one; their sequence is the array they arrive in.
-		const opts = withOptionUuids(
-			(mut.field as { options?: SelectOption[] }).options,
-		);
-		if (opts) {
-			mut.field = { ...mut.field, options: opts } as typeof mut.field;
-		}
 	}
 	// Declaration chokepoint: a field writing to a type absent from the catalog
 	// declares it (granular `declareCaseType`) — the reducer no longer

@@ -95,7 +95,7 @@ function selectForm(
 describe("buildXForm — lookup-backed select itemset", () => {
 	it("emits exactly one filterless itemset and no inline items", () => {
 		const { xml } = selectForm("single_select", {
-			kind: "lookup-table",
+			kind: "lookup",
 			tableId: REGIONS,
 			valueColumnId: VALUE,
 			labelColumnId: LABEL,
@@ -119,9 +119,9 @@ describe("buildXForm — lookup-backed select itemset", () => {
 		);
 	});
 
-	it("declares the fixture instance and drops the inline option itext", () => {
+	it("declares the fixture instance without emitting inline option itext", () => {
 		const { xml } = selectForm("single_select", {
-			kind: "lookup-table",
+			kind: "lookup",
 			tableId: REGIONS,
 			valueColumnId: VALUE,
 			labelColumnId: LABEL,
@@ -135,7 +135,7 @@ describe("buildXForm — lookup-backed select itemset", () => {
 			"jr://fixture/item-list:regions",
 		);
 
-		// The inline fallback options register no `-optN-label` itext.
+		// A lookup source has no inline option body to register as `-optN-label`.
 		const optionItext = allNamed(xml, "text").filter((textEl) =>
 			(getAttributeValue(textEl, "id") ?? "").includes("-opt"),
 		);
@@ -144,7 +144,7 @@ describe("buildXForm — lookup-backed select itemset", () => {
 
 	it("emits a <select> for a multi_select lookup source", () => {
 		const { xml } = selectForm("multi_select", {
-			kind: "lookup-table",
+			kind: "lookup",
 			tableId: REGIONS,
 			valueColumnId: VALUE,
 			labelColumnId: LABEL,
@@ -158,7 +158,7 @@ describe("buildXForm — lookup-backed select itemset", () => {
 
 	it("passes the XForm oracle", () => {
 		const { xml } = selectForm("single_select", {
-			kind: "lookup-table",
+			kind: "lookup",
 			tableId: REGIONS,
 			valueColumnId: VALUE,
 			labelColumnId: LABEL,
@@ -190,9 +190,8 @@ describe("buildXForm — lookup itemset filters", () => {
 									kind: "single_select",
 									id: "region",
 									label: "Region",
-									options: [{ value: "manual", label: "Manual" }],
 									optionsSource: {
-										kind: "lookup-table",
+										kind: "lookup",
 										tableId: REGIONS,
 										valueColumnId: VALUE,
 										labelColumnId: LABEL,
@@ -243,9 +242,8 @@ describe("buildXForm — lookup itemset filters", () => {
 											kind: "single_select",
 											id: "region",
 											label: "Region",
-											options: [{ value: "manual", label: "Manual" }],
 											optionsSource: {
-												kind: "lookup-table",
+												kind: "lookup",
 												tableId: REGIONS,
 												valueColumnId: VALUE,
 												labelColumnId: LABEL,
@@ -275,7 +273,7 @@ describe("buildXForm — lookup itemset filters", () => {
 
 	it("declares commcaresession for a session-user filter term", () => {
 		const { xml } = selectForm("single_select", {
-			kind: "lookup-table",
+			kind: "lookup",
 			tableId: REGIONS,
 			valueColumnId: VALUE,
 			labelColumnId: LABEL,
@@ -297,7 +295,7 @@ describe("buildXForm — lookup itemset filters", () => {
 
 describe("validateXForm — malformed select shapes", () => {
 	const validXform = selectForm("single_select", {
-		kind: "lookup-table",
+		kind: "lookup",
 		tableId: REGIONS,
 		valueColumnId: VALUE,
 		labelColumnId: LABEL,

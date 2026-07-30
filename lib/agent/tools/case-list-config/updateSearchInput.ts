@@ -22,10 +22,7 @@
 
 import { z } from "zod";
 import { asUuid, type BlueprintDoc, type Uuid } from "@/lib/domain";
-import {
-	resolveModuleUuid,
-	updateSearchInputMutation,
-} from "../../blueprintHelpers";
+import { updateSearchInputMutation } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import {
 	guardedMutate,
@@ -42,9 +39,9 @@ import {
 
 export const updateSearchInputInputSchema = z
 	.object({
-		moduleIndex: z
-			.number()
-			.describe("0-based module index whose case list search input to update"),
+		moduleUuid: uuidInputSchema.describe(
+			"Stable uuid of the module whose search input is updated",
+		),
 		searchInputUuid: uuidInputSchema.describe(
 			"Uuid of the existing search input to replace. Look at getModule's projection or run searchBlueprint to surface the current uuids.",
 		),
@@ -78,24 +75,18 @@ export const updateSearchInputTool = {
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<UpdateSearchInputResult>> {
 		const {
-			moduleIndex,
+			moduleUuid: rawModuleUuid,
 			searchInputUuid: rawSearchInputUuid,
 			searchInput,
 		} = input;
+		const moduleUuid = asUuid(rawModuleUuid);
 		const searchInputUuid = asUuid(rawSearchInputUuid);
 		try {
-			const moduleUuid = resolveModuleUuid(doc, moduleIndex);
-			if (!moduleUuid)
-				return moduleNotFoundResult<UpdateSearchInputSuccess>(
-					doc,
-					moduleIndex,
-					"update a search input",
-				);
 			const mod = doc.modules[moduleUuid];
 			if (!mod)
 				return moduleNotFoundResult<UpdateSearchInputSuccess>(
 					doc,
-					moduleIndex,
+					rawModuleUuid,
 					"update a search input",
 				);
 
@@ -118,7 +109,7 @@ export const updateSearchInputTool = {
 				ctx,
 				doc,
 				result.mutations,
-				`module:${moduleIndex}:caseList:searchInput:update`,
+				`module:${moduleUuid}:caseList:searchInput:update`,
 			);
 			if (!commit.ok) {
 				return {

@@ -18,11 +18,14 @@ import { runValidation } from "@/lib/commcare/validator/runner";
 import { printXPathInDoc } from "@/lib/doc/expressionText";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc } from "@/lib/domain";
-import { blueprintDocSchema } from "@/lib/domain";
+import { asUuid, blueprintDocSchema } from "@/lib/domain";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import { createFormTool } from "../createForm";
 import { createModuleTool } from "../createModule";
 import { updateFormTool } from "../updateForm";
+
+const BASE_MODULE_UUID = asUuid("10000000-0000-4000-8000-000000000001");
+const BASE_FORM_UUID = asUuid("10000000-0000-4000-8000-000000000002");
 
 function makeCtx() {
 	// Every persisted doc must survive the SAME Zod gate the next load
@@ -70,6 +73,7 @@ function completeDoc(): BlueprintDoc {
 		appName: "Clinic",
 		modules: [
 			{
+				uuid: BASE_MODULE_UUID,
 				name: "Patients",
 				caseType: "patient",
 				caseListConfig: caseListConfig([
@@ -77,6 +81,7 @@ function completeDoc(): BlueprintDoc {
 				]),
 				forms: [
 					{
+						uuid: BASE_FORM_UUID,
 						name: "Register patient",
 						type: "registration",
 						fields: [
@@ -124,7 +129,7 @@ describe("createForm — atomic form + fields", () => {
 		const { ctx, recordMutations } = makeCtx();
 		const out = await createFormTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: BASE_MODULE_UUID,
 				name: "Follow up",
 				type: "followup",
 				fields: [
@@ -153,7 +158,7 @@ describe("createForm — atomic form + fields", () => {
 		const { ctx, recordMutations } = makeCtx();
 		const out = await createFormTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: BASE_MODULE_UUID,
 				name: "Enroll",
 				type: "registration",
 				fields: [
@@ -178,7 +183,7 @@ describe("createForm — atomic form + fields", () => {
 		const { ctx } = makeCtx();
 		const out = await createFormTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: BASE_MODULE_UUID,
 				name: "Assessment",
 				type: "followup",
 				fields: [
@@ -339,6 +344,7 @@ function completeConnectDoc(): BlueprintDoc {
 		connectType: "learn",
 		modules: [
 			{
+				uuid: BASE_MODULE_UUID,
 				name: "Lessons",
 				caseType: "trainee",
 				caseListConfig: caseListConfig([
@@ -346,6 +352,7 @@ function completeConnectDoc(): BlueprintDoc {
 				]),
 				forms: [
 					{
+						uuid: BASE_FORM_UUID,
 						name: "Enroll trainee",
 						type: "registration",
 						connect: {
@@ -400,7 +407,7 @@ describe("atomic creation on a complete Connect app", () => {
 		const { ctx, recordMutations } = makeCtx();
 		const out = await createFormTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: BASE_MODULE_UUID,
 				name: "Lesson two",
 				type: "followup",
 				fields: [
@@ -436,7 +443,7 @@ describe("atomic creation on a complete Connect app", () => {
 		const { ctx, recordMutations } = makeCtx();
 		const out = await createFormTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: BASE_MODULE_UUID,
 				name: "Reference sheet",
 				type: "followup",
 				fields: [
@@ -467,7 +474,7 @@ describe("atomic creation on a complete Connect app", () => {
 		 * participation — the one state the relaxation still forbids. */
 		const { ctx, recordMutations } = makeCtx();
 		const out = await updateFormTool.execute(
-			{ moduleIndex: 0, formIndex: 0, connect: null },
+			{ moduleUuid: BASE_MODULE_UUID, formUuid: BASE_FORM_UUID, connect: null },
 			ctx,
 			completeConnectDoc(),
 		);
@@ -485,7 +492,7 @@ describe("atomic creation on a complete Connect app", () => {
 		const doc = completeConnectDoc();
 		const grown = await createFormTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: BASE_MODULE_UUID,
 				name: "Lesson two",
 				type: "followup",
 				fields: [
@@ -511,7 +518,7 @@ describe("atomic creation on a complete Connect app", () => {
 		expect("message" in grown.result).toBe(true);
 
 		const out = await updateFormTool.execute(
-			{ moduleIndex: 0, formIndex: 0, connect: null },
+			{ moduleUuid: BASE_MODULE_UUID, formUuid: BASE_FORM_UUID, connect: null },
 			ctx,
 			grown.newDoc,
 		);
@@ -524,7 +531,7 @@ describe("atomic creation on a complete Connect app", () => {
 		const { ctx, recordMutations } = makeCtx();
 		const out = await createFormTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: BASE_MODULE_UUID,
 				name: "Quiz",
 				type: "followup",
 				fields: [
@@ -683,7 +690,7 @@ describe("creation tools force connect ids correct at the source", () => {
 		const { ctx } = makeCtx();
 		const out = await createFormTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: BASE_MODULE_UUID,
 				name: "Lesson two",
 				type: "followup",
 				fields: [
@@ -720,7 +727,7 @@ describe("creation tools force connect ids correct at the source", () => {
 		const { ctx, recordMutations } = makeCtx();
 		const out = await createFormTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: BASE_MODULE_UUID,
 				name: "Lesson two",
 				type: "followup",
 				fields: [
@@ -755,7 +762,7 @@ describe("creation tools force connect ids correct at the source", () => {
 		const { ctx, recordMutations } = makeCtx();
 		const out = await createFormTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: BASE_MODULE_UUID,
 				name: "Lesson two",
 				type: "followup",
 				fields: [

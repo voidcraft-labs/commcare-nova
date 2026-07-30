@@ -206,7 +206,7 @@ describe("case-list-config tool schemas — 8-optional ceiling contract", () => 
 
 	it("addCaseListColumns: parses a representative payload", () => {
 		const result = addCaseListColumnsTool.inputSchema.safeParse({
-			moduleIndex: 0,
+			moduleUuid: "4383fe29-27a8-4295-8b89-5b7187fd9f08",
 			columns: [
 				{ kind: "plain", field: "case_name", header: "Patient" },
 				{ kind: "phone", field: "phone", header: "Phone" },
@@ -217,7 +217,7 @@ describe("case-list-config tool schemas — 8-optional ceiling contract", () => 
 
 	it("rejects a newly authored field that has no screen or ordering job", () => {
 		const useless = addCaseListColumnsTool.inputSchema.safeParse({
-			moduleIndex: 0,
+			moduleUuid: "4383fe29-27a8-4295-8b89-5b7187fd9f08",
 			columns: [
 				{
 					kind: "plain",
@@ -229,7 +229,7 @@ describe("case-list-config tool schemas — 8-optional ceiling contract", () => 
 			],
 		});
 		const sortCarrier = addCaseListColumnsTool.inputSchema.safeParse({
-			moduleIndex: 0,
+			moduleUuid: "4383fe29-27a8-4295-8b89-5b7187fd9f08",
 			columns: [
 				{
 					kind: "plain",
@@ -248,8 +248,8 @@ describe("case-list-config tool schemas — 8-optional ceiling contract", () => 
 
 	it("updateCaseListColumn: parses a representative payload", () => {
 		const result = updateCaseListColumnTool.inputSchema.safeParse({
-			moduleIndex: 0,
-			columnUuid: "11111111-1111-1111-1111-111111111111",
+			moduleUuid: "4383fe29-27a8-4295-8b89-5b7187fd9f08",
+			columnUuid: "11111111-1111-4111-8111-111111111111",
 			column: {
 				kind: "date",
 				field: "dob",
@@ -266,8 +266,8 @@ describe("case-list-config tool schemas — 8-optional ceiling contract", () => 
 		// test pins that the per-arm optional count stays under the
 		// 8-optional ceiling even with every common slot supplied.
 		const result = updateCaseListColumnTool.inputSchema.safeParse({
-			moduleIndex: 0,
-			columnUuid: "11111111-1111-1111-1111-111111111111",
+			moduleUuid: "4383fe29-27a8-4295-8b89-5b7187fd9f08",
+			columnUuid: "11111111-1111-4111-8111-111111111111",
 			column: {
 				kind: "interval",
 				field: "last_visit",
@@ -287,8 +287,8 @@ describe("case-list-config tool schemas — 8-optional ceiling contract", () => 
 	it("column inputs reject tool-owned generic and surface order keys", () => {
 		for (const key of ["order", "listOrder", "detailOrder"] as const) {
 			const result = updateCaseListColumnTool.inputSchema.safeParse({
-				moduleIndex: 0,
-				columnUuid: "11111111-1111-1111-1111-111111111111",
+				moduleUuid: "4383fe29-27a8-4295-8b89-5b7187fd9f08",
+				columnUuid: "11111111-1111-4111-8111-111111111111",
 				column: {
 					kind: "plain",
 					field: "case_name",
@@ -313,12 +313,12 @@ describe("case-list-config tool schemas — 8-optional ceiling contract", () => 
 			tile: { x: 0, y: 0, width: 12, height: 1 },
 		};
 		const born = addCaseListColumnsTool.inputSchema.safeParse({
-			moduleIndex: 0,
+			moduleUuid: "4383fe29-27a8-4295-8b89-5b7187fd9f08",
 			columns: [column],
 		});
 		const replaced = updateCaseListColumnTool.inputSchema.safeParse({
-			moduleIndex: 0,
-			columnUuid: "11111111-1111-1111-1111-111111111111",
+			moduleUuid: "4383fe29-27a8-4295-8b89-5b7187fd9f08",
+			columnUuid: "11111111-1111-4111-8111-111111111111",
 			column,
 		});
 
@@ -328,11 +328,11 @@ describe("case-list-config tool schemas — 8-optional ceiling contract", () => 
 
 	it("setCaseListTile: parses a representative payload", () => {
 		const result = setCaseListTileTool.inputSchema.safeParse({
-			moduleIndex: 0,
+			moduleUuid: "4383fe29-27a8-4295-8b89-5b7187fd9f08",
 			tile: { persistOnForms: true },
 			placements: [
 				{
-					columnUuid: "11111111-1111-1111-1111-111111111111",
+					columnUuid: "11111111-1111-4111-8111-111111111111",
 					cell: {
 						x: 0,
 						y: 0,
@@ -359,17 +359,17 @@ describe("case-list-config tool schemas — 8-optional ceiling contract", () => 
 		// each needs its own explicit null — a tool that could not distinguish
 		// "leave this alone" from "clear this" could express neither.
 		const layoutOff = setCaseListTileTool.inputSchema.safeParse({
-			moduleIndex: 0,
+			moduleUuid: "4383fe29-27a8-4295-8b89-5b7187fd9f08",
 			tile: null,
 		});
 		const fieldUnplaced = setCaseListTileTool.inputSchema.safeParse({
-			moduleIndex: 0,
+			moduleUuid: "4383fe29-27a8-4295-8b89-5b7187fd9f08",
 			placements: [
-				{ columnUuid: "11111111-1111-1111-1111-111111111111", cell: null },
+				{ columnUuid: "11111111-1111-4111-8111-111111111111", cell: null },
 			],
 		});
 		const plainTile = setCaseListTileTool.inputSchema.safeParse({
-			moduleIndex: 0,
+			moduleUuid: "4383fe29-27a8-4295-8b89-5b7187fd9f08",
 			tile: {},
 		});
 
@@ -383,27 +383,27 @@ describe("case-list-config tool schemas — 8-optional ceiling contract", () => 
 		// caller reaches for when it means "leave this one alone" — is rejected
 		// rather than read as a clear. Leaving the field out is how you keep it.
 		const result = setCaseListTileTool.inputSchema.safeParse({
-			moduleIndex: 0,
-			placements: [{ columnUuid: "11111111-1111-1111-1111-111111111111" }],
+			moduleUuid: "4383fe29-27a8-4295-8b89-5b7187fd9f08",
+			placements: [{ columnUuid: "11111111-1111-4111-8111-111111111111" }],
 		});
 		expect(result.success).toBe(false);
 	});
 
 	it("removeCaseListColumn: parses a representative payload", () => {
 		const result = removeCaseListColumnTool.inputSchema.safeParse({
-			moduleIndex: 0,
-			columnUuid: "11111111-1111-1111-1111-111111111111",
+			moduleUuid: "4383fe29-27a8-4295-8b89-5b7187fd9f08",
+			columnUuid: "11111111-1111-4111-8111-111111111111",
 		});
 		expect(result.success).toBe(true);
 	});
 
 	it("reorderCaseListColumns: parses a representative payload", () => {
 		const result = reorderCaseListColumnsTool.inputSchema.safeParse({
-			moduleIndex: 0,
+			moduleUuid: "4383fe29-27a8-4295-8b89-5b7187fd9f08",
 			surface: "results",
 			columnUuids: [
 				"22222222-2222-2222-2222-222222222222",
-				"11111111-1111-1111-1111-111111111111",
+				"11111111-1111-4111-8111-111111111111",
 			],
 		});
 		expect(result.success).toBe(true);
@@ -411,7 +411,7 @@ describe("case-list-config tool schemas — 8-optional ceiling contract", () => 
 
 	it("setCaseListFilter: parses a representative payload (predicate set)", () => {
 		const result = setCaseListFilterTool.inputSchema.safeParse({
-			moduleIndex: 0,
+			moduleUuid: "4383fe29-27a8-4295-8b89-5b7187fd9f08",
 			filter: {
 				kind: "eq",
 				left: {
@@ -426,7 +426,7 @@ describe("case-list-config tool schemas — 8-optional ceiling contract", () => 
 
 	it("setCaseListFilter: parses null (clear)", () => {
 		const result = setCaseListFilterTool.inputSchema.safeParse({
-			moduleIndex: 0,
+			moduleUuid: "4383fe29-27a8-4295-8b89-5b7187fd9f08",
 			filter: null,
 		});
 		expect(result.success).toBe(true);
@@ -434,7 +434,7 @@ describe("case-list-config tool schemas — 8-optional ceiling contract", () => 
 
 	it("addSearchInputs: parses a representative simple payload", () => {
 		const result = addSearchInputsTool.inputSchema.safeParse({
-			moduleIndex: 0,
+			moduleUuid: "4383fe29-27a8-4295-8b89-5b7187fd9f08",
 			searchInputs: [
 				{
 					kind: "simple",
@@ -450,7 +450,7 @@ describe("case-list-config tool schemas — 8-optional ceiling contract", () => 
 
 	it("addSearchInputs: parses a representative advanced payload", () => {
 		const result = addSearchInputsTool.inputSchema.safeParse({
-			moduleIndex: 0,
+			moduleUuid: "4383fe29-27a8-4295-8b89-5b7187fd9f08",
 			searchInputs: [
 				{
 					kind: "advanced",
@@ -473,7 +473,7 @@ describe("case-list-config tool schemas — 8-optional ceiling contract", () => 
 		// authored status-queue filters as `select` and burned a
 		// rejection + retry step per module).
 		const simple = addSearchInputsTool.inputSchema.safeParse({
-			moduleIndex: 0,
+			moduleUuid: "4383fe29-27a8-4295-8b89-5b7187fd9f08",
 			searchInputs: [
 				{
 					kind: "simple",
@@ -486,8 +486,8 @@ describe("case-list-config tool schemas — 8-optional ceiling contract", () => 
 		});
 		expect(simple.success).toBe(false);
 		const advanced = updateSearchInputTool.inputSchema.safeParse({
-			moduleIndex: 0,
-			searchInputUuid: "11111111-1111-1111-1111-111111111111",
+			moduleUuid: "4383fe29-27a8-4295-8b89-5b7187fd9f08",
+			searchInputUuid: "11111111-1111-4111-8111-111111111111",
 			searchInput: {
 				kind: "advanced",
 				name: "active_only",
@@ -511,8 +511,8 @@ describe("case-list-config tool schemas — 8-optional ceiling contract", () => 
 
 	it("rejects scalar date-range defaults and range/widget mismatches at the tool boundary", () => {
 		const base = {
-			moduleIndex: 0,
-			searchInputUuid: "11111111-1111-1111-1111-111111111111",
+			moduleUuid: "4383fe29-27a8-4295-8b89-5b7187fd9f08",
+			searchInputUuid: "11111111-1111-4111-8111-111111111111",
 		};
 		const legacyDefault = updateSearchInputTool.inputSchema.safeParse({
 			...base,
@@ -554,8 +554,8 @@ describe("case-list-config tool schemas — 8-optional ceiling contract", () => 
 
 	it("updateSearchInput: parses with full simple-arm optional coverage", () => {
 		const result = updateSearchInputTool.inputSchema.safeParse({
-			moduleIndex: 0,
-			searchInputUuid: "11111111-1111-1111-1111-111111111111",
+			moduleUuid: "4383fe29-27a8-4295-8b89-5b7187fd9f08",
+			searchInputUuid: "11111111-1111-4111-8111-111111111111",
 			searchInput: {
 				kind: "simple",
 				name: "household_region",
@@ -575,18 +575,18 @@ describe("case-list-config tool schemas — 8-optional ceiling contract", () => 
 
 	it("removeSearchInput: parses a representative payload", () => {
 		const result = removeSearchInputTool.inputSchema.safeParse({
-			moduleIndex: 0,
-			searchInputUuid: "11111111-1111-1111-1111-111111111111",
+			moduleUuid: "4383fe29-27a8-4295-8b89-5b7187fd9f08",
+			searchInputUuid: "11111111-1111-4111-8111-111111111111",
 		});
 		expect(result.success).toBe(true);
 	});
 
 	it("reorderSearchInputs: parses a representative payload", () => {
 		const result = reorderSearchInputsTool.inputSchema.safeParse({
-			moduleIndex: 0,
+			moduleUuid: "4383fe29-27a8-4295-8b89-5b7187fd9f08",
 			searchInputUuids: [
 				"22222222-2222-2222-2222-222222222222",
-				"11111111-1111-1111-1111-111111111111",
+				"11111111-1111-4111-8111-111111111111",
 			],
 		});
 		expect(result.success).toBe(true);

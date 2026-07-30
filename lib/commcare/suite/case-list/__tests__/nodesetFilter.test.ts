@@ -1,3 +1,4 @@
+import { asUuid } from "@/lib/domain";
 // lib/commcare/suite/case-list/__tests__/nodesetFilter.test.ts
 //
 // Acceptance tests for `emitNodesetFilter` — the wire-emission
@@ -263,7 +264,9 @@ describe("unanswered-Search substitution on the ordinary nodeset", () => {
 		// `input(...)` reads blank before Search; blank means "exclude
 		// nobody", so the entire fragment collapses away instead of
 		// referencing the unloaded search-input instance.
-		const exclusion = term(input("excluded_owners"));
+		const exclusion = term(
+			input(asUuid("bd984979-3fb6-4806-8292-0ea8be7258f7")),
+		);
 		expect(emitExcludedOwnerFilterExpression(exclusion)).toBeUndefined();
 		expect(emitExcludedOwnerNodesetFilter(exclusion)).toBe("");
 	});
@@ -273,7 +276,7 @@ describe("unanswered-Search substitution on the ordinary nodeset", () => {
 		// blank; the session arm is real at ordinary-list evaluation time
 		// and must survive.
 		const exclusion = concat(
-			term(input("excluded_owners")),
+			term(input(asUuid("bd984979-3fb6-4806-8292-0ea8be7258f7"))),
 			term(literal(" ")),
 			term(sessionUser("excluded_owner_ids")),
 		);
@@ -291,8 +294,11 @@ describe("unanswered-Search substitution on the ordinary nodeset", () => {
 		// left to crash the entry.
 		const filter = and(
 			whenInput(
-				input("name_query"),
-				eq(prop("patient", "full_name"), term(input("name_query"))),
+				input(asUuid("42ab9981-e4f6-4efd-8551-66a8fefaaacf")),
+				eq(
+					prop("patient", "full_name"),
+					term(input(asUuid("42ab9981-e4f6-4efd-8551-66a8fefaaacf"))),
+				),
 			),
 			eq(prop("patient", "is_priority"), literal(true)),
 		);
@@ -301,16 +307,22 @@ describe("unanswered-Search substitution on the ordinary nodeset", () => {
 
 	it("emits no bracket when the filter is only an envelope", () => {
 		const filter = whenInput(
-			input("name_query"),
-			eq(prop("patient", "full_name"), term(input("name_query"))),
+			input(asUuid("42ab9981-e4f6-4efd-8551-66a8fefaaacf")),
+			eq(
+				prop("patient", "full_name"),
+				term(input(asUuid("42ab9981-e4f6-4efd-8551-66a8fefaaacf"))),
+			),
 		);
 		expect(emitNodesetFilter(filter)).toBe("");
 	});
 
 	it("does not mutate the authored filter AST", () => {
 		const filter = whenInput(
-			input("name_query"),
-			eq(prop("patient", "full_name"), term(input("name_query"))),
+			input(asUuid("42ab9981-e4f6-4efd-8551-66a8fefaaacf")),
+			eq(
+				prop("patient", "full_name"),
+				term(input(asUuid("42ab9981-e4f6-4efd-8551-66a8fefaaacf"))),
+			),
 		);
 		const snapshot = structuredClone(filter);
 		emitNodesetFilter(filter);

@@ -13,13 +13,11 @@
 //     stable UUID (its current slug is resolved only for display/wire output).
 //   - `session-user` — an explicit raw built-in/external user-data field.
 //   - `field` — stable form-field identity. Offered as a real source only
-//     where the edit context supplies `formFields` (today, a case
-//     operation); everywhere else it round-trips a saved value without
-//     entering the source menu.
+//     where the edit context supplies an admitted `formFields` catalog.
 //   - `literal` — primitive constant (string / number / boolean /
 //     null) with optional `data_type` qualifier preserved on rebuild.
-//   - `table-column` remains a dormant compatibility carrier: a direct
-//     preserved value renders read-only and never enters the source menu.
+//   - `table-column` — stable lookup-column identity. Offered only in an
+//     explicit table-row scope whose table/column catalog admits it.
 //
 // The card edits ONLY Term-shaped values — non-Term ValueExpression
 // arms route through their own dedicated cards (ArithCard / IfCard /
@@ -106,6 +104,7 @@ import {
 	sessionUser,
 	sessionUserProperty,
 	type Term,
+	tableColumn,
 	timeLiteral,
 	type ValueExpression,
 	term as wrapTerm,
@@ -123,6 +122,7 @@ import {
 	formFieldDisplayLabel,
 } from "../../formFieldPresentation";
 import { rebuildLiteralPreservingDataType } from "../../literalRebuild";
+import { lookupColumnDisplayLabel } from "../../lookupTablePresentation";
 import type { EditorPath } from "../../path";
 import { InlineError } from "../../primitives/CardShell";
 import { PropertyRefPicker } from "../../primitives/PropertyRefPicker";
@@ -145,6 +145,7 @@ type TermMode =
 	| "property"
 	| "field"
 	| "input"
+	| "table-column"
 	| "session-context"
 	| "session-user"
 	| "session-user-property";
@@ -193,39 +194,7 @@ interface TermCardProps {
  * sub-segment.
  */
 export function TermCard(props: TermCardProps) {
-	if (props.value.term.kind === "table-column") {
-		return <DormantTableColumnTerm />;
-	}
 	return <EditableTermCard {...props} />;
-}
-
-/**
- * A direct table-column term is a preserved compatibility carrier, not an
- * authorable value source. Keep it visible without mounting source menus or
- * controls that could rewrite the carrier before lookup authoring lands.
- */
-function DormantTableColumnTerm() {
-	return (
-		<div
-			role="note"
-			aria-label="Saved lookup table value"
-			className="flex min-h-11 w-full items-center gap-3 rounded-lg border border-white/[0.06] bg-nova-deep/50 px-3 py-2"
-		>
-			<Icon
-				icon={tablerDatabase}
-				width="14"
-				height="14"
-				aria-hidden="true"
-				className="shrink-0 text-nova-violet-bright"
-			/>
-			<span className="min-w-0">
-				<span className="block text-sm text-nova-text">Lookup table value</span>
-				<span className="block text-[13px] text-nova-text-muted">
-					Read only in this editor
-				</span>
-			</span>
-		</div>
-	);
 }
 
 function EditableTermCard({
@@ -662,14 +631,8 @@ function termMode(term: Term): TermMode {
 		case "session-user-property":
 			return "session-user-property";
 		case "table-column":
-			throw dormantTableColumnAuthoringError();
+			return "table-column";
 	}
-}
-
-function dormantTableColumnAuthoringError(): Error {
-	return new Error(
-		"Lookup table columns are dormant and cannot reach the generic term editor.",
-	);
 }
 
 function termsMatch(left: Term, right: Term): boolean {
@@ -690,7 +653,7 @@ export function termHasMeaningfulContent(value: Term): boolean {
 		case "field":
 			return true;
 		case "input":
-			return (value.name ?? "").length > 0;
+			return value.searchInputUuid.length > 0;
 		case "session-context":
 			return true;
 		case "session-user":
@@ -698,7 +661,7 @@ export function termHasMeaningfulContent(value: Term): boolean {
 		case "session-user-property":
 			return true;
 		case "table-column":
-			throw dormantTableColumnAuthoringError();
+			return true;
 	}
 }
 
@@ -717,6 +680,8 @@ function termModeLabel(
 			return "A form answer";
 		case "input":
 			return "A search answer";
+		case "table-column":
+			return "A table column";
 		case "session-context":
 			return "App information";
 		case "session-user":
@@ -778,7 +743,11 @@ function describeTermModeReplacement(
 					"This replaces the saved user information field. You can undo this change.",
 			};
 		case "table-column":
-			throw dormantTableColumnAuthoringError();
+			return {
+				title,
+				description:
+					"This replaces the selected data-table column. You can undo this change.",
+			};
 	}
 }
 
@@ -847,6 +816,10 @@ function computeModeAdmission(
 			constraint.accepts === "any" ||
 			acceptsType(constraint, field.dataType ?? "text"),
 	);
+	const hasAcceptedTableColumn = (ctx.tableScope?.columns ?? []).some(
+		(column) =>
+			constraint.accepts === "any" || acceptsType(constraint, column.dataType),
+	);
 	const textAdmitted = constraintAdmitsType(constraint, "text");
 	const typeAdmission: ModeAdmission = {
 		literal:
@@ -870,6 +843,15 @@ function computeModeAdmission(
 							: reason,
 				},
 		input: hasAcceptedInput ? { admitted: true } : { admitted: false, reason },
+		"table-column": hasAcceptedTableColumn
+			? { admitted: true }
+			: {
+					admitted: false,
+					reason:
+						ctx.tableScope === undefined
+							? "Table columns are available only in a data-table row rule"
+							: reason,
+				},
 		"session-context": textAdmitted
 			? { admitted: true }
 			: { admitted: false, reason },
@@ -961,7 +943,24 @@ function buildTermDefault(
 					? true
 					: acceptsType(constraint, i.data_type ?? "text"),
 			);
-			return input(matching?.name ?? ctx.knownInputs[0]?.name ?? "");
+			return input(
+				matching?.uuid ??
+					ctx.knownInputs[0]?.uuid ??
+					asUuid("00000000-0000-4000-8000-000000000000"),
+			);
+		}
+		case "table-column": {
+			const column = ctx.tableScope?.columns.find(
+				(candidate) =>
+					constraint.accepts === "any" ||
+					acceptsType(constraint, candidate.dataType),
+			);
+			if (ctx.tableScope === undefined || column === undefined) {
+				throw new Error(
+					"A data-table column cannot be seeded without an admitted row scope.",
+				);
+			}
+			return tableColumn(ctx.tableScope.tableId, column.id);
 		}
 		case "session-context":
 			// `userid` is the most authored choice ("owned by me"
@@ -1042,6 +1041,13 @@ function ModeMenu({
 				icon: tablerSwitch,
 			});
 		}
+		if (mode === "table-column" || ctx.tableScope !== undefined) {
+			base.push({
+				mode: "table-column",
+				label: termModeLabel("table-column", sourceContext),
+				icon: tablerDatabase,
+			});
+		}
 		base.push({
 			mode: "session-context",
 			label: termModeLabel("session-context", sourceContext),
@@ -1058,7 +1064,13 @@ function ModeMenu({
 			icon: tablerUser,
 		});
 		return base;
-	}, [ctx.formFields.length, ctx.knownInputs, mode, sourceContext]);
+	}, [
+		ctx.formFields.length,
+		ctx.knownInputs,
+		ctx.tableScope,
+		mode,
+		sourceContext,
+	]);
 
 	const activeItem = items.find((i) => i.mode === mode) ?? items[0];
 
@@ -1250,8 +1262,8 @@ function TermBodyInput({
 		case "input":
 			return (
 				<InputRefMenu
-					value={term.name}
-					onChange={(name) => onChange(input(name))}
+					value={term.searchInputUuid}
+					onChange={(uuid) => onChange(input(uuid))}
 					constraint={constraint}
 					invalid={invalid}
 				/>
@@ -1302,13 +1314,140 @@ function TermBodyInput({
 			);
 		}
 		case "table-column":
-			throw dormantTableColumnAuthoringError();
+			return (
+				<TableColumnRefMenu
+					value={term}
+					onChange={onChange}
+					constraint={constraint}
+					invalid={invalid}
+				/>
+			);
 	}
 }
 
+interface TableColumnRefMenuProps {
+	readonly value: Extract<Term, { kind: "table-column" }>;
+	readonly onChange: (next: Term) => void;
+	readonly constraint: SlotConstraint;
+	readonly invalid: boolean;
+}
+
+/** Column picker for the exact lookup row in scope.
+ *
+ * The stored table qualifier is never silently rewritten. If a saved term
+ * belongs to another/deleted table or column, the trigger names the recovery
+ * state and choosing a current column creates a complete identity pair from
+ * the active scope. */
+function TableColumnRefMenu({
+	value,
+	onChange,
+	constraint,
+	invalid,
+}: TableColumnRefMenuProps) {
+	const ctx = usePredicateEditContext();
+	const triggerRef = useRef<HTMLButtonElement>(null);
+	const scope = ctx.tableScope;
+	const current =
+		scope?.tableId === value.tableId
+			? scope.columns.find((column) => column.id === value.columnId)
+			: undefined;
+	const items = (scope?.columns ?? []).filter(
+		(column) =>
+			column.id === value.columnId ||
+			constraint.accepts === "any" ||
+			acceptsType(constraint, column.dataType),
+	);
+	const missing = current === undefined;
+	const label =
+		current === undefined
+			? "A column that is no longer available"
+			: lookupColumnDisplayLabel(current);
+
+	return (
+		<DropdownMenu>
+			<DropdownMenuTrigger
+				ref={triggerRef}
+				aria-label={`Data table column: ${label}${missing ? ", no longer available" : ""}`}
+				aria-invalid={invalid || undefined}
+				render={
+					<Button
+						type="button"
+						variant="outline"
+						size="xl"
+						className={`group h-auto min-h-11 w-full justify-between rounded-lg border bg-nova-deep/50 px-3 py-2 text-sm whitespace-normal dark:bg-nova-deep/50 dark:not-disabled:hover:bg-nova-deep/50 ${
+							invalid || missing
+								? "border-nova-rose/40 text-nova-rose"
+								: "border-white/[0.06] text-nova-text not-disabled:hover:border-nova-violet/30"
+						}`}
+					/>
+				}
+			>
+				<span className="min-w-0 flex-1 text-left">
+					<span className="block break-words">{label}</span>
+					{current !== undefined &&
+					current.label.trim() !== current.wireName ? (
+						<span className="block break-words text-xs text-nova-text-muted">
+							{current.wireName}
+						</span>
+					) : null}
+				</span>
+				<Icon
+					icon={tablerChevronDown}
+					width="14"
+					height="14"
+					className="shrink-0 text-nova-text-muted transition-transform group-data-[popup-open]:rotate-180"
+				/>
+			</DropdownMenuTrigger>
+			<DropdownMenuPortal>
+				<DropdownMenuPositioner
+					side="bottom"
+					align="start"
+					sideOffset={4}
+					anchor={triggerRef}
+					style={{ minWidth: "var(--anchor-width)" }}
+				>
+					<DropdownMenuPopup className="min-w-0">
+						{missing ? (
+							<div
+								className="border-b border-white/[0.06] px-3 py-2.5 text-[13px] leading-5 text-nova-text-secondary"
+								role="presentation"
+							>
+								Choose another column from this table to repair the rule.
+							</div>
+						) : null}
+						{items.map((column) => (
+							<DropdownMenuItem
+								key={column.id}
+								onClick={() => {
+									if (scope === undefined) return;
+									onChange(tableColumn(scope.tableId, column.id));
+								}}
+								className={
+									column.id === value.columnId
+										? "bg-nova-violet/10 text-nova-violet-bright"
+										: ""
+								}
+							>
+								<span className="min-w-0 flex-1">
+									<span className="block break-words">
+										{lookupColumnDisplayLabel(column)}
+									</span>
+									<span className="block break-words text-xs text-nova-text-muted">
+										{column.wireName}
+									</span>
+								</span>
+							</DropdownMenuItem>
+						))}
+					</DropdownMenuPopup>
+				</DropdownMenuPositioner>
+			</DropdownMenuPortal>
+		</DropdownMenu>
+	);
+}
+
 interface InputRefMenuProps {
-	readonly value: string | undefined;
-	readonly onChange: (name: string) => void;
+	readonly value: Uuid | undefined;
+	readonly onChange: (uuid: Uuid) => void;
 	readonly constraint: SlotConstraint;
 	readonly invalid: boolean;
 }
@@ -1343,18 +1482,18 @@ function InputRefMenu({
 		() =>
 			ctx.knownInputs.filter(
 				(i) =>
-					i.name === value ||
+					i.uuid === value ||
 					constraint.accepts === "any" ||
 					acceptsType(constraint, i.data_type ?? "text"),
 			),
 		[ctx.knownInputs, constraint, value],
 	);
-	const current = items.find((i) => i.name === value);
+	const current = items.find((i) => i.uuid === value);
 	const hasSavedValue = value !== undefined && value.trim().length > 0;
 	const currentMissing = hasSavedValue && current === undefined;
 	const currentLabel =
 		current !== undefined
-			? searchInputDisplayLabel(current.name, ctx.knownInputs)
+			? searchInputDisplayLabel(current.uuid, ctx.knownInputs)
 			: hasSavedValue
 				? searchInputDisplayLabel(value, ctx.knownInputs)
 				: undefined;
@@ -1434,17 +1573,17 @@ function InputRefMenu({
 							</div>
 						) : null}
 						{items.map((it) => {
-							const isActive = it.name === value;
+							const isActive = it.uuid === value;
 							return (
 								<DropdownMenuItem
-									key={it.name}
-									onClick={() => onChange(it.name)}
+									key={it.uuid}
+									onClick={() => onChange(it.uuid)}
 									className={
 										isActive ? "bg-nova-violet/10 text-nova-violet-bright" : ""
 									}
 								>
 									<span className="min-w-0 flex-1 break-words">
-										{searchInputDisplayLabel(it.name, ctx.knownInputs)}
+										{searchInputDisplayLabel(it.uuid, ctx.knownInputs)}
 									</span>
 									{it.data_type && (
 										<span className="text-xs text-nova-text-muted">

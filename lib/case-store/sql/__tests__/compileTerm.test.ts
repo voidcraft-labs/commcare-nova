@@ -477,11 +477,14 @@ describe("compileTerm — literal", () => {
 
 describe("compileTerm — input (search-input ref)", () => {
 	it("resolves from the searchInputs binding map", () => {
+		const searchInputUuid = asUuid("3657244b-1bb6-4078-83e7-16dbfeda6cb6");
 		const compiled = compileTerm_(
 			compileTerm(
-				input("region_filter"),
+				input(searchInputUuid),
 				makeCtx({
-					bindings: { searchInputs: new Map([["region_filter", "north"]]) },
+					bindings: {
+						searchInputs: new Map([[searchInputUuid, "north"]]),
+					},
 				}),
 			),
 		);
@@ -493,7 +496,12 @@ describe("compileTerm — input (search-input ref)", () => {
 		// miss is a misuse — the wider compiler must thread the
 		// runtime values through `bindings` before calling the
 		// term compiler.
-		expect(() => compileTerm(input("missing"), makeCtx())).toThrow(/missing/i);
+		expect(() =>
+			compileTerm(
+				input(asUuid("ff810956-b1be-454e-8fd6-f4b142d3c948")),
+				makeCtx(),
+			),
+		).toThrow(/missing/i);
 	});
 });
 

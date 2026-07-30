@@ -71,7 +71,7 @@ describe("seedCustomCondition", () => {
 				{ mode, via },
 			);
 			const propertyRef = prop(CASE_TYPE, "case_name", via);
-			const inputRef = input("query");
+			const inputRef = input(row.uuid);
 			const expectedClause =
 				mode.kind === "exact"
 					? eq(propertyRef, inputRef)
@@ -103,8 +103,8 @@ describe("seedCustomCondition", () => {
 		// exactly what the seed produces.
 		expect(seeded).toEqual(
 			whenInput(
-				input("case_name"),
-				eq(prop(CASE_TYPE, "case_name"), input("case_name")),
+				input(row.uuid),
+				eq(prop(CASE_TYPE, "case_name"), input(row.uuid)),
 			),
 		);
 	});
@@ -184,8 +184,8 @@ describe("seedCustomCondition", () => {
 		const seeded = seedCustomCondition(row, "patient");
 		expect(seeded).toEqual(
 			whenInput(
-				input("region"),
-				eq(prop("patient", "region", via), input("region")),
+				input(row.uuid),
+				eq(prop("patient", "region", via), input(row.uuid)),
 			),
 		);
 	});
@@ -308,8 +308,18 @@ describe("searchInputDecls", () => {
 		);
 
 		expect(searchInputDecls([date, range])).toEqual([
-			{ name: "visit_date", label: "Visit date", data_type: "date" },
-			{ name: "visit_range", label: "Visit range", data_type: "text" },
+			{
+				uuid: date.uuid,
+				name: "visit_date",
+				label: "Visit date",
+				data_type: "date",
+			},
+			{
+				uuid: range.uuid,
+				name: "visit_range",
+				label: "Visit range",
+				data_type: "text",
+			},
 		]);
 	});
 });
@@ -369,14 +379,17 @@ describe("recoverAnchoredProperty", () => {
 	it("recovers the property from a bare left-anchored comparison", () => {
 		// Hand-authored (or chat/MCP) conditions without an envelope still
 		// recover the same way.
-		const bare = eq(prop(CASE_TYPE, "status"), input("status"));
+		const bare = eq(
+			prop(CASE_TYPE, "status"),
+			input(asUuid("0ad2ff12-c475-4139-840a-d6acc8e846a4")),
+		);
 		expect(recoverAnchoredProperty(bare)).toBe("status");
 	});
 
 	it("does not recover when the left side walks to another case", () => {
 		const crossWalk = eq(
 			prop("patient", "status", ancestorPath(relationStep("parent"))),
-			input("status"),
+			input(asUuid("0ad2ff12-c475-4139-840a-d6acc8e846a4")),
 		);
 		expect(recoverAnchoredProperty(crossWalk)).toBeUndefined();
 	});

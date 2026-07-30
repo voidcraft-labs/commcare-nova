@@ -1,3 +1,4 @@
+import { asUuid } from "@/lib/domain";
 /**
  * Schema-compilation contract for the case-search-config SA tools.
  *
@@ -90,7 +91,7 @@ describe("case-search-config tool schemas — 8-optional ceiling contract", () =
 
 	it("setCaseSearchAdvanced: parses a representative payload (slot supplied)", () => {
 		const result = setCaseSearchAdvancedTool.inputSchema.safeParse({
-			moduleIndex: 0,
+			moduleUuid: "4383fe29-27a8-4295-8b89-5b7187fd9f08",
 			excludedOwnerIds: {
 				kind: "term",
 				term: { kind: "literal", value: "owner-a owner-b" },
@@ -101,7 +102,7 @@ describe("case-search-config tool schemas — 8-optional ceiling contract", () =
 
 	it("setCaseSearchAdvanced: parses with the slot cleared via null", () => {
 		const result = setCaseSearchAdvancedTool.inputSchema.safeParse({
-			moduleIndex: 0,
+			moduleUuid: "4383fe29-27a8-4295-8b89-5b7187fd9f08",
 			excludedOwnerIds: null,
 		});
 		expect(result.success).toBe(true);
@@ -124,7 +125,7 @@ describe("case-search-config tool schemas — 8-optional ceiling contract", () =
 		"setCaseSearchAdvanced: rejects a $name read before tool execution",
 		({ expression }) => {
 			const result = setCaseSearchAdvancedTool.inputSchema.safeParse({
-				moduleIndex: 0,
+				moduleUuid: "4383fe29-27a8-4295-8b89-5b7187fd9f08",
 				excludedOwnerIds: expression,
 			});
 			expect(result.success).toBe(false);
@@ -137,11 +138,11 @@ describe("case-search-config tool schemas — 8-optional ceiling contract", () =
 
 	it("setCaseSearchAdvanced: accepts pure calculations over session and Search values", () => {
 		const result = setCaseSearchAdvancedTool.inputSchema.safeParse({
-			moduleIndex: 0,
+			moduleUuid: "4383fe29-27a8-4295-8b89-5b7187fd9f08",
 			excludedOwnerIds: concat(
 				term(sessionContext("userid")),
 				term(literal(" ")),
-				term(input("owner_ids")),
+				term(input(asUuid("4383fe29-27a8-4295-8b89-5b7187fd9f08"))),
 			),
 		});
 		expect(result.success).toBe(true);
@@ -149,7 +150,7 @@ describe("case-search-config tool schemas — 8-optional ceiling contract", () =
 
 	it("setCaseSearchDisplay: parses a representative payload (every slot supplied)", () => {
 		const result = setCaseSearchDisplayTool.inputSchema.safeParse({
-			moduleIndex: 0,
+			moduleUuid: "4383fe29-27a8-4295-8b89-5b7187fd9f08",
 			searchScreenTitle: "Find a patient",
 			searchScreenSubtitle: "Type to filter",
 			searchButtonLabel: "Search",
@@ -160,7 +161,7 @@ describe("case-search-config tool schemas — 8-optional ceiling contract", () =
 
 	it("setCaseSearchDisplay: parses with every slot cleared via null", () => {
 		const result = setCaseSearchDisplayTool.inputSchema.safeParse({
-			moduleIndex: 0,
+			moduleUuid: "4383fe29-27a8-4295-8b89-5b7187fd9f08",
 			searchScreenTitle: null,
 			searchScreenSubtitle: null,
 			searchButtonLabel: null,
@@ -175,7 +176,7 @@ describe("case-search-config tool schemas — 8-optional ceiling contract", () =
 		// extras. Pins the regression class for stale or invented slot
 		// names handed by the SA.
 		const result = setCaseSearchDisplayTool.inputSchema.safeParse({
-			moduleIndex: 0,
+			moduleUuid: "4383fe29-27a8-4295-8b89-5b7187fd9f08",
 			searchScreenTitle: null,
 			searchScreenSubtitle: null,
 			searchButtonLabel: null,

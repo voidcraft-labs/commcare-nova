@@ -24,12 +24,9 @@ const MIN_EDIT_ZONE = 0.15;
  * slices of `BlueprintDoc` (moduleOrder / formOrder / fieldOrder) so
  * callers can pass a narrowed view without cloning the whole doc.
  *
- * `moduleOrder` and each `formOrder` list must be in DISPLAY order
- * (`sort-by-(order, uuid)`): the scope's `moduleIndex` / `formIndex` are
- * that same sorted position, and the cumulative field offsets this builds
- * must match the canvas's rendered layout. `fieldOrder` may stay in any
- * order — its only use is a total field COUNT per form, which is
- * position-independent.
+ * `moduleOrder` and each `formOrder` list must be in display order. Scope
+ * identity is UUID-backed; these arrays determine only where that stable
+ * identity currently renders. `fieldOrder` is the nested display sequence.
  */
 export interface EditFocusData {
 	moduleOrder: readonly string[];
@@ -54,65 +51,71 @@ export function computeEditFocus(
 ): EditFocus | null {
 	if (data.moduleOrder.length === 0 || !scope) return null;
 
-	/* Count total fields across all forms and build a positional map so
-	 * we can convert index-based scope coordinates into a 0-1 range. */
+	/* Count total fields across all forms and build the current display map for
+	 * the UUID-backed scope. */
 	let total = 0;
 	const formPositions: Array<{
-		moduleIndex: number;
-		formIndex: number;
+		moduleUuid: string;
+		formUuid: string;
 		start: number;
-		count: number;
+		fieldUuids: readonly string[];
 	}> = [];
 
 	for (let mi = 0; mi < data.moduleOrder.length; mi++) {
-		const moduleId = data.moduleOrder[mi];
-		const formIds = data.formOrder[moduleId] ?? [];
+		const moduleUuid = data.moduleOrder[mi];
+		const formIds = data.formOrder[moduleUuid] ?? [];
 		for (let fi = 0; fi < formIds.length; fi++) {
-			const formId = formIds[fi];
-			const count = countFieldsDeep(data.fieldOrder, formId);
+			const formUuid = formIds[fi];
+			const fieldUuids = fieldsDeep(data.fieldOrder, formUuid);
 			formPositions.push({
-				moduleIndex: mi,
-				formIndex: fi,
+				moduleUuid,
+				formUuid,
 				start: total,
-				count,
+				fieldUuids,
 			});
-			total += count;
+			total += fieldUuids.length;
 		}
 	}
 
 	if (total === 0) return null;
 
 	/* Module-level scope — span all of the module's forms. */
-	if (scope.formIndex == null) {
+	if (scope.formUuid == null) {
 		const modForms = formPositions.filter(
-			(f) => f.moduleIndex === scope.moduleIndex,
+			(f) => f.moduleUuid === scope.moduleUuid,
 		);
 		if (modForms.length === 0) return null;
 		const start = modForms[0].start / total;
 		const end =
 			(modForms[modForms.length - 1].start +
-				modForms[modForms.length - 1].count) /
+				modForms[modForms.length - 1].fieldUuids.length) /
 			total;
 		return clampEditFocus(start, end);
 	}
 
 	/* Form-level or field-level scope. */
 	const form = formPositions.find(
-		(f) =>
-			f.moduleIndex === scope.moduleIndex && f.formIndex === scope.formIndex,
+		(f) => f.moduleUuid === scope.moduleUuid && f.formUuid === scope.formUuid,
 	);
-	if (!form || form.count === 0) return null;
+	if (!form || form.fieldUuids.length === 0) return null;
 
 	/* Field-level — center a zone around the specific field. */
-	if (scope.fieldIndex != null) {
-		const fieldPos =
-			(form.start + Math.min(scope.fieldIndex, form.count - 1)) / total;
-		const halfZone = Math.max(MIN_EDIT_ZONE / 2, (form.count / total) * 0.3);
+	if (scope.fieldUuid != null) {
+		const fieldIndex = form.fieldUuids.indexOf(scope.fieldUuid);
+		if (fieldIndex < 0) return null;
+		const fieldPos = (form.start + fieldIndex) / total;
+		const halfZone = Math.max(
+			MIN_EDIT_ZONE / 2,
+			(form.fieldUuids.length / total) * 0.3,
+		);
 		return clampEditFocus(fieldPos - halfZone, fieldPos + halfZone);
 	}
 
 	/* Form-level — span the form's full field range. */
-	return clampEditFocus(form.start / total, (form.start + form.count) / total);
+	return clampEditFocus(
+		form.start / total,
+		(form.start + form.fieldUuids.length) / total,
+	);
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────
@@ -140,18 +143,18 @@ function clampEditFocus(start: number, end: number): EditFocus {
 }
 
 /**
- * Count all fields reachable from a parent in the fieldOrder tree.
- * Recursively counts children of groups and repeats.
+ * Flatten all fields reachable from a parent in the fieldOrder tree, preserving
+ * the current depth-first display order.
  */
-function countFieldsDeep(
+function fieldsDeep(
 	fieldOrder: Readonly<Record<string, readonly string[]>>,
 	parentId: string,
-): number {
+): readonly string[] {
 	const childIds = fieldOrder[parentId];
-	if (!childIds) return 0;
-	let count = childIds.length;
+	if (!childIds) return [];
+	const result: string[] = [];
 	for (const uuid of childIds) {
-		count += countFieldsDeep(fieldOrder, uuid);
+		result.push(uuid, ...fieldsDeep(fieldOrder, uuid));
 	}
-	return count;
+	return result;
 }

@@ -253,8 +253,11 @@ describe("emitRemoteRequest — <instance> declarations", () => {
 			"City",
 			"text",
 			whenInput(
-				input("city_q"),
-				eq(prop("patient", "city"), term({ kind: "input", name: "city_q" })),
+				input(asUuid("00000000-0000-4000-8000-00000000aaaa")),
+				eq(
+					prop("patient", "city"),
+					input(asUuid("00000000-0000-4000-8000-00000000aaaa")),
+				),
 			),
 		);
 		const { xml } = emitRemoteRequest({
@@ -321,7 +324,7 @@ describe("emitRemoteRequest — <instance> declarations", () => {
 				"text",
 				"name",
 			),
-			default: term({ kind: "input", name: "primary_q" }),
+			default: term(input(asUuid("00000000-0000-4000-8000-00000000cccc"))),
 		};
 		const { xml } = emitRemoteRequest({
 			module: makeModule({

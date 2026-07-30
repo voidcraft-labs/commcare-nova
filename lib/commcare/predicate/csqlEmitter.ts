@@ -125,7 +125,7 @@ import {
 	type RuntimeCsqlRejection,
 } from "./csqlSegment";
 import {
-	collectGeopointCenterInputNames,
+	collectGeopointCenterInputUuids,
 	isValidStaticGeopointCenter,
 	normalizeOnDeviceGeopoint,
 	normalizeStaticGeopoint,
@@ -135,7 +135,7 @@ import {
 	classifySubcaseCountBound,
 	invalidNonnegativeWholeNumberXPath,
 } from "./runtimeCsqlNumericSafety";
-import { collectRuntimeCsqlStringExpressionInputNames } from "./runtimeCsqlQuoteSafety";
+import { collectRuntimeCsqlStringExpressionInputUuids } from "./runtimeCsqlQuoteSafety";
 import { formatNumeric, quoteLiteral } from "./stringQuoting";
 import {
 	CSQL_UNREPRESENTABLE_RUNTIME_STRING,
@@ -484,7 +484,12 @@ function emitWhenInputPresentSegments(
 	p: Extract<Predicate, { kind: "when-input-present" }>,
 	typeContext?: TypeContext,
 ): CsqlSegment[] {
-	const triggerXPath = emitSearchInputXPath(p.input);
+	const triggerXPath = emitSearchInputXPath(
+		p.input,
+		new Map(
+			(typeContext?.knownInputs ?? []).map((input) => [input.uuid, input.name]),
+		),
+	);
 	const innerSegments = emitPredicateSegments(p.clause, 0, typeContext);
 	const inner = buildConcatExpression(innerSegments);
 	const conditionalXPath = `if(count(${triggerXPath}), ${inner.query}, 'match-all()')`;
@@ -530,7 +535,7 @@ function emitComparisonSegments(
 		typeContext,
 	);
 	const rightSegs = isSubcaseCountAnchor(p.left)
-		? emitSubcaseCountBoundSegments(p.right)
+		? emitSubcaseCountBoundSegments(p.right, typeContext)
 		: emitOperandSegments(p.right, "value", typeContext);
 	const op = COMPARISON_OPS[p.kind];
 	return [...leftSegs, { kind: "constant", text: ` ${op} ` }, ...rightSegs];
@@ -548,24 +553,31 @@ function isSubcaseCountAnchor(expression: ValueExpression): boolean {
  */
 function emitSubcaseCountBoundSegments(
 	expression: ValueExpression,
+	typeContext?: TypeContext,
 ): CsqlSegment[] {
 	const classification = classifySubcaseCountBound(expression);
 	if (classification.kind === "static-valid") {
 		return [{ kind: "constant", text: formatNumeric(classification.value) }];
 	}
 	if (classification.kind === "runtime-input") {
+		const inputName = resolveSearchInputNames(
+			[classification.inputUuid],
+			typeContext,
+		)[0] as string;
+		const inputXPath = emitSearchInputXPath(
+			{ kind: "input", searchInputUuid: classification.inputUuid },
+			new Map([[classification.inputUuid, inputName]]),
+		);
 		return [
 			{
 				kind: "runtime",
 				// CSQL parses a leading minus as a UnaryExpression, even for
 				// numeric negative zero. Canonicalize every zero spelling to the
 				// bare token `0`; all other validated integer spellings pass through.
-				xpath: `if(number(${classification.inputXPath}) = 0, 0, ${classification.inputXPath})`,
-				rejectWhen: invalidNonnegativeWholeNumberXPath(
-					classification.inputXPath,
-				),
+				xpath: `if(number(${inputXPath}) = 0, 0, ${inputXPath})`,
+				rejectWhen: invalidNonnegativeWholeNumberXPath(inputXPath),
 				rejectionKind: "nonnegative-whole-number",
-				rejectionInputNames: [classification.inputName],
+				rejectionInputNames: [inputName],
 			},
 		];
 	}
@@ -695,9 +707,18 @@ function inlineAsRuntimeOperand(
 	expr: ValueExpression,
 	typeContext?: TypeContext,
 ): CsqlSegment[] {
-	const xpath = emitOnDeviceExpression(expr, undefined, typeContext ?? {});
+	const xpath = emitOnDeviceExpression(
+		expr,
+		undefined,
+		typeContext ?? {},
+		undefined,
+		{ searchInputNames: currentSearchInputNames(typeContext) },
+	);
 	return quoteRuntimeCsqlValue(xpath, "double", [
-		...collectRuntimeCsqlStringExpressionInputNames(expr),
+		...resolveSearchInputNames(
+			collectRuntimeCsqlStringExpressionInputUuids(expr),
+			typeContext,
+		),
 	]);
 }
 
@@ -1080,9 +1101,14 @@ function emitGeopointCenterSegments(
 		center,
 		undefined,
 		typeContext ?? {},
+		undefined,
+		{ searchInputNames: currentSearchInputNames(typeContext) },
 	);
 	const normalized = normalizeOnDeviceGeopoint(rawCenter);
-	const inputNames = [...collectGeopointCenterInputNames(center)].sort();
+	const inputNames = resolveSearchInputNames(
+		collectGeopointCenterInputUuids(center),
+		typeContext,
+	);
 	return [
 		{
 			kind: "runtime",
@@ -1094,6 +1120,35 @@ function emitGeopointCenterSegments(
 			rejectionInputNames: inputNames,
 		},
 	];
+}
+
+function currentSearchInputNames(
+	typeContext?: TypeContext,
+): ReadonlyMap<
+	NonNullable<TypeContext["knownInputs"]>[number]["uuid"],
+	string
+> {
+	return new Map(
+		(typeContext?.knownInputs ?? []).map((input) => [input.uuid, input.name]),
+	);
+}
+
+function resolveSearchInputNames(
+	inputUuids: Iterable<NonNullable<TypeContext["knownInputs"]>[number]["uuid"]>,
+	typeContext?: TypeContext,
+): string[] {
+	const names = currentSearchInputNames(typeContext);
+	return [...inputUuids]
+		.map((inputUuid) => {
+			const name = names.get(inputUuid);
+			if (name === undefined) {
+				throw new Error(
+					`csqlEmitter: search input '${inputUuid}' has no current saved-name binding.`,
+				);
+			}
+			return name;
+		})
+		.sort();
 }
 
 /**

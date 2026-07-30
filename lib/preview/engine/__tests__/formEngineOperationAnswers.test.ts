@@ -10,6 +10,7 @@ import type {
 	FieldKind,
 	Form,
 	FormType,
+	SelectOptionsSource,
 	Uuid,
 } from "@/lib/domain";
 import { asUuid } from "@/lib/domain";
@@ -17,13 +18,22 @@ import { FormEngine, type FormEngineInput } from "../formEngine";
 
 const ENTRY_KEY = "11111111-1111-4111-8111-111111111111";
 
-interface DField {
+interface DFieldBase {
 	id: string;
-	kind: FieldKind;
 	label?: string;
-	options?: Array<{ value: string; label: string }>;
 	children?: DField[];
 }
+
+type DField = DFieldBase &
+	(
+		| {
+				kind: "single_select" | "multi_select";
+				optionsSource: SelectOptionsSource;
+		  }
+		| {
+				kind: Exclude<FieldKind, "single_select" | "multi_select">;
+		  }
+	);
 
 function dTree(
 	fields: DField[],
@@ -88,10 +98,21 @@ describe("computeOperationAnswers", () => {
 						id: "symptoms",
 						kind: "multi_select",
 						label: "Symptoms",
-						options: [
-							{ value: "fever", label: "Fever" },
-							{ value: "cough", label: "Cough" },
-						],
+						optionsSource: {
+							kind: "inline",
+							options: [
+								{
+									uuid: asUuid("f113785e-0b1a-40c4-ac1f-d0815c48ca6c"),
+									value: "fever",
+									label: "Fever",
+								},
+								{
+									uuid: asUuid("70466268-b2ff-4b74-af43-481f12a2ea2b"),
+									value: "cough",
+									label: "Cough",
+								},
+							],
+						},
 					},
 					{ id: "note", kind: "label", label: "Just a label" },
 				],

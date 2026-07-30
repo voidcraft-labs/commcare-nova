@@ -58,12 +58,23 @@ describe("preview case-search expression evaluation", () => {
 	});
 
 	it("binds submitted search inputs before evaluating a dependent expression", () => {
+		const clinicInput = simpleSearchInputDef(
+			asUuid("8bdf036d-7e96-4d1b-8a7b-ac3b05f17a48"),
+			"clinic",
+			"Clinic",
+			"text",
+			"clinic",
+		);
 		const values: SearchInputValues = new Map([["clinic", "Kolda"]]);
 		expect(
 			evaluatePreviewSearchExpression(
-				concat(term(literal("owner-")), term(input("clinic"))),
+				concat(
+					term(literal("owner-")),
+					term(input(asUuid("8bdf036d-7e96-4d1b-8a7b-ac3b05f17a48"))),
+				),
 				SESSION,
 				values,
+				[clinicInput],
 			),
 		).toBe("owner-Kolda");
 	});
@@ -84,7 +95,7 @@ describe("preview case-search expression evaluation", () => {
 
 	it("keeps a date widget typed while evaluating dependent date arithmetic", () => {
 		const visitDay = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000104"),
+			asUuid("d471bd84-37f8-4afb-8780-6401e28612aa"),
 			"visit_day",
 			"Visit day",
 			"date",
@@ -92,7 +103,11 @@ describe("preview case-search expression evaluation", () => {
 		);
 		expect(
 			evaluatePreviewSearchExpression(
-				dateAdd(term(input("visit_day")), "days", term(literal(1))),
+				dateAdd(
+					term(input(asUuid("d471bd84-37f8-4afb-8780-6401e28612aa"))),
+					"days",
+					term(literal(1)),
+				),
 				SESSION,
 				new Map([["visit_day", "2026-07-17"]]),
 				[visitDay],
@@ -102,7 +117,7 @@ describe("preview case-search expression evaluation", () => {
 
 	it("evaluates search predicates against live inputs, session values, and an empty preselection case context", () => {
 		const clinicInput = simpleSearchInputDef(
-			asUuid("00000000-0000-4000-8000-000000000103"),
+			asUuid("8bdf036d-7e96-4d1b-8a7b-ac3b05f17a48"),
 			"clinic",
 			"Clinic",
 			"text",
@@ -112,7 +127,10 @@ describe("preview case-search expression evaluation", () => {
 
 		expect(
 			evaluatePreviewSearchPredicate(
-				eq(input("clinic"), literal("Kolda")),
+				eq(
+					input(asUuid("8bdf036d-7e96-4d1b-8a7b-ac3b05f17a48")),
+					literal("Kolda"),
+				),
 				[clinicInput],
 				SESSION,
 				values,

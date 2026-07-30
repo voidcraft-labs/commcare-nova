@@ -70,7 +70,7 @@ describe("updateSearchInput", () => {
 
 		const result = await updateSearchInputTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				searchInputUuid: TARGET_UUID,
 				searchInput: {
 					kind: "advanced",
@@ -97,7 +97,7 @@ describe("updateSearchInput", () => {
 		const doc = fixtureWithInputs();
 		const result = await updateSearchInputTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				searchInputUuid: TARGET_UUID,
 				searchInput: {
 					kind: "advanced",
@@ -123,7 +123,7 @@ describe("updateSearchInput", () => {
 
 		const result = await updateSearchInputTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				searchInputUuid: TARGET_UUID,
 				searchInput: {
 					kind: "simple",
@@ -142,12 +142,12 @@ describe("updateSearchInput", () => {
 		expect(inputs[1]).toEqual(sibling);
 	});
 
-	it("returns an Elm-style error on out-of-range moduleIndex", async () => {
+	it("returns an Elm-style error for an unknown module UUID", async () => {
 		const { ctx } = makeCaseListFixture();
 		const doc = fixtureWithInputs();
 		const result = await updateSearchInputTool.execute(
 			{
-				moduleIndex: 99,
+				moduleUuid: asUuid("ffffffff-ffff-4fff-8fff-ffffffffffff"),
 				searchInputUuid: TARGET_UUID,
 				searchInput: {
 					kind: "simple",
@@ -166,7 +166,7 @@ describe("updateSearchInput", () => {
 			throw new Error("expected error result");
 		}
 		expect(result.result.error).toContain("Tried to update");
-		expect(result.result.error).toContain("module index 99");
+		expect(result.result.error).toContain("No module with that uuid");
 	});
 
 	it("returns an Elm-style error when the search-input uuid is unknown", async () => {
@@ -175,7 +175,7 @@ describe("updateSearchInput", () => {
 		const unknown = asUuid("dddddddd-dddd-dddd-dddd-dddddddddddd");
 		const result = await updateSearchInputTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				searchInputUuid: unknown,
 				searchInput: {
 					kind: "simple",

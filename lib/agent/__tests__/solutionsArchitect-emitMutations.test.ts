@@ -411,13 +411,13 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		const sa = makeSa(ctx, makeFixtureDoc(), false);
 
 		await runTool(sa, "addCaseListColumns", {
-			moduleIndex: 0,
+			moduleUuid: MOD_A,
 			columns: [{ kind: "plain", field: "case_name", header: "Name" }],
 		});
 
 		const muts = mutationEvents(writer);
 		expect(muts).toHaveLength(1);
-		expect(muts[0].stage).toBe("module:0:caseList:column:add");
+		expect(muts[0].stage).toBe(`module:${MOD_A}:caseList:column:add`);
 		expectNoLegacyEvents(writer);
 	});
 
@@ -425,8 +425,8 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		const sa = makeSa(ctx, makeFixtureDoc(), true);
 
 		await runTool(sa, "addFields", {
-			moduleIndex: 0,
-			formIndex: 0,
+			moduleUuid: MOD_A,
+			formUuid: FORM_A,
 			fields: [
 				{
 					id: "dob",
@@ -450,7 +450,7 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		// Exactly one data-mutations emission for the batch. `data-phase`
 		// also fires ahead of it — filter through `mutationEvents` already.
 		expect(muts).toHaveLength(1);
-		expect(muts[0].stage).toBe("form:0-0");
+		expect(muts[0].stage).toBe(`form:${FORM_A}`);
 		expect(muts[0].mutations.every((m) => m.kind === "addField")).toBe(true);
 		expectNoLegacyEvents(writer);
 	});
@@ -472,9 +472,9 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		const sa = makeSa(ctx, doc, true);
 
 		await runTool(sa, "editField", {
-			moduleIndex: 0,
-			formIndex: 0,
-			fieldId: "village",
+			moduleUuid: MOD_A,
+			formUuid: FORM_A,
+			fieldUuid: VILLAGE,
 			updates: {
 				id: "hamlet", // triggers the rename batch
 				label: "Hamlet", // triggers the second batch
@@ -499,13 +499,13 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		const sa = makeSa(ctx, makeFixtureDoc(), true);
 
 		await runTool(sa, "updateModule", {
-			moduleIndex: 0,
+			moduleUuid: MOD_A,
 			name: "Patients Renamed",
 		});
 
 		const muts = mutationEvents(writer);
 		expect(muts).toHaveLength(1);
-		expect(muts[0].stage).toBe("module:0");
+		expect(muts[0].stage).toBe(`module:${MOD_A}`);
 		expectNoLegacyEvents(writer);
 	});
 
@@ -513,7 +513,7 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		const sa = makeSa(ctx, makeFixtureDoc(), true);
 
 		await runTool(sa, "createForm", {
-			moduleIndex: 0,
+			moduleUuid: MOD_A,
 			name: "Follow-up Visit",
 			type: "followup",
 			// Atomic creation: a form lands together with its fields.
@@ -522,7 +522,7 @@ describe("solutionsArchitect — emitMutations migration", () => {
 
 		const muts = mutationEvents(writer);
 		expect(muts).toHaveLength(1);
-		expect(muts[0].stage).toBe("module:0");
+		expect(muts[0].stage).toBe(`module:${MOD_A}`);
 		expect(muts[0].mutations.some((m) => m.kind === "addForm")).toBe(true);
 		expect(muts[0].mutations.some((m) => m.kind === "addField")).toBe(true);
 		expectNoLegacyEvents(writer);
@@ -531,11 +531,11 @@ describe("solutionsArchitect — emitMutations migration", () => {
 	it("removeModule emits data-mutations (not data-blueprint-updated)", async () => {
 		const sa = makeSa(ctx, makeFixtureDoc(), true);
 
-		await runTool(sa, "removeModule", { moduleIndex: 1 });
+		await runTool(sa, "removeModule", { moduleUuid: MOD_B });
 
 		const muts = mutationEvents(writer);
 		expect(muts).toHaveLength(1);
-		expect(muts[0].stage).toBe("module:remove:1");
+		expect(muts[0].stage).toBe(`module:remove:${MOD_B}`);
 		expect(muts[0].mutations.some((m) => m.kind === "removeModule")).toBe(true);
 		expectNoLegacyEvents(writer);
 	});
@@ -546,7 +546,20 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		// event across the whole sweep. If a future change re-introduces
 		// a legacy emission, this test fails regardless of which tool it
 		// sneaked into.
-		const sa = makeSa(ctx, makeFixtureDoc(), false);
+		const SAFETY_FIELD = asUuid("55555555-5555-5555-5555-555555555555");
+		const safetyDoc = makeFixtureDoc();
+		safetyDoc.fields[SAFETY_FIELD] = {
+			uuid: SAFETY_FIELD,
+			id: "village",
+			kind: "text",
+			label: "Village",
+		} as Field;
+		safetyDoc.fieldOrder[FORM_A] = [
+			...safetyDoc.fieldOrder[FORM_A],
+			SAFETY_FIELD,
+		];
+		safetyDoc.fieldParent[SAFETY_FIELD] = FORM_A;
+		const sa = makeSa(ctx, safetyDoc, false);
 
 		// The planning tool (build mode only) — pure, but walked so a
 		// future regression that makes it emit shows up here.
@@ -561,23 +574,23 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		// replaced the deleted `addModule` SA tool. Walking it here keeps
 		// the safety-net's coverage of column-mutation events.
 		await runTool(sa, "addCaseListColumns", {
-			moduleIndex: 0,
+			moduleUuid: MOD_A,
 			columns: [{ kind: "plain", field: "case_name", header: "Name" }],
 		});
 
 		// Shared tools: read + mutation + structural.
 		await runTool(sa, "searchBlueprint", { query: "patient" });
-		await runTool(sa, "getModule", { moduleIndex: 0 });
-		await runTool(sa, "getForm", { moduleIndex: 0, formIndex: 0 });
+		await runTool(sa, "getModule", { moduleUuid: MOD_A });
+		await runTool(sa, "getForm", { moduleUuid: MOD_A, formUuid: FORM_A });
 		await runTool(sa, "getField", {
-			moduleIndex: 0,
-			formIndex: 0,
-			fieldId: "case_name",
+			moduleUuid: MOD_A,
+			formUuid: FORM_A,
+			fieldUuid: FIELD_A,
 		});
 
 		await runTool(sa, "addFields", {
-			moduleIndex: 0,
-			formIndex: 0,
+			moduleUuid: MOD_A,
+			formUuid: FORM_A,
 			fields: [
 				{
 					id: "dob",
@@ -587,33 +600,45 @@ describe("solutionsArchitect — emitMutations migration", () => {
 			],
 		});
 		await runTool(sa, "editField", {
-			moduleIndex: 0,
-			formIndex: 0,
-			fieldId: "case_name",
+			moduleUuid: MOD_A,
+			formUuid: FORM_A,
+			fieldUuid: SAFETY_FIELD,
 			updates: { label: "New label" },
 		});
 		await runTool(sa, "removeField", {
-			moduleIndex: 0,
-			formIndex: 0,
-			fieldId: "dob",
+			moduleUuid: MOD_A,
+			formUuid: FORM_A,
+			fieldUuid: SAFETY_FIELD,
 		});
 		await runTool(sa, "updateModule", {
-			moduleIndex: 0,
+			moduleUuid: MOD_A,
 			name: "Patients 2",
 		});
 		await runTool(sa, "updateForm", {
-			moduleIndex: 0,
-			formIndex: 0,
+			moduleUuid: MOD_A,
+			formUuid: FORM_A,
 			name: "Enroll Patient 2",
 		});
-		await runTool(sa, "createForm", {
-			moduleIndex: 0,
+		const createFormResult = (await runTool(sa, "createForm", {
+			moduleUuid: MOD_A,
 			name: "Follow-up",
 			type: "followup",
-		});
-		await runTool(sa, "removeForm", { moduleIndex: 0, formIndex: 1 });
-		await runTool(sa, "createModule", { name: "New Module" });
-		await runTool(sa, "removeModule", { moduleIndex: 2 });
+			fields: [{ kind: "text", id: "note", label: "Note" }],
+		})) as { uuid?: string };
+		if (createFormResult.uuid !== undefined) {
+			await runTool(sa, "removeForm", {
+				moduleUuid: MOD_A,
+				formUuid: createFormResult.uuid,
+			});
+		}
+		const createModuleResult = (await runTool(sa, "createModule", {
+			name: "New Module",
+		})) as { uuid?: string };
+		if (createModuleResult.uuid !== undefined) {
+			await runTool(sa, "removeModule", {
+				moduleUuid: createModuleResult.uuid,
+			});
+		}
 
 		// The guardrail: no tool handler wrote a forbidden event.
 		expectNoLegacyEvents(writer);
@@ -763,8 +788,8 @@ describe("solutionsArchitect — wrapMutating conflict reload / terminal reauth"
 		});
 
 		const result = (await runTool(sa, "addFields", {
-			moduleIndex: 0,
-			formIndex: 0,
+			moduleUuid: MOD_A,
+			formUuid: FORM_A,
 			fields: [{ id: "dob", kind: "date", label: "Date of birth" }],
 		})) as { error?: string };
 
@@ -780,8 +805,8 @@ describe("solutionsArchitect — wrapMutating conflict reload / terminal reauth"
 
 		// The NEXT read builds on the reloaded doc — the peer's field is visible.
 		const formResult = (await runTool(sa, "getForm", {
-			moduleIndex: 0,
-			formIndex: 0,
+			moduleUuid: MOD_A,
+			formUuid: FORM_A,
 		})) as { form: { fields: Array<{ id: string }> } };
 		expect(formResult.form.fields.map((f) => f.id).sort()).toEqual([
 			"case_name",
@@ -801,11 +826,11 @@ describe("solutionsArchitect — wrapMutating conflict reload / terminal reauth"
 
 		const settled = await Promise.allSettled([
 			runTool(sa, "addFields", {
-				moduleIndex: 0,
-				formIndex: 0,
+				moduleUuid: MOD_A,
+				formUuid: FORM_A,
 				fields: [{ id: "dob", kind: "date", label: "Date of birth" }],
 			}),
-			runTool(sa, "getForm", { moduleIndex: 0, formIndex: 0 }),
+			runTool(sa, "getForm", { moduleUuid: MOD_A, formUuid: FORM_A }),
 		]);
 		const thrown =
 			settled[0].status === "rejected" ? settled[0].reason : undefined;
@@ -842,8 +867,8 @@ describe("solutionsArchitect — wrapMutating conflict reload / terminal reauth"
 		});
 
 		const thrown = await runTool(sa, "addFields", {
-			moduleIndex: 0,
-			formIndex: 0,
+			moduleUuid: MOD_A,
+			formUuid: FORM_A,
 			fields: [{ id: "dob", kind: "date", label: "Date of birth" }],
 		}).catch((error: unknown) => error);
 
@@ -866,8 +891,8 @@ describe("solutionsArchitect — wrapMutating conflict reload / terminal reauth"
 
 		await expect(
 			runTool(sa, "addFields", {
-				moduleIndex: 0,
-				formIndex: 0,
+				moduleUuid: MOD_A,
+				formUuid: FORM_A,
 				fields: [{ id: "dob", kind: "date", label: "Date of birth" }],
 			}),
 		).rejects.toBe(databaseFault);
@@ -878,8 +903,8 @@ describe("solutionsArchitect — wrapMutating conflict reload / terminal reauth"
 		// must still see the original closure doc — never a partially adopted
 		// reload.
 		const formResult = (await runTool(sa, "getForm", {
-			moduleIndex: 0,
-			formIndex: 0,
+			moduleUuid: MOD_A,
+			formUuid: FORM_A,
 		})) as { form: { fields: Array<{ id: string }> } };
 		expect(formResult.form.fields.map((field) => field.id)).toEqual([
 			"case_name",
@@ -897,8 +922,8 @@ describe("solutionsArchitect — wrapMutating conflict reload / terminal reauth"
 
 		await expect(
 			runTool(sa, "addFields", {
-				moduleIndex: 0,
-				formIndex: 0,
+				moduleUuid: MOD_A,
+				formUuid: FORM_A,
 				fields: [{ id: "dob", kind: "date", label: "Date of birth" }],
 			}),
 		).rejects.toBeInstanceOf(CommitReauthError);
@@ -916,8 +941,8 @@ describe("solutionsArchitect — wrapMutating conflict reload / terminal reauth"
 
 		await expect(
 			runTool(sa, "addFields", {
-				moduleIndex: 0,
-				formIndex: 0,
+				moduleUuid: MOD_A,
+				formUuid: FORM_A,
 				fields: [{ id: "dob", kind: "date", label: "Date of birth" }],
 			}),
 		).rejects.toBe(projectChanged);
@@ -944,13 +969,13 @@ describe("solutionsArchitect — wrapMutating conflict reload / terminal reauth"
 			// signal; it must then reject with that SAME signal before committing.
 			const settled = await Promise.allSettled([
 				runTool(sa, "addFields", {
-					moduleIndex: 0,
-					formIndex: 0,
+					moduleUuid: MOD_A,
+					formUuid: FORM_A,
 					fields: [{ id: "dob", kind: "date", label: "Date of birth" }],
 				}),
 				runTool(sa, "addFields", {
-					moduleIndex: 0,
-					formIndex: 0,
+					moduleUuid: MOD_A,
+					formUuid: FORM_A,
 					fields: [{ id: "nickname", kind: "text", label: "Nickname" }],
 				}),
 			]);
@@ -976,8 +1001,8 @@ describe("solutionsArchitect — wrapMutating conflict reload / terminal reauth"
 		// A duplicate sibling id is a pre-commit identifier finding — the tool
 		// returns `{ error }` before ever reaching the guarded commit.
 		const result = (await runTool(sa, "addFields", {
-			moduleIndex: 0,
-			formIndex: 0,
+			moduleUuid: MOD_A,
+			formUuid: FORM_A,
 			fields: [{ id: "case_name", kind: "text", label: "Dup" }],
 		})) as { error?: string };
 
@@ -1012,7 +1037,7 @@ describe("solutionsArchitect — read-shaped side-effect terminal fences", () =>
 
 			const settled = await Promise.allSettled([
 				runTool(sa, "removeMediaAsset", { assetId: "asset-1" }),
-				runTool(sa, "getForm", { moduleIndex: 0, formIndex: 0 }),
+				runTool(sa, "getForm", { moduleUuid: MOD_A, formUuid: FORM_A }),
 			]);
 
 			expect(settled[0]).toEqual({ status: "rejected", reason: scopeError });

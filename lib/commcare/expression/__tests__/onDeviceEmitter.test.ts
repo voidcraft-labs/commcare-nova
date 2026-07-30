@@ -60,7 +60,22 @@ import {
 	today,
 	unwrapList,
 } from "@/lib/domain/predicate/builders";
-import { emitOnDeviceExpression } from "../onDeviceEmitter";
+import { emitOnDeviceExpression as emitOnDeviceExpressionProduction } from "../onDeviceEmitter";
+
+const SEARCH_INPUT_NAMES = new Map([
+	[asUuid("af11da91-077c-45b4-8967-eed3cb14aca2"), "dob_text"],
+	[asUuid("9ef19482-a712-472f-832f-c280f6749bbf"), "dt_text"],
+	[asUuid("42ab9981-e4f6-4efd-8551-66a8fefaaacf"), "name_query"],
+]);
+
+function emitOnDeviceExpression(
+	...args: Parameters<typeof emitOnDeviceExpressionProduction>
+): string {
+	return emitOnDeviceExpressionProduction(args[0], args[1], args[2], args[3], {
+		searchInputNames: SEARCH_INPUT_NAMES,
+		...args[4],
+	});
+}
 
 // ============================================================
 // SHELL 1 — per-operator emissions
@@ -78,7 +93,9 @@ describe("emitOnDeviceExpression — discriminator-only constants", () => {
 
 describe("emitOnDeviceExpression — coercion functions", () => {
 	it("emits date(<value>) for date-coerce", () => {
-		const expr = dateCoerce(term(input("dob_text")));
+		const expr = dateCoerce(
+			term(input(asUuid("af11da91-077c-45b4-8967-eed3cb14aca2"))),
+		);
 		expect(emitOnDeviceExpression(expr)).toBe(
 			`date(instance('search-input:results')/input/field[@name='dob_text'])`,
 		);
@@ -104,7 +121,9 @@ describe("emitOnDeviceExpression — coercion functions", () => {
 		// session as an unknown function. `date()`'s String arm
 		// (`FunctionUtils::toDate` → `DateUtils::parseDateTime`)
 		// preserves time-of-day, so it IS the datetime coercion here.
-		const expr = datetimeCoerce(term(input("dt_text")));
+		const expr = datetimeCoerce(
+			term(input(asUuid("9ef19482-a712-472f-832f-c280f6749bbf"))),
+		);
 		expect(emitOnDeviceExpression(expr)).toBe(
 			`date(instance('search-input:results')/input/field[@name='dt_text'])`,
 		);
@@ -542,9 +561,11 @@ describe("emitOnDeviceExpression — term arm structural lifter", () => {
 	});
 
 	it("emits a search-input ref via the term arm", () => {
-		expect(emitOnDeviceExpression(term(input("name_query")))).toBe(
-			`instance('search-input:results')/input/field[@name='name_query']`,
-		);
+		expect(
+			emitOnDeviceExpression(
+				term(input(asUuid("42ab9981-e4f6-4efd-8551-66a8fefaaacf"))),
+			),
+		).toBe(`instance('search-input:results')/input/field[@name='name_query']`);
 	});
 
 	it("emits a session-user ref via the term arm", () => {

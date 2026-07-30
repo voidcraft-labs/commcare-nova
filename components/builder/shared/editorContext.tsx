@@ -48,6 +48,10 @@ import {
 } from "./editorTypeContext";
 import type { OperationValueScope } from "./expressionEditorSchemas";
 import type { EditorFormFieldDecl } from "./formFieldPresentation";
+import type {
+	EditorLookupTableDecl,
+	EditorLookupTableScope,
+} from "./lookupTablePresentation";
 import type { EditorPath } from "./path";
 import { serializePath } from "./path";
 import type { EditorSearchInputDecl } from "./searchInputPresentation";
@@ -105,6 +109,10 @@ interface PredicateEditContextValue {
 	 * every surface that reads no form answers at all.
 	 */
 	readonly formFields: readonly EditorFormFieldDecl[];
+	/** Rows-free lookup definitions available to identity-backed expressions. */
+	readonly lookupTables: readonly EditorLookupTableDecl[];
+	/** The active lookup row, when this editor is filtering table choices. */
+	readonly tableScope: EditorLookupTableScope | undefined;
 	/**
 	 * The submission-local vocabulary, present only inside a case
 	 * operation: the acting user, no owner, and the case an earlier create
@@ -159,6 +167,8 @@ interface PredicateEditProviderProps {
 	readonly knownInputs: readonly EditorSearchInputDecl[];
 	readonly userProperties?: readonly UserProperty[];
 	readonly formFields?: readonly EditorFormFieldDecl[];
+	readonly lookupTables?: readonly EditorLookupTableDecl[];
+	readonly tableScope?: EditorLookupTableScope;
 	readonly operationScope?: OperationValueScope;
 	/** Absent means the ordinary per-case scope. */
 	readonly caseDataScope?: CaseDataScope;
@@ -189,6 +199,8 @@ export function PredicateEditProvider({
 	knownInputs,
 	userProperties = EMPTY_USER_PROPERTIES,
 	formFields = EMPTY_FORM_FIELDS,
+	lookupTables = [],
+	tableScope,
 	operationScope,
 	caseDataScope = "per-case",
 	allowsNeverMatch = true,
@@ -213,6 +225,8 @@ export function PredicateEditProvider({
 			knownInputs,
 			userProperties,
 			formFields,
+			lookupTables,
+			tableScope,
 			operationScope,
 			caseDataScope,
 			allowsNeverMatch,
@@ -227,6 +241,8 @@ export function PredicateEditProvider({
 			knownInputs,
 			userProperties,
 			formFields,
+			lookupTables,
+			tableScope,
 			operationScope,
 			caseDataScope,
 			allowsNeverMatch,
@@ -366,6 +382,8 @@ export function predicateEditContextFrom(
 		knownInputs: ctx.knownInputs,
 		userProperties: ctx.userProperties,
 		formFields: ctx.formFields,
+		lookupTables: ctx.lookupTables,
+		tableScope: ctx.tableScope,
 		operationScope: ctx.operationScope,
 		caseDataScope: ctx.caseDataScope,
 		allowsNeverMatch: ctx.allowsNeverMatch,
@@ -422,6 +440,8 @@ export function useEditorTypeContext(): TypeContext {
 		knownInputs,
 		userProperties,
 		formFields,
+		lookupTables,
+		tableScope,
 		operationScope,
 	} = usePredicateEditContext();
 	return useMemo(
@@ -432,6 +452,8 @@ export function useEditorTypeContext(): TypeContext {
 				knownInputs,
 				userProperties,
 				formFields,
+				lookupTables,
+				tableScope,
 				operationScope,
 			}),
 		[
@@ -440,6 +462,8 @@ export function useEditorTypeContext(): TypeContext {
 			knownInputs,
 			userProperties,
 			formFields,
+			lookupTables,
+			tableScope,
 			operationScope,
 		],
 	);

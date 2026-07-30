@@ -42,7 +42,7 @@ describe("computeEditFocus", () => {
 			formOrder: {},
 			fieldOrder: {},
 		};
-		expect(computeEditFocus(data, { moduleIndex: 0 })).toBeNull();
+		expect(computeEditFocus(data, { moduleUuid: "m0" })).toBeNull();
 	});
 
 	it("returns null when scope is null", () => {
@@ -52,18 +52,20 @@ describe("computeEditFocus", () => {
 
 	it("returns null when all forms have zero fields", () => {
 		const data = fixture([[0, 0]]);
-		expect(computeEditFocus(data, { moduleIndex: 0 })).toBeNull();
+		expect(computeEditFocus(data, { moduleUuid: "m0" })).toBeNull();
 	});
 
 	it("returns null when the targeted module has no forms", () => {
-		/* Module 0 has forms, but scope targets module 1 which doesn't exist */
+		/* Module 0 has forms, but scope targets a UUID which doesn't exist. */
 		const data = fixture([[5]]);
-		expect(computeEditFocus(data, { moduleIndex: 1 })).toBeNull();
+		expect(computeEditFocus(data, { moduleUuid: "missing" })).toBeNull();
 	});
 
 	it("returns null when targeted form has zero fields", () => {
 		const data = fixture([[0]]);
-		expect(computeEditFocus(data, { moduleIndex: 0, formIndex: 0 })).toBeNull();
+		expect(
+			computeEditFocus(data, { moduleUuid: "m0", formUuid: "f0_0" }),
+		).toBeNull();
 	});
 
 	// ── Module-level scope ──────────────────────────────────────────────
@@ -71,7 +73,7 @@ describe("computeEditFocus", () => {
 	it("module-level scope spans all of the module's forms", () => {
 		/* 2 modules: m0 has 3+5=8 fields, m1 has 2 fields. Total=10. */
 		const data = fixture([[3, 5], [2]]);
-		const focus = computeEditFocus(data, { moduleIndex: 0 });
+		const focus = computeEditFocus(data, { moduleUuid: "m0" });
 		assert(focus);
 
 		/* m0 spans fields 0-7 out of 10 → start=0, end=0.8.
@@ -82,7 +84,7 @@ describe("computeEditFocus", () => {
 
 	it("module-level scope for the second module", () => {
 		const data = fixture([[3, 5], [2]]);
-		const focus = computeEditFocus(data, { moduleIndex: 1 });
+		const focus = computeEditFocus(data, { moduleUuid: "m1" });
 		assert(focus);
 
 		/* m1 spans fields 8-9 out of 10 → start=0.8, end=1.0.
@@ -96,7 +98,10 @@ describe("computeEditFocus", () => {
 	it("form-level scope spans the form's field range", () => {
 		/* Module 0: form 0 has 3q, form 1 has 5q. Total=8. */
 		const data = fixture([[3, 5]]);
-		const focus = computeEditFocus(data, { moduleIndex: 0, formIndex: 1 });
+		const focus = computeEditFocus(data, {
+			moduleUuid: "m0",
+			formUuid: "f0_1",
+		});
 		assert(focus);
 
 		/* Form 1 starts at q3, ends at q7 → start=3/8=0.375, end=8/8=1.0.
@@ -108,12 +113,12 @@ describe("computeEditFocus", () => {
 	// ── Field-level scope ────────────────────────────────────────────
 
 	it("field-level scope centers a zone around the field position", () => {
-		/* 1 module, 1 form, 5 fields. Scope targets field index 2. */
+		/* 1 module, 1 form, 5 fields. Scope targets the third field by UUID. */
 		const data = fixture([[5]]);
 		const focus = computeEditFocus(data, {
-			moduleIndex: 0,
-			formIndex: 0,
-			fieldIndex: 2,
+			moduleUuid: "m0",
+			formUuid: "f0_0",
+			fieldUuid: "q_2",
 		});
 		assert(focus);
 
@@ -128,9 +133,9 @@ describe("computeEditFocus", () => {
 		/* 1 module, 1 form, 5 fields. Scope targets field 0 (leftmost). */
 		const data = fixture([[5]]);
 		const focus = computeEditFocus(data, {
-			moduleIndex: 0,
-			formIndex: 0,
-			fieldIndex: 0,
+			moduleUuid: "m0",
+			formUuid: "f0_0",
+			fieldUuid: "q_0",
 		});
 		assert(focus);
 
@@ -144,9 +149,9 @@ describe("computeEditFocus", () => {
 		/* 1 module, 1 form, 5 fields. Scope targets field 4 (rightmost). */
 		const data = fixture([[5]]);
 		const focus = computeEditFocus(data, {
-			moduleIndex: 0,
-			formIndex: 0,
-			fieldIndex: 4,
+			moduleUuid: "m0",
+			formUuid: "f0_0",
+			fieldUuid: "q_4",
 		});
 		assert(focus);
 
@@ -156,20 +161,15 @@ describe("computeEditFocus", () => {
 		expect(focus.end).toBeCloseTo(1.0, 5);
 	});
 
-	it("field index is clamped to the form's field count", () => {
-		/* Field index 99 exceeds the form's 5 fields — treated as last (index 4). */
+	it("returns null for an unknown field UUID", () => {
 		const data = fixture([[5]]);
-		const overflowed = computeEditFocus(data, {
-			moduleIndex: 0,
-			formIndex: 0,
-			fieldIndex: 99,
-		});
-		const lastField = computeEditFocus(data, {
-			moduleIndex: 0,
-			formIndex: 0,
-			fieldIndex: 4,
-		});
-		expect(overflowed).toEqual(lastField);
+		expect(
+			computeEditFocus(data, {
+				moduleUuid: "m0",
+				formUuid: "f0_0",
+				fieldUuid: "missing",
+			}),
+		).toBeNull();
 	});
 
 	// ── MIN_EDIT_ZONE enforcement ───────────────────────────────────────
@@ -179,7 +179,7 @@ describe("computeEditFocus", () => {
 		 * Module-level scope for m0: raw range is [0, 0.01] — well below MIN_EDIT_ZONE.
 		 * Should be widened to 0.15 centered at 0.005 → [0, 0.15] after left clamp. */
 		const data = fixture([[1], [99]]);
-		const focus = computeEditFocus(data, { moduleIndex: 0 });
+		const focus = computeEditFocus(data, { moduleUuid: "m0" });
 		assert(focus);
 		expect(focus.end - focus.start).toBeGreaterThanOrEqual(0.15 - 1e-10);
 		expect(focus.start).toBeGreaterThanOrEqual(0);
@@ -199,7 +199,10 @@ describe("computeEditFocus", () => {
 				q_group: ["q_child1", "q_child2", "q_child3"],
 			},
 		};
-		const focus = computeEditFocus(data, { moduleIndex: 0, formIndex: 0 });
+		const focus = computeEditFocus(data, {
+			moduleUuid: "m0",
+			formUuid: "f0",
+		});
 		assert(focus);
 
 		/* Total = 2 (top-level) + 3 (group children) = 5.

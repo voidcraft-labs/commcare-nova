@@ -1,3 +1,4 @@
+import { asUuid } from "@/lib/domain";
 // lib/domain/predicate/__tests__/simplify.test.ts
 //
 // Unit coverage for `simplifyForEmission` — the deep boolean-identity
@@ -125,7 +126,7 @@ describe("simplifyForEmission — not folds via the builder", () => {
 
 describe("simplifyForEmission — recursion through nested Predicate slots", () => {
 	it("recurses into a when-input-present clause", () => {
-		const i = input("q");
+		const i = input(asUuid("f38dea69-87fd-4b8c-8190-516b176c3b33"));
 		expect(simplifyForEmission(whenInput(i, and(matchAll(), a)))).toEqual(
 			whenInput(i, a),
 		);

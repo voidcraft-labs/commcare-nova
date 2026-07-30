@@ -1,4 +1,4 @@
-import type { BlueprintDoc } from "@/lib/domain";
+import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import type { ReadToolResult } from "../common";
 import {
@@ -8,14 +8,14 @@ import {
 } from "./shared";
 
 export type GetCaseOperationsInput = {
-	readonly moduleUuid: string;
-	readonly formUuid: string;
+	readonly moduleUuid: Uuid;
+	readonly formUuid: Uuid;
 };
 
 export type GetCaseOperationsResult =
 	| {
-			readonly moduleUuid: string;
-			readonly formUuid: string;
+			readonly moduleUuid: Uuid;
+			readonly formUuid: Uuid;
 			/** The form's display name — the address is identity, so the
 			 *  result carries the human handle rather than making the caller
 			 *  hold a uuid and a name it never asked for. */
@@ -26,7 +26,7 @@ export type GetCaseOperationsResult =
 
 export const getCaseOperationsTool = {
 	description:
-		"List every case operation in execution order. Addressed by module and form uuid. References inside an operation use operation ids and field paths. A lookup-bearing operation remains in place with explicit unavailable metadata and stays addressable by id.",
+		"List every case operation in execution order. Addresses and every Nova-owned reference use stable uuids; authored ids and names remain readable metadata.",
 	inputSchema: operationAddressSchema,
 	async execute(
 		input: GetCaseOperationsInput,
@@ -40,8 +40,8 @@ export const getCaseOperationsTool = {
 		return {
 			kind: "read",
 			data: {
-				moduleUuid: input.moduleUuid,
-				formUuid: input.formUuid,
+				moduleUuid: address.moduleUuid,
+				formUuid: address.formUuid,
 				form: doc.forms[address.formUuid]?.name ?? "",
 				operations: projectedCaseOperations(doc, address.formUuid),
 			},

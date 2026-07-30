@@ -1,3 +1,4 @@
+import { asUuid } from "@/lib/domain";
 // lib/commcare/predicate/__tests__/caseListFilterEmitter.test.ts
 //
 // Acceptance tests for the on-device case-list-filter emitter — the
@@ -64,7 +65,23 @@ import {
 	whenInput,
 	within,
 } from "@/lib/domain/predicate/builders";
-import { emitCaseListFilter } from "../caseListFilterEmitter";
+import { emitCaseListFilter as emitCaseListFilterProduction } from "../caseListFilterEmitter";
+
+const SEARCH_INPUT_NAMES = new Map([
+	[asUuid("42ab9981-e4f6-4efd-8551-66a8fefaaacf"), "name_query"],
+	[asUuid("b7a79f7f-ddcc-48fe-84de-9c738e70a8dc"), "region"],
+	[asUuid("3344fe68-5f7e-44bd-86c8-c47a04bfcba6"), "user_loc"],
+	[asUuid("e8397dc7-c995-4c3c-8788-ea95337d548b"), "phone_query"],
+]);
+
+function emitCaseListFilter(
+	...args: Parameters<typeof emitCaseListFilterProduction>
+): string {
+	return emitCaseListFilterProduction(args[0], args[1], args[2], args[3], {
+		searchInputNames: SEARCH_INPUT_NAMES,
+		...args[4],
+	});
+}
 
 function expectGuardedDistance(
 	wire: string,
@@ -176,7 +193,10 @@ describe("emitCaseListFilter — term emission", () => {
 	});
 
 	it("emits search-input refs against the search-input results instance", () => {
-		const p = eq(prop("patient", "full_name"), input("name_query"));
+		const p = eq(
+			prop("patient", "full_name"),
+			input(asUuid("42ab9981-e4f6-4efd-8551-66a8fefaaacf")),
+		);
 		expect(emitCaseListFilter(p)).toBe(
 			"full_name = instance('search-input:results')/input/field[@name='name_query']",
 		);
@@ -334,8 +354,11 @@ describe("emitCaseListFilter — when-input-present", () => {
 		// boolean coercion of `''` is `false`, which would silently
 		// exclude every case on input-unset.
 		const p = whenInput(
-			input("name_query"),
-			eq(prop("patient", "full_name"), input("name_query")),
+			input(asUuid("42ab9981-e4f6-4efd-8551-66a8fefaaacf")),
+			eq(
+				prop("patient", "full_name"),
+				input(asUuid("42ab9981-e4f6-4efd-8551-66a8fefaaacf")),
+			),
 		);
 		expect(emitCaseListFilter(p)).toBe(
 			"if(count(instance('search-input:results')/input/field[@name='name_query']), full_name = instance('search-input:results')/input/field[@name='name_query'], true())",
@@ -344,9 +367,12 @@ describe("emitCaseListFilter — when-input-present", () => {
 
 	it("recurses into a logical-conjunction inner clause without redundant grouping", () => {
 		const p = whenInput(
-			input("region"),
+			input(asUuid("b7a79f7f-ddcc-48fe-84de-9c738e70a8dc")),
 			and(
-				eq(prop("patient", "region"), input("region")),
+				eq(
+					prop("patient", "region"),
+					input(asUuid("b7a79f7f-ddcc-48fe-84de-9c738e70a8dc")),
+				),
 				gt(prop("patient", "age"), literal(18)),
 			),
 		);
@@ -363,7 +389,7 @@ describe("emitCaseListFilter — is-blank", () => {
 	});
 
 	it("emits is-blank against a search-input reference as input = ''", () => {
-		const p = isBlank(input("name_query"));
+		const p = isBlank(input(asUuid("42ab9981-e4f6-4efd-8551-66a8fefaaacf")));
 		expect(emitCaseListFilter(p)).toBe(
 			"instance('search-input:results')/input/field[@name='name_query'] = ''",
 		);
@@ -587,7 +613,7 @@ describe("emitCaseListFilter — within-distance", () => {
 	it("emits within-distance with an input center and kilometers", () => {
 		const p = within(
 			prop("clinic", "location"),
-			input("user_loc"),
+			input(asUuid("3344fe68-5f7e-44bd-86c8-c47a04bfcba6")),
 			25,
 			"kilometers",
 		);
@@ -656,7 +682,7 @@ describe("emitCaseListFilter — is-null", () => {
 	});
 
 	it("emits is-null against a search-input reference as input = ''", () => {
-		const p = isNull(input("name_query"));
+		const p = isNull(input(asUuid("42ab9981-e4f6-4efd-8551-66a8fefaaacf")));
 		expect(emitCaseListFilter(p)).toBe(
 			"instance('search-input:results')/input/field[@name='name_query'] = ''",
 		);
@@ -961,7 +987,10 @@ describe("emitCaseListFilter — term-arm operand (happy path)", () => {
 	});
 
 	it("emits a search-input reference in a comparison's right operand", () => {
-		const p = eq(prop("patient", "phone"), input("phone_query"));
+		const p = eq(
+			prop("patient", "phone"),
+			input(asUuid("e8397dc7-c995-4c3c-8788-ea95337d548b")),
+		);
 		expect(emitCaseListFilter(p)).toMatch(/instance\('search-input:results'\)/);
 	});
 });

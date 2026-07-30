@@ -11,7 +11,7 @@
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import type { CaseType } from "@/lib/domain";
+import { asUuid, type CaseType } from "@/lib/domain";
 import {
 	type Predicate,
 	predicateSchema,
@@ -55,7 +55,11 @@ const PATIENT: CaseType = {
 };
 
 const KNOWN_INPUTS: readonly SearchInputDecl[] = [
-	{ name: "name_search", data_type: "text" },
+	{
+		uuid: asUuid("b3dba847-fcda-4409-84cb-64e94fca14cc"),
+		name: "name_search",
+		data_type: "text",
+	},
 ];
 
 const ctx: PredicateEditContext = {

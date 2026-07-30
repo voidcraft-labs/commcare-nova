@@ -16,6 +16,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { applyOverWire } from "@/lib/doc/__tests__/wireRoundTrip";
+import { asUuid } from "@/lib/domain";
 import { getModuleTool } from "../../getModule";
 import { setAppLogoTool } from "../setAppLogo";
 import { setMenuMediaTool } from "../setMenuMedia";
@@ -50,11 +51,17 @@ beforeEach(() => {
 
 /** A module-tile item with the fixture's module 0 as the target. */
 const moduleItem = (icon: string | null, audioLabel: string | null) =>
-	({ target: "module", moduleIndex: 0, icon, audioLabel }) as const;
+	({ target: "module", moduleUuid: MOD_A, icon, audioLabel }) as const;
 
 /** A form-tile item with the fixture's m0-f0 as the target. */
 const formItem = (icon: string | null, audioLabel: string | null) =>
-	({ target: "form", moduleIndex: 0, formIndex: 0, icon, audioLabel }) as const;
+	({
+		target: "form",
+		moduleUuid: MOD_A,
+		formUuid: FORM_A,
+		icon,
+		audioLabel,
+	}) as const;
 
 describe("setMenuMedia", () => {
 	it("sets icon + audio label on a module tile", async () => {
@@ -152,7 +159,7 @@ describe("setMenuMedia", () => {
 					moduleItem("household", null),
 					{
 						target: "module",
-						moduleIndex: 99,
+						moduleUuid: asUuid("ffffffff-ffff-4fff-8fff-ffffffffffff"),
 						icon: "patient",
 						audioLabel: null,
 					},
@@ -165,7 +172,7 @@ describe("setMenuMedia", () => {
 		expect(result.newDoc.modules[MOD_A]?.icon).toBeUndefined();
 		const error = errorOf(result);
 		expect(error).toContain("items[1]");
-		expect(error).toContain("no module at index 99");
+		expect(error).toContain("No module with uuid");
 	});
 
 	it("returns an Elm-style error when a form target is out of range", async () => {
@@ -175,8 +182,8 @@ describe("setMenuMedia", () => {
 				items: [
 					{
 						target: "form",
-						moduleIndex: 0,
-						formIndex: 9,
+						moduleUuid: MOD_A,
+						formUuid: asUuid("ffffffff-ffff-4fff-8fff-ffffffffffff"),
 						icon: "asset-icon",
 						audioLabel: null,
 					},
@@ -186,7 +193,7 @@ describe("setMenuMedia", () => {
 			doc,
 		);
 		expect(result.mutations).toEqual([]);
-		expect(errorOf(result)).toContain("m0-f9");
+		expect(errorOf(result)).toContain("No form with uuid");
 	});
 
 	it("emits the same mutation batch through chat + MCP contexts", async () => {
@@ -359,7 +366,7 @@ describe("getModule menu-media projection (the read side of the single-slot cont
 			baseDoc,
 		);
 		const read = await getModuleTool.execute(
-			{ moduleIndex: 0 },
+			{ moduleUuid: MOD_A },
 			ctx,
 			seeded.newDoc,
 		);

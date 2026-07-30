@@ -1,3 +1,4 @@
+import { asUuid } from "@/lib/domain";
 // The shared "does this AST need a case row?" guards behind every
 // globally-resolved slot: the assigned-case exclusion, a search
 // input's starting value, and the search-button display condition.
@@ -59,7 +60,7 @@ describe("expressionReadsCaseData", () => {
 				concat(
 					term(sessionContext("userid")),
 					term(literal(" ")),
-					term(input("owner_ids")),
+					term(input(asUuid("4383fe29-27a8-4295-8b89-5b7187fd9f08"))),
 				),
 			),
 		).toBe(false);

@@ -33,7 +33,10 @@
 // time AND silently filter case data on the server, so the inline
 // shape is the only wire-correct option.
 
-import type { CaseListConfig } from "@/lib/domain";
+import {
+	type CaseListConfig,
+	SEARCH_INPUT_RUNTIME_VALUE_TYPES,
+} from "@/lib/domain";
 import { and, effectiveFilterForEmission } from "@/lib/domain/predicate";
 import { compilerBugMessage } from "@/lib/domain/predicate/errors";
 import { normalizeRelationEvaluationScopes } from "@/lib/domain/predicate/normalizeRelationEvaluationScopes";
@@ -188,10 +191,19 @@ export function composeXPathQueryEmission(
 	caseType: string | undefined,
 	typeContext?: TypeContext,
 ): ComposedXPathQuery | undefined {
+	const resolvedTypeContext: TypeContext = {
+		...(typeContext ?? { caseTypes: [], knownInputs: [] }),
+		knownInputs: caseListConfig.searchInputs.map((input) => ({
+			uuid: input.uuid,
+			name: input.name,
+			label: input.label,
+			data_type: SEARCH_INPUT_RUNTIME_VALUE_TYPES[input.type],
+		})),
+	};
 	const composed = composeXPathQueryPredicate(
 		caseListConfig,
 		caseType,
-		typeContext,
+		resolvedTypeContext,
 	);
 	if (composed === undefined) return undefined;
 
@@ -212,10 +224,10 @@ export function composeXPathQueryEmission(
 	assertCsqlRepresentable(composed);
 
 	return {
-		...emitCsql(composed, typeContext),
+		...emitCsql(composed, resolvedTypeContext),
 		predicate: normalizeRelationEvaluationScopes(
 			normalizeCsqlPredicate(composed),
-			typeContext ?? {},
+			resolvedTypeContext,
 		),
 	};
 }
@@ -316,11 +328,10 @@ function assertCsqlRepresentable(predicate: Predicate): void {
 }
 
 /**
- * Walk the composed predicate and throw if a search-input Term
- * appears outside a `when-input-present` envelope keyed to the same
- * input name. The walker maintains a set of input names "currently
- * gated" by an enclosing `when-input-present` and only flags refs
- * whose name is not in that set. Mirrors the validator rule
+ * Walk the composed predicate and throw if a Search-input Term appears outside
+ * a `when-input-present` envelope keyed to the same immutable UUID. The walker
+ * maintains the set of currently gated input UUIDs and only flags references
+ * whose identity is not in that set. Mirrors the validator rule
  * `searchInputRefUsesWhenInputPresent`'s walker contract; the throw
  * shape is a `compilerBugMessage` because reaching it means the
  * validator was bypassed at authoring time.
@@ -395,18 +406,18 @@ function visitPredicate(p: Predicate, gated: Set<string>): void {
 		case "when-input-present": {
 			// Push the gate, recurse, pop — but ONLY pop if this
 			// envelope was the one that added it. An outer envelope
-			// that already gated the same input name still expects the
+			// that already gated the same input UUID still expects the
 			// gate after the inner envelope exits; unconditionally
-			// deleting would break a `whenInput("x", and(whenInput("x",
-			// …), eq(other, input("x"))))` shape by removing the
+			// deleting would break a nested envelope for the same input by
+			// removing the
 			// outer's gate when the inner exits. Mirrors the validator
 			// walker's `wasAlreadyGated` preserve at
 			// `searchInputRefUsesWhenInputPresent.ts::visitPredicate`.
-			const triggerName = p.input.name;
-			const wasAlreadyGated = gated.has(triggerName);
-			gated.add(triggerName);
+			const triggerUuid = p.input.searchInputUuid;
+			const wasAlreadyGated = gated.has(triggerUuid);
+			gated.add(triggerUuid);
 			visitPredicate(p.clause, gated);
-			if (!wasAlreadyGated) gated.delete(triggerName);
+			if (!wasAlreadyGated) gated.delete(triggerUuid);
 			return;
 		}
 		default: {
@@ -421,11 +432,11 @@ function visitPredicate(p: Predicate, gated: Set<string>): void {
 function visitExpression(expr: ValueExpression, gated: Set<string>): void {
 	switch (expr.kind) {
 		case "term":
-			if (expr.term.kind === "input" && !gated.has(expr.term.name)) {
+			if (expr.term.kind === "input" && !gated.has(expr.term.searchInputUuid)) {
 				throw new Error(
 					compilerBugMessage({
 						where: "composeXPathQueryEmission",
-						invariant: `the composed _xpath_query predicate carries a bare search-input reference (\`input("${expr.term.name}")\`) outside any when-input-present envelope`,
+						invariant: `the composed _xpath_query predicate carries a bare search-input reference (${expr.term.searchInputUuid}) outside any when-input-present envelope`,
 						detail:
 							"The validator rule `searchInputRefUsesWhenInputPresent` rejects this shape at authoring time. Reaching this throw means the validator was bypassed — typically through an AST constructed at runtime, an `as any` cast, or a partial discriminated-union widening. Run validation before invoking the compile pipeline; the validator surfaces the offending slot so the author can wrap the subtree in a `when-input-present` envelope or remove the input reference.",
 					}),

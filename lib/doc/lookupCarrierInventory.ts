@@ -1,11 +1,11 @@
 /**
  * Structural inventory of lookup-carrier authoring slots.
  *
- * Lookup references run in the preview but have no wire spelling yet, so the
- * export boundary refuses any document that carries one
- * (`LOOKUP_CARRIER_EXPORT_NOT_ACTIVE`). This module is what that refusal reads:
- * every slot returned here becomes one finding, so a slot missed here is a
- * reference that reaches the wire.
+ * Lookup references have a complete local-CCZ wire spelling. HQ import/upload
+ * still needs separately provisioned lookup resources, so those export modes
+ * refuse every authored carrier (`LOOKUP_CARRIER_EXPORT_NOT_ACTIVE`). This
+ * module is the exhaustive inventory that refusal reads: a slot missed here
+ * could reach an HQ target without its resource.
  *
  * The walk covers detached entities as well as reachable ones — an unparented
  * field still persists, and export must not depend on tree reachability.
@@ -15,8 +15,8 @@
  * when they evaluate differently — changing a `table-column` term's comparison
  * operator or peer literal changes the lookup's meaning while both stable ids
  * stay put. Inline select options sit deliberately outside an `optionsSource`
- * fingerprint: they are the origin-compatible fallback, and editing only that
- * fallback leaves the carrier itself untouched.
+ * fingerprint: they are retained author data, and editing only those values
+ * leaves the lookup carrier itself untouched.
  */
 
 import type {
@@ -36,7 +36,7 @@ import {
 } from "@/lib/domain/predicate/walk";
 import { canonicalLookupReferenceSubpath } from "./lookupReferences";
 
-export type DormantLookupCarrierOwnerKind =
+export type LookupCarrierOwnerKind =
 	| "module"
 	| "form"
 	| "field"
@@ -45,9 +45,9 @@ export type DormantLookupCarrierOwnerKind =
 	| "case-operation";
 
 /** Nova-owned provenance for one complete authored carrier slot. */
-export interface DormantLookupCarrier {
+export interface LookupCarrier {
 	readonly ownerUuid: Uuid;
-	readonly ownerKind: DormantLookupCarrierOwnerKind;
+	readonly ownerKind: LookupCarrierOwnerKind;
 	readonly slot: string;
 	/** Stable logical member path below a registry slot; empty at its root. */
 	readonly subpath: string;
@@ -125,7 +125,7 @@ function expressionContainsLookupCarrier(expression: ValueExpression): boolean {
 	return found;
 }
 
-type CarrierLocation = DormantLookupCarrier["location"];
+type CarrierLocation = LookupCarrier["location"];
 
 function compareUuid(
 	left: { readonly uuid: Uuid },
@@ -222,10 +222,10 @@ function fieldLocation(
 }
 
 function addCarrier(
-	carriers: DormantLookupCarrier[],
+	carriers: LookupCarrier[],
 	args: {
 		readonly ownerUuid: Uuid;
-		readonly ownerKind: DormantLookupCarrierOwnerKind;
+		readonly ownerKind: LookupCarrierOwnerKind;
 		readonly slot: string;
 		readonly subpath?: string;
 		readonly payload: unknown;
@@ -243,10 +243,10 @@ function addCarrier(
 }
 
 function addPredicateSlot(
-	carriers: DormantLookupCarrier[],
+	carriers: LookupCarrier[],
 	args: {
 		readonly ownerUuid: Uuid;
-		readonly ownerKind: DormantLookupCarrierOwnerKind;
+		readonly ownerKind: LookupCarrierOwnerKind;
 		readonly slot: string;
 		readonly subpath?: string;
 		readonly predicate: Predicate | undefined;
@@ -266,10 +266,10 @@ function addPredicateSlot(
 }
 
 function addExpressionSlot(
-	carriers: DormantLookupCarrier[],
+	carriers: LookupCarrier[],
 	args: {
 		readonly ownerUuid: Uuid;
-		readonly ownerKind: DormantLookupCarrierOwnerKind;
+		readonly ownerKind: LookupCarrierOwnerKind;
 		readonly slot: string;
 		readonly subpath?: string;
 		readonly expression: ValueExpression | undefined;
@@ -297,7 +297,7 @@ function addExpressionSlot(
  * boundary and export validation cannot drift to different slot lists.
  */
 function addCaseOperationCarriers(
-	carriers: DormantLookupCarrier[],
+	carriers: LookupCarrier[],
 	operation: CaseOperation,
 	location: CarrierLocation,
 ): void {
@@ -360,7 +360,7 @@ function addCaseOperationCarriers(
 
 /**
  * Return one deterministic entry per authored slot/root that contains any
- * dormant lookup carrier.
+ * lookup carrier.
  *
  * Sub-entities with their own stable identity (columns, Search inputs, case
  * operations) own their slots directly. Operation write/link arrays have no
@@ -368,10 +368,10 @@ function addCaseOperationCarriers(
  * logical subpath. An unrelated sibling reorder therefore cannot rename a
  * historical carrier.
  */
-export function collectDormantLookupCarriers(
+export function collectLookupCarriers(
 	doc: BlueprintDoc,
-): readonly DormantLookupCarrier[] {
-	const carriers: DormantLookupCarrier[] = [];
+): readonly LookupCarrier[] {
+	const carriers: LookupCarrier[] = [];
 
 	for (const module of sortedModules(doc)) {
 		const moduleUuid = module.uuid;
@@ -486,7 +486,7 @@ export function collectDormantLookupCarriers(
 	for (const field of sortedFields(doc)) {
 		if (
 			(field.kind !== "single_select" && field.kind !== "multi_select") ||
-			field.optionsSource === undefined
+			field.optionsSource.kind !== "lookup"
 		) {
 			continue;
 		}
@@ -500,22 +500,4 @@ export function collectDormantLookupCarriers(
 	}
 
 	return carriers;
-}
-
-/**
- * Whether one case operation owns any dormant lookup-backed authoring slot.
- *
- * The carrier inventory is the exhaustive boundary used by validation and
- * export, so edit surfaces consult it rather than maintaining a second AST
- * walk. Until lookup expressions become authorable on every editor, a
- * full-shape operation update must fail closed: the carrier-blind SA/MCP read
- * projection cannot round-trip a hidden slot, and the rolling mutation
- * envelope cannot safely spell it inside a replacement fallback.
- */
-export function caseOperationContainsDormantLookupCarrier(
-	operation: CaseOperation,
-): boolean {
-	const carriers: DormantLookupCarrier[] = [];
-	addCaseOperationCarriers(carriers, operation, { scope: "form" });
-	return carriers.length > 0;
 }

@@ -54,7 +54,9 @@ function summarizeField(
 	// `label` is absent on hidden, `case_property_on` is absent on
 	// structural/media kinds and on non-case fields — render each
 	// piece only when it's meaningful.
-	const pieces: string[] = [`${indent}- ${field.id} (${field.kind})`];
+	const pieces: string[] = [
+		`${indent}- ${field.id} (${field.kind}, uuid ${field.uuid})`,
+	];
 	if ("label" in field && field.label) pieces[0] += `: "${field.label}"`;
 	if ("case_property_on" in field && field.case_property_on) {
 		pieces[0] += ` → ${field.case_property_on}`;
@@ -69,28 +71,22 @@ function summarizeField(
 	return pieces.join("\n");
 }
 
-/** Summarize one form: name, type, field count, nested field list. */
-function summarizeForm(
-	doc: BlueprintDoc,
-	formUuid: Uuid,
-	formIndex: number,
-): string {
+/** Summarize one form: name, UUID, type, field count, nested field list. */
+function summarizeForm(doc: BlueprintDoc, formUuid: Uuid): string {
 	const form = doc.forms[formUuid];
-	if (!form) return `  - Form ${formIndex}: <missing>`;
+	if (!form) return `  - Missing form [uuid ${formUuid}]`;
 	const count = countFieldsUnder(doc, formUuid);
-	const header = `  - Form ${formIndex}: "${form.name}" (${form.type}, ${count} field${count === 1 ? "" : "s"})`;
+	const header = `  - Form "${form.name}" [uuid ${form.uuid}] (${form.type}, ${count} field${count === 1 ? "" : "s"})`;
 	const extras: string[] = [];
 	if (form.postSubmit) extras.push(`    post_submit: ${form.postSubmit}`);
 	if (form.connect) extras.push("    [Connect enabled]");
 	if (form.closeCondition) {
 		const op =
 			form.closeCondition.operator === "selected" ? "has selected" : "=";
-		// The SA speaks field ids — resolve the stored uuid to the current
-		// id (a dangler shows its text verbatim).
-		const closeFieldId =
-			doc.fields[form.closeCondition.field]?.id ?? form.closeCondition.field;
+		const closeField =
+			doc.fields[form.closeCondition.field]?.id ?? "missing field";
 		extras.push(
-			`    close_condition: ${closeFieldId} ${op} "${form.closeCondition.answer}"`,
+			`    close_condition: ${closeField} (uuid ${form.closeCondition.field}) ${op} "${form.closeCondition.answer}"`,
 		);
 	}
 	const topLevelFields = orderedFieldUuids(doc, formUuid);
@@ -270,26 +266,20 @@ function summarizeCaseSearch(mod: Module): string | undefined {
 	return `    case_search: ${displaySummary} ${advancedSummary}`;
 }
 
-/** Summarize a module: name, case type, forms. */
-function summarizeModule(
-	doc: BlueprintDoc,
-	moduleUuid: Uuid,
-	index: number,
-): string {
+/** Summarize a module: name, UUID, case type, forms. */
+function summarizeModule(doc: BlueprintDoc, moduleUuid: Uuid): string {
 	const mod = doc.modules[moduleUuid];
-	if (!mod) return `- Module ${index}: <missing>`;
+	if (!mod) return `- Missing module [uuid ${moduleUuid}]`;
 	const caseInfo = mod.caseType ? ` (case_type: ${mod.caseType})` : "";
 	const listOnly = mod.caseListOnly ? " [case list only]" : "";
-	const header = `- Module ${index}: "${mod.name}"${caseInfo}${listOnly}`;
+	const header = `- Module "${mod.name}" [uuid ${mod.uuid}]${caseInfo}${listOnly}`;
 	const sections: string[] = [header];
 	const caseList = summarizeCaseList(mod);
 	if (caseList) sections.push(caseList);
 	const caseSearch = summarizeCaseSearch(mod);
 	if (caseSearch) sections.push(caseSearch);
 	const formUuids = orderedFormUuids(doc, moduleUuid);
-	const forms = formUuids
-		.map((fUuid, fi) => summarizeForm(doc, fUuid, fi))
-		.join("\n");
+	const forms = formUuids.map((fUuid) => summarizeForm(doc, fUuid)).join("\n");
 	if (forms) sections.push(forms);
 	return sections.join("\n");
 }
@@ -376,10 +366,8 @@ export function summarizeBlueprint(doc: BlueprintDoc): string {
 	lines.push("");
 	lines.push("**Structure:**");
 	const moduleUuids = orderedModuleUuids(doc);
-	for (let i = 0; i < moduleUuids.length; i++) {
-		const moduleUuid = moduleUuids[i];
-		if (!moduleUuid) continue;
-		lines.push(summarizeModule(doc, moduleUuid, i));
+	for (const moduleUuid of moduleUuids) {
+		lines.push(summarizeModule(doc, moduleUuid));
 	}
 
 	// Ambient knowledge, not a finding: properties the app reads but no

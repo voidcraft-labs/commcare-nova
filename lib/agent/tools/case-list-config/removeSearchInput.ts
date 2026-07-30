@@ -16,10 +16,7 @@
 
 import { z } from "zod";
 import { asUuid, type BlueprintDoc, type Uuid } from "@/lib/domain";
-import {
-	removeSearchInputMutation,
-	resolveModuleUuid,
-} from "../../blueprintHelpers";
+import { removeSearchInputMutation } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import {
 	guardedMutate,
@@ -31,9 +28,9 @@ import { moduleNotFoundResult, uuidInputSchema } from "./shared";
 
 export const removeSearchInputInputSchema = z
 	.object({
-		moduleIndex: z
-			.number()
-			.describe("0-based module index whose case list search input to remove"),
+		moduleUuid: uuidInputSchema.describe(
+			"Stable uuid of the module whose search input is removed",
+		),
 		searchInputUuid: uuidInputSchema.describe(
 			"Uuid of the search input to remove. Look at getModule's projection or run searchBlueprint to surface the current uuids.",
 		),
@@ -64,21 +61,16 @@ export const removeSearchInputTool = {
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<RemoveSearchInputResult>> {
-		const { moduleIndex, searchInputUuid: rawSearchInputUuid } = input;
+		const { moduleUuid: rawModuleUuid, searchInputUuid: rawSearchInputUuid } =
+			input;
+		const moduleUuid = asUuid(rawModuleUuid);
 		const searchInputUuid = asUuid(rawSearchInputUuid);
 		try {
-			const moduleUuid = resolveModuleUuid(doc, moduleIndex);
-			if (!moduleUuid)
-				return moduleNotFoundResult<RemoveSearchInputSuccess>(
-					doc,
-					moduleIndex,
-					"remove a search input",
-				);
 			const mod = doc.modules[moduleUuid];
 			if (!mod)
 				return moduleNotFoundResult<RemoveSearchInputSuccess>(
 					doc,
-					moduleIndex,
+					rawModuleUuid,
 					"remove a search input",
 				);
 
@@ -96,7 +88,7 @@ export const removeSearchInputTool = {
 				ctx,
 				doc,
 				result.mutations,
-				`module:${moduleIndex}:caseList:searchInput:remove`,
+				`module:${moduleUuid}:caseList:searchInput:remove`,
 			);
 			if (!commit.ok) {
 				return {

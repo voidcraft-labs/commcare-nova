@@ -8,39 +8,32 @@
  *
  * Two exit branches:
  *
- *   1. Field not resolved at the given triple (missing, or a duplicated
- *      bare id `resolveFieldTarget` refuses as ambiguous) → `{ error }`,
+ *   1. The module/form/field UUID address is missing or inconsistent → `{ error }`,
  *      no mutations.
  *   2. Success → human-readable summary showing before/after field
  *      counts, tagged `form:M-F`.
  */
 
-import { z } from "zod";
+import type { z } from "zod";
 import { countFieldsUnder } from "@/lib/doc/fieldWalk";
 import type { BlueprintDoc } from "@/lib/domain";
-import {
-	FIELD_REF_HINT,
-	removeFieldMutations,
-	resolveFieldTarget,
-} from "../blueprintHelpers";
+import { removeFieldMutations } from "../blueprintHelpers";
 import type { ToolExecutionContext } from "../toolExecutionContext";
 import {
 	guardedMutate,
 	type MutatingToolResult,
 	toToolErrorResult,
 } from "./common";
+import {
+	fieldAddressSchema,
+	resolveFieldAddress,
+} from "./shared/entityAddresses";
 import type {
 	MutationSuccess,
 	ToolCallSummary,
 } from "./shared/toolCallSummary";
 
-export const removeFieldInputSchema = z
-	.object({
-		moduleIndex: z.number().describe("0-based module index"),
-		formIndex: z.number().describe("0-based form index"),
-		fieldId: z.string().describe(`Field to remove — ${FIELD_REF_HINT}`),
-	})
-	.strict();
+export const removeFieldInputSchema = fieldAddressSchema;
 
 export type RemoveFieldInput = z.infer<typeof removeFieldInputSchema>;
 
@@ -55,9 +48,8 @@ export const removeFieldTool = {
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<RemoveFieldResult>> {
-		const { moduleIndex, formIndex, fieldId } = input;
 		try {
-			const resolved = resolveFieldTarget(doc, moduleIndex, formIndex, fieldId);
+			const resolved = resolveFieldAddress(doc, input);
 			if (!resolved.ok) {
 				return {
 					kind: "mutate" as const,
@@ -81,7 +73,7 @@ export const removeFieldTool = {
 				ctx,
 				doc,
 				mutations,
-				`form:${moduleIndex}-${formIndex}`,
+				`form:${resolved.formUuid}`,
 			);
 			if (!commit.ok) {
 				return {
@@ -94,7 +86,6 @@ export const removeFieldTool = {
 			const newDoc = commit.newDoc;
 			const formName = newDoc.forms[formUuid]?.name ?? "";
 			const afterCount = countFieldsUnder(newDoc, formUuid);
-			// Report the field's semantic id (`fieldId` may have been its uuid).
 			const removedId = resolved.field.id;
 			return {
 				kind: "mutate" as const,

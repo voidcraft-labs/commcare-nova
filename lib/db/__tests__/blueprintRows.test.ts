@@ -76,7 +76,7 @@ describe("blueprint entity-row round trip", () => {
 		expect(assembled).toEqual(toPersistableDoc(doc));
 	});
 
-	it("preserves a dormant lookup-backed select through entity-row hydration", () => {
+	it("preserves a lookup-backed select through entity-row hydration", () => {
 		const moduleUuid = asUuid("10000000-0000-4000-8000-000000000001");
 		const formUuid = asUuid("20000000-0000-4000-8000-000000000001");
 		const fieldUuid = asUuid("30000000-0000-4000-8000-000000000001");
@@ -84,7 +84,7 @@ describe("blueprint entity-row round trip", () => {
 		const valueColumnId = "018f3e8a-7b2c-7def-8abc-1234567890ad";
 		const labelColumnId = "018f3e8a-7b2c-7def-8abc-1234567890ae";
 		const optionsSource = {
-			kind: "lookup-table",
+			kind: "lookup",
 			tableId,
 			valueColumnId,
 			labelColumnId,
@@ -125,10 +125,6 @@ describe("blueprint entity-row round trip", () => {
 					id: "status",
 					kind: "single_select",
 					label: "Status",
-					options: [
-						{ value: "active", label: "Active" },
-						{ value: "closed", label: "Closed" },
-					],
 					optionsSource,
 				},
 			},

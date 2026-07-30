@@ -9,7 +9,6 @@
  * store imports from both `mutations/` and `fieldParent`.
  */
 
-import { backfillOptionUuids } from "@/lib/doc/optionIdentity";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
 import {
 	hasOwnRecordKey,
@@ -78,17 +77,11 @@ export function toPersistableDoc(doc: BlueprintDoc): PersistableDoc {
  * `fieldParent`, and — on a LEGACY app — no `order` keys or select-option
  * `uuid`s) into a working `BlueprintDoc`. EVERY boundary that reads a stored
  * blueprint into a doc it will display, diff, mutate, or emit routes through
- * here, so the hydration steps run identically everywhere. That structurally
- * kills the asymmetric-hydration class: a boundary that backfilled and one
- * that didn't produced docs that disagreed on an entity's `order` / option
- * `uuid`, so a client's edit against a backfilled key replayed onto an
- * un-backfilled server doc as a silent `findIndex` no-op.
+ * here, so derived indexes are rebuilt identically everywhere.
  *
  * Deep-clones its input so hydration never mutates the caller's stored
- * snapshot. Backfill runs BEFORE the parent rebuild (and before any reference
- * index a caller adds after): it is deterministic + position-seeded, so a
- * client and the server hydrating the SAME legacy doc produce byte-identical
- * keys/uuids, and it is idempotent on an already-keyed doc.
+ * snapshot. Stored entities already satisfy the one current schema; hydration
+ * never mints or repairs authored identity.
  *
  * The reference index is deliberately NOT built here — it stays per-boundary:
  * the guarded-commit fresh doc omits it (the verdict's candidate apply seeds
@@ -101,7 +94,6 @@ export function hydratePersistedBlueprint(
 	const doc = structuredClone(persisted) as unknown as BlueprintDoc;
 	doc.fieldParent = recordFromEntries([]) as Record<Uuid, Uuid | null>;
 	normalizeBlueprintOwnRecords(doc);
-	backfillOptionUuids(doc);
 	rebuildFieldParent(doc);
 	return doc;
 }

@@ -92,7 +92,11 @@ describe("removeModule", () => {
 		});
 		const { ctx, recordMutations } = makeCtx();
 
-		const out = await removeModuleTool.execute({ moduleIndex: 0 }, ctx, doc);
+		const out = await removeModuleTool.execute(
+			{ moduleUuid: doc.moduleOrder[0] },
+			ctx,
+			doc,
+		);
 
 		expect(out.newDoc).toBe(doc);
 		expect(recordMutations).not.toHaveBeenCalled();
@@ -116,7 +120,11 @@ describe("removeModule", () => {
 		});
 		const { ctx, recordMutations } = makeCtx();
 
-		const out = await removeModuleTool.execute({ moduleIndex: 1 }, ctx, doc);
+		const out = await removeModuleTool.execute(
+			{ moduleUuid: doc.moduleOrder[1] },
+			ctx,
+			doc,
+		);
 
 		expect(out.result).toMatchObject({
 			message: expect.stringContaining('Case type "visit"'),
@@ -161,7 +169,11 @@ describe("removeModule", () => {
 		});
 		const { ctx, recordMutations } = makeCtx();
 
-		const out = await removeModuleTool.execute({ moduleIndex: 1 }, ctx, doc);
+		const out = await removeModuleTool.execute(
+			{ moduleUuid: doc.moduleOrder[1] },
+			ctx,
+			doc,
+		);
 
 		expect(out.newDoc).toBe(doc);
 		expect(recordMutations).not.toHaveBeenCalled();

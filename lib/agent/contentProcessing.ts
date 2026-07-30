@@ -35,6 +35,7 @@ import type {
 	XPathExpression,
 } from "@/lib/domain";
 import {
+	asUuid,
 	authorableCaseProperties,
 	canonicalCasePropertyName,
 	fieldKindDeclaresKey,
@@ -242,8 +243,18 @@ export function applyDefaults<E extends object = object>(
 					...(prop.validation_msg && { msg: prop.validation_msg }),
 				};
 			}
-			if (declares("options") && isUnset(result.options)) {
-				result.options = prop.options;
+			if (
+				declares("optionsSource") &&
+				isUnset(result.optionsSource) &&
+				prop.options !== undefined
+			) {
+				result.optionsSource = {
+					kind: "inline",
+					options: prop.options.map((option) => ({
+						...option,
+						uuid: asUuid(crypto.randomUUID()),
+					})),
+				};
 			}
 		}
 	}
@@ -369,10 +380,9 @@ export function flatFieldToField(
 			q.default_value.length > 0 && {
 				default_value: parseExpr(q.default_value),
 			}),
-		...(Array.isArray(q.options) &&
-			q.options.length > 0 && {
-				options: q.options,
-			}),
+		...(q.optionsSource !== undefined && {
+			optionsSource: q.optionsSource,
+		}),
 		...(typeof q.case_property_on === "string" &&
 			q.case_property_on.length > 0 && {
 				case_property_on: q.case_property_on,

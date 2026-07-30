@@ -25,7 +25,12 @@ import {
 	normalizeLookupReferenceTargetSet,
 } from "@/lib/doc/lookupReferences";
 import { blankAppMutations } from "@/lib/doc/scaffolds";
-import { asUuid, type LookupOptionsSource, type Uuid } from "@/lib/domain";
+import {
+	asUuid,
+	type InlineOptionsSource,
+	type LookupOptionsSource,
+	type Uuid,
+} from "@/lib/domain";
 import {
 	type LookupColumnId,
 	type LookupTableId,
@@ -182,6 +187,7 @@ function tableTargets(tableId: LookupTableId): LookupReferenceTargetSet {
 interface HistoricalLookupCarrier {
 	readonly appId: string;
 	readonly fieldUuid: Uuid;
+	readonly inlineSource: InlineOptionsSource;
 	readonly optionsSource: LookupOptionsSource;
 	readonly targets: LookupReferenceTargetSet;
 }
@@ -194,10 +200,25 @@ function lookupCarrierFixture(
 } {
 	const fieldUuid = asUuid(crypto.randomUUID());
 	const optionsSource: LookupOptionsSource = {
-		kind: "lookup-table",
+		kind: "lookup",
 		tableId,
 		valueColumnId: columnId,
 		labelColumnId: columnId,
+	};
+	const inlineSource: InlineOptionsSource = {
+		kind: "inline",
+		options: [
+			{
+				uuid: asUuid(crypto.randomUUID()),
+				value: "a",
+				label: "A",
+			},
+			{
+				uuid: asUuid(crypto.randomUUID()),
+				value: "b",
+				label: "B",
+			},
+		],
 	};
 	const doc = buildDoc({
 		appName: "Historical lookup carrier",
@@ -214,10 +235,6 @@ function lookupCarrierFixture(
 								kind: "single_select",
 								id: "choice",
 								label: "Choice",
-								options: [
-									{ value: "a", label: "A" },
-									{ value: "b", label: "B" },
-								],
 								optionsSource,
 							},
 						],
@@ -229,6 +246,7 @@ function lookupCarrierFixture(
 	return {
 		doc,
 		fieldUuid,
+		inlineSource,
 		optionsSource,
 		targets: normalizeLookupReferenceTargetSet({
 			columnTargets: [{ tableId, columnId }],
@@ -473,7 +491,7 @@ describe("lookup materialization versus resource deletion", () => {
 		const table = await createTable(PROJECT_A, "Writer first");
 		const column = table.columns[0];
 		if (column === undefined) throw new Error("lookup table has no column");
-		const { appId, fieldUuid, optionsSource, targets } =
+		const { appId, fieldUuid, inlineSource, optionsSource, targets } =
 			await seedHistoricalLookupCarrier(table.id, column.id);
 
 		expect(await readTargets(appId)).toEqual(EMPTY_LOOKUP_REFERENCE_TARGETS);
@@ -518,8 +536,7 @@ describe("lookup materialization versus resource deletion", () => {
 					kind: "updateField",
 					uuid: fieldUuid,
 					targetKind: "single_select",
-					patch: {},
-					optionsSource: null,
+					patch: { optionsSource: inlineSource },
 				},
 			],
 			actorUserId: ACTOR,
@@ -529,7 +546,9 @@ describe("lookup materialization versus resource deletion", () => {
 		const repaired = await loadApp(appId);
 		if (!repaired) throw new Error("repaired app disappeared");
 		const repairedDoc = hydratePersistedBlueprint(repaired.blueprint);
-		expect(repairedDoc.fields[fieldUuid]).not.toHaveProperty("optionsSource");
+		expect(repairedDoc.fields[fieldUuid]).toMatchObject({
+			optionsSource: inlineSource,
+		});
 		expect(extractLookupReferenceTargets(repairedDoc)).toBe(
 			EMPTY_LOOKUP_REFERENCE_TARGETS,
 		);
@@ -783,10 +802,8 @@ describe("cross-Project move", () => {
 		const table = await createTable(PROJECT_A, "Move blocker");
 		const column = table.columns[0];
 		if (column === undefined) throw new Error("lookup table has no column");
-		const { appId, fieldUuid, targets } = await seedHistoricalLookupCarrier(
-			table.id,
-			column.id,
-		);
+		const { appId, fieldUuid, inlineSource, targets } =
+			await seedHistoricalLookupCarrier(table.id, column.id);
 		await h.seedProjectMember(ACTOR, PROJECT_A, "owner");
 		await h.seedProjectMember(ACTOR, PROJECT_B, "owner");
 		await materializeTargets(appId, PROJECT_A, targets);
@@ -823,8 +840,7 @@ describe("cross-Project move", () => {
 					kind: "updateField",
 					uuid: fieldUuid,
 					targetKind: "single_select",
-					patch: {},
-					optionsSource: null,
+					patch: { optionsSource: inlineSource },
 				},
 			],
 			actorUserId: ACTOR,

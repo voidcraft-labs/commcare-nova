@@ -1,3 +1,4 @@
+import { asUuid } from "@/lib/domain";
 // components/builder/case-list-config/__tests__/predicateSummary.test.ts
 //
 // Pins the human-language Cases available summary used in Results. The contract:
@@ -301,22 +302,39 @@ describe("summarizeFilter", () => {
 	});
 
 	it("leads with the search-answer condition instead of adding an afterthought", () => {
+		const searchInputUuid = asUuid("b3dba847-fcda-4409-84cb-64e94fca14cc");
 		expect(
-			summarizeFilter(whenInput(input("name_search"), statusIsntClosed)),
+			summarizeFilter(whenInput(input(searchInputUuid), statusIsntClosed), {
+				knownInputs: [
+					{
+						uuid: searchInputUuid,
+						name: "name_search",
+						label: "Name search",
+						data_type: "text",
+					},
+				],
+			}),
 		).toBe("When Name search has an answer, status isn't closed");
 	});
 
 	it("uses the authored search-field label while preserving its identity", () => {
 		expect(
-			summarizeFilter(whenInput(input("name_search"), statusIsntClosed), {
-				knownInputs: [
-					{
-						name: "name_search",
-						label: "Client name",
-						data_type: "text",
-					},
-				],
-			}),
+			summarizeFilter(
+				whenInput(
+					input(asUuid("b3dba847-fcda-4409-84cb-64e94fca14cc")),
+					statusIsntClosed,
+				),
+				{
+					knownInputs: [
+						{
+							uuid: asUuid("b3dba847-fcda-4409-84cb-64e94fca14cc"),
+							name: "name_search",
+							label: "Client name",
+							data_type: "text",
+						},
+					],
+				},
+			),
 		).toBe("When Client name has an answer, status isn't closed");
 	});
 
@@ -375,15 +393,24 @@ describe("summarizeFilter", () => {
 			summarizeFilter(not(exists(ancestorPath(relationStep("parent"))))),
 		).toBe("Exclude cases when a related case exists");
 		expect(
-			summarizeFilter(not(whenInput(input("name_search"), statusIsntClosed)), {
-				knownInputs: [
-					{
-						name: "name_search",
-						label: "Client name",
-						data_type: "text",
-					},
-				],
-			}),
+			summarizeFilter(
+				not(
+					whenInput(
+						input(asUuid("b3dba847-fcda-4409-84cb-64e94fca14cc")),
+						statusIsntClosed,
+					),
+				),
+				{
+					knownInputs: [
+						{
+							uuid: asUuid("b3dba847-fcda-4409-84cb-64e94fca14cc"),
+							name: "name_search",
+							label: "Client name",
+							data_type: "text",
+						},
+					],
+				},
+			),
 		).toBe(
 			"Exclude cases when Client name has an answer and status isn't closed",
 		);

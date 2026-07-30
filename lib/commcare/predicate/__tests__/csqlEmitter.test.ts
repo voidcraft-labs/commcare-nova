@@ -91,12 +91,83 @@ import {
 	within,
 } from "@/lib/domain/predicate/builders";
 import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
-import { type CsqlEmissionResult, emitCsql } from "../csqlEmitter";
+import {
+	type CsqlEmissionResult,
+	emitCsql as emitCsqlProduction,
+} from "../csqlEmitter";
+
+const EMITTER_INPUT_CONTEXT: TypeContext = {
+	caseTypes: [],
+	knownInputs: [
+		{
+			uuid: asUuid("42ab9981-e4f6-4efd-8551-66a8fefaaacf"),
+			name: "name_query",
+			data_type: "text",
+		},
+		{
+			uuid: asUuid("3344fe68-5f7e-44bd-86c8-c47a04bfcba6"),
+			name: "user_loc",
+			data_type: "geopoint",
+		},
+		{
+			uuid: asUuid("f38dea69-87fd-4b8c-8190-516b176c3b33"),
+			name: "q",
+			data_type: "text",
+		},
+		{
+			uuid: asUuid("7f70e2d1-0edd-48f5-899a-19312fa8ba28"),
+			name: "minimum_children",
+			data_type: "int",
+		},
+		{
+			uuid: asUuid("6b293497-121c-4244-8ceb-da064d0f99e1"),
+			name: "user_region",
+			data_type: "text",
+		},
+		{
+			uuid: asUuid("e8397dc7-c995-4c3c-8788-ea95337d548b"),
+			name: "phone_query",
+			data_type: "text",
+		},
+		{
+			uuid: asUuid("29411dc8-faa3-47f0-85bf-68f7a8d3f37b"),
+			name: "user_date",
+			data_type: "date",
+		},
+		{
+			uuid: asUuid("25ad91c6-a9a6-4149-8fc7-58743690a909"),
+			name: "user_dt",
+			data_type: "datetime",
+		},
+		{
+			uuid: asUuid("4473b028-8e22-4f40-89ea-0a8bb8f0df7a"),
+			name: "month_offset",
+			data_type: "int",
+		},
+	],
+};
 
 const TEMPORAL_INPUT_CONTEXT: TypeContext = {
 	caseTypes: [],
-	knownInputs: [{ name: "base_date", data_type: "date" }],
+	knownInputs: [
+		{
+			uuid: asUuid("f1b15330-fa10-4778-8521-9bf36b886372"),
+			name: "base_date",
+			data_type: "date",
+		},
+	],
 };
+
+/**
+ * Most cases exercise emission rather than reference discovery. Model the saved
+ * search-input definitions once so every UUID reference projects through the
+ * same immutable-identity boundary production uses.
+ */
+function emitCsql(
+	...args: Parameters<typeof emitCsqlProduction>
+): CsqlEmissionResult {
+	return emitCsqlProduction(args[0], args[1] ?? EMITTER_INPUT_CONTEXT);
+}
 
 function expectDynamicallyQuotedNativeArgument(
 	wrapper: string,
@@ -412,7 +483,9 @@ describe("emitCsql — is-blank", () => {
 		// concat-of-alternating-quotes idiom built on
 		// `lib/commcare/xpath/grammar.lezer.grammar::StringLiteral`
 		// produces the segment chain.
-		const result = emitCsql(isBlank(input("name_query")));
+		const result = emitCsql(
+			isBlank(input(asUuid("42ab9981-e4f6-4efd-8551-66a8fefaaacf"))),
+		);
 		expectRuntimeGuarded(
 			result,
 			`instance('search-input:results')/input/field[@name='name_query']`,
@@ -458,8 +531,11 @@ describe("emitCsql — when-input-present conditional dispatch", () => {
 		// inner clause's CSQL fragment.
 		const result = emitCsql(
 			whenInput(
-				input("name_query"),
-				eq(prop("patient", "full_name"), input("name_query")),
+				input(asUuid("42ab9981-e4f6-4efd-8551-66a8fefaaacf")),
+				eq(
+					prop("patient", "full_name"),
+					input(asUuid("42ab9981-e4f6-4efd-8551-66a8fefaaacf")),
+				),
 			),
 		);
 		expectRuntimeGuarded(
@@ -478,8 +554,11 @@ describe("emitCsql — when-input-present conditional dispatch", () => {
 			and(
 				eq(prop("patient", "age"), literal(18)),
 				whenInput(
-					input("name_query"),
-					eq(prop("patient", "full_name"), input("name_query")),
+					input(asUuid("42ab9981-e4f6-4efd-8551-66a8fefaaacf")),
+					eq(
+						prop("patient", "full_name"),
+						input(asUuid("42ab9981-e4f6-4efd-8551-66a8fefaaacf")),
+					),
 				),
 			),
 		);
@@ -661,7 +740,12 @@ describe("emitCsql — within-distance", () => {
 		// styles and the wrap step splits via the XPath
 		// concat-of-alternating-quotes idiom.
 		const result = emitCsql(
-			within(prop("clinic", "location"), input("user_loc"), 25, "kilometers"),
+			within(
+				prop("clinic", "location"),
+				input(asUuid("3344fe68-5f7e-44bd-86c8-c47a04bfcba6")),
+				25,
+				"kilometers",
+			),
 		);
 		expect(result.wrapper).toContain("'match-none()'");
 		expect(result.wrapper).not.toContain(
@@ -822,7 +906,13 @@ describe("emitCsql — exists / missing", () => {
 		// concat. The segment-list IR composes filter segments into
 		// the outer concat at the call site.
 		const result = emitCsql(
-			exists(subcasePath("child"), eq(prop("child", "x"), input("q"))),
+			exists(
+				subcasePath("child"),
+				eq(
+					prop("child", "x"),
+					input(asUuid("f38dea69-87fd-4b8c-8190-516b176c3b33")),
+				),
+			),
 		);
 		expectRuntimeGuarded(
 			result,
@@ -1034,7 +1124,10 @@ describe("emitCsql — subcase-count in comparison-LHS (native)", () => {
 	it("emits a prompted child-count bound as a guarded raw integer token", () => {
 		const path = `instance('search-input:results')/input/field[@name='minimum_children']`;
 		const result = emitCsql(
-			gt(count(subcasePath("child")), double(term(input("minimum_children")))),
+			gt(
+				count(subcasePath("child")),
+				double(term(input(asUuid("7f70e2d1-0edd-48f5-899a-19312fa8ba28")))),
+			),
 		);
 
 		expect(result.wrapper).toContain(`subcase-count('child') > `);
@@ -1065,7 +1158,10 @@ describe("emitCsql — concat() wrapping shape", () => {
 
 	it("lifts a single input ref as a separate concat() arg", () => {
 		const result = emitCsql(
-			eq(prop("patient", "full_name"), input("name_query")),
+			eq(
+				prop("patient", "full_name"),
+				input(asUuid("42ab9981-e4f6-4efd-8551-66a8fefaaacf")),
+			),
 		);
 		expectRuntimeGuarded(
 			result,
@@ -1077,7 +1173,10 @@ describe("emitCsql — concat() wrapping shape", () => {
 	it("lifts multiple interpolation points as separate concat() args in document order", () => {
 		const result = emitCsql(
 			and(
-				eq(prop("patient", "full_name"), input("name_query")),
+				eq(
+					prop("patient", "full_name"),
+					input(asUuid("42ab9981-e4f6-4efd-8551-66a8fefaaacf")),
+				),
 				eq(prop("patient", "region"), sessionUser("region")),
 			),
 		);
@@ -1106,7 +1205,10 @@ describe("emitCsql — concat() wrapping shape", () => {
 		const result = emitCsql(
 			and(
 				eq(prop("patient", "full_name"), literal("Alice")),
-				eq(prop("patient", "region"), input("user_region")),
+				eq(
+					prop("patient", "region"),
+					input(asUuid("6b293497-121c-4244-8ceb-da064d0f99e1")),
+				),
 			),
 		);
 		expectRuntimeGuarded(
@@ -1705,10 +1807,10 @@ describe("emitCsql — property-via lift (recursion)", () => {
 		// through as a single runtime segment in the outer concat.
 		const result = emitCsql(
 			whenInput(
-				input("q"),
+				input(asUuid("f38dea69-87fd-4b8c-8190-516b176c3b33")),
 				eq(
 					prop("patient", "full_name", ancestorPath(relationStep("parent"))),
-					term(input("q")),
+					term(input(asUuid("f38dea69-87fd-4b8c-8190-516b176c3b33"))),
 				),
 			),
 		);
@@ -1779,7 +1881,12 @@ describe("emitCsql — term-arm unwrap (happy path)", () => {
 	});
 
 	it("unwraps a search-input reference in a comparison's right operand", () => {
-		const result = emitCsql(eq(prop("patient", "phone"), input("phone_query")));
+		const result = emitCsql(
+			eq(
+				prop("patient", "phone"),
+				input(asUuid("e8397dc7-c995-4c3c-8788-ea95337d548b")),
+			),
+		);
 		expectRuntimeGuarded(
 			result,
 			"phone = ",
@@ -1881,7 +1988,10 @@ describe("emitCsql — date-coerce / datetime-coerce rename", () => {
 		const xpath =
 			"instance('search-input:results')/input/field[@name='user_date']";
 		const result = emitCsql(
-			eq(prop("patient", "dob"), dateCoerce(term(input("user_date")))),
+			eq(
+				prop("patient", "dob"),
+				dateCoerce(term(input(asUuid("29411dc8-faa3-47f0-85bf-68f7a8d3f37b")))),
+			),
 		);
 		expectDynamicallyQuotedNativeArgument(
 			result.wrapper,
@@ -1896,7 +2006,9 @@ describe("emitCsql — date-coerce / datetime-coerce rename", () => {
 		const result = emitCsql(
 			eq(
 				prop("patient", "modified_on"),
-				datetimeCoerce(term(input("user_dt"))),
+				datetimeCoerce(
+					term(input(asUuid("25ad91c6-a9a6-4149-8fc7-58743690a909"))),
+				),
 			),
 		);
 		expectDynamicallyQuotedNativeArgument(
@@ -1973,7 +2085,11 @@ describe("emitCsql — value-function whitelist arms in operand position", () =>
 		const result = emitCsql(
 			eq(
 				prop("patient", "due_date"),
-				dateAdd(today(), "months", double(term(input("month_offset")))),
+				dateAdd(
+					today(),
+					"months",
+					double(term(input(asUuid("4473b028-8e22-4f40-89ea-0a8bb8f0df7a")))),
+				),
 			),
 		);
 
@@ -1994,7 +2110,11 @@ describe("emitCsql — value-function whitelist arms in operand position", () =>
 		const result = emitCsql(
 			eq(
 				prop("patient", "due_date"),
-				dateAdd(term(input("base_date")), "days", term(literal(7))),
+				dateAdd(
+					term(input(asUuid("f1b15330-fa10-4778-8521-9bf36b886372"))),
+					"days",
+					term(literal(7)),
+				),
 			),
 			TEMPORAL_INPUT_CONTEXT,
 		);

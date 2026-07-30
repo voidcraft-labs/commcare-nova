@@ -13,18 +13,16 @@
 import tablerCircleDot from "@iconify-icons/tabler/circle-dot";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
-import { lookupOptionsSourceSchema } from "../lookupCarriers";
+import { selectOptionsSourceSchema } from "../lookupCarriers";
 import {
 	inputFieldBaseSchema,
 	mediaSchema,
-	selectOptionSchema,
 	xpathExpressionSchema,
 } from "./base";
 
 export const singleSelectFieldSchema = inputFieldBaseSchema.extend({
 	kind: z.literal("single_select"),
-	options: z.array(selectOptionSchema).min(2),
-	optionsSource: lookupOptionsSourceSchema.optional(),
+	optionsSource: selectOptionsSourceSchema,
 	validate: xpathExpressionSchema.optional(),
 	validate_msg: z.string().optional(),
 	validate_msg_media: mediaSchema.optional(),

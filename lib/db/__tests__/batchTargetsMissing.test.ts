@@ -22,6 +22,7 @@ import {
 	type BlueprintDoc,
 	type CaseOperation,
 	emptyCaseListConfig,
+	type Uuid,
 } from "@/lib/domain";
 
 const OPERATION = asUuid("11111111-1111-4111-8111-111111111111");
@@ -68,10 +69,21 @@ function fixture(): {
 								kind: "single_select",
 								id: "color",
 								label: "Color",
-								options: [
-									{ value: "red", label: "Red" },
-									{ value: "green", label: "Green" },
-								],
+								optionsSource: {
+									kind: "inline",
+									options: [
+										{
+											uuid: asUuid("12978045-c53b-4b49-aa48-4d3104e8bb30"),
+											value: "red",
+											label: "Red",
+										},
+										{
+											uuid: asUuid("e596d9b7-46a7-426a-ad1e-4f9432c61e32"),
+											value: "green",
+											label: "Green",
+										},
+									],
+								},
 							}),
 						],
 					},
@@ -134,11 +146,14 @@ function fixture(): {
 	];
 
 	const select = doc.fields[selectField.uuid] as {
-		options: { value: string; uuid?: string }[];
+		optionsSource: {
+			kind: "inline";
+			options: { value: string; uuid: Uuid }[];
+		};
 	};
 	const optionUuid = asUuid("option-red");
-	select.options[0].uuid = optionUuid;
-	select.options[1].uuid = asUuid("option-green");
+	select.optionsSource.options[0].uuid = optionUuid;
+	select.optionsSource.options[1].uuid = asUuid("option-green");
 
 	return {
 		doc,

@@ -231,10 +231,21 @@ describe("convertField — selection family", () => {
 			kind: "single_select",
 			id: "color",
 			label: "Color",
-			options: [
-				{ value: "r", label: "Red" },
-				{ value: "b", label: "Blue" },
-			],
+			optionsSource: {
+				kind: "inline",
+				options: [
+					{
+						uuid: asUuid("7996ab64-6126-4988-a5f2-be1fb809a8c0"),
+						value: "r",
+						label: "Red",
+					},
+					{
+						uuid: asUuid("71344410-bb45-4a97-ac62-3c0c55c2a20a"),
+						value: "b",
+						label: "Blue",
+					},
+				],
+			},
 		});
 		const next = produce(doc, (d) => {
 			applyMutation(d, {
@@ -247,8 +258,12 @@ describe("convertField — selection family", () => {
 		expect(converted.kind).toBe("multi_select");
 		expect(converted.uuid).toBe("q-1");
 		expect(converted.id).toBe("color");
-		expect(converted.options as Array<{ value: string }>).toHaveLength(2);
-		expect((converted.options as Array<{ value: string }>)[0].value).toBe("r");
+		const source = converted.optionsSource as {
+			kind: "inline";
+			options: Array<{ value: string }>;
+		};
+		expect(source.options).toHaveLength(2);
+		expect(source.options[0].value).toBe("r");
 	});
 
 	it("multi_select → single_select transfers options", () => {
@@ -257,11 +272,26 @@ describe("convertField — selection family", () => {
 			kind: "multi_select",
 			id: "symptoms",
 			label: "Symptoms",
-			options: [
-				{ value: "fever", label: "Fever" },
-				{ value: "cough", label: "Cough" },
-				{ value: "headache", label: "Headache" },
-			],
+			optionsSource: {
+				kind: "inline",
+				options: [
+					{
+						uuid: asUuid("5662f090-ed80-4587-a55e-a838e0af3143"),
+						value: "fever",
+						label: "Fever",
+					},
+					{
+						uuid: asUuid("f31bceb4-1c9b-463a-a200-edce929e7287"),
+						value: "cough",
+						label: "Cough",
+					},
+					{
+						uuid: asUuid("df7bef0f-fd37-4449-a5e7-65a6addafd6b"),
+						value: "headache",
+						label: "Headache",
+					},
+				],
+			},
 		});
 		const next = produce(doc, (d) => {
 			applyMutation(d, {
@@ -272,7 +302,14 @@ describe("convertField — selection family", () => {
 		});
 		const converted = next.fields[asUuid("q-1")] as Record<string, unknown>;
 		expect(converted.kind).toBe("single_select");
-		expect(converted.options as Array<{ value: string }>).toHaveLength(3);
+		expect(
+			(
+				converted.optionsSource as {
+					kind: "inline";
+					options: Array<{ value: string }>;
+				}
+			).options,
+		).toHaveLength(3);
 	});
 });
 
@@ -651,7 +688,7 @@ describe("convertField — string-compatible tier", () => {
 				kind: "convertField",
 				uuid: asUuid("q-1"),
 				toKind: "single_select",
-				options: seed,
+				optionsSource: { kind: "inline", options: seed },
 			});
 		});
 		const converted = next.fields[asUuid("q-1")] as Record<string, unknown>;
@@ -663,10 +700,10 @@ describe("convertField — string-compatible tier", () => {
 		// The payload's minted identity survives untouched — the reducer
 		// never re-mints, which is what keeps a replayed/peer-applied batch
 		// byte-identical to the committer's.
-		expect(converted.options).toEqual(seed);
+		expect(converted.optionsSource).toEqual({ kind: "inline", options: seed });
 	});
 
-	it("text → single_select with no seed options no-ops (schema requires min 2)", () => {
+	it("text → single_select with no source seed no-ops", () => {
 		const doc = docWithField({
 			uuid: "q-1",
 			kind: "text",
@@ -726,10 +763,21 @@ describe("convertField — string-compatible tier", () => {
 			kind: "single_select",
 			id: "status",
 			label: "Status",
-			options: [
-				{ value: "open", label: "Open" },
-				{ value: "closed", label: "Closed" },
-			],
+			optionsSource: {
+				kind: "inline",
+				options: [
+					{
+						uuid: asUuid("53725a08-6d54-4647-a814-b9e693aca27e"),
+						value: "open",
+						label: "Open",
+					},
+					{
+						uuid: asUuid("0acd0c57-22e7-494c-aa7a-9f2aed823e72"),
+						value: "closed",
+						label: "Closed",
+					},
+				],
+			},
 			validate: ". != ''",
 			case_property_on: "patient",
 		});
@@ -743,12 +791,12 @@ describe("convertField — string-compatible tier", () => {
 		const converted = next.fields[asUuid("q-1")] as Record<string, unknown>;
 		expect(converted.kind).toBe("text");
 		expect(converted.id).toBe("status");
-		expect(converted.options).toBeUndefined();
+		expect(converted.optionsSource).toBeUndefined();
 		expect(printSlot(converted.validate, next)).toBe(". != ''");
 		expect(converted.case_property_on).toBe("patient");
 	});
 
-	it("seed options are ignored when the target kind has no options slot", () => {
+	it("a source seed is ignored when the target kind has no source slot", () => {
 		// A stray payload on e.g. text → secret must not smuggle an
 		// `options` key onto a kind whose strict schema rejects it — the
 		// key filter drops it before the parse.
@@ -763,14 +811,25 @@ describe("convertField — string-compatible tier", () => {
 				kind: "convertField",
 				uuid: asUuid("q-1"),
 				toKind: "secret",
-				options: [
-					{ value: "a", label: "A" },
-					{ value: "b", label: "B" },
-				],
+				optionsSource: {
+					kind: "inline",
+					options: [
+						{
+							uuid: asUuid("10000000-0000-4000-8000-000000000001"),
+							value: "a",
+							label: "A",
+						},
+						{
+							uuid: asUuid("10000000-0000-4000-8000-000000000002"),
+							value: "b",
+							label: "B",
+						},
+					],
+				},
 			});
 		});
 		const converted = next.fields[asUuid("q-1")] as Record<string, unknown>;
 		expect(converted.kind).toBe("secret");
-		expect(converted.options).toBeUndefined();
+		expect(converted.optionsSource).toBeUndefined();
 	});
 });

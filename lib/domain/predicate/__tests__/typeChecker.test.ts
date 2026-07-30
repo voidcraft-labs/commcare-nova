@@ -1,3 +1,4 @@
+import { asUuid } from "@/lib/domain";
 // lib/domain/predicate/__tests__/typeChecker.test.ts
 //
 // Acceptance tests for the schema-driven predicate type checker. Each
@@ -248,14 +249,26 @@ describe("checkPredicate — comparison operators", () => {
 	it("accepts input ref against int prop when input is declared", () => {
 		const ctxWithInput = {
 			...ctx,
-			knownInputs: [{ name: "min_age", data_type: "int" as const }],
+			knownInputs: [
+				{
+					uuid: asUuid("446ee3ba-b1e9-4117-8f0e-c6f3b554e062"),
+					name: "min_age",
+					data_type: "int" as const,
+				},
+			],
 		};
-		const p = gt(prop("patient", "age"), input("min_age"));
+		const p = gt(
+			prop("patient", "age"),
+			input(asUuid("446ee3ba-b1e9-4117-8f0e-c6f3b554e062")),
+		);
 		expect(checkPredicate(p, ctxWithInput).ok).toBe(true);
 	});
 
 	it("rejects input ref when input isn't declared", () => {
-		const p = gt(prop("patient", "age"), input("undeclared"));
+		const p = gt(
+			prop("patient", "age"),
+			input(asUuid("52304864-effd-47d2-8600-7fde8f9724a8")),
+		);
 		const result = checkPredicate(p, ctx);
 		expect(result.ok).toBe(false);
 		if (!result.ok) {
@@ -270,7 +283,10 @@ describe("checkPredicate — comparison operators", () => {
 	// problems in one pass. The editor relies on this behavior to
 	// highlight every failing card simultaneously.
 	it("accumulates errors from both operands when both fail to resolve", () => {
-		const p = eq(prop("patient", "bogus"), input("undeclared"));
+		const p = eq(
+			prop("patient", "bogus"),
+			input(asUuid("52304864-effd-47d2-8600-7fde8f9724a8")),
+		);
 		const result = checkPredicate(p, ctx);
 		expect(result.ok).toBe(false);
 		if (!result.ok) {
@@ -419,10 +435,12 @@ describe("checkPredicate — recursion through logical wrappers", () => {
 	it("propagates errors from inside when-input-present's clause", () => {
 		const ctxWithInput = {
 			...ctx,
-			knownInputs: [{ name: "phone" }],
+			knownInputs: [
+				{ uuid: asUuid("91b65850-ffdb-4800-8e63-2e6aaa1c2248"), name: "phone" },
+			],
 		};
 		const p = whenInput(
-			input("phone"),
+			input(asUuid("91b65850-ffdb-4800-8e63-2e6aaa1c2248")),
 			eq(prop("patient", "age"), literal("forty-two")),
 		);
 		const result = checkPredicate(p, ctxWithInput);
@@ -442,7 +460,7 @@ describe("checkPredicate — recursion through logical wrappers", () => {
 	// than its `clause` slot.
 	it("rejects when-input-present with an undeclared trigger input", () => {
 		const p = whenInput(
-			input("undeclared"),
+			input(asUuid("52304864-effd-47d2-8600-7fde8f9724a8")),
 			eq(prop("patient", "name"), literal("Alice")),
 		);
 		const result = checkPredicate(p, ctx);
@@ -480,7 +498,7 @@ describe("checkPredicate — operand resolution on in / within-distance / match 
 	it("rejects within-distance(...) with an unknown property and unknown input", () => {
 		const p = within(
 			prop("alien_type", "loc"),
-			input("undeclared"),
+			input(asUuid("52304864-effd-47d2-8600-7fde8f9724a8")),
 			50,
 			"miles",
 		);
@@ -589,11 +607,17 @@ describe("checkPredicate — within-distance geopoint requirement", () => {
 	it("accepts within-distance with a geopoint property and a typed-geopoint search input as center", () => {
 		const ctxWithGeoInput = {
 			...ctxWithGeo,
-			knownInputs: [{ name: "user_loc", data_type: "geopoint" as const }],
+			knownInputs: [
+				{
+					uuid: asUuid("3344fe68-5f7e-44bd-86c8-c47a04bfcba6"),
+					name: "user_loc",
+					data_type: "geopoint" as const,
+				},
+			],
 		};
 		const p = within(
 			prop("patient", "location"),
-			input("user_loc"),
+			input(asUuid("3344fe68-5f7e-44bd-86c8-c47a04bfcba6")),
 			50,
 			"miles",
 		);
@@ -1658,9 +1682,11 @@ describe("checkPredicate — is-null and is-blank operand-shape rules", () => {
 		// not match — the wire-emission rule is what diverges.
 		const ctxWithInput = {
 			...ctx,
-			knownInputs: [{ name: "phone" }],
+			knownInputs: [
+				{ uuid: asUuid("91b65850-ffdb-4800-8e63-2e6aaa1c2248"), name: "phone" },
+			],
 		};
-		const p = isNull(input("phone"));
+		const p = isNull(input(asUuid("91b65850-ffdb-4800-8e63-2e6aaa1c2248")));
 		expect(checkPredicate(p, ctxWithInput).ok).toBe(true);
 	});
 
@@ -1717,9 +1743,11 @@ describe("checkPredicate — is-null and is-blank operand-shape rules", () => {
 	it("accepts is-blank on a search-input reference", () => {
 		const ctxWithInput = {
 			...ctx,
-			knownInputs: [{ name: "phone" }],
+			knownInputs: [
+				{ uuid: asUuid("91b65850-ffdb-4800-8e63-2e6aaa1c2248"), name: "phone" },
+			],
 		};
-		const p = isBlank(input("phone"));
+		const p = isBlank(input(asUuid("91b65850-ffdb-4800-8e63-2e6aaa1c2248")));
 		expect(checkPredicate(p, ctxWithInput).ok).toBe(true);
 	});
 
@@ -1768,7 +1796,7 @@ describe("checkPredicate — is-null and is-blank operand-shape rules", () => {
 		// Symmetric with `is-null` — input refs flow through the same
 		// resolution path. An undeclared input emits the same shape of
 		// error a comparison's `input` operand would.
-		const p = isBlank(input("phone"));
+		const p = isBlank(input(asUuid("91b65850-ffdb-4800-8e63-2e6aaa1c2248")));
 		const result = checkPredicate(p, ctx);
 		expect(result.ok).toBe(false);
 		if (!result.ok) {

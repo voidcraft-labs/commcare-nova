@@ -19,12 +19,8 @@ describe("lookup carriers at the direct XForm boundary", () => {
 									kind: "single_select",
 									id: "status",
 									label: "Status",
-									options: [
-										{ value: "open", label: "Open" },
-										{ value: "closed", label: "Closed" },
-									],
 									optionsSource: {
-										kind: "lookup-table",
+										kind: "lookup",
 										tableId: "018f3e8a-7b2c-7def-8abc-1234567890ab",
 										valueColumnId: "018f3e8a-7b2c-7def-8abc-1234567890ad",
 										labelColumnId: "018f3e8a-7b2c-7def-8abc-1234567890ae",

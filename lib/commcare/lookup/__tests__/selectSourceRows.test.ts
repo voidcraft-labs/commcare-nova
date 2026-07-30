@@ -21,7 +21,7 @@ const LABEL_COL = "018f0000-0000-7000-8000-0000000000b2" as LookupColumnId;
 const ABSENT_COL = "018f0000-0000-7000-8000-0000000000bf" as LookupColumnId;
 
 const SOURCE: LookupOptionsSource = {
-	kind: "lookup-table",
+	kind: "lookup",
 	tableId: TABLE,
 	valueColumnId: VALUE_COL,
 	labelColumnId: LABEL_COL,

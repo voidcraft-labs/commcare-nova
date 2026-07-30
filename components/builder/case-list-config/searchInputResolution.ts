@@ -416,14 +416,14 @@ export function rowHasStructuralError(resolved: ResolvedRow): boolean {
 //
 // The search inputs in scope for a row's advanced-predicate / type-
 // check editor are EVERY named row — the edited row INCLUDED. A search
-// input's custom condition is keyed to its OWN input through the
-// `when-input-present(input(name), …)` envelope that both
+// input's custom condition is keyed to its OWN UUID through the
+// `when-input-present` envelope that both
 // `seedCustomCondition` and the wire-emit `deriveSimpleArmPredicate`
 // produce, so a row referencing its own input is the canonical shape,
 // not a self-reference to forbid. This mirrors the validator's
 // `moduleTypeContext`, which builds `knownInputs` from the full
 // `caseListConfig.searchInputs` list — editor, preview gate, commit
-// gate, and wire emitter all resolve `input(...)` against ONE scope,
+// gate, and wire emitter all resolve Search-input identities against ONE scope,
 // so none can flag a reference the others accept.
 //
 // Slots that run BEFORE the search screen opens — default values,
@@ -435,6 +435,7 @@ export function deriveSearchInputDecl(
 	row: SearchInputDef,
 ): EditorSearchInputDecl {
 	return {
+		uuid: row.uuid,
 		name: row.name,
 		label: row.label,
 		data_type: SEARCH_INPUT_RUNTIME_VALUE_TYPES[row.type],
@@ -585,7 +586,7 @@ export function seedCustomCondition(
 		row.via === undefined || row.via.kind === "self" ? undefined : row.via;
 	const propertyRef = prop(currentCaseType, row.property, viaForRef);
 	if (row.name === "") return eq(propertyRef, literal(""));
-	const inputRef = input(row.name);
+	const inputRef = input(row.uuid);
 	const modeKind = effectiveModeKind(row);
 	const clause = (() => {
 		switch (modeKind) {

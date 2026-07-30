@@ -26,10 +26,7 @@
 
 import { z } from "zod";
 import { asUuid, type BlueprintDoc, type Uuid } from "@/lib/domain";
-import {
-	resolveModuleUuid,
-	updateColumnMutation,
-} from "../../blueprintHelpers";
+import { updateColumnMutation } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import {
 	guardedMutate,
@@ -46,9 +43,9 @@ import {
 
 export const updateCaseListColumnInputSchema = z
 	.object({
-		moduleIndex: z
-			.number()
-			.describe("0-based module index whose case list column to update"),
+		moduleUuid: uuidInputSchema.describe(
+			"Stable uuid of the module whose case list column is updated",
+		),
 		columnUuid: uuidInputSchema.describe(
 			"Uuid of the existing column to replace. Look at getModule's projection or run searchBlueprint to surface the current uuids.",
 		),
@@ -81,21 +78,19 @@ export const updateCaseListColumnTool = {
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<UpdateCaseListColumnResult>> {
-		const { moduleIndex, columnUuid: rawColumnUuid, column } = input;
+		const {
+			moduleUuid: rawModuleUuid,
+			columnUuid: rawColumnUuid,
+			column,
+		} = input;
+		const moduleUuid = asUuid(rawModuleUuid);
 		const columnUuid = asUuid(rawColumnUuid);
 		try {
-			const moduleUuid = resolveModuleUuid(doc, moduleIndex);
-			if (!moduleUuid)
-				return moduleNotFoundResult<UpdateCaseListColumnSuccess>(
-					doc,
-					moduleIndex,
-					"update a case list column",
-				);
 			const mod = doc.modules[moduleUuid];
 			if (!mod)
 				return moduleNotFoundResult<UpdateCaseListColumnSuccess>(
 					doc,
-					moduleIndex,
+					rawModuleUuid,
 					"update a case list column",
 				);
 
@@ -114,7 +109,7 @@ export const updateCaseListColumnTool = {
 				ctx,
 				doc,
 				result.mutations,
-				`module:${moduleIndex}:caseList:column:update`,
+				`module:${moduleUuid}:caseList:column:update`,
 			);
 			if (!commit.ok) {
 				return {

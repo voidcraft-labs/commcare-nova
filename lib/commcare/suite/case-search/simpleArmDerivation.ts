@@ -45,7 +45,7 @@
 //      (and match zero rows when no case property by that name
 //      exists). To preserve authoring intent the wire emitter does
 //      two things together: it routes the explicit
-//      `<property> = <input(name)>` comparison through `_xpath_query`,
+//      `<property> = <input>` comparison through `_xpath_query`,
 //      and it stamps `exclude="true()"` on the bare prompt so CCHQ's
 //      runtime suppresses the bogus auto-match. The user's typed
 //      value is still bound to `instance('search-input:results')/input/field[@name='<input.name>']`,
@@ -71,8 +71,8 @@
 // a single prompt binding) and rejects `multi-select-contains` on
 // every simple-arm input (the AST stores the values list as
 // literals, so the simple-arm derivation has no operator that
-// admits `input(name)` as the membership source — authors who need
-// token containment compose `selected(prop, input(name))` on the
+// admits a Search-input term as the membership source — authors who need
+// token containment compose that containment against a UUID-linked input on the
 // advanced arm). Both rejections fire before this helper runs; the
 // helper still names the closed mode set explicitly so a future
 // `SearchInputMode` arm surfaces here as a compile-time `never`
@@ -134,8 +134,9 @@ import { emitCasePropertyWirePath } from "../../casePropertyWire";
  *     `_xpath_query`. The prompt binds one runtime value but
  *     carries no relation-walk metadata, and CCHQ's auto-match keys
  *     on the prompt key (not the authored target). The explicit
- *     comparison `<property> = <input(name)>` lives in the
- *     predicate; the prompt rides `exclude="true()"` so the
+ *     comparison `<property> = <input>` lives in the predicate; the AST carries
+ *     the input UUID and the emitter resolves its current prompt name. The
+ *     prompt rides `exclude="true()"` so the
  *     auto-match doesn't fire on a property that may not exist.
  *
  *   - **date `exact` (every shape)** — `_xpath_query`. The selected
@@ -285,7 +286,7 @@ export function deriveSimpleArmPredicate(
 			? undefined
 			: authored.via;
 	const propertyRef = prop(caseType, authored.property, viaForRef);
-	const inputRef = input(authored.name);
+	const inputRef = input(authored.uuid);
 
 	// The `when-input-present` envelope routes through the canonical
 	// `if(count(<trigger>), <inner-csql>, 'match-all()')` shape at

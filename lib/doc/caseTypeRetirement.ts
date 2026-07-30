@@ -518,7 +518,8 @@ function collectFieldReferences(
 			case "lookup-carrier":
 				if (
 					(field.kind === "single_select" || field.kind === "multi_select") &&
-					field.optionsSource?.filter !== undefined &&
+					field.optionsSource.kind === "lookup" &&
+					field.optionsSource.filter !== undefined &&
 					predicateRefsCaseType(field.optionsSource.filter, caseType)
 				) {
 					out.push({

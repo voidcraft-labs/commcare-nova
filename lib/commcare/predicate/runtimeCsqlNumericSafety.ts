@@ -1,6 +1,7 @@
 /** Numeric constraints imposed by CCHQ's server-side case-search parser. */
 
 import type { Predicate, ValueExpression } from "@/lib/domain/predicate";
+import type { Uuid } from "@/lib/domain/uuid";
 
 export type RuntimeCsqlNumericConstraint =
 	| "whole-number"
@@ -10,8 +11,7 @@ export type CsqlNumericValueClassification =
 	| { readonly kind: "static-valid"; readonly value: number }
 	| {
 			readonly kind: "runtime-input";
-			readonly inputName: string;
-			readonly inputXPath: string;
+			readonly inputUuid: Uuid;
 	  }
 	| { readonly kind: "unsupported" };
 
@@ -23,12 +23,11 @@ export function classifyCalendarDateAddQuantity(
 	if (known !== undefined && Number.isInteger(known)) {
 		return { kind: "static-valid", value: known };
 	}
-	const inputName = numericInputName(expression, false);
-	if (inputName !== undefined) {
+	const inputUuid = numericInputUuid(expression, false);
+	if (inputUuid !== undefined) {
 		return {
 			kind: "runtime-input",
-			inputName,
-			inputXPath: searchInputXPath(inputName),
+			inputUuid,
 		};
 	}
 	return { kind: "unsupported" };
@@ -42,12 +41,11 @@ export function classifySubcaseCountBound(
 	if (known !== undefined && Number.isInteger(known) && known >= 0) {
 		return { kind: "static-valid", value: known };
 	}
-	const inputName = numericInputName(expression, true);
-	if (inputName !== undefined) {
+	const inputUuid = numericInputUuid(expression, true);
+	if (inputUuid !== undefined) {
 		return {
 			kind: "runtime-input",
-			inputName,
-			inputXPath: searchInputXPath(inputName),
+			inputUuid,
 		};
 	}
 	return { kind: "unsupported" };
@@ -72,32 +70,32 @@ export function promptWholeNumberTest(
 /** Numeric prompt requirements from the exact normalized CSQL predicate. */
 export function collectRuntimeCsqlNumericInputConstraints(
 	predicate: Predicate,
-): ReadonlyMap<string, RuntimeCsqlNumericConstraint> {
-	const constraints = new Map<string, RuntimeCsqlNumericConstraint>();
+): ReadonlyMap<Uuid, RuntimeCsqlNumericConstraint> {
+	const constraints = new Map<Uuid, RuntimeCsqlNumericConstraint>();
 	walkQueryPredicate(predicate, constraints);
 	return constraints;
 }
 
 function addConstraint(
-	out: Map<string, RuntimeCsqlNumericConstraint>,
-	name: string,
+	out: Map<Uuid, RuntimeCsqlNumericConstraint>,
+	inputUuid: Uuid,
 	constraint: RuntimeCsqlNumericConstraint,
 ): void {
 	if (
 		constraint === "nonnegative-whole-number" ||
-		out.get(name) === undefined
+		out.get(inputUuid) === undefined
 	) {
-		out.set(name, constraint);
+		out.set(inputUuid, constraint);
 	}
 }
 
 function addSubcaseBoundConstraint(
 	expression: ValueExpression,
-	out: Map<string, RuntimeCsqlNumericConstraint>,
+	out: Map<Uuid, RuntimeCsqlNumericConstraint>,
 ): void {
 	const classification = classifySubcaseCountBound(expression);
 	if (classification.kind === "runtime-input") {
-		addConstraint(out, classification.inputName, "nonnegative-whole-number");
+		addConstraint(out, classification.inputUuid, "nonnegative-whole-number");
 	}
 }
 
@@ -107,7 +105,7 @@ function isSubcaseCount(expression: ValueExpression): boolean {
 
 function walkQueryPredicate(
 	predicate: Predicate,
-	out: Map<string, RuntimeCsqlNumericConstraint>,
+	out: Map<Uuid, RuntimeCsqlNumericConstraint>,
 ): void {
 	switch (predicate.kind) {
 		case "match-all":
@@ -176,7 +174,7 @@ type RuntimeDialect = "csql" | "on-device";
 function walkRuntimeValue(
 	expression: ValueExpression,
 	dialect: RuntimeDialect,
-	out: Map<string, RuntimeCsqlNumericConstraint>,
+	out: Map<Uuid, RuntimeCsqlNumericConstraint>,
 ): void {
 	const childDialect: RuntimeDialect =
 		dialect === "csql" && isNativeCsqlExpression(expression)
@@ -199,7 +197,7 @@ function walkRuntimeValue(
 					expression.quantity,
 				);
 				if (classification.kind === "runtime-input") {
-					addConstraint(out, classification.inputName, "whole-number");
+					addConstraint(out, classification.inputUuid, "whole-number");
 				}
 			}
 			walkRuntimeValue(expression.date, childDialect, out);
@@ -281,23 +279,23 @@ function isNativeCsqlExpression(expression: ValueExpression): boolean {
 	}
 }
 
-function numericInputName(
+function numericInputUuid(
 	expression: ValueExpression,
 	allowDirectInput: boolean,
-): string | undefined {
+): Uuid | undefined {
 	if (
 		expression.kind === "double" &&
 		expression.value.kind === "term" &&
 		expression.value.term.kind === "input"
 	) {
-		return expression.value.term.name;
+		return expression.value.term.searchInputUuid;
 	}
 	if (
 		allowDirectInput &&
 		expression.kind === "term" &&
 		expression.term.kind === "input"
 	) {
-		return expression.term.name;
+		return expression.term.searchInputUuid;
 	}
 	return undefined;
 }
@@ -320,8 +318,4 @@ function finiteNumber(value: unknown): number | undefined {
 	if (typeof value !== "string" || value.trim() === "") return undefined;
 	const parsed = Number(value);
 	return Number.isFinite(parsed) ? parsed : undefined;
-}
-
-function searchInputXPath(name: string): string {
-	return `instance('search-input:results')/input/field[@name='${name}']`;
 }

@@ -86,7 +86,6 @@ import {
 	type FieldKind,
 	isCaptureFieldKind,
 	type Media,
-	type SelectOption,
 	type Uuid,
 	userPropertySlugsByUuid,
 } from "@/lib/domain";
@@ -727,21 +726,17 @@ export function buildXForm(
 }
 
 /**
- * Read a field's `options` array regardless of which kind declares it.
- * Same rationale as `readFieldString` (lib/commcare/fieldProps.ts):
- * `options` appears only on select variants, so the accessor returns
- * `undefined` for kinds that don't carry it.
+ * Read a select's inline options. Lookup sources deliberately return
+ * `undefined`; there is no inactive inline body beside them.
  */
-function readOptions(
+function readInlineOptions(
 	field: Field,
 ): Array<{ value: string; label: string; media?: Media }> | undefined {
-	const value = (field as unknown as Record<string, unknown>).options;
-	if (!Array.isArray(value)) return undefined;
-	// Return options in DISPLAY (`sort-by-(order, uuid)`) order. Sorting HERE,
-	// at the one accessor, keeps the per-option index keys consistent between
-	// the itext-registration pass and the `<item>`-emission pass — sorting only
-	// one would dangle a `<label ref>`. `order` never reaches the wire.
-	return [...(value as SelectOption[])];
+	if (field.kind !== "single_select" && field.kind !== "multi_select") {
+		return undefined;
+	}
+	if (field.optionsSource.kind !== "inline") return undefined;
+	return [...field.optionsSource.options];
 }
 
 /**
@@ -855,7 +850,7 @@ function buildFieldParts(
 	const field = doc.fields[fieldUuid];
 	const lookupSource =
 		(field.kind === "single_select" || field.kind === "multi_select") &&
-		field.optionsSource !== undefined
+		field.optionsSource.kind === "lookup"
 			? field.optionsSource
 			: undefined;
 	if (lookupSource !== undefined && lookupSelects === undefined) {
@@ -1046,11 +1041,8 @@ function buildFieldParts(
 	// value-uniqueness check). So the collision lived purely in the itext
 	// layer; an index key makes the id unique by construction. The `<item>`
 	// emission below uses the identical scheme so no `<label ref>` dangles.
-	// A lookup-backed select emits one <itemset> instead of inline <item>s,
-	// so its authored inline fallback registers no option itext (an entry
-	// with no referencing <item> would be dead weight; the fallback stays
-	// authored-only until an older receiver renders it).
-	const options = lookupSource !== undefined ? undefined : readOptions(field);
+	// A lookup-backed select emits one itemset and owns no inline option body.
+	const options = readInlineOptions(field);
 	if (options && options.length > 0) {
 		options.forEach((opt, index) => {
 			// Force-register every option's `-label` entry: each `<item>`
@@ -1243,8 +1235,8 @@ function buildLeafControl(
 	if (field.kind === "single_select" || field.kind === "multi_select") {
 		const tag = field.kind === "single_select" ? "select1" : "select";
 		// A lookup-backed select carries exactly one <itemset> and zero inline
-		// <item>s (JavaRosa rejects a select mixing both); its inline fallback
-		// options stay authored-only. Otherwise each `<item>`'s `<label ref>`
+		// <item>s (JavaRosa rejects a select mixing both). Otherwise each
+		// `<item>`'s `<label ref>`
 		// references the same per-INDEX itext id registered by the caller
 		// (`-opt${index}-label`), so duplicate option values never collide. The
 		// `<value>` emits `opt.value` verbatim — the serializer escapes it;
@@ -1252,7 +1244,7 @@ function buildLeafControl(
 		if (itemset !== undefined) {
 			return el(tag, { ref }, [...head, itemset]);
 		}
-		const options = readOptions(field) ?? [];
+		const options = readInlineOptions(field) ?? [];
 		const items = options.map((opt, index) =>
 			el("item", {}, [
 				el("label", { ref: `jr:itext('${itextKey}-opt${index}-label')` }),

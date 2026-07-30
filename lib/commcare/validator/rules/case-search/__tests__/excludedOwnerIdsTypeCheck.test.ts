@@ -148,8 +148,9 @@ describe("excludedOwnerIdsTypeCheck", () => {
 	});
 
 	it("retains literals, current-user/session values, Search answers, and pure calculations", () => {
+		const ownerInputUuid = asUuid("4383fe29-27a8-4295-8b89-5b7187fd9f08");
 		const searchInput = simpleSearchInputDef(
-			asUuid("owner-input"),
+			ownerInputUuid,
 			"owner_ids",
 			"Owner IDs",
 			"text",
@@ -159,10 +160,10 @@ describe("excludedOwnerIdsTypeCheck", () => {
 			term(literal("owner-a owner-b")),
 			term(sessionContext("userid")),
 			term(sessionUser("assigned_owner_ids")),
-			term(input("owner_ids")),
+			term(input(ownerInputUuid)),
 			ifExpr(
 				eq(term(sessionContext("userid")), literal("worker-a")),
-				concat(term(input("owner_ids")), term(literal(" owner-a"))),
+				concat(term(input(ownerInputUuid)), term(literal(" owner-a"))),
 				term(literal("")),
 			),
 		];

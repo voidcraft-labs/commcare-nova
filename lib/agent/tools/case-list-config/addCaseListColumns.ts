@@ -22,8 +22,8 @@
  */
 
 import { z } from "zod";
-import type { BlueprintDoc, Uuid } from "@/lib/domain";
-import { addColumnsMutation, resolveModuleUuid } from "../../blueprintHelpers";
+import { asUuid, type BlueprintDoc, type Uuid } from "@/lib/domain";
+import { addColumnsMutation } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import {
 	guardedMutate,
@@ -36,13 +36,14 @@ import {
 	moduleNotFoundResult,
 	newUuid,
 	stampColumnUuid,
+	uuidInputSchema,
 } from "./shared";
 
 export const addCaseListColumnsInputSchema = z
 	.object({
-		moduleIndex: z
-			.number()
-			.describe("0-based module index whose case list to add columns to"),
+		moduleUuid: uuidInputSchema.describe(
+			"Stable uuid of the module whose case list receives the columns",
+		),
 		columns: z
 			.array(columnInputSchema)
 			.min(1)
@@ -79,20 +80,14 @@ export const addCaseListColumnsTool = {
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<AddCaseListColumnsResult>> {
-		const { moduleIndex, columns } = input;
+		const { moduleUuid: rawModuleUuid, columns } = input;
+		const moduleUuid = asUuid(rawModuleUuid);
 		try {
-			const moduleUuid = resolveModuleUuid(doc, moduleIndex);
-			if (!moduleUuid)
-				return moduleNotFoundResult<AddCaseListColumnsSuccess>(
-					doc,
-					moduleIndex,
-					"add case list columns",
-				);
 			const mod = doc.modules[moduleUuid];
 			if (!mod)
 				return moduleNotFoundResult<AddCaseListColumnsSuccess>(
 					doc,
-					moduleIndex,
+					rawModuleUuid,
 					"add case list columns",
 				);
 
@@ -106,7 +101,7 @@ export const addCaseListColumnsTool = {
 				ctx,
 				doc,
 				result.mutations,
-				`module:${moduleIndex}:caseList:column:add`,
+				`module:${moduleUuid}:caseList:column:add`,
 			);
 			if (!commit.ok) {
 				return {

@@ -12,7 +12,6 @@
  */
 
 import { xp } from "@/lib/__tests__/docHelpers";
-import { backfillOptionUuids } from "@/lib/doc/optionIdentity";
 import {
 	asUuid,
 	type BlueprintDoc,
@@ -101,6 +100,8 @@ export const FORM_A = asUuid("22222222-2222-2222-2222-222222222222");
 export const TEXT_FIELD = asUuid("33333333-3333-3333-3333-333333333333");
 export const SELECT_FIELD = asUuid("44444444-4444-4444-4444-444444444444");
 export const HIDDEN_FIELD = asUuid("55555555-5555-5555-5555-555555555555");
+export const FEVER_OPTION = asUuid("66666666-6666-4666-8666-666666666666");
+export const COUGH_OPTION = asUuid("77777777-7777-4777-8777-777777777777");
 
 /**
  * Minimal field-bearing `BlueprintDoc`: a `patient` module + a
@@ -134,10 +135,13 @@ export function makeMediaDoc(): BlueprintDoc {
 		id: "symptom",
 		kind: "single_select",
 		label: "Primary symptom",
-		options: [
-			{ value: "fever", label: "Fever" },
-			{ value: "cough", label: "Cough" },
-		],
+		optionsSource: {
+			kind: "inline",
+			options: [
+				{ uuid: FEVER_OPTION, value: "fever", label: "Fever" },
+				{ uuid: COUGH_OPTION, value: "cough", label: "Cough" },
+			],
+		},
 	} as Field;
 	const hiddenField: Field = {
 		uuid: HIDDEN_FIELD,
@@ -171,10 +175,6 @@ export function makeMediaDoc(): BlueprintDoc {
 			[HIDDEN_FIELD]: FORM_A,
 		},
 	};
-	// Mirror the production hydration boundary (`loadAppBlueprint`): backfill
-	// order keys + option uuids so a granular `updateOption` can key the option
-	// by uuid (a hand-built fixture lacks them otherwise).
-	backfillOptionUuids(doc);
 	return doc;
 }
 

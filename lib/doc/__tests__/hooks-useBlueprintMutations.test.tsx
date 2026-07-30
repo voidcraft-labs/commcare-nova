@@ -1206,8 +1206,13 @@ describe("useBlueprintMutations", () => {
 
 			const converted = result.current.store?.getState().fields[Q_A];
 			expect(converted?.kind).toBe("single_select");
-			const options =
-				converted && "options" in converted ? converted.options : [];
+			if (
+				converted?.kind !== "single_select" ||
+				converted.optionsSource.kind !== "inline"
+			) {
+				throw new Error("expected converted inline select");
+			}
+			const options = converted.optionsSource.options;
 			expect(options.map((o) => o.value)).toEqual(["option_1", "option_2"]);
 			for (const opt of options) {
 				expect(opt.uuid).toBeTruthy();

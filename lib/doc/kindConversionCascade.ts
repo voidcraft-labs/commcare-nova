@@ -62,12 +62,12 @@ import {
 	type CasePropertyDataType,
 	caseDataTypeForFieldKind,
 	castCanFail,
-	convertNeedsOptionSeed,
+	convertNeedsOptionsSourceSeed,
 	type Field,
 	type FieldKind,
 	fieldCasePropertyOn,
 	getConvertibleTypes,
-	type SelectOption,
+	type SelectOptionsSource,
 } from "@/lib/domain";
 import { declarersOf } from "./referenceIndex";
 import type { BlueprintDoc, Mutation, Uuid } from "./types";
@@ -136,25 +136,24 @@ export type KindConversionPlanResult =
  * pass the field with that override applied, or the plan cascades a
  * binding the field is about to leave.
  *
- * `mintOptions` supplies born options for a converted field whose
- * source kind has none (`convertNeedsOptionSeed`) — called once PER
- * converted field so every field gets its own minted option identities
- * (uuid + order), never shared references.
+ * `mintOptionsSource` supplies a complete source for a converted field whose
+ * source kind has none. It is called once per converted field so inline option
+ * identities are never shared.
  */
 export function planKindConversion(args: {
 	doc: BlueprintDoc;
 	field: Field;
 	toKind: FieldKind;
-	mintOptions?: () => SelectOption[];
+	mintOptionsSource?: () => SelectOptionsSource;
 }): KindConversionPlanResult {
-	const { doc, field, toKind, mintOptions } = args;
+	const { doc, field, toKind, mintOptionsSource } = args;
 
 	const convertMutation = (target: Field): Mutation => ({
 		kind: "convertField",
 		uuid: target.uuid,
 		toKind,
-		...(convertNeedsOptionSeed(target, toKind) &&
-			mintOptions && { options: mintOptions() }),
+		...(convertNeedsOptionsSourceSeed(target, toKind) &&
+			mintOptionsSource && { optionsSource: mintOptionsSource() }),
 	});
 
 	const addressedConvert = convertMutation(field);
@@ -303,10 +302,9 @@ function redeclareMutation(
 }
 
 /** The declaration's option pairs for a select target — the addressed
- *  field's converted options (the seed already minted onto its
- *  `convertField` mutation, or the existing list where the source
- *  carries one), stripped to the catalog's `{value, label}` shape. A
- *  non-select target declares none. */
+ *  field's converted inline source (or existing inline source), stripped to
+ *  the catalog's `{value, label}` shape. Lookup sources and non-select
+ *  targets declare none. */
 function declarationOptions(
 	field: Field,
 	toKind: FieldKind,
@@ -317,8 +315,12 @@ function declarationOptions(
 	}
 	const source =
 		addressedConvert.kind === "convertField" &&
-		addressedConvert.options !== undefined
-			? addressedConvert.options
-			: (field as { options?: SelectOption[] }).options;
-	return source?.map(({ value, label }) => ({ value, label }));
+		addressedConvert.optionsSource !== undefined
+			? addressedConvert.optionsSource
+			: field.kind === "single_select" || field.kind === "multi_select"
+				? field.optionsSource
+				: undefined;
+	return source?.kind === "inline"
+		? source.options.map(({ value, label }) => ({ value, label }))
+		: undefined;
 }

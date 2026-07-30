@@ -125,9 +125,14 @@ describe("module display-condition validation", () => {
 	});
 
 	it("rejects Search answers and conditions that simplify to false", () => {
-		expect(validateModule(eq(input("name"), literal("Ada")))).toContain(
-			"DISPLAY_CONDITION_SEARCH_INPUT_UNAVAILABLE",
-		);
+		expect(
+			validateModule(
+				eq(
+					input(asUuid("556707de-6346-4bde-8e05-297ee5720141")),
+					literal("Ada"),
+				),
+			),
+		).toContain("DISPLAY_CONDITION_SEARCH_INPUT_UNAVAILABLE");
 		expect(validateModule(matchNone())).toContain(
 			"DISPLAY_CONDITION_ALWAYS_FALSE",
 		);

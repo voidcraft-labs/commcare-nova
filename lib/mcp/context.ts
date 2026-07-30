@@ -36,6 +36,10 @@
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import {
+	readToolLookupCatalog,
+	readToolLookupDefinitions,
+} from "@/lib/agent/lookupContext";
 import type {
 	ConversionImpactFn,
 	RecordMutationsResult,
@@ -73,6 +77,8 @@ export interface McpContextOptions {
 	userId: string;
 	/** Project captured by the adapter's authorized app load. */
 	projectId: string;
+	/** Fresh Better Auth Project role from that same authorized load. */
+	projectRole?: string;
 	/** Run id — derived by the adapter from the app doc's current state. */
 	runId: string;
 	/** Event-log sink. Always constructed with `source: "mcp"` by the adapter. */
@@ -89,6 +95,7 @@ export class McpContext implements ToolExecutionContext {
 	readonly appId: string;
 	readonly userId: string;
 	readonly projectId: string;
+	readonly projectRole: string;
 	readonly runId: string;
 	readonly logWriter: LogWriter;
 	readonly progress: ProgressEmitter;
@@ -109,11 +116,32 @@ export class McpContext implements ToolExecutionContext {
 		this.appId = opts.appId;
 		this.userId = opts.userId;
 		this.projectId = opts.projectId;
+		this.projectRole = opts.projectRole ?? "viewer";
 		this.runId = opts.runId;
 		this.logWriter = opts.logWriter;
 		this.progress = opts.progress;
 		this.conversionImpact = opts.conversionImpact;
 	}
+
+	readonly lookupDefinitions: NonNullable<
+		ToolExecutionContext["lookupDefinitions"]
+	> = (tableIds) =>
+		readToolLookupDefinitions(
+			{
+				projectId: this.projectId,
+				actorId: this.userId,
+				role: this.projectRole,
+			},
+			tableIds,
+		);
+
+	readonly lookupCatalog: NonNullable<ToolExecutionContext["lookupCatalog"]> =
+		() =>
+			readToolLookupCatalog({
+				projectId: this.projectId,
+				actorId: this.userId,
+				role: this.projectRole,
+			});
 
 	/** See {@link ToolExecutionContext.conversionImpact} — injected at
 	 * construction (`McpContextOptions.conversionImpact`). */
@@ -375,6 +403,7 @@ export function initMcpCall(
 	ctx: ToolContext,
 	appId: string,
 	projectId: string,
+	projectRole: string,
 	runId: string,
 	extra: McpCallExtra | undefined,
 ): InitMcpCallResult {
@@ -385,6 +414,7 @@ export function initMcpCall(
 		appId,
 		userId: ctx.userId,
 		projectId,
+		projectRole,
 		runId,
 		logWriter,
 		progress,

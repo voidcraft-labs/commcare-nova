@@ -4,8 +4,8 @@
  * Lookup rows live outside `BlueprintDoc`, while domain carriers store stable
  * lookup table/column identities in the doc. This module is the
  * client-safe seam between those structural carriers, validation, and the
- * normalized reference-edge writer. S05a registers the first production
- * carriers after the dormant schemas and rolling envelope can preserve them.
+ * normalized reference-edge writer. The production registry fixes the complete
+ * set of lookup-bearing slots used by validation, reference edges, and export.
  *
  * Extractors are explicit immutable values. Tests may inject a synthetic
  * registry; production validation imports the frozen registry below. There is no
@@ -320,7 +320,7 @@ export function collectLookupOptionsSourceCarriers(
 		if (field.kind !== "single_select" && field.kind !== "multi_select") {
 			continue;
 		}
-		if (field.optionsSource === undefined) continue;
+		if (field.optionsSource.kind !== "lookup") continue;
 		carriers.push({
 			fieldUuid: field.uuid,
 			fieldId: field.id,
@@ -342,7 +342,7 @@ function extractLookupOptionsSources(
 			continue;
 		}
 		const source = field.optionsSource;
-		if (source === undefined) continue;
+		if (source.kind !== "lookup") continue;
 		const location = fieldLocation(doc, field, parents);
 		references.push(
 			{
@@ -637,7 +637,7 @@ function productionExtractor(
 }
 
 /**
- * S05a production registry. Each entry names one immutable domain slot; array
+ * Production registry. Each entry names one immutable domain slot; array
  * members without their own UUID (operation writes/links) retain the owning
  * operation UUID and use their validator-enforced unique property/identifier
  * as a semantic member anchor below the slot.

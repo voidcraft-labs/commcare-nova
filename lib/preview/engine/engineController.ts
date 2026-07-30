@@ -312,16 +312,17 @@ function classifyChange(
 		return "expression";
 	}
 
-	// Lookup-backed options source (select kinds only). Reference compare,
-	// same rationale as the AST slots above: a commit installs a fresh
-	// object, so identity diff ≡ "this slot was written". Static inline
-	// `options` edits stay "none" — the renderer reads them off the doc.
-	// Checked BEFORE default_value: a single commit writing both slots
-	// must reach the options_source dispatch (which also reapplies the
-	// default) or the choices list would keep the previous source.
-	const curSelect = cur as Field & { optionsSource?: unknown };
-	const prevSelect = prev as Field & { optionsSource?: unknown };
-	if (curSelect.optionsSource !== prevSelect.optionsSource) {
+	// Every select owns exactly one required options source. Reference compare,
+	// same rationale as the AST slots above: a commit installs a fresh object,
+	// so identity diff ≡ "this source was written". Checked BEFORE
+	// default_value: a single commit writing both slots must reach the
+	// options_source dispatch (which also reapplies the default) or the choices
+	// list would keep the previous source.
+	if (
+		(current.kind === "single_select" || current.kind === "multi_select") &&
+		(previous.kind === "single_select" || previous.kind === "multi_select") &&
+		current.optionsSource !== previous.optionsSource
+	) {
 		return "options_source";
 	}
 

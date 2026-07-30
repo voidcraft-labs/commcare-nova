@@ -1,5 +1,4 @@
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { backfillOptionUuids } from "@/lib/doc/optionIdentity";
 /**
  * Phase 2 — merge-by-construction state-model tests.
  *
@@ -91,9 +90,7 @@ function applyWithLegacyColumnReducer(
 }
 
 function backfilled(doc: BlueprintDoc): BlueprintDoc {
-	return produce(doc, (d) => {
-		backfillOptionUuids(d);
-	});
+	return structuredClone(doc);
 }
 
 function byId(doc: BlueprintDoc, id: string): Field {
@@ -877,10 +874,21 @@ describe("disjoint collection edits merge", () => {
 										kind: "single_select",
 										id: "color",
 										label: "Color",
-										options: [
-											{ value: "r", label: "Red" },
-											{ value: "g", label: "Green" },
-										],
+										optionsSource: {
+											kind: "inline",
+											options: [
+												{
+													uuid: asUuid("5021f0cd-9ae1-435f-a116-2875067801d4"),
+													value: "r",
+													label: "Red",
+												},
+												{
+													uuid: asUuid("e0e52f9c-f18e-4057-ae77-c35421f9cd52"),
+													value: "g",
+													label: "Green",
+												},
+											],
+										},
 									}),
 								],
 							},
@@ -889,11 +897,15 @@ describe("disjoint collection edits merge", () => {
 				],
 			}),
 		);
-		const field = byId(doc, "color") as Field & {
-			options: Array<{ uuid?: Uuid; value: string; label: string }>;
-		};
-		const optR = asUuid(field.options[0].uuid as string);
-		const optG = asUuid(field.options[1].uuid as string);
+		const field = byId(doc, "color");
+		if (
+			(field.kind !== "single_select" && field.kind !== "multi_select") ||
+			field.optionsSource.kind !== "inline"
+		) {
+			throw new Error("expected inline select");
+		}
+		const optR = field.optionsSource.options[0].uuid;
+		const optG = field.optionsSource.options[1].uuid;
 		const batchA: Mutation[] = [
 			{
 				kind: "updateOption",
@@ -911,11 +923,15 @@ describe("disjoint collection edits merge", () => {
 			},
 		];
 		const merged = apply(doc, batchA, batchB);
-		const opts = (
-			merged.fields[field.uuid] as Field & {
-				options: Array<{ uuid?: Uuid; label: string }>;
-			}
-		).options;
+		const mergedField = merged.fields[field.uuid];
+		if (
+			(mergedField.kind !== "single_select" &&
+				mergedField.kind !== "multi_select") ||
+			mergedField.optionsSource.kind !== "inline"
+		) {
+			throw new Error("expected merged inline select");
+		}
+		const opts = mergedField.optionsSource.options;
 		const labelByUuid = new Map(opts.map((o) => [o.uuid, o.label]));
 		expect(labelByUuid.get(optR)).toBe("Crimson");
 		expect(labelByUuid.get(optG)).toBe("Emerald");
@@ -936,10 +952,21 @@ describe("disjoint collection edits merge", () => {
 										kind: "single_select",
 										id: "color",
 										label: "Color",
-										options: [
-											{ value: "r", label: "Red" },
-											{ value: "g", label: "Green" },
-										],
+										optionsSource: {
+											kind: "inline",
+											options: [
+												{
+													uuid: asUuid("750675b5-1eca-40f5-a64a-62f547182ad3"),
+													value: "r",
+													label: "Red",
+												},
+												{
+													uuid: asUuid("762250b7-92b5-455a-a151-e6eeb11931f4"),
+													value: "g",
+													label: "Green",
+												},
+											],
+										},
 									}),
 								],
 							},
@@ -948,14 +975,18 @@ describe("disjoint collection edits merge", () => {
 				],
 			}),
 		);
-		const field = byId(doc, "color") as Field & {
-			options: Array<{ uuid?: Uuid }>;
-		};
+		const field = byId(doc, "color");
+		if (
+			(field.kind !== "single_select" && field.kind !== "multi_select") ||
+			field.optionsSource.kind !== "inline"
+		) {
+			throw new Error("expected inline select");
+		}
 		const batch: Mutation[] = [
 			{
 				kind: "removeOption",
 				fieldUuid: field.uuid,
-				uuid: asUuid(field.options[0].uuid as string),
+				uuid: field.optionsSource.options[0].uuid,
 			},
 		];
 		const verdict = mutationCommitVerdict(
@@ -1428,10 +1459,21 @@ describe("diff round-trip — granular edits", () => {
 										kind: "single_select",
 										id: "color",
 										label: "Color",
-										options: [
-											{ value: "r", label: "Red" },
-											{ value: "g", label: "Green" },
-										],
+										optionsSource: {
+											kind: "inline",
+											options: [
+												{
+													uuid: asUuid("66ca5f25-4c33-4bd0-af33-563e06f87d6b"),
+													value: "r",
+													label: "Red",
+												},
+												{
+													uuid: asUuid("cff2b4bd-a39f-4d9b-a6b7-5595d4537477"),
+													value: "g",
+													label: "Green",
+												},
+											],
+										},
 									}),
 								],
 							},
@@ -1453,9 +1495,12 @@ describe("diff round-trip — granular edits", () => {
 			if (col) col.header = "Age in years";
 			// Option: edit a label.
 			const color = Object.values(draft.fields).find((fl) => fl.id === "color");
-			if (color && "options" in color) {
-				(color as { options: Array<{ label: string }> }).options[1].label =
-					"Emerald";
+			if (
+				color &&
+				(color.kind === "single_select" || color.kind === "multi_select") &&
+				color.optionsSource.kind === "inline"
+			) {
+				color.optionsSource.options[1].label = "Emerald";
 			}
 		});
 		const diff = diffDocsToMutations(prev, next);
@@ -1479,11 +1524,20 @@ describe("diff round-trip — granular edits", () => {
 		expect(replayed.modules[moduleUuid].caseListConfig?.columns[0].header).toBe(
 			"Age in years",
 		);
-		const opts = (
-			Object.values(replayed.fields).find((fl) => fl.id === "color") as {
-				options: Array<{ label: string }>;
-			}
-		).options.map((o) => o.label);
+		const replayedColor = Object.values(replayed.fields).find(
+			(field) => field.id === "color",
+		);
+		if (
+			!replayedColor ||
+			(replayedColor.kind !== "single_select" &&
+				replayedColor.kind !== "multi_select") ||
+			replayedColor.optionsSource.kind !== "inline"
+		) {
+			throw new Error("expected replayed inline select");
+		}
+		const opts = replayedColor.optionsSource.options.map(
+			(option) => option.label,
+		);
 		expect(opts).toContain("Emerald");
 	});
 });
@@ -2103,8 +2157,8 @@ describe("case-search marker merges", () => {
 	});
 });
 
-describe("Search-input rename merges", () => {
-	it("defensively rewrites an invalid imported form display-condition ref", () => {
+describe("Search-input UUID rename merges", () => {
+	it("leaves an imported form display-condition reference on the same identity", () => {
 		const inputUuid = asUuid("00000000-0000-4000-8000-000000000066");
 		const config = caseListConfig([{ field: "case_name", header: "Name" }]);
 		config.searchInputs = [
@@ -2119,7 +2173,7 @@ describe("Search-input rename merges", () => {
 						{
 							name: "Survey",
 							type: "survey",
-							displayCondition: eq(input("old_name"), literal("Ada")),
+							displayCondition: eq(input(inputUuid), literal("Ada")),
 						},
 					],
 				},
@@ -2137,11 +2191,8 @@ describe("Search-input rename merges", () => {
 		const formUuid = renamed.formOrder[moduleUuid][0];
 		const condition = renamed.forms[formUuid]?.displayCondition;
 		expect(
-			condition && predicateReferencesSearchInput(condition, "new_name"),
+			condition && predicateReferencesSearchInput(condition, inputUuid),
 		).toBe(true);
-		expect(
-			condition && predicateReferencesSearchInput(condition, "old_name"),
-		).toBe(false);
 	});
 
 	function renameDoc(): {
@@ -2155,11 +2206,7 @@ describe("Search-input rename merges", () => {
 		const calculatedUuid = asUuid("00000000-0000-4000-8000-000000000064");
 		const config = caseListConfig([{ field: "case_name", header: "Name" }]);
 		config.columns.push(
-			calculatedColumn(
-				calculatedUuid,
-				"Copied answer",
-				term(input("old_name")),
-			),
+			calculatedColumn(calculatedUuid, "Copied answer", term(input(inputUuid))),
 		);
 		config.searchInputs = [
 			{
@@ -2168,7 +2215,7 @@ describe("Search-input rename merges", () => {
 				name: "old_name",
 				label: "Original",
 				type: "text",
-				predicate: eq(input("old_name"), literal("self")),
+				predicate: eq(input(inputUuid), literal("self")),
 			},
 			{
 				...simpleSearchInputDef(
@@ -2178,7 +2225,7 @@ describe("Search-input rename merges", () => {
 					"text",
 					"case_name",
 				),
-				default: term(input("old_name")),
+				default: term(input(inputUuid)),
 			},
 			{
 				uuid: advancedSiblingUuid,
@@ -2186,10 +2233,10 @@ describe("Search-input rename merges", () => {
 				name: "advanced_other",
 				label: "Advanced other",
 				type: "text",
-				predicate: eq(input("old_name"), literal("sibling")),
+				predicate: eq(input(inputUuid), literal("sibling")),
 			},
 		];
-		config.filter = eq(input("old_name"), literal("filter"));
+		config.filter = eq(input(inputUuid), literal("filter"));
 		const doc = buildDoc({
 			caseTypes: [
 				{
@@ -2205,10 +2252,10 @@ describe("Search-input rename merges", () => {
 					caseListConfig: config,
 					caseSearchConfig: {
 						searchButtonDisplayCondition: eq(
-							input("old_name"),
+							input(inputUuid),
 							literal("button"),
 						),
-						excludedOwnerIds: term(input("old_name")),
+						excludedOwnerIds: term(input(inputUuid)),
 					},
 				},
 			],
@@ -2216,11 +2263,10 @@ describe("Search-input rename merges", () => {
 		return { doc, moduleUuid: doc.moduleOrder[0], inputUuid };
 	}
 
-	function expectEveryReferenceRenamed(
+	function expectEveryReferencePreserved(
 		doc: BlueprintDoc,
 		moduleUuid: Uuid,
 		desiredName: string,
-		staleNames: readonly string[],
 	): void {
 		const mod = doc.modules[moduleUuid];
 		const config = mod.caseListConfig;
@@ -2245,36 +2291,33 @@ describe("Search-input rename merges", () => {
 
 		expect(target.name).toBe(desiredName);
 		expect(
-			expressionReferencesSearchInput(calculated.expression, desiredName),
+			expressionReferencesSearchInput(calculated.expression, target.uuid),
 		).toBe(true);
-		expect(predicateReferencesSearchInput(config.filter, desiredName)).toBe(
+		expect(predicateReferencesSearchInput(config.filter, target.uuid)).toBe(
 			true,
 		);
-		expect(predicateReferencesSearchInput(target.predicate, desiredName)).toBe(
+		expect(predicateReferencesSearchInput(target.predicate, target.uuid)).toBe(
 			true,
 		);
 		expect(
 			sibling.default !== undefined &&
-				expressionReferencesSearchInput(sibling.default, desiredName),
+				expressionReferencesSearchInput(sibling.default, target.uuid),
 		).toBe(true);
 		expect(
-			predicateReferencesSearchInput(advancedSibling.predicate, desiredName),
+			predicateReferencesSearchInput(advancedSibling.predicate, target.uuid),
 		).toBe(true);
 		expect(
 			predicateReferencesSearchInput(
 				mod.caseSearchConfig.searchButtonDisplayCondition,
-				desiredName,
+				target.uuid,
 			),
 		).toBe(true);
 		expect(
 			expressionReferencesSearchInput(
 				mod.caseSearchConfig.excludedOwnerIds,
-				desiredName,
+				target.uuid,
 			),
 		).toBe(true);
-		for (const staleName of staleNames) {
-			expect(JSON.stringify(mod)).not.toContain(`"name":"${staleName}"`);
-		}
 	}
 
 	function withReusedOldName(
@@ -2286,9 +2329,10 @@ describe("Search-input rename merges", () => {
 			const config = mod.caseListConfig;
 			if (config === undefined)
 				throw new Error("missing Search config fixture");
+			const reusedUuid = asUuid("00000000-0000-4000-8000-000000000065");
 			config.searchInputs.push(
 				simpleSearchInputDef(
-					asUuid("00000000-0000-4000-8000-000000000065"),
+					reusedUuid,
 					"old_name",
 					"Reused old name",
 					"text",
@@ -2297,10 +2341,10 @@ describe("Search-input rename merges", () => {
 			);
 			const sibling = config.searchInputs[1];
 			if (sibling === undefined) throw new Error("missing sibling input");
-			sibling.default = term(input("old_name"));
-			config.filter = eq(input("old_name"), literal("peer-filter"));
+			sibling.default = term(input(reusedUuid));
+			config.filter = eq(input(reusedUuid), literal("peer-filter"));
 			mod.caseSearchConfig ??= {};
-			mod.caseSearchConfig.excludedOwnerIds = term(input("old_name"));
+			mod.caseSearchConfig.excludedOwnerIds = term(input(reusedUuid));
 		});
 	}
 
@@ -2335,28 +2379,28 @@ describe("Search-input rename merges", () => {
 			throw new Error("incomplete reused-name fixture");
 		}
 		expect(target.name).toBe(targetName);
-		expect(predicateReferencesSearchInput(target.predicate, targetName)).toBe(
+		expect(predicateReferencesSearchInput(target.predicate, target.uuid)).toBe(
 			true,
 		);
 		expect(
-			expressionReferencesSearchInput(calculated.expression, targetName),
+			expressionReferencesSearchInput(calculated.expression, target.uuid),
 		).toBe(true);
-		expect(predicateReferencesSearchInput(config.filter, "old_name")).toBe(
+		expect(predicateReferencesSearchInput(config.filter, reused.uuid)).toBe(
 			true,
 		);
-		expect(expressionReferencesSearchInput(sibling.default, "old_name")).toBe(
+		expect(expressionReferencesSearchInput(sibling.default, reused.uuid)).toBe(
 			true,
 		);
 		expect(
 			expressionReferencesSearchInput(
 				mod.caseSearchConfig.excludedOwnerIds,
-				"old_name",
+				reused.uuid,
 			),
 		).toBe(true);
 		expect(reused.label).toBe("Reused old name");
 	}
 
-	it("rewrites every registered module slot, including self and sibling refs", () => {
+	it("preserves every registered module reference while renaming the projection", () => {
 		const { doc, moduleUuid, inputUuid } = renameDoc();
 		const current = doc.modules[moduleUuid].caseListConfig?.searchInputs[0];
 		if (current === undefined) throw new Error("missing target input");
@@ -2371,7 +2415,7 @@ describe("Search-input rename merges", () => {
 				(candidate) => candidate.uuid === inputUuid,
 			)?.label,
 		).toBe("Renamed");
-		expectEveryReferenceRenamed(renamed, moduleUuid, "new_name", ["old_name"]);
+		expectEveryReferencePreserved(renamed, moduleUuid, "new_name");
 	});
 
 	it("rebases a stale rename over a peer rename of the same row", () => {
@@ -2389,10 +2433,7 @@ describe("Search-input rename merges", () => {
 			label: "Local rename",
 		});
 		const rebased = apply(doc, [peerRename], [staleLocalRename]);
-		expectEveryReferenceRenamed(rebased, moduleUuid, "local_name", [
-			"old_name",
-			"peer_name",
-		]);
+		expectEveryReferencePreserved(rebased, moduleUuid, "local_name");
 	});
 
 	it("does not steal refs when a peer reuses the target's freed old name", () => {
@@ -2455,7 +2496,7 @@ describe("Search-input rename merges", () => {
 				current.modules[moduleUuid].caseListConfig?.filter ?? {
 					kind: "match-none",
 				},
-				"old_name",
+				inputUuid,
 			),
 		).toBe(true);
 
@@ -2472,7 +2513,7 @@ describe("Search-input rename merges", () => {
 			),
 		).toBe(true);
 		// The gate exposes the rejected candidate for diagnostics: it contains the
-		// duplicate and rewritten refs, while the current document remains byte-for-
+		// duplicate while UUID refs stay fixed, and the current document remains byte-for-
 		// byte untouched because callers discard this candidate atomically.
 		expect(
 			verdict.nextDoc.modules[moduleUuid].caseListConfig?.searchInputs.filter(
@@ -2484,7 +2525,7 @@ describe("Search-input rename merges", () => {
 				verdict.nextDoc.modules[moduleUuid].caseListConfig?.filter ?? {
 					kind: "match-none",
 				},
-				"new_name",
+				inputUuid,
 			),
 		).toBe(true);
 		expect(
@@ -2497,7 +2538,7 @@ describe("Search-input rename merges", () => {
 				current.modules[moduleUuid].caseListConfig?.filter ?? {
 					kind: "match-none",
 				},
-				"old_name",
+				inputUuid,
 			),
 		).toBe(true);
 	});

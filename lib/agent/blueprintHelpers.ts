@@ -3,9 +3,8 @@
  *
  * Two surfaces:
  *
- *   - Positional lookups the SA's tool handlers use to resolve a
- *     `(moduleIndex, formIndex, fieldRef)` triple to a `{ field, path, formUuid }`
- *     record: `findFieldByBareId`, `resolveFieldTarget`.
+ *   - Read snapshots that expose canonical entities and immutable UUID
+ *     references to the SA.
  *   - Mutation builders that return `Mutation[]` for the caller to apply
  *     via `docStore.applyMany(mutations)`. Helpers cover every level of
  *     the tree (app / module / form / field) plus the scaffolding +
@@ -33,25 +32,15 @@ import {
 	enableCaseSearchMutation,
 } from "@/lib/doc/caseSearchConfigMutations";
 import { normalizeConnectConfig } from "@/lib/doc/connectConfig";
-import {
-	buildFieldTree,
-	type FieldWithChildren,
-	orderedFieldUuids,
-	orderedFormUuids,
-	orderedModuleUuids,
-} from "@/lib/doc/fieldWalk";
+import { buildFieldTree, type FieldWithChildren } from "@/lib/doc/fieldWalk";
 import { modulePatchMutations } from "@/lib/doc/modulePatchMutations";
-import {
-	computeFieldPath,
-	findContainingForm,
-} from "@/lib/doc/mutations/helpers";
 import { anchorForIndex, sequenceMovesTo } from "@/lib/doc/mutations/sequence";
 import { searchInputUpdateMutation as planSearchInputUpdate } from "@/lib/doc/searchInputMutations";
 import type { Mutation } from "@/lib/doc/types";
 import type {
 	AssetId,
 	BlueprintDoc,
-	CarrierBlindField,
+	CaseOperation,
 	Column,
 	ConnectConfig,
 	Field,
@@ -68,305 +57,28 @@ import type {
 import { asUuid, fieldKinds, isContainer, slugifyId } from "@/lib/domain";
 import { effectiveFilterForEmission } from "@/lib/domain/predicate";
 import {
-	type CarrierBlindCaseOperationProjection,
-	carrierBlindFormProjection,
-} from "./dormantCarrierReadProjection";
-import {
 	removeByUuid,
 	reorderByUuid,
 	replaceByUuid,
 } from "./tools/case-list-config/shared";
 
-// ── Positional lookup helpers ───────────────────────────────────────────
-
-/**
- * Every field in a form's subtree, in display order, each with its full
- * slash path. The DFS records the current path prefix alongside each
- * uuid so the returned `path` matches the order of traversal (visual
- * order of the form).
- */
-function walkFormFields(
-	doc: BlueprintDoc,
-	formUuid: Uuid,
-): Array<{ field: Field; path: string }> {
-	const out: Array<{ field: Field; path: string }> = [];
-	const stack: Array<{ uuid: Uuid; prefix: string }> = [];
-	const topOrder = orderedFieldUuids(doc, formUuid);
-	// Push in reverse so iteration order matches visual (sorted) form order.
-	for (let i = topOrder.length - 1; i >= 0; i--) {
-		stack.push({ uuid: topOrder[i], prefix: "" });
-	}
-	while (stack.length > 0) {
-		const next = stack.pop();
-		if (!next) break;
-		const { uuid, prefix } = next;
-		const field = doc.fields[uuid];
-		if (!field) continue;
-		const path = prefix ? `${prefix}/${field.id}` : field.id;
-		out.push({ field, path });
-		// Only container kinds have children in the order map.
-		if (isContainer(field)) {
-			const children = orderedFieldUuids(doc, uuid);
-			for (let i = children.length - 1; i >= 0; i--) {
-				stack.push({ uuid: children[i], prefix: path });
-			}
-		}
-	}
-	return out;
-}
-
-/** Resolve a field by bare id within a form (first match, depth-first).
- *  Every SA-boundary lookup resolves through `resolveFieldTarget` /
- *  `resolveFieldInForm` instead — those refuse an ambiguous bare id
- *  rather than silently taking the first match. */
-export function findFieldByBareId(
-	doc: BlueprintDoc,
-	formUuid: Uuid,
-	bareId: string,
-): { field: Field; path: string } | undefined {
-	return walkFormFields(doc, formUuid).find(
-		(entry) => entry.field.id === bareId,
-	);
-}
-
-/** Render a form's addressable location for an error message — its name
- *  plus the positional (module, form) indices the SA's tools take. */
-function describeFormLocation(
-	doc: BlueprintDoc,
-	formUuid: Uuid,
-): string | undefined {
-	const moduleUuids = orderedModuleUuids(doc);
-	for (let mi = 0; mi < moduleUuids.length; mi++) {
-		const fi = orderedFormUuids(doc, moduleUuids[mi]).indexOf(formUuid);
-		if (fi !== -1) {
-			return `"${doc.forms[formUuid]?.name ?? formUuid}" (m${mi}-f${fi})`;
-		}
-	}
-	return undefined;
-}
-
-/**
- * The one-line contract for every SA slot that resolves through
- * `resolveFieldTarget` / `resolveFieldInForm` — composed into each tool
- * schema's `describe` so the addressing contract is stated once and the
- * six field-addressing tools can't drift apart in wording.
- */
-export const FIELD_REF_HINT =
-	"its id, or its uuid when duplicate ids make the bare id ambiguous";
-
-/**
- * Tagged result of `resolveFieldTarget` / `resolveFieldInForm`. The
- * failure arm carries a ready-to-forward Elm-style message so every
- * field-addressing tool reports misses, ambiguity, and wrong-form uuids
- * identically, plus a `reason` discriminant for the one caller (the
- * batch assembly's parent lookups) whose handling differs by arm.
- */
-export type FieldTargetResolution =
-	| { ok: true; field: Field; path: string; formUuid: Uuid }
-	| {
-			ok: false;
-			reason: "form_missing" | "not_found" | "ambiguous" | "wrong_form";
-			error: string;
-	  };
-
-/**
- * Form-scoped resolution core: a field ref against a known form uuid.
- * `fieldRef` is a field's bare id OR its uuid — sibling-uniqueness is
- * per parent level, so one form can legally hold two fields with the
- * same bare id in different groups, and the uuid is the unambiguous
- * handle the read tools already surface. Resolution order:
- *
- *   1. A ref matching a field uuid resolves to that field — rejected
- *      with its actual location when it lives in a different form (a
- *      silent cross-form edit would hit an entity the SA can't see at
- *      this address). Uuids are `crypto.randomUUID()`-minted, so a bare
- *      id shadowing another field's uuid is not a practical collision.
- *   2. Otherwise the ref is a bare id: exactly one depth-first match
- *      resolves; zero is a miss; two or more is REFUSED with every
- *      match's path + uuid, so the SA re-targets instead of silently
- *      editing the first match.
- */
-export function resolveFieldInForm(
-	doc: BlueprintDoc,
-	formUuid: Uuid,
-	fieldRef: string,
-): FieldTargetResolution {
-	const here = describeFormLocation(doc, formUuid) ?? `form ${formUuid}`;
-	// The uuid probe must be an OWN-key check: `doc.fields` is a plain
-	// prototype-bearing record, so a bare id that collides with an
-	// inherited Object.prototype key ("constructor", "toString", …)
-	// would otherwise take this branch and make the field permanently
-	// unaddressable by its id.
-	const byUuid = Object.hasOwn(doc.fields, fieldRef)
-		? doc.fields[asUuid(fieldRef)]
-		: undefined;
-	if (byUuid) {
-		const homeFormUuid = findContainingForm(doc, byUuid.uuid);
-		if (homeFormUuid === formUuid) {
-			return {
-				ok: true,
-				field: byUuid,
-				path: computeFieldPath(doc, byUuid.uuid) ?? byUuid.id,
-				formUuid,
-			};
-		}
-		const home = homeFormUuid
-			? describeFormLocation(doc, homeFormUuid)
-			: undefined;
-		return {
-			ok: false,
-			reason: "wrong_form",
-			error: home
-				? `Field "${byUuid.id}" (uuid ${fieldRef}) is not in ${here} — it lives in ${home}. Re-issue against that form.`
-				: `Field "${byUuid.id}" (uuid ${fieldRef}) isn't attached to any form`,
-		};
-	}
-	const matches = walkFormFields(doc, formUuid).filter(
-		(entry) => entry.field.id === fieldRef,
-	);
-	if (matches.length === 1) {
-		return {
-			ok: true,
-			field: matches[0].field,
-			path: matches[0].path,
-			formUuid,
-		};
-	}
-	if (matches.length === 0) {
-		return {
-			ok: false,
-			reason: "not_found",
-			error: `Field "${fieldRef}" not found in ${here}`,
-		};
-	}
-	return {
-		ok: false,
-		reason: "ambiguous",
-		error: `Field id "${fieldRef}" is ambiguous in ${here} — ${matches.length} fields share it: ${matches
-			.map((m) => `"${m.path}" (uuid ${m.field.uuid})`)
-			.join(", ")}. Re-issue with the uuid of the one you mean.`,
-	};
-}
-
-/**
- * Resolve the SA's `(moduleIndex, formIndex, fieldRef)` triple to a
- * `{ field, path, formUuid }` record — the positional wrapper over
- * `resolveFieldInForm` every field-addressing tool goes through.
- */
-export function resolveFieldTarget(
-	doc: BlueprintDoc,
-	moduleIndex: number,
-	formIndex: number,
-	fieldRef: string,
-): FieldTargetResolution {
-	const formUuid = resolveFormUuid(doc, moduleIndex, formIndex);
-	if (!formUuid) {
-		return {
-			ok: false,
-			reason: "form_missing",
-			error: `Form m${moduleIndex}-f${formIndex} not found`,
-		};
-	}
-	return resolveFieldInForm(doc, formUuid, fieldRef);
-}
-
-/**
- * Map a `(moduleIndex, formIndex)` pair to the doc's form uuid. Returns
- * `undefined` when either index is out of range — tool bodies surface
- * that as an error string to the SA.
- *
- * The lighter cousin of `resolveFieldTarget`: callers that don't need a
- * field lookup (per-form reads, structural edits) use this to skip the
- * DFS walk over the form's field subtree.
- */
-export function resolveFormUuid(
-	doc: BlueprintDoc,
-	moduleIndex: number,
-	formIndex: number,
-): Uuid | undefined {
-	const moduleUuid = orderedModuleUuids(doc)[moduleIndex];
-	if (!moduleUuid) return undefined;
-	return orderedFormUuids(doc, moduleUuid)[formIndex];
-}
-
-/**
- * Map a `moduleIndex` to the doc's module uuid in DISPLAY order
- * (`sort-by-(order, uuid)`) — the SAME sequence the SA reads from
- * `summarizeBlueprint` / `get_app` / `searchBlueprint`, so "module N"
- * addresses the entity the SA sees at position N, not the `moduleOrder`
- * array slot (which a same-parent reorder leaves untouched). Returns
- * `undefined` when the index is out of range; tool bodies surface that as
- * an error string. Every module-addressing tool resolves through this (or
- * `resolveFormUuid` / `resolveFormContext`, which sort the same way) — a
- * raw `doc.moduleOrder[moduleIndex]` in a tool body is a defect.
- */
-export function resolveModuleUuid(
-	doc: BlueprintDoc,
-	moduleIndex: number,
-): Uuid | undefined {
-	return orderedModuleUuids(doc)[moduleIndex];
-}
-
-/**
- * The four handles shared tool modules need when resolving a positional
- * `(moduleIndex, formIndex)` triple: the `moduleUuid` / `formUuid` for
- * mutation emission and index → uuid resolution, plus the `mod` / `form`
- * entities for the `form.type` + `mod.caseType` signals downstream
- * helpers (e.g. `applyDefaults`) consume.
- */
-export interface FormContext {
-	moduleUuid: Uuid;
-	mod: Module;
-	formUuid: Uuid;
-	form: Form;
-}
-
-/**
- * Resolve the module + form entities for a positional
- * `(moduleIndex, formIndex)` triple. Returns `undefined` when either
- * index is out of range — callers map that to a tool-specific error
- * string, so the message wording stays at the call site and the SA
- * keeps its existing voice.
- *
- * Use this instead of `resolveFormUuid` when the tool body also needs
- * the resolved `mod` / `form` entities (e.g. `form.type` for preload
- * auto-defaults, `mod.caseType` for case-type lookup). The shared add-
- * path pipeline in `contentProcessing.applyDefaults` consumes both.
- */
-export function resolveFormContext(
-	doc: BlueprintDoc,
-	moduleIndex: number,
-	formIndex: number,
-): FormContext | undefined {
-	const moduleUuid = orderedModuleUuids(doc)[moduleIndex];
-	if (!moduleUuid) return undefined;
-	const mod = doc.modules[moduleUuid];
-	if (!mod) return undefined;
-	const formUuid = orderedFormUuids(doc, moduleUuid)[formIndex];
-	if (!formUuid) return undefined;
-	const form = doc.forms[formUuid];
-	if (!form) return undefined;
-	return { moduleUuid, mod, formUuid, form };
-}
-
 // ── Form-tree snapshot ──────────────────────────────────────────────────
 
 /**
  * Shape returned by `formSnapshot` — the form entity augmented with its
- * ordered, nested field tree. It keeps domain names (`closeCondition`,
- * `postSubmit`, `formLinks`) while the dormant S05a read projection removes
- * lookup-only carriers before SA/MCP consumers see the snapshot.
+ * ordered, nested field tree. It keeps canonical domain names and immutable
+ * UUID references exactly as stored.
  *
- * Lives alongside the positional lookup helpers because it's a
- * `BlueprintDoc`-read derived shape — the same category of surface.
+ * This is a `BlueprintDoc`-read derived shape; it never translates identity
+ * back to mutable paths or names.
  */
 export type FormSnapshot = Omit<Form, "caseOperations"> & {
 	fields: FieldWithChildren[];
-	caseOperations?: CarrierBlindCaseOperationProjection[];
+	caseOperations?: CaseOperation[];
 };
 
 /**
- * Build a carrier-blind `FormSnapshot` for the given form uuid. Returns
+ * Build a canonical `FormSnapshot` for the given form uuid. Returns
  * `undefined` when the form doesn't exist in the doc — callers surface that
  * as a "form not found" error to the SA.
  */
@@ -376,22 +88,10 @@ export function formSnapshot(
 ): FormSnapshot | undefined {
 	const form = doc.forms[formUuid];
 	if (!form) return undefined;
-	// The SA speaks field ids; the stored close-condition ref is the
-	// field's stable uuid — project it back (a dangler shows its text).
-	const closeCondition = form.closeCondition
-		? {
-				...form.closeCondition,
-				field: asUuid(
-					doc.fields[form.closeCondition.field]?.id ??
-						form.closeCondition.field,
-				),
-			}
-		: undefined;
-	return carrierBlindFormProjection({
+	return {
 		...form,
-		...(closeCondition !== undefined && { closeCondition }),
 		fields: buildFieldTree(doc, formUuid),
-	});
+	};
 }
 
 // ── Mutation builders — modules ─────────────────────────────────────────
@@ -549,11 +249,10 @@ export function setFormMediaMutations(
 // Other (non-SA) consumers — UI mutations — destructure the same
 // shape and surface their own error UI.
 //
-// Each builder takes the resolved `Module` directly. Every call site
-// already looks the module up out of the doc to map a `moduleIndex`
-// to a uuid and to read its sibling fields; passing `mod` straight in
-// keeps the helper from re-running the same map lookup and lets the
-// "module not found" defense live at the tool's call boundary
+// Each builder takes the resolved `Module` directly. Every call site has
+// already resolved and membership-checked the stable module UUID; passing
+// `mod` straight in keeps the helper from re-running the same map lookup and
+// lets the "module not found" defense live at the tool's call boundary
 // (uniformly worded, in one place per tool).
 //
 // The array-walk primitives (`replaceByUuid` / `removeByUuid` /
@@ -971,15 +670,12 @@ export function updateFormMutations(
 
 // ── Mutation builders — fields ──────────────────────────────────────────
 
-/** Build an `addField` mutation. The caller supplies a full `Field`
- *  carrier-blind entity (with uuid); helpers that mint fields from SA wire
- *  format live elsewhere. Dormant carrier extensions travel only through the
- *  compatibility-aware mutation planners, never through this authoring helper. */
+/** Build an `addField` mutation. The caller supplies a full field entity. */
 export function addFieldMutations(
 	doc: BlueprintDoc,
 	input: {
 		parentUuid: Uuid;
-		field: CarrierBlindField;
+		field: Field;
 		index?: number;
 	},
 ): Mutation[] {

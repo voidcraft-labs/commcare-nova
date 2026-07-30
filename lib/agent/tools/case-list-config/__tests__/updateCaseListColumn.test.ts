@@ -59,7 +59,7 @@ describe("updateCaseListColumn", () => {
 
 		const result = await updateCaseListColumnTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				columnUuid: TARGET_UUID,
 				column: {
 					kind: "date",
@@ -91,7 +91,7 @@ describe("updateCaseListColumn", () => {
 
 		const result = await updateCaseListColumnTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				columnUuid: TARGET_UUID,
 				column: {
 					kind: "date",
@@ -114,7 +114,7 @@ describe("updateCaseListColumn", () => {
 
 		const result = await updateCaseListColumnTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				columnUuid: TARGET_UUID,
 				column: {
 					kind: "plain",
@@ -151,7 +151,7 @@ describe("updateCaseListColumn", () => {
 
 		const result = await updateCaseListColumnTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				columnUuid: TARGET_UUID,
 				column: {
 					kind: "plain",
@@ -180,7 +180,7 @@ describe("updateCaseListColumn", () => {
 		const doc = fixtureWithColumn();
 		const result = await updateCaseListColumnTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				columnUuid: TARGET_UUID,
 				column: { kind: "phone", field: "phone", header: "Phone" },
 			},
@@ -194,12 +194,12 @@ describe("updateCaseListColumn", () => {
 		expect(result.result.message).toContain(String(TARGET_UUID));
 	});
 
-	it("returns an Elm-style error on out-of-range moduleIndex", async () => {
+	it("returns an Elm-style error for an unknown module UUID", async () => {
 		const { ctx } = makeCaseListFixture();
 		const doc = fixtureWithColumn();
 		const result = await updateCaseListColumnTool.execute(
 			{
-				moduleIndex: 99,
+				moduleUuid: asUuid("ffffffff-ffff-4fff-8fff-ffffffffffff"),
 				columnUuid: TARGET_UUID,
 				column: { kind: "phone", field: "phone", header: "Phone" },
 			},
@@ -212,7 +212,7 @@ describe("updateCaseListColumn", () => {
 			throw new Error("expected error result");
 		}
 		expect(result.result.error).toContain("Tried to update");
-		expect(result.result.error).toContain("module index 99");
+		expect(result.result.error).toContain("No module with that uuid");
 	});
 
 	it("returns an Elm-style error when the column uuid is unknown", async () => {
@@ -221,7 +221,7 @@ describe("updateCaseListColumn", () => {
 		const unknown = asUuid("dddddddd-dddd-dddd-dddd-dddddddddddd");
 		const result = await updateCaseListColumnTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				columnUuid: unknown,
 				column: { kind: "phone", field: "phone", header: "Phone" },
 			},

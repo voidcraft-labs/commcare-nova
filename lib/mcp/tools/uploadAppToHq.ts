@@ -288,6 +288,7 @@ export function registerUploadAppToHq(
 					ctx,
 					appId,
 					access.projectId,
+					access.role,
 					runId,
 					extra,
 				);

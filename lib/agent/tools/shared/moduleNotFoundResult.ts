@@ -1,7 +1,6 @@
 /**
  * `moduleNotFoundResult` — typed Elm-style error result the SA tool
- * families return when a positional `moduleIndex` resolves to neither
- * a uuid in `doc.moduleOrder` nor a module in `doc.modules`.
+ * families return when a stable `moduleUuid` is absent.
  *
  * Lives at `tools/shared/` because more than one tool family consumes
  * it. The case-list-config family (`addCaseListColumns`,
@@ -21,8 +20,7 @@ import type { MutatingToolResult } from "../common";
 
 /**
  * Construct the canonical no-op `MutatingToolResult` returned when
- * `moduleIndex` resolves to neither a uuid in `doc.moduleOrder` nor a
- * module in `doc.modules`. The mutation list is empty + the doc is
+ * `moduleUuid` resolves to no module in `doc.modules`. The mutation list is empty + the doc is
  * threaded through unchanged so the SA's working state stays in sync
  * with the tool's no-op outcome.
  *
@@ -30,11 +28,11 @@ import type { MutatingToolResult } from "../common";
  * `"add a case list column"`, `"set the case-search advanced cluster"`);
  * it lands in the SA-facing message verbatim. The hint at the end
  * nudges the SA toward `getModule`'s projection — the canonical
- * recovery path for an out-of-range or stale `moduleIndex`.
+ * recovery path for a stale uuid.
  */
 export function moduleNotFoundResult<R>(
 	doc: BlueprintDoc,
-	moduleIndex: number,
+	moduleUuid: string,
 	actionPhrase: string,
 ): MutatingToolResult<R | { error: string }> {
 	return {
@@ -42,7 +40,7 @@ export function moduleNotFoundResult<R>(
 		mutations: [],
 		newDoc: doc,
 		result: {
-			error: `Tried to ${actionPhrase} on module index ${moduleIndex}. Found no module at that index. Look at \`getModule\`'s projection for valid indices.`,
+			error: `Tried to ${actionPhrase} on module uuid "${moduleUuid}". No module with that uuid is in this app. Read \`getModule\` or \`searchBlueprint\` for current identities.`,
 		},
 	};
 }

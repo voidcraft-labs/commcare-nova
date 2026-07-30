@@ -50,7 +50,7 @@ describe("addCaseListColumns", () => {
 
 		const result = await addCaseListColumnsTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				columns: [{ kind: "plain", field: "case_name", header: "Patient" }],
 			},
 			ctx,
@@ -73,7 +73,7 @@ describe("addCaseListColumns", () => {
 		const { doc, ctx } = makeCaseListFixture();
 		const result = await addCaseListColumnsTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				columns: [
 					{ kind: "plain", field: "case_name", header: "Name" },
 					{ kind: "phone", field: "phone", header: "Phone" },
@@ -103,7 +103,7 @@ describe("addCaseListColumns", () => {
 		const { doc, ctx } = makeCaseListFixture();
 		const result = await addCaseListColumnsTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				columns: [{ kind: "plain", field: "case_name", header: "Patient" }],
 			},
 			ctx,
@@ -143,7 +143,7 @@ describe("addCaseListColumns", () => {
 
 		const result = await addCaseListColumnsTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				columns: [{ kind: "plain", field: "case_name", header: "Patient" }],
 			},
 			ctx,
@@ -177,7 +177,7 @@ describe("addCaseListColumns", () => {
 
 		const result = await addCaseListColumnsTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				columns: [{ kind: "phone", field: "phone", header: "Phone" }],
 			},
 			ctx,
@@ -225,7 +225,7 @@ describe("addCaseListColumns", () => {
 
 		const result = await addCaseListColumnsTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				columns: [{ kind: "phone", field: "phone", header: "Phone" }],
 			},
 			ctx,
@@ -287,7 +287,7 @@ describe("addCaseListColumns", () => {
 		];
 
 		const r = await addCaseListColumnsTool.execute(
-			{ moduleIndex: 0, columns },
+			{ moduleUuid: MOD_A, columns },
 			ctx,
 			doc,
 		);
@@ -297,11 +297,11 @@ describe("addCaseListColumns", () => {
 		expect(finalCols.map((c) => c.kind)).toEqual(columns.map((i) => i.kind));
 	});
 
-	it("returns an Elm-style error on out-of-range moduleIndex", async () => {
+	it("returns an Elm-style error for an unknown module UUID", async () => {
 		const { doc, ctx } = makeCaseListFixture();
 		const result = await addCaseListColumnsTool.execute(
 			{
-				moduleIndex: 99,
+				moduleUuid: asUuid("ffffffff-ffff-4fff-8fff-ffffffffffff"),
 				columns: [{ kind: "plain", field: "case_name", header: "Patient" }],
 			},
 			ctx,
@@ -313,8 +313,7 @@ describe("addCaseListColumns", () => {
 			throw new Error("expected error result");
 		}
 		expect(result.result.error).toContain("Tried to add");
-		expect(result.result.error).toContain("module index 99");
-		expect(result.result.error).toContain("Found no module");
+		expect(result.result.error).toContain("No module with that uuid");
 	});
 
 	it("initializes the caseListConfig when the module has none", async () => {
@@ -329,7 +328,7 @@ describe("addCaseListColumns", () => {
 
 		const result = await addCaseListColumnsTool.execute(
 			{
-				moduleIndex: 0,
+				moduleUuid: MOD_A,
 				columns: [{ kind: "plain", field: "case_name", header: "Patient" }],
 			},
 			ctx,
@@ -349,7 +348,7 @@ describe("addCaseListColumns", () => {
 		const { doc, ctx: chatCtx } = makeCaseListFixture();
 		const { ctx: mcpCtx } = makeCaseListMcpFixture();
 		const input = {
-			moduleIndex: 0,
+			moduleUuid: MOD_A,
 			columns: [
 				{
 					kind: "plain" as const,

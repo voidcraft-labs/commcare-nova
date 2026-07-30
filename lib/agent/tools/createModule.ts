@@ -47,11 +47,10 @@
  *      nothing persisted.
  *   5. Unexpected runtime error → `{ error }`, no mutations.
  *   6. Success → a human-readable `message` (+ a UI `summary`) carrying
- *      the new module's index + structure counts, stage `module:create`.
+ *      the new module's UUID + structure counts, stage `module:create`.
  */
 
 import { z } from "zod";
-import { orderedModuleUuids } from "@/lib/doc/fieldWalk";
 import type { BlueprintDoc, ConnectConfig } from "@/lib/domain";
 import { asUuid, FORM_TYPES, USER_FACING_DESTINATIONS } from "@/lib/domain";
 import { addFormMutations, addModuleMutations } from "../blueprintHelpers";
@@ -172,8 +171,10 @@ export const createModuleInputSchema = z
 
 export type CreateModuleInput = z.infer<typeof createModuleInputSchema>;
 
-/** Human-readable success string or an error record. */
-export type CreateModuleResult = MutationSuccess | { error: string };
+/** Human-readable success plus the stable identity needed by later calls. */
+export type CreateModuleResult =
+	| (MutationSuccess & { uuid: string })
+	| { error: string };
 
 export const createModuleTool = {
 	description:
@@ -209,10 +210,8 @@ export const createModuleTool = {
 				};
 			}
 
-			// Stage tag `module:create` — a positional index isn't available
-			// yet because the new module's slot only exists after the
-			// mutations apply. Downstream consumers that need the index read
-			// it from the post-mutation `moduleOrder`.
+			// `module:create` is a lifecycle stage, not an address. The result
+			// returns the minted UUID for every later tool call.
 			const moduleUuid = asUuid(crypto.randomUUID());
 			// Stamp each born column with a uuid. Position is the array they sit
 			// in, so writing them in order is all it takes.
@@ -366,10 +365,6 @@ export const createModuleTool = {
 			}
 			const newDoc = commit.newDoc;
 
-			// The SA addresses modules by DISPLAY index (`sort-by-(order, uuid)`),
-			// so report the new module's SORTED position — not its `moduleOrder`
-			// array slot, which a born order key need not land last.
-			const newModIndex = orderedModuleUuids(newDoc).indexOf(moduleUuid);
 			const formCount = (forms ?? []).length;
 			const structureNote =
 				formCount > 0
@@ -388,7 +383,8 @@ export const createModuleTool = {
 				mutations,
 				newDoc,
 				result: {
-					message: `Successfully created module "${name}" at index ${newModIndex}${case_type ? ` (case type: ${case_type})` : ""}${structureNote}. App now has ${newDoc.moduleOrder.length} module${newDoc.moduleOrder.length === 1 ? "" : "s"}.${skippedNote}`,
+					message: `Successfully created module "${name}" (uuid ${moduleUuid})${case_type ? ` (case type: ${case_type})` : ""}${structureNote}. App now has ${newDoc.moduleOrder.length} module${newDoc.moduleOrder.length === 1 ? "" : "s"}.${skippedNote}`,
+					uuid: moduleUuid,
 					summary: { subject: name } satisfies ToolCallSummary,
 				},
 			};

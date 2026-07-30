@@ -19,10 +19,7 @@
 
 import { z } from "zod";
 import { asUuid, type BlueprintDoc, type Uuid } from "@/lib/domain";
-import {
-	reorderColumnsMutation,
-	resolveModuleUuid,
-} from "../../blueprintHelpers";
+import { reorderColumnsMutation } from "../../blueprintHelpers";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import {
 	guardedMutate,
@@ -34,9 +31,9 @@ import { moduleNotFoundResult, uuidInputSchema } from "./shared";
 
 export const reorderCaseListColumnsInputSchema = z
 	.object({
-		moduleIndex: z
-			.number()
-			.describe("0-based module index whose case list columns to reorder"),
+		moduleUuid: uuidInputSchema.describe(
+			"Stable uuid of the module whose case list columns are reordered",
+		),
 		surface: z
 			.enum(["results", "details"])
 			.describe("The screen whose visible fields should be rearranged"),
@@ -72,21 +69,19 @@ export const reorderCaseListColumnsTool = {
 		ctx: ToolExecutionContext,
 		doc: BlueprintDoc,
 	): Promise<MutatingToolResult<ReorderCaseListColumnsResult>> {
-		const { moduleIndex, surface, columnUuids: rawColumnUuids } = input;
+		const {
+			moduleUuid: rawModuleUuid,
+			surface,
+			columnUuids: rawColumnUuids,
+		} = input;
+		const moduleUuid = asUuid(rawModuleUuid);
 		const columnUuids = rawColumnUuids.map(asUuid);
 		try {
-			const moduleUuid = resolveModuleUuid(doc, moduleIndex);
-			if (!moduleUuid)
-				return moduleNotFoundResult<ReorderCaseListColumnsSuccess>(
-					doc,
-					moduleIndex,
-					"reorder case list columns",
-				);
 			const mod = doc.modules[moduleUuid];
 			if (!mod)
 				return moduleNotFoundResult<ReorderCaseListColumnsSuccess>(
 					doc,
-					moduleIndex,
+					rawModuleUuid,
 					"reorder case list columns",
 				);
 
@@ -108,7 +103,7 @@ export const reorderCaseListColumnsTool = {
 				ctx,
 				doc,
 				result.mutations,
-				`module:${moduleIndex}:caseList:column:reorder`,
+				`module:${moduleUuid}:caseList:column:reorder`,
 			);
 			if (!commit.ok) {
 				return {

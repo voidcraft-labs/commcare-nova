@@ -83,6 +83,10 @@ import {
 import { hasConditionSeed } from "./conditionSeed";
 import type { OperationValueScope } from "./expressionEditorSchemas";
 import type { EditorFormFieldDecl } from "./formFieldPresentation";
+import type {
+	EditorLookupTableDecl,
+	EditorLookupTableScope,
+} from "./lookupTablePresentation";
 import { hasRelatedCaseType } from "./relationSeed";
 import type { EditorSearchInputDecl } from "./searchInputPresentation";
 
@@ -107,7 +111,11 @@ import type { EditorSearchInputDecl } from "./searchInputPresentation";
  *     `MODULE_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE`), so the pickers
  *     must not offer them.
  */
-export type CaseDataScope = "per-case" | "selected-case" | "global";
+export type CaseDataScope =
+	| "per-case"
+	| "selected-case"
+	| "global"
+	| "table-row";
 
 /** One shared disabled-choice reason for every case-data-dependent
  *  pick in a global slot — sources, verbs, and calculated kinds all
@@ -124,6 +132,11 @@ export const NEVER_MATCH_UNAVAILABLE_REASON =
  *  through a connection is not. */
 export const SELECTED_CASE_SCOPE_RELATED_DATA_REASON =
 	"This is decided for one already-chosen case, so it can read that case's own information but not connected cases or their counts";
+
+/** The lookup-row twin: case/Search contexts do not exist while choices are
+ * materialized from one Project data row. */
+export const TABLE_ROW_SCOPE_CASE_DATA_REASON =
+	"This rule runs against one data-table row, so it can use that table’s columns, earlier form answers, fixed values, and current-user information";
 
 /**
  * Inputs available at the time `defaultValue` and `applicable` run.
@@ -151,6 +164,11 @@ export interface PredicateEditContext {
 	/** Form answers this slot may read, already narrowed to the ones its
 	 *  surface admits. Absent means the slot reads no form answers. */
 	readonly formFields?: readonly EditorFormFieldDecl[];
+	/** Rows-free definitions used to resolve lookup identities and types. */
+	readonly lookupTables?: readonly EditorLookupTableDecl[];
+	/** The active lookup row; direct table-column terms are authorable only
+	 * while this exact scope is present. */
+	readonly tableScope?: EditorLookupTableScope;
 	/** Present only inside a case operation — see `ExpressionEditContext`. */
 	readonly operationScope?: OperationValueScope;
 	/**
@@ -207,7 +225,13 @@ export type EvaluationTarget = "on-device" | "case-search";
 /** Whether case-property / relationship reads are meaningful in this
  *  editor scope. */
 export function caseDataInScope(ctx: PredicateEditContext): boolean {
-	return ctx.caseDataScope !== "global";
+	return (
+		ctx.caseDataScope === "per-case" || ctx.caseDataScope === "selected-case"
+	);
+}
+
+export function tableRowInScope(ctx: PredicateEditContext): boolean {
+	return ctx.caseDataScope === "table-row";
 }
 
 /** Whether a never-matching rule is meaningful in this slot. */
@@ -247,7 +271,7 @@ export function caseDataScopeAdmission(
 ): ScopeAdmission {
 	if (scope === "per-case") return { admitted: true };
 	const readsOutOfScope =
-		scope === "global"
+		scope === "global" || scope === "table-row"
 			? expressionReadsCaseData
 			: expressionReadsRelatedCaseData;
 	if (!readsOutOfScope(next)) return { admitted: true };
@@ -256,7 +280,9 @@ export function caseDataScopeAdmission(
 		reason:
 			scope === "global"
 				? GLOBAL_SCOPE_CASE_DATA_REASON
-				: SELECTED_CASE_SCOPE_RELATED_DATA_REASON,
+				: scope === "table-row"
+					? TABLE_ROW_SCOPE_CASE_DATA_REASON
+					: SELECTED_CASE_SCOPE_RELATED_DATA_REASON,
 	};
 }
 
@@ -328,16 +354,26 @@ function getCurrentCaseType(ctx: PredicateEditContext): CaseType | undefined {
  *  property per-case, or the always-available session values in a
  *  global slot. */
 function hasComparableSubject(ctx: PredicateEditContext): boolean {
+	if (tableRowInScope(ctx)) return (ctx.tableScope?.columns.length ?? 0) > 0;
 	if (!caseDataInScope(ctx)) return true;
 	return hasAnyProperty(ctx);
 }
 
 function hasAnyProperty(ctx: PredicateEditContext): boolean {
+	if (tableRowInScope(ctx)) return (ctx.tableScope?.columns.length ?? 0) > 0;
 	const ct = getCurrentCaseType(ctx);
 	return ct !== undefined && ct.properties.length > 0;
 }
 
 function hasMembershipProperty(ctx: PredicateEditContext): boolean {
+	if (tableRowInScope(ctx)) {
+		const constraint = inSubjectConstraint();
+		return (
+			ctx.tableScope?.columns.some((column) =>
+				acceptsType(constraint, column.dataType),
+			) ?? false
+		);
+	}
 	// Session values are text-shaped, and text is a legal `in` subject —
 	// a global slot always has one.
 	if (!caseDataInScope(ctx)) return true;
@@ -355,6 +391,17 @@ function hasPropertyOfType(
 	// within-distance, multi-select-contains) have no subject in a
 	// global slot: session values are text, which none of those kinds
 	// admit beyond what `hasComparableSubject` already covers.
+	if (tableRowInScope(ctx)) {
+		return (
+			ctx.tableScope?.columns.some((column) =>
+				predicate({
+					name: column.wireName,
+					label: column.label,
+					data_type: column.dataType,
+				}),
+			) ?? false
+		);
+	}
 	if (!caseDataInScope(ctx)) return false;
 	const ct = getCurrentCaseType(ctx);
 	if (ct === undefined) return false;
@@ -372,6 +419,7 @@ export function predicateUnavailableReason(
 	if (kind === "match-none" && !neverMatchInScope(ctx)) {
 		return NEVER_MATCH_UNAVAILABLE_REASON;
 	}
+	if (tableRowInScope(ctx)) return TABLE_ROW_SCOPE_CASE_DATA_REASON;
 	if (!caseDataInScope(ctx)) return GLOBAL_SCOPE_CASE_DATA_REASON;
 	switch (kind) {
 		case "exists":

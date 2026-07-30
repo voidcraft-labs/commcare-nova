@@ -23,47 +23,62 @@ import {
 	whenInput,
 } from "@/lib/domain/predicate";
 import { composeXPathQueryPredicate } from "../../suite/case-search/xpathQuery";
-import { collectRuntimeCsqlStringInputNames } from "../runtimeCsqlQuoteSafety";
+import { collectRuntimeCsqlStringInputUuids } from "../runtimeCsqlQuoteSafety";
 
 const u = (tail: number) =>
 	asUuid(`00000000-0000-0000-0000-${String(tail).padStart(12, "0")}`);
 
-describe("collectRuntimeCsqlStringInputNames", () => {
+describe("collectRuntimeCsqlStringInputUuids", () => {
 	it("collects direct and native-function input values", () => {
 		expect(
-			collectRuntimeCsqlStringInputNames(
-				eq(prop("patient", "name"), input("direct")),
+			collectRuntimeCsqlStringInputUuids(
+				eq(
+					prop("patient", "name"),
+					input(asUuid("86682ef3-89ba-4086-8cb9-8ba1fd44c162")),
+				),
 			),
-		).toEqual(new Set(["direct"]));
+		).toEqual(new Set([asUuid("86682ef3-89ba-4086-8cb9-8ba1fd44c162")]));
 		expect(
-			collectRuntimeCsqlStringInputNames(
-				eq(prop("patient", "dob"), dateCoerce(term(input("date_text")))),
+			collectRuntimeCsqlStringInputUuids(
+				eq(
+					prop("patient", "dob"),
+					dateCoerce(
+						term(input(asUuid("2d1ddc69-ad97-4c0c-8b01-2aab2fb10d10"))),
+					),
+				),
 			),
-		).toEqual(new Set(["date_text"]));
+		).toEqual(new Set([asUuid("2d1ddc69-ad97-4c0c-8b01-2aab2fb10d10")]));
 	});
 
 	it("skips trigger-only and normalized on-device control values", () => {
 		const triggerOnly = whenInput(
-			input("trigger"),
+			input(asUuid("86f97337-47b3-480b-8fee-c5a918041203")),
 			eq(prop("patient", "status"), literal("active")),
 		);
 		const numericOutput = eq(
 			prop("patient", "score"),
-			arith("+", term(input("number")), term(literal(1))),
+			arith(
+				"+",
+				term(input(asUuid("6ad32d13-f097-40c6-833a-8c124c7ef785"))),
+				term(literal(1)),
+			),
 		);
 		const conditionalControl = eq(
 			prop("patient", "label"),
 			ifExpr(
-				eq(input("control"), literal("yes")),
+				eq(
+					input(asUuid("3a385156-ab07-4067-80ae-19e880d4bc6b")),
+					literal("yes"),
+				),
 				term(literal("accepted")),
 				term(literal("rejected")),
 			),
 		);
-		expect(collectRuntimeCsqlStringInputNames(triggerOnly)).toEqual(new Set());
-		expect(collectRuntimeCsqlStringInputNames(numericOutput)).toEqual(
+		expect(collectRuntimeCsqlStringInputUuids(triggerOnly)).toEqual(new Set());
+		expect(collectRuntimeCsqlStringInputUuids(numericOutput)).toEqual(
 			new Set(),
 		);
-		expect(collectRuntimeCsqlStringInputNames(conditionalControl)).toEqual(
+		expect(collectRuntimeCsqlStringInputUuids(conditionalControl)).toEqual(
 			new Set(),
 		);
 	});
@@ -73,12 +88,12 @@ describe("collectRuntimeCsqlStringInputNames", () => {
 			prop("patient", "label"),
 			ifExpr(
 				matchAll(),
-				term(input("branch_value")),
+				term(input(asUuid("e4c52089-caba-4cff-858c-7297acba8409"))),
 				term(literal("fallback")),
 			),
 		);
-		expect(collectRuntimeCsqlStringInputNames(predicate)).toEqual(
-			new Set(["branch_value"]),
+		expect(collectRuntimeCsqlStringInputUuids(predicate)).toEqual(
+			new Set([asUuid("e4c52089-caba-4cff-858c-7297acba8409")]),
 		);
 	});
 
@@ -88,13 +103,16 @@ describe("collectRuntimeCsqlStringInputNames", () => {
 			count(
 				subcasePath("visit"),
 				whenInput(
-					input("visit_name"),
-					eq(prop("visit", "name"), input("visit_name")),
+					input(asUuid("e91f1dd4-be63-443c-8799-4606aaedfdcd")),
+					eq(
+						prop("visit", "name"),
+						input(asUuid("e91f1dd4-be63-443c-8799-4606aaedfdcd")),
+					),
 				),
 			),
 		);
-		expect(collectRuntimeCsqlStringInputNames(predicate)).toEqual(
-			new Set(["visit_name"]),
+		expect(collectRuntimeCsqlStringInputUuids(predicate)).toEqual(
+			new Set([asUuid("e91f1dd4-be63-443c-8799-4606aaedfdcd")]),
 		);
 	});
 
@@ -114,22 +132,22 @@ describe("collectRuntimeCsqlStringInputNames", () => {
 					"advanced_owner",
 					"Advanced",
 					"text",
-					whenInput(
-						input("sibling"),
-						eq(prop("patient", "region"), input("sibling")),
-					),
+					whenInput(input(u(3)), eq(prop("patient", "region"), input(u(3)))),
 				),
 				// This prompt is consumed by the sibling advanced predicate.
 				advancedSearchInputDef(u(3), "sibling", "Region", "text", matchAll()),
 			],
 			filter: whenInput(
-				input("filter_value"),
-				eq(prop("patient", "status"), input("filter_value")),
+				input(asUuid("4dc45fed-572f-4487-8df7-3e6c57d78d21")),
+				eq(
+					prop("patient", "status"),
+					input(asUuid("4dc45fed-572f-4487-8df7-3e6c57d78d21")),
+				),
 			),
 		});
 		const predicate = composeXPathQueryPredicate(config, "patient");
-		expect(collectRuntimeCsqlStringInputNames(predicate)).toEqual(
-			new Set(["client_query", "sibling", "filter_value"]),
+		expect(collectRuntimeCsqlStringInputUuids(predicate)).toEqual(
+			new Set([u(1), u(3), asUuid("4dc45fed-572f-4487-8df7-3e6c57d78d21")]),
 		);
 	});
 
@@ -143,15 +161,12 @@ describe("collectRuntimeCsqlStringInputNames", () => {
 					"query",
 					"Query",
 					"text",
-					whenInput(
-						input("query"),
-						eq(prop("patient", "name"), input("query")),
-					),
+					whenInput(input(u(4)), eq(prop("patient", "name"), input(u(4)))),
 				),
 			],
 		});
 		expect(
-			collectRuntimeCsqlStringInputNames(
+			collectRuntimeCsqlStringInputUuids(
 				composeXPathQueryPredicate(config, "patient"),
 			),
 		).toEqual(new Set());

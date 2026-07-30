@@ -19,7 +19,12 @@
  * no finishing tool: the chat route finalizes a build at drain end
  * (status flip + case-store materialize + the `data-done` signal).
  */
-import { type FlexibleSchema, stepCountIs, ToolLoopAgent } from "ai";
+import {
+	type FlexibleSchema,
+	stepCountIs,
+	ToolLoopAgent,
+	type ToolSet,
+} from "ai";
 import type { ZodType } from "zod";
 import {
 	AppAccessError,
@@ -42,60 +47,10 @@ import {
 } from "@/lib/models";
 import type { GenerationContext } from "./generationContext";
 import { buildSolutionsArchitectPrompt } from "./prompts";
+import { SHARED_TOOL_MANIFEST } from "./sharedToolManifest";
 import type { ToolExecutionContext } from "./toolExecutionContext";
-import { addFieldsTool } from "./tools/addFields";
 import { askQuestionsTool } from "./tools/askQuestions";
-import { addCaseListColumnsTool } from "./tools/case-list-config/addCaseListColumns";
-import { addSearchInputsTool } from "./tools/case-list-config/addSearchInputs";
-import { removeCaseListColumnTool } from "./tools/case-list-config/removeCaseListColumn";
-import { removeSearchInputTool } from "./tools/case-list-config/removeSearchInput";
-import { reorderCaseListColumnsTool } from "./tools/case-list-config/reorderCaseListColumns";
-import { reorderSearchInputsTool } from "./tools/case-list-config/reorderSearchInputs";
-import { setCaseListFilterTool } from "./tools/case-list-config/setCaseListFilter";
-import { setCaseListTileTool } from "./tools/case-list-config/setCaseListTile";
-import { updateCaseListColumnTool } from "./tools/case-list-config/updateCaseListColumn";
-import { updateSearchInputTool } from "./tools/case-list-config/updateSearchInput";
-import { addCaseOperationsTool } from "./tools/case-operations/addCaseOperations";
-import { getCaseOperationsTool } from "./tools/case-operations/getCaseOperations";
-import { moveCaseOperationTool } from "./tools/case-operations/moveCaseOperation";
-import { removeCaseOperationTool } from "./tools/case-operations/removeCaseOperation";
-import { updateCaseOperationTool } from "./tools/case-operations/updateCaseOperation";
-import { setCaseSearchAdvancedTool } from "./tools/case-search-config/setCaseSearchAdvanced";
-import { setCaseSearchDisplayTool } from "./tools/case-search-config/setCaseSearchDisplay";
 import type { MutatingToolResult, ReadToolResult } from "./tools/common";
-import { createFormTool } from "./tools/createForm";
-import { createModuleTool } from "./tools/createModule";
-import { editFieldTool } from "./tools/editField";
-import { generateSchemaTool } from "./tools/generateSchema";
-import { getFieldTool } from "./tools/getField";
-import { getFormTool } from "./tools/getForm";
-import { getModuleTool } from "./tools/getModule";
-import { attachFieldMediaTool } from "./tools/media/attachFieldMedia";
-import { attachOptionMediaTool } from "./tools/media/attachOptionMedia";
-import { listMediaAssetsTool } from "./tools/media/listMediaAssets";
-import { removeMediaAssetTool } from "./tools/media/removeMediaAsset";
-import { setAppLogoTool } from "./tools/media/setAppLogo";
-import { setMenuMediaTool } from "./tools/media/setMenuMedia";
-import { moveFieldTool } from "./tools/moveField";
-import { removeFieldTool } from "./tools/removeField";
-import { removeFormTool } from "./tools/removeForm";
-import { removeModuleTool } from "./tools/removeModule";
-import { searchBlueprintTool } from "./tools/searchBlueprint";
-import { updateAppTool } from "./tools/updateApp";
-import { updateFormTool } from "./tools/updateForm";
-import { updateModuleTool } from "./tools/updateModule";
-import {
-	addPersonasTool,
-	addUserPropertiesTool,
-	addUserTypesTool,
-	getUsersTool,
-	removePersonaTool,
-	removeUserPropertyTool,
-	removeUserTypeTool,
-	updatePersonaTool,
-	updateUserPropertyTool,
-	updateUserTypeTool,
-} from "./tools/users";
 import { wireToolSchema } from "./wireSchemas";
 
 // ── Solutions Architect Agent ────────────────────────────────────────
@@ -123,7 +78,7 @@ export function createSolutionsArchitect(
 	 * each extracted tool module via `ctx.recordMutations`. The wrappers
 	 * below only reassign `doc` when the extracted tool's `mutations`
 	 * array is non-empty, so the next tool call in the same request sees
-	 * post-mutation state for its positional-index lookups. Wire-format
+	 * post-mutation state for its UUID-backed lookups. Wire-format
 	 * snapshots are generated on demand for LLM-facing outputs and for
 	 * the CommCare validator. */
 	let doc: BlueprintDoc = initialDoc;
@@ -203,8 +158,8 @@ export function createSolutionsArchitect(
 	 * The mutations are already persisted by the extracted tool's
 	 * `ctx.recordMutations(...)` call before it returns; this helper's only
 	 * job is to advance the SA's working-doc closure when the batch was
-	 * non-empty, so the next tool call sees updated index → uuid
-	 * resolution. Empty batches leave `doc` alone — matters for success
+	 * non-empty, so the next tool call sees the updated UUID-addressed
+	 * document. Empty batches leave `doc` alone — matters for success
 	 * branches that don't change state.
 	 *
 	 * The generic input type `I` is carried through `FlexibleSchema<I>` so
@@ -387,7 +342,7 @@ export function createSolutionsArchitect(
 	// ── Shared tools (all modes) ─────────────────────────────────────
 	// Conversation, batch add, read, mutation, and validation tools.
 
-	const sharedTools = {
+	const sharedTools: ToolSet = {
 		// `askQuestions` is the one client-side tool — no `execute`, the
 		// agent stops for user input when the model calls it. Kept as a
 		// bare `{ description, inputSchema }` object so the AI SDK can
@@ -397,123 +352,11 @@ export function createSolutionsArchitect(
 			inputSchema: wire(askQuestionsTool.inputSchema),
 			strict: false,
 		},
-
-		addFields: wrapMutating(addFieldsTool),
-
-		// ── Data model ─────────────────────────────────────────────────
-		// Commits the case-type catalog (and the app name) onto the doc —
-		// a build's first call, and how a NEW case type enters an existing
-		// app. `createModule` references the recorded types by name.
-
-		generateSchema: wrapMutating(generateSchemaTool),
-
-		// ── Read ────────────────────────────────────────────────────────
-
-		searchBlueprint: wrapRead(searchBlueprintTool),
-		getModule: wrapRead(getModuleTool),
-		getForm: wrapRead(getFormTool),
-		getField: wrapRead(getFieldTool),
-		getCaseOperations: wrapRead(getCaseOperationsTool),
-
-		// ── Field mutations ────────────────────────────────────────
-
-		editField: wrapMutating(editFieldTool),
-		moveField: wrapMutating(moveFieldTool),
-		removeField: wrapMutating(removeFieldTool),
-
-		// ── Structural mutations ──────────────────────────────────────
-
-		updateApp: wrapMutating(updateAppTool),
-		getUsers: wrapRead(getUsersTool),
-		addUserProperties: wrapMutating(addUserPropertiesTool),
-		updateUserProperty: wrapMutating(updateUserPropertyTool),
-		removeUserProperty: wrapMutating(removeUserPropertyTool),
-		addUserTypes: wrapMutating(addUserTypesTool),
-		updateUserType: wrapMutating(updateUserTypeTool),
-		removeUserType: wrapMutating(removeUserTypeTool),
-		addPersonas: wrapMutating(addPersonasTool),
-		updatePersona: wrapMutating(updatePersonaTool),
-		removePersona: wrapMutating(removePersonaTool),
-		updateModule: wrapMutating(updateModuleTool),
-		updateForm: wrapMutating(updateFormTool),
-		createForm: wrapMutating(createFormTool),
-		removeForm: wrapMutating(removeFormTool),
-		createModule: wrapMutating(createModuleTool),
-		removeModule: wrapMutating(removeModuleTool),
-
-		// ── Case-operation mutations ───────────────────────────────────
-		// Author identities cross to UUIDs inside the shared tool module
-		// before the checker runs. Add is batch-shaped so a later operation
-		// can target an earlier create atomically; update decomposes into
-		// identity-keyed operation/write/link edits for concurrent composition.
-
-		addCaseOperations: wrapMutating(addCaseOperationsTool),
-		updateCaseOperation: wrapMutating(updateCaseOperationTool),
-		removeCaseOperation: wrapMutating(removeCaseOperationTool),
-		moveCaseOperation: wrapMutating(moveCaseOperationTool),
-
-		// ── Case list config mutations ─────────────────────────────────
-		// Two arrays (`columns`, `searchInputs`) decompose into atomic
-		// add / update / remove / reorder ops; the `filter` slot stays
-		// wholesale (one Predicate). Each atomic mutation tool returns
-		// the affected uuid both in the success message and in a
-		// structured `result.uuid` field so the SA can target follow-
-		// up edits without re-reading. Atomic ops route their array-
-		// walk through the case-list mutation builders in
-		// `blueprintHelpers.ts`; SA-boundary input shapes live in
-		// `tools/case-list-config/shared.ts`.
-		//
-		// `setCaseListTile` is the fourth shape: the tile layout plus
-		// every field's place on its grid, in ONE call. Layout and
-		// placement are judged together by the commit gate (while the
-		// tile is on every Results field needs a place, and no two
-		// fields may share a square), so neither a switch-only tool nor
-		// a per-cell tool could reach a valid state on its own.
-
-		addCaseListColumns: wrapMutating(addCaseListColumnsTool),
-		updateCaseListColumn: wrapMutating(updateCaseListColumnTool),
-		removeCaseListColumn: wrapMutating(removeCaseListColumnTool),
-		reorderCaseListColumns: wrapMutating(reorderCaseListColumnsTool),
-		setCaseListFilter: wrapMutating(setCaseListFilterTool),
-		setCaseListTile: wrapMutating(setCaseListTileTool),
-		addSearchInputs: wrapMutating(addSearchInputsTool),
-		updateSearchInput: wrapMutating(updateSearchInputTool),
-		removeSearchInput: wrapMutating(removeSearchInputTool),
-		reorderSearchInputs: wrapMutating(reorderSearchInputsTool),
-
-		// ── Case-search config mutations ──────────────────────────────
-		// Two wholesale tools — one per cluster of `caseSearchConfig`.
-		// `setCaseSearchDisplay` owns the search-screen labels;
-		// `setCaseSearchAdvanced` owns niche search-side filters (the
-		// `excludedOwnerIds` expression). Search inputs themselves
-		// remain on `caseListConfig.searchInputs` (cross-bound with the
-		// case-list search affordance) and are authored through the
-		// existing case-list-config family — these two tools never touch
-		// them.
-
-		setCaseSearchAdvanced: wrapMutating(setCaseSearchAdvancedTool),
-		setCaseSearchDisplay: wrapMutating(setCaseSearchDisplayTool),
-
-		// ── Media authoring ───────────────────────────────────────────
-		// The dedicated surface for attaching asset ids to carriers — the
-		// generic mutation tools (`addFields`, `editField`,
-		// case-list-config) omit every media slot, so the SA can neither
-		// mint nor reference an asset id there. Four doc-mutation tools,
-		// each batch-shaped where the carrier repeats (field message
-		// slots / select options / module + form menu tiles / app logo)
-		// plus two library tools: `listMediaAssets` discovers the asset
-		// ids the others need (read), `removeMediaAsset` deletes one with
-		// a live-reference guard (read-shaped — its side effect is on the
-		// library, not the doc). The MCP-only `uploadMediaAsset` is not
-		// here: the browser uploads through the library UI.
-
-		attachFieldMedia: wrapMutating(attachFieldMediaTool),
-		attachOptionMedia: wrapMutating(attachOptionMediaTool),
-		setMenuMedia: wrapMutating(setMenuMediaTool),
-		setAppLogo: wrapMutating(setAppLogoTool),
-		listMediaAssets: wrapRead(listMediaAssetsTool),
-		removeMediaAsset: wrapRead(removeMediaAssetTool),
 	};
+	for (const entry of SHARED_TOOL_MANIFEST) {
+		sharedTools[entry.chatName] =
+			entry.kind === "mutate" ? wrapMutating(entry.tool) : wrapRead(entry.tool);
+	}
 
 	// ── Build agent ──────────────────────────────────────────────────
 	// One tool set for both modes (generateSchema included — it's how a

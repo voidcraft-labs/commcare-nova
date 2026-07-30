@@ -520,7 +520,7 @@ function termSeedForSlot(
 				constraint.accepts === "any" ||
 				acceptsType(constraint, candidate.data_type ?? "text"),
 		);
-		if (searchInput !== undefined) return term(input(searchInput.name));
+		if (searchInput !== undefined) return term(input(searchInput.uuid));
 
 		if (constraint.accepts === "any" || acceptsType(constraint, "text")) {
 			return term(sessionContext("userid"));

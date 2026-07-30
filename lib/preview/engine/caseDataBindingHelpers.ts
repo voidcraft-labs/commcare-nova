@@ -399,8 +399,8 @@ function composeQueryPredicate(
 	const clauses: Predicate[] = [];
 	let hasAuthoredConstraint = false;
 	let hasWorkerConstraint = false;
-	const knownInputNames = new Set(
-		caseListConfig?.searchInputs.map((input) => input.name) ?? [],
+	const knownInputUuids = new Set(
+		caseListConfig?.searchInputs.map((input) => input.uuid) ?? [],
 	);
 	const emptyExpressionInputValues =
 		caseListConfig === undefined
@@ -418,7 +418,7 @@ function composeQueryPredicate(
 			? bindSearchInputValuesInPredicate(
 					caseListConfig.filter,
 					expressionInputValues,
-					knownInputNames,
+					knownInputUuids,
 					caseListConfig.searchInputs,
 				)
 			: caseListConfig?.filter;
@@ -431,7 +431,7 @@ function composeQueryPredicate(
 				? bindSearchInputValuesInPredicate(
 						caseListConfig.filter,
 						emptyExpressionInputValues,
-						knownInputNames,
+						knownInputUuids,
 						caseListConfig.searchInputs,
 					)
 				: caseListConfig?.filter;

@@ -50,14 +50,14 @@ export function duplicateFieldMutations(
 		const cloneUuid = asUuid(crypto.randomUUID());
 		const copy = structuredClone(field);
 		copy.uuid = cloneUuid;
-		// Duplication is a generic builder gesture and stays carrier-blind until
-		// S09: a lookup-backed select duplicates as its complete inline fallback
-		// rather than silently minting a second dormant carrier.
 		if (
 			(copy.kind === "single_select" || copy.kind === "multi_select") &&
-			copy.optionsSource !== undefined
+			copy.optionsSource.kind === "inline"
 		) {
-			delete copy.optionsSource;
+			copy.optionsSource.options = copy.optionsSource.options.map((option) => ({
+				...option,
+				uuid: asUuid(crypto.randomUUID()),
+			}));
 		}
 		cloned.push({ parentUuid: intoParent, field: copy });
 		for (const childUuid of doc.fieldOrder[sourceUuid] ?? []) {

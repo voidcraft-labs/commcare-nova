@@ -1,6 +1,6 @@
-import { z } from "zod";
+import type { z } from "zod";
 import { planCaseOperationUpdate } from "@/lib/doc/caseOperationMutations";
-import type { BlueprintDoc } from "@/lib/domain";
+import { asUuid, type BlueprintDoc, uuidSchema } from "@/lib/domain";
 import type { ToolExecutionContext } from "../../toolExecutionContext";
 import {
 	guardedMutate,
@@ -11,14 +11,14 @@ import type { MutationSuccess } from "../shared/toolCallSummary";
 import {
 	caseOperationInputSchema,
 	operationAddressSchema,
-	operationById,
+	operationByUuid,
 	operationIdRejection,
 	resolveCaseOperationInput,
 	resolveOperationAddress,
 } from "./shared";
 
 export const updateCaseOperationInputSchema = operationAddressSchema.extend({
-	operationId: z.string().min(1).describe("Current operation id"),
+	operationUuid: uuidSchema.describe("Stable uuid of the operation to update"),
 	operation: caseOperationInputSchema.describe(
 		"Complete desired operation. Omitted optional facets are cleared; unchanged slots emit no mutation.",
 	),
@@ -29,6 +29,7 @@ export type UpdateCaseOperationInput = z.infer<
 >;
 
 export interface UpdateCaseOperationSuccess extends MutationSuccess {
+	readonly operationUuid: string;
 	readonly operationId: string;
 }
 
@@ -38,7 +39,7 @@ export type UpdateCaseOperationResult =
 
 export const updateCaseOperationTool = {
 	description:
-		"Update one case operation by id. Supply its complete desired author shape; Nova emits only the identity-keyed slots that actually changed, so unrelated concurrent edits compose.",
+		"Update one case operation by stable uuid. Supply its complete desired shape; Nova emits only the identity-keyed slots that actually changed, so unrelated concurrent edits compose.",
 	inputSchema: updateCaseOperationInputSchema,
 	async execute(
 		input: UpdateCaseOperationInput,
@@ -55,14 +56,18 @@ export const updateCaseOperationTool = {
 					result: { error: address.error },
 				};
 			}
-			const existing = operationById(doc, address.formUuid, input.operationId);
+			const existing = operationByUuid(
+				doc,
+				address.formUuid,
+				asUuid(input.operationUuid),
+			);
 			if (existing === undefined) {
 				return {
 					kind: "mutate",
 					mutations: [],
 					newDoc: doc,
 					result: {
-						error: `Case operation "${input.operationId}" not found in form "${doc.forms[address.formUuid]?.name ?? input.formUuid}".`,
+						error: `Case operation uuid "${input.operationUuid}" not found in form "${doc.forms[address.formUuid]?.name ?? input.formUuid}".`,
 					},
 				};
 			}
@@ -78,16 +83,11 @@ export const updateCaseOperationTool = {
 					mutations: [],
 					newDoc: doc,
 					result: {
-						error: `Operation "${input.operationId}" was not updated: ${idError}`,
+						error: `Operation "${existing.id}" was not updated: ${idError}`,
 					},
 				};
 			}
-			const next = resolveCaseOperationInput(
-				doc,
-				address.formUuid,
-				input.operation,
-				existing.uuid,
-			);
+			const next = resolveCaseOperationInput(input.operation, existing.uuid);
 			const plan = planCaseOperationUpdate(doc, address.formUuid, next);
 			if (!plan.ok) {
 				return {
@@ -95,7 +95,7 @@ export const updateCaseOperationTool = {
 					mutations: [],
 					newDoc: doc,
 					result: {
-						error: `Operation "${input.operationId}" was not updated: ${plan.reason}`,
+						error: `Operation "${existing.id}" was not updated: ${plan.reason}`,
 					},
 				};
 			}
@@ -121,8 +121,9 @@ export const updateCaseOperationTool = {
 				result: {
 					message:
 						mutations.length === 0
-							? `Case operation "${input.operationId}" was already up to date.`
-							: `Updated case operation "${input.operationId}"${input.operation.id === input.operationId ? "" : ` as "${input.operation.id}"`}.`,
+							? `Case operation "${existing.id}" was already up to date.`
+							: `Updated case operation "${existing.id}"${input.operation.id === existing.id ? "" : ` as "${input.operation.id}"`}.`,
+					operationUuid: existing.uuid,
 					operationId: input.operation.id,
 					summary: {
 						location: doc.forms[address.formUuid]?.name ?? input.formUuid,

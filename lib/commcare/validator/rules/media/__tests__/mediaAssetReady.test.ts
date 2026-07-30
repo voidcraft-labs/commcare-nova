@@ -1,4 +1,5 @@
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { asUuid } from "@/lib/domain";
 /**
  * Tests for `mediaAssetReady` — every referenced asset is in
  * `status: "ready"`. The validator's manifest loader includes
@@ -42,14 +43,22 @@ function docWithOptionMedia(assetId: string) {
 								kind: "single_select",
 								id: "color",
 								label: "Color",
-								options: [
-									{
-										value: "r",
-										label: "Red",
-										media: { image: assetId },
-									},
-									{ value: "g", label: "Green" },
-								],
+								optionsSource: {
+									kind: "inline",
+									options: [
+										{
+											uuid: asUuid("1c7a049f-6529-4b4a-aaba-a5fa80e84c6e"),
+											value: "r",
+											label: "Red",
+											media: { image: assetId },
+										},
+										{
+											uuid: asUuid("9fd242f1-c25a-4091-ad1b-40aa9564e48c"),
+											value: "g",
+											label: "Green",
+										},
+									],
+								},
 							}),
 						],
 					},

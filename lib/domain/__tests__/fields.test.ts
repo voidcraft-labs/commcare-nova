@@ -39,7 +39,16 @@ describe("fieldSchema", () => {
 				uuid: asUuid("abc"),
 				id: "x",
 				label: "X",
-				options: [{ value: "a", label: "A" }],
+				optionsSource: {
+					kind: "inline",
+					options: [
+						{
+							uuid: asUuid("9e0ad84f-ced9-48b7-a5f0-8aae387936bd"),
+							value: "a",
+							label: "A",
+						},
+					],
+				},
 			}),
 		).toThrow();
 	});
@@ -50,10 +59,21 @@ describe("fieldSchema", () => {
 			uuid: asUuid("abc"),
 			id: "x",
 			label: "X",
-			options: [
-				{ value: "a", label: "A" },
-				{ value: "b", label: "B" },
-			],
+			optionsSource: {
+				kind: "inline",
+				options: [
+					{
+						uuid: asUuid("46069a1b-c5bb-491f-a3d3-c2fc105ebdb0"),
+						value: "a",
+						label: "A",
+					},
+					{
+						uuid: asUuid("81d6b4ee-e75c-49ab-a26e-1761ebcb1da6"),
+						value: "b",
+						label: "B",
+					},
+				],
+			},
 		});
 		expect(f.kind).toBe("single_select");
 	});

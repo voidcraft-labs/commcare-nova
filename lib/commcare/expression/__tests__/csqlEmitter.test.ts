@@ -58,7 +58,45 @@ import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
 import type { CsqlSegment } from "../../predicate/csqlSegment";
 import { quoteRuntimeCsqlValue } from "../../predicate/termEmitter";
 import { parser } from "../../xpath/parser";
-import { emitCsqlExpressionSegments } from "../csqlEmitter";
+import { emitCsqlExpressionSegments as emitCsqlExpressionSegmentsProduction } from "../csqlEmitter";
+
+const SEARCH_INPUTS: NonNullable<TypeContext["knownInputs"]> = [
+	{
+		uuid: asUuid("af11da91-077c-45b4-8967-eed3cb14aca2"),
+		name: "dob_text",
+		data_type: "text",
+	},
+	{
+		uuid: asUuid("df5bca4e-fb88-4d04-802c-ca41bbb80d72"),
+		name: "birth_year",
+		data_type: "text",
+	},
+	{
+		uuid: asUuid("1971db00-a3e4-4ddb-86be-9de2f9a3055d"),
+		name: "age",
+		data_type: "text",
+	},
+	{
+		uuid: asUuid("f1b15330-fa10-4778-8521-9bf36b886372"),
+		name: "base_date",
+		data_type: "date",
+	},
+	{
+		uuid: asUuid("f589779a-c86c-41a8-8ed3-e879b538c7dc"),
+		name: "base_datetime",
+		data_type: "datetime",
+	},
+	{
+		uuid: asUuid("2d73aea6-1864-4836-8c63-e193cc3b55b0"),
+		name: "selected_values",
+		data_type: "text",
+	},
+	{
+		uuid: asUuid("e8397dc7-c995-4c3c-8788-ea95337d548b"),
+		name: "phone_query",
+		data_type: "text",
+	},
+];
 
 const TEMPORAL_CONTEXT: TypeContext = {
 	caseTypes: [
@@ -74,11 +112,18 @@ const TEMPORAL_CONTEXT: TypeContext = {
 			],
 		},
 	],
-	knownInputs: [
-		{ name: "base_date", data_type: "date" },
-		{ name: "base_datetime", data_type: "datetime" },
-	],
+	knownInputs: SEARCH_INPUTS,
 };
+
+function emitCsqlExpressionSegments(
+	...args: Parameters<typeof emitCsqlExpressionSegmentsProduction>
+): ReturnType<typeof emitCsqlExpressionSegmentsProduction> {
+	return emitCsqlExpressionSegmentsProduction(
+		args[0],
+		args[1] ?? { caseTypes: [], knownInputs: SEARCH_INPUTS },
+		args[2],
+	);
+}
 
 function materializeSegments(
 	segments: readonly CsqlSegment[],
@@ -127,7 +172,9 @@ describe("emitCsqlExpressionSegments — coercion functions", () => {
 	// native function call; raw interpolation turns an ISO date into an
 	// arithmetic AST (`date(2024-01-02)`) and a session id into a Step.
 	it("emits date(<value>) for date-coerce, splicing in a runtime ref segment", () => {
-		const expr = dateCoerce(term(input("dob_text")));
+		const expr = dateCoerce(
+			term(input(asUuid("af11da91-077c-45b4-8967-eed3cb14aca2"))),
+		);
 		const xpath = `instance('search-input:results')/input/field[@name='dob_text']`;
 		expect(emitCsqlExpressionSegments(expr)).toEqual([
 			{ kind: "constant", text: "date(" },
@@ -158,10 +205,17 @@ describe("emitCsqlExpressionSegments — coercion functions", () => {
 
 	it("inlines non-native wrappers as one safely quoted runtime function argument", () => {
 		const dateExpr = dateCoerce(
-			concat(term(input("year")), term(literal("-01-01"))),
+			concat(
+				term(input(asUuid("df5bca4e-fb88-4d04-802c-ca41bbb80d72"))),
+				term(literal("-01-01")),
+			),
 		);
 		const doubleExpr = double(
-			ifExpr(matchAll(), term(input("score")), term(literal(0))),
+			ifExpr(
+				matchAll(),
+				term(input(asUuid("1971db00-a3e4-4ddb-86be-9de2f9a3055d"))),
+				term(literal(0)),
+			),
 		);
 		const dateSegments = emitCsqlExpressionSegments(dateExpr);
 		const doubleSegments = emitCsqlExpressionSegments(doubleExpr);
@@ -231,7 +285,11 @@ describe("emitCsqlExpressionSegments — date-add", () => {
 	});
 
 	it("quotes a typed runtime date and keeps date-add", () => {
-		const expr = dateAdd(term(input("base_date")), "days", term(literal(7)));
+		const expr = dateAdd(
+			term(input(asUuid("f1b15330-fa10-4778-8521-9bf36b886372"))),
+			"days",
+			term(literal(7)),
+		);
 		const xpath = `instance('search-input:results')/input/field[@name='base_date']`;
 		expect(emitCsqlExpressionSegments(expr, TEMPORAL_CONTEXT)).toEqual([
 			{ kind: "constant", text: "date-add(" },
@@ -260,12 +318,14 @@ describe("emitCsqlExpressionSegments — date-add", () => {
 
 	it("uses explicit coercion wrappers as a sound standalone discriminator", () => {
 		const dateExpr = dateAdd(
-			dateCoerce(term(input("base_date"))),
+			dateCoerce(term(input(asUuid("f1b15330-fa10-4778-8521-9bf36b886372")))),
 			"days",
 			term(literal(1)),
 		);
 		const datetimeExpr = dateAdd(
-			datetimeCoerce(term(input("base_datetime"))),
+			datetimeCoerce(
+				term(input(asUuid("f589779a-c86c-41a8-8ed3-e879b538c7dc"))),
+			),
 			"hours",
 			term(literal(1)),
 		);
@@ -324,7 +384,7 @@ describe("emitCsqlExpressionSegments — date-add", () => {
 
 	it("rejects an ambiguous input or property when no canonical type context is supplied", () => {
 		const inputExpr = dateAdd(
-			term(input("base_date")),
+			term(input(asUuid("f1b15330-fa10-4778-8521-9bf36b886372"))),
 			"days",
 			term(literal(1)),
 		);
@@ -333,7 +393,7 @@ describe("emitCsqlExpressionSegments — date-add", () => {
 			"days",
 			term(literal(1)),
 		);
-		expect(() => emitCsqlExpressionSegments(inputExpr)).toThrow(
+		expect(() => emitCsqlExpressionSegmentsProduction(inputExpr)).toThrow(
 			/cannot choose between/i,
 		);
 		expect(() => emitCsqlExpressionSegments(propertyExpr)).toThrow(
@@ -353,7 +413,9 @@ describe("emitCsqlExpressionSegments — unwrap-list", () => {
 	});
 
 	it("single-quotes runtime JSON so its required double quotes remain valid", () => {
-		const expr = unwrapList(term(input("selected_values")));
+		const expr = unwrapList(
+			term(input(asUuid("2d73aea6-1864-4836-8c63-e193cc3b55b0"))),
+		);
 		const segments = emitCsqlExpressionSegments(expr);
 		const xpath = `instance('search-input:results')/input/field[@name='selected_values']`;
 		const materialized = materializeSegments(
@@ -393,9 +455,11 @@ describe("emitCsqlExpressionSegments — term arm structural lifter", () => {
 
 	it("emits a runtime-resolved input as a quoted CSQL scalar", () => {
 		const xpath = `instance('search-input:results')/input/field[@name='phone_query']`;
-		expect(emitCsqlExpressionSegments(term(input("phone_query")))).toEqual(
-			quoteRuntimeCsqlValue(xpath, "double", ["phone_query"]),
-		);
+		expect(
+			emitCsqlExpressionSegments(
+				term(input(asUuid("e8397dc7-c995-4c3c-8788-ea95337d548b"))),
+			),
+		).toEqual(quoteRuntimeCsqlValue(xpath, "double", ["phone_query"]));
 	});
 });
 

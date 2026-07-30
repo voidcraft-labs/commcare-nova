@@ -13,16 +13,8 @@ import {
 	normalizeOwnerOnlyCaseSearchConfig,
 	type TileCell,
 } from "@/lib/domain";
-import {
-	effectiveFilterForEmission,
-	renameSearchInputInExpression,
-	renameSearchInputInPredicate,
-} from "@/lib/domain/predicate";
+import { effectiveFilterForEmission } from "@/lib/domain/predicate";
 import { cascadeDeleteForm } from "./helpers";
-import {
-	rewriteFormSearchInputRefs,
-	rewriteModuleSearchInputRefs,
-} from "./referenceRewrites";
 
 /**
  * Module mutations operate on the `modules`, `moduleOrder`, and `formOrder`
@@ -447,61 +439,10 @@ export function applyModuleMutation(
 			if (!config) return;
 			const idx = config.searchInputs.findIndex((s) => s.uuid === mut.uuid);
 			if (idx === -1) return;
-			const current = config.searchInputs[idx];
-			const freshName = current.name;
-			const fallbackName = mut.searchInput.name;
-			const desiredName = mut.renamedTo ?? fallbackName;
-			const replacement = structuredClone(mut.searchInput);
-			// A rename's origin-compatible row retains the old declaration name,
-			// including any self-reference in its own default/predicate. Rewrite that
-			// incoming row locally before installing it. Module-wide old-name rewrites
-			// are conditional below because a peer may already have reused the freed
-			// name for a different input identity.
-			if (fallbackName !== desiredName) {
-				if (replacement.default !== undefined) {
-					renameSearchInputInExpression(
-						replacement.default,
-						fallbackName,
-						desiredName,
-					);
-				}
-				if (replacement.kind === "advanced") {
-					renameSearchInputInPredicate(
-						replacement.predicate,
-						fallbackName,
-						desiredName,
-					);
-				}
-			}
 			config.searchInputs[idx] = {
-				...replacement,
+				...structuredClone(mut.searchInput),
 				uuid: mut.uuid,
-				name: desiredName,
 			};
-			// References to the fresh target name are identity-safe: they were rewritten
-			// when this same uuid was renamed by a peer, so always carry them forward.
-			if (freshName !== desiredName) {
-				rewriteSearchInputRefs(draft, mut.moduleUuid, freshName, desiredName);
-			}
-			// The fallback name is safe module-wide only while no different fresh row
-			// owns it. Otherwise those refs belong to that new uuid; rewriting them
-			// would corrupt peer work merely because this stale payload remembers the
-			// original declaration name.
-			const fallbackOwnedByPeer = config.searchInputs.some(
-				(input) => input.uuid !== mut.uuid && input.name === fallbackName,
-			);
-			if (
-				fallbackName !== desiredName &&
-				fallbackName !== freshName &&
-				!fallbackOwnedByPeer
-			) {
-				rewriteSearchInputRefs(
-					draft,
-					mut.moduleUuid,
-					fallbackName,
-					desiredName,
-				);
-			}
 			return;
 		}
 		case "removeSearchInput": {
@@ -570,23 +511,6 @@ function applyColumnTileCells(
 		const column = columnByUuid.get(entry.uuid);
 		if (column === undefined) continue;
 		column.tile = structuredClone(entry.tile);
-	}
-}
-
-function rewriteSearchInputRefs(
-	draft: Draft<BlueprintDoc>,
-	moduleUuid: string,
-	oldName: string,
-	newName: string,
-): void {
-	const mod = draft.modules[moduleUuid];
-	if (mod === undefined) return;
-	rewriteModuleSearchInputRefs(mod, oldName, newName);
-	for (const formUuid of draft.formOrder[moduleUuid] ?? []) {
-		const form = draft.forms[formUuid];
-		if (form !== undefined) {
-			rewriteFormSearchInputRefs(form, oldName, newName);
-		}
 	}
 }
 

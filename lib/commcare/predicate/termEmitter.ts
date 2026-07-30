@@ -149,6 +149,8 @@ export interface OnDeviceTermEmissionContext
 	readonly lookup?: OnDeviceLookupEmissionContext;
 	/** Current saved names for identity-backed custom worker information. */
 	readonly userPropertySlugs?: ReadonlyMap<Uuid, string>;
+	/** Current saved wire names for identity-backed Search inputs. */
+	readonly searchInputNames?: ReadonlyMap<Uuid, string>;
 }
 
 /** Drop the fixture-row scope when emission leaves the fixture predicate. */
@@ -355,7 +357,7 @@ export function emitTerm(
 			return emitOnDevicePropertyRef(term, root);
 		}
 		case "input":
-			return `instance('search-input:results')/input/field[@name='${term.name}']`;
+			return emitSearchInputXPath(term, context.searchInputNames);
 		case "session-user":
 			// `field` is constrained to XML element-name vocabulary at
 			// the schema layer (no quoting / escaping required for valid
@@ -551,17 +553,33 @@ export function emitTermSegment(
 	t: Term,
 	context: {
 		readonly userPropertySlugs?: ReadonlyMap<Uuid, string>;
+		readonly knownInputs?: readonly {
+			readonly uuid: Uuid;
+			readonly name: string;
+		}[];
 	} = {},
 ): TermEmission {
 	switch (t.kind) {
 		case "prop":
 			return { kind: "constant", text: emitCsqlPropertyRefText(t) };
-		case "input":
+		case "input": {
+			const inputName = context.knownInputs?.find(
+				(input) => input.uuid === t.searchInputUuid,
+			)?.name;
+			if (inputName === undefined) {
+				throw new Error(
+					`emitTermSegment: search input '${t.searchInputUuid}' has no current saved-name binding.`,
+				);
+			}
 			return {
 				kind: "runtime",
-				xpath: emitSearchInputXPath(t),
-				inputNames: [t.name],
+				xpath: emitSearchInputXPath(
+					t,
+					new Map([[t.searchInputUuid, inputName]]),
+				),
+				inputNames: [inputName],
 			};
+		}
 		case "session-user":
 			return { kind: "runtime", xpath: emitSessionUserXPath(t) };
 		case "session-user-property": {
@@ -647,8 +665,17 @@ export function emitCsqlPropertyRefSegment(
  * vocabulary (no hyphens, no quotes), so direct interpolation is
  * safe.
  */
-export function emitSearchInputXPath(t: SearchInputRef): string {
-	return `instance('search-input:results')/input/field[@name='${t.name}']`;
+export function emitSearchInputXPath(
+	t: SearchInputRef,
+	searchInputNames?: ReadonlyMap<Uuid, string>,
+): string {
+	const name = searchInputNames?.get(t.searchInputUuid);
+	if (name === undefined) {
+		throw new Error(
+			`emitSearchInputXPath: search input '${t.searchInputUuid}' has no current saved-name binding.`,
+		);
+	}
+	return `instance('search-input:results')/input/field[@name='${name}']`;
 }
 
 /**

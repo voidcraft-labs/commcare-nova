@@ -56,6 +56,7 @@ import {
 	arith,
 	concat,
 	eq,
+	input,
 	literal,
 	matchAll,
 	prop,
@@ -360,13 +361,24 @@ describe("emitSearchSession — _xpath_query AND-composition", () => {
 		// satisfies the validator rule
 		// `searchInputRefUsesWhenInputPresent` (every bare input ref
 		// in the composed `_xpath_query` must be gated).
-		const baseAge = { kind: "input" as const, name: "base_age" };
+		const baseAge = input(INPUT_UUIDS.a);
 		const filter = whenInput(
 			baseAge,
 			eq(prop("patient", "age"), arith("+", term(baseAge), term(literal(1)))),
 		);
 		const { instances, xml } = emitSearchSession({
-			caseListConfig: makeListConfig({ filter }),
+			caseListConfig: makeListConfig({
+				filter,
+				searchInputs: [
+					simpleSearchInputDef(
+						INPUT_UUIDS.a,
+						"base_age",
+						"Base age",
+						"text",
+						"base_age",
+					),
+				],
+			}),
 			caseSearchConfig: {},
 			wire: WEB_LIST_FIRST,
 			caseType: "patient",
@@ -680,7 +692,13 @@ describe("emitSearchSession — simple-arm-with-via _xpath_query routing", () =>
 					],
 				},
 			],
-			knownInputs: [{ name: "household_visit", data_type: "date" }],
+			knownInputs: [
+				{
+					uuid: asUuid("df1dae3f-be05-4148-89d0-09760dcf9f4b"),
+					name: "household_visit",
+					data_type: "date",
+				},
+			],
 			currentCaseType: "patient",
 		};
 		const { xml } = emitSearchSession({
@@ -728,7 +746,13 @@ describe("emitSearchSession — simple-arm-with-via _xpath_query routing", () =>
 					],
 				},
 			],
-			knownInputs: [{ name: "household_seen", data_type: "date" }],
+			knownInputs: [
+				{
+					uuid: asUuid("ea2ed4d4-5853-4e79-80d6-bf5236e2b8d2"),
+					name: "household_seen",
+					data_type: "date",
+				},
+			],
 			currentCaseType: "patient",
 		};
 		const { xml } = emitSearchSession({
@@ -1316,10 +1340,7 @@ describe("composeXPathQueryEmission — defense in depth on bare input refs", ()
 	// a user-surfaced error.
 
 	it("throws when an advanced-arm predicate carries a bare input ref outside any when-input-present envelope", () => {
-		const bareRefPredicate = eq(
-			prop("patient", "city"),
-			term({ kind: "input", name: "city_q" }),
-		);
+		const bareRefPredicate = eq(prop("patient", "city"), input(INPUT_UUIDS.a));
 		expect(() =>
 			emitSearchSession({
 				caseListConfig: makeListConfig({

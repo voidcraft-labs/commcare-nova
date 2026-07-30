@@ -96,6 +96,10 @@ import {
 	unwrapListDefault,
 } from "./cards/expression/UnwrapListCard";
 import type { EditorFormFieldDecl } from "./formFieldPresentation";
+import type {
+	EditorLookupTableDecl,
+	EditorLookupTableScope,
+} from "./lookupTablePresentation";
 
 /**
  * Inputs available at the time `defaultValue` and `applicable` run.
@@ -114,6 +118,10 @@ export interface ExpressionEditContext {
 	/** Form answers this slot may read, already narrowed to the ones its
 	 *  surface admits. Absent means the slot reads no form answers. */
 	readonly formFields?: readonly EditorFormFieldDecl[];
+	/** Rows-free lookup definitions available to identity-backed lookup ASTs. */
+	readonly lookupTables?: readonly EditorLookupTableDecl[];
+	/** Present only while a predicate runs against one lookup-table row. */
+	readonly tableScope?: EditorLookupTableScope;
 	/** Present only inside a case operation, where the submission's own
 	 *  vocabulary — the acting user, no owner, and the case an earlier
 	 *  create made — is available. `creates` lists the operations already
@@ -149,9 +157,8 @@ export interface OperationValueScope {
 export interface ExpressionCardSchema<K extends ValueExpression["kind"]> {
 	readonly kind: K;
 	/** Whether people can create this kind in Nova. `roundTripOnly`
-	 *  kinds never appear as a replacement target; most remain editable
-	 *  when imported, while dormant carriers render an inert compatibility
-	 *  fallback until their owning slice opens. This is intentionally separate from
+	 *  kinds never appear as a replacement target but remain readable when
+	 *  imported. This is intentionally separate from
 	 *  `applicable`: applicability answers whether a result type fits a
 	 *  slot, while authorability is a product-level vocabulary boundary. */
 	readonly authoring: "authorable" | "roundTripOnly";
@@ -301,24 +308,24 @@ function applicableAlways(): boolean {
 	return true;
 }
 
-const DORMANT_LOOKUP_TABLE_ID =
+const PLACEHOLDER_LOOKUP_TABLE_ID =
 	"00000000-0000-7000-8000-000000000000" as LookupTableId;
-const DORMANT_LOOKUP_COLUMN_ID =
+const PLACEHOLDER_LOOKUP_COLUMN_ID =
 	"00000000-0000-7000-8000-000000000001" as LookupColumnId;
 
-function dormantTableLookupDefault(): Extract<
+function savedTableLookupDefault(): Extract<
 	ValueExpression,
 	{ kind: "table-lookup" }
 > {
 	return {
 		kind: "table-lookup",
-		tableId: DORMANT_LOOKUP_TABLE_ID,
-		resultColumnId: DORMANT_LOOKUP_COLUMN_ID,
+		tableId: PLACEHOLDER_LOOKUP_TABLE_ID,
+		resultColumnId: PLACEHOLDER_LOOKUP_COLUMN_ID,
 		where: and(),
 	};
 }
 
-function DormantTableLookupCard() {
+function SavedTableLookupCard() {
 	return createElement(
 		"div",
 		{
@@ -533,15 +540,15 @@ export const expressionCardSchemas: {
 		},
 	},
 
-	// ── Dormant compatibility carrier ────────────────────────────────
+	// ── Readable canonical value; authored through SA/MCP for now ────
 	"table-lookup": {
 		kind: "table-lookup",
 		authoring: "roundTripOnly",
-		label: "Unavailable saved value",
+		label: "Saved table lookup",
 		icon: tablerListSearch,
-		description: "A saved value this editor cannot open yet",
-		component: DormantTableLookupCard,
-		defaultValue: dormantTableLookupDefault,
+		description: "A table lookup preserved by this editor",
+		component: SavedTableLookupCard,
+		defaultValue: savedTableLookupDefault,
 		applicable: () => false,
 	},
 

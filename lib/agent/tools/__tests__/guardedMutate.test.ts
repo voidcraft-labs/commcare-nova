@@ -115,6 +115,18 @@ function badRelevantMutation(doc: BlueprintDoc): Mutation[] {
 	];
 }
 
+function villageAddress(doc: BlueprintDoc) {
+	const moduleUuid = doc.moduleOrder[0];
+	const formUuid = doc.formOrder[moduleUuid]?.[0];
+	const fieldUuid = Object.values(doc.fields).find(
+		(field) => field.id === "village",
+	)?.uuid;
+	if (!moduleUuid || !formUuid || !fieldUuid) {
+		throw new Error("village fixture address is incomplete");
+	}
+	return { moduleUuid, formUuid, fieldUuid };
+}
+
 describe("guardedMutate", () => {
 	it("persists a passing batch once, with the post-batch doc and stage tag", async () => {
 		const doc = minDoc();
@@ -197,9 +209,7 @@ describe("tool-level gating (editField through the shared layer)", () => {
 
 		const out = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "village",
+				...villageAddress(doc),
 				updates: { kind: "text", relevant: "if(" } as never,
 			},
 			ctx,
@@ -226,9 +236,7 @@ describe("tool-level gating (editField through the shared layer)", () => {
 
 		const out = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "village",
+				...villageAddress(doc),
 				updates: {
 					kind: "text",
 					id: "village_name",
@@ -259,9 +267,7 @@ describe("tool-level gating (editField through the shared layer)", () => {
 
 		const out = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "village",
+				...villageAddress(doc),
 				updates: {
 					kind: "text",
 					id: "village_name",
@@ -279,7 +285,10 @@ describe("tool-level gating (editField through the shared layer)", () => {
 		const stages = recordMutationStages.mock.calls[0]?.[0] as Array<{
 			stage?: string;
 		}>;
-		expect(stages.map((s) => s.stage)).toEqual(["rename:0-0", "edit:0-0"]);
+		expect(stages.map((s) => s.stage)).toEqual([
+			"rename:frm-0033",
+			"edit:frm-0033",
+		]);
 	});
 
 	it("commits a clean edit unchanged (the gate is transparent on pass)", async () => {
@@ -288,9 +297,7 @@ describe("tool-level gating (editField through the shared layer)", () => {
 
 		const out = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "village",
+				...villageAddress(doc),
 				updates: { kind: "text", label: "Home village" } as never,
 			},
 			ctx,

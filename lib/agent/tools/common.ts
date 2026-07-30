@@ -18,7 +18,12 @@ import {
 	describeIntroducedErrors,
 	mutationCommitVerdict,
 } from "@/lib/doc/commitVerdicts";
-import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import {
+	extractLookupReferenceTargets,
+	LOOKUP_CONTEXT_UNAVAILABLE,
+	type LookupValidationContext,
+	unionLookupReferenceTargetSets,
+} from "@/lib/doc/lookupReferences";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
@@ -59,6 +64,26 @@ export type GuardedMutateOutcome =
 	| { ok: true; newDoc: BlueprintDoc }
 	| { ok: false; error: string };
 
+async function lookupContextForCandidate(
+	ctx: ToolExecutionContext,
+	prevDoc: BlueprintDoc,
+	nextDoc: BlueprintDoc,
+): Promise<LookupValidationContext> {
+	const targets = unionLookupReferenceTargetSets(
+		extractLookupReferenceTargets(prevDoc),
+		extractLookupReferenceTargets(nextDoc),
+	);
+	if (targets.tableIds.length === 0) return LOOKUP_CONTEXT_UNAVAILABLE;
+	if (ctx.lookupDefinitions === undefined) return LOOKUP_CONTEXT_UNAVAILABLE;
+	const snapshot = await ctx.lookupDefinitions(targets.tableIds);
+	return {
+		kind: "available",
+		projectId: snapshot.projectId,
+		projectRevision: snapshot.projectRevision,
+		definitions: snapshot.definitions,
+	};
+}
+
 /**
  * The one write path for every mutating shared tool: gate the batch
  * through the validity verdict, then persist via `ctx.recordMutations`.
@@ -88,14 +113,13 @@ export async function guardedMutate(
 	stage?: string,
 	mediaExpectations?: readonly MediaAttachExpectation[],
 ): Promise<GuardedMutateOutcome> {
-	// S02b has no constructible lookup carriers. Keep this advisory tool-layer
-	// verdict explicit about lacking a definition snapshot; the authoritative
-	// writer always reloads fresh Project definitions before it commits.
-	const verdict = mutationCommitVerdict(
+	const candidate = applyToDoc(prevDoc, mutations);
+	const lookupContext = await lookupContextForCandidate(
+		ctx,
 		prevDoc,
-		mutations,
-		LOOKUP_CONTEXT_UNAVAILABLE,
+		candidate,
 	);
+	const verdict = mutationCommitVerdict(prevDoc, mutations, lookupContext);
 	if (!verdict.ok) {
 		return { ok: false, error: describeIntroducedErrors(verdict.introduced) };
 	}
@@ -141,11 +165,13 @@ export async function guardedMutateStages(
 	stages: StagedMutationBatch[],
 ): Promise<GuardedMutateOutcome> {
 	const all = stages.flatMap((s) => s.mutations);
-	const verdict = mutationCommitVerdict(
+	const candidate = applyToDoc(prevDoc, all);
+	const lookupContext = await lookupContextForCandidate(
+		ctx,
 		prevDoc,
-		all,
-		LOOKUP_CONTEXT_UNAVAILABLE,
+		candidate,
 	);
+	const verdict = mutationCommitVerdict(prevDoc, all, lookupContext);
 	if (!verdict.ok) {
 		return { ok: false, error: describeIntroducedErrors(verdict.introduced) };
 	}

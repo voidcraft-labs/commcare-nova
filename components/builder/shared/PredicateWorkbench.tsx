@@ -33,7 +33,7 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
 import { caseSearchPredicateEditVerdict } from "@/lib/doc/hooks/predicateVerdicts";
-import type { CaseType, UserProperty } from "@/lib/domain";
+import { asUuid, type CaseType, type UserProperty } from "@/lib/domain";
 import {
 	checkPredicate,
 	exists,
@@ -61,9 +61,14 @@ import {
 	type PredicateEditContext,
 	predicateCardSchemas,
 	predicateUnavailableReason,
+	tableRowInScope,
 } from "./editorSchemas";
 import type { OperationValueScope } from "./expressionEditorSchemas";
 import type { EditorFormFieldDecl } from "./formFieldPresentation";
+import type {
+	EditorLookupTableDecl,
+	EditorLookupTableScope,
+} from "./lookupTablePresentation";
 import {
 	appendKindIndex,
 	appendKindSlot,
@@ -297,12 +302,16 @@ export function AddConditionMenu({
 						<Icon icon={comparisonSchema.icon} />
 						<span className="min-w-0">
 							<span className="block text-sm font-medium">
-								Compare case information
+								{tableRowInScope(ctx)
+									? "Compare a data-table column"
+									: "Compare case information"}
 							</span>
 							<span className="block text-[13px] text-nova-text-muted">
 								{comparisonApplicable
 									? "Choose what to compare, how it should match, and the value"
-									: "Add case information before comparing it"}
+									: tableRowInScope(ctx)
+										? "Add a column to this data table before comparing it"
+										: "Add case information before comparing it"}
 							</span>
 						</span>
 					</DropdownMenuItem>
@@ -350,6 +359,10 @@ export interface PredicateWorkbenchProps {
 	/** Form answers this rule may read — already narrowed by the owning
 	 *  surface to the ones its slot admits. */
 	readonly formFields?: readonly EditorFormFieldDecl[];
+	/** Rows-free Project data definitions for lookup identity/type resolution. */
+	readonly lookupTables?: readonly EditorLookupTableDecl[];
+	/** The one lookup row direct column terms may read. */
+	readonly tableScope?: EditorLookupTableScope;
 	/** Present only inside a case operation, where the submission's own
 	 *  vocabulary is available. */
 	readonly operationScope?: OperationValueScope;
@@ -389,6 +402,8 @@ export function PredicateWorkbench({
 	knownInputs = [],
 	userProperties,
 	formFields,
+	lookupTables,
+	tableScope,
 	operationScope,
 	evaluationTarget = "on-device",
 	caseDataScope = "per-case",
@@ -429,6 +444,8 @@ export function PredicateWorkbench({
 				currentCaseType,
 				userProperties,
 				formFields,
+				lookupTables,
+				tableScope,
 				operationScope,
 			}),
 		[
@@ -437,6 +454,8 @@ export function PredicateWorkbench({
 			knownInputs,
 			userProperties,
 			formFields,
+			lookupTables,
+			tableScope,
 			operationScope,
 		],
 	);
@@ -460,6 +479,8 @@ export function PredicateWorkbench({
 			currentCaseType: focusedCaseType,
 			knownInputs,
 			formFields,
+			lookupTables,
+			tableScope,
 			operationScope,
 			caseDataScope,
 			allowsNeverMatch,
@@ -471,6 +492,8 @@ export function PredicateWorkbench({
 			focusedCaseType,
 			knownInputs,
 			formFields,
+			lookupTables,
+			tableScope,
 			operationScope,
 			caseDataScope,
 			allowsNeverMatch,
@@ -631,6 +654,8 @@ export function PredicateWorkbench({
 			knownInputs={knownInputs}
 			userProperties={userProperties}
 			formFields={formFields}
+			lookupTables={lookupTables}
+			tableScope={tableScope}
 			operationScope={operationScope}
 			caseDataScope={caseDataScope}
 			allowsNeverMatch={allowsNeverMatch}
@@ -984,9 +1009,15 @@ function FocusedStructureBody({
 							Search answer
 						</p>
 						<SearchInputMenu
-							value={value.input.name || undefined}
-							onChange={(name) =>
-								onChange({ ...value, input: { kind: "input", name } })
+							value={value.input.searchInputUuid || undefined}
+							onChange={(searchInputUuid) =>
+								onChange({
+									...value,
+									input: {
+										kind: "input",
+										searchInputUuid: asUuid(searchInputUuid),
+									},
+								})
 							}
 							invalid={false}
 						/>
@@ -1629,8 +1660,8 @@ function workbenchBreadcrumb(
 		case "not":
 			return "Exclude cases when";
 		case "when-input-present":
-			return value.input.name
-				? `When ${searchInputDisplayLabel(value.input.name, knownInputs)} is answered`
+			return value.input.searchInputUuid
+				? `When ${searchInputDisplayLabel(value.input.searchInputUuid, knownInputs)} is answered`
 				: "After a search answer";
 		case "exists":
 			return "Related case";
@@ -1655,8 +1686,8 @@ function structuralActionContext(
 			case "not":
 				return "condition that excludes cases";
 			case "when-input-present":
-				return value.input.name
-					? `condition after ${searchInputDisplayLabel(value.input.name, knownInputs)} is answered`
+				return value.input.searchInputUuid
+					? `condition after ${searchInputDisplayLabel(value.input.searchInputUuid, knownInputs)} is answered`
 					: "condition after a search answer";
 			case "exists":
 				return "related case condition";
@@ -1682,8 +1713,8 @@ function structureLabel(
 		case "not":
 			return "Exclude cases when";
 		case "when-input-present":
-			return value.input.name
-				? `When ${searchInputDisplayLabel(value.input.name, knownInputs)} is answered`
+			return value.input.searchInputUuid
+				? `When ${searchInputDisplayLabel(value.input.searchInputUuid, knownInputs)} is answered`
 				: "When a search field is answered";
 		case "exists":
 			return "Has a related case";

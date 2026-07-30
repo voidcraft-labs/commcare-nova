@@ -2864,39 +2864,68 @@ test.describe("authenticated builder", () => {
 			name: "Where the choices come from",
 		});
 		await expect(source).toBeVisible({ timeout: 20_000 });
-		// It starts on the field's own typed-in options.
-		await expect(source).toHaveText("The options typed in here");
+		// It starts on the field's one committed inline source.
+		await expect(source).toHaveText("Options in this question");
 
 		await source.click();
 		await page
 			.getByRole("option", { name: CASE_WORKSPACE_SEED.lookupTableName })
 			.click();
 
-		/* The bind is what the picker could not do before: the two column
-		 * pickers appearing IS the proof, because they render only once the
-		 * source holds a real table plus both of its columns. */
-		await expect(
-			page.getByRole("combobox", { name: "Value that gets saved" }),
-		).toBeVisible({ timeout: 20_000 });
-		await expect(
-			page.getByRole("combobox", { name: "Value people see" }),
-		).toBeVisible();
+		/* Choosing a table starts a local draft. Nova does not auto-bind either
+		 * column and does not replace the committed inline source until the
+		 * author completes and confirms the whole lookup source. */
+		const savedValue = page.getByRole("combobox", {
+			name: "Value that gets saved",
+		});
+		const shownValue = page.getByRole("combobox", {
+			name: "Value people see",
+		});
+		await expect(savedValue).toBeVisible({ timeout: 20_000 });
+		await expect(shownValue).toBeVisible();
 		await expect(source).toHaveText(CASE_WORKSPACE_SEED.lookupTableName);
-		await expect(
-			page.getByRole("combobox", { name: "Value that gets saved" }),
-		).toHaveText(CASE_WORKSPACE_SEED.lookupValueColumnLabel);
-		await expect(
-			page.getByRole("combobox", { name: "Value people see" }),
-		).toHaveText(CASE_WORKSPACE_SEED.lookupValueColumnLabel);
+		await expect(savedValue).toHaveText("Choose a column");
+		await expect(shownValue).toHaveText("Choose a column");
+		const useTable = page.getByRole("button", { name: "Use this table" });
+		await expect(useTable).toBeDisabled();
 
-		// 5. And back again — the typed-in options were kept, not replaced.
+		await savedValue.click();
+		await page
+			.getByRole("option", {
+				name: CASE_WORKSPACE_SEED.lookupValueColumnLabel,
+			})
+			.click();
+		await shownValue.click();
+		await page
+			.getByRole("option", {
+				name: CASE_WORKSPACE_SEED.lookupLabelColumnLabel,
+			})
+			.click();
+		await expect(savedValue).toHaveText(
+			CASE_WORKSPACE_SEED.lookupValueColumnLabel,
+		);
+		await expect(shownValue).toHaveText(
+			CASE_WORKSPACE_SEED.lookupLabelColumnLabel,
+		);
+		await expect(useTable).toBeEnabled();
+		await useTable.click();
+		await expect(useTable).toBeHidden({ timeout: 20_000 });
+		await expect(source).toHaveText(CASE_WORKSPACE_SEED.lookupTableName);
+
+		// 5. Switching back stages a fresh, complete inline source too. There is
+		// no dormant lookup receiver and no retained inline fallback.
 		await source.click();
 		await page
-			.getByRole("option", { name: "The options typed in here" })
+			.getByRole("option", { name: "Options in this question" })
 			.click();
-		await expect(source).toHaveText("The options typed in here", {
-			timeout: 20_000,
+		const useInline = page.getByRole("button", {
+			name: "Use these options",
 		});
+		await expect(useInline).toBeVisible();
+		await expect(source).toHaveText("Options in this question");
+		await expect(useInline).toBeEnabled();
+		await useInline.click();
+		await expect(useInline).toBeHidden({ timeout: 20_000 });
 		await expect(
 			page.getByRole("combobox", { name: "Value that gets saved" }),
 		).toBeHidden();

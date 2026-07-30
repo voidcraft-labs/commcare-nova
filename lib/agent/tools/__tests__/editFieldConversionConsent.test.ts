@@ -83,6 +83,14 @@ function soleField(doc: BlueprintDoc, id: string) {
 	return field;
 }
 
+function fieldAddress(doc: BlueprintDoc, id: string) {
+	const moduleUuid = doc.moduleOrder[0];
+	const formUuid = doc.formOrder[moduleUuid]?.[0];
+	if (!moduleUuid || !formUuid)
+		throw new Error("fixture address is incomplete");
+	return { moduleUuid, formUuid, fieldUuid: soleField(doc, id).uuid };
+}
+
 beforeEach(() => {
 	vi.clearAllMocks();
 });
@@ -102,9 +110,7 @@ describe("editField — conversion consent", () => {
 		);
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "score",
+				...fieldAddress(doc, "score"),
 				updates: { kind: "int" },
 			},
 			ctx,
@@ -154,9 +160,7 @@ describe("editField — conversion consent", () => {
 		);
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "score",
+				...fieldAddress(doc, "score"),
 				updates: { kind: "int" },
 				confirmConversion: true,
 			},
@@ -178,9 +182,7 @@ describe("editField — conversion consent", () => {
 			makeStubToolContext();
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "score",
+				...fieldAddress(doc, "score"),
 				updates: { kind: "int" },
 			},
 			ctx,
@@ -205,9 +207,7 @@ describe("editField — conversion consent", () => {
 		// date → datetime extends to midnight — total, no consent.
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "visit_on",
+				...fieldAddress(doc, "visit_on"),
 				updates: { kind: "datetime" },
 			},
 			ctx,
@@ -237,9 +237,7 @@ describe("editField — conversion consent", () => {
 		const { ctx, conversionImpact } = makeStubToolContext();
 		const result = await editFieldTool.execute(
 			{
-				moduleIndex: 0,
-				formIndex: 0,
-				fieldId: "score",
+				...fieldAddress(doc, "score"),
 				updates: { kind: "int" },
 			},
 			ctx,

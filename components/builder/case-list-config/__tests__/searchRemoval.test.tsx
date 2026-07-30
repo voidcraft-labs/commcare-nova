@@ -439,10 +439,10 @@ function makeModule(
 	};
 }
 
-function inputDrivenCondition(name: string): Predicate {
+function inputDrivenCondition(searchInputUuid: typeof FIRST_UUID): Predicate {
 	return whenInput(
-		inputRef(name),
-		eq(prop("client", "case_name"), inputRef(name)),
+		inputRef(searchInputUuid),
+		eq(prop("client", "case_name"), inputRef(searchInputUuid)),
 	);
 }
 
@@ -703,9 +703,9 @@ describe("Search field removal", () => {
 			"external_id",
 			"External ID",
 			"text",
-			inputDrivenCondition("case_name"),
+			inputDrivenCondition(FIRST_UUID),
 		);
-		const filter = inputDrivenCondition("case_name");
+		const filter = inputDrivenCondition(FIRST_UUID);
 		const doc = buildDoc({
 			appName: "Search removal",
 			caseTypes: CASE_TYPES,
@@ -808,12 +808,12 @@ describe("Search field removal", () => {
 			"external_id",
 			"External ID",
 			"text",
-			inputDrivenCondition("case_name"),
+			inputDrivenCondition(FIRST_UUID),
 		);
 		const module = makeModule(
 			[first, second],
 			{},
-			inputDrivenCondition("case_name"),
+			inputDrivenCondition(FIRST_UUID),
 		);
 		testState.module = module;
 		const { rerender } = render(
@@ -848,7 +848,7 @@ describe("Search field removal", () => {
 
 		module.caseListConfig.filter = eq(
 			prop("client", "case_name"),
-			inputRef("case_name"),
+			inputRef(FIRST_UUID),
 		);
 		fireEvent.click(
 			screen.getByRole("button", { name: "Return to field review" }),
@@ -1072,13 +1072,13 @@ describe("Search field removal", () => {
 			"external_id",
 			"External ID",
 			"text",
-			inputDrivenCondition("case_name"),
+			inputDrivenCondition(FIRST_UUID),
 		);
 		const base = workspaceDoc({
 			searchInputs: [first, second],
-			filter: inputDrivenCondition("case_name"),
+			filter: inputDrivenCondition(FIRST_UUID),
 			caseSearchConfig: {
-				excludedOwnerIds: term(inputRef("case_name")),
+				excludedOwnerIds: term(inputRef(FIRST_UUID)),
 			},
 		});
 		testState.module = base.modules[MODULE_UUID];
@@ -1128,7 +1128,7 @@ describe("Search field removal", () => {
 		expect(
 			predicateReferencesSearchInput(
 				replayedConfig?.filter ?? matchNone(),
-				"case_name_renamed",
+				FIRST_UUID,
 			),
 		).toBe(true);
 		const sibling = replayedConfig?.searchInputs.find(
@@ -1136,11 +1136,11 @@ describe("Search field removal", () => {
 		);
 		expect(
 			sibling?.kind === "advanced" &&
-				predicateReferencesSearchInput(sibling.predicate, "case_name_renamed"),
+				predicateReferencesSearchInput(sibling.predicate, FIRST_UUID),
 		).toBe(true);
 		expect(replayedModule.caseSearchConfig?.excludedOwnerIds).toMatchObject({
 			kind: "term",
-			term: { kind: "input", name: "case_name_renamed" },
+			term: { kind: "input", searchInputUuid: FIRST_UUID },
 		});
 	});
 

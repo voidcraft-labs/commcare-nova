@@ -106,8 +106,21 @@ A single-select or multi-select question can take its choices from a data table
 instead of from a list you type out. Choose the table, the column whose value
 gets saved, and the column people read on screen.
 
-Switch the question back to a typed-in list and the options that were there
-before come back.
+Choose **Add row rule** when the question should offer only matching rows. For
+example, compare the table's District column with the district selected on an
+earlier question, so the next question offers only facilities in that district.
+The condition editor knows it is checking one row of this table: it offers that
+table's columns, fixed values, worker information, and eligible earlier form
+answers. It does not offer case data, Search answers, later questions, or an
+answer from a child or sibling repeating section.
+
+When the earlier answer changes in Preview, the available choices update
+immediately. A selected value that the new row rule no longer offers is cleared,
+so the form cannot submit an answer hidden by its current filter.
+
+Switching between a table and a typed-in list replaces the question's complete
+choice source. Nova opens the new source for editing and saves the switch only
+after that source is complete; cancelling leaves the current source unchanged.
 
 ## Changes that other apps can block
 

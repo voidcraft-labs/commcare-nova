@@ -1949,7 +1949,7 @@ export class FormEngine {
 					if (
 						f !== undefined &&
 						(f.kind === "single_select" || f.kind === "multi_select") &&
-						f.optionsSource !== undefined
+						f.optionsSource.kind === "lookup"
 					) {
 						const next = this.computeLookupChoices(f.optionsSource, ctx);
 						/* `undefined` is the typed loading state: no snapshot captured
@@ -2288,7 +2288,7 @@ export class FormEngine {
 				const f = node.field;
 				if (
 					(f.kind === "single_select" || f.kind === "multi_select") &&
-					f.optionsSource !== undefined
+					f.optionsSource.kind === "lookup"
 				) {
 					found = true;
 					return;
@@ -2319,7 +2319,7 @@ export class FormEngine {
 				const f = node.field;
 				if (
 					(f.kind === "single_select" || f.kind === "multi_select") &&
-					f.optionsSource !== undefined &&
+					f.optionsSource.kind === "lookup" &&
 					!lookupOptionsSourceCovered(
 						f.optionsSource,
 						this.lookupData ?? undefined,

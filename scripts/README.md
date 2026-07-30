@@ -81,3 +81,31 @@ Every LLM call logs token counts and a cost estimate to stderr. Each phase that 
 - **AI SDK v5+ usage.** Token counts are `inputTokens` / `outputTokens`, not `promptTokens` / `completionTokens`.
 - **Sonnet 200K context limit.** Large clusters get batched into chunks of ~140K input tokens. Keeping clustering granular (20–30 clusters) keeps most clusters under the limit in one shot.
 - **Tag-based clustering.** The LLM clusters *tags*, not pages. Page-to-cluster assignment is deterministic tag-overlap counting — this is what prevents the LLM from hallucinating page IDs.
+
+## Search-input UUID migration
+
+`SearchInputRef` leaves store a Search input's immutable UUID. The final
+Blueprint schema intentionally has no parser for the former mutable-name shape,
+so use the raw scanner and writer when deploying that cutover:
+
+```bash
+# Read-only inventory. `--prod` uses the read-only gcloud IAM connection.
+npx tsx scripts/scan-search-input-identity.ts
+npx tsx scripts/scan-search-input-identity.ts --prod
+
+# The writer is a dry run unless --execute is present. It writes only through
+# NOVA_DB_LOCAL_URL or the Cloud SQL connector environment; there is no
+# convenience --prod writer flag.
+npx tsx scripts/migrate-search-input-identity.ts
+npx tsx scripts/migrate-search-input-identity.ts --execute
+
+# Required postcondition in the same target environment.
+npx tsx scripts/scan-search-input-identity.ts
+```
+
+Use `--app <appId>` to constrain either command. The writer locks each app,
+refuses an unresolved or ambiguous name, refuses legacy references in permanent
+mutation history, records deterministic canonical mutations, and advances the
+app stream as a migration so open clients reload. The production sequence is:
+read-only scan, dry run in the write-capable deployment environment, reviewed
+`--execute`, then the read-only scan again with zero references.

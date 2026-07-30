@@ -244,14 +244,18 @@ export function buildField(
 		// Per-option media is layered onto each option below.
 		const options = spec.options.map((opt, idx) => {
 			const optMedia = buildMediaSlot(ctx.minter, spec.optionMedia?.[idx]);
-			return optMedia ? { ...opt, media: optMedia } : opt;
+			return {
+				...opt,
+				uuid: ctx.minter.uuid("opt"),
+				...(optMedia ? { media: optMedia } : {}),
+			};
 		});
 		ctx.fields[uuid] = {
 			uuid,
 			kind,
 			id,
 			label: spec.label,
-			options,
+			optionsSource: { kind: "inline", options },
 			// Selects are validatable kinds; a type-matched `'a'` default exercises
 			// the setvalue path for the select shape too.
 			...(spec.wantsDefault
